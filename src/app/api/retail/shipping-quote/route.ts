@@ -6,6 +6,7 @@ import { quoteExpiry, signQuote, signRateFacts } from '@/lib/shipping-quote';
 import { orderPromise, publicSchedule, type PromiseLine } from '@/lib/ship-promise';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { asSold, choiceSale } from '@/lib/variants';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/shipping-quote ───────────────────────────────────────────────
 // POST { tenantId, items:[{productId, qty}], address:{line1,line2,city,state,postalCode} }
@@ -62,7 +63,8 @@ export async function POST(req: NextRequest) {
     if (!tenantSnap.exists) return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
 
     const tenant = tenantSnap.data() as any;
-    const rs = tenant.retailSettings || {};
+    const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+    if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
     const apiKey = await shippoKeyFor(db, tenantId, tenant);
     const from = rs.shipFrom || {};
 

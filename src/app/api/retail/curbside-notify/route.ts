@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { staffOrServer } from '@/lib/route-guard';
 import { sendTenantSms } from '@/lib/sms';
+import { tenantPrivate, withPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/curbside-notify ─────────────────────────────────────────────
 // The message that reaches a phone in a pocket.
@@ -84,6 +85,9 @@ export async function POST(req: NextRequest) {
     // Claim the send inside a transaction, then text after it commits: a crash
     // loses one message rather than sending two.
     const stamp = new Date().toISOString();
+    // The shop's alert number is private (lib/tenant-private): read once, before the transaction (which may run again).
+    let alertTo = '';
+    if (moment === 'staff_escalation') { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const td: any = tSnap.exists ? tSnap.data() : {}; alertTo = ESCALATE_TO(withPrivate(td, await tenantPrivate(db, tenantId, td))); }
     const claimed = await db.runTransaction(async (txn: any) => {
       const snap = await txn.get(orderRef);
       if (!snap.exists) return null;
@@ -99,8 +103,7 @@ export async function POST(req: NextRequest) {
       // The escalation goes to the SHOP, not the customer.
       let phone = String(o.customerPhone || '').trim();
       if (moment === 'staff_escalation') {
-        const tSnap = await txn.get(db.doc(`tenants/${tenantId}`));
-        phone = ESCALATE_TO(tSnap.exists ? tSnap.data() : {});
+        phone = alertTo;
         if (!phone) return null;
       }
       if (!phone) return null;

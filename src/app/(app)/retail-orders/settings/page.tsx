@@ -3,6 +3,7 @@
 import { SlipSettingsCard } from '@/components/settings/SlipSettingsCard';
 import { LABEL_FORMAT_CHOICES, labelFormatOf } from '@/lib/label-format';
 import { RetailSecretField } from '@/components/settings/RetailSecretField';
+import { usePrivateSettings } from '@/lib/tenant-private-client';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap } from 'lucide-react';
@@ -121,6 +122,8 @@ export default function RetailSettingsPage() {
   const [rs, setRs] = useState<RetailSettings>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The curbside alert number and the ship-from address are private (lib/tenant-private): read and saved on their own.
+  const priv = usePrivateSettings(tenantId);
   const [openGroup, setOpenGroup] = useState<string | null>('open');
   const [newSpot, setNewSpot] = useState('');
 
@@ -128,7 +131,8 @@ export default function RetailSettingsPage() {
 
   useEffect(() => {
     if (loaded) return;
-    const existing = (tenant?.retailSettings || {}) as RetailSettings;
+    if (tenant && !priv.values && !priv.error) return;   // wait for the private details, so they show and compare right
+    const existing = { ...((tenant?.retailSettings || {}) as RetailSettings), ...(priv.values ? { curbsideAlertPhone: priv.values.curbsideAlertPhone, shipFrom: priv.values.shipFrom } : {}) } as RetailSettings;
     setRs({
       shipProcessingHours: Number(existing.shipProcessingHours) || 24,
       slaWarnMinutes: Number(existing.slaWarnMinutes) || 15,
@@ -188,7 +192,7 @@ export default function RetailSettingsPage() {
       ...(typeof existing.labelOrderRef === 'boolean' ? { labelOrderRef: existing.labelOrderRef } : {}),
     });
     if (tenant) setLoaded(true);
-  }, [tenant, loaded]);
+  }, [tenant, loaded, priv.values, priv.error]);
 
   // A product that comes in variants is one listing here, as in the shop: its variants are sold inside it (lib/variants).
   const listings = useMemo(() => listingsOf(inventory || []), [inventory]);
@@ -284,9 +288,15 @@ export default function RetailSettingsPage() {
       const next = normalise(rs);
       const before = baseline.current || {};
       const patch: Record<string, any> = {};
-      for (const k of Object.keys(next)) if (JSON.stringify(next[k]) !== JSON.stringify(before[k])) patch[`retailSettings.${k}`] = next[k] === undefined ? null : next[k];
-      if (Object.keys(patch).length === 0) { toast({ title: 'Nothing changed' }); return; }
-      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), patch);
+      const privatePatch: Record<string, any> = {};
+      for (const k of Object.keys(next)) {
+        if (JSON.stringify(next[k]) === JSON.stringify(before[k])) continue;
+        if (k === 'curbsideAlertPhone' || k === 'shipFrom') privatePatch[k] = k === 'shipFrom' ? (next[k] || {}) : String(next[k] || '');
+        else patch[`retailSettings.${k}`] = next[k] === undefined ? null : next[k];
+      }
+      if (Object.keys(patch).length === 0 && Object.keys(privatePatch).length === 0) { toast({ title: 'Nothing changed' }); return; }
+      if (Object.keys(privatePatch).length && !(await priv.save(privatePatch))) throw new Error('The ship-from address and alert number didn’t save. Please try again.');
+      if (Object.keys(patch).length) await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), patch);
       baseline.current = next;
 
       toast({ title: 'Shop settings saved', description: 'The storefront and checkout use these immediately.' });

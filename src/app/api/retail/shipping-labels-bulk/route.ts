@@ -15,6 +15,7 @@ import { boxesFrom, buyBoxes, isBoxRates, rateBoxes, rateIdsOf } from '@/lib/box
 import {
   insurableValueCents, insuredParcels, protectionFor, protectionPolicy,
 } from '@/lib/shipment-protection';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/shipping-labels-bulk ─────────────────────────────────────────
 // POST { tenantId, orders: [{ orderId, qrToken }], preview? }
@@ -96,7 +97,8 @@ export async function POST(req: NextRequest) {
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
   if (!tenantSnap.exists) return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
   const tenant = tenantSnap.data() as any;
-  const rs = tenant.retailSettings || {};
+  const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+  if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   const apiKey = await shippoKeyFor(db, tenantId, tenant);
   if (!apiKey) return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
   const from = rs.shipFrom || {};

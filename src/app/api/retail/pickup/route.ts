@@ -24,6 +24,7 @@ import { liveSlots } from '@/lib/label-boxes';
 import { scheduleFrom } from '@/lib/ship-promise';
 import { dayKey, hasTimeZone, tenantTimeZone, wallToUtc } from '@/lib/tenant-time';
 import { pickupDay, regularPickup, uspsPickupAllowed } from '@/lib/ship-run';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -69,7 +70,8 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const tSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant: any = tSnap.exists ? tSnap.data() : {};
-  const rs = tenant.retailSettings || {};
+  const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+  if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   const tz = tenantTimeZone(tenant);
   const zone = hasTimeZone(tenant);
   const schedule = scheduleFrom(rs);

@@ -15,6 +15,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
+import { tenantPrivate } from '@/lib/tenant-private';
 import { platformAdminCheck } from '@/lib/platform-admin';
 import { healthScore, setupScore } from '@/lib/hq-health';
 import { signals, ownersLastSignIn } from '@/lib/hq-signals';
@@ -94,8 +96,8 @@ export async function POST(req: NextRequest) {
     const id = String(b.id || ''); const key = String(b.addon || '');
     if (!id || !['assistant'].includes(key)) return NextResponse.json({ ok: false, error: 'Missing business or add-on.' }, { status: 400 });
     const on = b.on === true; const at = new Date().toISOString();
-    await db.doc(`tenants/${id}`).set({ addons: { [key]: on ? { active: true, since: at, grantedBy: admin.email || 'HQ' } : { active: false, endedAt: at } } }, { merge: true });
-    await audit(db, admin.email || 'HQ', id, 'addon', `${on ? 'Turned on' : 'Turned off'} the ${key} add-on`);
+    await db.doc(`tenants/${id}`).set({ addons: { [key]: on ? { active: true, since: at } : { active: false, endedAt: at } } }, { merge: true });
+    await audit(db, admin.email || 'HQ', id, 'addon', `${on ? 'Turned on' : 'Turned off'} the ${key} add-on`);   // who did it lives in HQ's log, not on the public business record
     return NextResponse.json({ ok: true, addons: { [key]: on } });
   }
   if (b.action === 'health-check') {   // HQ "Run account check" for one business
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
       hqActions: hqAudit.sort((a: any, c: any) => String(c.at).localeCompare(String(a.at))).slice(0, 15),
       tenant: {
       id, name: t.name, businessType: t.businessType || t.category || 'other', status: t.subscriptionStatus || 'inactive', createdAt: t.createdAt || null,
-      activatedAt: t.activatedAt || null, inviteCode: t.inviteCode || null, teamSize: t.teamSize || null, tools: fromTenantModules(t.modules),
+      activatedAt: t.activatedAt || null, inviteCode: (await tenantPrivate(db, id, t).catch(() => null))?.inviteCode || null, teamSize: t.teamSize || null, tools: fromTenantModules(t.modules),
       owner: { email: o.email, lastSignIn: o.lastSignIn, uid: t.userId || null }, bookingUrl: `/book/${id}`,
       addons: { assistant: t.addons?.assistant === true || t.addons?.assistant?.active === true },
     }, signals: s, setup: setupScore(s), health: healthScore(s), timeline, tickets });
@@ -192,7 +194,8 @@ ClarityFlow` }) }).catch(() => null);
       return NextResponse.json({ ok: true, link, message: emailed ? `Reset link emailed to ${email}.` : 'Reset link created and copied.' });
     }
     if (fix === 'suspend' || fix === 'restore') {
-      await tRef.set({ accessLocked: fix === 'suspend', accessLockedAt: fix === 'suspend' ? at : null, accessLockedReason: fix === 'suspend' ? String(b.reason || '').slice(0, 200) || null : null }, { merge: true });
+      // The reason goes in HQ's log below, not on the business record (anyone with a booking link can read that).
+      await tRef.set({ accessLocked: fix === 'suspend', accessLockedAt: fix === 'suspend' ? at : null, accessLockedReason: FieldValue.delete() }, { merge: true });
       await audit(db, admin.email, tenantId, fix, fix === 'suspend' ? `Paused access${b.reason ? `: ${b.reason}` : ''}` : 'Restored access');
       return NextResponse.json({ ok: true, message: fix === 'suspend' ? 'Access paused. The business will see the suspended account page.' : 'Access restored.' });
     }

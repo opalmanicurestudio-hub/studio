@@ -15,6 +15,7 @@ import { boxesFrom, buyBoxes, isBoxRates, priceOf, rateBoxes, rateIdsOf } from '
 import {
   insurableValueCents, insuredParcels, protectionFor, protectionPolicy,
 } from '@/lib/shipment-protection';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/shipping-label/route.ts ──────────────────────────────────────
 // Shippo labels in the shape a human ships: see real rates, pick one, buy, and undo or replace one that hasn't
@@ -92,7 +93,8 @@ export async function POST(req: NextRequest) {
   }
 
   const tenant = tenantSnap.data() as any;
-  const rs = tenant.retailSettings || {};
+  const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+  if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   const order = orderSnap.data() as any;
   const orderCol = db.collection(`tenants/${tenantId}/retailOrders`);
   const orderRef = orderCol.doc(orderId);

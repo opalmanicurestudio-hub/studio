@@ -12,6 +12,7 @@
 //   viewed    { token }                                first open, for the timeline
 //   prefs     { token, confirmationChannel, reminderChannel, reminderHoursBefore }
 //   prefs_get { token }                                 what's set now (to show it)
+//   wifi      { token }                                 the guest Wi-Fi (private to the business, so only through a visit link)
 //   form      { token, formId, formData, signedName?, acknowledged?, guardian? }   one form, saved as they finish it
 //   health_same { token, formId }                       "nothing's changed" on health answers on file
 //   photos    { token, photos: [{ url, note }] }         new inspiration photos, when the team asked for different ones
@@ -89,6 +90,20 @@ export async function POST(req: NextRequest) {
     if (!show) { const { tellWaiting } = await import('@/lib/reviews-server'); const { reviewerName } = await import('@/lib/reviews'); await tellWaiting(db, tenantId, { kind: 'visit', rating, who: reviewerName(appt.clientName || cl.name, 'A client'), what: `their ${svc.name || appt.serviceName || 'visit'}`, auto: autoShows('visit', { showNotice: b.noticeShown === true }, tenant) }); }
     await logAuditAdmin(db, tenantId, { action: 'review.received', targetType: 'appointment', targetId: apptId, summary: `${rating}★ review from ${appt.clientName || 'a client'}`, actor: { type: 'user', name: appt.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });
+  }
+
+  // The guest Wi-Fi, for the person this visit link belongs to: kept off the public business record (lib/tenant-private).
+  if (action === 'wifi') {
+    const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
+    // Only on a link that's still theirs (not turned off by "Not you?", and confirmed when it has to be), and only while
+    // they're here: checked in or being looked after.
+    { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, x.tenantId, x.appt, str(b.device, 120));
+      if (open !== 'ok') return NextResponse.json({ ok: true, wifi: null }); }
+    const here = x.appt.checkInStatus === 'arrived' || ['checked_in', 'arrived', 'servicing'].includes(String(x.appt.status || ''));
+    if (!here) return NextResponse.json({ ok: true, wifi: null });
+    const { tenantPrivate } = await import('@/lib/tenant-private');
+    const p = await tenantPrivate(db, x.tenantId);
+    return NextResponse.json({ ok: true, wifi: p.wifiNetwork ? { network: p.wifiNetwork, password: p.wifiPassword || null } : null });
   }
 
   if (action === 'viewed') { // "client opened the link" — once, for the activity timeline

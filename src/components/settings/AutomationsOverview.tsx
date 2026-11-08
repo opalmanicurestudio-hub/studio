@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { deviceId } from '@/lib/device';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Toggle, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 
 const GROUPS = ['Clients', 'Visitors & renters', 'Students & applicants', 'You & your team'] as const;
@@ -27,7 +28,7 @@ type Row = { key: string; group: string; title: string; does: string; always?: s
   sent: number; failed: number; countable: boolean; channels: { kind: string; email?: boolean; sms?: boolean } | null; wordsHref?: string | null; timing?: any[]; values?: any; switchField?: string; details?: string | null; msgKinds?: string[] };
 
 export function AutomationsOverview({ tenantId, firestore }: { tenantId: string; firestore: Firestore | null }) {
-  const [d, setD] = useState<any>(null); const [q, setQ] = useState(''); const [only, setOnly] = useState<'all' | 'attention'>('all'); const [busy, setBusy] = useState('');
+  const [d, setD] = useState<any>(null); const [q, setQ] = useState(''); const [only, setOnly] = useState<'all' | 'attention'>('all'); const [busy, setBusy] = useState(''); const [saveErr, setSaveErr] = useState('');
   const refresh = useCallback(async () => { if (tenantId) setD(await load(tenantId)); }, [tenantId]);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -61,7 +62,19 @@ export function AutomationsOverview({ tenantId, firestore }: { tenantId: string;
   const shown = rows.filter((r) => (only === 'all' || ['needs_setup', 'failing'].includes(r.status)) && (!q || `${r.title} ${r.does}`.toLowerCase().includes(q.toLowerCase())));
   const attention = rows.filter((r) => ['needs_setup', 'failing'].includes(r.status)).length;
 
-  const write = async (key: string, patch: Record<string, any>) => { if (!firestore) return; setBusy(key); try { await updateDoc(doc(firestore, 'tenants', tenantId), patch); await refresh(); } finally { setBusy(''); } };
+  // The owner's mobile is a private detail (lib/tenant-private): it's saved there, never on the public business record.
+  const write = async (key: string, patch: Record<string, any>) => {
+    if (!firestore) return; setBusy(key);
+    try {
+      const { 'clientNotify.ownerPhone': ownerPhone, ...rest } = patch;
+      if (ownerPhone !== undefined) {
+        const d = await fetch('/api/tenant-private', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'set', values: { ownerPhone: String(ownerPhone || '') } }) }).then((r) => r.json()).catch(() => null);
+        setSaveErr(d?.ok ? '' : (d?.error || 'That number didn’t save. Please try again.'));
+      }
+      if (Object.keys(rest).length) await updateDoc(doc(firestore, 'tenants', tenantId), rest);
+      await refresh();
+    } finally { setBusy(''); }
+  };
   const flip = (r: Row, v: boolean) => {
     if (r.switchField) return write(r.key, { [r.switchField]: v });
     const k = r.msgKinds?.[0]; if (!k) return; return write(r.key, { [`messagePolicy.${k}.emailEnabled`]: v, [`messagePolicy.${k}.smsEnabled`]: v });
@@ -73,6 +86,7 @@ export function AutomationsOverview({ tenantId, firestore }: { tenantId: string;
   const late = (d.jobs || []).filter((j: any) => j.late);
   return (
     <div className="space-y-8">
+      {saveErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' }}>{saveErr}</p>}
       {(notReady.length > 0 || late.length > 0) && (
         <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'color-mix(in srgb, #b45309 10%, transparent)', color: 'var(--warn-ink)' }}>
           {[...notReady, ...late.map((j: any) => `${j.label} hasn’t run lately`)].join(' · ')} — some automations below can’t run until this is sorted.

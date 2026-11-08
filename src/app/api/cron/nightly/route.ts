@@ -154,6 +154,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Private details off the public business record ──────────────────────
+  // Personal details that once sat on the business record (the owner's mobile, the ship-from address, the guest Wi-Fi,
+  // the invite code, HQ's pause note) move to the business's private place (lib/tenant-private). The list is only a
+  // first look: each move reads the record fresh. Runs until none are left.
+  let privateMoved = 0;
+  {
+    const { movePrivateFields } = await import('@/lib/tenant-private');
+    const { stripPrivate } = await import('@/lib/tenant-private-fields');
+    const hasAddonGranter = (t: any) => Object.values(t?.addons || {}).some((a: any) => a && typeof a === 'object' && 'grantedBy' in a);
+    for (const tDoc of (await db.collection('tenants').get()).docs) {
+      const td: any = tDoc.data() || {};
+      if (JSON.stringify(stripPrivate(td)) === JSON.stringify(td) && !hasAddonGranter(td)) continue;
+      try { if (await movePrivateFields(db, tDoc.id)) privateMoved++; } catch (e) { console.error('[nightly] private fields', tDoc.id, e); }
+    }
+  }
+  results.privateMoved = privateMoved;
+
   // ── Renter client back-tag — one pass per tenant, then never again ───────
   // Before ownership existed, every client a renter brought in was written
   // into the studio's book. This hands them back: a client whose bookings

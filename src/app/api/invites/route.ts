@@ -65,7 +65,8 @@ export async function POST(req: NextRequest) {
       tx.set(ref, { uses, status: uses >= (Number(inv.maxUses) || 1) ? 'used' : 'active', usedAt: new Date().toISOString(), usedByTenantId: tenantId }, { merge: true });
       if (inv.leadId) tx.set(db.doc(`platformLeads/${inv.leadId}`), { status: 'onboarded', tenantId }, { merge: true });
     });
-    await db.doc(`tenants/${tenantId}`).set({ inviteCode: code }, { merge: true });
+    // Kept with the business's private details (lib/tenant-private), not on the public business record.
+    const { setTenantPrivate } = await import('@/lib/tenant-private'); await setTenantPrivate(db, tenantId, { inviteCode: code });
     return NextResponse.json({ ok: true });
   }
 

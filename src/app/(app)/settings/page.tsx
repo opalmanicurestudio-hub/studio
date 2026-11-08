@@ -9,6 +9,9 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
+import { GuestWifiRows } from '@/components/settings/GuestWifiRows';
+import { stripPrivate } from '@/lib/tenant-private-fields';
+import { usePrivateSettings } from '@/lib/tenant-private-client';
 import { BusinessShapeCard } from '@/components/settings/BusinessShapeCard';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { useLocation } from '@/context/LocationContext';
@@ -314,6 +317,9 @@ function SettingsPageImpl() {
   const [localInterval,       setLocalInterval]       = useState<number>(15);
   const [localKioskSchedule,  setLocalKioskSchedule]  = useState<any>(null);
   const tenantId = selectedTenant?.id;
+  // Opening Settings moves any private details still on the business record to their private place (lib/tenant-private),
+  // before an autosave of a settings group could leave an old copy behind.
+  usePrivateSettings(tenantId);
 
   useEffect(() => {
     if (selectedTenant) {
@@ -390,10 +396,17 @@ function SettingsPageImpl() {
   // ─── SAVE ─────────────────────────────────────────────────────────────────
   const handleSave = async (silent = false) => {
     if (!selectedTenant || !firestore) return;
-    const { bookingPageSettings: _pageBuilderOwned, ...cur } = tenantData as any;
-    const base: any = selectedTenant || {};
+    // Private details (lib/tenant-private) are saved on their own, never back onto the public business record.
+    const { bookingPageSettings: _pageBuilderOwned, ...cur } = stripPrivate(tenantData as any);
+    const base: any = stripPrivate((selectedTenant || {}) as any);
     const changed: any = {};
     for (const k of Object.keys(cur)) if (k !== 'id' && JSON.stringify(cur[k] ?? null) !== JSON.stringify(base[k] ?? null)) changed[k] = cur[k];
+    // These two hold private details elsewhere (lib/tenant-private): only the parts that changed are written, by path,
+    // so a save here can never wipe an old copy that hasn't moved yet.
+    for (const m of ['clientNotify', 'retailSettings']) if (changed[m] && typeof changed[m] === 'object') {
+      const a = cur[m] || {}, was = base[m] || {}; delete changed[m];
+      for (const k of new Set([...Object.keys(a), ...Object.keys(was)])) if (JSON.stringify(a[k] ?? null) !== JSON.stringify(was[k] ?? null)) changed[`${m}.${k}`] = a[k] === undefined ? deleteField() : a[k];
+    }
     if (dirty.current.kiosk || changed.kioskSettings) changed.kioskSettings = { ...(tenantData.kioskSettings || {}), kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null };
     const svcIds = Array.from(dirty.current.svc); const sched = dirty.current.sched && !!activeProfile && !!localSchedule;
     if (!Object.keys(changed).length && !svcIds.length && !sched) return;     // nothing new — nothing written
@@ -680,8 +693,7 @@ function SettingsPageImpl() {
 
             <TabsContent value="experience" className="mt-0 space-y-10 text-left">
               <Section title="Wi-Fi for guests" help="Shown to clients when they check in, so nobody has to ask.">
-                <Row label="Network name"><input className={cfInput} style={cfInputStyle} value={tenantData.wifiNetwork || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, wifiNetwork: e.target.value }))} placeholder="e.g. Opal Guest" autoComplete="off" /></Row>
-                <Row label="Password"><input className={cfInput} style={cfInputStyle} value={tenantData.wifiPassword || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, wifiPassword: e.target.value }))} placeholder="Leave empty if there isn’t one" autoComplete="off" /></Row>
+                {tenantId && <GuestWifiRows tenantId={tenantId} />}
               </Section>
               <Section title="Guest extras">
                 <Row label="Show the guest experience after check-in" help="Clients see the Wi-Fi and anything else you offer, on their phone." inline><Toggle checked={(tenantData as any).guestExperienceEnabled === true} onChange={(v) => setTenantData((prev) => ({ ...prev, guestExperienceEnabled: v } as any))} label="Show the guest experience after check-in" /></Row>

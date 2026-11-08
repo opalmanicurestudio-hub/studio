@@ -81,8 +81,10 @@ export async function GET(req: NextRequest) {
     // …and, for a service with its own rule, what happens once they're due and still not done (lib/forms-release).
     try { const { formsReleaseSweep } = await import('@/lib/forms-release'); await formsReleaseSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] forms release', tid, e); }
     try {
-      const cfg = ((tDoc.data() as any)?.clientNotify) || {};
+      const cfg = { ...(((tDoc.data() as any)?.clientNotify) || {}) };
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }
+      // The owner's mobile for the morning brief is a private detail (lib/tenant-private), put back in place here.
+      try { const { tenantPrivate } = await import('@/lib/tenant-private'); const pv = await tenantPrivate(db, tid, tDoc.data()); cfg.ownerPhone = pv.ownerPhone || null; } catch (e) { console.error('[cron] private details', tid, e); }
       const sendHour = Number.isFinite(Number(cfg.sendHour)) ? Math.min(23, Math.max(0, Math.round(Number(cfg.sendHour)))) : 9;
       const daysBefore = Number.isFinite(Number(cfg.daysBefore)) ? Math.min(7, Math.max(0, Math.round(Number(cfg.daysBefore)))) : 1;
       // ── WHOSE CLOCK ─────────────────────────────────────────────────────

@@ -143,6 +143,14 @@ export default function CheckInPage() {
 
     const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+    // The guest Wi-Fi isn't on the public business record (lib/tenant-private): it comes through this visit link.
+    const [wifi, setWifi] = React.useState<{ network: string; password: string | null } | null>(null);
+    React.useEffect(() => {
+        let live = true; if (!token) return;
+        fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'wifi', token, device: visitDevice() }) })
+            .then((r) => r.json()).then((d) => { if (live && d?.ok) setWifi(d.wifi || null); }).catch(() => {});
+        return () => { live = false; };
+    }, [token, (appointmentData as any)?.status, (appointmentData as any)?.checkInStatus]);
     
     const inventoryQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
     const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
@@ -570,7 +578,7 @@ export default function CheckInPage() {
                 serviceName={service?.name || appointmentData?.serviceName || null}
                 businessName={tenant?.name || null}
                 phone={(tenant as any)?.phone || null}
-                wifi={(tenant as any)?.wifiNetwork ? { network: (tenant as any).wifiNetwork, password: (tenant as any).wifiPassword || null } : null}
+                wifi={wifi}
                 timeline={(tenant as any)?.visitTimelineForClients !== false ? { items: (appointmentData as any)?.timelinePublic, showTimes: (appointmentData as any)?.timelineShowTimes !== false } : null}
                 onMessage={() => setShowMessages(true)}
             />
@@ -595,7 +603,7 @@ export default function CheckInPage() {
                 onRefresh={refreshLounge}
                 onMessage={() => setShowMessages(true)}
                 portalHref={tenantId && clientId ? `/portal/${encodeURIComponent(tenantId)}/${encodeURIComponent(clientId)}` : null}
-                wifi={(tenant as any)?.wifiNetwork ? { network: (tenant as any).wifiNetwork, password: (tenant as any).wifiPassword || null } : null}
+                wifi={wifi}
             />
         );
     }

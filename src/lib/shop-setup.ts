@@ -5,7 +5,8 @@ export interface SetupStep { id: string; title: string; note: string; done: bool
 export function setupSteps(tenant: any, liveCount: number): SetupStep[] {
   const rs = tenant?.retailSettings || {};
   const pickup = rs.pickupEnabled !== false; const ship = rs.shippingEnabled !== false && rs.shippingOffered !== false;
-  const from = rs.shipFrom || {}; const shipReady = !!(from.street1 && from.city && from.state && from.zip);
+  // The address itself is private (lib/tenant-private); the public record only says it's complete (shipFromSet).
+  const from = rs.shipFrom || {}; const shipReady = rs.shipFromSet === true || !!(from.street1 && from.city && from.state && from.zip);
   const paid = !!(tenant?.stripeAccountId || tenant?.stripeConnectAccountId);
   return [
     { id: 'products', title: 'Put products online', note: liveCount ? `${liveCount} product${liveCount === 1 ? '' : 's'} in your shop` : 'Each needs a price, a photo helps', done: liveCount > 0, href: '/inventory' },

@@ -2,6 +2,7 @@ import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 import { limitPublic } from '@/lib/rate-limit';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/return-label/route.ts ────────────────────────────────────────
 // Buys a RETURN shipping label for an authorized return: the outbound label
@@ -97,7 +98,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Return not found' }, { status: 404 });
     }
     const tenant = tenantSnap.data() as any;
-    const rs = tenant.retailSettings || {};
+    const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+    if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
     const order = orderSnap.data() as any;
     const ret = retSnap.data() as any;
 

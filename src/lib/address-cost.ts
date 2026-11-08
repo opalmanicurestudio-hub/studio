@@ -108,7 +108,9 @@ const pick = (rates: Rate[], carrier: string, service: string): Rate | null =>
 /** What moving this order to `to` does to its shipping cost. */
 export async function addressCostFor(db: any, tenantId: string, tenant: any, order: any, to: Address, o: { apiKey?: string; fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<AddressCost> {
   const rs = tenant?.retailSettings || {};
-  const from = rs.shipFrom || {};
+  // The ship-from address is private (lib/tenant-private): read from there, with any old copy as the fallback.
+  const { tenantPrivate } = await import('@/lib/tenant-private');
+  const from: any = (await tenantPrivate(db, tenantId, tenant)).shipFrom || {};
   if (!order?.shippingAddress || addressKey(order.shippingAddress) === addressKey(to)) return { ok: true, diffCents: 0, fromCents: 0, toCents: 0, service: '', carrier: '' };
   let apiKey = o.apiKey;
   if (apiKey === undefined) { const { shippoKeyFor } = await import('@/lib/retail-secrets'); apiKey = await shippoKeyFor(db, tenantId, tenant); }

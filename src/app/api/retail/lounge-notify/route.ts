@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { staffOrServer } from '@/lib/route-guard';
 import { sendTenantSms } from '@/lib/sms';
+import { tenantPrivate, withPrivate } from '@/lib/tenant-private';
 
 // ─── /api/retail/lounge-notify ───────────────────────────────────────────────
 // The concierge twin of curbside-notify.
@@ -87,7 +88,8 @@ export async function POST(req: NextRequest) {
 
     if (moment === 'staff_escalation') {
       const tSnap = await db.doc(`tenants/${tenantId}`).get();
-      const to = ALERT_NUMBER(tSnap.exists ? tSnap.data() : {});
+      const td: any = tSnap.exists ? tSnap.data() : {};
+      const to = ALERT_NUMBER(withPrivate(td, await tenantPrivate(db, tenantId, td)));   // the alert number is private (lib/tenant-private)
       if (!to) return NextResponse.json({ ok: true, sent: false });
       const waited = Math.max(1, Math.floor((Date.now() - Date.parse(claimed.requestedAt)) / 60000) || 1);
       const res = await sendTenantSms(

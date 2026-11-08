@@ -135,7 +135,7 @@ export function taxFreeMoved(order: any, to: any): boolean {
 export function shopStateOf(tenant: any): string | null {
   const rs = tenant?.retailSettings || {};
   const addr = tenant?.address && typeof tenant.address === 'object' ? tenant.address : null;
-  return stateCode(addr?.state || addr?.region) || stateCode(tenant?.state) || stateCode(rs?.shipFrom?.state);
+  return stateCode(addr?.state || addr?.region) || stateCode(tenant?.state) || stateCode(rs?.shipFrom?.state) || stateCode(rs?.shipFromState);   // the address is private; its state is kept public (lib/tenant-private)
 }
 
 /** What the shop's checkout needs to say the same thing before paying: no certificate numbers and no emails. When

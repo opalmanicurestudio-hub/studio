@@ -2,6 +2,7 @@
 // for the business's owners and managers.
 import { getAdminDb } from '@/lib/firebase-admin';
 import { MESSAGE_KINDS } from '@/lib/message-policy';
+import { tenantWithPrivate } from '@/lib/tenant-private';
 import { switchRows } from '@/lib/automation-switches';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -16,7 +17,8 @@ export async function POST(req: NextRequest) {
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   if (!auth.actor.isManager && !auth.actor.isTenantOwner) return NextResponse.json({ ok: false, error: 'Only owners and managers can see automations.' }, { status: 403 });
-  const db = getAdminDb(); const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  // With the business's private details in place (the owner's mobile for the morning brief lives there: lib/tenant-private).
+  const db = getAdminDb(); const t: any = (await tenantWithPrivate(db, tenantId)) || {};
   const health = await automationHealth(tenantId);
   const stats: Record<string, any> = {}; (await db.collection(`tenants/${tenantId}/automationStats`).get().catch(() => ({ docs: [] as any[] }))).docs.forEach((d: any) => { stats[d.id] = d.data(); });
   // Only tools on this business's plan: no renter messages without booth rental, no shop messages without the shop…

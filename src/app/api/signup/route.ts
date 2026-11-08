@@ -136,7 +136,6 @@ export async function POST(req: NextRequest) {
         { id: 'protocol-fail', label: 'Full refund of the service', type: 'percentage', value: 100 },
       ],
       bookingPageSettings: { heroTitle: `Welcome to ${businessName}`, primaryColor: '#7955c4', showTeam: teamSize === 'team', servicesSectionTitle: 'Services' },
-      ...(code ? { inviteCode: code } : {}),
     });
     // The agreement to the platform terms, and where the sign-up came from, are kept privately (server only): the business
     // record itself is readable by anyone with its booking link.
@@ -144,6 +143,8 @@ export async function POST(req: NextRequest) {
       userId, email, name, version: TERMS_VERSION, versionShown: String(b.termsVersion || '').slice(0, 20) || null,
       acceptedAt: at, ip, userAgent: String(req.headers.get('user-agent') || '').slice(0, 300),
     });
+    // The invite it came from is a private detail too (lib/tenant-private).
+    if (code) batch.set(db.doc(`tenants/${tenantId}/private/settings`), { inviteCode: code, updatedAt: at }, { merge: true });
     // The owner is on the team from day one (lib/owner-staff) — so owner notifications have somewhere to land.
     batch.set(db.doc(`tenants/${tenantId}/staff/${userId}`), ownerProfileFor({ teamSize }, tenantId, { uid: userId, name, email, phone }));
     const lp = id(); batch.set(db.doc(`tenants/${tenantId}/lifestyleProfiles/${lp}`), { id: lp, name: 'Personal budget', isActive: true, categories: [] });

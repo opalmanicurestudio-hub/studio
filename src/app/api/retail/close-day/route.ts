@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { labelInDoubt } from '@/lib/label-doubt';
 import { liveSlots } from '@/lib/label-boxes';
+import { retailWithPrivate } from '@/lib/tenant-private';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -134,7 +135,8 @@ export async function POST(req: NextRequest) {
 
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
   const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
-  const rs = tenant.retailSettings || {};
+  const rs = await retailWithPrivate(db, tenantId, tenant);   // ship-from is private (lib/tenant-private)
+  if (!rs) return NextResponse.json({ error: 'Please try again in a moment.' }, { status: 503 });
   // The day so far, from the label records (nothing asked of Shippo).
   const summaryNow = async () => {
     try {
