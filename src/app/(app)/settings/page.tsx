@@ -550,6 +550,8 @@ function SettingsPageImpl() {
                   <StripeConnectSetup
                     tenantId={tenantId || ''}
                     stripeAccountId={(selectedTenant as any)?.stripeAccountId}
+                    chargesEnabled={(selectedTenant as any)?.stripeChargesEnabled}
+                    detailsSubmitted={(selectedTenant as any)?.stripeDetailsSubmitted}
                     onDisconnect={async () => {
                       const res = await fetch('/api/stripe/disconnect', {
                         method: 'POST',

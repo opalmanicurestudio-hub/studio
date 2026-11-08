@@ -39,7 +39,10 @@ export async function POST(req: NextRequest) {
       stripeConnectedAt:    FieldValue.delete(),
       stripeChargesEnabled: FieldValue.delete(),
       stripeDetailsSubmitted: FieldValue.delete(),
+      stripePayoutsEnabled: FieldValue.delete(),
+      stripeStatusAt: FieldValue.delete(),
       stripeTerminalLocationId: FieldValue.delete(),
+      stripeDisconnectedAt: new Date().toISOString(),
     });
 
     return NextResponse.json({ success: true });

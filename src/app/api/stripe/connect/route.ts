@@ -1,114 +1,82 @@
+// /api/stripe/connect — A BUSINESS CONNECTS ITS OWN STRIPE ACCOUNT (Express onboarding).
+// POST, signed in as the owner (or an admin of the business), with { tenantId, action }:
+//   'start'   — makes the business's Stripe account if it has none, and returns Stripe's onboarding link to open.
+//   'refresh' — asks Stripe how setup stands and saves it on the business (card payments on, details sent, payouts on).
+// GET is only Stripe's "start again" address for an expired onboarding link. It carries nothing about the business: it
+// sends the owner back to Settings › Payments, which starts again for them once they're signed in (POST 'start').
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { requestActor } from '@/lib/request-actor';
+export const dynamic = 'force-dynamic';
 
-function getAdminDb() {
-  const { initializeApp, getApps, cert } = require('firebase-admin/app');
-  const { getFirestore } = require('firebase-admin/firestore');
-  const APP_NAME = 'admin';
-  let app = getApps().find((a) => a.name === APP_NAME);
-  if (!app) {
-    app = initializeApp({
-      credential: cert({
-        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    }, APP_NAME);
-  }
-  return getFirestore(app);
+const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
+const appUrlOf = (req: NextRequest) => (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, '');
+const paymentsPage = (appUrl: string, q: string) => `${appUrl}/settings?tab=payments&${q}`;
+
+type Flags = { chargesEnabled: boolean; detailsSubmitted: boolean; payoutsEnabled: boolean };
+const flagsOf = (a: Stripe.Account): Flags => ({ chargesEnabled: !!a.charges_enabled, detailsSubmitted: !!a.details_submitted, payoutsEnabled: !!a.payouts_enabled });
+const saveFlags = (ref: any, f: Flags) => ref.set({ stripeChargesEnabled: f.chargesEnabled, stripeDetailsSubmitted: f.detailsSubmitted, stripePayoutsEnabled: f.payoutsEnabled, stripeStatusAt: new Date().toISOString() }, { merge: true });
+
+/** The business's Stripe account, made the first time. */
+async function accountFor(db: any, tenantId: string): Promise<{ ref: any; accountId: string }> {
+  const ref = db.doc(`tenants/${tenantId}`);
+  const t: any = (await ref.get()).data() || {};
+  if (t.stripeAccountId) return { ref, accountId: String(t.stripeAccountId) };
+  const account = await stripe().accounts.create({
+    type: 'express',
+    capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+    business_profile: { name: t.name || undefined },
+    metadata: { tenantId, userId: String(t.userId || ''), kind: 'business' },
+  }, { idempotencyKey: `connect-acct-${tenantId}-${String(t.stripeDisconnectedAt || 'first')}` });   // one account for two taps at once; a new one after a disconnect
+  await ref.set({ stripeAccountId: account.id, stripeConnectedAt: new Date().toISOString(), stripeChargesEnabled: false, stripeDetailsSubmitted: false, stripePayoutsEnabled: false }, { merge: true });
+  return { ref, accountId: account.id };
 }
 
-function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+async function onboardingLink(req: NextRequest, accountId: string): Promise<string> {
+  const appUrl = appUrlOf(req);
+  const link = await stripe().accountLinks.create({
+    account: accountId,
+    refresh_url: `${appUrl}/api/stripe/connect`,
+    return_url: paymentsPage(appUrl, 'stripe=connected'),
+    type: 'account_onboarding',
+  });
+  return link.url;
+}
+
+const said = (e: any) => {
+  const m = String(e?.message || '');
+  if (/STRIPE_SECRET_KEY|api key|apiKey/i.test(m) || !process.env.STRIPE_SECRET_KEY) return 'Card payments aren’t available yet. Please try again later.';
+  return 'Stripe didn’t answer. Please try again in a minute.';
+};
+
+export async function POST(req: NextRequest) {
+  const body: any = await req.json().catch(() => ({}));
+  const tenantId = String(body?.tenantId || '').trim();
+  const action = String(body?.action || 'start');
+  if (!tenantId) return NextResponse.json({ ok: false, error: 'Choose a business first.' }, { status: 400 });
+  const db = getAdminDb();
+  const who = await requestActor(db, req.headers.get('authorization'), tenantId);
+  if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  // Where the business's money goes is the owner's call (or an admin they've trusted with it).
+  if (!who.actor.isOwner && who.actor.role !== 'admin') return NextResponse.json({ ok: false, error: 'Only the owner can set up payments.' }, { status: 403 });
+  try {
+    if (action === 'refresh') {
+      const ref = db.doc(`tenants/${tenantId}`);
+      const t: any = (await ref.get()).data() || {};
+      if (!t.stripeAccountId) return NextResponse.json({ ok: true, hasAccount: false, chargesEnabled: false, detailsSubmitted: false, payoutsEnabled: false });
+      const f = flagsOf(await stripe().accounts.retrieve(String(t.stripeAccountId)));
+      await saveFlags(ref, f);
+      return NextResponse.json({ ok: true, hasAccount: true, ...f });
+    }
+    const { accountId } = await accountFor(db, tenantId);
+    return NextResponse.json({ ok: true, url: await onboardingLink(req, accountId) });
+  } catch (e: any) {
+    console.error('[stripe/connect]', action, e?.message);
+    return NextResponse.json({ ok: false, error: said(e) }, { status: 502 });
+  }
 }
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/$/, '');
-
-  // This is actually the user's UID, not the tenant doc ID
-  const userId = url.searchParams.get('tenantId') || '';
-  if (!userId) {
-    return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
-  }
-
-  const referer = req.headers.get('referer') || `${appUrl}/settings`;
-  const ret = referer.split('?')[0];
-
-  try {
-    const stripe = getStripe();
-    const db = getAdminDb();
-
-    // ── Look up the tenant by userId instead of using the ID directly ──
-    const tenantsSnap = await db.collection('tenants')
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
-
-    if (tenantsSnap.empty) {
-      console.error('[stripe/connect] No tenant found for userId:', userId);
-      return NextResponse.redirect(`${ret}?stripe=error&reason=studio_not_found`);
-    }
-
-    const tenantRef  = tenantsSnap.docs[0].ref;
-    const tenantData = tenantsSnap.docs[0].data();
-
-    let accountId: string | undefined = tenantData?.stripeAccountId;
-
-    if (!accountId) {
-      // Create a new Express account
-      const account = await stripe.accounts.create({
-        type: 'express',
-        capabilities: {
-          card_payments: { requested: true },
-          transfers:     { requested: true },
-        },
-        business_profile: {
-          name: tenantData?.name || undefined,
-        },
-        metadata: { 
-          userId,
-          tenantId: tenantsSnap.docs[0].id,  // store the real tenant doc ID too
-        },
-      });
-      accountId = account.id;
-
-      // Save to the correct tenant doc
-      await tenantRef.set(
-        {
-          stripeAccountId:      accountId,
-          stripeConnectedAt:    new Date().toISOString(),
-          stripeChargesEnabled: false,
-        },
-        { merge: true }
-      );
-    } else {
-      // Refresh onboarding/charge status
-      try {
-        const acct = await stripe.accounts.retrieve(accountId);
-        await tenantRef.set(
-          {
-            stripeChargesEnabled:   !!acct.charges_enabled,
-            stripeDetailsSubmitted: !!acct.details_submitted,
-          },
-          { merge: true }
-        );
-      } catch { /* non-fatal */ }
-    }
-
-    // Generate hosted onboarding link
-    const link = await stripe.accountLinks.create({
-      account:     accountId,
-      refresh_url: `${appUrl}/api/stripe/connect?tenantId=${encodeURIComponent(userId)}`,
-      return_url:  `${ret}?stripe=connected`,
-      type:        'account_onboarding',
-    });
-
-    return NextResponse.redirect(link.url);
-  } catch (e: any) {
-    console.error('[stripe/connect] error:', e?.message, e);
-    const reason = encodeURIComponent(e?.message || 'Unknown error');
-    return NextResponse.redirect(`${ret}?stripe=error&reason=${reason}`);
-  }
+  return NextResponse.redirect(paymentsPage(appUrlOf(req), 'stripe=refresh'));
 }

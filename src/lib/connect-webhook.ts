@@ -902,6 +902,28 @@ export async function handleConnectWebhook(req: NextRequest) {
         break;
       }
 
+      // ── Stripe says how a connected account's setup stands: card payments on, details sent, payouts on. Saved on the
+      //    business (Settings › Payments, the setup guide and HQ read it) or, for a renter's own account, on the renter
+      //    and the one flag on their provider record that the booking page reads. ──
+      case 'account.updated': {
+        const acct = event.data.object as Stripe.Account;
+        const flags = { stripeChargesEnabled: !!acct.charges_enabled, stripeDetailsSubmitted: !!acct.details_submitted, stripePayoutsEnabled: !!acct.payouts_enabled, stripeStatusAt: new Date().toISOString() };
+        const md: any = acct.metadata || {};
+        if (md.kind === 'renter' && md.tenantId && md.renterId) {
+          const rRef = db.doc(`tenants/${String(md.tenantId)}/renters/${String(md.renterId)}`);
+          const r: any = (await rRef.get()).data();
+          if (r?.stripeAccountId === acct.id) {
+            await rRef.set(flags, { merge: true });
+            const st = await db.collection(`tenants/${String(md.tenantId)}/staff`).where('renterId', '==', String(md.renterId)).get().catch(() => ({ docs: [] as any[] }));
+            for (const d of st.docs) if ((d.data() as any)?.isRenter) await d.ref.set({ stripeChargesEnabled: flags.stripeChargesEnabled }, { merge: true }).catch(() => {});
+          }
+          break;
+        }
+        const tenant = await getTenant(acct.id || connAcct);
+        if (tenant) await tenant.ref.set(flags, { merge: true });
+        break;
+      }
+
       default: {
         // An ID check asked for on a held shop order (/api/retail/id-check): record how it went on the order. A
         // manager still releases it; a pass is the evidence, not the decision.

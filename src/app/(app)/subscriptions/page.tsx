@@ -13,20 +13,23 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { collection, query, where } from 'firebase/firestore';
 import { Loader } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
+import { useMyTenants } from '@/lib/my-tenants-client';
 import { AuthBackdrop, Wordmark } from '@/components/auth/AuthBackdrop';
 import { ToolPicker } from '@/components/modules/ToolPicker';
 import { fromTenantModules, hoursFor, RECOMMENDED, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { ADDONS, addonActive, type AddonId } from '@/lib/addons';
 
 export default function YourClarityFlowPage() {
-  const { user, firestore } = useFirebase();
+  const { user, firestore, isUserLoading } = useFirebase() as any;
+  const signedOut = !isUserLoading && !user;
   const router = useRouter();
-  const q = useMemoFirebase(() => (user && firestore ? query(collection(firestore, 'tenants'), where('userId', '==', user.uid)) : null), [user, firestore]);
-  const { data: tenants, isLoading } = useCollection<any>(q);
-  const tenant = tenants?.[0];
+  // The businesses this person owns come from the server (a browser isn't allowed to list businesses); the one in use
+  // on this device first, so an owner with two businesses sets up the one they're looking at.
+  const { tenants, loading: isLoading } = useMyTenants(user, firestore as any);
+  const tenant = (() => { let id = ''; try { id = localStorage.getItem('selectedTenantId') || ''; } catch { /* private window */ } return tenants.find((t: any) => t.id === id) || tenants[0]; })();
+  const noBusiness = !!user && !isLoading && !tenant;
   const [tools, setTools] = useState<ToolId[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -105,7 +108,16 @@ export default function YourClarityFlowPage() {
           {!isNew && tenant && <Link href="/dashboard" className="text-sm text-foreground/80">Back to the app</Link>}
         </header>
 
-        {isLoading || !tools ? (
+        {signedOut || noBusiness ? (
+          <main className="mx-auto flex min-h-[60dvh] max-w-md flex-col items-center justify-center gap-4 text-center">
+            <h1 className="text-2xl font-semibold tracking-tight">{signedOut ? 'Please sign in' : 'No business on this sign-in'}</h1>
+            <p className="text-foreground/80">{signedOut ? 'Sign in to choose your tools.' : 'This account doesn’t own a business yet. If you were invited to a team, open the app from your invite. If you were invited to set up a business, sign up from the link in your invite email.'}</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link href={signedOut ? '/login' : '/dashboard'} className="inline-flex h-12 items-center rounded-full bg-foreground px-6 text-[15px] font-semibold text-background">{signedOut ? 'Sign in' : 'Open the app'}</Link>
+              {!signedOut && <button type="button" onClick={() => window.location.reload()} className="inline-flex h-12 items-center rounded-full border border-foreground/20 px-6 text-[15px] font-semibold">Try again</button>}
+            </div>
+          </main>
+        ) : isLoading || !tools ? (
           <div className="flex min-h-[60dvh] items-center justify-center"><Loader className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <main className="mx-auto max-w-6xl pb-32 pt-10">
