@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing tenantId.' }, { status: 400 });
     if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
-      return NextResponse.json({ ok: false, error: 'Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 500 });
+      console.error('[plaid] PLAID_CLIENT_ID / PLAID_SECRET are not set'); return NextResponse.json({ ok: false, error: 'Bank connections aren’t available yet.' }, { status: 500 });
     }
     const db = getAdminDb();
 

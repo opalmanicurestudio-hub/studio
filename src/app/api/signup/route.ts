@@ -123,25 +123,25 @@ export async function POST(req: NextRequest) {
       subscriptionStatus: 'inactive', subscriptionTier: 'none',
       tmhr: 50, employerTaxBurdenPct: 10, createdAt: at, onboardingComplete: false,
       maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25, defaultCancellationMode: 'matrix',
-      escalationPolicy: "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their limit. 2. Criteria: Use 'Recovery Adjustment' for delays > 15m or minor inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub.",
+      escalationPolicy: "1. Staff can put small problems right themselves, up to their limit. 2. Use a make-good for waits over 15 minutes or small mistakes. 3. Tell a manager right away about any injury or reaction, damage to property, or a client who becomes hostile. 4. Always note the reason when you apply a make-good at checkout.",
       recoveryPresets: [
-        { id: 'wait-time', label: 'WAIT TIME RECOVERY', type: 'fixed', value: 15 },
-        { id: 'tech-adj', label: 'TECHNICAL REVISION', type: 'percentage', value: 20 },
-        { id: 'hospitality', label: 'HOSPITALITY LAPSE', type: 'fixed', value: 10 },
-        { id: 'protocol-fail', label: 'PROTOCOL FAILURE', type: 'percentage', value: 100 },
+        { id: 'wait-time', label: 'Long wait', type: 'fixed', value: 15 },
+        { id: 'tech-adj', label: 'Fix or redo', type: 'percentage', value: 20 },
+        { id: 'hospitality', label: 'Service slip', type: 'fixed', value: 10 },
+        { id: 'protocol-fail', label: 'Full refund of the service', type: 'percentage', value: 100 },
       ],
-      bookingPageSettings: { heroTitle: `Welcome to ${businessName}`, primaryColor: '#7955c4', showTeam: teamSize === 'team', servicesSectionTitle: 'The Menu' },
+      bookingPageSettings: { heroTitle: `Welcome to ${businessName}`, primaryColor: '#7955c4', showTeam: teamSize === 'team', servicesSectionTitle: 'Services' },
       ...(code ? { inviteCode: code } : {}),
       signupIp: ip, signupAt: at,
     });
     // The owner is on the team from day one (lib/owner-staff) — so owner notifications have somewhere to land.
     batch.set(db.doc(`tenants/${tenantId}/staff/${userId}`), ownerProfileFor({ teamSize }, tenantId, { uid: userId, name, email, phone }));
-    const lp = id(); batch.set(db.doc(`tenants/${tenantId}/lifestyleProfiles/${lp}`), { id: lp, name: 'Primary Lifestyle', isActive: true, categories: [] });
-    const bp = id(); batch.set(db.doc(`tenants/${tenantId}/businessProfiles/${bp}`), { id: bp, name: 'Core Studio Costs', isActive: true, categories: [] });
+    const lp = id(); batch.set(db.doc(`tenants/${tenantId}/lifestyleProfiles/${lp}`), { id: lp, name: 'Personal budget', isActive: true, categories: [] });
+    const bp = id(); batch.set(db.doc(`tenants/${tenantId}/businessProfiles/${bp}`), { id: bp, name: 'Business costs', isActive: true, categories: [] });
     const sp = id();
     const day = (enabled: boolean) => ({ enabled, start: '09:00 AM', end: '05:00 PM' });
     batch.set(db.doc(`tenants/${tenantId}/scheduleProfiles/${sp}`), {
-      id: sp, name: 'Standard Studio Hours', isActive: true, isPublic: true,
+      id: sp, name: 'Regular hours', isActive: true, isPublic: true,
       week: { monday: day(true), tuesday: day(true), wednesday: day(true), thursday: day(true), friday: day(true), saturday: day(false), sunday: day(false) },
       timeOff: { vacationDays: 14, holidays: 10 },
     });

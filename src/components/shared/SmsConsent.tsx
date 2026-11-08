@@ -39,9 +39,9 @@ export function SmsConsent({
         Message frequency varies by account activity. Message &amp; data rates may
         apply. Reply HELP for help, STOP to cancel any time. Consent is not a
         condition of booking or purchase. See our{' '}
-        <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a>{' '}
+        <a href="/legal/sms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a>{' '}
         and{' '}
-        <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.
+        <a href="/legal/privacy" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.
       </p>
     </div>
   );

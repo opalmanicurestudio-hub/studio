@@ -281,7 +281,10 @@ export async function POST(req: NextRequest) {
     const who = str(entry.clientName || entry.name, 80) || 'there';
     const firstName = who.split(/\s+/)[0];
     const serviceName = str(entry.serviceName, 80);
-    const custom = str(body?.message, 300).trim();
+    const custom = str(body?.message, 480).trim();
+    // The spot being offered and how long it's held: kept on the entry only once the message went out.
+    const holdMinutes = Math.max(0, Math.min(240, Math.round(Number(body?.holdMinutes) || 0)));
+    const slot = body?.offeredSlot && typeof body.offeredSlot === 'object' ? { date: str(body.offeredSlot.date, 10), time: str(body.offeredSlot.time, 10) } : null;
     const text = custom
       || `Hi ${firstName} — a spot just opened up${serviceName ? ` for your ${serviceName}` : ''} at ${studioName}. Reply to this message and we'll get you in.`;
 
@@ -318,7 +321,9 @@ export async function POST(req: NextRequest) {
       notifyCount: Number(entry.notifyCount || 0) + 1,
       lastNotifyOk: anySent,
       lastNotifyDetail: results.map(r => `${r.channel}:${r.status}`).join(' '),
-      ...(anySent ? { status: 'notified' } : {}),
+      ...(anySent ? { status: 'notified', notifiedTimestamp: now,
+        ...(holdMinutes ? { holdExpiresAt: new Date(Date.now() + holdMinutes * 60_000).toISOString() } : {}),
+        ...(slot && slot.date ? { offeredSlot: slot } : {}) } : {}),
     }, { merge: true });
 
     if (!anySent) {
@@ -333,6 +338,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, sent: results.filter(r => r.ok).map(r => r.channel) });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
+    console.error('[waitlist]', e); return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
   }
 }

@@ -154,7 +154,7 @@ export default function AcademyBuilderPage() {
         const s = await api({ action: 'video-status', tenantId, courseId: sel, lessonId });
         if (s.status === 'ready' || s.status === 'errored') {
           if (poll.current) window.clearInterval(poll.current);
-          setUpload(null); setMsg(s.status === 'ready' ? 'Video ready ✓' : 'Mux couldn’t process that video — try another file.');
+          setUpload(null); setMsg(s.status === 'ready' ? 'Video ready ✓' : 'That video couldn’t be processed. Try another file.');
           await loadCourse(sel!);
         }
       }, 4000);
@@ -306,7 +306,7 @@ export default function AcademyBuilderPage() {
                 )}
               </div>
             )}
-            {section === 'courses' && d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now. Add MUX_TOKEN_ID, MUX_TOKEN_SECRET, MUX_SIGNING_KEY_ID and MUX_SIGNING_KEY_PRIVATE in Vercel to upload protected videos.</p>}
+            {section === 'courses' && d && !d.mux && <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Video hosting isn’t connected yet — you can paste a private Vimeo or unlisted YouTube link for now.</p>}
 
         {section === 'courses' && <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <div className={`space-y-2 ${picked ? 'hidden lg:block' : ''}`}>
@@ -408,7 +408,7 @@ export default function AcademyBuilderPage() {
                               <p className="text-sm font-bold">Upload a video (protected — only enrolled students can watch)</p>
                               <input type="file" accept="video/*" disabled={!!upload || !lesson.title.trim()} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadVideo(f); }} className="mt-1 text-sm" />
                               {!lesson.title.trim() && <p className="text-[12px] text-muted-foreground">Give the lesson a title first.</p>}
-                              {upload && <div className="mt-2"><div className="h-2 rounded-full bg-background"><div className="h-2 rounded-full bg-foreground transition-all" style={{ width: `${upload.pct}%` }} /></div><p className="mt-1 text-[12px]">{upload.status === 'uploading' ? `Uploading… ${upload.pct}%` : 'Processing on Mux — you can keep working; it finishes on its own.'}</p></div>}
+                              {upload && <div className="mt-2"><div className="h-2 rounded-full bg-background"><div className="h-2 rounded-full bg-foreground transition-all" style={{ width: `${upload.pct}%` }} /></div><p className="mt-1 text-[12px]">{upload.status === 'uploading' ? `Uploading… ${upload.pct}%` : 'Processing the video. You can keep working; it finishes on its own.'}</p></div>}
                             </div>
                           ) : null}
                           {lesson.id && (d.lessons || []).find((x: any) => x.id === lesson.id)?.muxAssetId && (() => { const lx = (d.lessons || []).find((x: any) => x.id === lesson.id); return (

@@ -634,6 +634,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
 
 // ─── My Brand: colour, tone, cover, type — theirs ────────────────────────────
 export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
+  const storageNote = useMemo(() => storageDiagnostic(), []);
   const [brand, setBrand] = useState<any | null>(null);
   const [coverData, setCoverData] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -709,7 +710,7 @@ export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token
       <input value={brand.tagline || ''} onChange={(e) => setBrand({ ...brand, tagline: e.target.value.slice(0, 80) })} aria-label="Tagline" placeholder="One line under your name — “Gel & structure, by appointment”"
         className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
       {err && <p className="text-xs font-bold text-red-600">{err}</p>}
-      <p className="text-[9px] font-bold text-slate-400">{storageDiagnostic()}</p>
+      {storageNote && <p className="text-[13px] text-slate-500">{storageNote}</p>}
       <div className="flex items-center justify-end gap-2">
         {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
         <button type="button" onClick={save} disabled={busy} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save my brand'}</button>

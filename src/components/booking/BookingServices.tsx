@@ -128,8 +128,8 @@ export const BookingServices = ({ services, onServiceSelect, staffMember, showPr
     return (
         <section className="space-y-12">
             <div className="text-center space-y-4">
-                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.servicesSectionTitle || 'The Menu'}</h2>
-                <p className="text-muted-foreground font-medium uppercase tracking-[0.2em] text-xs">Curated treatments for your well-being</p>
+                <h2 className="text-4xl md:text-6xl font-black tracking-tighter uppercase text-slate-900">{tenant?.bookingPageSettings?.servicesSectionTitle || 'Services'}</h2>
+                <p className="text-muted-foreground font-medium text-sm">Choose what you’d like to book.</p>
             </div>
             
             <div className="w-full">

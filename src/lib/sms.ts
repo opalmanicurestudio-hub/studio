@@ -93,7 +93,7 @@ async function sendFallbackEmail(toEmail: string, subject: string, body: string,
 // Low-level send using the platform account. Prefer sendTenantSms().
 export async function sendSms(to: string, body: string, opts?: { from?: string; messagingServiceSid?: string }): Promise<SmsResult> {
   try {
-    if (!smsConfigured()) return { ok: false, error: 'SMS not configured (missing Twilio env vars).' };
+    if (!smsConfigured()) return { ok: false, error: 'Texting isn’t set up for ClarityFlow yet.' };
     const e164 = toE164(to);
     if (!e164) return { ok: false, error: `Not a sendable phone number: ${String(to).slice(0, 20)}` };
     const sid = process.env.TWILIO_ACCOUNT_SID as string;
@@ -119,7 +119,7 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
       body: params.toString(),
     });
     const data: any = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: data?.message || `Twilio error ${res.status}` };
+    if (!res.ok) return { ok: false, error: data?.message || `The text didn’t go out (${res.status}).` };
     return { ok: true, sid: data?.sid };
   } catch (err: any) {
     return { ok: false, error: err?.message || 'SMS send failed.' };

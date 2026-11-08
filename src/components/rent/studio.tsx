@@ -782,12 +782,11 @@ export function resolvedStorageBucket(): string {
     return String(storageRef(getStorage(app)).bucket || '');
   } catch { return process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || ''; }
 }
-/** Why the browser could or couldn't resolve a bucket — shown in the brand panel so nobody has to guess. */
+/** Shown under the photo pickers in the brand panel only when uploads can't work here; the reason goes to the console. */
 export function storageDiagnostic(): string {
-  const b = resolvedStorageBucket();
-  if (b) return `Uploads go to ${b}.`;
-  const env = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '';
-  return env ? `Bucket from settings: ${env}, but the browser could not open it.` : 'No storage bucket is configured for this site (NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is empty) — no upload anywhere in the app can work until it is set.';
+  if (resolvedStorageBucket()) return '';
+  console.error('[rent] no storage bucket resolved: set the storage bucket setting for this site');
+  return 'Photo uploads aren’t available right now.';
 }
 // ── Browser-side uploads, the same road every other upload in the app uses ──
 // The renter signs into Firebase with a token scoped to their own record,
@@ -811,15 +810,10 @@ export async function ensureStorageSignIn(tenantId: string, token: string): Prom
     } catch (e: any) {
       const code = String(e?.code || '');
       if (code.includes('operation-not-allowed') || code.includes('admin-restricted')) {
-        throw new Error('Uploads need Anonymous or Custom sign-in enabled: Firebase Console → Authentication → Sign-in method. (' + code + ')');
+        console.error('[rent upload] sign-in for uploads is off', code); throw new Error('Uploads aren’t available right now. Please try again later.');
       }
-      if (code.includes('invalid-custom-token') || code.includes('custom-token-mismatch')) {
-        throw new Error('The upload token was refused — the server\'s Firebase project does not match this app\'s. (' + code + ')');
-      }
-      if (code.includes('api-key') || code.includes('configuration-not-found')) {
-        throw new Error('Firebase Authentication is not configured for this site. (' + code + ')');
-      }
-      throw new Error(e?.message || code || 'Sign-in for uploads failed.');
+      console.error('[rent upload] upload sign-in failed', code, e?.message);
+      throw new Error('Uploads aren’t available right now. Please try again later.');
     }
   })();
   try { await storageSignIn; } catch (e) { storageSignIn = null; throw e; }
@@ -832,8 +826,8 @@ export async function uploadRenterPhoto(tenantId: string, token: string, renterI
     return await uploadImage(`tenants/${tenantId}/renters/${renterId}/${safe}/${Date.now()}.jpg`, file, maxDim);
   } catch (e: any) {
     const code = String(e?.code || '');
-    if (code.includes('unauthorized')) throw new Error('Storage refused the upload — publish the renters Storage rule in Firebase Console → Storage → Rules. (' + code + ')');
-    if (code.includes('unknown') || code.includes('retry-limit')) throw new Error('The upload could not reach Storage — check the connection and try again. (' + code + ')');
+    if (code.includes('unauthorized')) { console.error('[rent upload] storage refused', code); throw new Error('That upload didn’t go through. Please try again later.'); }
+    if (code.includes('unknown') || code.includes('retry-limit')) throw new Error('The upload didn’t reach us. Check your connection and try again.');
     throw new Error(e?.message || code || 'The upload failed.');
   }
 }
@@ -1434,7 +1428,7 @@ export const LoginFlow = ({ tenantId, onSession }: {
 
               <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
                 We'll text a one-time sign-in code to this number. Msg &amp; data rates may
-                apply. Reply STOP to opt out. <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
+                apply. Reply STOP to opt out. <a href="/legal/sms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/legal/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
               </p>
               <div className="relative">
                 <Phone className="w-4 h-4 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />

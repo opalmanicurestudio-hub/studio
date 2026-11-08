@@ -940,7 +940,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!process.env.STRIPE_SECRET_KEY) {
-      return NextResponse.json({ ok: false, error: 'Payments are not configured yet (missing Stripe key on the server). Add STRIPE_SECRET_KEY in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 500 });
+      console.error('[booths/reserve] STRIPE_SECRET_KEY is not set'); return NextResponse.json({ ok: false, error: 'Online payments aren’t available yet. Please try again later.' }, { status: 500 });
     }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     const base = String(returnUrl).split('?')[0];

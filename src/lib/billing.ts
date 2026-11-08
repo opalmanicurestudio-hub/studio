@@ -109,7 +109,7 @@ export async function checkoutFor(opts: { tenantId: string; email?: string | nul
   const q = await quoteFor(opts.tenantId, opts.tools);
   const ids = await priceIds(q.lines.map((l) => l.key));
   const missing = q.lines.filter((l) => !ids[l.key]);
-  if (missing.length) throw new Error('Prices aren’t set up in Stripe yet — HQ → Finance → Set up prices.');
+  if (missing.length) { console.error('[billing] prices missing in Stripe: HQ → Finance → Set up prices'); throw new Error('Plans aren’t ready to buy yet. Please try again soon.'); }
   const customer = await ensureCustomer(opts.tenantId, opts.email);
   const t = ((await getAdminDb().doc(`tenants/${opts.tenantId}`).get()).data() as any) || {};
   const coupon = settings.foundingPct && t.foundingMember !== false ? await ensureFoundingCoupon(settings.foundingPct) : null;

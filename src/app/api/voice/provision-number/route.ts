@@ -96,14 +96,14 @@ export async function POST(req: NextRequest) {
 
     if (!process.env.RETELL_API_KEY) {
       return NextResponse.json(
-        { ok: false, error: 'retell_not_configured', reason: 'RETELL_API_KEY is not set.' },
+        { ok: false, error: 'retell_not_configured', reason: 'Phone numbers aren’t available yet. You can paste a number you already have below.' },
         { status: 500 },
       );
     }
     const agentId = resolveAgentId(tenant?.voiceAgent?.voiceStyle);
     if (!agentId) {
       return NextResponse.json(
-        { ok: false, error: 'agent_not_configured', reason: 'RETELL_AGENT_ID is not set.' },
+        { ok: false, error: 'agent_not_configured', reason: 'Phone numbers aren’t available yet. You can paste a number you already have below.' },
         { status: 500 },
       );
     }
@@ -172,10 +172,11 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true, phoneNumber: num, areaCodeFallback: true });
         }
       }
+      console.error('[voice/provision-number] the phone provider said no', retellRes.status, data?.message);
       return NextResponse.json({
         ok: false,
-        error: 'retell_error',
-        reason: data?.message || `Retell responded ${retellRes.status}`,
+        error: 'provider_error',
+        reason: 'A number couldn’t be set up just now. Try a different area code, or paste a number you already have below.',
       });
     }
 

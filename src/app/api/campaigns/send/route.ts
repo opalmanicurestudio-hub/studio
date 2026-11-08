@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     if (isSms && !/^\+\d{10,15}$/.test(to)) return NextResponse.json({ ok: false, error: 'This is a text campaign — enter a mobile number, not an email address.' }, { status: 400 });
     if (!isSms && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return NextResponse.json({ ok: false, error: 'This is an email campaign — enter an email address.' }, { status: 400 });
     const from = resolveFromAddress();
-    const sandboxFrom = /resend\.dev/i.test(from);
+    if (!isSms && /resend\.dev/i.test(from)) console.warn('[campaigns/send] the sender is the email provider’s test address; set NOTIFY_FROM_EMAIL on a verified domain');
     const studio = (await senderFor(db, tenantId, c, req.nextUrl.origin)).name;
     const sample = { id: 'test', name: 'Test Client', first: 'Jane', email: to, phone: to };
     const who = await senderFor(db, tenantId, c, req.nextUrl.origin);
@@ -64,19 +64,18 @@ export async function POST(req: NextRequest) {
     const err = String(r.error || '');
     let why: string | null = null;
     if (!r.ok) {
-      if (r.status === 'skipped_no_provider') why = isSms ? 'Texting isn’t connected: the Twilio keys (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and a sender) aren’t set in Vercel.' : 'Email isn’t connected: RESEND_API_KEY isn’t set in Vercel.';
+      if (r.status === 'skipped_no_provider') why = isSms ? 'Texting isn’t set up for ClarityFlow yet, so the test wasn’t sent.' : 'Email isn’t set up for ClarityFlow yet, so the test wasn’t sent.';
       else if (/quiet hours/i.test(err)) why = 'Held back: your message settings pause texts during quiet hours. Try again in the daytime.';
       else if (/switched off/i.test(err)) why = 'Held back: this kind of message is switched off in Settings → Messages.';
-      else if (/own email|testing emails|verify a domain|domain is not verified/i.test(err)) why = `The email service refused it: the sender (${from}) is Resend’s test address, which can only deliver to the Resend account owner. Verify your domain in Resend, then set NOTIFY_FROM_EMAIL in Vercel (e.g. "Your Business <hello@yourdomain.com>").`;
-      else if (/21608|unverified|trial/i.test(err)) why = 'Twilio refused it: the account is on a trial, which can only text numbers you’ve verified in the Twilio console.';
+      else if (/own email|testing emails|verify a domain|domain is not verified/i.test(err)) why = 'Email sending for ClarityFlow is still being set up, so it can’t reach this address yet.';
+      else if (/21608|unverified|trial/i.test(err)) why = 'Texting for ClarityFlow is still being set up, so it can only reach a few test numbers right now.';
       else if (/21610|unsubscribed|STOP/i.test(err)) why = 'That number has replied STOP to your texting number, so carriers block further texts to it.';
-      else if (/30034|10DLC|unregistered/i.test(err)) why = 'Carriers blocked it: the texting number isn’t registered (A2P 10DLC) for this kind of message. Finish registration in the Twilio console.';
+      else if (/30034|10DLC|unregistered/i.test(err)) why = 'Carriers held it back because texting registration isn’t finished yet. It will go through once registration is approved.';
       else why = err || 'Not sent.';
     }
     return NextResponse.json({ ok: !!r.ok, error: r.ok ? null : why, to, status: r.status || null, providerId: r.providerId || null,
       notes: r.ok ? [
-        isSms ? 'Twilio accepted it. It usually arrives within a minute.' : 'The email service accepted it. It usually arrives within a minute or two — check spam or promotions if not.',
-        !isSms && sandboxFrom ? `Heads up: the sender is Resend’s test address (${from}). It only reaches the Resend account owner; real clients won’t get these until you verify your domain and set NOTIFY_FROM_EMAIL.` : '',
+        isSms ? 'Sent. It usually arrives within a minute.' : 'Sent. It usually arrives within a minute or two. Check spam or promotions if it doesn’t.',
       ].filter(Boolean) : [] });
   }
 

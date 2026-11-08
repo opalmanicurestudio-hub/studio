@@ -78,10 +78,11 @@
  * follow-up, not a guess worth making here.
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { doc, writeBatch } from 'firebase/firestore';
 import { addMinutes, format } from 'date-fns';
 import { nanoid } from 'nanoid';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 const sanitize = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -238,59 +239,33 @@ export function useWaitlist(params: {
   );
 
   // ── Notify a waitlist client and start the hold timer ──────────────────────
+  const notifying = useRef<Set<string>>(new Set());
   const notifyWaitlistClient = useCallback(
     async (entry: WaitlistEntry, slotDate: string, slotTime: string) => {
-      if (!firestore || !collectionPath) return;
-      const nowIso = new Date().toISOString();
-      const holdExpiresAt = addMinutes(new Date(), HOLD_MINUTES).toISOString();
-      const batch = writeBatch(firestore);
-      batch.set(
-        doc(firestore, collectionPath, entry.id),
-        sanitize({
-          status: 'notified',
-          notifiedAt: nowIso,
-          notifiedTimestamp: nowIso,
-          holdExpiresAt,
-        }),
-        { merge: true },
-      );
+      if (!firestore || !collectionPath || !tenantId || notifying.current.has(entry.id)) return;
+      // The message goes out through the waitlist's own sender (/api/waitlist 'notify': text and email, logged). The
+      // server starts the hold and keeps the offered spot only once it really went out; when nothing could be sent,
+      // the desk is told so plainly. One send at a time per person, however often Notify is tapped.
+      const svcName = services.find((s: any) => s.id === entry.serviceIds[0])?.name || '';
+      const slotAt = safeDate(`${slotDate}T${slotTime}`);
+      const slotLabel = slotAt.getTime() ? format(slotAt, 'EEE MMM d · h:mm a') : `${slotDate} ${slotTime}`;
+      const first = String(entry.clientName || '').trim().split(/\s+/)[0] || 'there';
+      const place = String(tenant?.name || '').trim();
+      const message = `Hi ${first}, a spot just opened up${svcName ? ` for your ${svcName}` : ''}${place ? ` at ${place}` : ''}: ${slotLabel}. It’s held for you for ${HOLD_MINUTES} minutes. Reply to this message and we’ll confirm it.`;
+      let res: any = null;
+      notifying.current.add(entry.id);
       try {
-        await batch.commit();
-      } catch (e: any) {
-        toast({ variant: 'destructive', title: 'Could not notify', description: e?.message || 'Nothing was saved.' });
+        const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+          body: JSON.stringify({ tenantId, action: 'notify', entryId: entry.id, message, holdMinutes: HOLD_MINUTES, offeredSlot: { date: slotDate, time: slotTime } }) });
+        res = await r.json().catch(() => null);
+      } catch { res = null; } finally { notifying.current.delete(entry.id); }
+      if (!res?.ok) {
+        toast({ variant: 'destructive', title: 'Not sent', description: res?.error || 'The message didn’t go out. Give them a call instead.' });
         return;
       }
-
-      if (entry.clientPhone || entry.clientEmail) {
-        const svcName =
-          services.find((s: any) => s.id === entry.serviceIds[0])?.name || 'your service';
-        const slotAt = safeDate(`${slotDate}T${slotTime}`);
-        const slotLabel = slotAt.getTime() ? format(slotAt, 'EEE MMM d · h:mm a') : `${slotDate} ${slotTime}`;
-        try {
-          await fetch('/api/notifications/send-waitlist-slot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              clientName: entry.clientName,
-              clientPhone: entry.clientPhone,
-              clientEmail: entry.clientEmail,
-              serviceName: svcName,
-              slotLabel,
-              holdMinutes: HOLD_MINUTES,
-              studioName: tenant?.name || 'Studio',
-            }),
-          });
-        } catch {
-          // Non-fatal — the hold is already recorded.
-        }
-      }
-
-      toast({
-        title: 'Client notified',
-        description: `${entry.clientName} has ${HOLD_MINUTES}m to confirm.`,
-      });
+      toast({ title: 'Client told', description: `${entry.clientName} has ${HOLD_MINUTES} minutes to take it.` });
     },
-    [firestore, collectionPath, services, tenant, toast],
+    [firestore, collectionPath, services, tenant, toast, tenantId],
   );
 
   // ── Book from waitlist — creates a confirmed appointment ──────────────────

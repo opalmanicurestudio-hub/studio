@@ -8,9 +8,9 @@
  * What this fixes vs. the original:
  *  1. "Mark collected (cash/other)" removes the fee from clients.unpaidFees
  *     immediately via arrayRemove — the aging widget clears in real-time.
- *  2. "Charge card on file" calls a Stripe PaymentIntent via your existing
- *     /api/stripe/charge-saved-card route, then on success removes the fee
- *     and logs an income transaction — fully automated.
+ *  2. "Charge card on file" charges the saved card through /api/stripe/charge-card
+ *     (staff only, one charge per fee), then on success removes the fee and
+ *     logs an income transaction — fully automated.
  *  3. Tax Collected is excluded from revenue in the summary panel passed down
  *     from LedgerPage (fix that in financialSummary useMemo there — see comment).
  *  4. Collapsible on mobile — collapsed by default when total === 0.
@@ -52,6 +52,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { auditEntry } from '@/lib/audit';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,7 @@ export interface ClientWithFees {
   email?: string;
   stripeCustomerId?: string;
   stripePaymentMethodId?: string; // default card on file
+  cardOnFile?: { customerId?: string; paymentMethodId?: string; brand?: string; last4?: string }; // where a saved card lives (lib/card-save)
   unpaidFees?: UnpaidFee[];
 }
 
@@ -85,6 +87,7 @@ interface AgingItem {
   feeObj: UnpaidFee;             // full object — used as arrayRemove key
   stripeCustomerId?: string;
   stripePaymentMethodId?: string;
+  hasCard: boolean;              // a saved card the charge route can use (client.cardOnFile)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -121,16 +124,32 @@ const BUCKET_STYLES = [
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
+// A declined card gets a fresh try next time (a new key), even after the dialog closes or the page reloads; an answer
+// that never came keeps the same key, so trying again can't charge twice.
+const declineCounts = new Map<string, number>();
+const declinesOf = (feeKey: string): number => {
+  try { const n = Number(window.localStorage.getItem(`cf-fee-declines-${feeKey}`)); if (n > 0) return n; } catch { /* storage off: this tab's count */ }
+  return declineCounts.get(feeKey) || 0;
+};
+const noteDecline = (feeKey: string) => {
+  const n = declinesOf(feeKey) + 1;
+  declineCounts.set(feeKey, n);
+  try { window.localStorage.setItem(`cf-fee-declines-${feeKey}`, String(n)); } catch { /* this tab's count still holds */ }
+};
+
 // ─── ChargeCardDialog ─────────────────────────────────────────────────────────
 // Confirms the charge before hitting Stripe. Shows the amount, client name,
-// and last 4 (if available). On confirm, calls /api/stripe/charge-saved-card.
+// and last 4 (if available). On confirm, charges the client's saved card through /api/stripe/charge-card (staff only,
+// one charge per fee however often it's tapped); the fee is then cleared and recorded here, so the route records nothing.
 
 const ChargeCardDialog = ({
+  tenantId,
   item,
   open,
   onOpenChange,
   onSuccess,
 }: {
+  tenantId: string;
   item: AgingItem | null;
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -140,38 +159,44 @@ const ChargeCardDialog = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inFlight = React.useRef(false);
   const { toast } = useToast();
+  useEffect(() => { setError(null); }, [item?.feeObj]);
 
   const handleCharge = useCallback(async () => {
-    if (!item) return;
+    if (!item || inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
     setError(null);
 
     try {
-      // ── Call your Stripe charge endpoint ────────────────────────────────────
-      // Adjust the route to match your actual API. Expected request body:
-      //   { customerId, paymentMethodId, amount (cents), description, metadata }
-      // Expected response: { success: boolean; paymentIntentId?: string; error?: string }
-      const res = await fetch('/api/stripe/charge-saved-card', {
+      const fee: any = item.feeObj || {};
+      const feeKey = String(fee.feeId || `${item.clientId}-${Math.round(item.amount * 100)}-${fee.createdAt || fee.appointmentDate || ''}-${item.reason}`).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 110);
+      const declines = declinesOf(feeKey);
+      const res = await fetch('/api/stripe/charge-card', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
-          customerId: item.stripeCustomerId,
-          paymentMethodId: item.stripePaymentMethodId,
-          amount: Math.round(item.amount * 100), // Stripe expects cents
-          description: `Fee collection: ${item.reason} — ${item.clientName}`,
-          metadata: {
-            clientId: item.clientId,
-            reason: item.reason,
-            source: 'clarityflow_ledger_bad_debt',
-          },
+          tenantId,
+          clientId: item.clientId,
+          amountCents: Math.round(item.amount * 100),
+          description: `Fee collected: ${item.reason}`,
+          category: 'Fees',
+          reason: item.reason,
+          mode: 'pos',
+          kind: 'arrears_fee',
+          noLedger: true,
+          idempotencyKey: `owed-fee-${feeKey}${declines ? `-r${declines}` : ''}`,
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Charge failed. Check Stripe dashboard for details.');
+      if (!res.ok || !data?.ok) {
+        // A clear no (a declined card, say): the next try is a new attempt. An answer that never came, or one still
+        // going through, keeps the same key so trying again can't charge twice.
+        if (data && !data.unknown && !['in_progress', 'unconfirmed', 'reload'].includes(String(data.code || ''))) noteDecline(feeKey);
+        setError(data?.error || data?.reason || 'The card wasn’t charged. Please try again.');
         return;
       }
 
@@ -183,14 +208,15 @@ const ChargeCardDialog = ({
         description: `${fmt(item.amount)} collected from ${item.clientName}.`,
       });
     } catch (e: any) {
-      setError(e?.message || 'Network error — charge may not have completed. Check Stripe.');
+      setError('No answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.');
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
-  }, [item, onSuccess, onOpenChange, toast]);
+  }, [item, onSuccess, onOpenChange, toast, tenantId]);
 
   if (!item) return null;
-  const hasCard = !!(item.stripeCustomerId && item.stripePaymentMethodId);
+  const hasCard = item.hasCard;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -328,6 +354,8 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
           // Card-on-file: fee-level fields take priority, then fall back to client-level
           stripeCustomerId: fee.stripeCustomerId || client.stripeCustomerId,
           stripePaymentMethodId: fee.stripePaymentMethodId || client.stripePaymentMethodId,
+          // The charge route uses the client's saved card (cardOnFile), so that's what decides whether Charge is offered.
+          hasCard: !!(client.cardOnFile?.customerId && client.cardOnFile?.paymentMethodId),
         });
       });
     });
@@ -530,7 +558,7 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
                   const isProcessing = processing.has(
                     item.feeObj.feeId || `${item.clientId}-${item.amount}`,
                   );
-                  const hasCard = !!(item.stripeCustomerId && item.stripePaymentMethodId);
+                  const hasCard = item.hasCard;
 
                   return (
                     <div
@@ -619,6 +647,7 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
       </Card>
 
       <ChargeCardDialog
+        tenantId={tenantId}
         item={charging}
         open={!!charging}
         onOpenChange={o => { if (!o) setCharging(null); }}
@@ -660,24 +689,3 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
 //      createdAt: new Date().toISOString(),
 //    };
 //    // Then: arrayUnion(fee) on the client doc.
-//
-// 6. /api/stripe/charge-saved-card (if you don't have it yet):
-//    export async function POST(req: Request) {
-//      const { customerId, paymentMethodId, amount, description, metadata } = await req.json();
-//      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-//      try {
-//        const pi = await stripe.paymentIntents.create({
-//          amount,                    // already in cents
-//          currency: 'usd',
-//          customer: customerId,
-//          payment_method: paymentMethodId,
-//          confirm: true,
-//          off_session: true,
-//          description,
-//          metadata,
-//        });
-//        return Response.json({ success: true, paymentIntentId: pi.id });
-//      } catch (e: any) {
-//        return Response.json({ success: false, error: e.message }, { status: 400 });
-//      }
-//    }

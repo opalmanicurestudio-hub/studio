@@ -185,28 +185,24 @@ export async function uploadPortalImageFromDataUrl(
       } catch (err) { lastErr = err; }
     }
     console.error('[maintenance] photo upload failed on every bucket candidate', Array.from(tried), lastErr);
-    // Show WHICH names were tried — comparing this list against the real
-    // gs:// name in the Firebase console makes the fix self-evident.
-    const triedNote = tried.size > 0 ? ` Tried: ${Array.from(tried).join(', ')}.` : ' No bucket name could be resolved at all.';
-    return { url: null, error: `${describeUploadError(lastErr)}${triedNote}` };
+    console.error('[maintenance] bucket names tried:', Array.from(tried).join(', ') || 'none resolved', '—', setupHint(lastErr));
+    return { url: null, error: PHOTO_NOT_SAVED };
   } catch (err: any) {
-    console.error('[maintenance] photo upload failed', err);
-    return { url: null, error: describeUploadError(err) };
+    console.error('[maintenance] photo upload failed', err, setupHint(err));
+    return { url: null, error: PHOTO_NOT_SAVED };
   }
 }
 
-// Turn opaque storage failures into a message that tells the OWNER what to
-// fix (techs just relay it). The three real-world causes, in order of how
-// often they happen: Storage was never enabled in the Firebase console, the
-// service account lacks storage permission, or the bucket name is wrong.
-function describeUploadError(err: any): string {
+// What the person sees when a photo can't be stored; the cause and the fix go to the server log only.
+const PHOTO_NOT_SAVED = 'Photo not saved. The rest of your update went through. Try adding the photo again later.';
+// The three real-world causes, in order of how often they happen: Storage was never enabled in the Firebase console,
+// the service account lacks storage permission, or the bucket name is wrong.
+// Logged codes: 'bucket-not-found' → set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET to the gs:// name shown in Firebase Storage;
+// 'not-allowed' → give the Firebase service account the Storage Admin role.
+function setupHint(err: any): string {
   const msg = String(err?.message || err || '');
   const code = Number((err as any)?.code) || 0;
-  if (code === 404 || /not exist|notfound|not found/i.test(msg)) {
-    return 'Photo not saved: the server could not find the storage bucket. Fix: in Firebase Console → Storage, copy the bucket name shown at the top (after gs://) and set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET to it in Vercel, then redeploy. If the name is already in the list below, the server\'s service account is on a different Firebase project than the app.';
-  }
-  if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) {
-    return 'Photo not saved: the server is not allowed to write to storage — give the Firebase service account the "Storage Admin" role.';
-  }
-  return 'Photo not saved — the rest of your update went through. (Ask the studio to check the maintenance function logs.)';
+  if (code === 404 || /not exist|notfound|not found/i.test(msg)) return 'bucket-not-found';
+  if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) return 'not-allowed';
+  return 'unknown';
 }

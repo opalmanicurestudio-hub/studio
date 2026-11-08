@@ -33,7 +33,7 @@ async function getAdminStorage() {
         const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
         const privateKey  = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
         if (!projectId || !clientEmail || !privateKey) {
-            throw new Error('Firebase Admin credentials missing - set FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL and FIREBASE_ADMIN_PRIVATE_KEY in Vercel.');
+            { console.error('[completion/upload-file] FIREBASE_ADMIN_* are not set'); throw new Error('Uploads aren’t available right now. Please try again later.'); }
         }
         app = initializeApp({
             credential: cert({ projectId, clientEmail, privateKey }),

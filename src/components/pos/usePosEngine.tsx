@@ -911,7 +911,7 @@ export function usePosEngine() {
       // Return to waiting so they stay in the queue rather than disappearing.
       updateDocumentNonBlocking(
         doc(firestore, 'tenants', tenantId, 'walkIns', w.id),
-        { status: 'waiting', holdExpiresAt: null, notifiedAt: null, notifiedTimestamp: null },
+        { status: 'waiting', holdExpiresAt: null, notifiedAt: null, notifiedTimestamp: null, offeredSlot: null },
       );
       toast({ title: 'Hold expired', description: `${ww.customerName || ww.clientName || 'Guest'} did not claim their slot — returned to the queue.` });
     }

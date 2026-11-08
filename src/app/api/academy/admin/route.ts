@@ -368,7 +368,7 @@ async function handle(req: NextRequest) {
     }
 
     if (b.action === 'upload-create') {
-      if (!muxConfigured()) return NextResponse.json({ ok: false, error: 'Video hosting isn’t connected yet (MUX_TOKEN_ID / MUX_TOKEN_SECRET). Paste a video link for now.' }, { status: 400 });
+      if (!muxConfigured()) return NextResponse.json({ ok: false, error: 'Video hosting isn’t connected yet. Paste a video link for now.' }, { status: 400 });
       const origin = req.headers.get('origin') || req.nextUrl.origin;
       const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
       const up = await muxCreateUpload(origin, course.captionLanguage || 'en');
@@ -438,7 +438,7 @@ async function handle(req: NextRequest) {
 
     // ── ✨ Draft an assignment from the lesson material ──
     if (b.action === 'ai-assignment') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const lessons = await loadLessons(tenantId, courseId);
       const lx = lessons.find((x: any) => x.id === b.lessonId) || null;
       const material = (lx ? [lx] : lessons).map((x: any) => `### ${x.title}\n${x.body || ''}\n${x.transcript ? String(x.transcript).slice(0, 5000) : ''}\n${(x.blocks || []).map((k: any) => k.text || (k.steps || []).map((st: any) => st.text).join('\n') || '').join('\n')}`).join('\n').slice(0, 14000);
@@ -496,7 +496,7 @@ async function handle(req: NextRequest) {
     if (b.action === 'doc-delete') { await db.doc(`tenants/${tenantId}/schoolDocs/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
     if (b.action === 'doc-syllabus') { const sy = await syllabusFrom(tenantId, courseId); return NextResponse.json({ ok: true, ...sy }); }
     if (b.action === 'doc-ai') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const k = DOC_KINDS[b.kind]; if (!k || !k.ask) return NextResponse.json({ ok: false, error: 'Choose a document type.' }, { status: 400 });
       const facts = await schoolFacts(tenantId);
       const r = await askAI({ tier: 'smart', maxTokens: 8000, purpose: 'school-doc', tenantId,
@@ -594,7 +594,7 @@ async function handle(req: NextRequest) {
 
     // ── ✨ Make an interactive: AI builds animated, self-contained HTML (sealed frame for students) ──
     if (b.action === 'ai-interactive') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const request = String(b.request || '').trim().slice(0, 1000);
       if (!request) return NextResponse.json({ ok: false, error: 'Describe what the interactive should show.' }, { status: 400 });
       const course = ((await db.doc(`${base}/${courseId}`).get()).data() as any) || {};
@@ -656,7 +656,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
     }
     // ✨ Hotspot explanations, client cases, video questions — drafts from the lesson material.
     if (b.action === 'ai-hotspots' || b.action === 'ai-cases' || b.action === 'ai-video-questions') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || {};
       const material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 9000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || '').join('\n')}`.slice(0, 14000);
       if (b.action !== 'ai-hotspots' && material.trim().length < 150) return NextResponse.json({ ok: false, error: 'Add lesson text or captions first — drafts use only what’s in the lesson.' }, { status: 400 });
@@ -679,7 +679,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── ✨ Draft a timeline from the lesson ──
     if (b.action === 'ai-timeline') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const lx = b.lessonId ? (((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}) : {};
       const material = `${lx.title || ''}\n${lx.body || ''}\n${lx.transcript ? String(lx.transcript).slice(0, 6000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || '').join('\n')}`.slice(0, 12000);
       if (material.trim().length < 120) return NextResponse.json({ ok: false, error: 'Write (and save) some lesson text first — the timeline is drawn from it.' }, { status: 400 });
@@ -694,7 +694,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── ✨ Fill a game template from the lesson ──
     if (b.action === 'ai-game') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const tpl = ['sort', 'speed', 'memory', 'sequence'].includes(b.template) ? b.template : 'sort';
       const lx = b.lessonId ? (((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}) : {};
       const material = `${lx.title || ''}\n${lx.body || String(b.text || '')}\n${lx.transcript ? String(lx.transcript).slice(0, 6000) : ''}\n${(lx.blocks || []).map((k: any) => k.text || (k.steps || []).map((x: any) => x.text).join('\n') || '').join('\n')}`.slice(0, 12000);
@@ -715,7 +715,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── 📄 Turn a file (PDF or pasted text) into a lesson draft — nothing saved until the owner saves ──
     if (b.action === 'ai-file-lesson') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const text = String(b.text || '').slice(0, 40000);
       const pdf = typeof b.pdf === 'string' && b.pdf.startsWith('data:application/pdf;base64,') ? b.pdf.split(',')[1] : null;
       if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it, or paste the text.' }, { status: 400 });
@@ -772,7 +772,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
       return NextResponse.json({ ok: true, submissions: s.docs.map((d: any) => d.data()).sort((a: any, c: any) => (a.status === 'submitted' ? 0 : 1) - (c.status === 'submitted' ? 0 : 1) || String(a.submittedAt).localeCompare(String(c.submittedAt))) });
     }
     if (b.action === 'submission-ai') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const sub = ((await db.doc(`tenants/${tenantId}/submissions/${String(b.id || '')}`).get()).data() as any) || null;
       if (!sub) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
       if (!String(sub.text || '').trim()) return NextResponse.json({ ok: false, error: 'AI feedback works on written answers — grade photos and files yourself.' }, { status: 400 });
@@ -823,7 +823,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── AI course builder: from an outline or a PDF, as drafts to approve ──
     if (b.action === 'ai-course') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const outline = String(b.outline || '').slice(0, 20000);
       const pdf = typeof b.pdf === 'string' && b.pdf.startsWith('data:application/pdf;base64,') ? b.pdf.split(',')[1] : null;
       if (pdf && pdf.length > 4_300_000) return NextResponse.json({ ok: false, error: 'That PDF is too large (about 3 MB max) — split it or paste the outline.' }, { status: 400 });
@@ -855,7 +855,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── Lesson plans (AI draft — the instructor edits and saves) ──
     if (b.action === 'ai-plan') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId || '')}`).get()).data() as any) || {};
       const src = `${lx.body || ''}\n${lx.transcript ? `Video transcript:\n${lx.transcript}` : ''}\n${(lx.blocks || []).map((x: any) => x.text || (x.steps || []).map((s: any) => s.text).join('\n') || '').join('\n')}`.trim().slice(0, 12000);
       const r = await askAI({ tier: 'smart', maxTokens: 2200, purpose: 'academy-lesson-plan', tenantId,
@@ -886,7 +886,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
     }
     if (b.action === 'qbank-delete') { await db.doc(`tenants/${tenantId}/questionBank/${String(b.id || '')}`).delete(); return NextResponse.json({ ok: true }); }
     if (b.action === 'qbank-ai' || b.action === 'worksheet-ai') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       const lessons = await loadLessons(tenantId, courseId);
       const pick = b.lessonId ? lessons.filter((x: any) => x.id === b.lessonId) : lessons;
       const material = pick.map((x: any) => `### ${x.title}\n${x.body || ''}\n${x.transcript ? String(x.transcript).slice(0, 6000) : ''}\n${(x.blocks || []).map((k: any) => k.text || (k.steps || []).map((s: any) => s.text).join('\n') || '').join('\n')}`).join('\n').slice(0, 16000);
@@ -910,7 +910,7 @@ Reply with the complete HTML only, inside one \`\`\`html code block.${gameRules}
 
     // ── AI drafts for instructors (they review and save — nothing goes to students unapproved) ──
     if (b.action === 'ai-draft') {
-      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'AI isn’t switched on for ClarityFlow yet (ANTHROPIC_API_KEY).' }, { status: 400 });
+      if (!aiConfigured()) return NextResponse.json({ ok: false, error: 'Writing help isn’t available yet.' }, { status: 400 });
       let src = String(b.text || '').trim();
       if (b.lessonId) { const lx = ((await db.doc(`${base}/${courseId}/lessons/${String(b.lessonId)}`).get()).data() as any) || {}; if (lx.transcript) src = `${src}\n\nVideo transcript:\n${lx.transcript}`.trim(); }
       src = src.slice(0, 14000);

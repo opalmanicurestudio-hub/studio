@@ -13,6 +13,8 @@ const esc =(v: any) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;
 
 const BILLS = [1, 5, 10, 20, 50, 100];
 
+const isEmailContact = (c: string) => String(c || '').includes('@');
+
 export type ReceiptLineItem = {
   label:   string;
   amount:  number;
@@ -149,11 +151,12 @@ export function CashCheckout({
           tenantId: selectedTenant?.id || undefined,
         }),
       });
-      if (!res.ok) throw new Error('not sent');
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error('not sent');
       setReceiptSent(true);
       toast({ title: `Receipt sent ${isEmail ? 'by email' : 'by text'}` });
     } catch {
-      toast({ variant: 'destructive', title: 'Could not send receipt' });
+      toast({ variant: 'destructive', title: 'Receipt not sent', description: isEmailContact(receiptContact) ? 'Check the email address and try again.' : 'Check the phone number and try again, or send it by email.' });
     } finally {
       setIsSending(false);
     }

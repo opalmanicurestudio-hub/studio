@@ -34,7 +34,7 @@ export interface AiResult { ok: boolean; text: string; costUsd: number; error?: 
 
 /** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
 export async function askAI(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
-  if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'AI isn’t connected — add ANTHROPIC_API_KEY in Vercel.' };
+  if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'Writing help isn’t available yet.' };
   const model = MODELS[opts.tier || 'fast'];
   // Health privacy mode: nothing about clients goes to the model until the business confirms a signed agreement.
   if (opts.tenantId) { try { const t: any = (await getAdminDb().doc(`tenants/${opts.tenantId}`).get()).data() || {};

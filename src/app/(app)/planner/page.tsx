@@ -531,7 +531,7 @@ function PlannerPageContent() {
         // put in is noise on the busiest screen in the building.
         ? (boothsData || []).filter((b: any) => b && b.isActive !== false)
         : (resourcesData || []);
-    if (can('bookings.all')) cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
+    if (can('bookings.all')) cols = [{ id: 'business', name: 'Business', isBusiness: true }, ...cols];
     return cols;
   }, [activeView, staffColumns, hiddenCols, isMobile, resourcesData, boothsData, role]);
 

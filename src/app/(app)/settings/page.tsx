@@ -61,13 +61,13 @@ import { releaseSentence } from '@/lib/booking-release';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
-  { id: 'wait-time',     label: 'WAIT TIME RECOVERY',  type: 'fixed',      value: 15  },
-  { id: 'tech-adj',      label: 'TECHNICAL REVISION',  type: 'percentage', value: 20  },
-  { id: 'hospitality',   label: 'HOSPITALITY LAPSE',   type: 'fixed',      value: 10  },
-  { id: 'protocol-fail', label: 'PROTOCOL FAILURE',    type: 'percentage', value: 100 },
+  { id: 'wait-time',     label: 'Long wait',           type: 'fixed',      value: 15  },
+  { id: 'tech-adj',      label: 'Fix or redo',         type: 'percentage', value: 20  },
+  { id: 'hospitality',   label: 'Service slip',        type: 'fixed',      value: 10  },
+  { id: 'protocol-fail', label: 'Full refund of the service', type: 'percentage', value: 100 },
 ];
 
-const defaultEscalationPolicy = "1. Autonomy: Staff are authorized to resolve minor hospitality or technical lapses up to their defined threshold. 2. Criteria: Use 'Recovery Presets' for delays > 15m or technical inconsistencies. 3. Immediate Escalation: Mandatory for medical reactions, property damage, or guest hostility. 4. Documentation: Always log specific reasoning in the Checkout Hub when applying adjustments.";
+const defaultEscalationPolicy = "1. Staff can put small problems right themselves, up to their limit. 2. Use a make-good for waits over 15 minutes or small mistakes. 3. Tell a manager right away about any injury or reaction, damage to property, or a client who becomes hostile. 4. Always note the reason when you apply a make-good at checkout.";
 
 const KIOSK_COLOR_LIBRARY = [
   { hex: '#0f172a', name: 'Midnight' },    { hex: '#1e293b', name: 'Slate 800' },
@@ -434,7 +434,7 @@ function SettingsPageImpl() {
   const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => (dirty.current.sched = true, setLocalSchedule)((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
   const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => (dirty.current.kiosk = true, setLocalKioskSchedule)((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
   const handlePolicyChange        = (id: string, updates: any) => (dirty.current.svc.add(id), setServicePolicies)(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
-  const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'NEW PRESET', type: 'fixed', value: 0 }] }));
+  const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'New preset', type: 'fixed', value: 0 }] }));
   const handleRemovePreset        = (id: string) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.filter(p => p.id !== id) }));
   const handleUpdatePreset        = (id: string, updates: Partial<RecoveryPreset>) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.map(p => p.id === id ? { ...p, ...updates } : p) }));
 

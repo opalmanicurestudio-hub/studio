@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
       const authToken  = process.env.TWILIO_AUTH_TOKEN;
       const fromPhone  = process.env.TWILIO_PHONE_NUMBER;
       if (!accountSid || !authToken || !fromPhone) {
-        return NextResponse.json({ ok: false, reason: 'SMS not configured (Twilio credentials missing)' });
+        return NextResponse.json({ ok: false, reason: 'Texting isn’t set up for ClarityFlow yet.' });
       }
       const body = buildSmsText(receipt);
       const res  = await fetch(

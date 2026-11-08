@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
 
   if (!process.env.RETELL_API_KEY) {
     return NextResponse.json(
-      { ok: false, error: 'retell_not_configured', reason: 'RETELL_API_KEY env var is not set.' },
+      { ok: false, error: 'retell_not_configured', reason: 'Calling isn’t available yet.' },
       { status: 500 },
     );
   }

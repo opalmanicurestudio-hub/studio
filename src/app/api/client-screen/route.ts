@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     if (!s?.tenantId || q?.kind !== 'thanks' || q.id !== String(b.requestId || '') || !rc) return NextResponse.json({ ok: false, error: 'This request is no longer open.' }, { status: 409 });
     const t: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {};
     const ctx = { tenantId: s.tenantId, clientId: rc.clientId, serviceId: rc.serviceId, staffId: rc.staffId, addOnIds: rc.addOnIds, appointmentId: rc.appointmentId };
-    const internal = async (path: string, body: any) => { const secret = process.env.CRON_SECRET; if (!secret) return { ok: false, error: 'Booking from the client screen needs the CRON_SECRET setting.' };
+    const internal = async (path: string, body: any) => { const secret = process.env.CRON_SECRET; if (!secret) { console.error('[client-screen] CRON_SECRET is not set'); return { ok: false, error: 'Booking from this screen isn’t available right now. Book them at the front desk.' }; }
       return fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cf-internal': secret }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We could not reach the booking service. Please try again.' })); };
     const post = (path: string, body: any) => fetch(`${req.nextUrl.origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false }));
     const rb = q.rebook || {};

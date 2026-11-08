@@ -63,7 +63,7 @@ const LIFESTYLE_TEMPLATE = [
 ];
 
 const BUSINESS_TEMPLATE = [
-  { name: 'Rent & Facility', bills: [{ title: 'Studio Rent', amount: 0, dueDay: 1 }, { title: 'Business Insurance', amount: 0, dueDay: 20 }, { title: 'Parking / Building Fees', amount: 0, dueDay: 1 }] },
+  { name: 'Rent & Facility', bills: [{ title: 'Rent', amount: 0, dueDay: 1 }, { title: 'Business Insurance', amount: 0, dueDay: 20 }, { title: 'Parking / Building Fees', amount: 0, dueDay: 1 }] },
   { name: 'Utilities', bills: [{ title: 'Electric', amount: 0, dueDay: 20 }, { title: 'Water', amount: 0, dueDay: 20 }, { title: 'Internet', amount: 0, dueDay: 20 }] },
   { name: 'Systems & Admin', bills: [{ title: 'Booking Software', amount: 0, dueDay: 5 }, { title: 'Point of Sale / POS', amount: 0, dueDay: 1 }, { title: 'Marketing / Ads', amount: 0, dueDay: 1 }, { title: 'Accounting Software', amount: 0, dueDay: 1 }, { title: 'Website / Domain', amount: 0, dueDay: 1 }] },
   { name: 'Supplies & Inventory', bills: [{ title: 'Backbar / Product Reserve', amount: 0, dueDay: 1 }, { title: 'Tools & Equipment', amount: 0, dueDay: 1 }, { title: 'Sanitation Supplies', amount: 0, dueDay: 1 }] },
@@ -73,8 +73,8 @@ const BUSINESS_TEMPLATE = [
 const stampIds = (template: typeof LIFESTYLE_TEMPLATE) =>
   template.map((cat) => ({ ...cat, bills: cat.bills.map((bill) => ({ ...bill, id: nanoid() })) }));
 
-const makeDefaultLifestyle = () => ({ id: nanoid(), name: 'Core Lifestyle', isActive: true, categories: stampIds(LIFESTYLE_TEMPLATE) });
-const makeDefaultBusiness  = () => ({ id: nanoid(), name: 'Studio Overhead', isActive: true, categories: stampIds(BUSINESS_TEMPLATE) });
+const makeDefaultLifestyle = () => ({ id: nanoid(), name: 'Personal budget', isActive: true, categories: stampIds(LIFESTYLE_TEMPLATE) });
+const makeDefaultBusiness  = () => ({ id: nanoid(), name: 'Business costs', isActive: true, categories: stampIds(BUSINESS_TEMPLATE) });
 
 const ensureBillIds = (list: any[]) =>
   (list || []).map((p) => ({ ...p, categories: (p.categories || []).map((cat: any) => ({ ...cat, bills: (cat.bills || []).map((bill: any) => ({ ...bill, id: bill.id || nanoid() })) })) }));
