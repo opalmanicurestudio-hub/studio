@@ -1,4 +1,5 @@
 import { cleanGift, giftToken } from '@/lib/gift-orders';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import { cleanDigitalGift } from '@/lib/digital-gift';
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { shippoKeyFor } from '@/lib/retail-secrets';
@@ -217,6 +218,8 @@ async function handleCheckout(req: NextRequest) {
   if (cartEntries.length > 60) return NextResponse.json({ error: 'That cart is too large for one order.' }, { status: 400 });
 
   const db = getAdminDb();
+  // A paused or closed business takes no new orders (lib/tenant-access).
+  { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
 
   // ── The checkout page's own id for this checkout (the same on every retry from that page) ─────────────────────
   // An order paid in full here, with store credit or a gift card (no card payment to wait for), is paid once however

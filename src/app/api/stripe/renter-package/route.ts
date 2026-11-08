@@ -11,6 +11,7 @@
 // renter's public page without embedding anything.
 
 import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
   if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Payments are not configured.' }, { status: 500 });
 
   const db = getAdminDb();
+  { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
   const pSnap = await db.doc(`tenants/${tenantId}/renterPackages/${packageId}`).get();
   const pkg = (pSnap.data() as any) || null;
   if (!pkg || pkg.isActive === false) return NextResponse.json({ ok: false, error: 'That package is not available.' }, { status: 404 });

@@ -8,6 +8,7 @@
 // closes it when cancelled. Nothing touches the studio's money or ledger.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
   if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Payments are not configured.' }, { status: 500 });
 
   const db = getAdminDb();
+  { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
   const mSnap = await db.doc(`tenants/${tenantId}/renterMemberships/${membershipId}`).get();
   const m = (mSnap.data() as any) || null;
   if (!m || m.isActive === false) return NextResponse.json({ ok: false, error: 'That membership is not available.' }, { status: 404 });

@@ -49,6 +49,7 @@
  */
 
 import { hasRealCard } from '@/lib/card-on-file';
+import { accessLockOf } from '@/lib/tenant-access';
 import { internalHeaders } from '@/lib/message-policy';
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
@@ -121,6 +122,8 @@ export async function createBooking(
 ): Promise<CreateBookingResult> {
   const tz = ctx.timezone;
   const tenant = ctx.tenant || {};
+  // A paused or closed business takes no bookings by phone either (lib/tenant-access).
+  if (accessLockOf(tenant).locked) return { ok: false, error: 'closed', spoken: 'I’m sorry, bookings can’t be made right now.' };
   const { service, staffMember } = input;
 
   const startUtc = new Date(input.startISO);

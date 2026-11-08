@@ -9,6 +9,7 @@
 // who gave contact details) · "another service" side by side or straight after. Renters' services can't be part of a
 // group (their money is their own), and every part must be at the same location.
 import { limitPublic } from '@/lib/rate-limit';
+import { closedReply } from '@/lib/tenant-open-server';
 import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -28,6 +29,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId || parts.length < 2) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data();
   if (!tenant) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
+  { const closed = closedReply(tenant); if (closed) return closed; }
   const pol = groupPolicy(tenant);
   if (!pol.enabled) return NextResponse.json({ ok: false, error: 'Group bookings aren’t taken online here. Please send us a message and we’ll set it up for you.' }, { status: 400 });
   const guests = parts.filter((p) => p.guest).length;

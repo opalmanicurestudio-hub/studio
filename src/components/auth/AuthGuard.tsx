@@ -10,7 +10,9 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { useFirestore } from '@/firebase/provider';
 
 
-const protectedRoutes = ['/dashboard', '/planner', '/inventory', '/clients', '/services', '/staff', '/financials', '/reports', '/settings', '/ai-cfo', '/bills', '/consents', '/ledger', '/memberships', '/payday', '/quotes', '/retail', '/walk-in-queue', '/transactions'];
+// Every screen this guard wraps is the team's app (the (app) layout), so every one needs a sign-in; the old short list
+// left most pages (the front desk, Money, Messages, HQ) hanging on a loader after a sign-out instead of going to sign-in.
+const isAppRoute = (pathname: string) => !pathname.startsWith('/book');
 const publicRoutes = ['/login', '/signup', '/'];
 const subscriptionRoute = '/subscriptions';
 
@@ -43,7 +45,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
     if (isAuthDataLoading) return;
 
-    const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
+    const isProtectedRoute = isAppRoute(pathname);
     const isPublicAuthRoute = pathname === '/login' || pathname === '/signup';
     const isSubscriptionRoute = pathname.startsWith(subscriptionRoute);
     
@@ -71,7 +73,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   }, [user, isUserLoading, isOwner, isStaff, isOwnerTenantLoading, isStaffDirectoryLoading, router, pathname, ownerTenants]);
 
   const isLoading = isUserLoading || isOwnerTenantLoading || (user && !isOwner && isStaffDirectoryLoading);
-  const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
+  const isProtectedRoute = isAppRoute(pathname);
 
   // Show loader only on protected routes while we figure out auth/subscription status
   if (isLoading && isProtectedRoute) {

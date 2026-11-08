@@ -84,6 +84,7 @@
 // version of the kiosk did, and it silently bypassed the entire queue.
 
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -1039,6 +1040,8 @@ export async function POST(req: NextRequest) {
     if (!['join', 'lookup', 'options', 'complete', 'notify', 'checkin', 'booth-arrived', 'code', 'event'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
+    // A paused or closed business takes no one new into the line (lib/tenant-access).
+    if (action === 'join') { const closed = await closedReplyFor(getAdminDb(), tenantId); if (closed) return closed; }
 
     const db = getAdminDb();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();

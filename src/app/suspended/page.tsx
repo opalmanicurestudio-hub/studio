@@ -1,77 +1,51 @@
 'use client';
-
-import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+// src/app/suspended/page.tsx — WHERE A LOCKED BUSINESS'S TEAM LANDS (components/auth/AccessGate, lib/tenant-access).
+// Plain words for each reason, one way forward: billing problems go to Your ClarityFlow to fix them; a pause by
+// ClarityFlow says where to write. Sign out is always here, so someone else can use this device.
+import { Suspense, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { getAuth, signOut } from 'firebase/auth';
 
-// ─── /app/suspended/page.tsx ───────────────────────────────────────────────────
-// Shown when middleware locks a tenant out due to subscription issues.
+const SUPPORT = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || '';
 
-const REASON_COPY: Record<string, { title: string; body: string; cta: string }> = {
+const COPY: Record<string, { title: string; body: string; fix?: { href: string; label: string } }> = {
   cancelled: {
-    title: 'Subscription Cancelled',
-    body:  'Your ClarityFlow subscription has ended. Reactivate anytime to restore full access — your data is preserved.',
-    cta:   'Reactivate Subscription',
+    title: 'Your subscription has ended',
+    body: 'Your business’s information is kept safe. Start a plan again to open the app and take bookings.',
+    fix: { href: '/subscriptions', label: 'Choose a plan' },
   },
   grace_expired: {
-    title: 'Payment Past Due',
-    body:  'Your grace period has ended. Please update your payment method to restore access to your studio.',
-    cta:   'Update Payment Method',
+    title: 'Your payment didn’t go through',
+    body: 'The app is closed until the card on file is updated. Your business’s information is kept safe.',
+    fix: { href: '/subscriptions', label: 'Update billing' },
   },
-  past_due: {
-    title: 'Payment Required',
-    body:  'We were unable to process your last payment. Update your billing info to continue.',
-    cta:   'Update Payment Method',
-  },
-  locked: {
-    title: 'Account Suspended',
-    body:  'Your account has been suspended. Please contact support or update your billing information.',
-    cta:   'Go to Billing',
+  paused: {
+    title: 'This account is paused',
+    body: 'ClarityFlow has paused access to this business for now. Its information is kept safe, and online booking and the shop are closed while it’s paused.',
   },
 };
 
-function SuspendedContent() {
-  const params = useSearchParams();
-  const reason = params.get('reason') || 'locked';
-  const copy   = REASON_COPY[reason] || REASON_COPY.locked;
-
+function Suspended() {
+  const reason = useSearchParams().get('reason') || 'paused';
+  const copy = COPY[reason] || COPY.paused;
+  const router = useRouter();
+  const [leaving, setLeaving] = useState(false);
+  const leave = async () => { setLeaving(true); await signOut(getAuth()).catch(() => {}); router.replace('/login'); };
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: '2rem' }}>
-      <div style={{ maxWidth: '420px', width: '100%', background: '#fff', border: '2px solid #e2e8f0', borderRadius: '24px', padding: '3rem 2.5rem', textAlign: 'center', boxShadow: '0 4px 32px rgba(0,0,0,0.06)' }}>
-        <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-          <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path stroke="#dc2626" strokeWidth="2" strokeLinecap="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-        </div>
-
-        <div style={{ fontSize: '10px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.15em', color: '#94a3b8', marginBottom: '0.5rem' }}>
-          ClarityFlow
-        </div>
-
-        <h1 style={{ fontSize: '22px', fontWeight: 900, color: '#0f172a', margin: '0 0 1rem', textTransform: 'uppercase', letterSpacing: '-0.02em' }}>
-          {copy.title}
-        </h1>
-
-        <p style={{ fontSize: '14px', color: '#64748b', lineHeight: 1.6, margin: '0 0 2rem' }}>
-          {copy.body}
-        </p>
-
-        <Link href="/settings/billing"
-          style={{ display: 'block', width: '100%', padding: '14px', background: '#0f172a', color: '#fff', borderRadius: '12px', fontWeight: 900, fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.08em', textDecoration: 'none', marginBottom: '0.75rem' }}>
-          {copy.cta}
-        </Link>
-
-        <a href="mailto:support@clarityflow.app"
-          style={{ display: 'block', fontSize: '12px', color: '#94a3b8', textDecoration: 'none', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Contact Support
-        </a>
+    <main style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f7', padding: 20, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: '#16171a' }}>
+      <div style={{ width: '100%', maxWidth: 440, background: '#ffffff', border: '1px solid #ececee', borderRadius: 24, padding: '32px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <span style={{ fontSize: 14, color: '#6d7075' }}>ClarityFlow</span>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em' }}>{copy.title}</h1>
+        <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.5, color: '#4a4c52' }}>{copy.body}</p>
+        {copy.fix && <Link href={copy.fix.href} style={{ minHeight: 48, borderRadius: 14, background: '#16171a', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, textDecoration: 'none', marginTop: 6 }}>{copy.fix.label}</Link>}
+        {SUPPORT && <p style={{ margin: 0, fontSize: 14, color: '#4a4c52' }}>Questions? Email <a href={`mailto:${SUPPORT}`} style={{ color: '#16171a', fontWeight: 600 }}>{SUPPORT}</a></p>}
+        <button type="button" onClick={leave} disabled={leaving} style={{ minHeight: 44, border: 0, background: 'transparent', color: '#6d7075', fontSize: 14, textDecoration: 'underline', textUnderlineOffset: 4, cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}>{leaving ? 'Signing out…' : 'Sign out'}</button>
       </div>
-    </div>
+    </main>
   );
 }
 
 export default function SuspendedPage() {
-  return (
-    <Suspense>
-      <SuspendedContent />
-    </Suspense>
-  );
+  return <Suspense><Suspended /></Suspense>;
 }

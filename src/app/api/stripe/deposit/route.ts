@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReply } from '@/lib/tenant-open-server';
 import { balanceDueWith } from '@/lib/balance-with-deposit';
 import Stripe from 'stripe';
 
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
+    { const closed = closedReply(tenantSnap.data()); if (closed) return closed; }
     // ── Whose account collects this? ────────────────────────────────────────
     // For an independent provider's booking the money must land on THEIR
     // connected account, never the studio's. The account id is resolved here

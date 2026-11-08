@@ -23,6 +23,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReply, closedReplyFor } from '@/lib/tenant-open-server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -486,6 +487,7 @@ export async function POST(req: NextRequest) {
       }
       const dbp = getAdminDb();
       const tSnap = await dbp.doc(`tenants/${tid}`).get();
+      { const closed = closedReply(tSnap.data()); if (closed) return closed; }
       const raw = (tSnap.data() as any)?.bookingPageSettings?.dayPassPacks;
       const packs = Array.isArray(raw) ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0) : [];
       const pack = packs[Number(packIndex)];
@@ -539,6 +541,7 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getAdminDb();
+    { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
     const boothSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
     if (!boothSnap.exists) return NextResponse.json({ ok: false, error: 'Space not found.' }, { status: 404 });
     const booth = boothSnap.data() as any;

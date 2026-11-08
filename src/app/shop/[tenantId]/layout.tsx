@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { accessLockOf, CLOSED_FOR_CLIENTS } from '@/lib/tenant-access';
 import React from 'react';
 
 import { sanitizeTheme, themeToCss } from '@/lib/shop-theme';
@@ -56,7 +57,9 @@ async function loadShop(tenantId: string) {
       // The shop's own domain when it has one, the same address customers' links use.
       origin: seoOrigin(data),
       brand: brandOf(data) as ShopBrand,
-      announcement: String(rs.shopAnnouncement || '').trim().slice(0, 300),
+      // A paused or closed business (lib/tenant-access) takes no orders: the shop says so along its top (checkout refuses
+      // too), and customers can still see and track the orders they've already placed.
+      announcement: accessLockOf(data).locked ? CLOSED_FOR_CLIENTS : String(rs.shopAnnouncement || '').trim().slice(0, 300),
       address: data?.address && typeof data.address === 'object' ? [data.address.street || data.address.line1, data.address.city, data.address.state || data.address.region].filter(Boolean).join(', ') : '',
     };
   } catch {

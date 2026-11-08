@@ -6,6 +6,7 @@
 //        change  { tenantId, orderId, k, sendAt? | now? | recipientEmail? | recipientPhone? } → before it's sent
 //   Chip in (lib/gift-groups): GET ?group&k|o; POST group-start, chip, group-send, group-cancel, group-move
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { shopInfo, startGiftOrder, confirmGiftOrder, orderView, changeOrder, orderKey, findMyCards, walletView, payDepositWithGiftCard } from '@/lib/gift-shop';
@@ -41,6 +42,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = b.tenantId; if (!okT(tenantId)) return j({ ok: false, error: 'Unknown business.' }, 400);
   const db = getAdminDb(); const action = String(b.action || '');
+  // A paused or closed business sells no gift cards and takes no deposits (lib/tenant-access); finding your own cards still works.
+  if (['start', 'deposit', 'bulk-request', 'bulk-pay', 'group-start', 'chip'].includes(action)) { const closed = await closedReplyFor(db, String(tenantId)); if (closed) return closed; }
   if (action === 'start') {
     const limited = await limitPublic(req, 'gift_shop', tenantId, { perHour: 20, perDay: 60 }); if (limited) return limited;
     try { const r = await startGiftOrder(db, tenantId, b, req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }

@@ -81,6 +81,7 @@
 // the page being behind, and the fix is to pass that page the same data.
 
 import { extraMinutesFor, extraChargeCents } from '@/lib/client-timing';
+import { closedReply } from '@/lib/tenant-open-server';
 import { limitPublic } from '@/lib/rate-limit';
 import { recordConsent } from '@/lib/consent';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
@@ -255,6 +256,8 @@ export async function POST(req: NextRequest) {
     const services = svcListSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const tenant = ((tenantSnap.data() as any) || {}) as any;
+    // A paused or closed business takes no new bookings (lib/tenant-access).
+    { const closed = closedReply(tenant); if (closed) return closed; }
     // Photos only from this business's own photo upload (api/booking/photo): the team opens them, so never another site.
     // Any left out are counted, so the client is told (the booking itself goes ahead).
     if (inspoIn.length || nowIn) {

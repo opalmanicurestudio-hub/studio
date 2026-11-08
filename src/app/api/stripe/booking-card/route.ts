@@ -20,6 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReply } from '@/lib/tenant-open-server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
     const tenant = tenantSnap.data() as any;
+    { const closed = closedReply(tenant); if (closed) return closed; }
     /* WHO'S ASKING: only the booking that was just made can put a card on its client — the request must carry that
      * booking's own id and its private visit token (both come back from /api/appointments/book), the booking must be
      * this client's, ask for a card on file, and still be live. Knowing a business id and a client id is not enough. */

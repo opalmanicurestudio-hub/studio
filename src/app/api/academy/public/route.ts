@@ -13,6 +13,7 @@
 //   progress  { tenantId, token, courseId, lessonId, done }
 
 import { saveSignedPdf, signedPdfLink, SIGNATURE_OK } from '@/lib/signed-pdf';
+import { closedReply } from '@/lib/tenant-open-server';
 import { notifyApplicant, pickOfferedTime, requestReschedule } from '@/lib/academy-applicant-comms';
 import { respondOffer } from '@/lib/academy-decisions';
 import { getIdentity } from '@/lib/school-identity';
@@ -91,6 +92,8 @@ export async function POST(req: NextRequest) {
   const tSnap = await db.doc(`tenants/${tenantId}`).get();
   if (!tSnap.exists) return NextResponse.json({ ok: false, error: 'Academy not found.' }, { status: 404 });
   const t = tSnap.data() as any;
+  // A paused or closed business takes no new enrollments or payments (lib/tenant-access); students keep their courses.
+  if (['checkout', 'apply', 'app-pay', 'tuition-pay'].includes(String(b.action || ''))) { const closed = closedReply(t); if (closed) return closed; }
   if (t.modules?.academy === false) return NextResponse.json({ ok: false, error: 'This academy isn’t open.' }, { status: 404 });
   const ident = await getIdentity(tenantId, t, { forPublic: true });
   const brand = { name: ident.displayName || t.name || 'Academy', color: t.bookingPageSettings?.primaryColor || '#1c1917', logoUrl: ident.logoUrl };

@@ -11,6 +11,7 @@ import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/shared/AppSidebar';
 import { AuthGuard } from '@/components/auth/AuthGuard';
+import { AccessGate } from '@/components/auth/AccessGate';
 import { TenantProvider } from '@/context/TenantContext';
 import { LocationProvider } from '@/context/LocationContext';
 import { usePathname } from 'next/navigation';
@@ -81,7 +82,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (isPrintSheet) {
     return (
       <AuthGuard>
-        <TenantProvider><main id="main">{children}</main></TenantProvider>
+        <TenantProvider><AccessGate><main id="main">{children}</main></AccessGate></TenantProvider>
       </AuthGuard>
     );
   }
@@ -107,6 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <AuthGuard>
       <a href="#main" className="skip-link">Skip to content</a>
       <TenantProvider>
+       <AccessGate>
         <StudioTheme />
         <StaffPayOverlay />
         <IdleSignOut />
@@ -119,6 +121,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <KlairHost />
           </SidebarProvider>
         </LocationProvider>
+       </AccessGate>
       </TenantProvider>
     </AuthGuard>
   );

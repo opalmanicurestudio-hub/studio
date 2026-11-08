@@ -16,6 +16,7 @@
  */
 
 import { logAuditAdmin } from '@/lib/audit';
+import { closedReply } from '@/lib/tenant-open-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
     // tenant doc, which the kiosk already needs anyway.
     let kioskTenant: any = {};
     try { kioskTenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; } catch { /* falls back to UTC */ }
+    { const closed = closedReply(kioskTenant); if (closed) return closed; }
     const today = todayIn(tenantTimeZone(kioskTenant));
 
     // ── 'recognize': who is this contact to the business? ─────────────

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { closedReply } from '@/lib/tenant-open-server';
 import { balanceDueWith } from '@/lib/balance-with-deposit';
 import Stripe from 'stripe';
 
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
 
+    { const closed = closedReply(tenantSnap.data()); if (closed) return closed; }
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
       return NextResponse.json(

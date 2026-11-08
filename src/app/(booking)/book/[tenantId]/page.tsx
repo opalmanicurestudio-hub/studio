@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { BookingRewards } from '@/components/loyalty/BookingRewards';
+import { accessLockOf } from '@/lib/tenant-access';
 import { giftCentsFor } from '@/lib/gift-visit';
 import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { channelFrom, catSlug } from '@/lib/share-links';
@@ -522,6 +523,22 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         <span className="cf-wait" style={{ background: look?.accent || '#16171a' }} />
         <span className="sr-only">Loading</span>
       </div>
+    );
+  }
+
+  // A paused or closed business (lib/tenant-access) takes no bookings here. Clients aren't told why; the business's
+  // phone, when it has one, is the way to reach them.
+  if (accessLockOf(tenant).locked) {
+    return (
+      <PublicFrame accent={brandColor(tenant)} mood={studioPage(tenant).mood}>
+        <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
+          <div className="pub-card pub-rise space-y-3 p-7 text-center">
+            <h1 className="text-[26px] leading-tight">{tenant?.name || 'Online booking'}</h1>
+            <p className="text-[15px] text-stone-600">Online booking isn’t open right now.</p>
+            {tenant?.phone && <a href={`tel:${String(tenant.phone).replace(/[^\d+]/g, '')}`} className="inline-flex min-h-11 items-center text-[15px] underline underline-offset-4">{tenant.phone}</a>}
+          </div>
+        </main>
+      </PublicFrame>
     );
   }
 
