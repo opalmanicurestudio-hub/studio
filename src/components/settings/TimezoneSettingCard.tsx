@@ -1,172 +1,86 @@
 'use client';
-
-/**
- * TimezoneSettingCard — v1
- *
- * Sets the `timezone` field on the tenant doc — the field the AI
- * receptionist routes (and any future server-side scheduling logic) use to
- * compute business hours and speak appointment times correctly. Without it,
- * the server defaults to America/New_York, which is right for Opal but
- * wrong for any tenant outside Eastern time — so this belongs on the
- * settings page and in tenant onboarding.
- *
- * Self-contained: give it firestore, tenantId, and the current tenant doc
- * (for the initial value); it writes { timezone } back with merge. Shows a
- * live clock in the selected zone so the person configuring it can verify
- * at a glance ("does that say the time on your wall right now?").
- *
- * Client-side code (QuickBookForm etc.) is unaffected — it runs in the
- * browser and is already implicitly in the salon's local time. This field
- * is for code that runs on servers in UTC.
- *
- * Usage on the settings page:
- *   <TimezoneSettingCard firestore={firestore} tenantId={tenantId} tenant={tenant} />
- */
-
+// src/components/settings/TimezoneSettingCard.tsx — THE BUSINESS'S TIME ZONE (tenant.timezone). Reminders, booking
+// times, reports and the phone receptionist all run on it (lib/tenant-time). Sign-up saves the owner's own zone from
+// their device, which can be anywhere, so the list always includes the zone that's saved and the one this device is in.
+// Saving also moves the main location's zone along with it when that location was on the old zone (or never had one).
 import React from 'react';
-import { doc, setDoc } from 'firebase/firestore';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Globe, CheckCircle2, Loader, Clock } from 'lucide-react';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { Loader, Clock, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { isValidTimeZone } from '@/lib/tenant-time';
 
-const US_TIMEZONES = [
+const US_ZONES: { value: string; label: string }[] = [
   { value: 'America/New_York', label: 'Eastern (New York)' },
   { value: 'America/Chicago', label: 'Central (Chicago)' },
   { value: 'America/Denver', label: 'Mountain (Denver)' },
-  { value: 'America/Phoenix', label: 'Arizona (Phoenix — no DST)' },
+  { value: 'America/Phoenix', label: 'Arizona (Phoenix, no daylight saving)' },
   { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
   { value: 'America/Anchorage', label: 'Alaska (Anchorage)' },
   { value: 'Pacific/Honolulu', label: 'Hawaii (Honolulu)' },
   { value: 'America/Puerto_Rico', label: 'Atlantic (Puerto Rico)' },
-] as const;
-
-const DEFAULT_TIMEZONE = 'America/New_York';
+];
+const OLD_DEFAULT = 'America/New_York';
+const nameOf = (tz: string) => US_ZONES.find((z) => z.value === tz)?.label || tz.replace(/_/g, ' ').replace(/\//g, ' / ');
 
 function nowIn(timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      weekday: 'short',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    }).format(new Date());
-  } catch {
-    return '';
-  }
+  try { return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date()); }
+  catch { return ''; }
 }
+const deviceZone = () => { try { const z = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; return isValidTimeZone(z) ? z : ''; } catch { return ''; } };
 
-export function TimezoneSettingCard({
-  firestore,
-  tenantId,
-  tenant,
-  className,
-}: {
-  firestore: any;
-  tenantId: string;
-  tenant: any;
-  className?: string;
-}) {
+export function TimezoneSettingCard({ firestore, tenantId, tenant, className }: { firestore: any; tenantId: string; tenant: any; className?: string }) {
   const { toast } = useToast();
-  const savedValue: string = tenant?.timezone || '';
-  const [selected, setSelected] = React.useState<string>(
-    savedValue || DEFAULT_TIMEZONE,
-  );
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [preview, setPreview] = React.useState(() => nowIn(savedValue || DEFAULT_TIMEZONE));
+  const saved: string = isValidTimeZone(tenant?.timezone) ? String(tenant.timezone) : '';
+  const here = React.useMemo(deviceZone, []);
+  const [selected, setSelected] = React.useState<string>(saved || here || OLD_DEFAULT);
+  const [saving, setSaving] = React.useState(false);
+  const [preview, setPreview] = React.useState(() => nowIn(saved || here || OLD_DEFAULT));
 
-  // Keep local state in sync if the tenant doc changes underneath us
-  React.useEffect(() => {
-    if (tenant?.timezone) setSelected(tenant.timezone);
-  }, [tenant?.timezone]);
-
-  // Live clock preview, ticking every 30s
+  React.useEffect(() => { if (saved) setSelected(saved); }, [saved]);
   React.useEffect(() => {
     setPreview(nowIn(selected));
-    const interval = setInterval(() => setPreview(nowIn(selected)), 30_000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setPreview(nowIn(selected)), 30_000);
+    return () => clearInterval(t);
   }, [selected]);
 
-  const isDirty = selected !== savedValue;
-  const isUnset = !savedValue;
+  // The saved zone and this device's zone are always choices, even when they aren't in the US list.
+  const options = React.useMemo(() => {
+    const extra = [saved, here, selected].filter((z, i, a) => z && isValidTimeZone(z) && a.indexOf(z) === i && !US_ZONES.some((u) => u.value === z));
+    return [...extra.map((z) => ({ value: z, label: z === here ? `${nameOf(z)} (this device)` : nameOf(z) })), ...US_ZONES];
+  }, [saved, here, selected]);
 
-  const handleSave = async () => {
-    if (!firestore || !tenantId) return;
-    setIsSaving(true);
+  const dirty = selected !== saved;
+
+  const save = async () => {
+    if (!firestore || !tenantId || !isValidTimeZone(selected)) return;
+    setSaving(true);
     try {
-      await setDoc(
-        doc(firestore, 'tenants', tenantId),
-        { timezone: selected },
-        { merge: true },
-      );
-      toast({ title: 'Timezone saved', description: `Studio time set to ${US_TIMEZONES.find(t => t.value === selected)?.label || selected}.` });
+      await setDoc(doc(firestore, 'tenants', tenantId), { timezone: selected }, { merge: true });
+      // The main location follows when it was on the old zone, or never had one of its own.
+      try {
+        const lref = doc(firestore, `tenants/${tenantId}/locations/primary`);
+        const l: any = (await getDoc(lref)).data();
+        if (l && (!l.timezone || l.timezone === (saved || OLD_DEFAULT))) await setDoc(lref, { timezone: selected }, { merge: true });
+      } catch { /* the business's own zone is saved; a location can be changed in Locations */ }
+      toast({ title: 'Time zone saved', description: nameOf(selected) });
     } catch {
-      toast({ variant: 'destructive', title: 'Could not save timezone' });
-    } finally {
-      setIsSaving(false);
-    }
+      toast({ variant: 'destructive', title: 'That didn’t save', description: 'Please try again.' });
+    } finally { setSaving(false); }
   };
 
   return (
-    <div className={cn('rounded-2xl border bg-card overflow-hidden shadow-sm', className)}>
-      <div className="p-4 border-b flex items-start gap-3">
-        <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-          <Globe className="w-4 h-4 text-blue-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground">Studio timezone</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Used by the AI receptionist and automations to compute business
-            hours and speak appointment times correctly.
-          </p>
-        </div>
-        {isUnset && (
-          <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full shrink-0">
-            Not set — using Eastern
-          </span>
-        )}
-      </div>
-
-      <div className="p-4 space-y-3">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="w-full h-10 rounded-lg border text-xs px-3 bg-card"
-        >
-          {US_TIMEZONES.map((tz) => (
-            <option key={tz.value} value={tz.value}>
-              {tz.label}
-            </option>
-          ))}
+    <div className={className} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <label className="flex flex-col gap-1.5 text-[14px] font-medium">Time zone
+        <select value={selected} onChange={(e) => setSelected(e.target.value)} className="h-11 w-full rounded-xl border border-border bg-card px-3 text-[15px]">
+          {options.map((z) => <option key={z.value} value={z.value}>{z.label}</option>)}
         </select>
-
-        <div className="rounded-lg bg-muted/60 border px-3 py-2 flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-          <p className="text-xs text-foreground/80">
-            Right now in this zone it's{' '}
-            <span className="font-medium text-foreground">{preview}</span>
-            <span className="text-muted-foreground"> — should match the clock on your wall.</span>
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between gap-3">
-          {!isDirty && savedValue ? (
-            <p className="text-[11px] text-green-600 font-medium flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Saved
-            </p>
-          ) : (
-            <span />
-          )}
-          <Button
-            size="sm"
-            className="h-9 text-xs"
-            onClick={handleSave}
-            disabled={isSaving || (!isDirty && !!savedValue)}
-          >
-            {isSaving ? <Loader className="w-3.5 h-3.5 animate-spin" /> : 'Save timezone'}
-          </Button>
-        </div>
+      </label>
+      <p className="flex items-center gap-2 text-[13.5px] text-muted-foreground"><Clock className="h-4 w-4 shrink-0" aria-hidden /> It’s {preview} there now. That should match the clock where you are.</p>
+      <div className="flex items-center justify-between gap-3">
+        {!dirty && saved ? <span className="flex items-center gap-1 text-[13.5px]" style={{ color: 'var(--ok-ink)' }}><Check className="h-4 w-4" aria-hidden /> Saved</span> : <span />}
+        <button type="button" onClick={save} disabled={saving || (!dirty && !!saved)} className="inline-flex h-11 items-center gap-2 rounded-full bg-foreground px-5 text-[14px] font-semibold text-background disabled:opacity-50">
+          {saving && <Loader className="h-4 w-4 animate-spin" aria-hidden />}Save time zone
+        </button>
       </div>
     </div>
   );

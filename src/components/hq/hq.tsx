@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { getAuth } from 'firebase/auth';
+import { getAuth, sendEmailVerification } from 'firebase/auth';
 import { AuthBackdrop, Wordmark } from '@/components/auth/AuthBackdrop';
 
 export async function hq(body: any) {
@@ -35,10 +35,45 @@ export const rate = (n?: number | null) => (n == null ? '—' : `${Math.round(n 
 export function useHqMe() {
   const [me, setMe] = useState<any>(null);
   useEffect(() => {
-    const unsub = getAuth().onAuthStateChanged(async (u) => { if (u) setMe(await hq({ action: 'whoami' })); });
+    const unsub = getAuth().onAuthStateChanged(async (u) => {
+      if (!u) return;
+      const d = await hq({ action: 'whoami' });
+      // The "not verified yet" note belongs to one check only; anyone who's through (or not on the list) starts clean.
+      if (!d?.verifyEmail) { try { sessionStorage.removeItem('cf_hq_checked'); } catch { /* private window */ } }
+      setMe(d);
+    });
     return () => unsub();
   }, []);
   return me;
+}
+
+/** HQ trusts an email only once it's verified (lib/platform-admin): one email to send, then back here. */
+function VerifyEmailCard({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'checking' | 'error' | 'notYet' | 'tooMany'>(() => { try { if (sessionStorage.getItem('cf_hq_checked') === '1') { sessionStorage.removeItem('cf_hq_checked'); return 'notYet'; } } catch { /* private window */ } return 'idle'; });
+  const send = async () => {
+    const u = getAuth().currentUser; if (!u) return;
+    setState('sending');
+    try { await sendEmailVerification(u); setState('sent'); } catch (e: any) { setState(String(e?.code || '').includes('too-many-requests') ? 'tooMany' : 'error'); }
+  };
+  const done = async () => {
+    const u = getAuth().currentUser; if (!u) return;
+    setState('checking');
+    try { await u.reload(); await u.getIdToken(true); try { sessionStorage.setItem('cf_hq_checked', '1'); } catch { /* private window */ } window.location.reload(); } catch { setState('error'); }
+  };
+  return (
+    <div className="glass mx-auto max-w-lg space-y-3 rounded-[2rem] p-6">
+      <h2 className="text-xl font-semibold">Verify your email to open HQ</h2>
+      <p className="text-foreground/80">HQ opens only for a verified email. We’ll send a link to <span className="font-semibold">{email}</span>. Open it, then come back and press Done.</p>
+      {state === 'error' && <p role="alert" className="text-[14px]" style={{ color: 'var(--warn-ink, #8a4b0b)' }}>That didn’t work. Please try again in a minute.</p>}
+      {state === 'sent' && <p className="text-[14px] text-foreground/80">Sent. Check your inbox (and spam).</p>}
+      {state === 'tooMany' && <p role="alert" className="text-[14px]" style={{ color: 'var(--warn-ink, #8a4b0b)' }}>A few links went out already. Wait a few minutes, check your inbox and spam, then try again.</p>}
+      {state === 'notYet' && <p role="status" className="text-[14px]" style={{ color: 'var(--warn-ink, #8a4b0b)' }}>Your email isn’t verified yet. Open the link in the email first, then press Done.</p>}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={send} disabled={state === 'sending'} className="inline-flex h-11 items-center rounded-full bg-foreground px-5 text-[14px] font-semibold text-background disabled:opacity-60">{state === 'sending' ? 'Sending…' : state === 'sent' ? 'Send again' : 'Send the link'}</button>
+        <button type="button" onClick={done} disabled={state === 'checking'} className="inline-flex h-11 items-center rounded-full border border-foreground/20 px-5 text-[14px] font-semibold disabled:opacity-60">{state === 'checking' ? 'Checking…' : 'Done'}</button>
+      </div>
+    </div>
+  );
 }
 
 const TABS: [string, string, string][] = [
@@ -73,7 +108,7 @@ export function HqShell({ children, title, sub, action }: { children: React.Reac
               {action}
             </div>
           )}
-          {children}
+          {me?.verifyEmail ? <VerifyEmailCard email={me.email} /> : children}
         </main>
       </div>
     </div>

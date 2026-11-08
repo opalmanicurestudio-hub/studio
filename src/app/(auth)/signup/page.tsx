@@ -85,7 +85,8 @@ function Signup() {
     const tick = window.setInterval(() => setBuilding((x) => (x >= 0 && x < 2 ? x + 1 : x)), 900);
     try {
       const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password }) });
+        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password,
+          timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })() }) });
       const d = await r.json().catch(() => null);
       window.clearInterval(tick);
       if (!d?.ok || !d.token) throw new Error(d?.error || 'Something went wrong creating your account. Try again.');

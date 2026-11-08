@@ -35,7 +35,8 @@ export function useIsHqAdmin() {
         const tk = await u.getIdToken();
         const r = await fetch('/api/hq', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` }, body: JSON.stringify({ action: 'whoami' }) });
         const d = await r.json().catch(() => null);
-        if (alive) setYes(!!d?.admin);
+        // Someone on the HQ list who hasn't verified their email still sees the way in; HQ asks them to verify there.
+        if (alive) setYes(!!d?.admin || !!d?.verifyEmail);
         try { if (d?.admin) sessionStorage.setItem('cf_hq', '1'); } catch { /* ignore */ }
       } catch { /* not an admin */ }
     });

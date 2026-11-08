@@ -30,6 +30,7 @@ import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { signupIsOpen } from '@/lib/platform-admin';
 import { CATEGORY_FOR, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { randomBytes } from 'crypto';
+import { isValidTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,6 +53,8 @@ export async function POST(req: NextRequest) {
   const businessName = String(b.businessName || '').trim().slice(0, 80);
   const type = TYPES.includes(b.type) ? b.type : 'other';
   const teamSize = b.teamSize === 'team' ? 'team' : 'solo';
+  // The owner's own time zone, from the device they signed up on; New York only when it can't be told. Settings changes it.
+  const timezone = isValidTimeZone(String(b.timezone || '')) ? String(b.timezone).trim() : 'America/New_York';
   const tools = (Array.isArray(b.tools) ? b.tools : []).map(String).filter((t: string) => TOOL_BY_ID[t as ToolId]) as ToolId[];
   const code = cleanCode(b.invite);
 
@@ -116,7 +119,7 @@ export async function POST(req: NextRequest) {
     });
     batch.set(db.doc(`tenants/${tenantId}`), {
       id: tenantId, name: businessName, userId, category: CATEGORY_FOR[type] || 'other',
-      businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools,
+      businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools, timezone,
       subscriptionStatus: 'inactive', subscriptionTier: 'none',
       tmhr: 50, employerTaxBurdenPct: 10, createdAt: at, onboardingComplete: false,
       maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25, defaultCancellationMode: 'matrix',
@@ -149,7 +152,7 @@ export async function POST(req: NextRequest) {
     }
     // The business's main location — created once, here on the server (never from a browser that might not have
     // loaded the list yet). Name and time zone can be changed in Settings → Locations.
-    batch.set(db.doc(`tenants/${tenantId}/locations/primary`), { tenantId, name: businessName || 'Main location', timezone: String((b as any)?.timezone || 'America/New_York'), isActive: true, createdAt: at, updatedAt: at });
+    batch.set(db.doc(`tenants/${tenantId}/locations/primary`), { tenantId, name: businessName || 'Main location', timezone, isActive: true, createdAt: at, updatedAt: at });
     batch.set(db.doc(`tenants/${tenantId}`), { primaryLocationId: 'primary' }, { merge: true });
     await batch.commit();
   } catch (e) {

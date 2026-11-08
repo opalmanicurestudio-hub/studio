@@ -361,7 +361,7 @@ export default function VoicePage() {
               )}
               <div className="grid lg:grid-cols-2 gap-4 items-start">
                 <VoiceAgentSettingsCard firestore={firestore} tenantId={tenantId} tenant={selectedTenant} />
-                <TimezoneSettingCard firestore={firestore} tenantId={tenantId} tenant={selectedTenant} />
+                <div className="rounded-2xl border bg-card p-4 shadow-sm"><TimezoneSettingCard firestore={firestore} tenantId={tenantId} tenant={selectedTenant} /></div>
               </div>
               <VoiceKnowledgeManager
                 firestore={firestore}

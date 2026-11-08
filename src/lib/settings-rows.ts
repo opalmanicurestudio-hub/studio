@@ -4,7 +4,7 @@
 // to open the right part of the page }.
 export type SettingsRow = string | { l: string; m?: string; c?: 1; q?: string };
 export const SETTINGS_ROWS: Record<string, SettingsRow[]> = {
-  "business/details": ["What clients see", "Business name", "Logo", "Phone", "Email", "Address", "Time zone", "How your business works", "What you do", "Who sees clients", "Front desk", "Clients’ health details", "Studio timezone"],
+  "business/details": ["What clients see", "Business name", "Logo", "Phone", "Email", "Address", "Time zone", "How your business works", "What you do", "Who sees clients", "Front desk", "Clients’ health details", "Eastern (New York)", "Central (Chicago)", "Mountain (Denver)", "Arizona (Phoenix, no daylight saving)", "Pacific (Los Angeles)", "Alaska (Anchorage)", "Hawaii (Honolulu)", "Atlantic (Puerto Rico)"],
   "business/setup": [{"l":"Your booking link","c":1}, {"l":"Starter menu","c":1}],
   "business/hours": ["When are you open?", "Who sees what", "Client phone numbers, emails and addresses", "Staff can message clients through the business", "Money figures", "What's in care notes", "Extra time", "Charge for extra time", {"l":"Rate per extra 15 minutes","c":1}, {"l":"Dollars per extra 15 minutes","c":1}, "Daily goal", "Group bookings online", "Take group bookings online", {"l":"Most guests online","c":1}, {"l":"Who pays the deposits","c":1}, {"l":"A second service at the same time","c":1}, {"l":"A second service straight after","c":1}, "How often a booking can start", "Clients can start a booking every", "Booking times", {"l":"Only some clients on certain days","c":1}],
   "business/locations": ["Your locations"],

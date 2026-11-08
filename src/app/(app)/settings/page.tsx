@@ -1,5 +1,6 @@
 'use client';
 import { C } from '@/components/orders/ui';
+import { isValidTimeZone } from '@/lib/tenant-time';
 import { planCost, hourlyRate } from '@/lib/product-cost';
 import { READY_KEYS, READY_LABEL, READY_HELP, READY_DEFAULTS } from '@/lib/visit-readiness';
 import { US_STATES } from '@/lib/pay-extras';
@@ -535,9 +536,16 @@ function SettingsPageImpl() {
                 </Row>
               </Section>
               {tenantId && <BusinessShapeCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
-              <More label="Time zone" help="Set when you signed up — change it only if you’ve moved.">
-                <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
-              </More>
+              {(!selectedTenant || isValidTimeZone((selectedTenant as any).timezone))
+                ? <More label="Time zone" help="Reminders, booking times and reports run on it. Change it only if you’ve moved.">
+                    <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
+                  </More>
+                : <Section title="Time zone">
+                    <div className="p-5 space-y-3">
+                      <p className="text-[14px]" style={{ color: 'var(--warn-ink)' }}>Check this is your time zone and save it. Reminders, booking times and reports all run on it.</p>
+                      <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
+                    </div>
+                  </Section>}
             </TabsContent>
 
             <TabsContent value="locations" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">

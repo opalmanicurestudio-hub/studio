@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
-import { verifyPlatformAdmin } from '@/lib/platform-admin';
+import { platformAdminCheck } from '@/lib/platform-admin';
 import { healthScore, setupScore } from '@/lib/hq-health';
 import { signals, ownersLastSignIn } from '@/lib/hq-signals';
 import { fromTenantModules, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
@@ -49,9 +49,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const admin = await verifyPlatformAdmin(req);
+  const { member: admin, unverifiedEmail } = await platformAdminCheck(req);
   const b = await req.json().catch(() => ({}));
-  if (b.action === 'whoami') return NextResponse.json({ ok: true, admin: !!admin, role: admin?.role || null, perms: admin ? permsFor(admin.role) : [], name: admin?.name || null, email: admin?.email || null, ai: aiConfigured() });
+  if (b.action === 'whoami') return NextResponse.json({ ok: true, admin: !!admin, verifyEmail: !!unverifiedEmail, role: admin?.role || null, perms: admin ? permsFor(admin.role) : [], name: admin?.name || null, email: admin?.email || unverifiedEmail || null, ai: aiConfigured() });
+  if (unverifiedEmail) return NextResponse.json({ ok: false, error: 'Verify your email to open HQ.' }, { status: 403 });
   if (!admin) return NextResponse.json({ ok: false, error: 'HQ is for the ClarityFlow team. (Owners: PLATFORM_ADMIN_EMAILS in Vercel; others: HQ → Team.)' }, { status: 403 });
   const need = NEEDS[String(b.action)];
   if (need && !can(admin.role, need)) return NextResponse.json({ ok: false, error: `Your HQ role (${admin.role}) does not have permission for this action.` }, { status: 403 });
