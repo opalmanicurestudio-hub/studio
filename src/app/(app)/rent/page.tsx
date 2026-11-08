@@ -1140,8 +1140,8 @@ export default function RentRollPage() {
   };
 
   const rentSchedule = useMemo(
-    () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso),
-    [leases, scheduleRenterById, ledger, todayIso]);
+    () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso, selectedTenant ? ((selectedTenant as any).stripeAccountId || null) : undefined),
+    [leases, scheduleRenterById, ledger, todayIso, selectedTenant]);
 
   const leaseByRenter = useMemo(() => {
     const map = new Map<string, Lease>();

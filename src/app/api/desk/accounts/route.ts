@@ -10,6 +10,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { renterAccount } from '@/lib/rent-desk';
 import { tuitionAccount, TUITION_OPEN } from '@/lib/tuition-desk';
 import { rentOutlook } from '@/lib/rent-outlook';
+import { spacePayAccount } from '@/lib/space-stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
       const acct: any = await renterAccount(db, T, renterId); if (!acct) continue;
       const invoices = (await db.collection(`${T}/rentInvoices`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
       const ledger = (await db.collection(`${T}/rentLedger`).where('renterId', '==', renterId).get()).docs.map((d: any) => d.data() || {});
-      const o = rentOutlook({ lease: acct.lease, renter: acct.renter, invoices, ledger, todayIso: today });
+      const o = rentOutlook({ lease: acct.lease, renter: acct.renter, invoices, ledger, todayIso: today, businessAccount: spacePayAccount(tenant) });
       const owedNow = acct.usesInvoices ? o.owedNowCents : num(acct.owedCents);
       const late = invoices.filter((i: any) => i.status === 'late').reduce((n: number, i: any) => n + num(i.lateFeeCents), 0);
       out.rent.push({ renterId, name: acct.name, booth: acct.booth?.name || null, owedNowCents: owedNow, lateFeeCents: late, creditCents: o.creditCents, nextDue: o.nextDue, nextRentCents: o.nextRentCents, nextAfterCreditsCents: o.nextAfterCreditsCents, autopayOn: o.autopayOn });

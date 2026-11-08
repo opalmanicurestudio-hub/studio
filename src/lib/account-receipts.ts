@@ -8,6 +8,7 @@
 // or show a QR code on the desk screen (no sign-in in it — a shared screen can be photographed).
 import { MESSAGE_KINDS, resolveMessagePolicy, renderMessage } from '@/lib/message-policy';
 import { linkOrigin } from '@/lib/app-origin';
+import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 
 const money = (c: number) => `$${(Math.max(0, Number(c) || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const day = (iso: string | null | undefined, tz: string) => { if (!iso) return ''; try { return new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: /^\d{4}-\d{2}-\d{2}$/.test(iso) ? 'UTC' : tz }); } catch { return ''; } };
@@ -33,7 +34,9 @@ async function send(db: any, tenantId: string, tenant: any, kind: string, to: { 
 export async function accountContact(db: any, tenantId: string, kind: 'rent' | 'tuition', id: string) {
   const T = `tenants/${tenantId}`;
   if (kind === 'rent') { const r: any = (await db.doc(`${T}/renters/${id}`).get()).data() || {};
-    return { name: [r.firstName, r.lastName].filter(Boolean).join(' ') || r.name || 'there', email: r.email || null, phone: r.phone || null, autopayOn: r.autopayEnabled === true && !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)), record: r }; }
+    // Autopay is on only with a card it can charge: saved on the business's own account (lib/space-stripe).
+    const biz: any = (await db.doc(T).get()).data() || {}; const usable = !!renterBusinessCard(r, spacePayAccount(biz));
+    return { name: [r.firstName, r.lastName].filter(Boolean).join(' ') || r.name || 'there', email: r.email || null, phone: r.phone || null, autopayOn: r.autopayEnabled === true && usable, record: r }; }
   const p: any = (await db.doc(`${T}/tuitionPlans/${id}`).get()).data() || {}; const c: any = p.studentId ? (await db.doc(`${T}/clients/${p.studentId}`).get()).data() || {} : {};
   return { name: p.name || c.name || 'there', email: p.email || c.email || null, phone: p.phone || c.phone || null, clientId: p.studentId || null, autopayOn: p.autopay === true && !!p.paymentMethodId, record: p };
 }

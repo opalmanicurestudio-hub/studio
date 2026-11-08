@@ -42,7 +42,7 @@ function StripeMock(this: any) {
           const n = pis.length + 1;
           pi = { id: `pi_${n}`, status: outcome, amount: p.amount, customer: p.customer, payment_method: outcome === 'requires_payment_method' ? null : p.payment_method,
             metadata: p.metadata || {}, created: Math.floor(Date.now() / 1000), account: acctOf(o), client_secret: `pi_${n}_secret`,
-            latest_charge: outcome === 'succeeded' ? { id: `ch_${n}`, balance_transaction: { fee: 47 } } : null,
+            latest_charge: outcome === 'succeeded' ? { id: `ch_${n}`, balance_transaction: { id: `txn_${n}`, fee: 47 } } : null,
             last_payment_error: outcome === 'requires_payment_method' ? { message: 'Your card was declined.' } : null };
           pis.push(pi); keys.set(k, pi);
         }
@@ -74,7 +74,7 @@ function StripeMock(this: any) {
   };
 }
 // The money arrives for a payment that was still going through.
-const arrives = (pi: any) => Object.assign(pi, { status: 'succeeded', latest_charge: { id: `ch_${pi.id}`, balance_transaction: { fee: 47 } } });
+const arrives = (pi: any) => Object.assign(pi, { status: 'succeeded', latest_charge: { id: `ch_${pi.id}`, balance_transaction: { id: `txn_${pi.id}`, fee: 47 } } });
 
 // ── Who's signed in (by the Authorization header the screen sends) ──
 const ACTORS: Record<string, any> = {
@@ -113,6 +113,8 @@ const T = 'tenants/t1';
 const get = async (p: string) => (await db.doc(p).get()).data() || null;
 const all = async (p: string) => (await db.collection(p).get()).docs.map((d: any) => ({ ...d.data(), id: d.id }));
 const lines = async (prefix: string) => (await all(`${T}/transactions`)).filter((x: any) => String(x.id).startsWith(prefix));
+// A renter incidental's fee line: on the business's account it's named after Stripe's balance record (lib/renter-incidentals).
+const renterFeeLines = async () => (await all(`${T}/transactions`)).filter((x: any) => /Processing Fee/.test(String(x.category)) && String(x.relatedTxnId || '').startsWith('renterinc_'));
 const notes = () => all(`${T}/notifications`);
 const req = (body: any, headers: Record<string, string> = {}) => ({ json: async () => body, headers: { get: (k: string) => headers[String(k).toLowerCase()] ?? null },
   nextUrl: { origin: 'https://studio.test', searchParams: new URLSearchParams() }, url: 'https://studio.test/api/x' }) as any;
@@ -124,12 +126,12 @@ const fresh = async () => {
   // The concierge station: Chair 2, rented by Nia Park, whose card its orders go on.
   await db.doc(`${T}/booths/b1`).set({ name: 'Chair 2' });
   await db.doc(`${T}/leases/l1`).set({ boothId: 'b1', renterId: 'rt1', status: 'active' });
-  await db.doc(`${T}/renters/rt1`).set({ firstName: 'Nia', lastName: 'Park', amenitiesEnabled: true, amenityPayer: 'renter', cardOnFile: true, stripeCustomerId: 'cus_r', stripePaymentMethodId: 'pm_r' });
+  await db.doc(`${T}/renters/rt1`).set({ firstName: 'Nia', lastName: 'Park', amenitiesEnabled: true, amenityPayer: 'renter', cardOnFile: true, stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_r', stripePaymentMethodId: 'pm_r' });
   await db.doc(`${T}/inventory/latte`).set({ name: 'Latte', type: 'refreshment', price: 6, totalStock: 10 });
   // A day-use station, and two renters with a card on file who book it.
   await db.doc(`${T}/booths/b2`).set({ name: 'Room 3', dayUseEnabled: true, dayUseHourlyCents: 2000, dayUseDailyCents: 12000 });
-  await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', stripeCustomerId: 'cus_b', defaultPaymentMethodId: 'pm_b' });
-  await db.doc(`${T}/renters/rn2`).set({ firstName: 'Ola', lastName: 'Diaz', stripeCustomerId: 'cus_c', defaultPaymentMethodId: 'pm_c' });
+  await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_b', defaultPaymentMethodId: 'pm_b' });
+  await db.doc(`${T}/renters/rn2`).set({ firstName: 'Ola', lastName: 'Diaz', stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_c', defaultPaymentMethodId: 'pm_c' });
 };
 
 (async () => {
@@ -170,7 +172,7 @@ const fresh = async () => {
   let ns = await notes();
   check('…and the front desk is told once, since the order itself was never sent', ns.length === 1 && ns[0].id === `concierge_${c.id}`
     && /\$6\.00 concierge charge for Latte \(x1\) to Chair 2 \(Nia Park\) went through/.test(ns[0].message), ns);
-  check('…Stripe asked on the platform’s own account, where the kiosk charges', listed.length >= 1 && listed.every((a) => a === null), listed);
+  check('…Stripe asked on the business’s own account, where the renter’s card is saved (lib/space-stripe)', listed.length >= 1 && listed.every((a) => a === 'acct_1'), listed);
   r = await order(token);
   check('…the order asked for again afterwards: already done, never a second charge', r.body.ok && r.body.already && r.body.orderId === c.id && r.body.chargedCents === 600 && creates === 1 && pis.length === 1, { body: r.body, creates });
   s = await settleK(40);
@@ -249,11 +251,11 @@ const fresh = async () => {
   two = await Promise.all([settleI(), settleI()]);
   rt = await renter(); let a: any = await attempt();
   check('the money went through, two runs of the check at once: recorded once — one line, its fee, on the renter’s log once',
-    two[0].recorded + two[1].recorded === 1 && (await lines('renterinc_')).length === 1 && (await lines('renterincfee_')).length === 1
+    two[0].recorded + two[1].recorded === 1 && (await lines('renterinc_')).length === 1 && (await renterFeeLines()).length === 1
     && rt.incidentals?.length === 1 && rt.incidentalsTotalCents === 2000 && a.status === 'charged' && a.paymentIntentId === 'pi_1' && !a.settlingAt, { two, rt, a });
   const il = (await lines('renterinc_'))[0];
   check('…as the charge records it: named after the renter and the attempt', il.id === 'renterinc_rt1_try1' && il.amount === 20 && il.category === 'Renter Incidental' && il.clientOrVendor === 'Nia Park'
-    && il.stripePaymentIntentId === 'pi_1' && (await lines('renterincfee_'))[0].amount === 0.47, il);
+    && il.stripePaymentIntentId === 'pi_1' && (await renterFeeLines())[0].amount === 0.47, il);
   ns = await notes();
   check('…the renter no longer marked, the team told once, and it’s in the audit log', !('incidentalOpenAt' in rt) && !('incidentalOpen' in rt) && ns.length === 1
     && /\$20\.00 incidental charge to Nia Park’s card on file .* went through/.test(ns[0].message) && audits.filter((x) => x.action === 'booth.renter_charged').length === 1, { rt, ns, audits });

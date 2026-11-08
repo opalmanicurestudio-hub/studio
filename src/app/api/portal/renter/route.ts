@@ -74,6 +74,7 @@ import { dueAtFor, respondByFor, ticketAcknowledged, responseCommitments, TICKET
 import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 import { searchFields } from '@/lib/client-search';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { spacePayAccount, onAccount, renterCardAccount, renterBusinessCard } from '@/lib/space-stripe';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -1364,7 +1365,7 @@ export async function POST(req: NextRequest) {
         try {
           const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get();
           const { rentOutlook: outlook } = await import('@/lib/rent-outlook'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
-          rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)) });
+          rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)), businessAccount: spacePayAccount(tenant) });
         } catch { rentOutlook = null; }
       }
       return NextResponse.json({
@@ -3273,7 +3274,7 @@ export async function POST(req: NextRequest) {
       const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
       const list = (await db.collection(`tenants/${tenantId}/campaigns`).where('ownerRenterId', '==', session.renterId).get()).docs
         .map((d: any) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(b.updatedAt || b.sentAt || '').localeCompare(String(a.updatedAt || a.sentAt || '')));
-      return NextResponse.json({ ok: true, policy, usedTexts: await rcUsedThisMonth(), cardOnFile: !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)),
+      return NextResponse.json({ ok: true, policy, usedTexts: await rcUsedThisMonth(), cardOnFile: !!renterBusinessCard(r, spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()))),
         campaigns: list.map((c: any) => ({ id: c.id, name: c.name, type: c.type, subject: c.subject || '', body: c.body || '', offerText: c.offerText || '', renterOfferId: c.renterOfferId || '', offersRedeemed: c.offersRedeemed || 0, templateId: c.templateId || '', targetAudience: c.targetAudience, targetServiceIds: c.targetServiceIds || [], targetMinSpend: c.targetMinSpend || 0, status: c.status, recipientCount: c.recipientCount || 0, convertedCount: c.convertedCount || 0, convertedRevenueCents: c.convertedRevenueCents || 0, chargedCents: c.chargedCents || 0, sentAt: c.sentAt || null })) });
     }
     if (action === 'rc-save') {
@@ -3320,8 +3321,11 @@ export async function POST(req: NextRequest) {
       const toBuy = c.type === 'sms' ? Math.max(0, neededSegs - budgetLeft - freeLeft) : 0;
       const chargeCents = toBuy * policy.priceCents;
       const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
-      const pm = r.stripePaymentMethodId || r.defaultPaymentMethodId || null;
-      const cardOnFile = !!(r.stripeCustomerId && pm);
+      // Paid texts are charged on the business's own account, to the renter's card saved there (lib/space-stripe); a card
+      // saved before the move counts as none until it's saved again.
+      const rcCard = renterBusinessCard(r, spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data())));
+      const pm = rcCard?.pm || null;
+      const cardOnFile = !!rcCard;
       const { peopleOf } = await import('@/lib/campaign-engine');
       const quote = { summary: pv.summary, segmentsEach: pv.segments, neededSegments: neededSegs, freeSegments: Math.min(neededSegs, freeLeft + budgetLeft), chargeCents, priceCents: policy.priceCents, cardOnFile, mode: policy.mode,
         sampleText: pv.sampleText, ...peopleOf(pv.aud, pv.channel, 500) };
@@ -3351,7 +3355,7 @@ export async function POST(req: NextRequest) {
           const tries = (Number(cur.textChargeTries) || 0) + 1;
           const name = `${attempt || 'send'}-${tries}`;
           const p2 = { status: 'charging', at: nowIso, name, attempt: attempt || null, cents: chargeCents, toBuy, freeUse: Math.min(neededSegs, freeLeft), priceCents: policy.priceCents,
-            pm: String(pm), customer: String(r.stripeCustomerId), desc: `Text messages — ${toBuy} × ${policy.priceCents}¢ — campaign "${c.name}"`,
+            pm: String(pm), customer: String(rcCard?.customer || ''), account: rcCard?.account || null, desc: `Text messages — ${toBuy} × ${policy.priceCents}¢ — campaign "${c.name}"`,
             key: `rc-texts-${cRef.id}-${name}-${chargeCents}-${String(pm).replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 250) };
           tx.set(cRef, { textCharge: p2, textChargeTries: tries }, { merge: true });
           return { p: p2 };
@@ -3365,7 +3369,7 @@ export async function POST(req: NextRequest) {
           let intent: any;
           try {
             intent = await stripe.paymentIntents.create({ amount: p.cents, currency: 'usd', customer: p.customer, payment_method: p.pm, off_session: true, confirm: true,
-              description: p.desc, metadata: { tenantId, renterId: String(session.renterId), campaignId: cRef.id, kind: 'renter_campaign_texts', purchase: p.name } }, { idempotencyKey: p.key });
+              description: p.desc, metadata: { tenantId, renterId: String(session.renterId), campaignId: cRef.id, kind: 'renter_campaign_texts', purchase: p.name } }, onAccount({ stripeAccountId: p.account || null }, { idempotencyKey: p.key }));
           } catch (err: any) {
             if (saidNo(err)) {
               await release();
@@ -4056,9 +4060,11 @@ export async function POST(req: NextRequest) {
       const rSnap = await rRef.get();
       const r = (rSnap.data() as any) || {};
       const on = body.enabled === true;
-      const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+      // A card this business can charge: saved on its own account (lib/space-stripe). One saved before the move is saved
+      // again first.
+      const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()))));
       if (on && !hasCard) {
-        return NextResponse.json({ ok: false, error: 'Add a card first — autopay needs one to draft from.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: r.cardOnFile ? 'Please save your card again first — autopay needs it saved with this business.' : 'Add a card first — autopay needs one to draft from.' }, { status: 400 });
       }
       const nowIso = new Date().toISOString();
       await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });
@@ -4071,7 +4077,8 @@ export async function POST(req: NextRequest) {
     // ═══ pay-invoice / confirm-invoice — rent paid online, once ═════════════
     // One payment page per invoice: every tap gets the same page while it can still be paid, so two taps or two tabs
     // can't make two payments. A paid page is recorded once (lib/rent-online-pay) — on the renter's return to the
-    // portal, a later tap on Pay, or Stripe's own notice (api/stripe/billing-webhook), whichever comes first. Money that
+    // portal, a later tap on Pay, or Stripe's own notice (lib/connect-webhook; a page from before rent moved to the
+    // business's account: api/stripe/billing-webhook), whichever comes first. Money that
     // arrives for an invoice already paid, or more than was owed, is refunded automatically and written on the invoice.
     if (action === 'pay-invoice' || action === 'confirm-invoice') {
       const invoiceId = String(body.invoiceId || '');
@@ -4097,6 +4104,10 @@ export async function POST(req: NextRequest) {
       const due = String(inv.dueDate || '').slice(0, 10);
       const sidKey = (s: any) => String(s || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 120);
       const { recordRentPayment, pageClearing } = await import('@/lib/rent-online-pay');
+      // Rent is paid on the business's own account (lib/space-stripe). The page the invoice has open was opened on the
+      // account saved with it (a page from before that was saved: the platform's).
+      const pageAcct: string | null = typeof inv.stripeSessionAccount === 'string' && inv.stripeSessionAccount ? inv.stripeSessionAccount : null;
+      const onPage = onAccount({ stripeAccountId: pageAcct });
 
       if (action === 'pay-invoice') {
         if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
@@ -4113,11 +4124,11 @@ export async function POST(req: NextRequest) {
         if (inv.stripeSessionId) {
           // Stripe not knowing the page at all means it's gone (a new one opens); no answer means ask again.
           let cur: any = null; let gone = false;
-          try { cur = await stripe.checkout.sessions.retrieve(String(inv.stripeSessionId)); } catch (e: any) { gone = String(e?.type || '') === 'StripeInvalidRequestError'; }
+          try { cur = await stripe.checkout.sessions.retrieve(String(inv.stripeSessionId), {}, onPage); } catch (e: any) { gone = String(e?.type || '') === 'StripeInvalidRequestError'; }
           if (!cur && !gone) return NextResponse.json({ ok: false, error: 'The payment page couldn’t be opened just now. Try again in a moment.' }, { status: 502 });
           if (cur?.status === 'open' && Math.round(Number(cur.amount_total) || 0) === totalCents && cur.url) return NextResponse.json({ ok: true, url: cur.url });
           if (cur?.status === 'complete' && cur.payment_status === 'paid' && cur.metadata?.invoiceId === invoiceId) {
-            const r = await recordRentPayment(db, stripe, tenantId, invoiceId, cur);
+            const r = await recordRentPayment(db, stripe, tenantId, invoiceId, cur, { account: pageAcct });
             if (r.extra) return NextResponse.json({ ok: false, alreadyPaid: true, refunded: r.refunded, error: r.message }, { status: 409 });
             curInv = ((await invRef.get()).data() as any) || {};
             owedNow = Math.max(0, (curInv.amountCents || 0) + (curInv.lateFeeCents || 0) - (curInv.paidCents || 0));
@@ -4125,39 +4136,30 @@ export async function POST(req: NextRequest) {
           } else if (cur?.status === 'complete') {
             // Finished, but the money hasn't arrived: a bank payment still clearing waits; one that failed makes way
             // for a new page.
-            const st = await pageClearing(stripe, cur);
+            const st = await pageClearing(stripe, cur, pageAcct);
             if (st === 'clearing') return NextResponse.json({ ok: false, error: 'Your last payment is still going through. Check back in a few minutes.' }, { status: 409 });
             if (st === 'unknown') return NextResponse.json({ ok: false, error: 'The payment page couldn’t be checked just now. Try again in a moment.' }, { status: 502 });
           } else if (cur?.status === 'open') {
             // What's owed changed (part of it paid at the desk, or a late fee): that page closes before a new one opens.
-            await stripe.checkout.sessions.expire(String(cur.id)).catch(() => null);
+            await stripe.checkout.sessions.expire(String(cur.id), {}, onPage).catch(() => null);
           }
         }
-        // Reuse the renter's Stripe customer if one exists (from setup-card or a
-        // prior payment); otherwise create it now. The renter doc is the single
-        // card-on-file store — paying rent online enrolls the card automatically,
-        // so no separate setup step is needed for incidentals.
-        let customerId: string | null = renter.stripeCustomerId || null;
-        if (!customerId) {
-          const customer = await stripe.customers.create({
-            email: renter.email || undefined,
-            name: renterName,
-            metadata: { tenantId, renterId: lease?.renterId || '', leaseId: inv.leaseId || '' },
-          }, { idempotencyKey: `rent-customer-${sidKey(lease?.renterId)}-${sidKey(invoiceId)}` });
-          customerId = customer.id;
-          if (lease?.renterId) {
-            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({ stripeCustomerId: customerId }, { merge: true });
-          }
-        }
+        // A new page is opened on the business's own account; not until it can take cards.
+        const payAcct = spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()));
+        if (!payAcct) return NextResponse.json({ ok: false, error: 'This business isn’t set up to take card payments online yet, so rent can’t be paid here. Please let the business know.' }, { status: 409 });
+        // Their customer on that account: the renter's own there if they have one; otherwise one is made with the page
+        // and saved, with their card, when it's paid (lib/rent-online-pay). The renter doc is the single card-on-file
+        // store — paying rent online enrolls the card automatically, so no separate setup step is needed for incidentals.
+        const customerId: string | null = renterCardAccount(renter) === payAcct ? (renter.stripeCustomerId || null) : null;
         // Named after the invoice, what's owed and how many pages it has had, so two taps at the same moment get the
         // same new page.
         const n = (Number(curInv.payPages) || 0) + 1;
         const checkout = await stripe.checkout.sessions.create({
           mode: 'payment',
-          customer: customerId,
+          ...(customerId ? { customer: customerId } : { customer_creation: 'always', ...(renter.email ? { customer_email: renter.email } : {}) }),
           // Save the card for off-session incidental charges (hotel-style),
-          // governed by the studio's capped incidentals policy.
-          payment_intent_data: { setup_future_usage: 'off_session' },
+          // governed by the business's capped incidentals policy.
+          payment_intent_data: { setup_future_usage: 'off_session', metadata: { tenantId, invoiceId, kind: 'rent_invoice' } },
           line_items: [{
             quantity: 1,
             price_data: {
@@ -4172,24 +4174,35 @@ export async function POST(req: NextRequest) {
           success_url: `${base}?cfInvoiceId=${invoiceId}&cfSession={CHECKOUT_SESSION_ID}`,
           cancel_url: base,
           metadata: { tenantId, invoiceId, kind: 'rent_invoice' },
-        }, { idempotencyKey: `rent-pay-${sidKey(invoiceId)}-${owedNow}-${n}` });
-        await invRef.set({ stripeSessionId: checkout.id, paymentStartedAt: new Date().toISOString(), payPages: n }, { merge: true });
+        } as any, { stripeAccount: payAcct, idempotencyKey: `rent-pay-${sidKey(invoiceId)}-${owedNow}-${n}` });
+        await invRef.set({ stripeSessionId: checkout.id, stripeSessionAccount: payAcct, paymentStartedAt: new Date().toISOString(), payPages: n }, { merge: true });
         return NextResponse.json({ ok: true, url: checkout.url });
       }
 
       // ═══ confirm-invoice — after Stripe redirects back ═════════════════
       const sessionId = String(body.sessionId || '');
       if (!sessionId) return NextResponse.json({ ok: false, error: 'Missing session.' }, { status: 400 });
-      const cs: any = await stripe.checkout.sessions.retrieve(sessionId);
+      // The page is on the account saved with the invoice (an older page: the platform's).
+      // Not found there, it's looked for on the other one (an older page on the platform's; or a new page whose account
+      // wasn't written on the invoice before the answer was lost).
+      const bizAcct = spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()));
+      let csAcct: string | null = pageAcct; let cs: any = null;
+      try { cs = await stripe.checkout.sessions.retrieve(sessionId, {}, onPage); }
+      catch (e: any) {
+        if (String(e?.code || e?.raw?.code || '') !== 'resource_missing') throw e;
+        csAcct = pageAcct ? null : bizAcct;
+        if (!pageAcct && !bizAcct) throw e;
+        cs = await stripe.checkout.sessions.retrieve(sessionId, {}, onAccount({ stripeAccountId: csAcct }));
+      }
       if (cs?.metadata?.invoiceId !== invoiceId || (cs?.metadata?.tenantId && cs.metadata.tenantId !== tenantId)) {
         return NextResponse.json({ ok: false, error: 'That payment isn’t for this invoice.' }, { status: 400 });
       }
       if (cs?.payment_status !== 'paid') {
-        // A bank payment takes a few days: it's recorded when Stripe says the money arrived (api/stripe/billing-webhook).
+        // A bank payment takes a few days: it's recorded when Stripe says the money arrived (lib/connect-webhook).
         if (cs?.status === 'complete') return NextResponse.json({ ok: false, pending: true, error: 'Your bank payment is on its way. Your rent will show as paid once it clears.' }, { status: 202 });
         return NextResponse.json({ ok: false, error: 'Payment not completed — nothing was charged.' }, { status: 402 });
       }
-      const r = await recordRentPayment(db, stripe, tenantId, invoiceId, cs);
+      const r = await recordRentPayment(db, stripe, tenantId, invoiceId, cs, { account: csAcct });
       if (r.already) return NextResponse.json({ ok: true, alreadyPaid: true });
       if (r.extra) return NextResponse.json({ ok: false, alreadyPaid: true, refunded: r.refunded, error: r.message }, { status: 409 });
       return NextResponse.json({ ok: true, paidCents: r.paidCents, ...(r.refundedCents !== undefined ? { refundedCents: r.refundedCents } : {}) });

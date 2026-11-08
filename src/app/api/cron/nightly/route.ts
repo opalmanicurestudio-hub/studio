@@ -33,6 +33,7 @@ import { sweepNoShows } from '@/lib/no-show';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { sweepExpiredRequests, sweepPendingRequestNudge, sweepUnpaidAccepted } from '@/lib/retail-sweeps';
 import { onTeam } from '@/lib/team-member';
+import { renterBusinessCard } from '@/lib/space-stripe';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -971,7 +972,8 @@ export async function GET(req: NextRequest) {
           const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
           if (!r?.phone) continue;
           // Renters who'll be charged automatically (autopay on, or the lease set to auto-collect, with a card) aren't asked to pay.
-          if ((r.autopayEnabled === true || lease.autoCollect === true) && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId)) continue;
+          // (A card saved on the platform's account before the move can't be charged by autopay, so they're asked; lib/space-stripe.)
+          if ((r.autopayEnabled === true || lease.autoCollect === true) && renterBusinessCard(r, (tDoc.data() as any)?.stripeAccountId || null)) continue;
           const link = await renterPortalLink(db, tid, lease.renterId, r);
           const sent = await sendTenantSms(db, tid, r.phone,
             `Hi ${String(r.firstName || '').trim() || 'there'}, this is a friendly reminder that your rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : `on ${due}`}. You can pay securely in your portal:${link ? ` ${link}` : ''}`,

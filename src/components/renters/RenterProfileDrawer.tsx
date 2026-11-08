@@ -13,6 +13,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
@@ -445,7 +446,8 @@ export function RenterProfileDrawer({
                   {(() => {
                     // Automatic rent — the same rule the autopay job uses: the renter's own autopay, OR this lease set to
                     // auto-collect, with a saved card. One plain line; a switch only when it's the owner's call.
-                    const r: any = renter; const hasCard = !!(r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+                    // A card autopay can charge: saved on the business's own account (lib/space-stripe).
+                    const r: any = renter; const hasCard = !!renterBusinessCard(r, spacePayAccount(drawerTenant));
                     if (r.autopayEnabled === true) return <p className="text-xs text-white/80">Rent is paid automatically — they set up autopay.</p>;
                     if (!hasCard) return <p className="text-xs text-white/60">To charge rent automatically, they need to save a card in their portal first.</p>;
                     const on = (lease as any).autoCollect === true;
@@ -703,7 +705,7 @@ export function RenterProfileDrawer({
 
               {(() => {
                 const r: any = renter;
-                const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));
+                const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(drawerTenant)));
                 const on = r.autopayEnabled === true;
                 const toggle = async () => {
                   if (!hasCard && !on) { drawerToast({ title: 'No card on file', description: 'Add a card first — autopay needs something to draft from.' }); return; }

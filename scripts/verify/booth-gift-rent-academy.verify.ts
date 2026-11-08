@@ -89,13 +89,13 @@ function StripeMock(this: any) {
 // A Checkout page paid: Stripe marks it paid and makes its payment.
 const payPage = (sid: string) => {
   const s = sessions.find((y) => y.id === sid)!;
-  const pi = { id: `pi_${sid}`, status: 'succeeded', amount: s.amount_total, customer: s.customer, payment_method: 'pm_paid', metadata: s.metadata, created: Math.floor(Date.now() / 1000), latest_charge: { id: `ch_${sid}`, balance_transaction: { fee: 88 } } };
+  const pi = { id: `pi_${sid}`, status: 'succeeded', amount: s.amount_total, customer: s.customer, payment_method: 'pm_paid', metadata: s.metadata, created: Math.floor(Date.now() / 1000), latest_charge: { id: `ch_${sid}`, balance_transaction: { id: `txn_${sid}`, fee: 88 } } };
   pis.push(pi); Object.assign(s, { status: 'complete', payment_status: 'paid', payment_intent: pi.id }); return s;
 };
 // A page paid by bank debit: finished, but the money takes days (its payment is 'processing') — then it arrives, or fails.
 const clearingPage = (sid: string) => {
   const s = sessions.find((y) => y.id === sid)!;
-  const pi = { id: `pi_${sid}`, status: 'processing', amount: s.amount_total, customer: s.customer, payment_method: 'pm_bank', metadata: s.metadata, created: Math.floor(Date.now() / 1000), latest_charge: { id: `ch_${sid}`, balance_transaction: { fee: 80 } } };
+  const pi = { id: `pi_${sid}`, status: 'processing', amount: s.amount_total, customer: s.customer, payment_method: 'pm_bank', metadata: s.metadata, created: Math.floor(Date.now() / 1000), latest_charge: { id: `ch_${sid}`, balance_transaction: { id: `txn_${sid}`, fee: 80 } } };
   pis.push(pi); Object.assign(s, { status: 'complete', payment_status: 'unpaid', payment_intent: pi.id }); return s;
 };
 const bankArrives = (sid: string) => { const s = sessions.find((y) => y.id === sid)!; pis.find((x) => x.id === s.payment_intent)!.status = 'succeeded'; s.payment_status = 'paid'; return s; };
@@ -211,8 +211,8 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
       await fresh();
       await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1' });
       await db.doc(`${T}/booths/b1`).set({ name: 'Chair 2', dayUseEnabled: true, dayUseHourlyCents: 2000, dayUseDailyCents: 12000 });
-      await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', stripeCustomerId: 'cus_1', defaultPaymentMethodId: 'pm_1' });
-      await db.doc(`${T}/renters/rn2`).set({ firstName: 'Ana', lastName: 'Ruiz', stripeCustomerId: 'cus_2', defaultPaymentMethodId: 'pm_2' });
+      await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_1', defaultPaymentMethodId: 'pm_1' });
+      await db.doc(`${T}/renters/rn2`).set({ firstName: 'Ana', lastName: 'Ruiz', stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_2', defaultPaymentMethodId: 'pm_2' });
     };
     const req = (body: any) => ({ json: async () => body, headers: { get: (k: string) => (String(k).toLowerCase() === 'authorization' ? 'Bearer test' : null) } }) as any;
     const book = (x: any = {}) => POST(req({ tenantId: 't1', locationId: 'loc1', boothId: 'b1', renterId: 'rn1', startAt: '2026-10-24T09:00:00', endAt: '2026-10-24T11:00:00', rateType: 'hourly', mode: 'pos', attemptKey: 'try1', ...x })) as any;
@@ -386,9 +386,9 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
     const I = `${T}/rentInvoices/i1`;
     const seed = async (inv: any = {}) => {
       await fresh();
-      await db.doc(T).set({ name: 'Opal', renterCampaigns: { mode: 'renter_pays', priceCentsPerText: 2 } });
+      await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', renterCampaigns: { mode: 'renter_pays', priceCentsPerText: 2 } });
       await db.doc(`${T}/private/renterSessions`).set({ [sha(TOKEN)]: { contactKey: 'lena@example.com', name: 'Lena Cho', renterId: 'rn1', expiresAt: Date.now() + 3600e3 } });
-      await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', email: 'lena@example.com', phone: '', stripeCustomerId: 'cus_1', stripePaymentMethodId: 'pm_1' });
+      await db.doc(`${T}/renters/rn1`).set({ firstName: 'Lena', lastName: 'Cho', email: 'lena@example.com', phone: '', stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_1', stripePaymentMethodId: 'pm_1' });
       await db.doc(`${T}/leases/l1`).set({ renterId: 'rn1', boothId: 'b1', status: 'active' });
       await db.doc(I).set({ leaseId: 'l1', status: 'due', amountCents: 80000, lateFeeCents: 0, paidCents: 0, dueDate: '2026-10-01', ...inv });
     };
@@ -413,7 +413,7 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
     inv = await get(I);
     check('a second page paid as well: refunded automatically once, written on the invoice, no second rent line', refunds.length === 1 && refunds[0].amount === 80000 && inv.extraPayments?.[older.id]?.state === 'refunded' && (await linesOf('Booth Rent')).length === 1, { dup: dup.map((x) => x.body), extra: inv.extraPayments });
     const rf = calls.find((c) => c.op === 'rf');
-    check('…on the platform account, marked as the app’s, keyed on that payment; the renter is told', rf?.acct === null && rf?.metadata?.origin === 'app' && rf?.key === `rent-paid_twice-pi_${older.id}-80000` && dup.some((x) => /already paid, so your payment of \$800\.00 was refunded/.test(String(x.body.error))), { rf, dup: dup.map((x) => x.body) });
+    check('…on the business’s own account (where rent is paid, lib/space-stripe), marked as the app’s, keyed on that payment; the renter is told', rf?.acct === 'acct_1' && rf?.metadata?.origin === 'app' && rf?.key === `rent-paid_twice-pi_${older.id}-80000` && dup.some((x) => /already paid, so your payment of \$800\.00 was refunded/.test(String(x.body.error))), { rf, dup: dup.map((x) => x.body) });
     r = await confirmInv(older.id);
     check('…asked again: nothing more', refunds.length === 1 && rfCreates === 1, r.body);
 
@@ -452,9 +452,9 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
     inv = await get(I);
     check('the refund refused: kept on the invoice, the studio asked to refund it', inv.extraPayments?.[refused.id]?.state === 'refund_failed' && (await all(`${T}/notifications`)).some((n: any) => /please refund it in Stripe/.test(n.message)) && !r.body.ok, { body: r.body, extra: inv.extraPayments });
 
-    console.log('rent paid online, through Stripe’s notice (the platform’s account)');
-    const { POST: billingHook } = await import('../../src/app/api/stripe/billing-webhook/route');
-    const hear = (type: string, sid: string) => billingHook(notice(type, sessions.find((x) => x.id === sid))) as any;
+    console.log('rent paid online, through Stripe’s notice (the business’s own account)');
+    const { POST: rentHook } = await import('../../src/app/api/stripe/connect-webhook/route');
+    const hear = (type: string, sid: string) => rentHook(notice(type, sessions.find((x) => x.id === sid), 'acct_1')) as any;
     await seed();
     await payInv(); payPage('cs_1');
     r = await hear('checkout.session.completed', 'cs_1');
@@ -483,8 +483,12 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
     await seed();
     await payInv(); payPage('cs_1');
     const other = { ...sessions[0], metadata: { kind: 'booth_booking' } };
+    const { POST: billingHook } = await import('../../src/app/api/stripe/billing-webhook/route');
     r = await billingHook(notice('checkout.session.completed', other));
     check('a platform page that isn’t rent: left alone', r.status === 200 && (await linesOf('Booth Rent')).length === 0);
+    const legacyPage = { ...sessions[0], id: 'cs_legacy', metadata: rentMeta, payment_status: 'paid', status: 'complete', amount_total: 80000 };
+    r = await billingHook(notice('checkout.session.completed', legacyPage));
+    check('a rent page opened on the platform’s account before the move: its notice there still records it', r.status === 200 && (await linesOf('Booth Rent')).length === 1 && (await get(I)).status === 'paid', r.body);
 
     console.log('a renter’s campaign texts');
     const C = `${T}/campaigns/k1`;

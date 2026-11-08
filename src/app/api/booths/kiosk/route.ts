@@ -33,7 +33,7 @@ import { createHash } from 'crypto';
 import Stripe from 'stripe';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { inPersonFromDb } from '@/lib/business-shape';
-import { onAccount } from '@/lib/space-stripe';
+import { onAccount, renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -334,7 +334,8 @@ export async function POST(req: NextRequest) {
             ok: true, found: true, payerType: 'renter',
             boothName,
             renterName: `${rt.firstName || ''} ${rt.lastName || ''}`.trim() || 'Renter',
-            cardOnFile: !!(rt.cardOnFile && rt.stripeCustomerId && rt.stripePaymentMethodId),
+            // A card this business can charge (saved on its own account, lib/space-stripe), as the charge itself checks.
+            cardOnFile: !!(rt.cardOnFile && renterBusinessCard(rt, spacePayAccount((await db.doc(`tenants/${tenantId}`).get()).data()))),
             amenityPayer: rt.amenityPayer === 'client' ? 'client' : 'renter',
             amenityCompAllowance: Math.max(0, Math.round(Number(rt.amenityCompAllowance) || 0)),
           });
@@ -446,9 +447,12 @@ export async function POST(req: NextRequest) {
         if (!rt.cardOnFile || !rt.stripeCustomerId || !rt.stripePaymentMethodId) {
           return NextResponse.json({ ok: false, error: 'No card on file for this station — please pay the host.' }, { status: 400 });
         }
+        // Charged on the business's own account, to the renter's card saved there (lib/space-stripe).
+        const stationCard = renterBusinessCard(rt, spacePayAccount((await db.doc(`tenants/${tenantId}`).get()).data()));
+        if (!stationCard) return NextResponse.json({ ok: false, error: 'The card on file for this station needs saving again — please pay the host.' }, { status: 400 });
         let boothName = 'their station';
         try { const b = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get(); if (b.exists) boothName = (b.data() as any)?.name || boothName; } catch { /* cosmetic */ }
-        payer = { kind: 'station', id: link.renterId, customer: String(rt.stripeCustomerId), pm: String(rt.stripePaymentMethodId),
+        payer = { kind: 'station', id: link.renterId, customer: stationCard.customer, pm: stationCard.pm, account: stationCard.account,
           name: `${rt.firstName || ''} ${rt.lastName || ''}`.trim() || 'Renter', boothName, boothId, instead: 'please pay the host' };
       }
 

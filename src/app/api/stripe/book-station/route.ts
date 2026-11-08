@@ -4,6 +4,7 @@ import { daysOf, recordStationBooking, releaseStationBooking, stationSlotPath } 
 import Stripe from 'stripe';
 import { createHash } from 'crypto';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { renterBusinessCard } from '@/lib/space-stripe';
 
 // ─── /api/stripe/book-station/route.ts ─────────────────────────────────────
 // Path A of the hourly/daily day-use feature: an EXISTING renter with a
@@ -159,7 +160,8 @@ export async function POST(req: NextRequest) {
     const minHours = booth.dayUseMinHours ?? 0;
     let problem: any = null;
     if (!booth.dayUseEnabled) problem = { ok: false, reason: 'This booth is not set up for day-use booking.' };
-    else if (!renter.stripeCustomerId || !renter.defaultPaymentMethodId) problem = { ok: false, reason: 'This renter has no card on file. Send a card-setup link or use the guest booking flow.', code: 'no_card_on_file' };
+    // The renter's card saved on this business's account (lib/space-stripe; the card setup and online rent save it there).
+    else if (!renterBusinessCard(renter, String(stripeAccountId))) problem = { ok: false, reason: renter.stripeCustomerId && (renter.stripePaymentMethodId || renter.defaultPaymentMethodId) ? 'This renter’s card needs to be saved again before it can be charged. Send a card-setup link or use the guest booking flow.' : 'This renter has no card on file. Send a card-setup link or use the guest booking flow.', code: 'no_card_on_file' };
     else if (totalCents <= 0) problem = { ok: false, reason: 'This booth has no day-use rate configured for that duration.' };
     else if (minHours > 0 && hours < minHours) problem = { ok: false, reason: `Minimum booking length is ${minHours} hour(s).` };
 
@@ -240,7 +242,7 @@ export async function POST(req: NextRequest) {
         attemptKey: attempt,
         chargeClaimAt: nowISO,
         chargeCents: totalCents,
-        chargePm: String(renter.defaultPaymentMethodId),
+        chargePm: String(renter.stripePaymentMethodId || renter.defaultPaymentMethodId),
         chargeCustomer: String(renter.stripeCustomerId),
         chargeAccount: String(stripeAccountId),
         chargeMode: mode === 'auto' ? 'auto' : 'pos',

@@ -5,6 +5,7 @@ import { linkOrigin } from '@/lib/app-origin';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
+import { renterBusinessCard } from '@/lib/space-stripe';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
 // Runs once daily (wire to Vercel Cron / Cloud Scheduler / GitHub Actions —
@@ -178,10 +179,13 @@ export async function POST(req: NextRequest) {
       // auto-collect in Booths (the old separate collector for that never ran — those leases were invoiced and
       // then sat unpaid, unseen by the late-rent sweep). A card on file is needed either way.
       const autoCharge = renter?.autopayEnabled === true || lease.autoCollect === true;
-      if (!autoCharge || !renter?.stripeCustomerId || !paymentMethodId) {
+      // Charged on the business's account, to a card saved there (lib/space-stripe). A card saved on the platform's
+      // account before the move can't be charged here, so it waits to be saved again (the invoice stays open).
+      const card = renterBusinessCard(renter, stripeAccountId);
+      if (!autoCharge || !renter?.stripeCustomerId || !paymentMethodId || !card) {
         results.push({
           leaseId: lease.id, ok: false,
-          reason: !autoCharge ? 'autopay_off' : !renter?.stripeCustomerId ? 'no_stripe_customer' : 'no_card',
+          reason: !autoCharge ? 'autopay_off' : !renter?.stripeCustomerId ? 'no_stripe_customer' : !paymentMethodId ? 'no_card' : 'card_saved_before_move',
         });
         continue;
       }
@@ -209,8 +213,8 @@ export async function POST(req: NextRequest) {
           {
             amount: chargeCents,
             currency: 'usd',
-            customer: renter.stripeCustomerId,
-            payment_method: paymentMethodId,
+            customer: card.customer,
+            payment_method: card.pm,
             off_session: true,
             confirm: true,
             description: `Autopay rent — ${booth?.name ?? lease.boothId}`,

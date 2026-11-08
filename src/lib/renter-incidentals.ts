@@ -1,6 +1,7 @@
 // src/lib/renter-incidentals.ts — AN INCIDENTAL CHARGED TO A LEASE RENTER'S SAVED CARD, RECORDED ONCE (server).
-// The team charges an incidental (within the studio's capped policy) to a lease renter's card on file through
-// api/booths/setup-card (PUT), on the platform's own Stripe account. Each attempt is claimed first
+// The team charges an incidental (within the business's capped policy) to a lease renter's card on file through
+// api/booths/setup-card (PUT), on the business's own Stripe account, where the card is saved (lib/space-stripe; an
+// attempt from before that was recorded stays on the platform's). Each attempt is claimed first
 // (tenants/{t}/renters/{renter}/charges/inc_{key}: 'charging', with the amount, card and wording it's for), charged
 // under one key named after the renter, the attempt and the card, and recorded here, once: the income line and its
 // Stripe fee are named after the renter and the attempt, and written with the renter's incidentals log in the same step
@@ -25,6 +26,7 @@
 import Stripe from 'stripe';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from '@/lib/audit';
+import { onAccount } from '@/lib/space-stripe';
 
 type Note = { id: string; message: string; link: string };
 type Result = 'recorded' | 'released' | 'waiting';
@@ -64,32 +66,38 @@ function incidentalClosed(renter: any, key: string): Record<string, any> | null 
     : { incidentalOpen: FieldValue.delete(), incidentalOpenAt: FieldValue.delete() };
 }
 
-/** Stripe's fee and the charge's id: from the payment as it came back, else asked for. Fail-open: no fee line. */
-async function feeOf(stripe: any, intent: any): Promise<{ feeCents: number; chargeId: string | null }> {
+/** Stripe's fee, the charge's id and Stripe's balance record: from the payment as it came back, else asked for.
+ *  Fail-open: no fee line here (on the business's account the payments notice writes the real one, lib/stripe-fee). */
+async function feeOf(stripe: any, intent: any, account?: string | null): Promise<{ feeCents: number; chargeId: string | null; balTxnId: string | null }> {
   const lc: any = intent?.latest_charge;
   let feeCents = Number(lc?.balance_transaction?.fee) || 0;
+  let balTxnId: string | null = lc?.balance_transaction?.id ? String(lc.balance_transaction.id) : null;
   let chargeId: string | null = typeof lc === 'string' ? lc : (lc?.id || null);
   if (!feeCents && intent?.id && (stripe || process.env.STRIPE_SECRET_KEY)) {
     try {
-      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] });
+      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] }, onAccount({ stripeAccountId: account }));
       const c: any = pi?.latest_charge;
       feeCents = Number(c?.balance_transaction?.fee) || 0;
+      balTxnId = c?.balance_transaction?.id ? String(c.balance_transaction.id) : balTxnId;
       chargeId = chargeId || c?.id || null;
     } catch { /* no fee line */ }
   }
-  return { feeCents, chargeId };
+  return { feeCents, chargeId, balTxnId };
 }
 
 /** The incidental charged: the income line, its Stripe fee, the renter's incidentals log and the attempt marked
  *  'charged' (and no longer open), once. False when it was recorded already. `extra` is written on the attempt with it,
  *  and `note` (named after what it's about) beside it. */
 export async function recordRenterIncidental(db: any, tenantId: string, renterId: string, key: string, intent: any, cents: number, description: string, renterName: string,
-  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note } = {}): Promise<boolean> {
+  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note; account?: string | null } = {}): Promise<boolean> {
   const renterRef = db.doc(`tenants/${tenantId}/renters/${renterId}`);
   const attemptRef = db.doc(incidentalAttemptPath(tenantId, renterId, key));
-  const { feeCents, chargeId } = await feeOf(o.stripe, intent);
+  const fee0 = await feeOf(o.stripe, intent, o.account);
+  // On the business's account the fee line is named after Stripe's own balance record, as the payments notice names it,
+  // so it's written once whichever comes first; without that record, the notice writes it.
+  const { chargeId } = fee0; const feeCents = o.account && !fee0.balTxnId ? 0 : fee0.feeCents;
   const txnRef = db.doc(`tenants/${tenantId}/transactions/renterinc_${safeKey(renterId)}_${key}`);
-  const feeRef = db.doc(`tenants/${tenantId}/transactions/renterincfee_${safeKey(renterId)}_${key}`);
+  const feeRef = db.doc(`tenants/${tenantId}/transactions/${o.account && fee0.balTxnId ? `stripefee_${String(fee0.balTxnId).replace(/[^A-Za-z0-9_]/g, '')}` : `renterincfee_${safeKey(renterId)}_${key}`}`);
   const noteRef = o.note ? db.doc(`tenants/${tenantId}/notifications/${o.note.id}`) : null;
   const at = o.at || new Date().toISOString();
   return db.runTransaction(async (tx: any) => {
@@ -111,6 +119,7 @@ export async function recordRenterIncidental(db: any, tenantId: string, renterId
       clientOrVendor: 'Stripe', date: at, paymentMethod: 'Deducted from payout',
       hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
       renterId, relatedTxnId: txnRef.id, tenantId, createdAt: at,
+      ...(fee0.balTxnId ? { stripeBalanceTxnId: fee0.balTxnId, ...(o.account ? { stripeConnectedAccountId: o.account } : {}) } : {}),
     });
     // The renter's incidentals log, for their history.
     tx.set(renterRef, { incidentals: FieldValue.arrayUnion({ amountCents: cents, description, at, paymentIntentId: intent.id }), incidentalsTotalCents: FieldValue.increment(cents),
@@ -143,13 +152,14 @@ export async function releaseRenterIncidental(db: any, tenantId: string, renterI
 
 // ── The five-minute check ────────────────────────────────────────────────────
 
-/** Every payment on this customer since `since` (seconds), on the platform's account. Null when Stripe can't be asked
- *  right now (or there are too many to look through), so nothing is decided on half an answer. */
-async function paymentsSince(stripe: any, customer: string, since: number): Promise<any[] | null> {
+/** Every payment on this customer since `since` (seconds), on the account the attempt was charged on (the business's;
+ *  an attempt from before that was recorded: the platform's). Null when Stripe can't be asked right now (or there are
+ *  too many to look through), so nothing is decided on half an answer. */
+async function paymentsSince(stripe: any, customer: string, since: number, account?: string | null): Promise<any[] | null> {
   const found: any[] = [];
   try {
     for (let page = 0, after = ''; page < 10; page++) {
-      const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100, ...(after ? { starting_after: after } : {}) });
+      const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100, ...(after ? { starting_after: after } : {}) }, onAccount({ stripeAccountId: account }));
       const data: any[] = Array.isArray(l?.data) ? l.data : [];
       found.push(...data);
       if (!l?.has_more || !data.length) return found;
@@ -174,10 +184,10 @@ function outcomeOf(payments: any[]): { state: 'paid' | 'pending' | 'open' | 'dec
 
 /** Payments still waiting for approval are canceled, so none can go through after the attempt is closed. False when one
  *  wasn't (it may have moved on): the next run looks again. */
-async function cancelOpen(stripe: any, open: any[]): Promise<boolean> {
+async function cancelOpen(stripe: any, open: any[], account?: string | null): Promise<boolean> {
   try {
     for (const p of open) {
-      const c: any = await stripe.paymentIntents.cancel(String(p.id), {}, { idempotencyKey: `cancel_${p.id}` });
+      const c: any = await stripe.paymentIntents.cancel(String(p.id), {}, onAccount({ stripeAccountId: account }, { idempotencyKey: `cancel_${p.id}` }));
       if (String(c?.status || '') !== 'canceled') return false;
     }
     return true;
@@ -230,7 +240,7 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
   const cents = Math.round(Number(a.amountCents) || 0);
   const customer = String(a.customer || renter.stripeCustomerId || '');
   if (!customer) return 'waiting';
-  const list = await paymentsSince(stripe, customer, Math.floor(claimTime(a) / 1000) - DAY_S);
+  const list = await paymentsSince(stripe, customer, Math.floor(claimTime(a) / 1000) - DAY_S, a.account || null);
   if (!list) return 'waiting';
   const found = outcomeOf(list.filter((p: any) => p?.metadata?.kind === 'renter_incidental' && String(p?.metadata?.renterId || '') === renterId
     && String(p?.metadata?.attempt || '') === key && Math.round(Number(p?.amount) || 0) === cents));
@@ -243,7 +253,7 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
 
   if (found.state === 'paid') {
     const at = Number(found.pi.created) > 0 ? iso(Number(found.pi.created) * 1000) : iso(now);
-    const wrote = await recordRenterIncidental(db, tenantId, renterId, key, found.pi, cents, description, renterName, { stripe, at, extra: settled, note: {
+    const wrote = await recordRenterIncidental(db, tenantId, renterId, key, found.pi, cents, description, renterName, { stripe, at, extra: settled, account: a.account || null, note: {
       id: noteId, link: '/booths',
       message: `${what} went through, though the screen never heard back. It’s recorded in Money. If it was also collected another way, refund it from Money.`,
     } });
@@ -258,7 +268,7 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
   }
 
   // Nothing went through: closed, as a decline is. Only if nobody asked again meanwhile (then that request finishes it).
-  if (found.state === 'open' && !(await cancelOpen(stripe, found.open))) return 'waiting';
+  if (found.state === 'open' && !(await cancelOpen(stripe, found.open, a.account || null))) return 'waiting';
   const reason = found.state === 'none' ? 'it never reached Stripe'
     : found.state === 'open' ? 'it needed approval that never came'
     : found.pi?.status === 'canceled' ? 'the payment was stopped before it went through' : 'the card was declined';

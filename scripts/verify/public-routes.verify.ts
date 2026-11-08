@@ -116,7 +116,7 @@ const fresh = async () => {
   await db.doc(`${T}/booths/b1`).set({ name: 'Chair 2' });
   await db.doc(`${T}/booths/b2`).set({ name: 'Room 3' });
   await db.doc(`${T}/leases/l1`).set({ boothId: 'b1', renterId: 'rt1', status: 'active' });
-  await db.doc(`${T}/renters/rt1`).set({ firstName: 'Nia', lastName: 'Park', amenitiesEnabled: true, amenityPayer: 'renter', amenityCompAllowance: 1, cardOnFile: true, stripeCustomerId: 'cus_r', stripePaymentMethodId: 'pm_r' });
+  await db.doc(`${T}/renters/rt1`).set({ firstName: 'Nia', lastName: 'Park', amenitiesEnabled: true, amenityPayer: 'renter', amenityCompAllowance: 1, cardOnFile: true, stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_r', stripePaymentMethodId: 'pm_r' });
   await db.doc(`${T}/inventory/latte`).set({ name: 'Latte', type: 'refreshment', price: 6, totalStock: 10 });
   await db.doc(`${T}/boothReservations/res1`).set({ name: 'Lena Cho', phone: '+15551112222', boothId: 'b2', boothName: 'Room 3', status: 'checked_in', startDate: today, endDate: today, cardOnFile: true, stripeCustomerId: 'cus_g', stripePaymentMethodId: 'pm_g' });
   await db.doc(`${T}/clients/c1`).set({ name: 'Maya Lopez', phone: '+15553334444', activeMembershipId: 'mem1', subscription: { nextBillingDate: new Date(Date.now() + 20 * 864e5).toISOString() }, outstandingBalance: 0 });
@@ -201,7 +201,7 @@ const fresh = async () => {
   check('…the new one does', r.body.ok, r.body);
   await db.doc(`${T}/leases/l1`).set({ status: 'ended' }, { merge: true });
   await db.doc(`${T}/leases/l2`).set({ boothId: 'b1', renterId: 'rt2', status: 'active' });
-  await db.doc(`${T}/renters/rt2`).set({ firstName: 'Ola', amenitiesEnabled: true, amenityPayer: 'renter', cardOnFile: true, stripeCustomerId: 'cus_2', stripePaymentMethodId: 'pm_2' });
+  await db.doc(`${T}/renters/rt2`).set({ firstName: 'Ola', amenitiesEnabled: true, amenityPayer: 'renter', cardOnFile: true, stripeCustomerAccount: 'acct_1', stripeCustomerId: 'cus_2', stripePaymentMethodId: 'pm_2' });
   r = await charge({ stationToken: t3, orderKey: 'next1' });
   check('a new renter in the space: the last renter’s link doesn’t charge them', r.status === 403 && !charges.some((c) => c.payment_method === 'pm_2'), r.body);
 

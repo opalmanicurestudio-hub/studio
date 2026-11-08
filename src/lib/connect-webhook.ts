@@ -163,6 +163,17 @@ export async function handleConnectWebhook(req: NextRequest) {
 
         const sessionType = session.metadata?.type;
 
+        // Rent paid online on the business's own account (api/portal/renter, pay-invoice): recorded once (lib/rent-online-pay),
+        // whichever comes first, this notice or the renter's return to the portal. Only for this business's own invoice.
+        if (session.metadata?.kind === 'rent_invoice') {
+          const inv = String(session.metadata?.invoiceId || '');
+          if (session.payment_status === 'paid' && String(session.metadata?.tenantId || '') === tenant.id && /^[A-Za-z0-9_-]{1,128}$/.test(inv)) {
+            const { recordRentPayment } = await import('@/lib/rent-online-pay');
+            await recordRentPayment(db, stripe2, tenant.id, inv, session, { account: connAcct });
+          }
+          break;
+        }
+
         // A space booking or a day pass paid on the business's own account (api/booths/reserve): confirmed from here too,
         // so it's booked and in the books even when the guest never comes back to the page that confirms it. The same
         // confirming step runs (it checks the payment with Stripe and is safe to run twice).

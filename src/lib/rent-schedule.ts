@@ -11,6 +11,7 @@
 // checks the cron applies (autopay on, Stripe customer, card on file).
 //
 // Pure: calendar days as strings, never instants, exactly like the cron.
+import { renterBusinessCard } from './space-stripe';
 
 export type RentFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 
@@ -63,10 +64,13 @@ export type AutopayReadiness =
   | 'manual'           // autopay off — renter pays by hand
   | 'no_schedule';     // lease has no due day / anchor
 
-export function autopayReadiness(lease: any, renter: any): AutopayReadiness {
+export function autopayReadiness(lease: any, renter: any, businessAccount?: string | null): AutopayReadiness {
   if (!lease?.dueDay && !lease?.firstChargeDate) return 'no_schedule';
   if (!renter?.autopayEnabled) return 'manual';
   if (!renter?.stripeCustomerId || !(renter?.stripePaymentMethodId || renter?.defaultPaymentMethodId)) return 'no_card';
+  // Autopay charges on the business's own account: a card saved on the platform's before the move has to be saved
+  // again first (lib/space-stripe). Without the account at hand, the card is taken as it is.
+  if (businessAccount !== undefined && !renterBusinessCard(renter, businessAccount)) return 'no_card';
   return 'ready';
 }
 
@@ -88,7 +92,7 @@ export interface ScheduledCharge {
  * decline is left 'pending' with a "card declined" description.
  */
 export function buildRentSchedule(
-  leases: any[], renterById: Map<string, any>, ledger: any[], fromIso: string,
+  leases: any[], renterById: Map<string, any>, ledger: any[], fromIso: string, businessAccount?: string | null,
 ): ScheduledCharge[] {
   const lastByLease = new Map<string, { date: string; ok: boolean; note: string }>();
   for (const e of ledger || []) {
@@ -116,7 +120,7 @@ export function buildRentSchedule(
         leaseId: l.id, renterId: l.renterId, boothId: l.boothId,
         date, amountCents: Number(l.rentAmountCents) || 0,
         frequency: (l.frequency || 'monthly') as RentFrequency,
-        readiness: autopayReadiness(l, renterById.get(l.renterId)),
+        readiness: autopayReadiness(l, renterById.get(l.renterId), businessAccount),
         lastAttempt: lastByLease.get(l.id) || null,
       } as ScheduledCharge;
     })

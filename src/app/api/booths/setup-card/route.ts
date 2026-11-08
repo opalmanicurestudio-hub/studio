@@ -18,7 +18,7 @@
  *     Idempotent.
  * GET ?tenantId=&renterId=&link=
  *   → the card page opened from the owner's link: is the link still good?
- *     (the studio's name and the renter's first name, nothing else).
+ *     (the business's name and the renter's first name, nothing else).
  *
  * WHO MAY SAVE A CARD. Saving a card replaces the renter's card on file — the
  * card their rent and agreed charges go on — so it takes proof, one of:
@@ -30,7 +30,7 @@
  * Stripe's page sends the renter back with its setup's id; the card is stored
  * only when that setup was started here with one of those, for this business,
  * this renter and their Stripe customer. A link sent before this check existed
- * is told to ask the studio for a new one.
+ * is told to ask the business for a new one.
  *
  * PUT { tenantId, renterId, category, note?, amountCents }
  *   → one-tap incidental charge against the renter's card on file, GOVERNED
@@ -53,6 +53,7 @@ import { incidentalOpened, recordRenterIncidental, releaseRenterIncidental } fro
 import { requireCan, requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { spacePayAccount, onAccount, renterCardAccount, renterBusinessCard, RENTER_CARD_AGAIN } from '@/lib/space-stripe';
 
 // Ids named after what they record, so a second run of the same step finds it done.
 const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
@@ -83,8 +84,8 @@ function checkCardLink(tenantId: string, renterId: string, lastSetup: string, to
   return exp < now || exp > now + LINK_DAYS * DAY + 60000 ? 'expired' : 'ok';
 }
 const LINK_MESSAGE = {
-  expired: 'This card link has expired. Please ask the studio for a new one.',
-  used: 'This card link has already been used or is out of date. Please ask the studio for a new one.',
+  expired: 'This card link has expired. Please ask the business for a new one.',
+  used: 'This card link has already been used or is out of date. Please ask the business for a new one.',
 };
 
 // ── The other proofs ─────────────────────────────────────────────────────────
@@ -155,7 +156,10 @@ export async function POST(req: NextRequest) {
       how = 'link';
     } else if (await teamMayTakePayments(req, String(tenantId))) how = 'staff';
     else if (await renterSignedIn(req, db, String(tenantId), String(renterId), renter, body.portalToken)) how = 'renter';
-    if (!how) return NextResponse.json({ ok: false, error: 'Please sign in again, or ask the studio for a card link.' }, { status: 401 });
+    if (!how) return NextResponse.json({ ok: false, error: 'Please sign in again, or ask the business for a card link.' }, { status: 401 });
+    // The card is saved on the business's own account (lib/space-stripe), so its rent and charges are paid to it.
+    const payAcct = spacePayAccount(tenant);
+    if (!payAcct) return NextResponse.json({ ok: false, error: 'This business isn’t set up to take cards online yet, so a card can’t be saved here. Please let the business know.' }, { status: 409 });
 
     // The team sending a link to the renter: our own card page, signed for them. Nothing is set up at Stripe until the
     // renter opens it, and it works for 7 days rather than Stripe's one.
@@ -167,11 +171,11 @@ export async function POST(req: NextRequest) {
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
 
-    // Reuse the customer if this renter already has one (from prior day
-    // bookings by email, or a prior setup).
-    let customerId: string | null = renter.stripeCustomerId || null;
+    // Their customer on the business's account: the one their card is already on there, else found by email there, else
+    // made. (A customer on the platform's account, from before, isn't reused.)
+    let customerId: string | null = renterCardAccount(renter) === payAcct ? (renter.stripeCustomerId || null) : null;
     if (!customerId && renter.email) {
-      const existing = await stripe.customers.list({ email: renter.email, limit: 1 });
+      const existing = await stripe.customers.list({ email: renter.email, limit: 1 }, { stripeAccount: payAcct });
       customerId = existing.data[0]?.id || null;
     }
     if (!customerId) {
@@ -180,7 +184,9 @@ export async function POST(req: NextRequest) {
         phone: renter.phone || undefined,
         name: `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || undefined,
         metadata: { tenantId, renterId },
-      });
+        // Two setups started at once (the team and the renter, or a double tap) get the same customer, so neither comes
+        // back "out of date".
+      }, { stripeAccount: payAcct, idempotencyKey: `renter-card-customer-${safeKey(tenantId)}-${safeKey(renterId)}-${createHash('sha256').update(`${renter.email || ''}|${renter.phone || ''}|${renter.firstName || ''} ${renter.lastName || ''}`).digest('hex').slice(0, 16)}` });
       customerId = created.id;
     }
 
@@ -193,10 +199,11 @@ export async function POST(req: NextRequest) {
       success_url: `${base}?cfCardSetup=1&cfSetupSession={CHECKOUT_SESSION_ID}&cfRenterId=${encodeURIComponent(String(renterId))}`,
       cancel_url: how === 'link' ? `${base}?r=${encodeURIComponent(String(renterId))}&k=${encodeURIComponent(String(body.linkToken))}` : base,
       metadata: { tenantId: String(tenantId), renterId: String(renterId), cfAuth: how },
-    });
+    }, { stripeAccount: payAcct });
 
+    // Kept aside until the card is saved: the card on file (and its customer) stays as it is if they never finish.
     await db.doc(`tenants/${tenantId}/renters/${renterId}`).set(
-      { stripeCustomerId: customerId }, { merge: true });
+      { cardSetupCustomerId: customerId, cardSetupAccount: payAcct }, { merge: true });
 
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err) {
@@ -223,7 +230,7 @@ export async function GET(req: NextRequest) {
     const renter = snap.data() as any;
 
     // Studio name for the public confirmation screen (cosmetic, fail-open).
-    let studioName = 'The studio';
+    let studioName = 'The business';
     try {
       const t = await db.doc(`tenants/${tenantId}`).get();
       studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
@@ -242,15 +249,20 @@ export async function GET(req: NextRequest) {
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const session: any = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['setup_intent'] });
+    // On the account the setup was opened on (a setup opened before that was recorded: the platform's).
+    const setupAcct: string | null = typeof renter.cardSetupAccount === 'string' && renter.cardSetupAccount ? renter.cardSetupAccount : null;
     // Only a setup this route started with proof, for this business, this renter and their Stripe customer. One from a
-    // link sent before the proof existed is told to ask for a new link.
-    const md: any = session?.metadata || {};
+    // link sent before the proof existed (or one Stripe doesn't know on this account) is told to ask for a new link.
     const outdated = () => NextResponse.json({ ok: false, linkExpired: true, error: `This card link is out of date. Please ask ${studioName} for a new one.`, studioName }, { status: 410 });
+    let session: any;
+    try { session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['setup_intent'] }, onAccount({ stripeAccountId: setupAcct })); }
+    catch (e: any) { if (String(e?.code || e?.raw?.code || '') === 'resource_missing') return outdated(); throw e; }
+    const md: any = session?.metadata || {};
     if (String(md.tenantId || '') !== tenantId || String(md.renterId || '') !== renterId || (session?.mode && session.mode !== 'setup')) return outdated();
     if (!['staff', 'renter', 'link'].includes(String(md.cfAuth || ''))) return outdated();
     const customer = typeof session?.customer === 'string' ? session.customer : String(session?.customer?.id || '');
-    if (renter.stripeCustomerId && customer && customer !== String(renter.stripeCustomerId)) return outdated();
+    const known = [setupAcct ? renter.cardSetupCustomerId : renter.stripeCustomerId].filter(Boolean).map(String);
+    if (known.length && customer && !known.includes(customer)) return outdated();
     const si: any = session.setup_intent;
     if (!si || si.status !== 'succeeded' || !si.payment_method) {
       return NextResponse.json({ ok: false, error: 'Card setup not completed.' }, { status: 400 });
@@ -259,7 +271,7 @@ export async function GET(req: NextRequest) {
     const pmId = String(typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id || '');
     let brand = 'card', last4 = '';
     try {
-      const pm = await stripe.paymentMethods.retrieve(pmId);
+      const pm = await stripe.paymentMethods.retrieve(pmId, {}, onAccount({ stripeAccountId: setupAcct }));
       brand = pm.card?.brand || 'card';
       last4 = pm.card?.last4 || '';
     } catch { /* summary is cosmetic */ }
@@ -272,13 +284,17 @@ export async function GET(req: NextRequest) {
       if (cur.cardSetupSessionId === sessionId && cur.cardOnFile) return;
       tx.set(renterRef, {
         cardOnFile: true,
-        stripePaymentMethodId: pmId,
-        ...(customer && !cur.stripeCustomerId ? { stripeCustomerId: customer } : {}),
+        stripePaymentMethodId: pmId, defaultPaymentMethodId: pmId,
+        // The card and its customer go on file together, with the account they're on (lib/space-stripe).
+        ...(setupAcct
+          ? { stripeCustomerId: customer || cur.cardSetupCustomerId || null, stripeCustomerAccount: setupAcct }
+          : (customer && !cur.stripeCustomerId ? { stripeCustomerId: customer } : {})),
         cardBrand: brand,
         cardLast4: last4,
         cardSetupSessionId: sessionId,
         cardSetupAt: at,
         cardSetupVia: String(md.cfAuth),
+        // (cardSetupCustomerId / cardSetupAccount are left: another setup started meanwhile still comes back to them.)
       }, { merge: true });
       // Tell the owner — the renter usually completes this on their own phone.
       tx.set(noteRef, { id: noteRef.id, type: 'booth_reservation', read: false, createdAt: at, link: '/pos?tab=spaces',
@@ -329,11 +345,15 @@ export async function PUT(req: NextRequest) {
     if (!renter.cardOnFile || !renter.stripeCustomerId || !renter.stripePaymentMethodId) {
       return NextResponse.json({ ok: false, error: 'No card on file — it’s saved when the renter first pays rent online, or they can add one in their portal Documents tab.' }, { status: 400 });
     }
+    const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    // Charged on the business's own account, to a card saved there (lib/space-stripe); one saved before the move is
+    // saved again first.
+    const card = renterBusinessCard(renter, spacePayAccount(tenantDoc));
 
     // ── Incidentals policy — no made-up charges. Only owner-defined charge
     // types are allowed, each capped. Enforced HERE via the shared module so it
     // stays in lockstep with the day/hourly path and the signed lease.
-    const cats = resolveIncidentalPolicy((await db.doc(`tenants/${tenantId}`).get()).data());
+    const cats = resolveIncidentalPolicy(tenantDoc);
     const v = validateIncidental(cats, String(body.category || body.description || ''), amountCents, String(body.note || ''));
     if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: v.status });
 
@@ -345,18 +365,21 @@ export async function PUT(req: NextRequest) {
       const rNow: any = (await tx.get(renterRef)).data() || {};
       if (a?.status === 'charged') return { already: true, cents: Number(a.amountCents) || 0 };
       if (a?.status === 'charging' && freshClaim(a.claimAt)) return { busy: true };
+      // A new charge needs a card this business can charge (nothing is claimed or marked open without one).
+      if (a?.status !== 'charging' && !card) return { noCard: true };
       // The renter's record lists the attempt as open (lib/renter-incidentals), in the same step that claims it.
       const opened = incidentalOpened(rNow, key, nowIso);
       if (opened) tx.set(renterRef, opened, { merge: true });
       if (a?.status === 'charging') {
         // Asked again after no answer: the same charge (its stored amount, card and wording), never a different one.
         tx.set(attemptRef, { claimAt: nowIso }, { merge: true });
-        return { cents: Number(a.amountCents) || 0, pm: String(a.pm || ''), customer: String(a.customer || ''), description: String(a.description || v.description), label: String(a.category || v.category.label) };
+        return { cents: Number(a.amountCents) || 0, pm: String(a.pm || ''), customer: String(a.customer || ''), account: a.account || null, description: String(a.description || v.description), label: String(a.category || v.category.label) };
       }
       tx.set(attemptRef, { id: attemptRef.id, status: 'charging', claimAt: nowIso, amountCents, description: v.description, category: v.category.label,
-        pm: String(renter.stripePaymentMethodId), customer: String(renter.stripeCustomerId), by: g.actor?.name || null }, { merge: true });
-      return { cents: amountCents, pm: String(renter.stripePaymentMethodId), customer: String(renter.stripeCustomerId), description: v.description, label: v.category.label };
+        pm: card!.pm, customer: card!.customer, account: card!.account, by: g.actor?.name || null }, { merge: true });
+      return { cents: amountCents, pm: card!.pm, customer: card!.customer, account: card!.account, description: v.description, label: v.category.label };
     });
+    if (claim.noCard) return NextResponse.json({ ok: false, error: RENTER_CARD_AGAIN }, { status: 409 });
     if (claim.already) return NextResponse.json({ ok: true, chargedCents: claim.cents, already: true });
     if (claim.busy) return NextResponse.json({ ok: false, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
     const cents = Number(claim.cents) || 0;
@@ -376,7 +399,7 @@ export async function PUT(req: NextRequest) {
         expand: ['latest_charge.balance_transaction'],
         description: `${description} — ${renterName}`,
         metadata: { tenantId, renterId, kind: 'renter_incidental', category: claim.label, attempt: key },
-      }, { idempotencyKey: `renter-incidental-${safeKey(renterId)}-${key}-${safeKey(claim.pm)}` });
+      }, onAccount({ stripeAccountId: claim.account }, { idempotencyKey: `renter-incidental-${safeKey(renterId)}-${key}-${safeKey(claim.pm)}` }));
     } catch (err: any) {
       const msg = err?.raw?.message || err?.message || 'Card charge failed.';
       if (stripeRefused(err)) {
@@ -388,7 +411,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // ── Recorded once (lib/renter-incidentals): the income line, its Stripe fee, and the renter's incidentals log, with the attempt marked ──
-    const wrote = await recordRenterIncidental(db, String(tenantId), String(renterId), key, intent, cents, description, renterName, { stripe });
+    const wrote = await recordRenterIncidental(db, String(tenantId), String(renterId), key, intent, cents, description, renterName, { stripe, account: claim.account || null });
     if (!wrote) return NextResponse.json({ ok: true, chargedCents: cents, already: true });
     await logAuditAdmin(db, String(tenantId), {
       action: 'booth.renter_charged', targetType: 'renter', targetId: String(renterId),
