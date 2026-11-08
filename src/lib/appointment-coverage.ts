@@ -17,6 +17,7 @@
  */
 
 import { qualifiedFor, isCertified, isExcludedPairing } from '@/lib/availability';
+import { onTeam } from '@/lib/team-member';
 
 export type CoverageCandidate = {
   id: string;
@@ -54,7 +55,7 @@ export function findCoverageOptions(input: {
   const end = toMs(appointment.endTime);
   const currentId = String(appointment.staffId || '');
 
-  const active = (staff || []).filter((s: any) => s && s.id && s.active !== false && s.id !== currentId);
+  const active = (staff || []).filter((s: any) => s && s.id && onTeam(s) && s.id !== currentId);
   /* The engine's own gates, in the engine's own order. Anyone it would refuse
    * never reaches the manager as an option. */
   /* A pairing the shop has already ruled out must never be offered as cover

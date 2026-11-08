@@ -9,6 +9,7 @@
 import { providersOf } from '@/lib/visit-watch';
 import { delayChain, delaySettings, delayClientText, worthTelling } from '@/lib/delay';
 import { attendantIds } from '@/lib/attendant';
+import { onTeam } from '@/lib/team-member';
 
 const clock = (v: number, tz?: string) => new Date(v).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz || undefined });
 
@@ -25,7 +26,7 @@ export async function delayTick(db: any, tenantId: string, tenant: any, now = Da
   if (!chain.length) return 0;
   const staff = rows(await db.collection(`${T}/staff`).get());
   const nameOf = (id: string | null) => String(staff.find((m: any) => m.id === id)?.name || '').split(' ')[0];
-  const managers = staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
+  const managers = staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && onTeam(m)).map((m: any) => m.id);
   const keepers = attendantIds(tenant).filter((id) => staff.some((m: any) => m.id === id && m.active !== false && !m.onBreak));
   const { logAuditAdmin } = await import('@/lib/audit');
   let sent = 0;

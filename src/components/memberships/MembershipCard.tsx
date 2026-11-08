@@ -14,6 +14,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { onTeam } from '@/lib/team-member';
 
 interface MembershipCardProps {
   membership: Membership;
@@ -64,7 +65,7 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
   }, [membership, services, inventory]);
 
   const individualStaffAnalysis = useMemo(() => {
-    return staff.filter(s => s.active).map(member => {
+    return staff.filter(onTeam).map(member => {
         const timeValue = timeLiabilityHours * tmhr;
         
         let labor = 0;

@@ -101,6 +101,7 @@
 
 import { kitsNeeded, kitKey } from '@/lib/kits';
 import { linensNeeded, linenKey } from '@/lib/linens';
+import { onTeam, goneForToday } from '@/lib/team-member';
 import {
   addMinutes,
   areIntervalsOverlapping,
@@ -877,7 +878,7 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
   if (wantStaff !== 'any') {
     pool = pool.filter((s) => s.id === wantStaff);
   } else {
-    pool = pool.filter((s) => s?.active !== false);
+    pool = pool.filter(onTeam);   // everyone on the team, clocked in or not (lib/team-member)
     const tierId = input.tierId || 'any';
     if (tierId !== 'any') pool = pool.filter((s) => s?.pricingTierId === tierId);
   }
@@ -1104,12 +1105,21 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
       continue;
     }
 
-    // On the day itself, respect who is actually on the floor.
-    if (sameDay && (staffMember?.active === false || staffMember?.onBreak === true)) continue;
+    // On the day itself, someone who has clocked out for the day isn't offered for later today. Not having clocked in
+    // yet (or a business that doesn't use the time clock) is no reason to hide them (lib/team-member).
+    if (sameDay && goneForToday(staffMember, (d) => isSameDay(d, now))) continue;
 
     const busy: Window[] = [];
     const hot: Date[] = [];
     let load = 0;
+    // On a break right now: not offered until the break is due to end (the business's longest break, 30 minutes if it
+    // hasn't set one), counted from when it started. The rest of the day stays open.
+    if (sameDay && staffMember?.onBreak === true) {
+      const began = safeDate(staffMember?.breakStartTime) ?? now;
+      const maxBreak = num(input.tenant?.maximumBreakMinutes, 0) > 0 ? num(input.tenant?.maximumBreakMinutes, 30) : 30;
+      const back = addMinutes(began, maxBreak);
+      busy.push({ start: began < now ? began : now, end: back > now ? back : addMinutes(now, 15) });
+    }
 
     for (const apt of dayAppointments) {
       if (apt?.staffId !== staffMember.id) continue;

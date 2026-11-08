@@ -1,6 +1,7 @@
 // src/lib/starter-menus.ts — A MENU TO START FROM for a business starting fresh (Getting started → Your services).
 // Common services with typical lengths. Prices are left for the business: every one comes in hidden from booking with no
-// price, and goes live only when they set a price and switch it on — nothing is offered to clients at a made-up price.
+// price, and goes on the booking page when they give it its first price (services page) — nothing is offered to clients
+// at a made-up price.
 import { nicheOf } from './niche';
 export type StarterService = { name: string; category: string; duration: number; description?: string };
 export type StarterMenu = { id: string; label: string; services: StarterService[] };

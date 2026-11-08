@@ -45,6 +45,7 @@ import { searchFields } from '@/lib/client-search';
 import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { useHistoryStats } from '@/hooks/use-history-stats';
 import { mergeClientHistory } from '@/lib/history-stats';
+import { onTeam } from '@/lib/team-member';
 
 const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
@@ -321,7 +322,7 @@ export default function ClientsPage() {
             onUnarchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'active' })); toast({ title: `${ids.length} restored` }); }}
             onDelete={role === 'owner' ? (ids: string[]) => { setSelectedItems(new Set(ids)); setIsBulkDeleteConfirmOpen(true); } : undefined}
             onTag={(ids: string[], tag: string) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { tags: arrayUnion(tag) } as any)); toast({ title: `Tagged ${ids.length} “${tag}”` }); }} />
-          {tenantId && <StaffBookSheet open={!!bookFor} onClose={() => setBookFor(null)} tenantId={tenantId} tenant={selectedTenant} clients={clients || []} services={(inv as any).services || []} staff={((inv as any).staff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}
+          {tenantId && <StaffBookSheet open={!!bookFor} onClose={() => setBookFor(null)} tenantId={tenantId} tenant={selectedTenant} clients={clients || []} services={(inv as any).services || []} staff={((inv as any).staff || []).filter((st: any) => st.role !== 'renter' && onTeam(st))}
             appointments={appointments || []} role={role} uid={null} prefill={bookFor ? { clientId: bookFor } : null} />}
         </main>
 

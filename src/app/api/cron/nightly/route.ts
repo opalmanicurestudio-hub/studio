@@ -32,6 +32,7 @@ import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
 import { sweepNoShows } from '@/lib/no-show';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { sweepExpiredRequests, sweepPendingRequestNudge, sweepUnpaidAccepted } from '@/lib/retail-sweeps';
+import { onTeam } from '@/lib/team-member';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -1332,7 +1333,7 @@ export async function GET(req: NextRequest) {
               const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
               for (const sDoc of staffSnap.docs) {
                 const s = sDoc.data() as any;
-                if (s.active === false || s.archived) continue;
+                if (!onTeam(s)) continue;
                 const sPhone = s.phone || s.phoneNumber || null;
                 if (!sPhone) continue;
                 await sendTenantSms(db, tid, sPhone,

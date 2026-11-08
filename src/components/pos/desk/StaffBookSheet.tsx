@@ -19,6 +19,7 @@ import { computeDepositCents } from '@/lib/deposit-policy';
 import { hasRealCard } from '@/lib/card-on-file';
 import { callbackReasonsFor, callbackReason } from '@/lib/callback-reasons';
 import { pageAccent } from '@/lib/studio-page';
+import { onTeam } from '@/lib/team-member';
 
 export type Mode = 'one' | 'repeat' | 'group' | 'steps';
 type Guest = { name: string; phone: string; serviceId: string; staffId: string };
@@ -141,7 +142,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     if (timingApplied === key || timingApplied === `${key}|off`) return;   // applied already, or turned off by hand
     setLenAdj(clientExtra); if (clientExtraCents > 0) setPrice(String(((Number(svc?.price) || 0) + clientExtraCents / 100).toFixed(2))); setTimingApplied(key);
   }, [client?.id, serviceId, clientExtra, clientExtraCents]); // eslint-disable-line react-hooks/exhaustive-deps
-  const qualified = React.useMemo(() => (staff || []).filter((m: any) => m.isActive !== false && m.active !== false && (!svc?.staffIds?.length || svc.staffIds.includes(m.id))), [staff, svc]);
+  const qualified = React.useMemo(() => (staff || []).filter((m: any) => onTeam(m) && (!svc?.staffIds?.length || svc.staffIds.includes(m.id))), [staff, svc]);
   // Finding the client: searched on the server (hooks/use-clients), plus any list the screen already had.
   const qSettled = useDebounced(q.trim().length >= 2 ? q : '', 200);
   const { clients: found } = useClientSearch(qSettled, 6);

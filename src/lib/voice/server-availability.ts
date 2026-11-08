@@ -36,6 +36,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
+import { onTeam } from '@/lib/team-member';
 import {
   wallTimeToUtc,
   localTimeHHmm,
@@ -384,7 +385,7 @@ async function computeDaySlots(
   const dayApts = await fetchDayAppointments(db, tenantId, ctx, date);
 
   const candidateStaff = (provider ? [provider] : ctx.staff).filter(
-    (s: any) => s.active !== false,
+    (s: any) => onTeam(s),
   );
 
   const openByTime = new Map<

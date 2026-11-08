@@ -55,6 +55,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } from '@/lib/confirm-ask';
 import { automationOn } from '@/lib/automation-switches';
+import { onTeam } from '@/lib/team-member';
 export async function GET(req: NextRequest) {
   // Same guard as the nightly cron: Vercel Cron sends the secret. No secret set: nobody.
   const refused = refuseCron(req); if (refused) return refused;
@@ -593,7 +594,7 @@ export async function GET(req: NextRequest) {
           for (const sDoc of staffSnap.docs) {
             const s = sDoc.data() as any;
             const agenda = byStaff.get(sDoc.id);
-            if (!agenda || !s.phone || s.active === false || s.archived) continue;
+            if (!agenda || !s.phone || !onTeam(s)) continue;
             if (briefGoes && oneOfUs && digits(s.phone).length === 10 && digits(s.phone) === digits(cfg.ownerPhone)) continue;
             try {
               const am = resolveMessage(tDoc.data(), 'staff_agenda', { staff_first: String(s.name || '').split(' ')[0], count: agenda.count, appointments: `${agenda.count} appointment${agenda.count === 1 ? '' : 's'}`, first_time: agenda.firstLabel || '', note: downNote, studio: (tDoc.data() as any)?.name || '' }, 'sms');

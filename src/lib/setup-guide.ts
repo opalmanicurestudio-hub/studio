@@ -12,7 +12,7 @@ export interface GuideFacts { livePriced: number; teamCount: number; toPrice?: n
 export interface GuideStep extends GuideStepDef { done: boolean; skipped: boolean; note?: string }
 
 export const GUIDE_STEPS: GuideStepDef[] = [
-  { id: 'details', title: 'Your business details', meaning: 'Name, logo, phone and address clients see', href: '/settings?tab=profile', checked: true },
+  { id: 'details', title: 'Your business details', meaning: 'Name, phone and address clients see, and your logo if you have one', href: '/settings?tab=profile', checked: true },
   { id: 'hours', title: 'Hours and locations', meaning: 'When you’re open, and where', href: '/settings?tab=hours' },
   { id: 'services', title: 'Services and prices', meaning: 'What clients can book, how long it takes and what it costs', href: '/services', checked: true },
   { id: 'payments', title: 'Take payments', meaning: 'Connect your bank so you can take cards and get paid', href: '/settings?tab=payments', checked: true },
@@ -20,13 +20,14 @@ export const GUIDE_STEPS: GuideStepDef[] = [
   { id: 'changes', title: 'Cancellations and no-shows', meaning: 'What happens when plans change', href: '/settings/policies' },
   { id: 'messages', title: 'Messages clients get', meaning: 'Confirmations and reminders, already written for you', href: '/settings/messages' },
   { id: 'shop', title: 'Your shop', meaning: 'Pickup, delivery or shipping, and your return policy', href: '/retail-orders/policies/delivery', module: 'retail' },
-  { id: 'team', title: 'Your team', meaning: 'Invite people and choose what each one can do', href: '/staff', module: 'team', checked: true },
+  // Shown to a business that said it's a team (whatever tools it uses), not to one that said "just me" (lib/setup-guide teamStepShown).
+  { id: 'team', title: 'Your team', meaning: 'Add the people clients book with. If you see clients yourself too, turn on your own hours on your card.', href: '/staff', checked: true },
 ];
 
 /** What a checked step needs to be done, read from the business and a few counts. */
 function isReallyDone(id: string, t: any, f: GuideFacts): boolean {
   switch (id) {
-    case 'details': return !!(t?.name && t?.logoUrl && t?.phone && t?.address);
+    case 'details': return !!(t?.name && t?.phone && t?.address);   // a logo is welcome, not required
     case 'services': return f.livePriced > 0;
     case 'payments': return !!(t?.stripeAccountId && t?.stripeChargesEnabled !== false);
     case 'team': return f.teamCount > 1;
@@ -35,16 +36,25 @@ function isReallyDone(id: string, t: any, f: GuideFacts): boolean {
 }
 
 function noteFor(id: string, t: any, f: GuideFacts): string | undefined {
-  if (id === 'details') { const miss = [!t?.logoUrl && 'logo', !t?.phone && 'phone', !t?.address && 'address'].filter(Boolean) as string[]; return miss.length ? `Add your ${miss.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : undefined; }
+  if (id === 'details') { const miss = [!t?.phone && 'phone', !t?.address && 'address'].filter(Boolean) as string[]; return miss.length ? `Add your ${miss.join(' and ')}` : !t?.logoUrl ? 'Add a logo if you have one' : undefined; }
   if (id === 'services') { const toPrice = f.toPrice || 0; if (f.livePriced) return `${f.livePriced} on your booking page${toPrice ? ` · ${toPrice} still need a price` : ''}`; if (toPrice) return `${toPrice} ready for your prices`; }
   if (id === 'team' && f.teamCount > 1) return `${f.teamCount} people`;
   return undefined;
 }
 
+/** Whether the team step is shown: to a business that said it's a team (at signup, or later in How your business
+ *  works), whatever tools it uses, and never to one that said "just me". A business that never said either way sees it
+ *  when it uses the Team tool, or already has more than one person. */
+export function teamStepShown(t: any, f?: GuideFacts): boolean {
+  const solo = typeof t?.shape?.solo === 'boolean' ? t.shape.solo : t?.teamSize === 'solo' ? true : t?.teamSize === 'team' ? false : null;
+  if (solo !== null) return !solo;
+  return moduleEnabled(t, 'team') || (f?.teamCount || 0) > 1;
+}
+
 /** The steps this business sees, in order, each done, skipped or still to do. */
 export function guideSteps(t: any, f: GuideFacts): GuideStep[] {
   const g = t?.setupGuide || {}; const done = g.done || {}; const skipped = g.skipped || {};
-  return GUIDE_STEPS.filter((s) => !s.module || moduleEnabled(t, s.module)).map((s) => {
+  return GUIDE_STEPS.filter((s) => (s.id === 'team' ? teamStepShown(t, f) : !s.module || moduleEnabled(t, s.module))).map((s) => {
     const really = s.checked ? isReallyDone(s.id, t, f) : !!done[s.id];
     return { ...s, done: really, skipped: !really && !!skipped[s.id], note: noteFor(s.id, t, f) };
   });

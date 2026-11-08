@@ -84,6 +84,7 @@ import { unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { StripeTerminalProvider, useTerminalOptional } from '@/components/pos/StripeTerminalProvider';
 import { ReaderPanel } from '@/components/pos/ReaderPanel';
 import { DESK_CSS } from '@/components/pos/desk/kit';
+import { goneForToday } from '@/lib/team-member';
 
 /** Hands the card reader's controls (inside its provider) to the booking screen that takes the deposit. */
 function ReaderBridge({ into }: { into: React.MutableRefObject<any> }) {
@@ -305,7 +306,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                 return mineParts.some((mine) => areIntervalsOverlapping(mine, { start: intervalStartWithPad, end: intervalEndWithPad }, { inclusive: false }));
             });
 
-            if (!isOverlapping && (watchOverride || (!isToday(watchDate) || (staffMember.active && !staffMember.onBreak)))) {
+            if (!isOverlapping && (watchOverride || (!isToday(watchDate) || !goneForToday(staffMember, isToday)))) {
                 const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
                 const isDayEmpty = busyIntervals.length === 0;
 

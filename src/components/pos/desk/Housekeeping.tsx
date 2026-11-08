@@ -28,6 +28,7 @@ import { useAssistQueue } from '@/components/pos/desk/AssistQueue';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TypeBadge, Initials } from '@/components/pos/desk/hk-ui';
 import { Stations } from '@/components/pos/desk/Stations';
+import { onTeam } from '@/lib/team-member';
 
 /** How many housekeeping jobs are waiting (for a button's badge). Loads the same records as the queue. */
 export function useHousekeeping(tenantId: string | null | undefined, appts: any[], services: any[], staff: any[], tenant?: any, history?: any[]) {
@@ -226,7 +227,7 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
           <p className="font-semibold">Who does housekeeping?</p>
           <label className="flex items-center gap-2"><input type="radio" name="hk" checked={mode === 'providers'} onChange={() => saveSetup({ housekeeping: 'providers' })} /> Each provider resets their own station</label>
           <label className="flex items-center gap-2"><input type="radio" name="hk" checked={mode === 'attendants'} disabled={!picked.length} onChange={() => saveSetup({ housekeeping: 'attendants' })} /> The people ticked below (pick at least one)</label>
-          <div className="flex flex-wrap gap-2 pl-6">{(staff || []).filter((s: any) => s && s.id && s.active !== false && s.role !== 'renter').map((s: any) => { const on = picked.includes(s.id); return (
+          <div className="flex flex-wrap gap-2 pl-6">{(staff || []).filter((s: any) => s && s.id && onTeam(s) && s.role !== 'renter').map((s: any) => { const on = picked.includes(s.id); return (
             <label key={s.id} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] ${on ? 'bg-foreground text-background' : ''}`}><input type="checkbox" className="sr-only" checked={on} onChange={() => { const next = on ? picked.filter((x) => x !== s.id) : [...picked, s.id]; saveSetup({ attendantIds: next, ...(next.length ? {} : { housekeeping: 'providers' }) }); }} />{String(s.name || 'Team member').split(' ')[0]}</label>); })}</div>
           <p className="text-[12px] text-muted-foreground">With named people, reset reminders go to them instead of the provider, and this list shows on their own Today screen.</p>
           <label className="block">Jobs one person can hold at once <input type="number" min={1} max={10} defaultValue={limit} onBlur={(e) => saveSetup({ maxTasksEach: Math.max(1, Math.min(10, Math.round(Number(e.target.value)) || 3)) })} className="ml-1 h-9 w-16 rounded-lg border bg-background px-2" /></label>

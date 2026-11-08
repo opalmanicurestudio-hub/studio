@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return NextResponse.json({ ok: false, error: 'That email address doesn’t look right.' }, { status: 400 });
   if (phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: 'Add a mobile number.' }, { status: 400 });
   if (password.length < 6) return NextResponse.json({ ok: false, error: 'Choose a password of at least 6 characters.' }, { status: 400 });
-  if (businessName.length < 2) return NextResponse.json({ ok: false, error: 'Add your business name.' }, { status: 400 });
+  if (businessName.length < 2) return NextResponse.json({ ok: false, error: 'Add your business name.', code: 'business' }, { status: 400 });
   if (b.agreeTerms !== true) return NextResponse.json({ ok: false, error: 'Reload this page, then tick the box to agree to the Platform Terms and Privacy Policy.', code: 'terms' }, { status: 400 });
 
   const db = getAdminDb();
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   // 1. Reserve the invite — atomically, so it can't be used twice at once.
   let invite: any = null;
   if (inviteOnly) {
-    if (!inviteRef) return NextResponse.json({ ok: false, error: 'ClarityFlow is invite-only right now — enter the code from your invite email.' }, { status: 403 });
+    if (!inviteRef) return NextResponse.json({ ok: false, error: 'ClarityFlow is invite-only right now — enter the code from your invite email.', code: 'invite' }, { status: 403 });
     try {
       invite = await db.runTransaction(async (tx: any) => {
         const snap = await tx.get(inviteRef);
@@ -85,12 +85,13 @@ export async function POST(req: NextRequest) {
         if (!inv || inv.status === 'revoked') throw new Error('That invite code isn’t recognised.');
         const uses = Number(inv.uses) || 0; const max = Number(inv.maxUses) || 1;
         if (uses >= max) throw new Error('That invite has already been used.');
-        if (inv.email && max === 1 && inv.email !== email) throw new Error(`This invite is for ${inv.email.replace(/(.{2}).*(@.*)/, '$1…$2')} — sign up with that email, or ask for a new invite.`);
+        if (inv.email && max === 1 && inv.email !== email) throw Object.assign(new Error(`This invite is for ${inv.email.replace(/(.{2}).*(@.*)/, '$1…$2')} — sign up with that email, or ask for a new invite.`), { code: 'invite_email' });
         tx.update(inviteRef, { uses: uses + 1, status: uses + 1 >= max ? 'used' : 'active' });
         return inv;
       });
     } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message || 'That invite didn’t work.' }, { status: 403 });
+      // Which screen fixes it: the invite code (step 1), or the email it was sent to (your details).
+      return NextResponse.json({ ok: false, error: e?.message || 'That invite didn’t work.', code: e?.code === 'invite_email' ? 'invite_email' : 'invite' }, { status: 403 });
     }
   }
   const release = async () => {

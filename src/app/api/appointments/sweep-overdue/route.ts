@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveAuthority, responseClock, authorityAtLeast, type DecisionAuthority } from '@/lib/appointment-authority';
 import { refuseCron } from '@/lib/cron-auth';
+import { onTeam } from '@/lib/team-member';
 
 const DEFAULT_ACTION = 'escalate';
 const DEFAULT_AUTO_ACCEPT_FLOOR: DecisionAuthority = 'limited';
@@ -46,7 +47,7 @@ async function sweepTenant(db: any, tenantId: string, nowIso: string) {
 
   const managers = staffSnap.docs
     .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((s: any) => s.active !== false && ['owner', 'admin', 'manager'].includes(String(s.role || '')))
+    .filter((s: any) => onTeam(s) && ['owner', 'admin', 'manager'].includes(String(s.role || '')))
     .map((s: any) => String(s.id));
   if (tenant.userId && !managers.includes(String(tenant.userId))) managers.push(String(tenant.userId));
 

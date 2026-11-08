@@ -117,6 +117,7 @@ import { StoreCreditHistory } from '@/components/clients/StoreCreditHistory';
 import { Wallet } from 'lucide-react';
 import { isPoorHistory } from '@/lib/deposit-policy';
 import { searchFields } from '@/lib/client-search';
+import { onTeam } from '@/lib/team-member';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -1129,7 +1130,7 @@ export default function ClientDetailPage() {
         </div>
       </main>
 
-      {tenantId && <StaffBookSheet open={bookOpen} onClose={() => setBookOpen(false)} tenantId={tenantId} tenant={selectedTenant} clients={allClientsList} services={services || []} staff={allStaffList.filter((st: any) => st.role !== 'renter' && st.active !== false)}
+      {tenantId && <StaffBookSheet open={bookOpen} onClose={() => setBookOpen(false)} tenantId={tenantId} tenant={selectedTenant} clients={allClientsList} services={services || []} staff={allStaffList.filter((st: any) => st.role !== 'renter' && onTeam(st))}
         appointments={bookingWindow || []} role={role} uid={currentUser?.uid || null} prefill={{ clientId: client.id }} />}
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => {
         if (!firestore || !tenantId) return;

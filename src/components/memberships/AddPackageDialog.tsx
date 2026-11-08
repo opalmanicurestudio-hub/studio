@@ -23,6 +23,7 @@ import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { useTenant } from '@/context/TenantContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { onTeam } from '@/lib/team-member';
 
 interface AddPackageDialogProps {
   open: boolean;
@@ -55,7 +56,7 @@ const ProfitabilityAnalysis = ({ service, sessions, price, tmhr, taxBurden, staf
 
     const staffAnalysis = useMemo(() => {
         if (!service) return [];
-        return staff.filter(s => s.active).map(member => {
+        return staff.filter(onTeam).map(member => {
             const tierConfig = service.serviceTiers?.find(t => t.tierId === member.pricingTierId);
             const tierPrice = tierConfig ? tierConfig.price : service.price;
             const tierDuration = tierConfig ? tierConfig.durationMinutes : service.duration;

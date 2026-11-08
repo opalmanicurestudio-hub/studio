@@ -31,6 +31,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { noShowWords } from '@/lib/booth-no-show';
+import { onTeam } from '@/lib/team-member';
 
 // ── Pure helpers (safe for client import) ────────────────────────────────────
 
@@ -186,7 +187,7 @@ export async function compileKnowledgeBase(
 
   // TEAM — active roster
   const roster = staff
-    .filter((s: any) => s.active !== false && s.name)
+    .filter((s: any) => onTeam(s) && s.name)
     .map((s: any) => s.name.split(' ')[0]);
   if (roster.length > 0) sections.push(`TEAM: ${roster.join(', ')}`);
 

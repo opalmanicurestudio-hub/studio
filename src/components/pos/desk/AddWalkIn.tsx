@@ -6,6 +6,8 @@ import { getAuth } from 'firebase/auth';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { openVisit } from '@/lib/visit-client';
 import { pageAccent } from '@/lib/studio-page';
+import { onTeam, goneForToday } from '@/lib/team-member';
+import { isToday } from 'date-fns';
 
 export function AddWalkIn({ tenantId, tenant, services, staff, onDone, locationId = null }: { tenantId: string; tenant: any; services: any[]; staff: any[]; onDone?: () => void; locationId?: string | null }) {
   const svcs = (services || []).filter((x: any) => x && x.type !== 'addon' && !x.isAddon && x.isActive !== false && !x.archived);
@@ -13,7 +15,7 @@ export function AddWalkIn({ tenantId, tenant, services, staff, onDone, locationI
   const [pref, setPref] = React.useState(''); const [wait, setWait] = React.useState(false); const [note, setNote] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null); const [res, setRes] = React.useState<any>(null);
   const can = (m: any) => { const s: any = svcs.find((x: any) => x.id === serviceId); return !s || !Array.isArray(s.staffIds) || !s.staffIds.length || s.staffIds.includes(m.id); };
-  const people = (staff || []).filter((m: any) => m.isActive !== false && m.active !== false && can(m));
+  const people = (staff || []).filter((m: any) => onTeam(m) && !goneForToday(m, isToday) && can(m));
   const submit = async () => {
     setBusy(true); setErr(null);
     const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';

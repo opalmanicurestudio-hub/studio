@@ -7,9 +7,10 @@ import { agentPolicy, publicService, publicAddOn, holdable } from '@/lib/agent-a
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { computeDepositCents } from '@/lib/deposit-policy';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { onTeam } from '@/lib/team-member';
 
 const rows = (snap: any) => (snap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-const bookableStaff = (st: any[]) => st.filter((m: any) => m?.name && m.isActive !== false && m.active !== false && !m.isRenter && m.role !== 'renter' && m.bookingOptOut !== true && m.hiddenFromBooking !== true);
+const bookableStaff = (st: any[]) => st.filter((m: any) => m?.name && onTeam(m) && !m.isRenter && m.role !== 'renter' && m.bookingOptOut !== true && m.hiddenFromBooking !== true);
 
 export async function businessFeed(db: any, tenantId: string, origin: string) {
   if (!/^[A-Za-z0-9_-]{2,80}$/.test(tenantId)) return null;

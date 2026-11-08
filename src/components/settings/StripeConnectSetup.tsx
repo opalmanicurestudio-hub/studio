@@ -19,6 +19,8 @@ type Props = {
 // Unfinished only when Stripe has said card payments are off. A business connected before this was recorded (no flag
 // yet) counts as connected until Stripe says otherwise; the card asks Stripe once to make sure.
 const statusOf = (hasAccount: boolean, charges: boolean | null | undefined): Status => !hasAccount ? 'not_connected' : charges === false ? 'incomplete' : 'connected';
+// Opened from Set up your business (?setup=payments): Stripe sends the owner back with it, so the setup bar is still there.
+const setupStep = () => { try { const v = new URLSearchParams(window.location.search).get('setup') || ''; return /^[a-z]{1,20}$/.test(v) ? v : ''; } catch { return ''; } };
 
 export function StripeConnectSetup({ tenantId, stripeAccountId, chargesEnabled, detailsSubmitted, onDisconnect }: Props) {
   const [status, setStatus] = useState<Status>('loading');
@@ -30,7 +32,7 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, chargesEnabled, 
   const pendingRefresh = useRef(false);
 
   const call = async (action: 'start' | 'refresh') => {
-    const r = await fetch('/api/stripe/connect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action }) });
+    const r = await fetch('/api/stripe/connect', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action, setup: setupStep() }) });
     return (await r.json().catch(() => null)) || { ok: false, error: 'Stripe didn’t answer. Please try again in a minute.' };
   };
 

@@ -7,6 +7,7 @@
 import { stageOf } from '@/lib/visit';
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { attendantIds } from '@/lib/attendant';
+import { onTeam } from '@/lib/team-member';
 
 export async function opsTick(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ turnoverNudges: number; kitsReleased: number; linenVisits: number }> {
   const T = `tenants/${tenantId}`; const nowIso = new Date(now).toISOString(); const out = { turnoverNudges: 0, kitsReleased: 0, linenVisits: 0 };
@@ -29,7 +30,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
       const [staff, protocols] = await Promise.all(['staff', 'protocols'].map((c) => db.collection(`${T}/${c}`).get().then(rows)));
       const { turnoverNotices } = await import('@/lib/turnover-notices');
       for (const n of turnoverNotices(stationReadiness(resources, appts, await services(), now, staff, protocols), resources, now, tenant?.timezone || tenant?.timeZone)) {
-        const managers = staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
+        const managers = staff.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && onTeam(m)).map((m: any) => m.id);
         // Where the business has named housekeeping people, the first reminder goes to them rather than the provider.
         const att = attendantIds(tenant).filter((id) => staff.some((m: any) => m.id === id && m.active !== false && !m.onBreak));   // not someone on a break
         const to: string[] = n.level === 1 ? (att.length ? att : n.ownerId ? [n.ownerId] : []) : Array.from(new Set([...managers, ...(n.ownerId ? [n.ownerId] : [])]));
@@ -57,7 +58,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
       const soon = plan.shortages.filter((x) => x.startMs - now <= 60 * 60000 && !(appts.find((a: any) => a.id === x.visitId)?.shortTold || {})[x.type.replace(/[.\s/]+/g, '_')]);
       if (soon.length) { const staffRows = rows(await db.collection(`${T}/staff`).get());
         const att = attendantIds(tenant).filter((id) => staffRows.some((m: any) => m.id === id && m.active !== false && !m.onBreak));
-        const mgr = staffRows.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && m.active !== false).map((m: any) => m.id);
+        const mgr = staffRows.filter((m: any) => ['owner', 'admin', 'manager'].includes(String(m.role)) && onTeam(m)).map((m: any) => m.id);
         const b = db.batch();
         for (const x of soon) { const to = Array.from(new Set([...(att.length ? att : mgr), ...(x.staffId ? [x.staffId] : [])]));
           for (const uid of to) notify(db, b, T, uid, { type: 'kit_short', priority: 'urgent', at: nowIso, message: `Action needed: The following will not be ready in time: ${x.text}.` });
@@ -96,7 +97,7 @@ export async function opsTick(db: any, tenantId: string, tenant: any, now = Date
   return out;
 }
 
-const managerIds = async (db: any, T: string): Promise<string[]> => (await db.collection(`${T}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((d: any) => d.data()?.active !== false).map((d: any) => d.id);
+const managerIds = async (db: any, T: string): Promise<string[]> => (await db.collection(`${T}/staff`).where('role', 'in', ['owner', 'admin', 'manager']).get()).docs.filter((d: any) => onTeam(d.data())).map((d: any) => d.id);
 const notify = (db: any, b: any, T: string, userId: string, n: { type: string; priority?: string; message: string; at: string }) => { const ref = db.collection(`${T}/notifications`).doc(); b.set(ref, { id: ref.id, userId, type: n.type, priority: n.priority || 'high', link: '/pos', message: n.message, createdAt: n.at, read: false }); };
 
 /** Keeps what depends on the kits in step with them, writing only what changed:

@@ -27,6 +27,7 @@ import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { BrowseServicesDialog } from '../services/BrowseServicesDialog';
+import { onTeam } from '@/lib/team-member';
 
 interface AddMembershipDialogProps {
   open: boolean;
@@ -65,7 +66,7 @@ const ProfitabilityAnalysis = ({ perks, price, tmhr, taxBurden, staff }: { perks
     }, [perks, services, inventory]);
 
     const individualStaffAnalysis = useMemo(() => {
-        return staff.filter(s => s.active).map(member => {
+        return staff.filter(onTeam).map(member => {
             const timeValue = timeLiabilityHours * tmhr;
             let labor = 0;
             const projectedRevenueValue = [...perks.services, ...perks.addOns].reduce((sum, perk) => {

@@ -9,15 +9,16 @@ import { guideOnShow } from '@/lib/setup-guide';
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))';
 export function MovingInCard({ tenantId, tenant, role }: { tenantId: string; tenant: any; role: string }) {
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
-  const [show, setShow] = React.useState(false);
+  const [show, setShow] = React.useState(false); const [imported, setImported] = React.useState(false);
   React.useEffect(() => {
     if (!tenantId || !isManager || tenant?.movingIn?.dismissed) return;
-    payPost('/api/import', { tenantId, action: 'status' }).then((r) => { if (r.ok && !r.imports && !r.moving?.dismissed) setShow(true); });
+    payPost('/api/import', { tenantId, action: 'status' }).then((r) => { if (r.ok && r.imports) setImported(true); else if (r.ok && !r.moving?.dismissed) setShow(true); });
   }, [tenantId, isManager, tenant?.movingIn?.dismissed]);
-  // Starting fresh: a short "finish setting up" card, the same steps and count as Set up your business, until it's
-  // finished or hidden there.
-  const guide = useSetupGuide(isManager && !!tenant?.movingIn?.fresh && guideOnShow(tenant));
-  const fresh = guide.progress && !guide.progress.allDone ? { done: guide.progress.doneCount, total: guide.progress.total } : null;
+  // Once they've started fresh or brought something over: a short "finish setting up" card, the same steps and count as
+  // Set up your business, until every step is done or put off for later (or the guide is hidden there).
+  const settled = !!tenant?.movingIn?.fresh || !!tenant?.movingIn?.dismissed || imported;
+  const guide = useSetupGuide(isManager && settled && guideOnShow(tenant));
+  const fresh = guide.progress && !guide.progress.finished ? { done: guide.progress.doneCount, total: guide.progress.total } : null;
   if (fresh) return (
     <a href="/settings/setup" className="flex items-center justify-between gap-4 rounded-[22px] bg-card p-5" style={{ border: `1px solid ${LINE}`, color: INK }}>
       <span><span className="block text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>getting started</span><span className="block text-[20px] font-normal tracking-[-0.02em]">Finish setting up — {fresh.done} of {fresh.total} done</span></span>

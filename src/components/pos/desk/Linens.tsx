@@ -19,6 +19,7 @@ import { settle } from '@/lib/offline';
 import { printCodeLabels, brandOf, LABEL_FORMATS, BUNDLE_STEPS, type LabelFormat } from '@/lib/print-labels';
 import { useTenant } from '@/context/TenantContext';
 import { useNfc } from '@/lib/use-nfc';
+import { onTeam } from '@/lib/team-member';
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -72,7 +73,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
   const moveBundle = async (b: LinenBundle, holder?: { id: string | null; name: string | null; visit?: { id: string; clientName: string } | null } | 'ask', tagOk = false) => {
     // Folding a bundle back onto the shelf: count it and check its tag first (a worn tag is reprinted).
     if (b.status === 'folding' && !tagOk) { setTagCheck(b); return true; }
-    if (b.status === 'clean' && holder === undefined && (bundleFor[b.id] || visitsFor(b).length || (staff || []).some((x: any) => x && x.active !== false && x.role !== 'renter'))) { setHolderFor(b); return true; }
+    if (b.status === 'clean' && holder === undefined && (bundleFor[b.id] || visitsFor(b).length || (staff || []).some((x: any) => x && onTeam(x) && x.role !== 'renter'))) { setHolderFor(b); return true; }
     const h = holder && holder !== 'ask' ? holder : null; const l = linens.find((x) => x.id === b.linenId); if (!l) { setMsg({ ok: false, text: 'That bundle’s linen type no longer exists.' }); return false; }
     const next = bundleNext(b, l); if (!(await apply(l, next.move, b.qty, next.move !== 'issue'))) return false;
     const v = next.to === 'in_use' ? h?.visit || null : null;
@@ -123,7 +124,7 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
               return <button key={a.id} type="button" onClick={() => moveBundle(holderFor, { id: a.staffId || null, name: p?.name || null, visit: { id: a.id, clientName: String(a.clientName || 'Client') } })} className={`h-11 rounded-full px-4 text-[13px] font-semibold ${i === 0 && planned ? 'bg-foreground text-background' : 'border'}`}>{String(a.clientName || 'Client').split(' ')[0]}{t(a) ? ` · ${t(a)}` : ''}{p?.name ? ` with ${String(p.name).split(' ')[0]}` : ''}{i === 0 && planned ? ' — set aside' : ''}</button>; })}</div> : null; })()}
           <p className="text-[12px] text-muted-foreground">Or just the person taking it:</p>
           <div className="flex flex-wrap gap-2">
-            {(staff || []).filter((x: any) => x && x.id && x.active !== false && x.role !== 'renter').map((x: any) => <button key={x.id} type="button" onClick={() => moveBundle(holderFor, { id: x.id, name: x.name || null })} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">{String(x.name || 'Team member').split(' ')[0]}</button>)}
+            {(staff || []).filter((x: any) => x && x.id && onTeam(x) && x.role !== 'renter').map((x: any) => <button key={x.id} type="button" onClick={() => moveBundle(holderFor, { id: x.id, name: x.name || null })} className="h-10 rounded-full bg-foreground px-4 text-[13px] font-semibold text-background">{String(x.name || 'Team member').split(' ')[0]}</button>)}
             <button type="button" onClick={() => moveBundle(holderFor, { id: null, name: null })} className="h-10 rounded-full border px-4 text-[13px]">Shared / no one</button>
             <button type="button" onClick={() => setHolderFor(null)} className="h-10 rounded-full px-3 text-[13px]">Cancel</button>
           </div>

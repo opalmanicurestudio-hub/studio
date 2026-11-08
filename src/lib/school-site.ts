@@ -27,6 +27,7 @@ import { setupOf, SEAT_STAGES } from '@/lib/academy-decisions';
 import { DEFAULT_DOCS } from '@/lib/academy-admissions';
 import { mediaUrl } from '@/lib/academy';
 import { pageAccent } from '@/lib/studio-page';
+import { onTeam } from '@/lib/team-member';
 
 export const usd = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
@@ -161,7 +162,7 @@ export async function loadSchoolSite(tenantId: string) {
     };
   });
   const staff = staffS.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
-  const instructors = staff.filter((m: any) => !m.isStudent && !m.archived && m.active !== false && (String(m.role || '').toLowerCase() === 'instructor' || m.isInstructor) )
+  const instructors = staff.filter((m: any) => !m.isStudent && onTeam(m) && (String(m.role || '').toLowerCase() === 'instructor' || m.isInstructor) )
     .map((m: any) => ({ id: m.id, name: m.name, title: m.title || m.jobTitle || 'Instructor', bio: m.bio || '', photo: m.avatarUrl || m.photoURL || null, bookable: m.showOnPublicPage !== false }));
   const jobs = jobsS.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((j: any) => j.status === 'open')
     .map((j: any) => ({ id: j.id, title: j.title, description: j.description || '', pay: j.pay || '', schedule: j.schedule || '', requirements: j.requirements || '' }));

@@ -32,6 +32,7 @@ import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules, timedMinutesOf, fmtMinutes } from '@/lib/maintenance';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
+import { onTeam } from '@/lib/team-member';
 
 async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
   if (!token || String(token).length < 12) return null;
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
         const sSnap = await db.collection(`tenants/${tenantId}/staff`).get();
         staffNames = sSnap.docs
           .map((d) => (d.data() as any))
-          .filter((s) => (s.name || '').trim() && s.active !== false && !s.archived)
+          .filter((s) => (s.name || '').trim() && onTeam(s))
           .map((s) => String(s.name).trim())
           .sort();
       } catch { /* names are a nicety */ }

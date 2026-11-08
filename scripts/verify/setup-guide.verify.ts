@@ -21,7 +21,12 @@ ok(GUIDE_STEPS.every((s) => fs.existsSync(`src/app/(app)${s.href.split(/[?#]/)[0
 const t0 = { name: 'Opal', modules: solo.modules };
 const s0 = guideSteps(t0, none);
 ok(s0.every((s) => !s.done), 'a brand-new business has nothing done, even with the opening hours every new business starts with');
-ok(s0.find((s) => s.id === 'details')?.note === 'Add your logo, phone and address', 'the details step says exactly what’s missing');
+ok(s0.find((s) => s.id === 'details')?.note === 'Add your phone and address', 'the details step says exactly what’s missing');
+ok(guideSteps({ ...t0, phone: '5', address: '1 Elm' }, none).find((s) => s.id === 'details')?.done === true && guideSteps({ ...t0, phone: '5', address: '1 Elm' }, none).find((s) => s.id === 'details')?.note === 'Add a logo if you have one', 'a logo is welcome but not required, so the step can be finished without one');
+// The team step follows the "just me / a team" answer, not which tools are on
+ok(ids(guideSteps({ teamSize: 'team', modules: { team: false } }, none)).endsWith(',team'), 'a business that said it’s a team gets the team step even without the Team tool');
+ok(!ids(guideSteps({ teamSize: 'solo', modules: { team: true } }, none)).includes('team'), 'a business that said “just me” isn’t asked to build a team, even with the Team tool on');
+ok(ids(guideSteps({ teamSize: 'solo', shape: { solo: false }, modules: {} }, none)).endsWith(',team'), 'a business that later says it’s a team (How your business works) gets the step');
 const t1 = { ...t0, logoUrl: 'x', phone: '5', address: '1 Elm', stripeAccountId: 'acct', setupGuide: { done: { booking: '2026-01-01' }, skipped: { changes: '2026-01-01' } } };
 const f1 = { livePriced: 3, teamCount: 1, toPrice: 2 };
 const s1 = guideSteps(t1, f1);
@@ -100,7 +105,9 @@ ok(api.includes("const guide = action === 'guide';") && api.includes('if (guide)
 // Old links
 const moving = src('src/components/import/MovingInCard.tsx');
 ok(src('src/app/(app)/getting-started/page.tsx').includes("redirect('/settings/setup')") && moving.includes('href="/settings/setup"') && moving.includes("window.location.href = '/settings/setup'") && !moving.includes("'/getting-started'"), 'Getting started and the moving-in card land on Set up your business');
-ok(moving.includes("useSetupGuide(isManager && !!tenant?.movingIn?.fresh && guideOnShow(tenant))") && moving.includes('!guide.progress.allDone') && moving.includes('{fresh.done} of {fresh.total} done') && !moving.includes('of 6'), 'the dashboard’s finish-setting-up card counts the same steps as the guide');
+ok(moving.includes("useSetupGuide(isManager && settled && guideOnShow(tenant))") && moving.includes('{fresh.done} of {fresh.total} done') && !moving.includes('of 6'), 'the dashboard’s finish-setting-up card counts the same steps as the guide');
+ok(moving.includes('!guide.progress.finished') && !moving.includes('!guide.progress.allDone'), 'the card goes once every step is done or put off for later, not only when everything is really done');
+ok(moving.includes("const settled = !!tenant?.movingIn?.fresh || !!tenant?.movingIn?.dismissed || imported;") && moving.includes('if (r.ok && r.imports) setImported(true);'), 'an owner who brought things over from another app gets the card too, not only one who started fresh');
 
 // House rules
 const files = ['src/lib/setup-guide.ts', 'src/components/settings/SetupGuide.tsx', 'src/app/(app)/settings/setup/page.tsx', 'src/app/api/getting-started/route.ts', 'src/app/(app)/getting-started/page.tsx', 'src/components/settings/SettingsShell.tsx', 'src/components/settings/SettingsHome.tsx', 'src/components/import/MovingInCard.tsx', 'src/app/(app)/layout.tsx', 'src/components/klair/Klair.tsx', 'src/components/services/ServiceMenuBoard.tsx'];

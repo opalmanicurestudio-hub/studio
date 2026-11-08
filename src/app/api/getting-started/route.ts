@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
   const [sv, st, cl, sp] = await Promise.all([db.collection(`${T}/services`).select('status', 'isPrivate', 'price', 'type', 'isActive', 'createdVia').get(), db.collection(`${T}/staff`).select('archived', 'role', 'isRenter').get(),
     guide ? null : db.collection(`${T}/clients`).limit(3).select().get(), guide ? null : db.collection(`${T}/scheduleProfiles`).select('week').get()]);
   const services = sv.docs.map((d: any) => d.data() || {}).filter((x: any) => x.status !== 'archived');
-  // What clients can book: what the booking page itself shows (not add-ons, not switched off, not private, priced).
-  const live = services.filter((x: any) => !x.isPrivate && x.isActive !== false && x.type !== 'addon' && Number(x.price) > 0).length; const toPrice = services.filter((x: any) => x.createdVia === 'starter' && (x.isPrivate || !(Number(x.price) > 0))).length;
+  // What clients can book: what the booking page itself shows (not add-ons, not switched off, not private). A service the
+  // owner made at no charge (a free consultation, an intro class) counts; a starter-menu one still at $0 hasn't been priced.
+  const live = services.filter((x: any) => !x.isPrivate && x.isActive !== false && x.type !== 'addon' && (Number(x.price) > 0 || x.createdVia !== 'starter')).length; const toPrice = services.filter((x: any) => x.createdVia === 'starter' && (x.isPrivate || !(Number(x.price) > 0))).length;
   const team = st.docs.filter((d: any) => (d.data() as any)?.archived !== true && (d.data() as any)?.role !== 'renter' && !(d.data() as any)?.isRenter).length;
   const hours = !!sp?.docs.some((d: any) => { const w = (d.data() as any)?.week || {}; return Object.values(w).some((x: any) => x?.enabled); });
   const pays = !!t.stripeAccountId && t.stripeChargesEnabled !== false;

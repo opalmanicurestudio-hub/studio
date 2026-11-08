@@ -11,6 +11,7 @@ import {
 import { planFrom, type PickupPlan, type PickupWindow } from '@/lib/pickup-slots';
 import { geocode, hasMapsKey, preciseEnough } from '@/lib/geocode-server';
 import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { onTeam } from '@/lib/team-member';
 
 /** Orders already in each delivery window over the days offered, by window key (not counting `sameCheckout`'s own earlier try). */
 export async function bookedDelivery(db: any, tenantId: string, firstDay: string, lastDay: string, now: number, sameCheckout = ''): Promise<Record<string, number>> {
@@ -34,7 +35,7 @@ export async function deliveryTeam(db: any, tenantId: string): Promise<TeamMembe
   const snap = await db.collection(`tenants/${tenantId}/staff`).limit(300).get();
   return snap.docs
     .map((d: any) => ({ id: d.id, m: d.data() || {} }))
-    .filter(({ m }: any) => m.archived !== true && m.role !== 'renter' && m.isRenter !== true && m.active !== false)
+    .filter(({ m }: any) => onTeam(m) && m.role !== 'renter' && m.isRenter !== true)
     .map(({ id, m }: any) => ({ id, name: String(m.name || m.displayName || 'Team member').slice(0, 60) }))
     .sort((a: TeamMember, b: TeamMember) => a.name.localeCompare(b.name));
 }

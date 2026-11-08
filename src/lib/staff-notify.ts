@@ -14,6 +14,7 @@
 
 import { addDoc, collection, type Firestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { onTeam } from '@/lib/team-member';
 
 export type StaffNotificationKind =
   | 'appointment_assigned'
@@ -129,7 +130,7 @@ export function managerIds(
   ownerUid?: string | null,
 ): string[] {
   const found = (staff || [])
-    .filter((s: any) => s && s.id && s.active !== false)
+    .filter((s: any) => s && s.id && onTeam(s))
     .filter((s: any) => ['owner', 'admin', 'manager'].includes(String(s.role || '')))
     .map((s: any) => String(s.id));
 

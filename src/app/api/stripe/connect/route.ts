@@ -12,7 +12,9 @@ export const dynamic = 'force-dynamic';
 
 const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 const appUrlOf = (req: NextRequest) => (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, '');
-const paymentsPage = (appUrl: string, q: string) => `${appUrl}/settings?tab=payments&${q}`;
+// The setup step it was opened from (Set up your business), carried there and back so the setup bar is still there.
+const stepOf = (v: any) => (typeof v === 'string' && /^[a-z]{1,20}$/.test(v) ? v : '');
+const paymentsPage = (appUrl: string, q: string, setup = '') => `${appUrl}/settings?tab=payments&${q}${setup ? `&setup=${setup}` : ''}`;
 
 type Flags = { chargesEnabled: boolean; detailsSubmitted: boolean; payoutsEnabled: boolean };
 const flagsOf = (a: Stripe.Account): Flags => ({ chargesEnabled: !!a.charges_enabled, detailsSubmitted: !!a.details_submitted, payoutsEnabled: !!a.payouts_enabled });
@@ -33,12 +35,12 @@ async function accountFor(db: any, tenantId: string): Promise<{ ref: any; accoun
   return { ref, accountId: account.id };
 }
 
-async function onboardingLink(req: NextRequest, accountId: string): Promise<string> {
+async function onboardingLink(req: NextRequest, accountId: string, setup = ''): Promise<string> {
   const appUrl = appUrlOf(req);
   const link = await stripe().accountLinks.create({
     account: accountId,
-    refresh_url: `${appUrl}/api/stripe/connect`,
-    return_url: paymentsPage(appUrl, 'stripe=connected'),
+    refresh_url: `${appUrl}/api/stripe/connect${setup ? `?setup=${setup}` : ''}`,
+    return_url: paymentsPage(appUrl, 'stripe=connected', setup),
     type: 'account_onboarding',
   });
   return link.url;
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, hasAccount: true, ...f });
     }
     const { accountId } = await accountFor(db, tenantId);
-    return NextResponse.json({ ok: true, url: await onboardingLink(req, accountId) });
+    return NextResponse.json({ ok: true, url: await onboardingLink(req, accountId, stepOf(body?.setup)) });
   } catch (e: any) {
     console.error('[stripe/connect]', action, e?.message);
     return NextResponse.json({ ok: false, error: said(e) }, { status: 502 });
@@ -78,5 +80,5 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  return NextResponse.redirect(paymentsPage(appUrlOf(req), 'stripe=refresh'));
+  return NextResponse.redirect(paymentsPage(appUrlOf(req), 'stripe=refresh', stepOf(new URL(req.url).searchParams.get('setup'))));
 }

@@ -16,6 +16,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { format, parseISO } from 'date-fns';
+import { onTeam } from '@/lib/team-member';
 
 interface PackageCardProps {
   pack: Package;
@@ -61,7 +62,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
 
   const individualStaffAnalysis = useMemo(() => {
     if (!primaryService) return [];
-    return staff.filter(s => s.active).map(member => {
+    return staff.filter(onTeam).map(member => {
         const tierConfig = primaryService.serviceTiers?.find(t => t.tierId === member.pricingTierId);
         const tierPrice = tierConfig ? tierConfig.price : primaryService.price;
         const tierDuration = tierConfig ? tierConfig.durationMinutes : primaryService.duration;

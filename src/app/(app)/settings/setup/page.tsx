@@ -89,7 +89,7 @@ export default function SetupPage() {
                 {qr && <div className="space-y-2"><img src={qr} alt="QR code for your booking link" className="mx-auto h-44 w-44" /><a href={qr} download="booking-qr.png" className="flex min-h-11 items-center justify-center text-[13px] font-semibold underline underline-offset-4">Download the QR code</a></div>}
               </div>}
               {g.data && g.data.facts.livePriced === 0 && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
-                <p className="text-[14px]"><b>Start from a menu.</b> Common services for your kind of business, with typical lengths. Prices are left to you, and nothing shows on your booking page until you set a price and switch it on.</p>
+                <p className="text-[14px]"><b>Start from a menu.</b> Common services for your kind of business, with typical lengths. Prices are left to you: each one goes on your booking page when you give it a price.</p>
                 <select value={menu} onChange={(e) => setMenu(e.target.value)} aria-label="Starter menu" className="h-11 w-full rounded-xl px-3 text-[14.5px]" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
                   {!menu && <option value="" disabled>Choose a starter menu</option>}
                   {g.data.menus.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.count} services</option>)}

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ShieldCheck, AlertTriangle, Users, Clock, Sparkles, Zap, Info, CheckCircle2 } from 'lucide-react';
 import { type Membership, type Client, type Staff, type Service } from '@/lib/data';
 import { cn } from '@/lib/utils';
+import { onTeam } from '@/lib/team-member';
 
 interface MembershipCapacityAuditProps {
     memberships: Membership[];
@@ -52,7 +53,7 @@ export const MembershipCapacityAudit: React.FC<MembershipCapacityAuditProps> = (
 
         // 2. Calculate Total Studio Monthly Capacity (Hours available)
         // Aggregated from active staff weekly hours * 4.33
-        const activeStaff = staff.filter(s => s.active !== false);
+        const activeStaff = staff.filter(onTeam);
         let totalWeeklyCapacityMinutes = 0;
 
         activeStaff.forEach(member => {

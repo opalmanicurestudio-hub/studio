@@ -251,18 +251,18 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 };
 
 const EmptyState = ({ onAddNewService }: { onAddNewService: () => void }) => (
-  <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
-    <div className="w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner">
-      <BookOpen className="w-12 h-12 text-muted-foreground" />
+  <div className="col-span-full flex flex-col items-center gap-5 rounded-[2rem] border-2 border-dashed px-6 py-20 text-center">
+    <div className="flex h-20 w-20 items-center justify-center rounded-[1.5rem] bg-muted">
+      <BookOpen className="h-10 w-10 text-muted-foreground" aria-hidden />
     </div>
-    <div className="space-y-2 text-center">
-      <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Library is Empty</h3>
-      <p className="text-sm font-bold uppercase tracking-tight text-muted-foreground max-w-sm mx-auto">
-        Populate your menu to unlock automated breakeven analysis and client booking.
+    <div className="space-y-2">
+      <h3 className="text-2xl font-semibold text-foreground">No services yet</h3>
+      <p className="mx-auto max-w-sm text-[15px] text-muted-foreground">
+        Add what clients can book: a name, how long it takes and the price. You can fill in the rest later.
       </p>
     </div>
-    <Button size="lg" onClick={onAddNewService} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 mt-4">
-      <PlusCircle className="mr-2 h-5 w-5" />Add First Treatment
+    <Button size="lg" onClick={onAddNewService} className="mt-2 h-12 rounded-full px-8 text-[15px] font-semibold">
+      <PlusCircle className="mr-2 h-5 w-5" aria-hidden />Add your first service
     </Button>
   </div>
 );
@@ -469,7 +469,12 @@ export default function ServicesPage() {
                   <ServiceMenuBoard services={filteredServices} timingRows={timingRows} bookings30={(id) => bookingsFor(id, since30)} attention={attention}
                     costOf={(svc: any) => { const rc = planCost(svc, inventory || []); const prod = rc.total; return { incomplete: rc.gaps.map((g) => g.name), product: Math.round(prod * 100) / 100, time: Math.round((((svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0)) / 60) * tmhr * 100) / 100 }; }}
                     selected={selectedItems} onToggleSelect={handleItemSelect} onEdit={handleOpenEditService} onDuplicate={(svc) => withTiming(svc).__duplicate?.()} onAddIn={(cat) => setQuickAdd({ open: true, category: cat })}
-                    onSetPrice={(svc, price) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { price }); toast({ title: `${svc.name} is now $${price.toFixed(2)}` }); } }}
+                    onSetPrice={(svc, price) => { if (firestore && tenantId) {
+                      // A service from a starter menu comes in hidden with no price. Its first price is the owner saying it's
+                      // offered, so it goes on the booking page with it (one step, not two); it can be hidden again from here.
+                      const goLive = (svc as any).createdVia === 'starter' && (svc as any).isPrivate === true && !(Number(svc.price) > 0) && price > 0;
+                      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), goLive ? { price, isPrivate: false } : { price });
+                      toast({ title: `${svc.name} is now $${price.toFixed(2)}`, ...(goLive ? { description: 'It’s on your booking page now.' } : {}) }); } }}
                     onReorder={(_cat, ids) => { if (firestore && tenantId) ids.forEach((id, n) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { menuOrder: n })); }}
                     onShowOnline={(svc, shown) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { isPrivate: !shown }); }}
                     onArchive={(svc) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { status: 'archived' }); toast({ title: `${svc.name} archived` }); } }}

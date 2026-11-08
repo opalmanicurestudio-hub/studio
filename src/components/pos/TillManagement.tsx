@@ -3,6 +3,7 @@
 // PIN and signature (plus a witness when the business asks), and the deposit slip. In the front desk's look.
 
 import { verifyPin } from '@/lib/pin-client';
+import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import React, { useState, useMemo, useRef } from 'react';
 import { safeNumber } from '@/lib/utils';
@@ -374,6 +375,7 @@ export const TillManagement = ({
                         <motion.div key="verify" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-6">
                             {pinInput('Your PIN', primaryPin, setPrimaryPin, activeTill ? 'You counted the drawer.' : 'You counted the starting cash.')}
                             {activeTill && requireTillWitness && pinInput('Witness PIN', witnessPin, setWitnessPin, 'A different team member who watched the count.')}
+                            {!staff.some((m: any) => m?.hasPin) && <p className="text-[13px]" style={muted}>Nobody on the team has a PIN yet. Set yours on your card in <Link href="/staff" className="font-semibold underline underline-offset-4" style={{ color: 'var(--ink)' }}>Team</Link>, then come back.</p>}
                         </motion.div>
                     ) : step === 'sign' ? (
                         <motion.div key="sign" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-6">

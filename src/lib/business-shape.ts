@@ -7,6 +7,7 @@
 // (lib/service-place) and is read from the visit.
 import { providersOf } from './solo';
 import { privacyOf } from './health-privacy';
+import { onTeam } from './team-member';
 
 export type BusinessShape = {
   /** One person sees every client (and does the desk's jobs too). */
@@ -27,7 +28,7 @@ export type BusinessShape = {
 };
 
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
-const active = (m: any) => m && m.isActive !== false && m.active !== false && m.status !== 'inactive' && m.status !== 'archived' && m.archived !== true;
+const active = onTeam;   // works here, clocked in or not (lib/team-member)
 
 /** How the business works. Pass the team when it's at hand (it's what the answers are worked out from); without it,
  *  or with nobody on it (not loaded, or not readable), what was chosen at signup is used. */

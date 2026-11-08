@@ -40,6 +40,7 @@ import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider'
 import { Drawer, Icon } from '@/components/pos/desk/kit';
 import { usePosEngine, safeDate, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
 import { pageAccent } from '@/lib/studio-page';
+import { isSoloTeam } from '@/lib/solo';   // one person: nobody else to witness the till count
 
 function POSPage() {
   // Everything the POS knows and can do lives in the engine (shared by every POS layout).
@@ -163,7 +164,7 @@ function POSPage() {
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
       {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onTakePayment={(id: string) => setPayFor(id)} onSendToFrontDesk={handleSendToFrontDesk} />}
-      <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
+      <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false && !(staff && staff.length > 0 && isSoloTeam(staff))} />
       <DeskCheckIn e={__engine} accent={pageAccent(selectedTenant) || null} />
 
       <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}

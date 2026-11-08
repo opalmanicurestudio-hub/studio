@@ -91,7 +91,7 @@ function Signup() {
           timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })() }) });
       const d = await r.json().catch(() => null);
       window.clearInterval(tick);
-      if (!d?.ok || !d.token) throw new Error(d?.error || 'Something went wrong creating your account. Try again.');
+      if (!d?.ok || !d.token) throw Object.assign(new Error(d?.error || 'Something went wrong creating your account. Try again.'), { code: d?.code || '' });
       setBuilding(2);
       await signInWithCustomToken(getAuth(), d.token);
       setBuilding(3);
@@ -103,7 +103,8 @@ function Signup() {
       window.clearInterval(tick);
       setBuilding(-1);
       setErr(String(e?.message || 'Something went wrong creating your account. Try again.'));
-      setStep(/invite/i.test(String(e?.message || '')) ? 0 : 2);
+      // An invite problem goes back to the invite code; the invite being for another email goes to the email box.
+      setStep(e?.code === 'invite' || e?.code === 'business' ? 0 : 2);
     }
   };
 
