@@ -163,6 +163,22 @@ export async function handleConnectWebhook(req: NextRequest) {
 
         const sessionType = session.metadata?.type;
 
+        // A space booking or a day pass paid on the business's own account (api/booths/reserve): confirmed from here too,
+        // so it's booked and in the books even when the guest never comes back to the page that confirms it. The same
+        // confirming step runs (it checks the payment with Stripe and is safe to run twice).
+        const spaceKind = String(session.metadata?.kind || '');
+        if ((spaceKind === 'booth_booking' && session.metadata?.reservationId) || (spaceKind === 'day_pass' && session.metadata?.passPurchaseId)) {
+          // Not reached, or the confirm failed on our side: this notice fails too, so Stripe sends it again later.
+          const { internalOrigin } = await import('@/lib/message-policy');
+          const biz: any = ((await db.doc(`tenants/${tenant.id}`).get()).data()) || {};
+          const q = new URLSearchParams({ tenantId: tenant.id, sessionId: String(session.id),
+            ...(spaceKind === 'day_pass' ? { passPurchaseId: String(session.metadata?.passPurchaseId) } : { reservationId: String(session.metadata?.reservationId) }) });
+          const r = await fetch(`${internalOrigin(biz, req.nextUrl.origin)}/api/booths/reserve?${q}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+          if (r.status >= 500) throw new Error(`space payment confirm answered ${r.status}`);
+          if (!r.ok) console.error('[connect-webhook] space payment confirm answered', r.status);
+          break;
+        }
+
         // Academy: course purchases enrol the student; tuition down payments
         // complete admission (the return page does the same — whichever comes
         // first; both are safe to run twice).
@@ -609,6 +625,8 @@ export async function handleConnectWebhook(req: NextRequest) {
         const charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
+        // A space rental's payment writes its own fee line where it's recorded (lib/space-stripe): not a second one here.
+        { const { SPACE_OWN_FEE_KINDS } = await import('@/lib/space-stripe'); if (SPACE_OWN_FEE_KINDS.has(String((charge.metadata as any)?.kind || ''))) break; }
         const { recordChargeFee } = await import('@/lib/stripe-fee');
         const fee = await recordChargeFee(db, stripe2, tenant.id, connAcct as string, charge);
         if (fee > 0) console.log(`[connect-webhook] Fee $${(fee / 100).toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);

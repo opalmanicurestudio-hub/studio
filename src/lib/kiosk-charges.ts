@@ -1,6 +1,7 @@
 // src/lib/kiosk-charges.ts — A CONCIERGE ORDER CHARGED TO A SAVED CARD, RECORDED ONCE (server).
 // The concierge kiosk (api/booths/kiosk, action 'charge') charges an order from the menu to a saved card on the
-// platform's own Stripe account: the station renter's card, or a checked-in day guest's own. Each order is claimed first
+// account that card is on: a checked-in day guest's own card is on their booking's account (the business's own; a booking
+// paid before that, the platform's), and a station renter's card on the platform's account. Each order is claimed first
 // (tenants/{t}/private/kiosk/stationCharges/{order}: 'charging', with the amount and card it's for), charged under one
 // key named after the order, its amount and card, and recorded here, once: its line in the books and its Stripe fee are
 // named after the order, and written in the same step that marks the claim 'charged'. Stripe saying no lets the claim go
@@ -18,6 +19,7 @@
 // A payment still waiting for someone to approve it is canceled at Stripe first, so it can't go through later. Asked
 // again after it's recorded, the kiosk answers that it's done, and never charges it twice.
 import Stripe from 'stripe';
+import { onAccount } from '@/lib/space-stripe';
 
 export const kioskChargesPath = (tenantId: string) => `tenants/${tenantId}/private/kiosk/stationCharges`;
 export type KioskPayer = { kind: 'station' | 'stay'; id: string; name: string; boothName: string };
@@ -34,28 +36,30 @@ const stripeFor = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVer
 const claimTime = (c: any) => ms(c?.claimAt) || ms(c?.createdAt);
 const noteDoc = (id: string, n: Note) => ({ id, type: 'booth_reservation', read: false, createdAt: new Date().toISOString(), link: n.link, message: n.message });
 
-/** Stripe's fee and the charge's id: from the payment as it came back, else asked for. Fail-open: no fee line. */
-async function feeOf(stripe: any, intent: any): Promise<{ feeCents: number; chargeId: string | null }> {
+/** Stripe's fee and the charge's id: from the payment as it came back, else asked for, else the usual US rate as an
+ *  estimate (its payments notice doesn't add one for a space payment, lib/space-stripe, so it's never left out). */
+async function feeOf(stripe: any, intent: any, account?: string | null, grossCents = 0): Promise<{ feeCents: number; chargeId: string | null }> {
   const lc: any = intent?.latest_charge;
   let feeCents = Number(lc?.balance_transaction?.fee) || 0;
   let chargeId: string | null = typeof lc === 'string' ? lc : (lc?.id || null);
   if (!feeCents && intent?.id && (stripe || process.env.STRIPE_SECRET_KEY)) {
     try {
-      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] });
+      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] }, onAccount({ stripeAccountId: account }));
       const c: any = pi?.latest_charge;
       feeCents = Number(c?.balance_transaction?.fee) || 0;
       chargeId = chargeId || c?.id || null;
-    } catch { /* no fee line */ }
+    } catch { /* estimated below */ }
   }
+  if (!feeCents && grossCents > 0) feeCents = Math.round(grossCents * 0.029) + 30;
   return { feeCents, chargeId };
 }
 
 /** The order charged: its line in the books, its Stripe fee and the claim marked 'charged', once. False when it was
  *  recorded already. `extra` is written on the claim with it, and `note` (named after what it's about) beside it. */
 export async function recordKioskCharge(db: any, tenantId: string, orderId: string, intent: any, cents: number, payer: KioskPayer, what: string,
-  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note } = {}): Promise<boolean> {
+  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note; account?: string | null } = {}): Promise<boolean> {
   const claimRef = db.doc(`${kioskChargesPath(tenantId)}/${orderId}`);
-  const { feeCents, chargeId } = await feeOf(o.stripe, intent);
+  const { feeCents, chargeId } = await feeOf(o.stripe, intent, o.account, cents);
   const txnRef = db.doc(`tenants/${tenantId}/transactions/concierge_${orderId}`);
   const feeRef = db.doc(`tenants/${tenantId}/transactions/conciergefee_${orderId}`);
   const noteRef = o.note ? db.doc(`tenants/${tenantId}/notifications/${o.note.id}`) : null;
@@ -101,13 +105,14 @@ export async function releaseKioskCharge(db: any, tenantId: string, orderId: str
 
 // ── The five-minute check ────────────────────────────────────────────────────
 
-/** Every payment on this customer since `since` (seconds), on the platform's account. Null when Stripe can't be asked
- *  right now (or there are too many to look through), so nothing is decided on half an answer. */
-async function paymentsSince(stripe: any, customer: string, since: number): Promise<any[] | null> {
+/** Every payment on this customer since `since` (seconds), on the account the card is on (a stay's booking account; the
+ *  platform's for a card saved before, lib/space-stripe). Null when Stripe can't be asked right now (or there are too
+ *  many to look through), so nothing is decided on half an answer. */
+async function paymentsSince(stripe: any, customer: string, since: number, account?: string | null): Promise<any[] | null> {
   const found: any[] = [];
   try {
     for (let page = 0, after = ''; page < 10; page++) {
-      const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100, ...(after ? { starting_after: after } : {}) });
+      const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100, ...(after ? { starting_after: after } : {}) }, onAccount({ stripeAccountId: account }));
       const data: any[] = Array.isArray(l?.data) ? l.data : [];
       found.push(...data);
       if (!l?.has_more || !data.length) return found;
@@ -132,10 +137,10 @@ function outcomeOf(payments: any[]): { state: 'paid' | 'pending' | 'open' | 'dec
 
 /** Payments still waiting for approval are canceled, so none can go through after the claim is let go. False when one
  *  wasn't (it may have moved on): the next run looks again. */
-async function cancelOpen(stripe: any, open: any[]): Promise<boolean> {
+async function cancelOpen(stripe: any, open: any[], account?: string | null): Promise<boolean> {
   try {
     for (const p of open) {
-      const c: any = await stripe.paymentIntents.cancel(String(p.id), {}, { idempotencyKey: `cancel_${p.id}` });
+      const c: any = await stripe.paymentIntents.cancel(String(p.id), {}, onAccount({ stripeAccountId: account }, { idempotencyKey: `cancel_${p.id}` }));
       if (String(c?.status || '') !== 'canceled') return false;
     }
     return true;
@@ -170,7 +175,7 @@ async function settleOne(db: any, tenantId: string, ref: any, c: any, stripe: an
   const orderId = String(ref.id);
   const cents = Math.round(Number(c.amountCents) || 0);
   if (!c.customer) return 'waiting';
-  const list = await paymentsSince(stripe, String(c.customer), Math.floor(claimTime(c) / 1000) - DAY_S);
+  const list = await paymentsSince(stripe, String(c.customer), Math.floor(claimTime(c) / 1000) - DAY_S, c.account || null);
   if (!list) return 'waiting';
   const found = outcomeOf(list.filter((p: any) => String(p?.metadata?.orderId || '') === orderId && Math.round(Number(p?.amount) || 0) === cents));
   if (found.state === 'pending') return 'waiting';
@@ -180,7 +185,7 @@ async function settleOne(db: any, tenantId: string, ref: any, c: any, stripe: an
     const payer = await payerOf(db, tenantId, c);
     const what = String(c.description || 'Concierge order');
     const at = Number(found.pi.created) > 0 ? iso(Number(found.pi.created) * 1000) : iso(now);
-    const wrote = await recordKioskCharge(db, tenantId, orderId, found.pi, cents, payer, what, { stripe, at, extra: settled, note: {
+    const wrote = await recordKioskCharge(db, tenantId, orderId, found.pi, cents, payer, what, { stripe, at, extra: settled, account: c.account || null, note: {
       id: `concierge_${orderId}`, link: '/money',
       message: `A ${money(cents)} concierge charge for ${what.replace(/^Concierge:\s*/i, '')} to ${payer.boothName} (${payer.name}) went through, but the kiosk never heard back, so the order may never have been sent. It’s recorded in Money. Check with the station, and refund it from Money if the order wasn’t served.`,
     } });
@@ -189,7 +194,7 @@ async function settleOne(db: any, tenantId: string, ref: any, c: any, stripe: an
   }
 
   // Nothing went through: let go, as a decline is. Only if nobody asked again meanwhile (then that request finishes it).
-  if (found.state === 'open' && !(await cancelOpen(stripe, found.open))) return 'waiting';
+  if (found.state === 'open' && !(await cancelOpen(stripe, found.open, c.account || null))) return 'waiting';
   const why = found.state === 'none' ? 'It never reached Stripe.'
     : found.state === 'open' ? 'It needed approval that never came.'
     : found.pi?.status === 'canceled' ? 'The payment was stopped before it went through.'

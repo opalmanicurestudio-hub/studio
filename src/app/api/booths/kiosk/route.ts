@@ -33,6 +33,7 @@ import { createHash } from 'crypto';
 import Stripe from 'stripe';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { inPersonFromDb } from '@/lib/business-shape';
+import { onAccount } from '@/lib/space-stripe';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -401,7 +402,7 @@ export async function POST(req: NextRequest) {
       const what = `Concierge: ${String(item.name || 'Item').slice(0, 80)} (x${quantity})`;
 
       // ── Who pays, and the proof ──
-      let payer: { kind: 'station' | 'stay'; id: string; customer: string; pm: string; name: string; boothName: string; boothId: string | null; instead: string };
+      let payer: { kind: 'station' | 'stay'; id: string; customer: string; pm: string; name: string; boothName: string; boothId: string | null; instead: string; account?: string | null };
       if (body.payer === 'stay' || body.reservationId || body.phone) {
         const ph = digits(body.phone).slice(-10);
         if (ph.length !== 10) return NextResponse.json({ ok: false, error: 'Enter your mobile number to charge your card on file.' }, { status: 400 });
@@ -424,8 +425,9 @@ export async function POST(req: NextRequest) {
         if (!stay.cardOnFile || !stay.stripeCustomerId || !stay.stripePaymentMethodId) {
           return NextResponse.json({ ok: false, error: 'No card on file for this stay. Please pay in person.' }, { status: 400 });
         }
+        // The card is on the account the stay was paid on (lib/space-stripe).
         payer = { kind: 'stay', id: String(stay.id), customer: String(stay.stripeCustomerId), pm: String(stay.stripePaymentMethodId), name: String(stay.name || 'Guest'),
-          boothName: String(stay.boothName || 'your station'), boothId: stay.boothId ? String(stay.boothId) : null, instead: 'please pay in person' };
+          boothName: String(stay.boothName || 'your station'), boothId: stay.boothId ? String(stay.boothId) : null, instead: 'please pay in person', account: stay.stripeAccountId ? String(stay.stripeAccountId) : null };
       } else {
         if (!boothId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
         const link = await stationLinkOk(db, tenantId, boothId, body.stationToken);
@@ -474,11 +476,11 @@ export async function POST(req: NextRequest) {
         if (c?.status === 'charging') {
           // Asked again after no answer: the same charge (its stored amount and card), never a different one.
           tx.set(claimRef, { claimAt: nowIso }, { merge: true });
-          return { cents: Number(c.amountCents) || 0, pm: String(c.pm || ''), customer: String(c.customer || '') };
+          return { cents: Number(c.amountCents) || 0, pm: String(c.pm || ''), customer: String(c.customer || ''), account: c.account || null };
         }
-        tx.set(claimRef, { id: orderId, status: 'charging', claimAt: nowIso, amountCents, pm: payer.pm, customer: payer.customer, payerKind: payer.kind, payerId: payer.id,
+        tx.set(claimRef, { id: orderId, status: 'charging', claimAt: nowIso, amountCents, pm: payer.pm, customer: payer.customer, account: payer.account || null, payerKind: payer.kind, payerId: payer.id,
           payerName: payer.name, boothId: payer.boothId, boothName: payer.boothName, itemId, quantity, description: what, requestId: null, createdAt: c?.createdAt || nowIso }, { merge: true });
-        return { cents: amountCents, pm: payer.pm, customer: payer.customer };
+        return { cents: amountCents, pm: payer.pm, customer: payer.customer, account: payer.account || null };
       });
       if (claim.already) return done(claim.already);
       if (claim.busy) return NextResponse.json({ ok: false, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
@@ -494,7 +496,7 @@ export async function POST(req: NextRequest) {
           expand: ['latest_charge.balance_transaction'],
           description: `${what} — ${payer.boothName} (${payer.name})`,
           metadata: { tenantId: String(tenantId), orderId, ...(payer.kind === 'station' ? { renterId: payer.id, kind: 'concierge_renter_charge' } : { reservationId: payer.id, kind: 'concierge_charge' }) },
-        }, { idempotencyKey: `concierge-${orderId}-${cents}-${safeKey(claim.pm)}` });
+        }, onAccount({ stripeAccountId: claim.account }, { idempotencyKey: `concierge-${orderId}-${cents}-${safeKey(claim.pm)}` }));
       } catch (err: any) {
         const msg = err?.raw?.message || err?.message || 'Card charge failed.';
         if (stripeRefused(err)) {
@@ -507,7 +509,7 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Recorded once (lib/kiosk-charges): the order's line in the books and its Stripe fee, with the claim marked charged ──
-      await recordKioskCharge(db, String(tenantId), orderId, intent, cents, payer, what, { stripe });
+      await recordKioskCharge(db, String(tenantId), orderId, intent, cents, payer, what, { stripe, account: claim.account || null });
       return NextResponse.json({ ok: true, chargedCents: cents, boothName: payer.boothName, orderId });
     }
 

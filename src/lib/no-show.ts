@@ -33,6 +33,7 @@
 // same posture as overage and incidental charges.
 
 import Stripe from 'stripe';
+import { onAccount } from '@/lib/space-stripe';   // the booking's own account (a booking paid before it was saved: the platform's)
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from './audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
@@ -62,14 +63,14 @@ const stripeRefused = (e: any) => saidNo(e);
 // readable yet — try the expanded intent, then a re-fetch, then fall back to the
 // US-standard estimate (2.9% + $0.30) so the processing-fee expense is never
 // silently dropped. Mirrors the reserve route's resolveFeeCents.
-async function resolveFeeCents(stripe: Stripe, intent: any, grossCents: number): Promise<{ feeCents: number; chargeId: string | null; estimated: boolean }> {
+async function resolveFeeCents(stripe: Stripe, intent: any, grossCents: number, on?: any): Promise<{ feeCents: number; chargeId: string | null; estimated: boolean }> {
   const charge: any = intent?.latest_charge;
   let chargeId: string | null = (charge && typeof charge === 'object') ? (charge.id || null) : (typeof charge === 'string' ? charge : null);
   const bt: any = (charge && typeof charge === 'object') ? charge.balance_transaction : null;
   let fee = (bt && typeof bt === 'object') ? (Number(bt.fee) || 0) : 0;
   if (!fee && intent?.id) {
     try {
-      const pi: any = await stripe.paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] });
+      const pi: any = await stripe.paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] }, onAccount(on) as any);
       const c2: any = pi?.latest_charge;
       chargeId = chargeId || (c2?.id || null);
       fee = Number(c2?.balance_transaction?.fee) || 0;
@@ -132,7 +133,7 @@ async function settleOne(db: Db, tenantId: string, ref: any, o: { todayStr: stri
     // The last run got no answer: if Stripe has that charge, it's the one (recorded, never sent again).
     if (claim.retry && claim.customer) {
       try {
-        const l: any = await stripe.paymentIntents.list({ customer: claim.customer, limit: 20 });
+        const l: any = await stripe.paymentIntents.list({ customer: claim.customer, limit: 20 }, onAccount(claim.r) as any);
         intent = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.reservationId === id && x?.metadata?.kind === 'booth_no_show_fee' && x?.status === 'succeeded') || null;
       } catch { /* asked for below, under the booking's own key */ }
     }
@@ -145,7 +146,7 @@ async function settleOne(db: Db, tenantId: string, ref: any, o: { todayStr: stri
           expand: ['latest_charge.balance_transaction'],
           description: claim.desc,
           metadata: { tenantId, reservationId: id, kind: 'booth_no_show_fee' },
-        }, { idempotencyKey: `noshow_${safeKey(id)}_${cents}_${safeKey(claim.pm)}` });
+        }, onAccount(claim.r, { idempotencyKey: `noshow_${safeKey(id)}_${cents}_${safeKey(claim.pm)}` }) as any);
       } catch (err: any) {
         // No answer: it may have gone through, so the claim stays and the next run finishes it.
         if (!stripeRefused(err)) return { fee: 'pending' };
@@ -165,7 +166,7 @@ async function settleOne(db: Db, tenantId: string, ref: any, o: { todayStr: stri
 
   // 3a. Charged: the fee's line (named after the booking), its Stripe fee, and the no-show mark, in one step.
   if (intent) {
-    const { feeCents: procFee, chargeId, estimated } = await resolveFeeCents(o.stripe as Stripe, intent, cents).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+    const { feeCents: procFee, chargeId, estimated } = await resolveFeeCents(o.stripe as Stripe, intent, cents, claim.r).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
     const txnRef = db.doc(`${T}/transactions/noshow_${safeKey(id)}`);
     const feeRef = db.doc(`${T}/transactions/noshowfee_${safeKey(id)}`);
     const wrote = await db.runTransaction(async (tx: any) => {

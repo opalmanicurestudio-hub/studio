@@ -15,9 +15,12 @@
  *    from abandoned carts).
  *  - The Stripe race window (two checkouts completing for the same dates)
  *    is closed at confirm time: if the dates got taken while paying, the
- *    reservation is NOT confirmed and the response tells the client to
- *    contact the studio for a refund — flagged in the owner notification.
+ *    reservation is NOT confirmed and the response tells the guest a refund
+ *    is coming — flagged in the owner notification.
  *    Rare by construction (30-min holds), handled honestly when it happens.
+ *  - The money goes to the business's own Stripe account (lib/space-stripe),
+ *    saved on the booking, and every later charge or refund on it uses that
+ *    account. Bookings paid before this stay on the platform account.
  *
  * ENV: STRIPE_SECRET_KEY (already set — charge-card uses it).
  */
@@ -36,6 +39,7 @@ import { sendReservationConfirmation } from '@/lib/reservation-notify';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { subletOpenOn } from '@/lib/leave-policy';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { spacePayAccount, onAccount, SPACE_NO_PAYMENTS } from '@/lib/space-stripe';
 
 
 
@@ -492,12 +496,16 @@ export async function POST(req: NextRequest) {
       const packs = Array.isArray(raw) ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0) : [];
       const pack = packs[Number(packIndex)];
       if (!pack) return NextResponse.json({ ok: false, error: 'That pack is no longer offered — refresh and try again.' }, { status: 400 });
+      // Paid to the business's own account (lib/space-stripe); not offered until it can take cards.
+      const passAcct = spacePayAccount(tSnap.data());
+      if (!passAcct) return NextResponse.json({ ok: false, error: SPACE_NO_PAYMENTS }, { status: 409 });
       const nowIso = new Date().toISOString();
       const purRef = dbp.collection(`tenants/${tid}/boothPassPurchases`).doc();
       await purRef.set({
         id: purRef.id, tenantId: tid, status: 'pending_payment', createdAt: nowIso,
         name: String(pname).slice(0, 120), phone: String(pphone || '').slice(0, 40), email: String(pemail || '').slice(0, 160),
         packLabel: pack.label || `${pack.days}-day pack`, days: Number(pack.days), amountCents: Number(pack.amountCents),
+        stripeAccountId: passAcct,
       });
       const stripePass = new Stripe(process.env.STRIPE_SECRET_KEY as string);
       const base = String(prurl).split('?')[0];
@@ -518,7 +526,8 @@ export async function POST(req: NextRequest) {
         success_url: `${base}?cfPassPurchase=${purRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
         cancel_url: base,
         metadata: { tenantId: tid, passPurchaseId: purRef.id, kind: 'day_pass' },
-      });
+        payment_intent_data: { metadata: { tenantId: tid, passPurchaseId: purRef.id, kind: 'day_pass' } },
+      }, { stripeAccount: passAcct });
       await purRef.set({ stripeSessionId: session.id }, { merge: true });
       return NextResponse.json({ ok: true, url: session.url });
     }
@@ -704,11 +713,12 @@ export async function POST(req: NextRequest) {
     // booth.depositPercent (0-100) or booth.depositRequired === false disables.
     let rules: any = {};
     let tenantData: any = {};
+    let tenantRead = true;
     try {
       const tSnap = await db.doc(`tenants/${tenantId}`).get();
       tenantData = (tSnap.data() as any) || {};
       rules = tenantData?.bookingPageSettings?.automationRules || {};
-    } catch { /* defaults below */ }
+    } catch { tenantRead = false; /* defaults below; no payment is started on a business that couldn't be read */ }
     // Per-space deposit config wins ONLY when explicitly typed; otherwise
     // fall back to the tenant default. (Bug fix: a booth saved with
     // depositType 'none' or a legacy null percent must NOT block the
@@ -889,11 +899,19 @@ export async function POST(req: NextRequest) {
       console.error('[booth-reserve] pass redemption failed — falling back to paid checkout', err);
     }
 
+    // Paid to the business's own account (lib/space-stripe): refused before anything is held when it can't take cards
+    // (or when the business couldn't be read just now, so a business that can isn't told it can't).
+    if (!tenantRead) return NextResponse.json({ ok: false, error: 'That didn’t go through. Please try again in a moment.' }, { status: 503 });
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error('[booths/reserve] STRIPE_SECRET_KEY is not set'); return NextResponse.json({ ok: false, error: 'Online payments aren’t available yet. Please try again later.' }, { status: 500 });
+    }
+    const payAcct = spacePayAccount(tenantData);
+    if (!payAcct) return NextResponse.json({ ok: false, error: SPACE_NO_PAYMENTS }, { status: 409 });
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
     const subletPaid = subletOpenOn(booth, startDate);
     await resRef.set({
-      id: resRef.id, tenantId, boothId,
+      id: resRef.id, tenantId, boothId, stripeAccountId: payAcct,
       boothName: booth.name || 'Space',
       subletLeaseId: subletPaid ? (booth.subletLeaseId || null) : null,
       subletRenterId: subletPaid ? (booth.subletRenterId || null) : null,
@@ -939,9 +957,6 @@ export async function POST(req: NextRequest) {
       complianceCapturedAt: (doingServices || licenseNumber || insuranceConfirmed || idAcknowledged || licenseDocUrl || insuranceDocUrl || idDocUrl) ? nowIso : null,
     });
 
-    if (!process.env.STRIPE_SECRET_KEY) {
-      console.error('[booths/reserve] STRIPE_SECRET_KEY is not set'); return NextResponse.json({ ok: false, error: 'Online payments aren’t available yet. Please try again later.' }, { status: 500 });
-    }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     const base = String(returnUrl).split('?')[0];
     for (const cid of appliedCreditIds) {
@@ -955,22 +970,30 @@ export async function POST(req: NextRequest) {
     // language automatically when setup_future_usage is set.
     let customerId: string | null = null;
     try {
+      // Looked up and made on the business's own account, so a guest is only ever matched within this business.
       if (email) {
-        const existing = await stripe.customers.list({ email, limit: 1 });
+        const existing = await stripe.customers.list({ email, limit: 1 }, { stripeAccount: payAcct });
         customerId = existing.data[0]?.id || null;
       }
       if (!customerId) {
         const created = await stripe.customers.create({
           email: email || undefined, phone: phone || undefined, name: name || undefined,
           metadata: { tenantId },
-        });
+        }, { stripeAccount: payAcct });
         customerId = created.id;
       }
     } catch { customerId = null; /* booking must never fail over customer creation */ }
 
-    const session = await stripe.checkout.sessions.create({
+    // If the payment page can't be opened, the time and any credits it set aside are let go at once (not held for the
+    // whole hold window for a payment that can't happen).
+    const letGoNow = async () => {
+      await resRef.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancellationReason: 'checkout_failed' }, { merge: true }).catch(() => {});
+      for (const cid of appliedCreditIds) await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set({ status: 'available', reservedAt: null, reservedForReservationId: null }, { merge: true }).catch(() => {});
+    };
+    let session: any;
+    try { session = await stripe.checkout.sessions.create({
       ...(customerId ? { customer: customerId } : {}),
-      payment_intent_data: { setup_future_usage: 'off_session' },
+      payment_intent_data: { setup_future_usage: 'off_session', metadata: { tenantId, reservationId: resRef.id, kind: 'booth_booking' } },
       mode: 'payment',
       ...(customerId ? {} : { customer_email: email || undefined }),
       line_items: [{
@@ -990,30 +1013,34 @@ export async function POST(req: NextRequest) {
       }],
       success_url: `${base}?cfReservationId=${resRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
       cancel_url: base,
-      metadata: { tenantId, reservationId: resRef.id },
-    });
+      metadata: { tenantId, reservationId: resRef.id, kind: 'booth_booking' },
+    }, { stripeAccount: payAcct }); } catch (e) { await letGoNow(); throw e; }
     await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err: any) {
+    // The real cause is in the log; the guest gets a plain sentence (Stripe's own words can name the business's settings).
     console.error('[booth-reserve] POST failed', err);
-    const detail = String(err?.raw?.message || err?.message || '').slice(0, 180);
-    return NextResponse.json({ ok: false, error: `Could not start checkout${detail ? `: ${detail}` : '.'}` }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Checkout couldn’t start. Please try again in a moment.' }, { status: 500 });
   }
 }
 
 
 // Fetch the exact Stripe fee for a payment intent via its charge's
 // balance transaction. Fail-open: fee recording must never block revenue.
-async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
+async function stripeFeeFor(paymentIntentId: string | null, on?: any, grossCents = 0): Promise<{ feeCents: number; chargeId: string | null; estimated?: boolean }> {
+  // Asked for; else the usual US rate as an estimate. The payments notice doesn't add a fee for a space payment
+  // (lib/space-stripe), so it must never be left out here.
+  const est = (chargeId: string | null) => (grossCents > 0 ? { feeCents: Math.round(grossCents * 0.029) + 30, chargeId, estimated: true } : { feeCents: 0, chargeId });
   try {
-    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return { feeCents: 0, chargeId: null };
-    const Stripe = (await import('stripe')).default;
+    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return est(null);
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
+    // On the account the payment was made on (the booking's or the pass purchase's; lib/space-stripe).
+    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] }, onAccount(on));
     const charge: any = pi?.latest_charge;
     const bt: any = charge?.balance_transaction;
-    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
-  } catch { return { feeCents: 0, chargeId: null }; }
+    const fee = Number(bt?.fee) || 0;
+    return fee ? { feeCents: fee, chargeId: charge?.id || null } : est(charge?.id || null);
+  } catch { return est(null); }
 }
 
 // Ids named after what they record, so a second run of the same step finds it done.
@@ -1030,7 +1057,7 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
   const txnRef = db.doc(`tenants/${tenantId}/transactions/boothrent_${safeKey(reservationId)}`);
   if ((await txnRef.get()).exists) return;
   const nowIso = new Date().toISOString();
-  const { feeCents, chargeId } = await stripeFeeFor(paymentIntentId);
+  const { feeCents, chargeId, estimated } = await stripeFeeFor(paymentIntentId, r, Number(r.amountCents) || 0);
   try { await txnRef.create({
     id:                    txnRef.id,
     type:                  'income',
@@ -1069,7 +1096,7 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
       taxBucket: 'operating_cost',
       amount: feeCents / 100,
       category: 'Processing Fee',
-      description: `Stripe fee — ${r.bookingType === 'hourly' ? 'hourly' : 'day'} rental — ${r.boothName || 'Space'} (${r.name})`,
+      description: `Stripe fee${estimated ? ' (est.)' : ''} — ${r.bookingType === 'hourly' ? 'hourly' : 'day'} rental — ${r.boothName || 'Space'} (${r.name})`,
       clientOrVendor: 'Stripe',
       date: nowIso,
       paymentMethod: 'Deducted from payout',
@@ -1106,7 +1133,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Session mismatch.' }, { status: 400 });
       }
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] }, onAccount(pur));
       if (session.payment_status !== 'paid') {
         return NextResponse.json({ ok: false, error: 'Payment not completed.' });
       }
@@ -1118,7 +1145,7 @@ export async function GET(req: NextRequest) {
       const passRef = db.doc(`tenants/${tenantId}/boothPasses/pass_${safeKey(passPurchaseId)}`);
       const txnRef = db.doc(`tenants/${tenantId}/transactions/daypass_${safeKey(passPurchaseId)}`);
       const feeRef = db.doc(`tenants/${tenantId}/transactions/daypassfee_${safeKey(passPurchaseId)}`);
-      const { feeCents, chargeId } = await stripeFeeFor(piId);
+      const { feeCents, chargeId, estimated: feeEstimated } = await stripeFeeFor(piId, pur, Number(pur.amountCents) || 0);
       const wrote = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(purRef)).data() || {};
       if (cur.status === 'completed') return false;
@@ -1142,7 +1169,7 @@ export async function GET(req: NextRequest) {
         tx.set(feeRef, {
           id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
           amount: feeCents / 100, category: 'Processing Fee',
-          description: `Stripe fee — day pass (${pur.name || 'guest'})`,
+          description: `Stripe fee${feeEstimated ? ' (est.)' : ''} — day pass (${pur.name || 'guest'})`,
           clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
           hasReceipt: false, stripePaymentIntentId: piId, stripeChargeId: chargeId,
           sourceId: passRef.id, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
@@ -1188,7 +1215,7 @@ export async function GET(req: NextRequest) {
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] }, onAccount(r));
     const pi: any = session.payment_intent;
     const savedPaymentMethodId: string | null = (pi && typeof pi === 'object' && pi.payment_method) ? String(pi.payment_method) : null;
     if (session.payment_status !== 'paid') {
@@ -1217,13 +1244,24 @@ export async function GET(req: NextRequest) {
       const now: any = (await resRef.get()).data() || {};
       return now.status === 'confirmed'
         ? NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate })
-        : NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
+        : NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The business will be in touch to move your booking or refund you.' });
     }
     if (conflicted) {
+      // The money came in and Stripe kept its fee, whatever happens to the booking (a refund doesn't return it), so the
+      // fee is in the books now; the booking's income is recorded only once it's moved and confirmed.
+      try {
+        const piIdC = (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null;
+        const { feeCents: cFee, chargeId: cCharge, estimated: cEst } = await stripeFeeFor(piIdC, r, Number(r.amountCents) || 0);
+        if (cFee > 0) await db.doc(`tenants/${tenantId}/transactions/boothrentfee_${safeKey(reservationId)}`).create({
+          id: `boothrentfee_${safeKey(reservationId)}`, type: 'expense', context: 'Business', taxBucket: 'operating_cost', amount: cFee / 100, category: 'Processing Fee',
+          description: `Stripe fee${cEst ? ' (est.)' : ''} — rental paid for dates already taken — ${r.boothName || 'Space'} (${r.name})`, clientOrVendor: 'Stripe', date: nowIso,
+          paymentMethod: 'Deducted from payout', hasReceipt: false, stripePaymentIntentId: piIdC, stripeChargeId: cCharge, sourceId: reservationId, tenantId, createdAt: nowIso,
+        }).catch(() => {});
+      } catch (e) { console.error('[booth-reserve] fee for a taken booking', e); }
       const nRef = db.doc(`tenants/${tenantId}/notifications/boothconflict_${safeKey(reservationId)}`);
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `Action needed: ${r.name} has paid for ${r.boothName} from ${r.startDate} to ${r.endDate}, but those dates are no longer available. Please refund or rebook this booking.` });
-      return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
+      return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The business will be in touch to move your booking or refund you.' });
     }
 
     for (const cid of (r.appliedCreditIds || [])) {
@@ -1309,7 +1347,7 @@ export async function PUT(req: NextRequest) {
         expand: ['latest_charge.balance_transaction'],
         description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
         metadata: { tenantId, reservationId, kind: 'booth_overage' },
-      }, { idempotencyKey: `booth-overage-${safeKey(reservationId)}-${cents}-${safeKey(claim.pm)}` });
+      }, onAccount(r, { idempotencyKey: `booth-overage-${safeKey(reservationId)}-${cents}-${safeKey(claim.pm)}` }));
     } catch (err: any) {
       const msg = err?.raw?.message || err?.message || 'Card charge failed.';
       if (stripeRefused(err)) {
@@ -1403,7 +1441,7 @@ export async function PATCH(req: NextRequest) {
           expand: ['latest_charge.balance_transaction'],
           description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
           metadata: { tenantId, reservationId, kind: 'booth_incidental', attempt: key },
-        }, { idempotencyKey: `booth-incidental-${safeKey(reservationId)}-${key}-${safeKey(pm)}` });
+        }, onAccount(r, { idempotencyKey: `booth-incidental-${safeKey(reservationId)}-${key}-${safeKey(pm)}` }));
       } catch (err: any) {
         const msg = err?.raw?.message || err?.message || 'Card charge failed.';
         if (stripeRefused(err)) {
@@ -1546,7 +1584,7 @@ export async function PATCH(req: NextRequest) {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     let refund: any = null;
     try {
-      const l: any = await stripe.refunds.list({ payment_intent: claim.pi, limit: 100 });
+      const l: any = await stripe.refunds.list({ payment_intent: claim.pi, limit: 100 }, onAccount(r));
       refund = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.reservationId === String(reservationId) && x?.metadata?.kind === 'booth_refund' && !['failed', 'canceled'].includes(String(x.status || ''))) || null;
     } catch { /* asked for below, under the booking's own key */ }
     if (!refund) try {
@@ -1554,7 +1592,7 @@ export async function PATCH(req: NextRequest) {
         payment_intent: claim.pi,
         amount: refundCents,
         metadata: { tenantId, reservationId, kind: 'booth_refund', origin: 'app' },
-      }, { idempotencyKey: `booth-refund-${safeKey(reservationId)}-${refundCents}` });
+      }, onAccount(r, { idempotencyKey: `booth-refund-${safeKey(reservationId)}-${refundCents}` }));
     } catch (err: any) {
       const msg = err?.raw?.message || err?.message || 'Refund failed.';
       if (stripeRefused(err)) {

@@ -1,12 +1,13 @@
 // src/lib/booth-money.ts — A BOOTH OR DAY-RENTAL BOOKING'S CHARGES AND REFUNDS, RECORDED ONCE (server).
 // The booking route (api/booths/reserve) charges an overage or an incidental to the guest's saved card, or refunds the
-// booking, on the platform's own Stripe account. Each is claimed on the booking first, charged or refunded under one
+// booking, on the account the booking was paid on (the business's own; lib/space-stripe). Each is claimed on the booking first, charged or refunded under one
 // key, and recorded here, once: its lines are named after the booking (and, for an incidental, the attempt), and
 // written in the same step as the booking's status.
 // When Stripe's answer is lost and nobody asks again, the claim would stay open with the money maybe taken and never
 // recorded: settleLostBoothMoney (the five-minute check) finds each claim left open more than 15 minutes, asks Stripe
 // what happened under it, and records it, or lets it go when nothing was charged or refunded.
 import Stripe from 'stripe';
+import { onAccount } from '@/lib/space-stripe';
 import { FieldValue } from 'firebase-admin/firestore';
 
 export const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
@@ -18,13 +19,13 @@ const older = (at: any, ms: number, now: number) => now - (Date.parse(String(at 
 
 /** Stripe's fee on a charge: from the charge it came back with, else asked for, else the usual US rate as an estimate,
  *  so the fee is never left out of the books. */
-export async function boothFeeOf(stripe: any, intent: any, grossCents: number): Promise<{ feeCents: number; chargeId: string | null; estimated: boolean }> {
+export async function boothFeeOf(stripe: any, intent: any, grossCents: number, on?: any): Promise<{ feeCents: number; chargeId: string | null; estimated: boolean }> {
   const lc: any = intent?.latest_charge;
   let chargeId: string | null = lc ? (typeof lc === 'string' ? lc : lc.id || null) : null;
   let fee = lc && typeof lc === 'object' && lc.balance_transaction && typeof lc.balance_transaction === 'object' ? Number(lc.balance_transaction.fee) || 0 : 0;
   if (!fee && intent?.id) {
     try {
-      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] });
+      const pi: any = await (stripe || stripeFor()).paymentIntents.retrieve(intent.id, { expand: ['latest_charge.balance_transaction'] }, onAccount(on));
       const c: any = pi?.latest_charge; fee = Number(c?.balance_transaction?.fee) || 0; chargeId = chargeId || c?.id || null;
     } catch { /* estimated below */ }
   }
@@ -36,7 +37,7 @@ export async function boothFeeOf(stripe: any, intent: any, grossCents: number): 
 export async function recordBoothOverage(db: any, tenantId: string, reservationId: string, r: any, intent: any, cents: number, o: { stripe?: any; at?: string } = {}) {
   const at = o.at || new Date().toISOString();
   const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-  const { feeCents, chargeId, estimated } = await boothFeeOf(o.stripe, intent, cents).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+  const { feeCents, chargeId, estimated } = await boothFeeOf(o.stripe, intent, cents, r).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
   const txnRef = db.doc(`tenants/${tenantId}/transactions/boothover_${safeKey(reservationId)}`);
   const feeRef = db.doc(`tenants/${tenantId}/transactions/boothoverfee_${safeKey(reservationId)}`);
   return db.runTransaction(async (tx: any) => {
@@ -69,7 +70,7 @@ export async function recordBoothIncidental(db: any, tenantId: string, reservati
   const at = o.at || new Date().toISOString();
   const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
   const attemptRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}/charges/inc_${key}`);
-  const fee = await boothFeeOf(o.stripe, intent, amountCents).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+  const fee = await boothFeeOf(o.stripe, intent, amountCents, r).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
   const txnRef = db.doc(`tenants/${tenantId}/transactions/boothinc_${safeKey(reservationId)}_${key}`);
   const feeRef = db.doc(`tenants/${tenantId}/transactions/boothincfee_${safeKey(reservationId)}_${key}`);
   return db.runTransaction(async (tx: any) => {
@@ -125,11 +126,11 @@ export async function recordBoothRefund(db: any, tenantId: string, reservationId
 
 export type LostBoothCounts = { checked: number; recorded: number; released: number; waiting: number };
 
-/** The payments made on a guest's card since a claim began (platform account). */
-async function paymentsSince(stripe: any, customer: string, at: string): Promise<any[] | null> {
+/** The payments made on a guest's card since a claim began, on the booking's own account (lib/space-stripe). */
+async function paymentsSince(stripe: any, customer: string, at: string, on?: any): Promise<any[] | null> {
   try {
     const since = Math.floor((Date.parse(at) || Date.now()) / 1000) - 3600;
-    const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100 });
+    const l: any = await stripe.paymentIntents.list({ customer, created: { gte: since }, limit: 100 }, onAccount(on));
     return Array.isArray(l?.data) ? l.data : [];
   } catch { return null; }
 }
@@ -169,7 +170,7 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
     const r: any = await takeOver(db, d.ref, 'overageSettlingAt', (x) => x.overageStatus === 'charging', now);
     if (!r) continue;
     out.checked++;
-    const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(r.overageClaimAt || '')) : [];
+    const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(r.overageClaimAt || ''), r) : [];
     if (list === null) { await d.ref.set({ overageSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
     const pi = list.find((p: any) => p?.metadata?.kind === 'booth_overage' && String(p?.metadata?.reservationId || '') === d.id && Number(p.amount) === Number(r.overageClaimCents));
     if (pi?.status === 'succeeded') { await recordBoothOverage(db, tenantId, d.id, r, pi, Number(r.overageClaimCents) || Number(pi.amount) || 0, { stripe, at: iso(now) }); await d.ref.set({ overageSettlingAt: null }, { merge: true }); tally('recorded'); continue; }
@@ -196,7 +197,7 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
       if (!a) { stillOpen = true; continue; }
       out.checked++;
       const key = String(a0.id).replace(/^inc_/, '');
-      const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(a.claimAt || '')) : [];
+      const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(a.claimAt || ''), r) : [];
       if (list === null) { await a0.ref.set({ settlingAt: null }, { merge: true }); stillOpen = true; tally('waiting'); continue; }
       const pi = list.find((p: any) => p?.metadata?.kind === 'booth_incidental' && String(p?.metadata?.reservationId || '') === d.id && String(p?.metadata?.attempt || '') === key);
       if (pi?.status === 'succeeded') { await recordBoothIncidental(db, tenantId, d.id, r, key, pi, Number(a.amountCents) || Number(pi.amount) || 0, String(a.description || 'Incidental'), { stripe, at: iso(now) }); tally('recorded'); continue; }
@@ -223,7 +224,7 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
     out.checked++;
     let refund: any = null; let asked = true;
     try {
-      const l: any = await stripe.refunds.list({ payment_intent: String(r.stripePaymentIntentId), limit: 100 });
+      const l: any = await stripe.refunds.list({ payment_intent: String(r.stripePaymentIntentId), limit: 100 }, onAccount(r));
       refund = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.reservationId === d.id && x?.metadata?.kind === 'booth_refund' && !['failed', 'canceled'].includes(String(x.status || ''))) || null;
     } catch { asked = false; }
     if (!asked || (!refund && !older(r.refundClaimAt, NOTHING_AFTER_MS, now))) { await d.ref.set({ refundSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
