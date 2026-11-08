@@ -95,7 +95,7 @@ const fresh = async (tenant: any = { stripeAccountId: 'acct_biz', stripeChargesE
   const bookSession = callsOf('sessions.create')[0]; const res: any = (await all(`${T}/boothReservations`))[0];
   check('a space booking is paid on the business’s own account, saved on the booking', r.status === 200 && acctOf(bookSession?.opts) === 'acct_biz' && res?.stripeAccountId === 'acct_biz', { status: r.status, body: r.body });
   check('the guest’s card is kept under a customer on that account, found only within this business', callsOf('customers.list').every((c) => acctOf(c.opts) === 'acct_biz') && callsOf('customers.create').every((c) => acctOf(c.opts) === 'acct_biz') && callsOf('customers.create').length === 1);
-  check('the card is saved for later charges, and the payment says what it is', bookSession?.params?.payment_intent_data?.setup_future_usage === 'off_session' && bookSession?.params?.payment_intent_data?.metadata?.kind === 'booth_booking');
+  check('the card is saved for later charges, and the payment says what it is', bookSession?.params?.payment_intent_data?.setup_future_usage === 'off_session' && bookSession?.params?.payment_intent_data?.metadata?.kind === 'space_booking');
   await fresh();
   await db.doc(`${T}/boothCredits/cr1`).set({ contactKey: 'lena@example.com', amountCents: 1000, status: 'available' });
   sessionCreateFails = true;
@@ -168,8 +168,11 @@ const fresh = async (tenant: any = { stripeAccountId: 'acct_biz', stripeChargesE
   webhookEvent = { ...webhookEvent, data: { object: { ...webhookEvent.data.object, id: 'ch_2', balance_transaction: 'txn_2', metadata: { tenantId: 't1' } } } };
   await W.handleConnectWebhook({ text: async () => '{}', headers: { get: (k: string) => (k === 'stripe-signature' ? 'sig' : null) }, nextUrl: { origin: 'https://studio.test' } } as any);
   check('any other payment’s fee is still written by the notice', (await all(`${T}/transactions`)).filter((t: any) => t.category === 'Processing Fee').length === 1);
+  webhookEvent = { ...webhookEvent, data: { object: { ...webhookEvent.data.object, id: 'ch_3', balance_transaction: 'txn_3', metadata: { tenantId: 't1', bookingId: 'sb1', kind: 'booth_booking' } } } };
+  await W.handleConnectWebhook({ text: async () => '{}', headers: { get: (k: string) => (k === 'stripe-signature' ? 'sig' : null) }, nextUrl: { origin: 'https://studio.test' } } as any);
+  check('a renter’s station booking (whose fee only the notice writes) still gets its fee line', (await all(`${T}/transactions`)).filter((t: any) => t.category === 'Processing Fee').length === 2);
   fetched.length = 0;
-  webhookEvent = { type: 'checkout.session.completed', account: 'acct_biz', data: { object: { id: 'cs_paid1', payment_status: 'paid', status: 'complete', payment_intent: 'pi_9', metadata: { tenantId: 't1', reservationId: 'r9', kind: 'booth_booking' } } } };
+  webhookEvent = { type: 'checkout.session.completed', account: 'acct_biz', data: { object: { id: 'cs_paid1', payment_status: 'paid', status: 'complete', payment_intent: 'pi_9', metadata: { tenantId: 't1', reservationId: 'r9', kind: 'space_booking' } } } };
   await W.handleConnectWebhook({ text: async () => '{}', headers: { get: (k: string) => (k === 'stripe-signature' ? 'sig' : null) }, nextUrl: { origin: 'https://studio.test' } } as any);
   check('a paid space booking is confirmed from the payments notice too, even if the guest never comes back', fetched.some((u) => u.includes('/api/booths/reserve?') && u.includes('reservationId=r9') && u.includes('sessionId=cs_paid1')), fetched);
   fetched.length = 0;

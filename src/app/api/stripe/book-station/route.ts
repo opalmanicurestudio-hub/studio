@@ -305,6 +305,8 @@ export async function POST(req: NextRequest) {
             metadata: {
               tenantId, locationId: String(b.locationId || ''), boothId: String(b.boothId || ''), renterId: String(b.renterId || ''),
               bookingId: bookingRef.id,
+              // Never add a reservationId here: lib/space-stripe tells a guest's space booking (which writes its own fee) from
+              // this one by it, and this one's fee is written by the payments notice.
               kind: 'booth_booking',
             },
           },

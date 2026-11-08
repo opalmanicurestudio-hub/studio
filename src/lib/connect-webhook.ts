@@ -167,7 +167,7 @@ export async function handleConnectWebhook(req: NextRequest) {
         // so it's booked and in the books even when the guest never comes back to the page that confirms it. The same
         // confirming step runs (it checks the payment with Stripe and is safe to run twice).
         const spaceKind = String(session.metadata?.kind || '');
-        if ((spaceKind === 'booth_booking' && session.metadata?.reservationId) || (spaceKind === 'day_pass' && session.metadata?.passPurchaseId)) {
+        if (((spaceKind === 'space_booking' || spaceKind === 'booth_booking') && session.metadata?.reservationId) || (spaceKind === 'day_pass' && session.metadata?.passPurchaseId)) {
           // Not reached, or the confirm failed on our side: this notice fails too, so Stripe sends it again later.
           const { internalOrigin } = await import('@/lib/message-policy');
           const biz: any = ((await db.doc(`tenants/${tenant.id}`).get()).data()) || {};
@@ -626,7 +626,7 @@ export async function handleConnectWebhook(req: NextRequest) {
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
         // A space rental's payment writes its own fee line where it's recorded (lib/space-stripe): not a second one here.
-        { const { SPACE_OWN_FEE_KINDS } = await import('@/lib/space-stripe'); if (SPACE_OWN_FEE_KINDS.has(String((charge.metadata as any)?.kind || ''))) break; }
+        { const { writesOwnFee } = await import('@/lib/space-stripe'); if (writesOwnFee(charge.metadata)) break; }
         const { recordChargeFee } = await import('@/lib/stripe-fee');
         const fee = await recordChargeFee(db, stripe2, tenant.id, connAcct as string, charge);
         if (fee > 0) console.log(`[connect-webhook] Fee $${(fee / 100).toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);

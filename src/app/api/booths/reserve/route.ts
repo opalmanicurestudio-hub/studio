@@ -993,7 +993,7 @@ export async function POST(req: NextRequest) {
     let session: any;
     try { session = await stripe.checkout.sessions.create({
       ...(customerId ? { customer: customerId } : {}),
-      payment_intent_data: { setup_future_usage: 'off_session', metadata: { tenantId, reservationId: resRef.id, kind: 'booth_booking' } },
+      payment_intent_data: { setup_future_usage: 'off_session', metadata: { tenantId, reservationId: resRef.id, kind: 'space_booking' } },
       mode: 'payment',
       ...(customerId ? {} : { customer_email: email || undefined }),
       line_items: [{
@@ -1013,7 +1013,7 @@ export async function POST(req: NextRequest) {
       }],
       success_url: `${base}?cfReservationId=${resRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
       cancel_url: base,
-      metadata: { tenantId, reservationId: resRef.id, kind: 'booth_booking' },
+      metadata: { tenantId, reservationId: resRef.id, kind: 'space_booking' },
     }, { stripeAccount: payAcct }); } catch (e) { await letGoNow(); throw e; }
     await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
     return NextResponse.json({ ok: true, url: session.url });

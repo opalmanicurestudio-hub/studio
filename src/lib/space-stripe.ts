@@ -20,9 +20,16 @@ export function onAccount(rec: any, opts: Record<string, any> = {}): Record<stri
   return Object.keys(out).length ? out : undefined;
 }
 
-/** Space payments that write their own processing fee line (the booking route, lib/booth-money, lib/no-show), so the
- *  payments notice (lib/connect-webhook, charge.succeeded) doesn't write a second one for them. */
-export const SPACE_OWN_FEE_KINDS = new Set(['booth_booking', 'day_pass', 'booth_overage', 'booth_incidental', 'booth_no_show_fee', 'concierge_charge', 'concierge_renter_charge']);
+/** Space payments that write their own processing fee line (the booking route, lib/booth-money, lib/no-show,
+ *  lib/kiosk-charges), so the payments notice (lib/connect-webhook, charge.succeeded) doesn't write a second one for
+ *  them. A guest's space booking is 'space_booking'. 'booth_booking' is a renter's station booking
+ *  (api/stripe/book-station), whose fee the notice DOES write, so it isn't here (a guest booking opened in the few minutes
+ *  it was named that carries its reservation's id, and is told apart by it). */
+export const SPACE_OWN_FEE_KINDS = new Set(['space_booking', 'day_pass', 'booth_overage', 'booth_incidental', 'booth_no_show_fee', 'concierge_charge', 'concierge_renter_charge']);
+export const writesOwnFee = (md: any): boolean => {
+  const kind = String(md?.kind || '');
+  return SPACE_OWN_FEE_KINDS.has(kind) || (kind === 'booth_booking' && !!md?.reservationId && !md?.bookingId);
+};
 
 /** What a business without card payments set up is told when a guest tries to pay for a space. */
 export const SPACE_NO_PAYMENTS = 'This business isn’t set up to take card payments online yet, so this can’t be paid here. Please let the business know.';
