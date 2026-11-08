@@ -18,6 +18,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { getAuth, signInWithCustomToken } from 'firebase/auth';
+import { TERMS_VERSION } from '@/lib/legal';
 import { Eye, EyeOff, Loader, ArrowLeft } from 'lucide-react';
 import { Wordmark } from '@/components/auth/AuthBackdrop';
 import { ToolPicker } from '@/components/modules/ToolPicker';
@@ -43,6 +44,7 @@ function Signup() {
   const [toolsTouched, setToolsTouched] = useState(false);
   const [me, setMe] = useState({ name: '', email: '', phone: '', password: '' });
   const [show, setShow] = useState(false);
+  const [agree, setAgree] = useState(false);
   const [err, setErr] = useState('');
   const [building, setBuilding] = useState<number>(-1);
   // Early access is by invite unless NEXT_PUBLIC_SIGNUP_OPEN=true.
@@ -74,7 +76,7 @@ function Signup() {
 
   const label = TYPES.find(([k]) => k === type)?.[2] || '';
   const pwOk = me.password.length >= 6;
-  const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk;
+  const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk && (step < 2 || agree);
   const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, 'Opening your booking page'], [businessName, tools.length]);
 
   // Everything happens on the server (/api/signup): the invite is checked and
@@ -85,7 +87,7 @@ function Signup() {
     const tick = window.setInterval(() => setBuilding((x) => (x >= 0 && x < 2 ? x + 1 : x)), 900);
     try {
       const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password,
+        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password, agreeTerms: agree, termsVersion: TERMS_VERSION,
           timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })() }) });
       const d = await r.json().catch(() => null);
       window.clearInterval(tick);
@@ -184,6 +186,10 @@ function Signup() {
                 <button type="button" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-stone-400">{show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
               </div>
               <p className={`px-1 text-[12px] ${pwOk ? 'text-emerald-700' : 'text-stone-500'}`}>{pwOk ? '✓ Good to go' : 'At least 6 characters'}</p>
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 px-1 py-2 text-[14px] leading-snug text-stone-700">
+                <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-stone-900" />
+                <span>I agree to the <a href="/legal/terms" target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">Platform Terms</a> and the <a href="/legal/privacy" target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">Privacy Policy</a>, for myself and for {businessName.trim() || 'my business'}.</span>
+              </label>
               <div className="rounded-2xl bg-white/60 p-3 text-[13px] text-stone-600">
                 <span className="font-medium text-stone-900">{businessName || 'Your business'}</span> · {new Set(['booking', 'guest', ...tools]).size} tools · gives back about {hoursFor(Array.from(new Set(['booking', 'guest', ...tools])) as ToolId[])} hrs a week
               </div>

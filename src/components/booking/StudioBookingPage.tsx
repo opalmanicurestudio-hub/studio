@@ -538,7 +538,11 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         {!shows('visit') && alsoHere && <div className="mx-auto max-w-6xl px-4 pb-6">{alsoHere}</div>}
       </main>
 
-      <footer className="mx-auto max-w-6xl px-4 pb-28 pt-8 text-[13px] text-stone-500 md:pb-10">© {new Date().getFullYear()} {name} · Online booking by ClarityFlow</footer>
+      <footer className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 px-4 pb-28 pt-8 text-[13px] text-stone-500 md:pb-10">
+        <span>© {new Date().getFullYear()} {name} · Online booking by ClarityFlow</span>
+        <a href="/legal/privacy" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-4">Privacy</a>
+        <a href="/legal/sms" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-4">Text message terms</a>
+      </footer>
       {!preview && <div className="pub-safe-bottom pub-bar fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/70 px-4 pt-3 backdrop-blur md:hidden">
         <PrimaryButton onClick={bookTop} className="w-full">Book an appointment</PrimaryButton>
       </div>}

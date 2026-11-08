@@ -14,6 +14,9 @@
 //   4. marks the invite used / the request onboarded
 //   5. returns a one-time sign-in token; the page signs in with it
 //
+// The owner must tick the box agreeing to the Platform Terms and Privacy Policy; the route refuses without it and keeps
+// the agreement (who, when, which version, from where) in tenants/{id}/private/terms.
+//
 // If anything fails after the account exists, the account is removed and the
 // invite released, so a retry starts clean.
 //
@@ -31,6 +34,7 @@ import { signupIsOpen } from '@/lib/platform-admin';
 import { CATEGORY_FOR, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { randomBytes } from 'crypto';
 import { isValidTimeZone } from '@/lib/tenant-time';
+import { TERMS_VERSION } from '@/lib/legal';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +67,7 @@ export async function POST(req: NextRequest) {
   if (phone.replace(/\D/g, '').length < 7) return NextResponse.json({ ok: false, error: 'Add a mobile number.' }, { status: 400 });
   if (password.length < 6) return NextResponse.json({ ok: false, error: 'Choose a password of at least 6 characters.' }, { status: 400 });
   if (businessName.length < 2) return NextResponse.json({ ok: false, error: 'Add your business name.' }, { status: 400 });
+  if (b.agreeTerms !== true) return NextResponse.json({ ok: false, error: 'Reload this page, then tick the box to agree to the Platform Terms and Privacy Policy.', code: 'terms' }, { status: 400 });
 
   const db = getAdminDb();
   const auth = getAdminAuth();
@@ -132,7 +137,12 @@ export async function POST(req: NextRequest) {
       ],
       bookingPageSettings: { heroTitle: `Welcome to ${businessName}`, primaryColor: '#7955c4', showTeam: teamSize === 'team', servicesSectionTitle: 'Services' },
       ...(code ? { inviteCode: code } : {}),
-      signupIp: ip, signupAt: at,
+    });
+    // The agreement to the platform terms, and where the sign-up came from, are kept privately (server only): the business
+    // record itself is readable by anyone with its booking link.
+    batch.set(db.doc(`tenants/${tenantId}/private/terms`), {
+      userId, email, name, version: TERMS_VERSION, versionShown: String(b.termsVersion || '').slice(0, 20) || null,
+      acceptedAt: at, ip, userAgent: String(req.headers.get('user-agent') || '').slice(0, 300),
     });
     // The owner is on the team from day one (lib/owner-staff) — so owner notifications have somewhere to land.
     batch.set(db.doc(`tenants/${tenantId}/staff/${userId}`), ownerProfileFor({ teamSize }, tenantId, { uid: userId, name, email, phone }));

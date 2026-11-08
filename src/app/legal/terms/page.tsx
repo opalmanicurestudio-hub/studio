@@ -16,20 +16,18 @@
 // messaging-capable platform to have.
 //
 // This document is deliberately GENERAL and product-facing. It names no
-// individual studio. Put the registered company name in LEGAL_ENTITY once
-// incorporated and it appears in the opening paragraph and contact block.
-//
-// ── EDIT THESE LINES ONLY ──────────────────────────────────────────────
-// Set GOVERNING_STATE for a precise governing-law clause; leaving it ''
-// keeps the clause accurate with neutral wording. '' hides address/phone.
-const PLATFORM = 'ClarityFlow';
-const LEGAL_ENTITY = '';       // registered company name, e.g. 'ClarityFlow, Inc.' — leave '' until incorporated
-const CONTACT_EMAIL = 'opalmanicurestudio@gmail.com';  // replace with a product address (e.g. support@yourdomain.com) once a domain is verified
-const BUSINESS_ADDRESS = '';   // e.g. '123 Main St, Suite 4, Atlanta, GA 30303'
-const BUSINESS_PHONE = '';     // e.g. '(404) 555-0142'
-const GOVERNING_STATE = '';    // e.g. 'Georgia'
-const EFFECTIVE_DATE = 'July 27, 2026';
-// ───────────────────────────────────────────────────────────────────────
+// individual business. The company name, address, support email and governing
+// state come from settings (lib/legal); until each is set, the wording stays
+// accurate without it, and an empty address or phone is simply left out.
+import { LEGAL, TERMS_EFFECTIVE } from '@/lib/legal';
+
+const PLATFORM = LEGAL.platform;
+const LEGAL_ENTITY = LEGAL.entity;
+const CONTACT_EMAIL = LEGAL.email;
+const BUSINESS_ADDRESS = LEGAL.address;
+const BUSINESS_PHONE = LEGAL.phone;
+const GOVERNING_STATE = LEGAL.state;
+const EFFECTIVE_DATE = TERMS_EFFECTIVE;
 
 const lawPhrase = GOVERNING_STATE
   ? `the laws of the State of ${GOVERNING_STATE}`
@@ -48,7 +46,7 @@ export default function PlatformTermsPage() {
     <div className="min-h-screen bg-slate-50 px-5 py-10">
       <div className="max-w-2xl mx-auto space-y-6 text-slate-800">
         <header>
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{PLATFORM}</p>
+          <p className="text-[14px] font-semibold text-slate-500">{PLATFORM}</p>
           <h1 className="text-3xl font-black tracking-tight mt-1">Platform Terms of Service</h1>
           <p className="text-xs font-bold text-slate-400 mt-1">Effective date: {EFFECTIVE_DATE}</p>
           <p className="text-xs font-medium text-slate-500 mt-3 leading-relaxed">
@@ -60,17 +58,18 @@ export default function PlatformTermsPage() {
         </header>
 
         <section className="space-y-2 rounded-2xl border-2 border-slate-900 bg-white p-5">
-          <h2 className="text-sm font-black uppercase tracking-widest">Are you a salon client, not a studio owner?</h2>
+          <h2 className="text-[16px] font-bold">Booked with a business that uses {PLATFORM}?</h2>
           <p className="text-sm leading-relaxed">
-            If you booked an appointment or received a message from a salon or studio that uses {PLATFORM}, these are
-            not your terms. The terms of your visit — deposits, cancellations, and the text-message program you
-            consented to — are that business's own, and are published on the booking page you used. Contact that
-            business directly; {PLATFORM} is the software it runs on, not the provider of your service.
+            If you booked, bought or received a message from a business that uses {PLATFORM}, these are not your
+            terms. The terms of your visit or order, such as deposits and cancellations, are that business's own and
+            are shown when you book or pay. How its text messages work is set out in the{' '}
+            <a className="underline font-bold" href="/legal/sms">text message terms</a>. For anything about your
+            visit, reach the business directly; {PLATFORM} is the software it runs on, not the provider of your service.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">1. Definitions</h2>
+          <h2 className="text-[16px] font-bold">1. Definitions</h2>
           <p className="text-sm leading-relaxed">
             <strong>Service</strong> means the {PLATFORM} software platform, its websites, portals, booking pages,
             and related tools. <strong>Subscriber</strong> or <strong>you</strong> means the business or person that
@@ -82,7 +81,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">2. Agreement, eligibility &amp; authority</h2>
+          <h2 className="text-[16px] font-bold">2. Agreement, eligibility &amp; authority</h2>
           <p className="text-sm leading-relaxed">
             By creating an account, subscribing, or using the Service you agree to these terms. You must be at least
             18 and, if you are signing up on behalf of a business, you confirm you are authorized to bind that
@@ -91,7 +90,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">3. Your account &amp; your team</h2>
+          <h2 className="text-[16px] font-bold">3. Your account &amp; your team</h2>
           <p className="text-sm leading-relaxed">
             You are responsible for everything that happens under your account, including what the staff, renters,
             and administrators you invite do with it. Keep credentials, portal links, and one-time codes
@@ -101,7 +100,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">4. Subscriptions, fees &amp; renewal</h2>
+          <h2 className="text-[16px] font-bold">4. Subscriptions, fees &amp; renewal</h2>
           <p className="text-sm leading-relaxed">
             Plans, features, and prices are those shown when you subscribe. Subscriptions are billed in advance on a
             recurring basis and renew automatically for the same period until cancelled. By subscribing you
@@ -114,7 +113,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">5. Cancellation &amp; refunds</h2>
+          <h2 className="text-[16px] font-bold">5. Cancellation &amp; refunds</h2>
           <p className="text-sm leading-relaxed">
             You may cancel at any time; cancellation takes effect at the end of the current billing period and the
             Service remains available until then. Fees already paid are not refundable except where the law requires
@@ -124,7 +123,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">6. Customer Data — yours, not ours</h2>
+          <h2 className="text-[16px] font-bold">6. Customer Data — yours, not ours</h2>
           <p className="text-sm leading-relaxed">
             You own your Customer Data. You grant us only the permission needed to host, process, transmit, back up,
             and display it in order to provide the Service to you and to act on your instructions. You are
@@ -139,7 +138,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section id="messaging" className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
-          <h2 className="text-sm font-black uppercase tracking-widest">7. Messaging compliance — you are the sender</h2>
+          <h2 className="text-[16px] font-bold">7. Messaging compliance — you are the sender</h2>
           <p className="text-sm leading-relaxed">
             The Service can send text messages and emails to your End Clients on your behalf. For every such message
             you are the sender and the party responsible for its legality. We provide the tooling; we do not
@@ -170,7 +169,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">8. Acceptable use</h2>
+          <h2 className="text-[16px] font-bold">8. Acceptable use</h2>
           <p className="text-sm leading-relaxed">
             Do not use the Service to break the law or infringe anyone's rights; do not upload malicious code; do
             not probe, scan, overload, or attempt to gain unauthorized access to the Service or to another
@@ -182,7 +181,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">9. Payments, payroll &amp; third-party integrations</h2>
+          <h2 className="text-[16px] font-bold">9. Payments, payroll &amp; third-party integrations</h2>
           <p className="text-sm leading-relaxed">
             Card payments, bank connections, and payroll features are provided through third parties — currently
             Stripe, Plaid, and Gusto — and your use of them is also subject to their own terms and to their
@@ -197,7 +196,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">10. Your relationships with your people</h2>
+          <h2 className="text-[16px] font-bold">10. Your relationships with your people</h2>
           <p className="text-sm leading-relaxed">
             The Service helps you manage employees, independent booth renters, contractors, and clients, but it does
             not make us a party to any of those relationships. Rental agreements, employment and contractor
@@ -207,7 +206,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">11. Our intellectual property, and your feedback</h2>
+          <h2 className="text-[16px] font-bold">11. Our intellectual property, and your feedback</h2>
           <p className="text-sm leading-relaxed">
             The Service — its software, design, name, and content — belongs to us and our licensors, and nothing here
             transfers ownership of it. You receive a limited, non-exclusive, non-transferable right to use it while
@@ -217,7 +216,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">12. Availability, support &amp; new features</h2>
+          <h2 className="text-[16px] font-bold">12. Availability, support &amp; new features</h2>
           <p className="text-sm leading-relaxed">
             We work to keep the Service available and to fix problems promptly, but we do not promise uninterrupted
             availability, and maintenance, provider outages, and events beyond our control will occasionally
@@ -228,7 +227,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">13. Term, termination &amp; what happens to your data</h2>
+          <h2 className="text-[16px] font-bold">13. Term, termination &amp; what happens to your data</h2>
           <p className="text-sm leading-relaxed">
             These terms apply while you have an account. You may cancel as described above. We may suspend or
             terminate your account for material breach, non-payment, or unlawful use, and will give notice and a
@@ -240,7 +239,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">14. Disclaimers</h2>
+          <h2 className="text-[16px] font-bold">14. Disclaimers</h2>
           <p className="text-sm leading-relaxed">
             The Service is provided as it is and as available, without warranties of any kind, whether express or
             implied, including implied warranties of merchantability, fitness for a particular purpose, and
@@ -251,7 +250,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">15. Limitation of liability</h2>
+          <h2 className="text-[16px] font-bold">15. Limitation of liability</h2>
           <p className="text-sm leading-relaxed">
             To the fullest extent the law allows, we are not liable for indirect, incidental, special, punitive, or
             consequential damages, or for lost profits, lost revenue, lost bookings, lost goodwill, or lost or
@@ -264,7 +263,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">16. Indemnity</h2>
+          <h2 className="text-[16px] font-bold">16. Indemnity</h2>
           <p className="text-sm leading-relaxed">
             You will defend and indemnify us against claims, penalties, and costs arising from your Customer Data,
             your messages and the consents behind them, your relationships with your clients, staff, and renters,
@@ -274,7 +273,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">17. Governing law &amp; disputes</h2>
+          <h2 className="text-[16px] font-bold">17. Governing law &amp; disputes</h2>
           <p className="text-sm leading-relaxed">
             These terms are governed by {lawPhrase}, without regard to its conflict-of-law rules. Before filing
             anything, both of us agree to try to resolve the dispute informally by contacting the other and allowing
@@ -285,7 +284,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">18. Changes, notices &amp; general</h2>
+          <h2 className="text-[16px] font-bold">18. Changes, notices &amp; general</h2>
           <p className="text-sm leading-relaxed">
             We may update these terms; the current version always lives at this address with the effective date at
             the top, and we will notify Subscribers of material changes before they take effect — continuing to use
@@ -299,7 +298,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-sm font-black uppercase tracking-widest">19. Contact us</h2>
+          <h2 className="text-[16px] font-bold">19. Contact us</h2>
           <p className="text-sm leading-relaxed">
             <strong>{LEGAL_ENTITY || PLATFORM}</strong><br />
             {BUSINESS_ADDRESS ? <>{BUSINESS_ADDRESS}<br /></> : null}

@@ -32,18 +32,17 @@
 //                     subscribe to it. Link the marketing footer here.
 //
 // This document is deliberately GENERAL and product-facing. It names no
-// individual studio. If the company is later incorporated, put the
-// registered entity name in LEGAL_ENTITY and it will appear in the opening
-// paragraph and the contact block automatically.
-//
-// ── EDIT THESE LINES ONLY ──────────────────────────────────────────────
-const PLATFORM = 'ClarityFlow';
-const LEGAL_ENTITY = '';       // registered company name, e.g. 'ClarityFlow, Inc.' — leave '' until incorporated
-const CONTACT_EMAIL = 'opalmanicurestudio@gmail.com';  // replace with a product address (e.g. privacy@yourdomain.com) once a domain is verified
-const BUSINESS_ADDRESS = '';   // e.g. '123 Main St, Suite 4, Atlanta, GA 30303'
-const BUSINESS_PHONE = '';     // e.g. '(404) 555-0142'
-const EFFECTIVE_DATE = 'July 27, 2026';
-// ───────────────────────────────────────────────────────────────────────
+// individual business. The company name, address and support email come from
+// settings (lib/legal) and appear in the opening paragraph and the contact
+// block once set.
+import { LEGAL, PRIVACY_EFFECTIVE } from '@/lib/legal';
+
+const PLATFORM = LEGAL.platform;
+const LEGAL_ENTITY = LEGAL.entity;
+const CONTACT_EMAIL = LEGAL.email;
+const BUSINESS_ADDRESS = LEGAL.address;
+const BUSINESS_PHONE = LEGAL.phone;
+const EFFECTIVE_DATE = PRIVACY_EFFECTIVE;
 
 export const metadata = {
   title: `Privacy Policy — ${PLATFORM}`,
@@ -51,10 +50,10 @@ export const metadata = {
 };
 
 const H = ({ children }: { children: React.ReactNode }) => (
-  <h2 className="text-sm font-black uppercase tracking-widest">{children}</h2>
+  <h2 className="text-[16px] font-bold">{children}</h2>
 );
 const H3 = ({ children }: { children: React.ReactNode }) => (
-  <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-500">{children}</h3>
+  <h3 className="text-[14px] font-semibold text-slate-600">{children}</h3>
 );
 const P = ({ children }: { children: React.ReactNode }) => (
   <p className="text-sm leading-relaxed">{children}</p>
@@ -70,7 +69,7 @@ export default function PlatformPrivacyPage() {
     <div className="min-h-screen bg-slate-50 px-5 py-10">
       <div className="max-w-2xl mx-auto space-y-6 text-slate-800">
         <header>
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{PLATFORM}</p>
+          <p className="text-[14px] font-semibold text-slate-500">{PLATFORM}</p>
           <h1 className="text-3xl font-black tracking-tight mt-1">Platform Privacy Policy</h1>
           <p className="text-xs font-bold text-slate-400 mt-1">Effective date: {EFFECTIVE_DATE}</p>
           <p className="text-sm leading-relaxed text-slate-600 mt-3">

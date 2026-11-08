@@ -404,6 +404,10 @@ export function StudioFlow({ c }: { c: any }) {
           <Controller name="smsConsent" control={c.methods.control} render={({ field: f }) => <SwitchRow on={!!f.value} onToggle={() => f.onChange(!f.value)} label="Text me reminders" fine={c.smsConsentWording(tenant?.name)} />} />
           <Controller name="smsMarketing" control={c.methods.control} render={({ field: f }) => <SwitchRow on={!!f.value} onToggle={() => f.onChange(!f.value)} label={`News and offers from ${name || 'us'}`} fine={c.smsMarketingWording(tenant?.name)} />} />
         </div>
+        <p className="-mt-1 flex gap-4 px-1 text-[12.5px]" style={{ color: 'var(--muted)' }}>
+          <a href="/legal/sms" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">Text message terms</a>
+          <a href="/legal/privacy" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">Privacy</a>
+        </p>
         {referralsAsk && <details className="cf-more">
           <summary className="cf-link">Have a friend’s code, or did someone recommend us?</summary>
           <div className="cf-grp mt-3">

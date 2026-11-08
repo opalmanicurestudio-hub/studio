@@ -163,7 +163,7 @@ export function ShopFooter({ hasOffers = false }: { hasOffers?: boolean }) {
         </div>
         {col('Shop', [['Home', base], ['Shop all', `${base}/catalog`], ...(hasOffers ? [['Kits and bundles', `${base}#offers`] as [string, string]] : [])])}
         {col('Help', [['Your orders and returns', `${base}/account`]])}
-        {col('Policies', [['Terms of use', '/legal/terms'], ['Privacy policy', '/legal/privacy']])}
+        {col('Policies', [['Privacy policy', '/legal/privacy'], ['Text message terms', '/legal/sms']])}
       </div>
       <div className="flex flex-col gap-1 px-5 pb-8 text-[12px] md:flex-row md:justify-between md:px-12" style={{ color: 'var(--shop-muted)', paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
         <span>This shop uses only essential cookies, the ones that keep your bag and sign-in working.</span>
