@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const items: RequestItem[] = Array.isArray(b.items) ? b.items.filter((x: any) => typeof x === 'string').slice(0, 12) : [];
   const reason = ['requirements', 'booking', 'fee'].includes(b.reason) ? b.reason : items.length ? 'requirements' : 'booking';
-  const msg = requestMessage({ firstName: String(apt.clientName || '').split(' ')[0] || 'there', studioName, startTime: apt.startTime, tzOffsetMinutes: tData.clientNotify?.tzOffsetMinutes, items, reason, link });
+  const msg = requestMessage({ firstName: String(apt.clientName || '').split(' ')[0] || 'there', studioName, startTime: apt.startTime, tenant: tData, items, reason, link });
 
   let smsSent = false, emailSent = false;
   const common = { tenantId, kind: 'visit_request', appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null };

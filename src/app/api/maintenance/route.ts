@@ -523,11 +523,11 @@ export async function POST(req: NextRequest) {
       if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
         const actual = costCents + laborCents;
         if (rules.requireQuoteOverCents > 0 && actual > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
-          return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)}. Please send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
+          return NextResponse.json({ ok: false, error: `This business requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)}. Please send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
         }
         const hasAnyPhoto = !!photoUrl || (Array.isArray(t.photoUrls) && t.photoUrls.length > 0);
         if (rules.receiptRequiredOverCents > 0 && costCents > rules.receiptRequiredOverCents && !hasAnyPhoto) {
-          return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)}. Please attach the receipt and resolve again.` }, { status: 422 });
+          return NextResponse.json({ ok: false, error: `This business requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)}. Please attach the receipt and resolve again.` }, { status: 422 });
         }
       }
       // Labor accumulates on the ticket — totals plus who-did-what.

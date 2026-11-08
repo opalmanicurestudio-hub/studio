@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
      * never the browser (which could otherwise change the amount, or point the
      * payment at another appointment or client). */
     const cSnap = await db.doc(`tenants/${tenantId}/bookingCompletions/${String(completionToken)}`).get();
-    if (!cSnap.exists) return NextResponse.json({ error: 'This link isn’t valid any more — please contact the studio.' }, { status: 404 });
+    if (!cSnap.exists) return NextResponse.json({ error: 'This link isn’t valid any more. Please ask the business for a new one.' }, { status: 404 });
     const rec: any = cSnap.data() || {};
     const depositAmount = (Number(rec.depositAmountCents) || 0) / 100;
     const appointmentId = rec.owedFeeAppointmentId || rec.appointmentId || null;
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     const balCents = !rec.owedFeeAppointmentId && rec.appointmentId ? balanceDueWith(((await db.doc(`tenants/${tenantId}/appointments/${rec.appointmentId}`).get()).data() as any) || {}) : 0;
     const clientId = rec.clientId || null, clientName = rec.clientName || '', serviceName = rec.serviceName || '';
     const clientEmail = rec.clientEmail || body.clientEmail || null;
-    if (!clientEmail) return NextResponse.json({ error: 'We need an email on your booking to take payment — please contact the studio.' }, { status: 400 });
+    if (!clientEmail) return NextResponse.json({ error: 'We need an email address on your booking to take payment. Please ask the business to add it.' }, { status: 400 });
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
       return NextResponse.json(
-        { error: 'This studio has not connected a payment account yet.' },
+        { error: 'This business isn’t set up to take card payments online yet.' },
         { status: 400 }
       );
     }
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       console.error('[stripe/completion] Failed to retrieve connected account:', e.message);
       return NextResponse.json(
-        { error: 'Could not verify the studio payment account. Please contact the studio.' },
+        { error: 'We couldn’t reach the business’s payment account. Please try again in a few minutes.' },
         { status: 400 }
       );
     }
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     if (connectedAccount.requirements?.disabled_reason) {
       console.error('[stripe/completion] Connected account disabled:', connectedAccount.requirements.disabled_reason);
       return NextResponse.json(
-        { error: 'The studio payment account needs attention. Please contact the studio.' },
+        { error: 'The business’s payment account isn’t ready to take payments yet. Please let the business know.' },
         { status: 400 }
       );
     }
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
                   unit_amount:  Math.round(Number(depositAmount) * 100),
                   product_data: {
                     name:        serviceName ? `Deposit — ${serviceName}` : 'Appointment Deposit',
-                    description: 'Secures your appointment and saves your card for any future fees per studio policy.',
+                    description: 'Secures your appointment and saves your card for any fees under the business’s booking policy.',
                   },
                 },
                 quantity: 1,

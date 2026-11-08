@@ -412,7 +412,8 @@ export async function POST(req: NextRequest) {
       const lineUp = String(body.choice || '') === 'waitlist' && d.kind === 'callout';   // cancel, then first in line for this provider
       if (String(body.choice || '') !== 'cancel' && !lineUp) return NextResponse.json({ ok: false, error: 'Please choose a new time or cancel.' }, { status: 400 });
       const nowIso = new Date().toISOString();
-      const dep = a.depositStatus === 'paid' ? Number(a.depositAmountCents) || 0 : 0;
+      // A renter's deposit went to the renter's own account: it isn't the business's to refund or hold as credit.
+      const dep = a.depositStatus === 'paid' && a.depositPaidTo !== 'renter' && !a.isRenterBooking ? Number(a.depositAmountCents) || 0 : 0;
       const asCredit = body.deposit === 'credit';
       const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve', cancellationReason: d.kind === 'callout' ? 'provider_callout' : d.kind === 'prep' ? 'more_time_needed' : 'business_interruption', cancellationFeeCharged: 0, cancellationFeeWaived: true, studioCancelled: true, ...(d.kind === 'interruption' ? { interruptionId: d.id, lostToInterruption: true } : { calloutId: d.id }) };
       await ref.set(cancelFields, { merge: true });

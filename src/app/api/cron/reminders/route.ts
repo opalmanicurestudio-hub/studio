@@ -56,6 +56,10 @@ const pad = (n: number) => String(n).padStart(2, '0');
 import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } from '@/lib/confirm-ask';
 import { automationOn } from '@/lib/automation-switches';
 import { onTeam } from '@/lib/team-member';
+/** A booking that took place (or was booked and held): not cancelled or missed, not waiting on payment, and not a request
+ *  that was declined, ran out or was never accepted. Thank-you and review messages go only to these. */
+const NOT_A_VISIT = new Set(['cancelled', 'canceled', 'no_show', 'no-show', 'noshow', 'pending_payment', 'pending', 'requested', 'declined', 'provider_declined', 'asking_provider', 'expired', 'released', 'rejected']);
+const visitHappened = (a: any) => !NOT_A_VISIT.has(String(a?.status || '').toLowerCase());
 export async function GET(req: NextRequest) {
   // Same guard as the nightly cron: Vercel Cron sends the secret. No secret set: nobody.
   const refused = refuseCron(req); if (refused) return refused;
@@ -460,7 +464,9 @@ export async function GET(req: NextRequest) {
           const a = aDoc.data() as any;
           try {
             if (!a.startTime || a.followUpSentAt) continue;
-            if (['cancelled', 'canceled', 'no_show', 'pending_payment'].includes(String(a.status || ''))) continue;
+            // Only a visit that took place: never one cancelled, missed, still waiting on payment, or a request that was
+            // declined, ran out or was never accepted.
+            if (!visitHappened(a)) continue;
             const at = new Date(a.startTime);
             if (dayOfLocal(at) !== yestDay) continue;
             if (a.isRenterBooking) {

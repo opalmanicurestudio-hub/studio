@@ -251,6 +251,21 @@ export function formatDateTime(value: Date | string, timeZone?: string | null): 
   return `${formatShortDay(d, timeZone)} at ${formatTime(d, timeZone)}`;
 }
 
+/** A visit's day and time for a message to a client ("Tuesday, March 3 at 2:30 PM") on the business's own clock: its
+ *  zone when it has one (set at sign-up, or in Settings), else the fixed offset an older business saved
+ *  (clientNotify.tzOffsetMinutes, -300 when none), as its messages always said. null for a missing or unreadable time. */
+export function visitWhen(value: Date | string | null | undefined, tenant?: any): string | null {
+  const d = value ? new Date(value as any) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  if (hasTimeZone(tenant)) {
+    const tz = tenantTimeZone(tenant);
+    return `${d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })}`;
+  }
+  const off = Number(tenant?.clientNotify?.tzOffsetMinutes);
+  const t = new Date(d.getTime() + (Number.isFinite(off) ? off : -300) * 60000);
+  return `${t.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
+}
+
 /** Short zone label for a footer or an email — 'EDT', 'PST'. Says which clock
  *  a time is on, which is the difference between a time and a guess. */
 export function zoneLabel(timeZone?: string | null, at: Date = new Date()): string {

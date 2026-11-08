@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     }
     const stripeAccountId = tenant?.stripeAccountId;
     if (!stripeAccountId) {
-      return NextResponse.json({ error: 'This studio is not set up to take cards yet.' }, { status: 400 });
+      return NextResponse.json({ error: 'This business isn’t set up to take cards online yet.' }, { status: 400 });
     }
 
     const stripe = getStripe();

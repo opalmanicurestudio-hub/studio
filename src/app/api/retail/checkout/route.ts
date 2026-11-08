@@ -131,15 +131,16 @@ export async function POST(req: NextRequest) {
    * Whole-handler armor: anything that escapes below (a Firestore write, the
    * throttle count query, a missing admin credential, a bad option payload)
    * would otherwise become a bare HTTP 500 with no body — which reaches the
-   * shopper as "Checkout failed (HTTP 500)" and tells nobody anything. Every
-   * failure now returns its real reason, so the toast IS the diagnosis.
+   * shopper as "Checkout failed (HTTP 500)" and tells nobody anything. The
+   * real reason goes in the log; the shopper gets a plain sentence (a raw
+   * error can name the business's settings or credentials).
    */
   try {
     return await handleCheckout(req);
   } catch (err: any) {
     const detail = String(err?.raw?.message || err?.message || 'Unknown error').slice(0, 220);
     console.error('[retail-checkout] unhandled failure:', detail, err?.stack?.split('\n')[1] || '');
-    return NextResponse.json({ error: `Checkout could not start: ${detail}` }, { status: 500 });
+    return NextResponse.json({ error: 'Checkout couldn’t start. Please try again in a moment.', code: 'checkout_failed' }, { status: 500 });
   }
 }
 
@@ -1204,8 +1205,8 @@ async function handleCheckout(req: NextRequest) {
     console.error('[retail-checkout] Stripe session creation failed:', detail, err?.raw?.param || '');
     // Leave the order in 'placed' — it never got a session, never reserves
     // stock, and is harmless; a cleanup job can archive stale placed orders.
-    // Surface the REAL cause so failures are self-diagnosing instead of a
-    // generic shrug — this message appears in the customer's error toast.
-    return NextResponse.json({ error: `Checkout could not start: ${detail}` }, { status: 502 });
+    // The real cause is in the log above. The customer gets a plain message: Stripe's own words can name the
+    // business's account or settings, which aren't theirs to see.
+    return NextResponse.json({ error: 'Checkout couldn’t start. Please try again in a moment.', code: 'checkout_unavailable' }, { status: 502 });
   }
 }

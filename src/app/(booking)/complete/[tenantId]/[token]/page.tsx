@@ -210,7 +210,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         setSubmitting(false);
         return;
       }
-      setError(out?.error || 'Could not start checkout. Please contact the studio.');
+      setError(out?.error || 'The payment step didn’t open. Please try again in a moment.');
       setSubmitting(false);
     } catch (e: any) {
       setError(e.message || 'Something went wrong. Please try again.');

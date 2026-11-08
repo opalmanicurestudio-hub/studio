@@ -34,6 +34,9 @@ export type OnlineDeposit = {
   clientName?: string | null;
   /** Statuses that become 'confirmed' once it's paid (a booking waiting on its deposit). */
   confirmFrom?: string[];
+  /** A renter's booking, paid to the renter's own account (api/stripe/deposit): the booking is marked paid, and nothing
+   *  goes in this business's books (no income line, no deposit credit at its checkout), because the money is the renter's. */
+  renter?: boolean;
 };
 
 export type OnlineDepositResult =
@@ -42,6 +45,7 @@ export type OnlineDepositResult =
 
 /** Records a deposit paid online, once. null when the booking doesn't exist. */
 export async function recordOnlineDeposit(db: any, tenantId: string, d: OnlineDeposit): Promise<OnlineDepositResult | null> {
+  if (d.renter) return recordRenterDeposit(db, tenantId, d);
   const T = `tenants/${tenantId}`;
   const aRef = db.doc(`${T}/appointments/${d.appointmentId}`);
   const cRef = db.doc(`${T}/depositCredits/${onlineDepositCreditId(d.paymentIntentId, d.sessionId)}`);
@@ -100,5 +104,37 @@ export async function recordOnlineDeposit(db: any, tenantId: string, d: OnlineDe
       stripePaymentIntentId: d.paymentIntentId ? String(d.paymentIntentId) : null, stripeChargeId: d.chargeId || null, checkoutSessionId: String(d.sessionId),
     });
     return { already: false, cents, balanceCents, twice, released, status, booking: ap };
+  });
+}
+
+/** A renter's booking paid online: the booking is confirmed and marked paid, once (named after this payment). Nothing is
+ *  written to the business's books or its deposit credits, and no balance is split off: the money went to the renter. A
+ *  second payment for a booking already paid is flagged for the renter to refund one of them. */
+async function recordRenterDeposit(db: any, tenantId: string, d: OnlineDeposit): Promise<OnlineDepositResult | null> {
+  const aRef = db.doc(`tenants/${tenantId}/appointments/${d.appointmentId}`);
+  return db.runTransaction(async (tx: any) => {
+    const as = await tx.get(aRef);
+    if (!as?.exists) return null;
+    const ap: any = as.data() || {};
+    const sid = String(d.sessionId);
+    if (ap.stripeCheckoutSessionId === sid || ap.depositSecondSessionId === sid) return { already: true };
+    const now = new Date().toISOString();
+    const cents = c0(d.paidCents);
+    const twice = ap.depositStatus === 'paid';
+    const released = ap.status === 'cancelled' || ap.status === 'canceled';
+    const waiting = (d.confirmFrom || ['pending_payment', 'deposit_pending']).includes(String(ap.status || ''));
+    const status = released ? String(ap.status) : waiting ? 'confirmed' : String(ap.status || 'confirmed');
+    if (twice) {
+      tx.set(aRef, { needsAttention: 'deposit_paid_twice', needsAttentionAt: now, depositSecondSessionId: sid }, { merge: true });
+    } else {
+      tx.set(aRef, {
+        status, depositStatus: 'paid', depositPaidAt: now, depositAmountCents: cents, depositPaidVia: d.via, depositPaidTo: 'renter', paymentDueAt: null,
+        stripeCheckoutSessionId: sid, stripeChargeId: d.chargeId || null,
+        ...(d.paymentIntentId ? { depositStripePaymentIntentId: String(d.paymentIntentId) } : {}),
+        ...(released ? { needsAttention: 'deposit_paid_after_hold_released', needsAttentionAt: now } : {}),
+      }, { merge: true });
+      if (ap.checkInToken) tx.set(db.doc(`appointmentCheckIns/${String(ap.checkInToken)}`), { status, depositStatus: 'paid' }, { merge: true });
+    }
+    return { already: false, cents, balanceCents: 0, twice, released, status, booking: ap };
   });
 }

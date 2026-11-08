@@ -12,7 +12,8 @@
 // follows, it's in the activity log, and — for accepted requests, where the
 // client was expecting it — the client is told, with a link to book again.
 // Runs from the booking page (throttled per business) and the daily job. A deposit taken on the card reader that
-// the booking screen never confirmed is recorded first (lib/reader-deposit), so a paid visit is never released.
+// the booking screen never confirmed is recorded first (lib/reader-deposit), so a paid visit is never released, and
+// every online payment form opened for it is closed with Stripe before its time is let go (lib/deposit-sessions).
 
 import { logAuditAdmin } from '@/lib/audit';
 import { tenantTimeZone } from '@/lib/tenant-time';
@@ -24,6 +25,9 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
   const holdMin = Number(t?.bookingMode?.holdMinutes) > 0 ? Number(t.bookingMode.holdMinutes) : 30;
   const snap = await db.collection(`${T}/appointments`).where('status', '==', 'pending_payment').limit(200).get();
   let released = 0;
+  // Stripe is asked about at most this many bookings a run (each can take a few seconds when Stripe is slow); the rest
+  // wait for the next run, which comes soon.
+  let asked = 0; const ASK_LIMIT = 12;
   for (const d of snap.docs) {
     const a: any = d.data() || {};
     if (a.depositStatus === 'paid') continue; // paid in the meantime — the webhook confirms it
@@ -39,10 +43,42 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
     if (call !== 'release') continue;
     const nowIso = new Date(now).toISOString();
     const wasAccepted = !!a.paymentDueAt; // an accepted request (card declined) — the client was expecting this visit
-    const batch = db.batch();
-    batch.set(d.ref, { status: 'cancelled', cancellationReason: 'payment_not_received', cancelledAt: nowIso, releasedAt: nowIso, cancelledBy: 'system' }, { merge: true });
-    if (a.checkInToken) batch.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), { status: 'cancelled' }, { merge: true });
-    await batch.commit(); released++;
+    // Every payment form opened for it is closed first (lib/deposit-sessions), so it can't be paid once its time is
+    // gone. One that has been (or is being) paid keeps the booking: Stripe's notice records it. If Stripe can't be asked,
+    // it's left for the next sweep rather than let go with a form still open.
+    const forms: string[] = Array.isArray(a.depositSessions) ? a.depositSessions.map(String) : [];
+    // Paid with Stripe but never recorded here: never let go by a clock (the team has been told; they decide).
+    if (a.depositPaidUnrecordedAt) continue;
+    // Every form closes within a day of being opened, so once the newest is older than that, none can still be paid:
+    // Stripe is still asked (a form that WAS paid must be found), but not hearing back no longer holds the time.
+    const newest = Date.parse(String(a.depositSessionAt || a.createdAt || '')) || 0;
+    const allExpired = !!newest && now - newest > 24.5 * 3600000;
+    if (forms.length) {
+      if (asked >= ASK_LIMIT) continue;
+      asked++;
+      const { closePayments } = await import('@/lib/deposit-sessions');
+      let pay = await closePayments(forms).catch(() => 'unknown' as const);
+      if (pay === 'unknown' && allExpired) pay = 'closed';
+      // Paid with Stripe but never recorded here (its notice didn't arrive): the time stays held, since the money was
+      // taken, and the team is told once to check it rather than it waiting unseen.
+      if (pay === 'paid' && !a.depositPaidUnrecordedAt) {
+        await d.ref.set({ depositPaidUnrecordedAt: new Date(now).toISOString(), needsAttention: 'deposit_paid_not_recorded', needsAttentionAt: new Date(now).toISOString() }, { merge: true }).catch(() => {});
+        const { tellTeam } = await import('@/lib/deposit-release');
+        await tellTeam(db, tenantId, { id: d.id, ...a }, 'A deposit was paid but not recorded', `${a.clientName || 'A client'} paid the deposit for their booking online, but the payment wasn't recorded here, so the time is still held. ${a.isRenterBooking ? 'It was paid to the renter: ask them to check it in their Stripe account' : 'Check the payment in Stripe'}, then confirm the booking or refund it.`, now).catch(() => {});
+      }
+      if (pay !== 'closed') continue;
+    }
+    // Let go only if nothing changed meanwhile: still waiting on payment, not paid, and no new form opened since.
+    const gone = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(d.ref)).data();
+      if (!cur || cur.status !== 'pending_payment' || cur.depositStatus === 'paid' || cur.depositReaderPi?.id || cur.depositPaidUnrecordedAt) return false;
+      if ((Array.isArray(cur.depositSessions) ? cur.depositSessions.map(String) : []).some((x: string) => !forms.includes(x))) return false;
+      tx.set(d.ref, { status: 'cancelled', cancellationReason: 'payment_not_received', cancelledAt: nowIso, releasedAt: nowIso, cancelledBy: 'system' }, { merge: true });
+      if (a.checkInToken) tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), { status: 'cancelled' }, { merge: true });
+      return true;
+    }).catch((e: any) => { console.error('[release-unpaid] letting go', d.id, e?.message || e); return false; });
+    if (!gone) continue;
+    released++;
     const tz = tenantTimeZone(t);
     const when = a.startTime ? new Date(a.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }) : 'your time';
     await logAuditAdmin(db, tenantId, { action: 'appointment.released_unpaid', targetType: 'appointment', targetId: d.id,

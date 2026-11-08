@@ -20,6 +20,7 @@
 
 import { staffOrServer } from '@/lib/route-guard';
 import { linkOrigin } from '@/lib/app-origin';
+import { visitWhen } from '@/lib/tenant-time';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendNotification, ensureApptToken } from '@/lib/notify';
@@ -66,13 +67,8 @@ export async function POST(req: NextRequest) {
     const serviceName = (svcSnap as any)?.exists ? ((svcSnap as any).data()?.name || 'your service') : 'your service';
     const staffName = (staffSnap as any)?.exists ? ((staffSnap as any).data()?.name || null) : null;
 
-    // Studio-local time, same convention as reminders and /api/appt.
-    const cfg = tData.clientNotify || {};
-    const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
-    const when = apt.startTime ? new Date(new Date(apt.startTime).getTime() + tzOffset * 60000) : null;
-    const whenStr = when && !Number.isNaN(when.getTime())
-      ? `${when.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`
-      : 'your scheduled time';
+    // On the business's own clock: its time zone (lib/tenant-time), not a fixed offset that's an hour out half the year.
+    const whenStr = visitWhen(apt.startTime, tData) || 'your scheduled time';
 
     // Links live on the PERMANENT domain, never a frozen preview URL.
     const base = linkOrigin(tData, req.nextUrl.origin);

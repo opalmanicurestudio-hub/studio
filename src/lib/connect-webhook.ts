@@ -9,6 +9,7 @@ import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { depositCreditId } from '@/lib/deposit-record';
+import { hasRealCard } from '@/lib/card-on-file';
 
 // ─── src/lib/connect-webhook.ts ───────────────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on the businesses' Stripe accounts. ONE handler, served at both addresses a
@@ -36,6 +37,25 @@ import { depositCreditId } from '@/lib/deposit-record';
 //   charge.dispute.created      → write dispute fee
 //   charge.dispute.closed        → reverse fee if won, note if lost
 //   payout.paid                 → record net payout for reconciliation
+
+const idOk = (v: any) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
+/** A deposit for a renter's booking is paid to the RENTER's own account (api/stripe/deposit), which no business is
+ *  keyed by: the business is found through the booking, and only when that booking's renter really has this account,
+ *  so a stray notice can never mark someone else's visit paid. */
+async function renterDepositTenant(db: any, acct: string, md: any): Promise<{ id: string; ref: any } | null> {
+  const tId = md?.tenantId, apId = md?.appointmentId, rp = md?.renterProviderId;
+  if (!idOk(tId) || !idOk(apId) || !idOk(rp)) return null;
+  const ap: any = (await db.doc(`tenants/${tId}/appointments/${apId}`).get()).data();
+  if (!ap || ap.isRenterBooking !== true || String(ap.renterProviderId || '') !== rp) return null;
+  const st: any = (await db.doc(`tenants/${tId}/staff/${rp}`).get()).data();
+  if (!st?.isRenter || !idOk(st.renterId)) return null;
+  const r: any = (await db.doc(`tenants/${tId}/renters/${st.renterId}`).get()).data();
+  if (!r || !r.stripeAccountId || r.stripeAccountId !== acct) return null;
+  return { id: tId, ref: db.doc(`tenants/${tId}`) };
+}
+
+/** A card on file that has run out (its month has passed). */
+const cardExpired = (c: any, now = new Date()) => { const y = Number(c?.expYear), m = Number(c?.expMonth); return !!y && !!m && (y < now.getUTCFullYear() || (y === now.getUTCFullYear() && m < now.getUTCMonth() + 1)); };
 
 /** On the client's record: an owed balance came in with a booking's deposit (it was cleared in the deposit's own step,
  *  lib/online-deposit). Best effort: the money is already recorded. */
@@ -122,7 +142,14 @@ export async function handleConnectWebhook(req: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.payment_status === 'unpaid') break;
-        const tenant  = await getTenant(connAcct);
+        let tenant: { id: string; ref: any } | null = await getTenant(connAcct);
+        let renterDeposit = false;
+        // Also when this account happens to be some business's own (an owner who rents space elsewhere): a renter's deposit
+        // names the business it belongs to, so a different one found by the account isn't it.
+        if (session.metadata?.type === 'deposit' && session.metadata?.renterProviderId && session.payment_status === 'paid' && (!tenant || tenant.id !== String(session.metadata?.tenantId || ''))) {
+          tenant = await renterDepositTenant(db, connAcct, session.metadata).catch((e: any) => { console.error('[connect-webhook] renter deposit lookup', e?.message); return null; });
+          renterDeposit = !!tenant;
+        }
         // A gift card a renter sold online was paid to the RENTER's account, which no business is keyed by: find it
         // through the order (the order records which account it was paid to, so a stray event can't claim it).
         if (!tenant && session.metadata?.type === 'gift_card' && session.metadata?.tenantId && session.metadata?.giftOrderId && session.payment_status === 'paid') {
@@ -254,49 +281,77 @@ export async function handleConnectWebhook(req: NextRequest) {
             const aSnap = await aRef.get();
             if (!aSnap.exists) { console.warn('[connect-webhook] deposit for missing appointment', payApptId); break; }
             const ap = aSnap.data() as any;
-            // The email lives on the client record (appointments link to it), the
-            // service name on the service, and getTenant() returns only the id —
-            // so load the business's details (name, time zone, alert email).
-            if (!ap.clientEmail && ap.clientId) { const cl = ((await db.doc(`tenants/${tenant.id}/clients/${ap.clientId}`).get()).data() as any) || {}; ap.clientEmail = cl.email || null; }
-            if (!ap.serviceName && ap.serviceId) { ap.serviceName = ((((await db.doc(`tenants/${tenant.id}/services/${ap.serviceId}`).get()).data() as any) || {}).name) || ap.renterServiceName || null; }
+            // The email and phone live on the client record (appointments link to it), the service name on the
+            // service, and the tenant found here is only its id: so load the client, the service and the business.
+            const cl: any = ap.clientId ? (((await db.doc(`tenants/${tenant.id}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
+            if (!ap.clientEmail) ap.clientEmail = cl.email || null;
+            const svcDoc: any = ap.serviceId ? (((await db.doc(`tenants/${tenant.id}/services/${ap.serviceId}`).get()).data() as any) || {}) : {};
+            if (!ap.serviceName) ap.serviceName = svcDoc.name || ap.renterServiceName || null;
             const biz: any = ((await db.doc(`tenants/${tenant.id}`).get()).data()) || {};
             // Recorded once (lib/online-deposit): the booking marked paid, its credit and its income in one step, named
             // after this payment. A balance collected with it is split off: it clears the debt; only the rest is the deposit.
+            // A renter's booking is marked paid and nothing more: the money went to the renter's own account.
             const piOf = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null;
             const { recordOnlineDeposit } = await import('@/lib/online-deposit');
             const rec = await recordOnlineDeposit(db, tenant.id, { appointmentId: payApptId, sessionId: String(session.id), paymentIntentId: piOf, chargeId: chargeId || null,
-              paidCents: Number(session.amount_total ?? ap.depositAmountCents) || 0, via: 'online booking', serviceName: ap.serviceName || null, clientEmail: ap.clientEmail || null });
+              paidCents: Number(session.amount_total ?? ap.depositAmountCents) || 0, via: 'online booking', serviceName: ap.serviceName || null, clientEmail: ap.clientEmail || null, renter: renterDeposit });
             if (!rec || rec.already) break;   // retried notice: already recorded
             const cents = rec.cents; const balPart = rec.balanceCents; const lateAfterRelease = rec.released;
             if (rec.twice) {
               await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: payApptId, amount: cents / 100,
-                summary: `A second deposit payment came in for ${ap.clientName || 'a client'} ($${(cents / 100).toFixed(2)}). It's kept as credit; refund one of them if it wasn't meant.`,
+                summary: renterDeposit
+                  ? `A second deposit payment came in for ${ap.clientName || 'a client'} ($${(cents / 100).toFixed(2)}), paid to the renter. The renter should refund one of them if it wasn't meant.`
+                  : `A second deposit payment came in for ${ap.clientName || 'a client'} ($${(cents / 100).toFixed(2)}). It's kept as credit; refund one of them if it wasn't meant.`,
                 actor: { type: 'user', name: ap.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
               break;
             }
             if (balPart > 0) await balancePaidNote(db, tenant.id, rec.booking, balPart);
+            // The card used for the deposit goes on the client's record, so it's on file for the rest of the bill and any
+            // fee, as a booking request's deposit always did. Only under a customer (a card without one can't be charged
+            // later), never a renter's (that card is on the renter's account, not this business's), and a card already on
+            // file stays unless it has expired.
+            if (!renterDeposit && ap.clientId && stripePaymentMethodId && stripeCustomerId && (!hasRealCard(cl) || cardExpired(cl.cardOnFile))) {
+              try {
+                const pm = await stripe2.paymentMethods.retrieve(stripePaymentMethodId, {}, { stripeAccount: connAcct });
+                // Replaced whole (update, not a merge), so nothing from the old card stays attached to the new one.
+                await db.doc(`tenants/${tenant.id}/clients/${ap.clientId}`).update({ cardOnFile: { paymentMethodId: stripePaymentMethodId, customerId: stripeCustomerId,
+                  brand: pm.card?.brand || 'card', last4: pm.card?.last4 || '', expMonth: pm.card?.exp_month || null, expYear: pm.card?.exp_year || null, savedAt: new Date().toISOString(), source: 'online_deposit' } });
+              } catch (e: any) { console.error('[connect-webhook] saving the deposit card (the deposit is recorded)', e?.message); }
+            }
             await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: payApptId, amount: cents / 100,
-              summary: lateAfterRelease ? `Deposit paid AFTER the hold ran out — ${ap.clientName || 'Guest'} (needs your attention: re-confirm or refund)` : `Online booking deposit paid — ${ap.clientName || 'Guest'}, booking confirmed`,
+              summary: lateAfterRelease ? `Deposit paid AFTER the hold ran out — ${ap.clientName || 'Guest'} (needs your attention: re-confirm or refund)` : `Online booking deposit paid — ${ap.clientName || 'Guest'}, booking confirmed${renterDeposit ? ' (paid to the renter)' : ''}`,
               actor: { type: 'user', name: ap.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
-            // Tell the client (or, if late, tell the studio).
+            // Tell the client, by email and text, as any confirmed booking is told (or, if late, tell the business).
             try {
               const { sendNotification } = await import('@/lib/notify');
               const { brandedEmailHtml } = await import('@/lib/email-template');
-              const studioName = biz.name || 'Your studio';
+              const { linkOrigin } = await import('@/lib/app-origin');
+              const studioName = biz.name || 'The team';
+              const first = String(ap.clientName || '').trim().split(' ')[0] || 'there';
+              const svcLabel = ap.serviceName || 'appointment';
               const when = ap.startTime ? new Date(ap.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(biz) }) : '';
+              // Links on the business's permanent address, never a preview's or a made-up one.
+              const visitUrl = ap.checkInToken ? `${linkOrigin(biz, req.nextUrl.origin)}/check-in/${ap.checkInToken}` : '';
+              const counts = svcDoc.depositAppliesToBalance !== false;
               if (!lateAfterRelease && ap.clientEmail) {
-                const base = process.env.NEXT_PUBLIC_APP_URL || 'https://clarityflow.app';
                 await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(ap.clientEmail), kind: 'booking_confirmation',
-                  subject: `Your appointment is confirmed: ${ap.serviceName || 'your appointment'}${when ? `, ${when}` : ''}`,
-                  html: brandedEmailHtml({ studioName, title: 'Your appointment is confirmed', bodyLines: [`Hi ${String(ap.clientName || '').trim().split(' ')[0] || 'there'},`, `Thank you. We have received your $${(cents / 100).toFixed(2)} deposit, and your ${ap.serviceName || 'appointment'}${when ? ` on ${when}` : ''} is confirmed.`, 'Your deposit will be applied toward your total at your visit. If you have any questions, please reply to this email.', 'Kind regards,', studioName],
-                    cta: ap.checkInToken ? { label: 'View my appointment', url: `${base}/check-in/${ap.checkInToken}` } : undefined }),
+                  subject: `Your appointment is confirmed: ${svcLabel}${when ? `, ${when}` : ''}`,
+                  html: brandedEmailHtml({ studioName, title: 'Your appointment is confirmed', bodyLines: [`Hi ${first},`, `Thank you. We have received your $${(cents / 100).toFixed(2)} deposit, and your ${svcLabel}${when ? ` on ${when}` : ''} is confirmed.`, counts ? 'Your deposit will be applied toward your total at your visit. If you have any questions, please reply to this email.' : 'Your deposit holds your appointment. If you have any questions, please reply to this email.', 'Kind regards,', studioName],
+                    cta: visitUrl ? { label: 'View my appointment', url: visitUrl } : undefined }),
                   recipientType: 'client', recipientId: ap.clientId || null, recipientName: ap.clientName || null, appointmentId: payApptId } as any);
               }
+              const phone = ap.clientPhone || cl.phone || null;
+              if (!lateAfterRelease && phone) {
+                await sendNotification(db, { tenantId: tenant.id, channel: 'sms', to: String(phone), kind: 'booking_confirmation',
+                  text: `Hi ${first}, thank you. We received your $${(cents / 100).toFixed(2)} deposit, and your ${svcLabel}${when ? ` on ${when}` : ''} is confirmed.${visitUrl ? ` Details and check-in: ${visitUrl}` : ''}`,
+                  appointmentId: payApptId, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
+              }
               if (lateAfterRelease && (biz.notificationEmail || biz.email)) {
+                const holdMin = Number(biz?.bookingMode?.holdMinutes) > 0 ? Number(biz.bookingMode.holdMinutes) : 30;
                 await sendNotification(db, { tenantId: tenant.id, channel: 'email', to: String(biz.notificationEmail || biz.email), kind: 'staff_new_request',
                   subject: `Action needed: Deposit received after the hold expired for ${ap.clientName || 'a client'}`,
-                  html: brandedEmailHtml({ studioName, title: 'A deposit needs your attention', bodyLines: [`${ap.clientName || 'A client'} paid a $${(cents / 100).toFixed(2)} deposit for ${ap.serviceName || 'an appointment'}${when ? ` on ${when}` : ''}, but their 30-minute hold had already expired and the time was released.`, 'Please open the appointment to re-confirm it if the time is still available, or refund the deposit.'] }),
-                  recipientType: 'staff', recipientName: 'Studio', appointmentId: payApptId } as any);
+                  html: brandedEmailHtml({ studioName, title: 'A deposit needs your attention', bodyLines: [`${ap.clientName || 'A client'} paid a $${(cents / 100).toFixed(2)} deposit for ${ap.serviceName || 'an appointment'}${when ? ` on ${when}` : ''}, but their ${holdMin}-minute hold had already run out and the time was let go.`, renterDeposit ? 'It was paid to the renter. Please open the appointment to re-confirm it if the time is still free, or ask the renter to refund the deposit.' : 'Please open the appointment to re-confirm it if the time is still available, or refund the deposit.'] }),
+                  recipientType: 'staff', recipientName: biz.name || 'The business', appointmentId: payApptId } as any);
               }
             } catch (e) { console.error('[connect-webhook] deposit message failed (payment is recorded)', e); }
             // A reschedule: now that the new visit is paid for, release the OLD one —

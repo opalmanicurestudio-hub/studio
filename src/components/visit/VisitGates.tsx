@@ -72,7 +72,7 @@ export const CancelledView = ({
                 setStripeAccountId(out.stripeAccountId || null);
                 setClientSecret(out.clientSecret);
             } else {
-                setPaymentError(out?.error || 'Could not start checkout. Please contact the studio.');
+                setPaymentError(out?.error || 'The payment step didn’t open. Please try again in a moment.');
             }
         } catch (e: any) {
             setPaymentError(e.message || 'Something went wrong. Please try again.');

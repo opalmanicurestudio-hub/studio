@@ -961,7 +961,8 @@ export async function POST(req: NextRequest) {
       // payment (split off again when it's paid). No deposit due → it stays on their account for this visit's bill.
       {
         const owedCents = Math.round((Number((clientRecord as any)?.outstandingBalance) || 0) * 100);
-        if (unpaidFeeRuleOf(tenant) === 'with_deposit' && owedCents > 0 && plan.depositCents > 0 && payload.depositStatus === 'pending') payload.balanceCollectCents = owedCents;
+        // Not on a renter's booking: its deposit is paid to the renter's own account, and the balance is owed to the business.
+        if (unpaidFeeRuleOf(tenant) === 'with_deposit' && owedCents > 0 && plan.depositCents > 0 && payload.depositStatus === 'pending' && !payload.isRenterBooking) payload.balanceCollectCents = owedCents;
       }
       // Linked bookings (a repeat series, or the later parts of a group / visit): the deposit is held by the
       // first booking ("covered") or taken before this visit ("scheduled") — so this one is CONFIRMED now and the

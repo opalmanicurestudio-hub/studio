@@ -111,7 +111,7 @@ export default function RenterPortalPage() {
     (async () => {
       const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
       if (d.ok) toast({ title: 'Rent paid ✓', description: 'Your receipt is in Payment History below.' });
-      else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, contact the studio — nothing is lost.' });
+      else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, let the business know. Nothing is lost.' });
       refresh();
     })();
   }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps

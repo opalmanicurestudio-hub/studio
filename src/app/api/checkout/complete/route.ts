@@ -802,6 +802,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // never a deposit paid for another booking still to come. Each one is used in the same step as the sale, only if it
   // hasn't changed since it was read (two checkouts at once can't both use it).
   let depositsUsing: { ref: any; id: string; data: any; updateTime: any; left: number }[] = [];
+  // A visit whose service's deposit doesn't come off the bill (Edit service: the deposit doesn't count toward the total,
+  // a booking fee) keeps its deposit. It isn't used here, which matches what the checkout screen shows, and it's closed
+  // with this sale as kept, so it can't come off another bill later.
+  let depositsKept: { ref: any; id: string; updateTime: any; appointmentId: string }[] = [];
   if (apptIds.length) {
     try {
       const { creditLeftCents, isDepositCredit, pickDeposit, spendable } = await import('@/lib/credit-pools');
@@ -811,7 +815,16 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const byId = new Map<string, any>(); for (const d of cs.docs) byId.set(d.id, d);
       const own = await db.collection(`${T}/depositCredits`).where('sourceAppointmentId', 'in', apptIds.slice(0, 30)).get().catch(() => null);
       for (const d of own?.docs || []) byId.set(d.id, d);
-      const all = [...byId.values()].map((d: any) => ({ ref: d.ref, id: d.id, updateTime: d.updateTime, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c) && spendable(c) && !isCreditExpired(c.expiresAt));
+      const found = [...byId.values()].map((d: any) => ({ ref: d.ref, id: d.id, updateTime: d.updateTime, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c) && spendable(c) && !isCreditExpired(c.expiresAt));
+      const noCount = new Set(visits.filter((v: any) => v.service?.depositAppliesToBalance === false).map((v: any) => String(v.appointment.id)));
+      depositsKept = found.filter((c: any) => noCount.has(String(c.sourceAppointmentId || ''))).map((c: any) => ({ ref: c.ref, id: c.id, updateTime: c.updateTime, appointmentId: String(c.sourceAppointmentId) }));
+      // A deposit left from an earlier booking of such a service never comes off a later bill either (left alone here).
+      const otherNoCount = new Set<string>();
+      for (const c of found.filter((x: any) => x.sourceAppointmentId && !apptIds.includes(String(x.sourceAppointmentId))).slice(0, 10)) {
+        const sa: any = (await db.doc(`${T}/appointments/${String(c.sourceAppointmentId)}`).get()).data();
+        if (sa && svc(sa.serviceId)?.depositAppliesToBalance === false) otherNoCount.add(String(c.sourceAppointmentId));
+      }
+      const all = found.filter((c: any) => !noCount.has(String(c.sourceAppointmentId || '')) && !otherNoCount.has(String(c.sourceAppointmentId || '')));
       const mine = all.filter((c: any) => apptIds.includes(String(c.sourceAppointmentId || '')));
       let picked: any[] = mine;
       if (!picked.length) {
@@ -825,7 +838,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         const one = pickDeposit(all, [], (id) => upcoming.has(id)); picked = one ? [one] : [];
       }
       depositsUsing = picked.map((c: any) => ({ ref: c.ref, id: c.id, data: c, updateTime: c.updateTime, left: creditLeftCents(c) })).filter((x) => x.left > 0);
-    } catch (e) { console.warn('[checkout] deposit credit lookup', e); depositsUsing = []; }
+    } catch (e) { console.warn('[checkout] deposit credit lookup', e); depositsUsing = []; depositsKept = []; }
   }
   const depositCredit: any = depositsUsing[0] || null;
   const depositCreditDollars = depositsUsing.reduce((t, x) => t + x.left, 0) / 100;
@@ -1050,6 +1063,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     }
     cashDepositOffset = Math.min(depositsUsed.reduce((t, x) => t + x.cents, 0) / 100, totalCashIncrease);
   }
+  // Deposits kept as booking fees (above): closed in the same step as the sale, only if unchanged since they were read.
+  // It was counted as a sale when it was paid, so nothing more goes in the books.
+  for (const k of depositsKept) {
+    const patch = { status: 'forfeited', forfeitedAt: now, forfeitedFromAppointmentId: k.appointmentId, lastDecisionReason: 'Kept as a booking fee: this service’s deposit doesn’t come off the bill' };
+    if (k.updateTime) batch.update(k.ref, patch, { lastUpdateTime: k.updateTime }); else batch.set(k.ref, patch, { merge: true });
+    batch.set(db.doc(`${T}/appointments/${k.appointmentId}`), { depositSettledAt: now, depositDisposition: 'forfeited', depositForfeited: true, depositForfeitedAt: now, depositForfeitedReason: 'booking_fee' }, { merge: true });
+  }
   // Cash into the till = what the client actually handed over: the sale total (tax included; discounts and recovery
   // taken off) less any deposit they'd already paid. (The old way added up line prices — tax was missed and
   // discounts ignored, so the till's expected cash drifted.) Split into sales and tips.
@@ -1193,10 +1213,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     // with the shares as they are now.
     if (pendingRef && split && isChangedMeanwhile(e)) return json({ ok: false, code: 'bill_changed', pendingId: pendingRef.id, error: 'A payment on this split changed while it was being saved, so nothing was recorded. Check the split, then finish again.' }, 409);
     // The fees being paid changed meanwhile (one was paid another way, or added to): nothing is recorded.
-    if (fees.length && !depositsUsed.length && isChangedMeanwhile(e)) { await failPending('The client’s fees changed while the sale was being saved'); return json({ ok: false, code: 'fees_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s owed fees changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
+    if (fees.length && !depositsUsed.length && !depositsKept.length && isChangedMeanwhile(e)) { await failPending('The client’s fees changed while the sale was being saved'); return json({ ok: false, code: 'fees_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s owed fees changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
     // The client's deposit was used or changed by another sale at the same moment: nothing is recorded, so the sale is
     // finished again with the deposit as it is now.
-    if (depositsUsed.length && isChangedMeanwhile(e)) { await failPending('The deposit changed while the sale was being saved'); return json({ ok: false, code: 'deposit_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s deposit changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
+    if ((depositsUsed.length || depositsKept.length) && isChangedMeanwhile(e)) { await failPending('The deposit changed while the sale was being saved'); return json({ ok: false, code: 'deposit_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s deposit changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
     console.error('[checkout] save failed', e); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500);
   }
 

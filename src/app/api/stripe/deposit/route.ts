@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { closedReply } from '@/lib/tenant-open-server';
 import { balanceDueWith } from '@/lib/balance-with-deposit';
+import { depositFormExpiry } from '@/lib/deposit-sessions';
 import Stripe from 'stripe';
 
 // ─── Firebase Admin (lazy init — must be inside handler, not module scope) ───
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
       renterProviderId,     // present when this is an independent provider's booking
     } = body;
     let depositAmount = 0;  // dollars — always read from the booking, never from the browser
+    let holdOf: any = null; // the booking, for when its payment form should close by itself
     const appointmentId: string | null = body.appointmentId ? String(body.appointmentId) : null;
 
     // The old booking-request way (no appointment): refused, see above.
@@ -106,7 +108,9 @@ export async function POST(req: NextRequest) {
       const cents = Math.round(Number(ap.depositAmountCents) || 0);
       if (cents <= 0) return NextResponse.json({ error: 'No deposit is due for this booking.', code: 'booked' }, { status: 409 });
       depositAmount = cents / 100;
-      balCents = balanceDueWith(ap);   // a balance collected with this deposit
+      // A balance owed to the business rides its own deposit; never a renter's (that money goes to the renter's account).
+      balCents = ap.isRenterBooking ? 0 : balanceDueWith(ap);
+      holdOf = ap;
       // Appointments link to the client record rather than copying the email.
       const cl = ap.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
       clientName = ap.clientName || cl.name || clientName; clientEmail = ap.clientEmail || cl.email || clientEmail;
@@ -148,7 +152,7 @@ export async function POST(req: NextRequest) {
     }
     if (!stripeAccountId) {
       return NextResponse.json(
-        { error: 'This studio has not connected a payment account yet.' },
+        { error: 'This business isn’t set up to take card payments online yet, so the deposit can’t be paid here. Please let the business know.' },
         { status: 400 }
       );
     }
@@ -197,6 +201,8 @@ export async function POST(req: NextRequest) {
           clientEmail: clientEmail || '',
         },
         redirect_on_completion: 'never',
+        // The form closes by itself when the booking's time stops being held (lib/deposit-sessions), not a day later.
+        expires_at: depositFormExpiry(holdOf, tenantSnap.data()),
       },
       {
         stripeAccount: stripeAccountId,
@@ -210,7 +216,9 @@ export async function POST(req: NextRequest) {
     const closeIt = async () => { try { await stripe.checkout.sessions.expire(session.id, { stripeAccount: stripeAccountId }); } catch (e) { console.error('[stripe/deposit] closing the session', e); } };
     try { const { FieldValue } = require('firebase-admin/firestore');
       const apRef = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
-      await apRef.update({ depositSessions: FieldValue.arrayUnion(`${stripeAccountId}:${session.id}`) });   // a booking deleted meanwhile isn't brought back
+      // When the newest form was opened: every form closes within a day of opening (Stripe's limit), so after that the
+      // hold sweep knows none can be paid without asking Stripe (lib/release-unpaid).
+      await apRef.update({ depositSessions: FieldValue.arrayUnion(`${stripeAccountId}:${session.id}`), depositSessionAt: new Date().toISOString() });   // a booking deleted meanwhile isn't brought back
       const now: any = (await apRef.get()).data() || {};
       const no = notPayable(now); if (no) { await closeIt(); return NextResponse.json(no, { status: 409 }); }
     } catch (e) { console.error('[stripe/deposit] noting the session', e); await closeIt(); return NextResponse.json({ error: 'The payment step didn’t open. Please try again.' }, { status: 500 }); }

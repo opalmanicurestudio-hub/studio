@@ -10,10 +10,10 @@
 // never had the booking.
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
-import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { logAuditAdmin } from '@/lib/audit';
+import { closePayments } from '@/lib/deposit-sessions';
 export const dynamic = 'force-dynamic';
 
 const ONLINE = new Set(['booking-page', 'client-portal']);
@@ -22,32 +22,6 @@ const same = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.fr
 const releasable = (a: any) => { const made = Date.parse(a?.createdAt || '');
   return a?.status === 'pending_payment' && a.depositStatus !== 'paid' && !a.depositReaderPi?.id && !a.paymentDueAt && !a.decidedAt && !a.originallyRequestedAt
     && ONLINE.has(String(a.source || '')) && Number.isFinite(made) && Date.now() - made < 3 * 3600000; };
-
-/** Closes every payment form opened for this booking, all at once. 'paid' when one has been (or is being) paid (the
- *  others are still closed); 'closed' when none can be paid any more; 'unknown' when Stripe couldn't be asked in time
- *  (then nothing is let go). */
-async function closePayments(sessions: string[]): Promise<'paid' | 'closed' | 'unknown'> {
-  if (!sessions.length) return 'closed';
-  if (!process.env.STRIPE_SECRET_KEY) return 'unknown';
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any, timeout: 4000, maxNetworkRetries: 0 });
-  const one = async (tag: string): Promise<'paid' | 'closed' | 'unknown'> => {
-    const [acct, id] = String(tag).split(':'); if (!id) return 'closed';
-    const opt = acct ? { stripeAccount: acct } : undefined;
-    try {
-      let s: any = await stripe.checkout.sessions.retrieve(id, opt);
-      if (s.status === 'complete' || s.payment_status === 'paid') return 'paid';
-      if (s.status !== 'open') return 'closed';
-      try { s = await stripe.checkout.sessions.expire(id, opt); }
-      catch { s = await stripe.checkout.sessions.retrieve(id, opt); }   // paid in the very moment it was being closed
-      if (s.status === 'complete' || s.payment_status === 'paid') return 'paid';
-      return s.status === 'expired' ? 'closed' : 'unknown';
-    } catch (e: any) { return e?.code === 'resource_missing' ? 'closed' : 'unknown'; }   // a form Stripe doesn't know can't be paid
-  };
-  // Every one of them, a few at a time.
-  const list = [...new Set(sessions)]; const all: ('paid' | 'closed' | 'unknown')[] = [];
-  for (let i = 0; i < list.length; i += 6) all.push(...(await Promise.all(list.slice(i, i + 6).map(one))));
-  return all.includes('paid') ? 'paid' : all.includes('unknown') ? 'unknown' : 'closed';
-}
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));

@@ -4,6 +4,7 @@
 // so a card, the planner sheet and the staff portal never disagree about forms, deposit or card.
 import { readinessOf } from './visit-readiness';
 import { formsStillNeeded, formRulesOf } from './forms';
+import { visitWhen } from './tenant-time';
 
 export type RequestItem = 'forms' | 'photo_current' | 'inspo' | 'card' | 'deposit' | 'balance' | 'questions' | 'confirm' | 'photo_id' | 'emergency' | 'file';
 
@@ -24,10 +25,9 @@ export const ITEM_WORDS: Record<RequestItem, { ask: string; label: string }> = {
 const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : xs.length === 2 ? `${xs[0]} and ${xs[1]}` : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /** The message that goes with the link: short for a text, a few lines for email. Professional, yet human. */
-export function requestMessage(o: { firstName: string; studioName: string; startTime?: string; tzOffsetMinutes?: number; items: RequestItem[]; reason: 'requirements' | 'booking' | 'fee'; link: string }) {
-  const off = Number.isFinite(Number(o.tzOffsetMinutes)) ? Number(o.tzOffsetMinutes) : -300;
-  const t = o.startTime ? new Date(new Date(o.startTime).getTime() + off * 60000) : null;
-  const when = t && !Number.isNaN(t.getTime()) ? `${t.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}` : null;
+export function requestMessage(o: { firstName: string; studioName: string; startTime?: string; tenant?: any; items: RequestItem[]; reason: 'requirements' | 'booking' | 'fee'; link: string }) {
+  // On the business's own clock (its time zone; lib/tenant-time), not a fixed offset that's an hour out half the year.
+  const when = visitWhen(o.startTime, o.tenant);
   const asks = o.items.map((i) => ITEM_WORDS[i]?.ask).filter(Boolean) as string[];
   if (o.reason === 'fee') return { title: `About your appointment with ${o.studioName}`, cta: 'See the details', lines: [`Hi ${o.firstName},`, 'Your appointment has been cancelled and a fee applies under our booking policy. The details, and how to settle it, are here.', `Kind regards, ${o.studioName}`], text: `Hi ${o.firstName}, your appointment with ${o.studioName} has been cancelled and a fee applies under our booking policy. The details are here: ${o.link}` };
   if (!asks.length) return { title: `Your visit with ${o.studioName}`, cta: 'Open my visit', lines: [`Hi ${o.firstName},`, `Here is the link for your visit${when ? ` on ${when}` : ''}. You can check in, let us know if you are running late, or make a change.`, `Kind regards, ${o.studioName}`], text: `Hi ${o.firstName}, here is the link for your visit with ${o.studioName}${when ? ` on ${when}` : ''}: ${o.link}` };
