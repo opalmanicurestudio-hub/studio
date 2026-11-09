@@ -28,12 +28,14 @@ type EventFormData = {
   menuNote: string;
   eventType: string;
   showOnBookingPage: boolean;
+  /** Price per ticket in dollars; blank or 0 is free (guests reserve a place). */
+  ticketPrice: string;
 };
 
 const BLANK_FORM: EventFormData = {
   title: '', date: '', time: '19:00', venue: '', description: '',
   accessPin: '', orderingDeadlineDate: '', orderingDeadlineTime: '17:00',
-  capacity: '', menuNote: '', eventType: 'dinner', showOnBookingPage: false,
+  capacity: '', menuNote: '', eventType: 'dinner', showOnBookingPage: false, ticketPrice: '',
 };
 
 const EVENT_TYPES = [
@@ -44,6 +46,9 @@ const EVENT_TYPES = [
   { value: 'corporate', label: 'Corporate' },
   { value: 'other', label: 'Other' },
 ];
+
+/** A typed ticket price in dollars (cents kept, never negative). */
+const ticketDollars = (v: string) => { const n = Math.round(parseFloat(String(v || '').replace(/[^0-9.]/g, '')) * 100) / 100; return n > 0 ? n : 0; };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   upcoming:  { label: 'Upcoming',  color: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -110,6 +115,7 @@ export default function EventsPage() {
       menuNote: event.menuNote || '',
       eventType: event.eventType || 'dinner',
       showOnBookingPage: event.showOnBookingPage === true && !event.accessPin,
+      ticketPrice: Number(event.ticketingConfig?.price) > 0 ? String(event.ticketingConfig.price) : '',
     });
     setIsDialogOpen(true);
   };
@@ -137,6 +143,10 @@ export default function EventsPage() {
       eventType: form.eventType,
       // Listed on the booking page (anyone can reserve a place) only when the owner says so, and never with a PIN.
       showOnBookingPage: form.showOnBookingPage && !form.accessPin.trim(),
+      // A price makes it a paid event: guests buy tickets on its page (lib/event-tickets). Blank is free.
+      // Anything else already set on it (a place limit, invitation only) is kept.
+      ticketingConfig: (() => { const prev = editingEvent?.ticketingConfig || {}; const price = ticketDollars(form.ticketPrice);
+        return price > 0 ? { ...prev, type: 'paid', price } : { ...prev, type: prev.type === 'comp_only' ? 'comp_only' : 'free', price: 0 }; })(),
       tenantId,
     };
 
@@ -247,6 +257,9 @@ export default function EventsPage() {
                           <Users className="w-3 h-3" /> {event.capacity} cap
                         </span>
                       )}
+                      {Number(event.ticketingConfig?.price) > 0 && (
+                        <span className="text-[12.5px] font-medium text-muted-foreground">${Number(event.ticketingConfig.price).toFixed(2).replace(/\.00$/, '')} a ticket{Number(event.ticketsSold) > 0 ? ` · ${Number(event.ticketsSold)} sold` : ''}</span>
+                      )}
                       {event.orderingDeadline && (
                         <span className="text-[9px] font-bold uppercase tracking-widest text-amber-500 flex items-center gap-1">
                           <Clock className="w-3 h-3" /> Orders close {format(new Date(event.orderingDeadline), 'MMM d, h:mm a')}
@@ -336,12 +349,28 @@ export default function EventsPage() {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <Label htmlFor="ticket-price" className="text-[13px] font-medium text-muted-foreground">Ticket price</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[15px] text-muted-foreground">$</span>
+                <Input id="ticket-price" inputMode="decimal" value={form.ticketPrice} onChange={e => f('ticketPrice', e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))}
+                  placeholder="Free" className="h-12 rounded-xl border-2 pl-7" />
+              </div>
+              <p className="text-[13px] text-muted-foreground">
+                {ticketDollars(form.ticketPrice) > 0
+                  ? (selectedTenant?.stripeAccountId && (selectedTenant as any)?.stripeChargesEnabled !== false
+                    ? 'Guests buy tickets on the event’s page and pay you by card. They go on your guest list once they’ve paid.'
+                    : 'To sell tickets, connect card payments in Settings first. Until then the event’s page says tickets aren’t on sale yet.')
+                  : 'Leave blank for a free event: guests reserve a place instead.'}
+              </p>
+            </div>
+
             <label className={cn('flex min-h-11 items-start gap-3 rounded-xl border-2 p-3', form.accessPin ? 'opacity-50' : 'cursor-pointer')}>
               <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={form.showOnBookingPage && !form.accessPin} disabled={!!form.accessPin}
                 onChange={e => setForm(p => ({ ...p, showOnBookingPage: e.target.checked }))} />
               <span>
                 <span className="block text-[14px] font-semibold text-foreground">Show on your booking page</span>
-                <span className="block text-[13px] text-muted-foreground">{form.accessPin ? 'Private events (with a PIN) are never listed.' : 'Clients can see it under Classes and events and reserve a place. Leave off for private parties.'}</span>
+                <span className="block text-[13px] text-muted-foreground">{form.accessPin ? 'Private events (with a PIN) are never listed.' : ticketDollars(form.ticketPrice) > 0 ? 'Clients can see it under Classes and events and buy tickets. Leave off for private parties.' : 'Clients can see it under Classes and events and reserve a place. Leave off for private parties.'}</span>
               </span>
             </label>
 

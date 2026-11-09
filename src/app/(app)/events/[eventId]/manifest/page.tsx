@@ -35,6 +35,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TicketOrdersPanel } from '@/components/events/TicketOrdersPanel';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -1530,6 +1531,7 @@ export default function EventManifestPage() {
                 { value: 'menu',     label: `Menu (${menuItems.length})` },
                 { value: 'seating',  label: 'Seating' },
                 { value: 'staff',    label: 'Staff' },
+                ...(Number(event?.ticketingConfig?.price) > 0 || Number(event?.ticketsSold) > 0 ? [{ value: 'tickets', label: Number(event?.ticketsSold) > 0 ? `Tickets (${Number(event.ticketsSold)})` : 'Tickets' }] : []),
                 { value: 'requests', label: floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length > 0 ? `Requests (${floorRequests.filter(r => r.status === 'new' || r.status === 'acknowledged').length})` : 'Requests' },
               ].map(t => (
                 <TabsTrigger key={t.value} value={t.value} className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-card data-[state=active]:shadow-sm px-4 whitespace-nowrap">
@@ -1866,6 +1868,10 @@ export default function EventManifestPage() {
                 </div>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="tickets" className="mt-4">
+            {tenantId && event && <TicketOrdersPanel tenantId={tenantId} event={event} guests={guests} />}
           </TabsContent>
 
           <TabsContent value="requests" className="mt-4 space-y-4">

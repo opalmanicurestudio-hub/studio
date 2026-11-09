@@ -328,12 +328,15 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
       <div className="grid max-w-3xl gap-3">{coming.map((e: any) => {
         const d = new Date(`${e.date}T12:00:00`); const start = mins(e.time), end = mins(e.endTime);
         const left = seats[e.id]; const full = left === 0;
-        const meta = [clockUp(e.time), start !== null && end !== null && end > start ? minutes(end - start) : '', e.venue ? String(e.venue) : '', left !== undefined && left > 0 ? `${left} ${left === 1 ? 'place' : 'places'} left` : ''].filter(Boolean).join(' · ');
+        const price = Number(e.ticketPrice) > 0 ? Number(e.ticketPrice) : 0;
+        const meta = [clockUp(e.time), start !== null && end !== null && end > start ? minutes(end - start) : '', e.venue ? String(e.venue) : '', price ? `$${price.toFixed(2).replace(/\.00$/, '')} a ticket` : '', left !== undefined && left > 0 ? `${left} ${left === 1 ? (price ? 'ticket' : 'place') : (price ? 'tickets' : 'places')} left` : ''].filter(Boolean).join(' · ');
         return (
           <div key={e.id} className="pub-card flex items-center gap-4 p-4">
             <div className="w-12 shrink-0 text-center" aria-hidden><p className="text-[12px] font-semibold tracking-wide" style={{ color: 'var(--accent-text, var(--accent))', textTransform: 'uppercase' }}>{d.toLocaleDateString('en-US', { month: 'short' })}</p><p className="text-[24px] font-light leading-none">{d.getDate()}</p></div>
             <div className="min-w-0 flex-1"><p className="text-[16px] font-semibold"><span className="sr-only">{d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}: </span>{e.title || e.name || 'Event'}</p>{meta && <p className="mt-0.5 text-[13px] text-stone-500">{meta}</p>}</div>
-            {full ? <span className="shrink-0 rounded-full bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-500">Full</span>
+            {full ? <span className="shrink-0 rounded-full bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-500">{price ? 'Sold out' : 'Full'}</span>
+              : price ? (preview ? <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Tickets</span>
+                : <a href={`/event/${encodeURIComponent(tenant.id)}/${encodeURIComponent(e.id)}`} className="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Tickets<span className="sr-only"> for {e.title || e.name || 'this event'}</span></a>)
               : preview ? <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Reserve</span>
               : <button type="button" onClick={() => openReserve(e)} className="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Reserve<span className="sr-only"> a place at {e.title || e.name || 'this event'}</span></button>}
           </div>); })}</div>

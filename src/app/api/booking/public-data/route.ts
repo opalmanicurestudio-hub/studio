@@ -32,7 +32,8 @@ import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data
 import { maybeReleaseUnpaid } from '@/lib/release-unpaid';
 import { addDays as addDaysStr } from '@/lib/tenant-time';
 import { limitPublic, visitorIp } from '@/lib/rate-limit';
-import { publicEvent, eventCapacity, eventToday } from '@/lib/studio-page';
+import { publicEvent, listedEvent, listedTicketPrice, eventCapacity, eventToday } from '@/lib/studio-page';
+import { heldPlaces } from '@/lib/event-tickets';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,7 @@ const STAFF_DROP = /^(pin|pinHash|pinSalt|phone|mobile|email|personalEmail|addre
 const GENERAL_DROP = /^(client|customer|guestName|guestEmail|guestPhone|contact|email|phone|mobile|note|notes|reason|description|details|comment|message|reporter|reportedBy|createdBy|updatedBy|approvedBy|requestedBy|assignee|assignedTo(Name)?|photo|photos|attachments|address|card|stripe|payment(Intent|Method)|tip|consent|signature|medical|health|allerg|emergency|pin|token|secret|password|ip$|userAgent|history|messages)/i;
 
 /** What the booking page shows of a public event, and nothing else. */
-const publicEventFields = (e: any) => ({ ...keep(e, ['id', 'title', 'name', 'date', 'time', 'endTime', 'status', 'venue', 'capacity', 'showOnBookingPage']),
+const publicEventFields = (e: any) => ({ ...keep(e, ['id', 'title', 'name', 'date', 'time', 'endTime', 'status', 'venue', 'capacity', 'showOnBookingPage']), ticketPrice: listedTicketPrice(e),
   ...(e.ticketingConfig ? { ticketingConfig: keep(e.ticketingConfig, ['price', 'capacity', 'type']) } : {}) });
 const keep = (o: any, list: string[]) => { const out: any = {}; for (const k of list) if (o[k] !== undefined) out[k] = o[k]; return out; };
 const drop = (o: any, re: RegExp) => { const out: any = {}; for (const [k, v] of Object.entries(o || {})) if (!re.test(k)) out[k] = v; return out; };
@@ -78,10 +79,12 @@ export async function POST(req: NextRequest) {
     const seats: Record<string, number> = {};
     await Promise.all(ids.map(async (id) => {
       try {
-        const ev: any = (await db.doc(`${T}/studioEvents/${id}`).get()).data(); if (!publicEvent(ev)) return;
+        const ev: any = (await db.doc(`${T}/studioEvents/${id}`).get()).data(); if (!listedEvent(ev)) return;
         const cap = eventCapacity(ev); if (cap <= 0) return;
         const n = (await db.collection(`${T}/eventGuests`).where('eventId', '==', id).count().get()).data().count;
-        seats[id] = Math.max(0, cap - n);
+        // A paid event's places held by guests paying right now count as taken (lib/event-tickets).
+        const held = listedTicketPrice(ev) > 0 ? heldPlaces((await db.collection(`${T}/eventTicketOrders`).where('eventId', '==', id).get()).docs.map((d: any) => d.data() || {})) : 0;
+        seats[id] = Math.max(0, cap - n - held);
       } catch (e: any) { console.error('[booking:event-seats]', e?.message || e); }
     }));
     return NextResponse.json({ ok: true, seats }, { headers: { 'Cache-Control': 'no-store' } });
@@ -243,7 +246,7 @@ export async function POST(req: NextRequest) {
   await maybeReleaseUnpaid(db, tenantId, req.nextUrl.origin);
   // Only the events the owner put on the booking page, and only what the page shows of them: never a private party,
   // a quote's event, its PIN, costs, guests or seating.
-  const studioEvents = rows(se, (x) => x).filter(publicEvent).map(publicEventFields).sort((a: any, c: any) => String(a.date || '').localeCompare(String(c.date || '')));
+  const studioEvents = rows(se, (x) => x).filter(listedEvent).map(publicEventFields).sort((a: any, c: any) => String(a.date || '').localeCompare(String(c.date || '')));
   void ap; void sh; void sb; void dof; void tk; void mp; void ce; void sp; // busy data: used only by 'availability' above, never sent
   return NextResponse.json({
     ok: true, fromDay, eventsFromDay,

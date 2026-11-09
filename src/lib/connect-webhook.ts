@@ -174,6 +174,18 @@ export async function handleConnectWebhook(req: NextRequest) {
           break;
         }
 
+        // Tickets for a paid event, bought on its page (lib/event-tickets): the guests go on the list and the sale in the
+        // books, once, whichever comes first, this notice or the guest's return. Not finished on our side: this notice
+        // fails too, so Stripe sends it again.
+        if (session.metadata?.kind === 'event_ticket') {
+          if (String(session.metadata?.tenantId || '') === tenant.id) {
+            const { finishTicketOrder } = await import('@/lib/event-tickets');
+            const r = await finishTicketOrder(db, stripe2, tenant.id, String(session.id), session);
+            if (!r.ok && r.error === 'retry') throw new Error('event ticket order not finished yet');
+          }
+          break;
+        }
+
         // A space booking or a day pass paid on the business's own account (api/booths/reserve): confirmed from here too,
         // so it's booked and in the books even when the guest never comes back to the page that confirms it. The same
         // confirming step runs (it checks the payment with Stripe and is safe to run twice).
@@ -720,6 +732,12 @@ export async function handleConnectWebhook(req: NextRequest) {
             console.log(`[connect-webhook] Fee return $${feeReturn.toFixed(2)} for refund on charge ${charge.id}`);
           } catch { /* another notice wrote it a moment ago */ }
         }
+        // Event tickets refunded in full in the Stripe Dashboard: the order shows as refunded and its guests come off the
+        // list (lib/event-tickets). The app's own refunds have done that already, so this changes nothing for them.
+        if (meta.kind === 'event_ticket' && meta.orderId && charge.refunded === true && String(meta.tenantId || '') === tenant.id && !refunds.some((rf: any) => rf?.metadata?.origin === 'app')) {
+          const { syncOutsideTicketRefund } = await import('@/lib/event-tickets');
+          await syncOutsideTicketRefund(db, tenant.id, String(meta.orderId), Number(charge.amount_refunded) || 0);
+        }
         // The card payment for a shop order refunded in full in the Stripe dashboard (not by the app, whose refunds carry
         // the app's mark): its downloads close (lib/digital-access), whatever else paid for the order.
         if (meta.type === 'retail_order' && charge.refunded === true && meta.retailOrderId && !refunds.some((rf: any) => rf?.metadata?.origin === 'app')) {
@@ -982,6 +1000,11 @@ export async function handleConnectWebhook(req: NextRequest) {
         if (session.metadata?.type === 'retail_order') {
           const tenant = await getTenant(connAcct);
           if (tenant) await handleRetailCheckoutExpired(db, tenant.id, session);
+        }
+        // An unpaid ticket checkout closed: its places go back on sale (lib/event-tickets).
+        if (session.metadata?.kind === 'event_ticket' && session.metadata?.orderId) {
+          const tenant = await getTenant(connAcct);
+          if (tenant && String(session.metadata?.tenantId || '') === tenant.id) { const { expireTicketOrder } = await import('@/lib/event-tickets'); await expireTicketOrder(db, tenant.id, String(session.metadata.orderId), String(session.id)); }
         }
         break;
       }

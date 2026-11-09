@@ -253,15 +253,22 @@ export const sectionSwitch = (id: SectionId, show: boolean): boolean | undefined
  *  no access PIN (private), isn't invite-only or paid (paid tickets aren't sold there yet), and is still on (upcoming
  *  or under way; never a draft, finished, called off or closed). A quote turned into an event, or a private party, never shows by itself. */
 export function publicEvent(e: any): boolean {
-  return !!e && e.showOnBookingPage === true && !e.accessPin && e.ticketingConfig?.type !== 'comp_only' && !(Number(e.ticketingConfig?.price) > 0)
+  return listedEvent(e) && !(Number(e.ticketingConfig?.price) > 0);
+}
+/** An event the booking page lists: a free one (reserved right there) or a paid one (its tickets are bought on the
+ *  event's own page, lib/event-tickets). Never a private one or one by invitation only. */
+export function listedEvent(e: any): boolean {
+  return !!e && e.showOnBookingPage === true && !e.accessPin && e.ticketingConfig?.type !== 'comp_only'
     && ['upcoming', 'active'].includes(String(e.status || 'upcoming')) && /^\d{4}-\d{2}-\d{2}$/.test(String(e.date || ''));
 }
+/** A listed event's price per ticket in dollars, or 0 when it's free. */
+export const listedTicketPrice = (e: any) => (e?.ticketingConfig?.type !== 'comp_only' && Number(e?.ticketingConfig?.price) > 0 ? Number(e.ticketingConfig.price) : 0);
 /** Seats an event has, if it has a limit. */
 export const eventCapacity = (e: any) => Math.max(0, Math.floor(Number(e?.ticketingConfig?.capacity || e?.capacity) || 0));
 /** The public classes and events still to come, soonest first (today's stays up all day). `today` is the business's
  *  own date (YYYY-MM-DD). */
 export function comingEvents(events: any[], today: string, max = 6): any[] {
-  return (events || []).filter((e: any) => publicEvent(e) && String(e.date) >= today)
+  return (events || []).filter((e: any) => listedEvent(e) && String(e.date) >= today)
     .sort((a: any, b: any) => `${a.date} ${a.time || '99:99'}`.localeCompare(`${b.date} ${b.time || '99:99'}`)).slice(0, max);
 }
 /** The business's date for "still to come": their own zone, or, before they've set one, the latest US zone, so

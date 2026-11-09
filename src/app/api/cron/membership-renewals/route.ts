@@ -17,14 +17,16 @@ export async function GET(req: NextRequest) {
   const db = getAdminDb(); let charged = 0, waiting = 0, lapsed = 0, reminders = 0, tenants = 0;
   // Memberships and packages bought online and left part way (a server stopped, a notice lost) are finished first.
   const { sweepOfferSales } = await import('@/lib/offer-sale'); const Stripe = (await import('stripe')).default;
-  const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any }) : null; let offersFinished = 0;
+  const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any }) : null; let offersFinished = 0, ticketsFinished = 0;
   for (const d of (await db.collection('tenants').get()).docs) {
     if (stripe) { try { offersFinished += await sweepOfferSales(db, stripe, d.id); } catch (e) { console.error('[cron membership-renewals] online sales', d.id, e); } }
+    // Event tickets whose checkout closed: finished if paid (a notice lost), or their places freed (lib/event-tickets).
+    if (stripe) { try { const { sweepTicketOrders } = await import('@/lib/event-tickets'); const r = await sweepTicketOrders(db, stripe, d.id); ticketsFinished += r.finished; } catch (e) { console.error('[cron membership-renewals] event tickets', d.id, e); } }
     try {
       const anyMember = await db.collection(`tenants/${d.id}/clients`).where('subscription.status', 'in', ['active', 'past_due']).limit(1).get(); if (anyMember.empty) continue;
       tenants++; const r = await runRenewals(db, d.id, { appUrl: req.nextUrl.origin }); charged += r.charged; waiting += r.waiting; lapsed += r.lapsed;
       reminders += await cardReminderSweep(db, d.id);
     } catch (e) { console.error('[cron membership-renewals]', d.id, e); }
   }
-  return NextResponse.json({ ok: true, tenants, charged, waiting, lapsed, reminders, offersFinished });
+  return NextResponse.json({ ok: true, tenants, charged, waiting, lapsed, reminders, offersFinished, ticketsFinished });
 }

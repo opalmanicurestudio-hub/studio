@@ -17,6 +17,8 @@ import { accessLockOf, CLOSED_FOR_CLIENTS } from '@/lib/tenant-access';
 import { guestLogo } from '@/lib/brand';
 import { brandColor, eventCapacity, eventToday } from '@/lib/studio-page';
 import { addDays } from '@/lib/tenant-time';
+import Stripe from 'stripe';
+import { MAX_TICKETS, isPaidEvent, placesLeft, saleBlock, startTicketOrder, finishTicketOrder, releaseTicketOrder, ticketCents } from '@/lib/event-tickets';
 import { ALLERGY_CHOICES, allergyList, chartTables, findSeat, matchGuest, mealChoices, menuCourses, orderBlock, requestOpen, requestTypesFor, reserveBlock, seatFromCode } from '@/lib/event-guest-link';
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +31,12 @@ const LIMITS: Record<string, { perHour: number; perDay: number }> = {
   // A whole dinner may order, and later call for water, over the venue's one connection.
   order: { perHour: 200, perDay: 3000 },
   request: { perHour: 300, perDay: 5000 },
+  // Tickets for a paid event (lib/event-tickets): opening a checkout, coming back from it paid, or coming back without paying.
+  buy: { perHour: 12, perDay: 1000 },
+  paid: { perHour: 120, perDay: 3000 },
+  left: { perHour: 60, perDay: 3000 },
 };
+const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' as any });
 const SEAT_PAUSE_MS = 30000;
 const out = (body: any, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const clean = (v: any, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -81,7 +88,8 @@ export async function POST(req: NextRequest) {
   const tenant: any = tSnap.data(); const ev: any = eSnap.data();
   if (!tenant || !ev) return out({ ok: false, error: 'We couldn’t find this event. The link may be out of date.', missing: true }, 404);
   const today = eventToday(tenant); const title = clean(ev.title || ev.name, 120) || 'the event';
-  if (action !== 'load') { const closed = closedReply(tenant); if (closed) return closed; }
+  // A paused or locked business takes nothing new. Coming back from a payment already made still finishes it.
+  if (!['load', 'paid', 'left'].includes(action)) { const closed = closedReply(tenant); if (closed) return closed; }
 
   try {
     // ── What a page shows ──
@@ -99,11 +107,15 @@ export async function POST(req: NextRequest) {
       }
       const pin = await pinCheck(db, req, tenantId, eventId, ev, b.pin);
       if (pin === 'needed' || pin === 'wrong' || pin === 'locked') return out({ ok: true, business, event: base, needsPin: true, pinError: pin === 'needed' ? null : PIN_REPLY[pin].error });
-      const [gs, ms] = await Promise.all([guests.where('eventId', '==', eventId).get(), db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).get()]);
+      const paidEvent = isPaidEvent(ev);
+      const [gs, ms, os] = await Promise.all([guests.where('eventId', '==', eventId).get(), db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).get(),
+        paidEvent ? db.collection(`${T}/eventTicketOrders`).where('eventId', '==', eventId).get() : Promise.resolve({ docs: [] as any[] })]);
       const cap = eventCapacity(ev);
       return out({ ok: true, business, needsPin: false,
         event: { ...base, venue: clean(ev.venue, 120) || null, menuNote: clean(ev.menuNote, 280) || null, orderingDeadline: typeof ev.orderingDeadline === 'string' ? ev.orderingDeadline : null },
         reserve: { block: reserveBlock(ev, today), placesLeft: cap > 0 ? Math.max(0, cap - gs.size) : null },
+        // A paid event: its price, tickets left (less the places held by open checkouts) and whether they're on sale.
+        ...(paidEvent ? { tickets: { cents: ticketCents(ev), left: placesLeft(ev, gs.size, os.docs.map((d: any) => d.data() || {})), block: saleBlock(ev, tenant, today), max: MAX_TICKETS } } : {}),
         order: { block: orderBlock(ev, today), courses: menuCourses(ms.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))), tables: chartTables(ev).map((t) => ({ name: t.name, seats: t.seats.map((s) => s.label) })) },
         allergies: ALLERGY_CHOICES });
     }
@@ -132,10 +144,32 @@ export async function POST(req: NextRequest) {
       const { status, ...body } = r as any; return out(body, r.ok ? 200 : status || 409);
     }
 
-    // Reserving and ordering both need a private event's PIN.
+    // ── Back from a ticket checkout: paid (finished here if the payments notice hasn't yet), or left without paying ──
+    if (action === 'paid') {
+      const sessionId = String(b.session || '');
+      if (!/^cs_[A-Za-z0-9_]{6,200}$/.test(sessionId) || !process.env.STRIPE_SECRET_KEY) return out({ ok: false, error: 'We couldn’t find that payment.' }, 404);
+      const r = await finishTicketOrder(db, stripe(), tenantId, sessionId);
+      if (!r.ok) return out({ ok: false, error: r.error === 'retry' ? 'We couldn’t check your payment just now. Please refresh in a moment.' : 'We couldn’t find that payment.', retry: r.error === 'retry' }, r.error === 'retry' ? 503 : 404);
+      return out(r);
+    }
+    if (action === 'left') {
+      if (process.env.STRIPE_SECRET_KEY && ID.test(String(b.order || ''))) await releaseTicketOrder(db, stripe(), tenantId, String(b.order)).catch((e: any) => console.error('[public-event] release', e?.message || e));
+      return out({ ok: true });
+    }
+
+    // Reserving, ordering and buying all need a private event's PIN.
     const pin = await pinCheck(db, req, tenantId, eventId, ev, b.pin);
     if (pin === 'needed' || pin === 'wrong' || pin === 'locked') return out({ ok: false, error: PIN_REPLY[pin].error, needsPin: true }, PIN_REPLY[pin].status);
     const name = clean(b.name, 120); const email = String(b.email || '').trim().toLowerCase().slice(0, 160); const phone = clean(b.phone, 40);
+
+    // ── Tickets: the places are held and a checkout opens on the business's account (lib/event-tickets) ──
+    if (action === 'buy') {
+      if (!name || !EMAIL.test(email)) return out({ ok: false, error: 'Add your name and email.' }, 400);
+      // A few checkouts an hour for one email, so nobody can hold an event's places by opening checkout after checkout.
+      if (!(await bump(`event-buy-email_${hash(`${tenantId}|${eventId}|${email}`)}_${Math.floor(Date.now() / 3600000)}`, 4, 2 * 3600000))) return out({ ok: false, error: 'Too many tries for now. Please try again in an hour.' }, 429);
+      const r = await startTicketOrder(db, stripe(), { tenantId, eventId, name, email, phone, qty: b.qty, origin: req.nextUrl.origin, today, visitor: hash(`${tenantId}|${visitorIp(req)}`) });
+      return r.ok ? out({ ok: true, url: r.url }) : out({ ok: false, error: r.error, ...(typeof r.left === 'number' ? { left: r.left } : {}) }, r.status);
+    }
 
     // ── A place on the guest list ──
     if (action === 'reserve') {
@@ -194,6 +228,8 @@ export async function POST(req: NextRequest) {
       const m = matchGuest(list, name, email);
       if (m.kind === 'already') return { ok: false, already: true, error: 'We already have a meal order for you. To change it, let your host know.' };
       if (m.kind === 'needEmail') return { ok: false, needEmail: true, error: 'Add the email you reserved with, so your order goes with your place.' };
+      // A paid event's guests come from tickets: someone not on the list gets one first.
+      if (m.kind === 'new' && isPaidEvent(evNow)) return { ok: false, needTicket: true, error: 'We couldn’t find you on the guest list. If you have a ticket, use the email you bought it with. If not, get one on the event’s page first.' };
       // One guest to a seat: a seat someone else already has is left off (their table still counts).
       const mine = m.kind === 'update' ? m.id : null;
       const seatTaken = !!(table && seat && list.some((g: any) => g.id !== mine && g.tableNumber === table && g.seatNumber === seat)); const seatNow = seatTaken ? '' : seat;
