@@ -143,7 +143,7 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
       description: `Booth rent — due ${due} (paid online)${cur.lateFeeCents > 0 ? ` · incl. $${(cur.lateFeeCents / 100).toFixed(2)} late fee` : ''}`,
       clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card (Stripe)',
       hasReceipt: false, sourceId: invoiceId, checkoutSessionId: String(cs.id),
-      stripePaymentIntentId: pi,
+      stripePaymentIntentId: pi, renterId: cur.renterId || null,   // whose it is, by id (lib/renter-rent-history)
       tenantId, createdAt: nowIso,
     });
     if (feeCents > 0) { const feeRef = feeRefFor(); tx.set(feeRef, {

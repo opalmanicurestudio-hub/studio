@@ -38,6 +38,7 @@ import { Chip, SectionTitle, fmtDate, fmtMoney, localISO } from '@/components/re
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { LoginFlow, MySwaps, RenterConcerns, RenterDocuments, RenterInterruptions, RenterLeave, RenterMaintenance, RenterThread, ResCard, STORE, TodayQuick, api } from '@/components/rent/studio';
+import { RenterCard } from '@/components/rent/RenterCard';
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function RenterPortalPage() {
@@ -99,6 +100,26 @@ export default function RenterPortalPage() {
 
   useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Back from the card page (?cfCardSetup=1&cfSetupSession=&cfRenterId=): the card is stored on the server (once, however
+  // often this runs), then the Rent tab shows it.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session?.token) return;
+    const params = new URLSearchParams(window.location.search);
+    const setup = params.get('cfSetupSession'); const rid = params.get('cfRenterId');
+    if (params.get('cfCardSetup') !== '1' || !setup || !rid) return;
+    window.history.replaceState({}, '', `${window.location.pathname}?tab=rent`);
+    setTab('rent');
+    (async () => {
+      try {
+        const r = await fetch(`/api/booths/setup-card?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(rid)}&session=${encodeURIComponent(setup)}`);
+        const d: any = await r.json().catch(() => ({}));
+        if (d?.ok) toast({ title: 'Card saved', description: `${d.cardBrand ? String(d.cardBrand).charAt(0).toUpperCase() + String(d.cardBrand).slice(1) : 'Your card'}${d.cardLast4 ? ` ending ${d.cardLast4}` : ''} is on file. You can turn on autopay below.` });
+        else toast({ variant: 'destructive', title: 'Card not saved', description: d?.error || 'Try saving it again.' });
+      } catch { toast({ variant: 'destructive', title: 'Card not saved', description: 'Try saving it again.' }); }
+      refresh();
+    })();
+  }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Returning from Stripe Checkout (?cfInvoiceId=&cfSession=) → confirm the
   // payment server-side (idempotent), then clean the URL.
   useEffect(() => {
@@ -110,7 +131,7 @@ export default function RenterPortalPage() {
     window.history.replaceState({}, '', window.location.pathname);
     (async () => {
       const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
-      if (d.ok) toast({ title: 'Rent paid ✓', description: 'Your receipt is in Payment History below.' });
+      if (d.ok) toast({ title: 'Rent paid', description: 'Your receipt is in Payment History below.' });
       else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, let the business know. Nothing is lost.' });
       refresh();
     })();
@@ -167,7 +188,7 @@ export default function RenterPortalPage() {
     const d = await api({ action: 'pay-invoice', tenantId, token: session.token, invoiceId, returnUrl: window.location.href });
     setActionBusy(false);
     if (d.ok && d.url) { window.location.href = d.url; }
-    else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid ✓' }); refresh(); }
+    else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid' }); refresh(); }
     else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can always pay at the front desk.' });
   };
@@ -552,10 +573,12 @@ export default function RenterPortalPage() {
                     <div>
                       <p className="font-black text-slate-900 text-sm">{data.lease.boothName || 'Your space'}</p>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
-                        {fmtMoney(data.lease.rentAmountCents)} / {String(data.lease.frequency || 'month').replace('biweekly', '2 weeks').replace('ly', '')}
+                        {fmtMoney(data.lease.rentAmountCents)} / {({ daily: 'day', weekly: 'week', biweekly: '2 weeks', monthly: 'month' } as Record<string, string>)[String(data.lease.frequency || 'monthly')] || 'month'}
                       </p>
                     </div>
-                    {openInvoices.some((i: any) => i.status === 'late')
+                    {data.lease.status === 'pending_signature'
+                      ? <button type="button" onClick={() => setTab('studio')} className="flex min-h-[44px] items-center"><Chip tone="amber">Sign to start</Chip></button>
+                      : openInvoices.some((i: any) => i.status === 'late')
                       ? <Chip tone="red">Late</Chip>
                       : openInvoices.length > 0 ? <Chip tone="amber">Due</Chip> : <Chip tone="green">Current</Chip>}
                   </div>
@@ -586,40 +609,15 @@ export default function RenterPortalPage() {
                       </button>
                     </div>
                   ))}
-                  {(() => {
-                    const r: any = data?.renter || {};
-                    const on = r.autopayEnabled === true;
-                    return (
-                      <button type="button" disabled={actionBusy}
-                        onClick={async () => {
-                          if (!on && !r.cardOnFile) { toast({ variant: 'destructive', title: 'No card on file', description: 'Add a card first — autopay needs one to draft from.' }); return; }
-                          setActionBusy(true);
-                          const d = await api({ action: 'autopay-set', tenantId, token: session?.token, enabled: !on });
-                          setActionBusy(false);
-                          if (!d.ok) { toast({ variant: 'destructive', title: 'Could not change autopay', description: d.error || 'Try again in a moment.' }); return; }
-                          toast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Your rent drafts on each due day.' : 'You pay each invoice yourself from now on.' });
-                          refresh();
-                        }}
-                        aria-pressed={on}
-                        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors disabled:opacity-50',
-                          on ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white')}>
-                        <span className="min-w-0">
-                          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-900">Autopay</span>
-                          <span className="block text-[10px] font-bold text-slate-500">
-                            {on
-                              ? `Your rent drafts on each due day from ${r.cardBrand || 'your card'} ····${r.cardLast4 || ''}. Nothing to remember.`
-                              : r.cardOnFile ? `Off — you pay each invoice yourself. Your ${r.cardBrand || 'card'} ····${r.cardLast4 || ''} is saved if you'd like it automatic.`
-                              : 'Off — add a card on file to turn this on.'}
-                          </span>
-                        </span>
-                        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                          on ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500')}>{on ? 'On' : 'Off'}</span>
-                      </button>
-                    );
-                  })()}
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>
+            )}
+
+            {session?.token && data?.renter?.id && (
+              <RenterCard tenantId={tenantId} token={session.token} renter={data.renter} autopayOn={data?.rentOutlook?.autopayOn === true}
+                hasLease={!!data?.lease} waitingSignature={data?.rentOutlook?.waitingSignature === true} onChanged={refresh}
+                onToast={(t) => toast({ title: t.title, description: t.description, ...(t.bad ? { variant: 'destructive' as const } : {}) })} />
             )}
 
             {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (

@@ -18,7 +18,6 @@ import {
   collection, query, where, getDocs, doc, getDoc, updateDoc,
   type Firestore,
 } from 'firebase/firestore';
-import SignatureCanvas from 'react-signature-canvas';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { PrintLink } from '@/components/shared/PrintLink';
 
@@ -34,13 +33,9 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
   const [card, setCard] = useState<{ brand: string; last4: string } | null | 'loading'>('loading');
   // v79 — e-signature: a lease awaiting this renter's signature
   const [pendingLease, setPendingLease] = useState<any | null>(null);
-  const [signing, setSigning] = useState(false);
-  const [signed, setSigned] = useState(false);
-  const sigRef = React.useRef<any>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardMsg, setCardMsg] = useState('');
 
-  const fullName = (staffMember.name || '').trim();
 
   // ── Card on file: load status + confirm a Stripe return if present ──
   useEffect(() => {
@@ -101,23 +96,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
     return () => { cancelled = true; };
   }, [firestore, tenantId, staffMember.id]);
 
-  const submitSignature = async () => {
-    if (!pendingLease || signing || !sigRef.current || sigRef.current.isEmpty()) return;
-    setSigning(true);
-    try {
-      const dataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png');
-      await updateDoc(doc(firestore, `tenants/${tenantId}/leases`, pendingLease.id), {
-        status: 'active',
-        signedAt: new Date().toISOString(),
-        signatureDataUrl: dataUrl,
-        signedByName: staffMember.name || '',
-      });
-      setSigned(true);
-      setPendingLease(null);
-    } catch { /* leave the pad up — they can retry */ }
-    finally { setSigning(false); }
-  };
-
   // ── Day/hourly rentals by phone/email ──
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -147,24 +125,22 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
     return () => { cancelled = true; };
   }, [firestore, tenantId, staffMember.phone, staffMember.email]);
 
-  // ── Lease rent entries by name ──
+  // ── Their rent payments: from the server, by renter id and their own records, never by name (lib/my-rent) ──
   useEffect(() => {
-    if (!firestore || !tenantId || !fullName) { setLedgerEntries([]); return; }
+    if (!tenantId) { setLedgerEntries([]); return; }
     let cancelled = false;
     (async () => {
       try {
-        const snap = await getDocs(query(
-          collection(firestore, `tenants/${tenantId}/transactions`),
-          where('source', '==', 'booth_rent'),
-          where('clientOrVendor', '==', fullName),
-        ));
+        const r = await fetch(`/api/portal/my-rent?tenantId=${encodeURIComponent(tenantId)}`, { headers: await staffAuthHeader() });
+        const j: any = await r.json().catch(() => ({}));
         if (cancelled) return;
-        setLedgerEntries(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
-          .sort((a, b) => ((b.date || b.createdAt || '') + '').localeCompare((a.date || a.createdAt || '') + '')));
+        setLedgerEntries(((j?.ok && Array.isArray(j.payments)) ? j.payments : [])
+          .filter((t: any) => !String(t.id || '').startsWith('boothrent_'))   // a booking's own payment: it has its booking receipt above
+          .sort((a: any, b: any) => ((b.date || b.createdAt || '') + '').localeCompare((a.date || a.createdAt || '') + '')));
       } catch { if (!cancelled) setLedgerEntries([]); }
     })();
     return () => { cancelled = true; };
-  }, [firestore, tenantId, fullName]);
+  }, [tenantId, staffMember.id]);
 
   const dollars = (t: any) => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
   const dstr = (v: any) => typeof v === 'string' ? v.slice(0, 10) : '';
@@ -181,38 +157,13 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
   return (
     <div className="space-y-4">
       {pendingLease && (
-        <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50/50 p-4 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">✍️ Your lease is ready to sign</p>
-          <div className="rounded-xl border bg-white p-3.5 max-h-56 overflow-y-auto">
-            <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
-              {pendingLease.leaseTerms || 'Your studio has prepared a lease for you. By signing below, you agree to the rental terms as discussed with the studio.'}
-            </p>
-          </div>
-          <p className="text-[10px] font-bold text-slate-500">
-            ${((pendingLease.rentAmountCents || 0) / 100).toFixed(2)}/{pendingLease.frequency}
-            {pendingLease.startDate ? ` · starts ${pendingLease.startDate}` : ''}
-            {pendingLease.endDate ? ` · ends ${pendingLease.endDate}` : ' · month-to-month'}
+        <div className="rounded-2xl border border-[#ececee] bg-white p-4">
+          <p className="text-[15px] font-semibold text-[#16171a]">Your lease is ready to sign</p>
+          <p className="mt-0.5 text-[13.5px] text-[#6d7075]">
+            ${((pendingLease.rentAmountCents || 0) / 100).toFixed(2)} per {({ daily: 'day', weekly: 'week', biweekly: 'two weeks', monthly: 'month' } as Record<string, string>)[String(pendingLease.frequency || 'monthly')] || 'month'}
+            {pendingLease.startDate ? `, from ${pendingLease.startDate}` : ''}. Read it and sign it in your renter portal; rent starts once you sign.
           </p>
-          <div className="rounded-xl border-2 border-dashed border-slate-300 bg-white overflow-hidden">
-            <SignatureCanvas
-              ref={sigRef}
-              penColor="#0f172a"
-              canvasProps={{ className: 'w-full h-32', style: { width: '100%', height: '128px' } }}
-            />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => sigRef.current?.clear()} className="h-10 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Clear</button>
-            <button onClick={submitSignature} disabled={signing}
-              className="flex-1 h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-              {signing ? 'Signing…' : 'Sign & Accept Lease'}
-            </button>
-          </div>
-          <p className="text-[9px] font-bold text-slate-400">By signing you agree to the terms above. A timestamped copy of your signature is stored with the lease.</p>
-        </div>
-      )}
-      {signed && (
-        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">✓ Lease signed — you're all set. Welcome!</p>
+          <a href={`/rent/${encodeURIComponent(tenantId)}?tab=studio`} className="mt-3 inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Open my renter portal</a>
         </div>
       )}
 

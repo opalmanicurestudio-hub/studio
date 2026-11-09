@@ -61,7 +61,7 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
 // <Suspense> boundary so useSearchParams() doesn't force /booths into a
 // client-only bailout during static prerender.
-function TabQuerySync({ onTab, onLease, onSettings }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void; onSettings?: () => void }) {
+function TabQuerySync({ onTab, onLease, onSettings, onAddRenter }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void; onSettings?: () => void; onAddRenter?: () => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   // ?lease=<renterId> — the Renters page hands off here for the one wizard
@@ -73,12 +73,18 @@ function TabQuerySync({ onTab, onLease, onSettings }: { onTab: (t: 'spaces' | 'o
     if (tab === 'money') onTab('ops');
     else if (tab === 'spaces' || tab === 'ops') onTab(tab);
   }, [tab, onTab]);
+  // Once per id: the handlers are new on every render, so without this the wizard would reopen itself over and over.
+  const leaseFired = useRef('');
   useEffect(() => {
-    if (lease && onLease) onLease(lease);
+    if (lease && onLease && leaseFired.current !== lease) { leaseFired.current = lease; onLease(lease); }
   }, [lease, onLease]);
   // ?settings=1 — Settings → Your tools → Booth rentals opens the booth settings straight away.
   const wantSettings = searchParams.get('settings') === '1';
   useEffect(() => { if (wantSettings && onSettings) onSettings(); }, [wantSettings, onSettings]);
+  // ?addRenter=1 — the Renters page's "Add renter" opens the add-renter form here.
+  const wantAdd = searchParams.get('addRenter') === '1';
+  const addFired = useRef(false);
+  useEffect(() => { if (wantAdd && onAddRenter && !addFired.current) { addFired.current = true; onAddRenter(); } }, [wantAdd, onAddRenter]);
   return null;
 }
 import {
@@ -89,6 +95,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import { boothNoShowPolicyOf, hasOldBoothFee } from '@/lib/booth-no-show';
 import { BoothNoShowRow } from '@/components/booths/BoothNoShowRow';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -516,6 +523,8 @@ interface LeaseFormState {
   // time but missing from this interface: the file failed tsc because of it.
   leaseTerms: string;
   requireSignature: boolean;
+  /** Send the renter their portal link when the lease is made (to sign it, or to see rent and save a card). */
+  sendInvite: boolean;
 }
 
 function buildEmptyLeaseForm(): LeaseFormState {
@@ -526,6 +535,7 @@ function buildEmptyLeaseForm(): LeaseFormState {
     isShared: false, scheduleDays: [], scheduleStartTime: '', scheduleEndTime: '', scheduleLabel: '',
     leaseTerms: '',
     requireSignature: false,
+    sendInvite: true,
     depositDollars: '', depositRefundable: true, depositConditions: '',
     lateFeeEnabled: true, lateFeeGraceDays: '3', lateFeeType: 'flat',
     lateFeeAmountDollars: '25', lateFeePercent: '5',
@@ -2713,7 +2723,7 @@ export default function BoothsPage() {
           amount: due / 100, category: 'Booth Rent',
           description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
           clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
-          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
+          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso, renterId: r.renterId || null,
         });
         tx.update(resRef, { overageStatus: 'collected', overageCollectedAt: nowIso });
         tx.set(aRef, { id: aRef.id, ...auditEntry({
@@ -3513,7 +3523,7 @@ export default function BoothsPage() {
           amount: cents / 100,
           description: `Booth rent — ${pbt?.name || 'space'} (due ${invoice.dueDate})${recordPayNote ? ` · ${recordPayNote}` : ''}`,
           clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
-          hasReceipt: false, sourceId: invoice.id, tenantId, createdAt: nowIso,
+          hasReceipt: false, sourceId: invoice.id, tenantId, createdAt: nowIso, renterId: prt?.id || null,
         });
         const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
         batch.set(aRef, { id: aRef.id, ...auditEntry({
@@ -3531,7 +3541,7 @@ export default function BoothsPage() {
           amount: cents / 100,
           description: `Booth rent (prepaid) — ${pbt?.name || 'space'}${recordPayNote ? ` · ${recordPayNote}` : ''}`,
           clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
-          hasReceipt: false, sourceId: pl?.id || null, tenantId, createdAt: nowIso,
+          hasReceipt: false, sourceId: pl?.id || null, tenantId, createdAt: nowIso, renterId: prt?.id || null,
         });
         const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
         batch.set(aRef, { id: aRef.id, ...auditEntry({
@@ -3555,7 +3565,7 @@ export default function BoothsPage() {
           amount: cents / 100,
           description: `Security deposit — ${pbt?.name || 'space'} (${who})${recordPayNote ? ` · ${recordPayNote}` : ''}`,
           clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
-          hasReceipt: false, sourceId: pl.id, tenantId, createdAt: nowIso,
+          hasReceipt: false, sourceId: pl.id, tenantId, createdAt: nowIso, renterId: prt?.id || null,
         });
         const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
         batch.set(aRef, { id: aRef.id, ...auditEntry({
@@ -4754,7 +4764,7 @@ export default function BoothsPage() {
           }
         );
       } else {
-        await createRenter(firestore, {
+        const newRenterId = await createRenter(firestore, {
           tenantId,
           locationId: selectedLocationId,
           firstName: renterForm.firstName.trim(),
@@ -4769,7 +4779,11 @@ export default function BoothsPage() {
           amenityCompAllowance: renterForm.amenitiesEnabled ? Math.max(0, Math.round(parseFloat(renterForm.amenityCompAllowance) || 0)) : 0,
           amenityPayer: renterForm.amenityPayer,
           credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
+          linkedStaffId: renterForm.linkedStaffId || null,
         } as any);
+        // The next step is their lease (and, with it, their portal link).
+        toast({ title: `${renterForm.firstName.trim() || 'Renter'} added`, description: 'Next, set up their lease. You can send their portal link from the same screen.',
+          action: <ToastAction altText="Set up lease" onClick={() => openLeaseWizard(newRenterId)}>Set up lease</ToastAction> });
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
     } catch (err) {
@@ -4864,6 +4878,9 @@ export default function BoothsPage() {
 
   const handleCreateLease = async () => {
     if (!leaseRenterId || !leaseForm.boothId || !selectedLocationId || !tenantId) return;
+    if (leaseForm.requireSignature && !leaseForm.leaseTerms.trim()) {
+      setLeaseError('Add the lease terms (or tap “Use built-in lease”) so there’s something for them to sign.'); return;
+    }
     setSavingLease(true); setLeaseError(null);
     try {
       let signedDocumentUrl: string | null = null;
@@ -4886,12 +4903,15 @@ export default function BoothsPage() {
 
       // Every value is concrete (never undefined) and the whole payload is
       // deep-stripped as a final guard, so Firestore can't reject the write.
+      const leaseRenter: any = renterById.get(leaseRenterId);
+      const leaseRenterName = leaseRenter ? `${leaseRenter.firstName || ''} ${leaseRenter.lastName || ''}`.trim() : '';
       await createLease(firestore, stripUndefinedDeep({
         tenantId,
         locationId: booth?.locationId ?? selectedLocationId,
         leaseTerms: leaseForm.leaseTerms.trim() || null,
         requireSignature: leaseForm.requireSignature,
-        status: leaseForm.requireSignature ? 'pending_signature' : 'active',
+        renterName: leaseRenterName || null,
+        sentBy: (selectedTenant as any)?.name || null,
         boothId: leaseForm.boothId,
         renterId: leaseRenterId,
         rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
@@ -4925,6 +4945,19 @@ export default function BoothsPage() {
         isShared: leaseForm.isShared,
       }));
 
+      // Their portal link: to sign the lease, or to see their rent, save a card and turn on autopay.
+      let sent = '';
+      if (leaseForm.sendInvite) {
+        try {
+          const r = await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+            body: JSON.stringify({ action: 'portal-invite', tenantId, renterId: leaseRenterId, reason: leaseForm.requireSignature ? 'lease' : 'welcome' }) });
+          const d: any = await r.json().catch(() => ({}));
+          const how = [d?.status === 'sent' ? 'email' : '', d?.sms === 'sent' ? 'text' : ''].filter(Boolean).join(' and ');
+          sent = d?.ok && how ? ` ${leaseRenter?.firstName || 'They'} ${leaseRenter?.firstName ? 'has' : 'have'} their portal link by ${how}.` : ` Their portal link wasn’t sent${d?.error ? `: ${d.error}` : ' (no email or phone we could reach)'}. Send it from their profile.`;
+        } catch { sent = ' Their portal link wasn’t sent. Send it from their profile.'; }
+      }
+      toast({ title: leaseForm.requireSignature ? 'Lease sent for signature' : 'Lease created',
+        description: `${leaseForm.requireSignature ? 'Rent starts billing once they sign.' : 'Rent bills on its schedule.'}${sent}` });
       setLeaseDialogOpen(false);
     } catch (err) {
       setLeaseError(err instanceof Error ? err.message : 'Failed to create lease.');
@@ -5081,7 +5114,7 @@ export default function BoothsPage() {
         </div>
 
         <Suspense fallback={null}>
-          <TabQuerySync onTab={setTab} onLease={openLeaseWizard} onSettings={openBoothSettings} />
+          <TabQuerySync onTab={setTab} onLease={openLeaseWizard} onSettings={openBoothSettings} onAddRenter={openCreateRenter} />
         </Suspense>
 
         <div className="flex gap-0 border-b -mb-4">
@@ -6588,14 +6621,14 @@ export default function BoothsPage() {
                 <Textarea rows={4} placeholder="Tap “Use built-in lease” to auto-fill a ready template — or paste your own terms here…"
                   value={leaseForm.leaseTerms}
                   onChange={(e) => setLeaseForm(prev => ({ ...prev, leaseTerms: e.target.value }))} />
-                <p className="text-[10px] font-medium text-muted-foreground">With e-signature on, no PDF upload is needed — the renter reads these terms and types to sign in their portal.</p>
+                <p className="text-[12px] text-muted-foreground">With a signature asked for, no PDF upload is needed: the renter reads these terms and types their name to sign in their portal.</p>
               </div>
               <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, requireSignature: !prev.requireSignature }))}
                 className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
                 <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.requireSignature ? 'border-slate-900 bg-foreground text-background' : 'border-border'}`}>{leaseForm.requireSignature ? '✓' : ''}</span>
                 <span className="min-w-0">
-                  <span className="block text-xs font-black uppercase tracking-tight">Require e-signature before activation</span>
-                  <span className="block text-[10px] font-bold text-muted-foreground">The lease starts as "awaiting signature" — the renter reviews the terms and signs in their portal (Documents tab). Rent auto-collection begins only after they sign.</span>
+                  <span className="block text-[14px] font-medium">Ask them to sign before it starts</span>
+                  <span className="block text-[12px] text-muted-foreground">The lease waits for their signature. They read these terms and sign in their renter portal, and no rent is billed until they do.</span>
                 </span>
               </button>
               <div className="rounded-lg border p-4 space-y-2 text-sm">
@@ -6630,8 +6663,18 @@ export default function BoothsPage() {
                 <p><span className="text-muted-foreground">Agreement:</span>{' '}
                   <span className="font-medium">{leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}</span></p>
               </div>
+              <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, sendInvite: !prev.sendInvite }))} aria-pressed={leaseForm.sendInvite}
+                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.sendInvite ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
+                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.sendInvite ? 'border-slate-900 bg-foreground text-background' : 'border-border'}`}>{leaseForm.sendInvite ? '✓' : ''}</span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-medium">Send their portal link now</span>
+                  <span className="block text-[12px] text-muted-foreground">{leaseForm.requireSignature
+                    ? 'By email and text: their lease is ready to sign. The link works for 30 days.'
+                    : 'By email and text, so they can see their rent, save a card and turn on autopay. The link works for 30 days.'}</span>
+                </span>
+              </button>
               <p className="text-xs text-muted-foreground">
-                Creating this lease marks the booth {leaseForm.isShared ? 'as shared (partial)' : 'occupied'} and the renter active.
+                Creating this lease marks the space {leaseForm.isShared ? 'as shared' : 'taken'}{leaseForm.requireSignature ? ' while it waits for their signature' : ' and the renter active'}.
               </p>
               {leaseError && (
                 <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

@@ -234,6 +234,14 @@ export interface CreateLeaseInput {
   houseRules: string;
   signedDocumentUrl: string | null;
   isShared: boolean;
+  /** The lease's words, as the renter reads and signs them. */
+  leaseTerms?: string | null;
+  /** The renter signs these terms in their portal before the lease starts; nothing is billed until then. */
+  requireSignature?: boolean;
+  /** Who sent it, shown on the document ("Sent by …"). */
+  sentBy?: string | null;
+  /** The renter's name, for the document's record. */
+  renterName?: string | null;
 }
 
 /**
@@ -286,11 +294,20 @@ export async function createLease(
     ledgerEntryId: null,
   }));
 
-  const leaseDoc: Omit<Lease, 'id'> & { locationId: string } = {
+  // To be signed first: the lease waits as 'pending_signature' (nothing bills it: the rent jobs read only active leases)
+  // and its terms go to the renter's portal as a document to sign. Signing there makes it active (api/portal/renter).
+  const terms = String(input.leaseTerms || '').trim();
+  const awaitSignature = !!input.requireSignature;
+  if (awaitSignature && !terms) throw new Error('Add the lease terms, so there is something for the renter to sign.');
+  const signDocRef = awaitSignature ? doc(collection(firestore, 'tenants', input.tenantId, 'renterDocuments')) : null;
+
+  const leaseDoc: Omit<Lease, 'id'> & { locationId: string; leaseTerms: string | null; signatureDocumentId: string | null } = {
     locationId: input.locationId,
     boothId: input.boothId,
     renterId: input.renterId,
-    status: 'active',
+    status: awaitSignature ? 'pending_signature' : 'active',
+    leaseTerms: terms || null,
+    signatureDocumentId: signDocRef ? signDocRef.id : null,
     rentAmountCents: input.rentAmountCents,
     frequency: input.frequency,
     dueDay: input.dueDay,
@@ -313,6 +330,13 @@ export async function createLease(
     updatedAt: now,
   };
   batch.set(leaseRef, leaseDoc);
+  if (signDocRef) {
+    batch.set(signDocRef, {
+      id: signDocRef.id, renterId: input.renterId, renterName: input.renterName || null, leaseId: leaseRef.id,
+      kind: 'lease', title: 'Your lease', body: terms, action: 'sign', status: 'sent',
+      sentAt: now, sentBy: input.sentBy || null, meta: {},
+    });
+  }
 
   const boothStatus = input.isShared ? 'partial' : 'occupied';
   batch.update(
@@ -324,13 +348,14 @@ export async function createLease(
     { status: boothStatus, currentLeaseId: leaseRef.id, updatedAt: now }
   );
 
+  // A renter becomes active when their lease starts: now, or when they sign it (api/portal/renter document-sign).
   batch.update(
     doc(
       firestore,
       BOOTH_RENTAL_COLLECTIONS.renters(input.tenantId),
       input.renterId
     ),
-    { status: 'active', updatedAt: now }
+    awaitSignature ? { updatedAt: now } : { status: 'active', updatedAt: now }
   );
 
   await batch.commit();
@@ -389,6 +414,11 @@ export async function endLease(
       updatedAt: now,
     }
   );
+  // A lease still waiting for its signature: the copy in their portal is taken back, so it can't be signed later.
+  const signDocId = (lease as any).signatureDocumentId;
+  if (lease.status === 'pending_signature' && signDocId) {
+    batch.set(doc(firestore, 'tenants', tenantId, 'renterDocuments', String(signDocId)), { status: 'withdrawn', withdrawnAt: now }, { merge: true });
+  }
 
   const remainingLeases = allLeases.filter(
     (l) => l.boothId === lease.boothId && l.id !== lease.id && isOccupyingLease(l)
@@ -1072,6 +1102,19 @@ export interface CreateRenterInput {
   businessName?: string;
   specialty?: string;
   notes?: string;
+  linkedStaffId?: string | null;
+  avatarUrl?: string | null;
+  amenitiesEnabled?: boolean;
+  amenityCompAllowance?: number;
+  amenityPayer?: 'renter' | 'client';
+  credentials?: { label: string; number?: string; expiry?: string | null; fileUrl?: string | null; fileName?: string | null }[];
+  // Where they came from (an application or a tour), kept with them.
+  sourceApplicationId?: string | null;
+  applicationAttachments?: any[];
+  applicationMessage?: string;
+  appliedAt?: string | null;
+  consentAccepted?: boolean | null;
+  consentAcceptedAt?: string | null;
 }
 
 export async function createRenter(
@@ -1079,7 +1122,7 @@ export async function createRenter(
   input: CreateRenterInput
 ): Promise<string> {
   const now = new Date().toISOString();
-  const renterDoc: Omit<Renter, 'id'> & {
+  const renterDoc: Omit<Renter, 'id'> & Record<string, any> & {
     locationId: string;
     authUid: string | null;
     portalInviteStatus: 'not_sent' | 'sent' | 'accepted';
@@ -1092,8 +1135,20 @@ export async function createRenter(
     phone: input.phone,
     businessName: input.businessName,
     specialty: input.specialty,
-    linkedStaffId: (input as any).linkedStaffId || null,
+    linkedStaffId: input.linkedStaffId || null,
     notes: input.notes,
+    // Everything else the add-renter form and the converters send (it used to be dropped until an edit).
+    avatarUrl: input.avatarUrl || undefined,
+    amenitiesEnabled: input.amenitiesEnabled,
+    amenityCompAllowance: input.amenityCompAllowance,
+    amenityPayer: input.amenityPayer,
+    credentials: Array.isArray(input.credentials) && input.credentials.length ? input.credentials : undefined,
+    sourceApplicationId: input.sourceApplicationId || undefined,
+    applicationAttachments: Array.isArray(input.applicationAttachments) && input.applicationAttachments.length ? input.applicationAttachments : undefined,
+    applicationMessage: input.applicationMessage || undefined,
+    appliedAt: input.appliedAt || undefined,
+    consentAccepted: input.consentAccepted ?? undefined,
+    consentAcceptedAt: input.consentAcceptedAt || undefined,
     status: 'prospective',
     stripeCustomerId: null,
     defaultPaymentMethodId: null,

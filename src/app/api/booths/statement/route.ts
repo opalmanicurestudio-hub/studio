@@ -243,12 +243,15 @@ export async function GET(req: NextRequest) {
     const resByPhone = await fetchResByField('phone', renterPhone);
     const resByEmail = await fetchResByField('email', renterEmail);
     const seen = new Set<string>();
+    const resById = new Map<string, any>();
+    const counted = new Set<string>();   // bookings that are on this statement as bookings
     for (const r of [...resByPhone, ...resByEmail]) {
       if (seen.has(r.id)) continue;
-      seen.add(r.id);
+      seen.add(r.id); resById.set(String(r.id), r);
       if (!['confirmed','completed','checked_in'].includes(r.status)) continue;
       const d = r.startDate || '';
       if (d < yearStart || d > yearEnd) continue;
+      counted.add(String(r.id));
       rows.push({
         date:        r.startDate,
         description: `Day rental`,
@@ -261,19 +264,16 @@ export async function GET(req: NextRequest) {
     }
 
     // 2. Lease payments from transactions
-    const fetchTxns = async (field: string, value: string) => {
-      if (!value) return [];
-      const snap = await db.collection(`tenants/${tenantId}/transactions`)
-        .where('source', '==', 'booth_rent')
-        .where(field, '==', value).get();
-      return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-    };
-    // Try by renterId field, then by clientOrVendor name
-    const txnsByRenterId    = await fetchTxns('renterId', renterId);
-    const txnsByName        = await fetchTxns('clientOrVendor', renterName);
+    // By renter id and their own records, never by name: someone else with the same name is someone else
+    // (lib/renter-rent-history).
+    const { renterRentPayments } = await import('@/lib/renter-rent-history');
     const txnSeen = new Set<string>();
-    for (const t of [...txnsByRenterId, ...txnsByName]) {
+    for (const t of await renterRentPayments(db, tenantId, { renterId })) {
       if (txnSeen.has(t.id)) continue;
+      // A booking's own payment is already counted above (as the booking). Its other lines (overage, incidentals,
+      // refunds) are separate money and stay.
+      const bk = t.sourceId && counted.has(String(t.sourceId)) ? resById.get(String(t.sourceId)) : null;
+      if (bk && (String(t.id) === `boothrent_${String(t.sourceId).replace(/[^A-Za-z0-9_-]/g, '')}` || (!!t.stripePaymentIntentId && t.stripePaymentIntentId === bk.stripePaymentIntentId && t.category === 'Booth Rent' && !/^(Overage|Incidental)/i.test(String(t.description || ''))))) continue;
       txnSeen.add(t.id);
       const d = (t.date || t.createdAt || '').slice(0, 10);
       if (d < yearStart || d > yearEnd) continue;

@@ -1100,6 +1100,7 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
     stripePaymentIntentId: paymentIntentId,
     stripeChargeId:        chargeId,
     sourceId:              reservationId,
+    renterId:              r.renterId || null,
     tenantId,
     createdAt:             nowIso,
   }); } catch { return; }   // written a moment ago by the other request

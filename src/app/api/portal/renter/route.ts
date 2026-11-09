@@ -817,6 +817,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'This link has expired or was turned off. Sign in with a code below, or ask the business for a new link.' }, { status: 401 });
       }
       const r = { id: rSnap.id, ...(rSnap.data() as any) };
+      r.name = `${r.firstName || ''} ${r.lastName || ''}`.trim() || r.name || null;   // renters keep first and last names, not one name
       const key = normContact(String(r.phone || r.email || ''));
       if (!key) {
         return NextResponse.json({ ok: false, error: 'There’s no phone or email on your record yet. Ask the business to add one.' }, { status: 400 });
@@ -1058,22 +1059,16 @@ export async function POST(req: NextRequest) {
         .sort((a: any, b: any) => (b.startDate || '').localeCompare(a.startDate || ''))
         .slice(0, 8);
 
-      // Booth-rent payment history — matched by name, same as the staff portal
-      const namesToMatch = new Set<string>();
-      if (session.name) namesToMatch.add(session.name.toLowerCase());
-      if (renter) namesToMatch.add(`${renter.firstName || ''} ${renter.lastName || ''}`.trim().toLowerCase());
-      const resNames = resSnap.docs
+      // Rent and space payment history: by renter id and their own records, never by name (lib/renter-rent-history),
+      // so two people with the same name never see each other's payments. A guest without a renter record: their
+      // bookings, found by the phone or email they signed in with.
+      const myBookingIds = resSnap.docs
         .filter((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); })
-        .map((d: any) => String((d.data() as any).name || '').trim().toLowerCase())
-        .filter(Boolean);
-      resNames.forEach((n: string) => namesToMatch.add(n));
+        .map((d: any) => String(d.id));
       let payments: any[] = [];
       try {
-        const txSnap = await db.collection(`tenants/${tenantId}/transactions`)
-          .where('source', '==', 'booth_rent').get();
-        payments = txSnap.docs
-          .map((d: any) => d.data() as any)
-          .filter((t: any) => namesToMatch.has(String(t.clientOrVendor || '').trim().toLowerCase()))
+        const { renterRentPayments } = await import('@/lib/renter-rent-history');
+        payments = (await renterRentPayments(db, tenantId, { renterId: renter?.id || null, extraSourceIds: myBookingIds }))
           .map((t: any) => ({
             id: t.id, date: t.date, description: t.description || '',
             amount: t.amount || 0, type: t.type, category: t.category || '',
@@ -1375,6 +1370,9 @@ export async function POST(req: NextRequest) {
           firstName: renter.firstName || '', lastName: renter.lastName || '',
           businessName: renter.businessName || null,
           cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null,
+          // A card this business can actually charge (saved on its own account, lib/space-stripe). One saved before the
+          // business's payments moved is on file but has to be saved again.
+          cardUsable: !!(renter.cardOnFile && renterBusinessCard(renter, spacePayAccount(tenant))),
           autopayEnabled: renter.autopayEnabled === true,
           insuranceExpiry: renter.insuranceExpiry || null, insuranceDocUrl: renter.insuranceDocUrl || null,
           insuranceCarrier: renter.insuranceCarrier || null, insurancePolicyNumber: renter.insurancePolicyNumber || null,
@@ -3483,7 +3481,7 @@ export async function POST(req: NextRequest) {
       const t = (thread.data() as any) || {};
       if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
 
-      for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.title, at: x.sentAt, tone: 'amber' }); }
+      for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.kind === 'lease' ? 'Your lease is ready to sign' : x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.kind === 'lease' ? 'Rent starts once you sign.' : x.title, at: x.sentAt, tone: 'amber' }); }
       // Building rules from the studio (lib/renter-rules) — new ones to sign, or a new version to sign again.
       try { const { rulesFor } = await import('@/lib/renter-rules'); const br = await rulesFor(db, tenantId, rid);
         for (const x of br.rules) if (x.state !== 'signed') items.push({ kind: 'document', tab: 'studio', title: x.state === 'resign' ? 'The building rules changed — sign again' : 'Building rules to sign', body: `${x.title}${x.signBy ? ` · by ${x.signBy}` : ''}`, at: new Date(now).toISOString(), tone: 'amber' });
@@ -3682,7 +3680,7 @@ export async function POST(req: NextRequest) {
         await dRef.set({ status: 'declined', declinedAt: nowIso, declineNote: note }, { merge: true });
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({ id: nRef.id, type: 'renter_document', read: false, createdAt: nowIso, link: '/renters',
-          message: `${renterName} has declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.` });
+          message: `${renterName} has declined "${d.title}"${note ? `: "${note.slice(0, 120)}"` : ''}.${d.kind === 'lease' ? ' The lease is still waiting and the space is still held for them. Change it and send it again, or end it.' : ''}` });
         const mRef = db.collection(`tenants/${tenantId}/renterThreads/${session.renterId}/messages`).doc();
         await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, text: `Declined "${d.title}"${note ? `\n\n${note}` : ''}` });
         await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `Declined "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
@@ -3695,15 +3693,35 @@ export async function POST(req: NextRequest) {
       const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
       const record = buildSignedRecord(sRef.id, {
         subjectType: 'renter', subjectId: session.renterId, subjectName: renterName,
-        kind: d.kind === 'renewal_offer' ? 'lease' : 'policy',
+        kind: d.kind === 'renewal_offer' || d.kind === 'lease' ? 'lease' : 'policy',
         title: d.title, agreementText: d.body,
         meta: { renterDocumentId: docId, renterDocKind: d.kind, leaseId: d.leaseId || null, ...(d.meta || {}) },
       }, signedName);
       (record as any).userAgent = req.headers.get('user-agent') || null;
       (record as any).ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
       (record as any).action = d.action || 'sign';
-      await sRef.set(record);
-      await dRef.set({ status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
+      // Signed once, in one step: two taps at once can't both sign. A lease is signed and started together (it was
+      // waiting, and nothing billed it), so a signed lease can never be left waiting; one that was ended or changed
+      // meanwhile isn't signed at all.
+      const isLease = d.kind === 'lease' && !!d.leaseId;
+      const lRef = isLease ? db.doc(`tenants/${tenantId}/leases/${d.leaseId}`) : null;
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      const outcome: 'ok' | 'taken' | 'lease_gone' = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(dRef)).data() as any) || {};
+        const l: any = lRef ? (((await tx.get(lRef)).data() as any) || null) : null;
+        const who: any = lRef ? (((await tx.get(rRef)).data() as any) || {}) : null;
+        if (cur.status !== 'sent') return 'taken';
+        if (lRef && (!l || String(l.renterId || '') !== session.renterId || l.status !== 'pending_signature')) return 'lease_gone';
+        tx.set(sRef, record);
+        tx.set(dRef, { status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
+        if (lRef) {
+          tx.set(lRef, { status: 'active', signedAt: nowIso, signedByName: signedName, signedDocumentId: sRef.id, signatureDocumentId: docId, activatedAt: nowIso, updatedAt: nowIso }, { merge: true });
+          if (!who?.status || who.status === 'prospective') tx.set(rRef, { status: 'active', updatedAt: nowIso }, { merge: true });
+        }
+        return 'ok';
+      });
+      if (outcome === 'taken') return NextResponse.json({ ok: false, error: 'This document was already signed, or the business took it back.' }, { status: 400 });
+      if (outcome === 'lease_gone') return NextResponse.json({ ok: false, error: 'This lease was changed or ended by the business, so it can’t be signed. Ask them to send it again.' }, { status: 409 });
 
       // A renewal changes the lease at signature. End date now; a rent change
       // takes effect on its start date — today if that has passed, otherwise
@@ -3729,6 +3747,16 @@ export async function POST(req: NextRequest) {
             actor: { type: 'user', id: session.renterId, name: `${signedName} (renter)` },
           });
         }
+      }
+
+      // Their lease, signed and started: the rent jobs pick it up from here.
+      if (isLease) {
+        leaseNote = ' Their lease is now active, and rent bills on its schedule.';
+        await logAuditAdmin(db, tenantId, {
+          action: 'lease.signed', targetType: 'lease', targetId: d.leaseId,
+          summary: `Lease signed by ${signedName} in the renter portal; the lease is now active`,
+          actor: { type: 'user', id: session.renterId, name: `${signedName} (renter)` },
+        });
       }
 
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
@@ -4061,7 +4089,7 @@ export async function POST(req: NextRequest) {
       // again first.
       const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()))));
       if (on && !hasCard) {
-        return NextResponse.json({ ok: false, error: r.cardOnFile ? 'Please save your card again first — autopay needs it saved with this business.' : 'Add a card first — autopay needs one to draft from.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: r.cardOnFile ? 'Please save your card again first. Autopay needs it saved with this business.' : 'Save a card first. Autopay takes rent from it.' }, { status: 400 });
       }
       const nowIso = new Date().toISOString();
       await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });

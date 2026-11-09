@@ -264,21 +264,26 @@ export function RenterProfileDrawer({
       .sort((a, b) => String(b.requestedAt || '').localeCompare(String(a.requestedAt || ''))),
     [amenityRequests, renter.id]);
 
+  // Their rent and space payments: by renter id, or (older lines) recorded against their own lease, rent bills, ledger
+  // lines or bookings. Never by name: someone else with the same name is someone else (lib/renter-rent-history).
+  const sourceKey = [lease?.id || '', ...(record?.invoices || []).map((i: any) => i.id), ...(record?.ledger || []).map((l: any) => l.id), ...myReservations.map((r: any) => r.id)].filter(Boolean).join(',');
   useEffect(() => {
+    if (!firestore || !tenantId || !renter?.id) return;
     let cancelled = false;
     (async () => {
       try {
-        const byName = await getDocs(query(
-          collection(firestore, 'tenants', tenantId, 'transactions'),
-          where('source', '==', 'booth_rent'),
-          where('clientOrVendor', '==', fullName)));
+        const col = collection(firestore, 'tenants', tenantId, 'transactions');
+        const found = new Map<string, any>();
+        const keep = (docs: any[]) => { for (const d of docs) { const x: any = d.data() || {}; if (x.source === 'booth_rent') found.set(d.id, { id: d.id, ...x }); } };
+        keep((await getDocs(query(col, where('renterId', '==', renter.id)))).docs);
+        const ids = sourceKey ? sourceKey.split(',') : [];
+        for (let i = 0; i < ids.length; i += 30) keep((await getDocs(query(col, where('sourceId', 'in', ids.slice(i, i + 30))))).docs);
         if (cancelled) return;
-        setTxns(byName.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
-          .sort((a, b) => ((b.date || b.createdAt || '') + '').localeCompare((a.date || a.createdAt || '') + '')));
+        setTxns([...found.values()].sort((a, b) => ((b.date || b.createdAt || '') + '').localeCompare((a.date || a.createdAt || '') + '')));
       } catch { if (!cancelled) setTxns([]); }
     })();
     return () => { cancelled = true; };
-  }, [firestore, tenantId, fullName]);
+  }, [firestore, tenantId, renter?.id, sourceKey]);
 
   const dollars = (t: any) => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
   const dateStr = (v: any) => {

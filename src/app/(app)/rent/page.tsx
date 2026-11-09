@@ -1413,7 +1413,7 @@ export default function RentRollPage() {
         date: paymentForm.date,
         paymentMethod: methodLabel,
       });
-      batch.set(txnRef, { ...entry, id: txnRef.id });
+      batch.set(txnRef, { ...entry, id: txnRef.id, renterId: paymentRenter.id, leaseId: lease?.id || null });   // whose it is, by id (lib/renter-rent-history)
 
       // 3. Mark settled charges paid
       for (const chargeId of settledIds) {

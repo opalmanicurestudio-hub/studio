@@ -298,7 +298,7 @@ export async function GET(req: NextRequest) {
       }, { merge: true });
       // Tell the owner — the renter usually completes this on their own phone.
       tx.set(noteRef, { id: noteRef.id, type: 'booth_reservation', read: false, createdAt: at, link: '/pos?tab=spaces',
-        message: `Card on file added: ${renter.firstName || ''} ${renter.lastName || ''} (${brand} ····${last4}). Automatic rent collection is now ready.` });
+        message: `${`${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'A renter'} saved a card (${brand} ending ${last4}). Rent can be taken from it automatically once autopay is on.` });
     });
 
     return NextResponse.json({ ok: true, cardBrand: brand, cardLast4: last4, studioName, renterFirstName: renter.firstName || '' });
@@ -343,7 +343,7 @@ export async function PUT(req: NextRequest) {
     const renter = snap.data() as any;
 
     if (!renter.cardOnFile || !renter.stripeCustomerId || !renter.stripePaymentMethodId) {
-      return NextResponse.json({ ok: false, error: 'No card on file — it’s saved when the renter first pays rent online, or they can add one in their portal Documents tab.' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'No card on file. It’s saved when the renter first pays rent online, or they can save one in their portal’s Rent tab.' }, { status: 400 });
     }
     const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     // Charged on the business's own account, to a card saved there (lib/space-stripe); one saved before the move is

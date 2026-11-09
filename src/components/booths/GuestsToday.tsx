@@ -382,7 +382,7 @@ const markOverageCollected = async (r: any) => {
           amount: due / 100, category: 'Booth Rent',
           description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
           clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
-          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
+          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso, renterId: r.renterId || null,
         });
         tx.update(resRef, { overageStatus: 'collected', overageCollectedAt: nowIso });
         tx.set(aRef, { id: aRef.id, ...auditEntry({

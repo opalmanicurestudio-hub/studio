@@ -68,7 +68,7 @@ export default function RentersPage() {
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'active' | 'setup' | 'leave' | 'past'>('active');
+  const [filter, setFilter] = useState<'active' | 'new' | 'setup' | 'leave' | 'past'>('active');
   const [inviting, setInviting] = useState<string>('');
   const [renterServices, setRenterServices] = useState<any[]>([]);
 
@@ -133,10 +133,12 @@ export default function RentersPage() {
         const noPortal = r.portalInviteStatus !== 'accepted';
         return { r, myLeases, unsigned, spaces, rent, freq, ownMode, book, needsSetup, noPortal };
       });
-  }, [renters, leases, staff, booths, selectedLocationId]);
+  }, [renters, leases, staff, booths, selectedLocationId, renterServices]);
 
+  const myLeasesOf = (renterId: string) => leases.filter((l) => l.renterId === renterId && OCCUPYING.includes(String(l.status))).length;
   const stats = useMemo(() => ({
     active: rows.filter((x) => x.r.status === 'active').length,
+    fresh: rows.filter((x) => x.r.status === 'prospective').length,
     setup: rows.filter((x) => x.needsSetup).length,
     leave: rows.filter((x) => x.r.status === 'on_leave').length,
     past: rows.filter((x) => x.r.status === 'past').length,
@@ -145,6 +147,7 @@ export default function RentersPage() {
   const visible = useMemo(() => {
     let list = rows;
     if (filter === 'active') list = rows.filter((x) => ['active', 'on_leave'].includes(String(x.r.status)));
+    if (filter === 'new') list = rows.filter((x) => x.r.status === 'prospective');   // added, no lease yet
     if (filter === 'setup') list = rows.filter((x) => x.needsSetup);
     if (filter === 'leave') list = rows.filter((x) => x.r.status === 'on_leave');
     if (filter === 'past') list = rows.filter((x) => x.r.status === 'past');
@@ -168,7 +171,7 @@ export default function RentersPage() {
   );
 
   const FILTERS: [typeof filter, string][] = [
-    ['active', 'Renting now'], ['setup', 'Needs setup'], ['leave', 'On leave'], ['past', 'Past'],
+    ['active', 'Renting now'], ['new', stats.fresh > 0 ? `New · ${stats.fresh}` : 'New'], ['setup', 'Needs setup'], ['leave', 'On leave'], ['past', 'Past'],
   ];
 
   return (
@@ -190,7 +193,10 @@ export default function RentersPage() {
             Everyone renting from you — with the ones losing bookable days sorted to the top.
           </p>
         </div>
-        <div className="shrink-0"><LocationSwitcher /></div>
+        <div className="flex shrink-0 items-center gap-2">
+          <a href="/booths?addRenter=1" className="inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Add renter</a>
+          <LocationSwitcher />
+        </div>
       </header>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -223,14 +229,15 @@ export default function RentersPage() {
         </div>
       ) : visible.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed p-8 text-center">
-          <p className="text-sm font-black">
-            {filter === 'setup' ? 'Everyone is fully set up.' : 'Nobody here.'}
+          <p className="text-[15px] font-semibold">
+            {filter === 'setup' ? 'Everyone is fully set up.' : filter === 'new' ? 'No new renters waiting for a lease.' : 'Nobody here yet.'}
           </p>
-          <p className="text-xs font-bold text-muted-foreground mt-1">
+          <p className="mt-1 text-[13.5px] text-muted-foreground">
             {filter === 'setup'
-              ? 'Every leased renter can be booked — or runs their own system on purpose.'
-              : 'Renters appear here when a lead converts or you add one in the Booth Hub.'}
+              ? 'Every renter with a lease can be booked, or runs their own booking system on purpose.'
+              : 'Renters show here when you add one or a lead or application becomes a renter. New renters wait under New until their lease is set up.'}
           </p>
+          {filter !== 'setup' && <a href="/booths?addRenter=1" className="mt-4 inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Add renter</a>}
         </div>
       ) : (
         <div className="space-y-2">
@@ -247,6 +254,10 @@ export default function RentersPage() {
                   </p>
                 </div>
                 <span className="flex flex-wrap justify-end gap-1 shrink-0">
+                  {r.status === 'prospective' && myLeasesOf(r.id) === 0 && (
+                    <a href={`/booths?lease=${encodeURIComponent(r.id)}`} onClick={(e) => e.stopPropagation()}
+                      className="inline-flex h-11 items-center rounded-xl bg-[#16171a] px-3.5 text-[13.5px] font-medium text-white">Set up lease</a>
+                  )}
                   {needsSetup && (
                     <span className="rounded-full bg-rose-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-rose-900">
                       {book.label}

@@ -49,7 +49,7 @@ export async function recordBoothOverage(db: any, tenantId: string, reservationI
       amount: cents / 100, category: 'Booth Rent',
       description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
       clientOrVendor: r.name || 'Day renter', date: at, paymentMethod: 'Card on file (Stripe)',
-      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: at,
+      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, renterId: r?.renterId || null, tenantId, createdAt: at,
     });
     // Paired Stripe processing-fee expense.
     if (feeCents > 0) tx.set(feeRef, {
@@ -81,7 +81,7 @@ export async function recordBoothIncidental(db: any, tenantId: string, reservati
       amount: amountCents / 100, category: 'Renter Incidental',
       description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
       clientOrVendor: r.name || 'Day renter', date: at, paymentMethod: 'Card on file (Stripe)',
-      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: at,
+      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, renterId: r?.renterId || null, tenantId, createdAt: at,
     });
     if (fee.feeCents > 0) tx.set(feeRef, {
       id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
@@ -112,7 +112,7 @@ export async function recordBoothRefund(db: any, tenantId: string, reservationId
       description: `Refund — ${r.boothName || 'Space'} — ${r.name || 'guest'}${reason ? ` (${String(reason).slice(0, 120)})` : ''}`,
       clientOrVendor: r.name || 'Day renter', date: at, paymentMethod: 'Card (Stripe refund)',
       hasReceipt: false, stripePaymentIntentId: pi, stripeRefundId: refund.id,
-      sourceId: reservationId, tenantId, createdAt: at,
+      sourceId: reservationId, renterId: r?.renterId || null, tenantId, createdAt: at,
     });
     tx.set(resRef, {
       status: 'refunded', refundedAt: at,

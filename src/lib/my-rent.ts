@@ -20,20 +20,22 @@ export async function myRent(db: any, tenantId: string, staffId: string) {
   if (!renter) return { renter: null };
   const leases = rows(await db.collection(`${T}/leases`).where('renterId', '==', renter.id).get());
   const lease: any = leases.find((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status)) || null;
-  const [inv, booth, credits, res, txns] = await Promise.all([
+  const [inv, booth, credits, res] = await Promise.all([
     lease ? db.collection(`${T}/rentInvoices`).where('leaseId', '==', lease.id).get().then(rows) : Promise.resolve([]),
     lease?.boothId ? db.doc(`${T}/booths/${lease.boothId}`).get().then((s: any) => s.exists ? { id: s.id, ...s.data() } : null) : Promise.resolve(null),
     db.collection(`${T}/boothCredits`).get().then(rows),
     db.collection(`${T}/boothReservations`).get().then(rows),
-    db.collection(`${T}/transactions`).where('source', '==', 'booth_rent').get().then(rows),
   ]);
   const keys = [norm(renter.email), norm(me.email), digits(renter.phone), digits(me.phone)].filter(Boolean);
   const emails = [norm(renter.email), norm(me.email)].filter(Boolean); const phones = [digits(renter.phone), digits(me.phone)].filter(Boolean);
-  const names = [`${renter.firstName || ''} ${renter.lastName || ''}`.trim(), me.name || ''].map((n) => n.toLowerCase()).filter(Boolean);
+  const reservations = res.filter((r: any) => emails.includes(norm(r.email)) || phones.includes(digits(r.phone)));
+  // Their payments by renter id and their own records, never by name (lib/renter-rent-history).
+  const { renterRentPayments } = await import('@/lib/renter-rent-history');
+  const txns = await renterRentPayments(db, tenantId, { renterId: renter.id, extraSourceIds: reservations.map((r: any) => String(r.id)) });
   return {
     renter, leases, invoices: inv, booth,
     credits: credits.filter((c: any) => { const k = String(c.contactKey || ''); return keys.includes(norm(k)) || keys.includes(digits(k)); }),
-    reservations: res.filter((r: any) => emails.includes(norm(r.email)) || phones.includes(digits(r.phone))),
-    payments: txns.filter((t: any) => t.type === 'income' && names.includes(String(t.clientOrVendor || '').toLowerCase())),
+    reservations,
+    payments: txns.filter((t: any) => t.type === 'income'),
   };
 }

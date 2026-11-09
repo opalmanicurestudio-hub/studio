@@ -734,21 +734,25 @@ export async function POST(req: NextRequest) {
       if (!link) return NextResponse.json({ ok: false, error: 'The portal link couldn’t be made. Try again in a moment.' }, { status: 500 });
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
       const to = String(r.email || '').trim();
+      // Sent with a new lease that waits for their signature: the lease is the point of the message.
+      const forLease = body.reason === 'lease';
       let emailStatus = 'skipped_no_email';
       if (to.includes('@')) {
         const out = await sendNotification(db, {
           tenantId, channel: 'email', to,
-          subject: `Your renter portal at ${studioName}`,
+          subject: forLease ? `Your lease with ${studioName} is ready to sign` : `Your renter portal at ${studioName}`,
           html: brandedEmailHtml({
             studioName,
-            title: 'Your renter portal',
+            title: forLease ? 'Your lease is ready to sign' : 'Your renter portal',
             bodyLines: [
               `Hi ${first},`,
-              'Here is your personal link to your renter portal, where you can view your rent and invoices, your card on file, autopay, documents and your bookings.',
+              forLease
+                ? 'Your lease is ready. Open your renter portal to read it and sign it. Rent starts once you sign. In the same place you can save a card, turn on autopay and see your rent.'
+                : 'Here is your personal link to your renter portal, where you can view your rent and invoices, save a card, turn on autopay, and see your documents and bookings.',
               `This link is personal to you and works for ${RENTER_LINK_DAYS} days. After that, sign in with a code sent to your phone or email, or ask us for a new link.`,
               `Kind regards, ${studioName}`,
             ],
-            cta: { label: 'Open my portal', url: link },
+            cta: { label: forLease ? 'Read and sign my lease' : 'Open my portal', url: link },
             footerNote: `Sent by ${studioName}. You're receiving this because you rent with us.`,
           }),
           kind: 'renter_portal_invite', recipientType: 'renter', recipientId: renterId,
@@ -760,7 +764,9 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId,
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
-        text: `Hi ${first}, here is your personal link to your renter portal for rent, your card on file, autopay and documents. It works for ${RENTER_LINK_DAYS} days: ${link}`,
+        text: forLease
+          ? `Hi ${first}, your lease with ${studioName} is ready to sign in your renter portal. Rent starts once you sign. This link works for ${RENTER_LINK_DAYS} days: ${link}`
+          : `Hi ${first}, here is your personal link to your renter portal for rent, your card on file, autopay and documents. It works for ${RENTER_LINK_DAYS} days: ${link}`,
       });
       const sent = emailStatus === 'sent' || smsStatus === 'sent';
       await rRef.set({
