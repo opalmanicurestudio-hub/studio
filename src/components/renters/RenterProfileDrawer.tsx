@@ -23,6 +23,8 @@ import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
 import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
+import { belongsToRenter } from '@/lib/notice-record';
+import { RenterNoticeRecord } from '@/components/renters/RenterNoticeRecord';
 import { depositPosition, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PrintLink } from '@/components/shared/PrintLink';
@@ -213,7 +215,7 @@ export function RenterProfileDrawer({
         body: JSON.stringify({ action: 'renter-message', tenantId, renterId: renter.id, text, byName: (drawerTenant as any)?.name || 'Studio' }),
       });
       const d = await res.json();
-      if (d?.ok) { setDraft(''); drawerToast({ title: 'Sent', description: `${d.emailStatus === 'sent' ? 'Emailed' : ''}${d.emailStatus === 'sent' && d.smsStatus === 'sent' ? ' and ' : ''}${d.smsStatus === 'sent' ? 'texted' : ''}${d.emailStatus !== 'sent' && d.smsStatus !== 'sent' ? 'Saved to the thread — no email or phone on file to deliver to.' : '.'}` }); }
+      if (d?.ok) { setDraft(''); setRecordTick((n) => n + 1); drawerToast({ title: 'Sent', description: `${d.emailStatus === 'sent' ? 'Emailed' : ''}${d.emailStatus === 'sent' && d.smsStatus === 'sent' ? ' and ' : ''}${d.smsStatus === 'sent' ? 'texted' : ''}${d.emailStatus !== 'sent' && d.smsStatus !== 'sent' ? 'Saved to the thread — no email or phone on file to deliver to.' : '.'}` }); }
       else drawerToast({ title: 'Not sent', description: d?.error || 'Try again in a moment.' });
     } catch { drawerToast({ title: 'Not sent', description: 'Try again in a moment.' }); }
     setSending(false);
@@ -222,6 +224,8 @@ export function RenterProfileDrawer({
   // The account record — invoices, the rent ledger, every message sent to
   // them, and their maintenance tickets. Read once when the card opens.
   const [record, setRecord] = useState<{ invoices: any[]; ledger: any[]; messages: any[]; tickets: any[] } | null>(null);
+  // Read again after a message is sent, so its email and text show how they went (lib/notice-record).
+  const [recordTick, setRecordTick] = useState(0);
   useEffect(() => {
     if (!firestore || !tenantId || !renter?.id) return;
     let cancelled = false;
@@ -240,16 +244,19 @@ export function RenterProfileDrawer({
       ]);
       // Messages are also matched by the address they went to — a notice sent
       // against a tour or invoice id still belongs on this person's record.
-      const byAddr = [
-        ...(renter.email ? await pull('messageLog', 'to', String(renter.email).trim().toLowerCase()) : []),
-        ...(renter.phone ? await pull('messageLog', 'to', String(renter.phone).replace(/[^0-9+]/g, '')) : []),
-      ];
+      const email = String(renter.email || '').trim();
+      const digits = String(renter.phone || '').replace(/\D/g, '');
+      const addrs = [...new Set([email, email.toLowerCase(), String(renter.phone || '').replace(/[^0-9+]/g, ''), digits.length === 10 ? `+1${digits}` : digits.length > 10 ? `+${digits}` : ''].filter(Boolean))];
+      const byAddr = (await Promise.all(addrs.map((a) => pull('messageLog', 'to', a)))).flat();
       const seen = new Set(byId.map((m) => m.id));
-      const messages = [...byId, ...byAddr.filter((m) => !seen.has(m.id))];
+      const messages = [...byId, ...byAddr.filter((m) => !seen.has(m.id) && (seen.add(m.id), true))]
+        // Only what was sent to them as a renter: not their own messages to their clients, nor mail to them as a client
+        // or a team member (lib/notice-record).
+        .filter((m) => belongsToRenter(m, renter.id, renter));
       if (!cancelled) setRecord({ invoices, ledger, messages, tickets });
     })();
     return () => { cancelled = true; };
-  }, [firestore, tenantId, renter?.id, renter?.email, renter?.phone]);
+  }, [firestore, tenantId, renter?.id, renter?.email, renter?.phone, recordTick]);
 
   const fullName = `${renter.firstName} ${renter.lastName}`.trim();
 
@@ -866,32 +873,19 @@ export function RenterProfileDrawer({
           )}
 
           {ptab === 'messages' && (
-            <div className="flex flex-col gap-3">
-              <p className="text-[10px] font-bold text-muted-foreground">
-                Everything here is on the record. What you send goes by email and text; their replies from the portal land here and you're told in-app.
-              </p>
-              <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
-                {thread === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
-                  : thread.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No messages yet. Start the conversation below.</p>
-                  : thread.map((m) => (
-                    <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'mr-auto bg-muted' : 'ml-auto bg-foreground text-background')}>
-                      <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
-                      <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-muted-foreground' : 'text-white/60')}>
-                        {m.byName || (m.direction === 'inbound' ? 'Renter' : 'You')} · {fmtStamp(m.createdAt)}
-                        {m.direction === 'outbound' && m.emailStatus ? ` · ${m.emailStatus === 'sent' ? 'emailed' : 'email ' + String(m.emailStatus).replace(/_/g, ' ')}` : ''}
-                        {m.direction === 'outbound' && m.smsStatus === 'sent' ? ' · texted' : ''}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-              <div className="flex gap-2">
-                <textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
-                  placeholder="Write to them…" aria-label="Message to renter"
-                  className="flex-1 rounded-2xl border-2 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
-                <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()}
-                  className="h-11 self-end rounded-2xl bg-foreground px-4 text-[10px] font-black uppercase tracking-widest text-background disabled:opacity-40">
-                  {sending ? '…' : 'Send'}
-                </button>
+            <div className="flex flex-col gap-4">
+              <RenterNoticeRecord tenantId={tenantId} renter={renter} rows={record ? record.messages : null} thread={thread} />
+              <div className="space-y-2">
+                <label htmlFor="renter-compose" className="block text-[13px] font-medium text-[#16171a]">Write to {renter.firstName || 'them'}</label>
+                <div className="flex gap-2">
+                  <textarea id="renter-compose" value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
+                    placeholder="It goes by email and text, and stays in their portal."
+                    className="flex-1 rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-[14px] outline-none focus:border-[#16171a]" />
+                  <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()}
+                    className="h-11 self-end rounded-full bg-[#16171a] px-5 text-[14px] font-medium text-white disabled:opacity-40">
+                    {sending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

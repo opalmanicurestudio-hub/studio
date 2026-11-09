@@ -50,6 +50,8 @@ export interface TimelineInput {
   boothById?: Map<string, any>;
 }
 
+import { buildNoticeRecord } from './notice-record';
+
 const s10 = (v: any) => String(v || '').slice(0, 10);
 const cents = (v: any) => Number(v) || 0;
 const nameOf = (r: any) => `${r?.firstName || ''} ${r?.lastName || ''}`.trim() || 'Renter';
@@ -79,6 +81,9 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
 
   // ── Money: invoices are the charges, the ledger is the movement ───────────
   const invoiceByLedger = new Map<string, any>();
+  // A bill settled by a payment line on their account: the payment line tells it (with the bills it paid), so the bill
+  // doesn't count the same money a second time.
+  const paymentLines = new Set((input.ledger || []).filter((e) => e.type === 'payment').map((e) => String(e.id)));
   for (const i of input.invoices || []) {
     if (i.ledgerEntryId) invoiceByLedger.set(String(i.ledgerEntryId), i);
     if (i.status === 'void') {
@@ -91,7 +96,7 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
     for (const d of (Array.isArray(i.dunningSentDays) ? i.dunningSentDays : [])) {
       push({ at: i.dunningSentAt?.[String(d)] || i.updatedAt || s10(i.dueDate), kind: 'notice', title: `Escalation notice · ${d} days late`, actor: 'system', ref: { type: 'invoice', id: i.id } });
     }
-    if (i.status === 'paid' && i.paidAt) push({ at: i.paidAt, kind: i.paidVia === 'autopay' ? 'autopay_ok' : 'payment', title: i.paidVia === 'autopay' ? 'Autopay went through' : `Invoice settled${i.paidVia ? ` · ${i.paidVia}` : ''}`, detail: `rent due ${s10(i.dueDate)}`, amountCents: -(cents(i.amountCents) + cents(i.lateFeeCents)), actor: i.paidVia === 'autopay' ? 'system' : 'owner', ref: { type: 'invoice', id: i.id } });
+    if (i.status === 'paid' && i.paidAt && !(i.ledgerEntryId && paymentLines.has(String(i.ledgerEntryId)))) push({ at: i.paidAt, kind: i.paidVia === 'autopay' ? 'autopay_ok' : 'payment', title: i.paidVia === 'autopay' ? 'Autopay went through' : `Invoice settled${i.paidVia ? ` · ${i.paidVia}` : ''}`, detail: `rent due ${s10(i.dueDate)}`, amountCents: -(cents(i.amountCents) + cents(i.lateFeeCents)), actor: i.paidVia === 'autopay' ? 'system' : 'owner', ref: { type: 'invoice', id: i.id } });
   }
   for (const e of input.ledger || []) {
     const at = e.paidAt || e.dueDate || e.createdAt;
@@ -123,29 +128,30 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
     }
   }
 
-  // ── Communications: every message, with how far it got ───────────────────
-  const threadLogIds = new Set((input.thread || []).map((m) => String(m.emailLogId || '')).filter(Boolean));
-  for (const m of input.messages || []) {
-    if (threadLogIds.has(String(m.id))) continue;          // shown as the message itself
-    const got = m.bouncedAt ? 'bounced' : m.status === 'failed' ? 'failed' : String(m.status || '').startsWith('skipped') ? 'not sent' : m.clickedAt ? 'clicked' : m.openedAt ? 'opened' : m.deliveredAt ? 'delivered' : 'sent';
+  // ── Communications: each message once, with how far each copy got ─────────
+  // An email and a text of the same notice are one entry, and a message in the conversation is the message itself, not
+  // a second entry for its email (lib/notice-record).
+  for (const n of buildNoticeRecord({ rows: input.messages || [], thread: input.thread || [], renterName: nameOf(renter) })) {
+    const copies = n.copies.map((c) => `${c.channel === 'sms' ? 'text' : 'email'} ${c.state === 'not_sent' ? 'not sent' : c.state}`);
+    if (n.threadId) {
+      const inbound = n.direction === 'in';
+      push({
+        at: n.at, kind: inbound ? 'message_in' : 'message_out',
+        title: inbound ? 'Renter wrote' : `${n.sentBy || 'You'} wrote`,
+        detail: n.body.slice(0, 200),
+        actor: inbound ? 'renter' : 'owner',
+        status: inbound ? undefined : n.copies.filter((c) => ['opened', 'delivered', 'sent'].includes(c.state)).map((c) => (c.channel === 'sms' ? 'texted' : 'emailed')).join(' · ') || undefined,
+        ref: { type: 'thread', id: n.threadId },
+      });
+      continue;
+    }
+    const got = n.went ? (n.copies.some((c) => c.state === 'opened') ? 'opened' : n.copies.some((c) => c.state === 'delivered') ? 'delivered' : 'sent')
+      : n.copies.some((c) => c.state === 'held') ? 'held' : n.copies.some((c) => c.state === 'bounced') ? 'bounced' : n.copies.some((c) => c.state === 'failed') ? 'failed' : 'not sent';
     push({
-      at: m.sentAt || m.createdAt, kind: m.direction === 'inbound' ? 'message_in' : (String(m.kind || '').includes('notice') || /overdue|dunning|barred|late/i.test(String(m.kind || '')) ? 'notice' : 'message_out'),
-      title: m.subject || String(m.kind || 'message').replace(/_/g, ' '),
-      detail: `${m.channel || 'email'} · ${got}${m.openedAt ? ` ${s10(m.openedAt)}` : ''}`,
-      actor: m.direction === 'inbound' ? 'renter' : 'system', status: got, ref: { type: 'message', id: m.id },
-    });
-  }
-
-  // ── The conversation — what was actually said, both ways ──────────────────
-  for (const m of input.thread || []) {
-    const inbound = m.direction === 'inbound';
-    push({
-      at: m.createdAt, kind: inbound ? 'message_in' : 'message_out',
-      title: inbound ? `Renter wrote` : `${m.byName || 'You'} wrote`,
-      detail: String(m.text || '').slice(0, 200),
-      actor: inbound ? 'renter' : 'owner',
-      status: inbound ? undefined : [m.emailStatus === 'sent' ? 'emailed' : null, m.smsStatus === 'sent' ? 'texted' : null].filter(Boolean).join(' · ') || undefined,
-      ref: { type: 'thread', id: m.id },
+      at: n.at, kind: n.formal || /notice|overdue|dunning|barred|late/i.test(n.kind) ? 'notice' : 'message_out',
+      title: n.title,
+      detail: copies.join(' · ') || undefined,
+      actor: n.sentBy && n.sentBy !== 'automatic' ? n.sentBy : 'system', status: got, ref: { type: 'message', id: n.id },
     });
   }
 

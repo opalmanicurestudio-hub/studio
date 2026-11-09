@@ -622,8 +622,15 @@ export async function POST(req: NextRequest) {
         `Maintenance: ${worker.name} ${status === 'resolved' ? 'resolved' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${materialsNote ? ` · materials: ${materialsNote}` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · over the agreed quote ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` · note: "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}.`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
-        await sendTenantSms(db, tenantId, t.reporter.phone,
-          `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS]}.${note ? ` Note: ${note.slice(0, 120)}` : ''}`);
+        const line = `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS]}.${note ? ` Note: ${note.slice(0, 120)}` : ''}`;
+        if (t.reporter?.type === 'renter') {
+          // A renter hears it through message settings and quiet hours, and it's on their notice record (lib/renter-text).
+          const { textRenter } = await import('@/lib/renter-text');
+          await textRenter(db, { tenantId, renterId: t.reporter.renterId || null, renter: { name: t.reporter.name || '' }, kind: 'renter_ticket_update', phone: t.reporter.phone, text: line,
+            tokens: { renter_first: String(t.reporter.name || '').trim().split(' ')[0] || 'there', ticket: `"${t.title}"`, status: String(TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS] || status).toLowerCase(), link: `${req.nextUrl?.origin || ''}/rent/${tenantId}`, studio: String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || '') } });
+        } else {
+          await sendTenantSms(db, tenantId, t.reporter.phone, line, undefined, { kind: 'ticket_update' });
+        }
       }
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.ticket_updated', targetType: 'ticket', targetId: ticketId,
@@ -744,8 +751,15 @@ export async function POST(req: NextRequest) {
         } catch { /* fall through to SMS below */ }
       }
       if (!sent && t.reporter?.phone && ['renter', 'tech', 'staff'].includes(t.reporter?.type) && smsConfigured()) {
-        const r = await sendTenantSms(db, tenantId, t.reporter.phone, line);
-        sent = r.ok;
+        if (t.reporter?.type === 'renter') {
+          const { textRenter } = await import('@/lib/renter-text');
+          const r = await textRenter(db, { tenantId, renterId: t.reporter.renterId || null, renter: { name: t.reporter.name || '' }, kind: 'renter_ticket_update', phone: t.reporter.phone, text: line,
+            tokens: { renter_first: String(t.reporter.name || '').trim().split(' ')[0] || 'there', ticket: `"${t.title}"`, status: String(TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status || 'updated').toLowerCase(), link: `${req.nextUrl?.origin || ''}/rent/${tenantId}`, studio: String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || '') } });
+          sent = r.ok;
+        } else {
+          const r = await sendTenantSms(db, tenantId, t.reporter.phone, line, undefined, { kind: 'ticket_update' });
+          sent = r.ok;
+        }
       }
       await ref.set({ lastReporterNotifyStatus: t.status, lastReporterNotifyAt: new Date().toISOString() }, { merge: true });
       return NextResponse.json({ ok: true, sent });

@@ -45,6 +45,10 @@ async function alsoText(db: any, opts: {
   tenantId: string; to: string; text: string; kind: string;
   recipientId?: string | null; recipientName?: string | null;
   eventConfirmed?: boolean; eventStartIso?: string | null;
+  /** Who it's for, when it isn't a contact: a renter's texts belong on their notice record (lib/notice-record). */
+  recipientType?: 'renter' | 'staff' | 'contact';
+  /** The renter conversation message this text carries. */
+  threadMessageId?: string | null;
 }): Promise<string> {
   const digits = String(opts.to || '').replace(/[^0-9]/g, '');
   if (digits.length < 10) return 'skipped_no_number';
@@ -52,11 +56,12 @@ async function alsoText(db: any, opts: {
     const r = await sendNotification(db, {
       tenantId: opts.tenantId, channel: 'sms', to: opts.to,
       text: opts.text, kind: opts.kind,
-      recipientType: 'contact',
+      recipientType: opts.recipientType || 'contact',
       recipientId: opts.recipientId || null,
       recipientName: opts.recipientName || null,
       eventConfirmed: opts.eventConfirmed,
       eventStartIso: opts.eventStartIso || null,
+      ...(opts.threadMessageId ? { threadMessageId: opts.threadMessageId } : {}),
     });
     return r.status;
   } catch {
@@ -535,9 +540,11 @@ export async function POST(req: NextRequest) {
         const portal = (await mintRenterLink(db, tenantId, r.id, linkBase, { renter: r }).catch(() => null)) || `${origin}/rent/${tenantId}`;
         let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
         const to = String(r.email || '').trim();
+        // The thread line's id first, so the email and the text are recorded as copies of it (lib/notice-record).
+        const mRef = db.collection(`tenants/${tenantId}/renterThreads/${r.id}/messages`).doc();
         if (to.includes('@')) {
           const out = await sendNotification(db, {
-            tenantId, channel: 'email', to,
+            tenantId, channel: 'email', to, threadMessageId: mRef.id,
             subject: `A message to all renters from ${studioName}`,
             html: brandedEmailHtml({
               studioName, title: `From ${byName || studioName}`,
@@ -553,11 +560,11 @@ export async function POST(req: NextRequest) {
           if (out.status === 'sent') emailed++;
         }
         const smsStatus = await alsoText(db, {
-          tenantId, to: String(r.phone || ''), kind: 'renter_broadcast', recipientId: r.id,
+          tenantId, to: String(r.phone || ''), kind: 'renter_broadcast', recipientId: r.id, recipientType: 'renter', threadMessageId: mRef.id,
+          recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
           text: `Message to all renters: ${clean.length > 200 ? clean.slice(0, 197) + '\u2026' : clean} Reply in your portal: ${portal}`,
         });
         if (smsStatus === 'sent') texted++;
-        const mRef = db.collection(`tenants/${tenantId}/renterThreads/${r.id}/messages`).doc();
         await mRef.set({ id: mRef.id, renterId: r.id, direction: 'outbound', text: clean, byName: byName || 'Studio', createdAt: nowIso, emailStatus, smsStatus, emailLogId, broadcastId: bRef.id });
         await db.doc(`tenants/${tenantId}/renterThreads/${r.id}`).set({ renterId: r.id, lastAt: nowIso, lastText: clean.slice(0, 140), lastDirection: 'outbound', unreadForRenter: true }, { merge: true });
         sent++;
@@ -595,9 +602,10 @@ export async function POST(req: NextRequest) {
       const portal = (await mintRenterLink(db, tenantId, String(g.renterId), linkBase, { renter: r }).catch(() => null)) || `${origin}/rent/${tenantId}`;
       let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
       const to = String(r.email || '').trim();
+      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${g.renterId}/messages`).doc();
       if (to.includes('@')) {
         const out = await sendNotification(db, {
-          tenantId, channel: 'email', to,
+          tenantId, channel: 'email', to, threadMessageId: mRef.id,
           subject: `Your concern ${g.ref}: ${statusWord}`,
           html: brandedEmailHtml({
             studioName, title: `Your concern ${g.ref}`,
@@ -611,9 +619,9 @@ export async function POST(req: NextRequest) {
         });
         emailStatus = out.status; emailLogId = (out as any).logId || null;
       }
-      const smsStatus = await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: g.renterId,
+      const smsStatus = await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: g.renterId, recipientType: 'renter', threadMessageId: mRef.id,
+        recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
         text: `Regarding your concern ${g.ref} (${statusWord}): ${line.length > 180 ? line.slice(0, 177) + '\u2026' : line} You can view it in your portal: ${portal}` });
-      const mRef = db.collection(`tenants/${tenantId}/renterThreads/${g.renterId}/messages`).doc();
       await mRef.set({ id: mRef.id, renterId: g.renterId, direction: 'outbound', text: `${g.ref} \u00b7 ${statusWord}\n\n${line}`, byName: byName || 'Studio', createdAt: nowIso, emailStatus, smsStatus, emailLogId, grievanceId });
       await db.doc(`tenants/${tenantId}/renterThreads/${g.renterId}`).set({ renterId: g.renterId, lastAt: nowIso, lastText: `${g.ref} \u00b7 ${statusWord}`, lastDirection: 'outbound', unreadForRenter: true }, { merge: true });
       return NextResponse.json({ ok: true, status: patch.status || g.status, emailStatus, smsStatus });
@@ -635,7 +643,7 @@ export async function POST(req: NextRequest) {
       const to = String(r.email || '').trim();
       if (to.includes('@')) {
         const out = await sendNotification(db, {
-          tenantId, channel: 'email', to,
+          tenantId, channel: 'email', to, threadMessageId: mRef.id,
           subject: `A message from ${studioName}`,
           html: brandedEmailHtml({
             studioName, title: `Message from ${byName || studioName}`,
@@ -650,7 +658,8 @@ export async function POST(req: NextRequest) {
         emailStatus = out.status; emailLogId = (out as any).logId || null;
       }
       const smsStatus = await alsoText(db, {
-        tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: renterId,
+        tenantId, to: String(r.phone || ''), kind: 'renter_message', recipientId: renterId, recipientType: 'renter', threadMessageId: mRef.id,
+        recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
         text: `${clean.length > 220 ? clean.slice(0, 217) + '…' : clean} Reply in your portal: ${portal}`,
       });
 
@@ -699,7 +708,7 @@ export async function POST(req: NextRequest) {
         });
         emailStatus = out.status;
       }
-      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: approved ? 'leave_approved' : 'leave_declined', recipientId: l.renterId,
+      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: approved ? 'leave_approved' : 'leave_declined', recipientId: l.renterId, recipientType: 'renter',
         text: approved
           ? `Hi ${first}, your time away from ${when} has been approved. Rent while you are away: ${l.treatment ? LEAVE_TREATMENT_LABEL[l.treatment as keyof typeof LEAVE_TREATMENT_LABEL] : 'as agreed'}.`
           : `Hi ${first}, unfortunately we are unable to approve time away from ${when} as requested. Please reply in your portal, and we will work with you to find an arrangement.` });
@@ -762,7 +771,7 @@ export async function POST(req: NextRequest) {
         emailStatus = out.status;
       }
       const smsStatus = await alsoText(db, {
-        tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId,
+        tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId, recipientType: 'renter',
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
         text: forLease
           ? `Hi ${first}, your lease with ${studioName} is ready to sign in your renter portal. Rent starts once you sign. This link works for ${RENTER_LINK_DAYS} days: ${link}`
@@ -807,7 +816,7 @@ export async function POST(req: NextRequest) {
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
         tokens: { renter_first: firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`), amount: '', link: payUrl, studio: studioName },
       });
-      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_barred_notice', recipientId: renterId,
+      await alsoText(db, { tenantId, to: String(r.phone || ''), kind: 'renter_barred_notice', recipientId: renterId, recipientType: 'renter',
         text: `Hi ${firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`)}, booking is paused until your outstanding balance has been paid. You can pay here: ${payUrl}` });
       return NextResponse.json({ ok: out.ok, status: out.status });
     }

@@ -25,7 +25,8 @@ export async function replyOwner(db: any, t: string, phone: string, now = Date.n
   const to = e164(phone); if (!to) return { owner: 'studio' };
   const T = `tenants/${t}`;
   const logs = (await db.collection(`${T}/messageLog`).where('to', '==', to).get().catch(() => ({ docs: [] }))).docs
-    .map((d: any) => d.data() || {}).filter((m: any) => m.channel !== 'email' && now - ms(m.sentAt) < 14 * DAY && !String(m.kind || '').startsWith('renter_self_'))
+    .map((d: any) => d.data() || {}).filter((m: any) => m.channel !== 'email' && now - ms(m.sentAt) < 14 * DAY && !String(m.kind || '').startsWith('renter_self_')
+      && !m.held && !String(m.status || '').startsWith('skipped'))   // a text that never went can't be what they're answering
     .sort((a: any, b: any) => ms(b.sentAt) - ms(a.sentAt));
   const lastMsg = logs[0];
   if (lastMsg) {

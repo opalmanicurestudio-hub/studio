@@ -935,15 +935,21 @@ export async function GET(req: NextRequest) {
         // with a one-tap magic link into their portal's Pay button.
         const rentComms: any = { lateNoticeEmail: true, lateNoticeSms: true, ...(((tDoc.data() as any)?.rentComms) || {}) };
         try {
-          const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+          const { smsConfigured } = await import('@/lib/sms');
           if (rentComms.lateNoticeSms !== false && lease.renterId && smsConfigured()) {
             const rRef = db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`);
             const r = (await rRef.get()).data() as any;
             if (r?.phone) {
               const link = await renterPortalLink(db, tDoc.id, lease.renterId, r);
-              await sendTenantSms(db, tDoc.id, r.phone,
-                `Our records show that your rent due ${due} is now past due. The amount owed is $${owed.toFixed(2)}${feeCents > 0 ? ', including the late fee' : ''}. You can pay in your portal:${link ? ` ${link}` : ' (the link is in your welcome text)'}`,
-                { email: r.email || null, subject: 'Your rent is past due' });
+              // Through message settings and quiet hours, and on their notice record (lib/renter-text). The email below
+              // is its own notice, so this one doesn't fall back to email.
+              const { textRenter } = await import('@/lib/renter-text');
+              const daysLate = Math.max(1, Math.round((Date.parse(`${todayIn(tenantTimeZone(tDoc.data() as any))}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 86400000) || 1);
+              await textRenter(db, {
+                tenantId: tDoc.id, renterId: lease.renterId, renter: r, kind: 'rent_overdue',
+                text: `Our records show that your rent due ${due} is now past due. The amount owed is $${owed.toFixed(2)}${feeCents > 0 ? ', including the late fee' : ''}. You can pay in your portal:${link ? ` ${link}` : ' (the link is in your welcome text)'}`,
+                tokens: { renter_first: String(r.firstName || '').trim() || 'there', amount: `$${owed.toFixed(2)}`, days_late: daysLate, link: link || '', studio: String((tDoc.data() as any)?.name || '') },
+              });
             }
           }
         } catch { /* renter text is a bonus — the owner notification stands */ }
@@ -990,7 +996,10 @@ export async function GET(req: NextRequest) {
     try {
       const tid = tDoc.id;
       const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
-      if (!smsConfigured()) break; // no SMS → these are pure-noise skips
+      // Renter texts go through message settings and quiet hours, and onto their notice record (lib/renter-text).
+      const { textRenter } = await import('@/lib/renter-text');
+      const texting = smsConfigured();
+      const studioName = String((tDoc.data() as any)?.name || '');
       const tz = tenantTimeZone(tDoc.data() as any);
       const todayStr = todayIn(tz);
       const base = linkOrigin((tDoc.data() as any), '');
@@ -1000,7 +1009,7 @@ export async function GET(req: NextRequest) {
         const dueSnap = await db.collection(`tenants/${tid}/rentInvoices`).where('status', '==', 'due').get();
         const soon = todayIn(tz, new Date(Date.now() + 3 * 86400000));
         for (const inv of dueSnap.docs) {
-          if (!automationOn(tDoc.data(), 'rent-due')) break;   // switched off in Automations
+          if (!automationOn(tDoc.data(), 'rent-due') || !texting) break;   // switched off in Automations, or no texting here (lib/reminders emails it)
           const v = inv.data() as any;
           const due = String(v.dueDate || '').slice(0, 10);
           if (!due || due > soon || due < todayStr || v.renterDueNotifiedAt) continue;
@@ -1012,10 +1021,16 @@ export async function GET(req: NextRequest) {
           // (A card saved on the platform's account before the move can't be charged by autopay, so they're asked; lib/space-stripe.)
           if ((r.autopayEnabled === true || lease.autoCollect === true) && renterBusinessCard(r, (tDoc.data() as any)?.stripeAccountId || null)) continue;
           const link = await renterPortalLink(db, tid, lease.renterId, r);
-          const sent = await sendTenantSms(db, tid, r.phone,
-            `Hi ${String(r.firstName || '').trim() || 'there'}, this is a friendly reminder that your rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : `on ${due}`}. You can pay securely in your portal:${link ? ` ${link}` : ''}`,
-            { email: r.email || null, subject: 'Your rent is due soon' });
+          const amount = `$${((v.amountCents || 0) / 100).toFixed(2)}`;
+          const sent = await textRenter(db, {
+            tenantId: tid, renterId: lease.renterId, renter: r, kind: 'renter_rent_due',   // the email reminder is its own (lib/reminders)
+            text: `Hi ${String(r.firstName || '').trim() || 'there'}, this is a friendly reminder that your rent of ${amount} is due ${due === todayStr ? 'today' : `on ${due}`}. You can pay securely in your portal:${link ? ` ${link}` : ''}`,
+            tokens: { renter_first: String(r.firstName || '').trim() || 'there', amount, when: due === todayStr ? 'today' : `on ${due}`, link: link || '', studio: studioName },
+          });
           if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; await noteAutomation(db, tid, 'rent-due'); }
+          // Switched off in message settings, or they replied STOP: asking again tomorrow won't change it (and each try
+          // would be another line on their record).
+          else if (sent.final) await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString(), renterDueTextNotSent: String(sent.error || 'not sent').slice(0, 120) }, { merge: true });
         }
       } catch { /* isolated */ }
 
@@ -1027,7 +1042,7 @@ export async function GET(req: NextRequest) {
         for (const rDoc of renters.docs) {
           if (!automationOn(tDoc.data(), 'renter-paperwork')) break;   // switched off in Automations
           const r = rDoc.data() as any;
-          if (!r?.phone || r.status === 'former') continue;
+          if ((!r?.phone && !r?.email) || r.status === 'former') continue;
           // Required-but-never-provided: one ask per 30 days, only when the
           // shop's own onboarding rules say the document must be on file.
           // Not required → not chased; a missing document is then just a
@@ -1039,9 +1054,11 @@ export async function GET(req: NextRequest) {
             const last = String(r[stamp] || '').slice(0, 10);
             if (last && last > todayIn(tz, new Date(Date.now() - 30 * 86400000))) continue;
             const link = await renterPortalLink(db, tid, rDoc.id, r);
-            const sent = await sendTenantSms(db, tid, r.phone,
-              `Hi ${String(r.firstName || '').trim() || 'there'}, we need a copy of your ${kind} on file to rent here. Please add it in your portal (Insurance & licence) with the expiration date and a photo:${link ? ` ${link}` : ''}`,
-              { email: r.email || null, subject: `We need a copy of your ${kind} on file` });
+            const sent = await textRenter(db, {
+              tenantId: tid, renterId: rDoc.id, renter: r, kind: 'renter_paperwork_missing', emailFallback: true, subject: `We need a copy of your ${kind} on file`,
+              text: `Hi ${String(r.firstName || '').trim() || 'there'}, we need a copy of your ${kind} on file to rent here. Please add it in your portal (Insurance & license) with the expiration date and a photo:${link ? ` ${link}` : ''}`,
+              tokens: { renter_first: String(r.firstName || '').trim() || 'there', document: kind, link: link || '', studio: studioName },
+            });
             if (sent.ok) { await rDoc.ref.set({ [stamp]: todayStr }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
           for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
@@ -1050,9 +1067,11 @@ export async function GET(req: NextRequest) {
             const stampField = `credNotified_${field}`;
             if (r[stampField] === exp) continue;
             const link = await renterPortalLink(db, tid, rDoc.id, r);
-            const sent = await sendTenantSms(db, tid, r.phone,
-              `Hi ${String(r.firstName || '').trim() || 'there'}, your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} on ${exp}. Please upload the renewed copy in your portal (Insurance & licence):${link ? ` ${link}` : ''}`,
-              { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
+            const sent = await textRenter(db, {
+              tenantId: tid, renterId: rDoc.id, renter: r, kind: 'renter_credential_expiring', emailFallback: true, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}`,
+              text: `Hi ${String(r.firstName || '').trim() || 'there'}, your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} on ${exp}. Please upload the renewed copy in your portal (Insurance & license):${link ? ` ${link}` : ''}`,
+              tokens: { renter_first: String(r.firstName || '').trim() || 'there', document: label, expiry: exp, link: link || '', studio: studioName },
+            });
             if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; await noteAutomation(db, tid, 'renter-paperwork'); }
           }
         }
@@ -1062,7 +1081,7 @@ export async function GET(req: NextRequest) {
       try {
         const isMonday = new Date().getUTCDay() === 1;
         const lastDigest = String((tDoc.data() as any)?.lastTechDigestAt || '').slice(0, 10);
-        if (isMonday && lastDigest !== todayStr && automationOn(tDoc.data(), 'weekly-digest')) {
+        if (texting && isMonday && lastDigest !== todayStr && automationOn(tDoc.data(), 'weekly-digest')) {
           const [ws, ts] = await Promise.all([
             db.collection(`tenants/${tid}/maintenanceWorkers`).get(),
             db.collection(`tenants/${tid}/tickets`).get(),
@@ -1365,9 +1384,14 @@ export async function GET(req: NextRequest) {
               if (lease?.renterId) {
                 const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
                 if (r?.phone) {
-                  await sendTenantSms(db, tid, r.phone,
-                    `Hi ${String(r.firstName || '').trim() || 'there'}, please note that scheduled maintenance will take place at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? `. ${p.assigneeName} will be handling it` : ''}. If you have any questions, please reply to this message or ask the front desk.`);
-                  planTotals.renterTexts = (planTotals.renterTexts || 0) + 1;
+                  // Through message settings and quiet hours, and on their notice record (lib/renter-text).
+                  const { textRenter } = await import('@/lib/renter-text');
+                  const sent = await textRenter(db, {
+                    tenantId: tid, renterId: lease.renterId, renter: r, kind: 'renter_ticket_update',
+                    text: `Hi ${String(r.firstName || '').trim() || 'there'}, please note that scheduled maintenance will take place at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? `. ${p.assigneeName} will be handling it` : ''}. If you have any questions, please reply to this message or ask the front desk.`,
+                    tokens: { renter_first: String(r.firstName || '').trim() || 'there', ticket: `"${p.title}"`, status: `scheduled for today at ${p.boothName || 'your station'}`, link: '', studio: String((tDoc.data() as any)?.name || '') },
+                  });
+                  if (sent.ok) planTotals.renterTexts = (planTotals.renterTexts || 0) + 1;
                 }
               }
             }

@@ -11,6 +11,7 @@ export const PRINT_PATHS = [
   '/api/booths/account-statement',
   '/api/booths/renter-document',
   '/api/booths/interruption-packet',
+  '/api/booths/notice-record',
 ] as const;
 export type PrintPath = typeof PRINT_PATHS[number];
 export const PRINT_LINK_MS = 10 * 60 * 1000;

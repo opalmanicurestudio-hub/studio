@@ -26,6 +26,7 @@
 // callers fall back to the owner-inbox notification path.
 
 import { hideCodes } from './code-redact';
+import { wordsFingerprint } from './notice-fingerprint';
 
 const TWILIO_API = 'https://api.twilio.com/2010-04-01';
 
@@ -44,7 +45,12 @@ export function toE164(raw: any): string | null {
   return null;
 }
 
-export interface SmsResult { ok: boolean; sid?: string; error?: string; via?: 'sms' | 'email' }
+export interface SmsResult { ok: boolean; sid?: string; error?: string; via?: 'sms' | 'email';
+  /** The message log entry this text was written to (tenants/{id}/messageLog). */
+  logId?: string | null;
+  /** Not sent because they replied STOP (and no email fallback took it). */
+  optedOut?: boolean }
+
 
 // ── EMAIL FALLBACK — the secondary delivery method ─────────────────────
 // When a text can't go out (Twilio down, unconfigured, number rejected,
@@ -152,6 +158,10 @@ export type SmsMeta = {
   /** The shop order it's about, so a reply can find its way back to that order (lib/order-texts). */
   orderId?: string | null;
   skipMessageLog?: boolean;            // notify.ts email path logs its own
+  /** The renter conversation message this text carries (renterThreads/{id}/messages), so the record shows them as one. */
+  threadMessageId?: string | null;
+  /** Ties the text to the email of the same notice, when the caller knows they're one. */
+  noticeKey?: string | null;
 };
 
 async function resolveRecipient(db: any, tenantId: string, e164: string | null) {
@@ -201,12 +211,16 @@ export async function sendTenantSms(
   const e164 = toE164(to);
   // They replied STOP: no more texts to this number from this business (the carrier would block them anyway). An email
   // fallback still goes. START or UNSTOP lifts it (/api/sms/inbound).
+  let stopped: SmsResult | null = null;
   if (e164) {
     try { const out = ((await db.doc(`tenants/${tenantId}/private/smsOptOuts`).get()).data() as any) || {};
       if (out[e164.replace(/[^\d]/g, '')]) {
-        if (fallback?.email) { const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName, tenantDoc, fallback?.fromName || null, !!(meta as any)?.renterId); if (emailed) return { ok: true, via: 'email', error: 'opted out of texts — delivered by email' } as SmsResult; }
-        return { ok: false, error: 'They replied STOP, so texts to this number are off.' } as SmsResult; } } catch { /* the carrier's own STOP still protects */ }
+        stopped = { ok: false, optedOut: true, error: 'They replied STOP, so texts to this number are off.' };
+        if (fallback?.email) { const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName, tenantDoc, fallback?.fromName || null, !!(meta as any)?.renterId); if (emailed) stopped = { ok: true, via: 'email', error: 'opted out of texts — delivered by email' }; }
+      } } catch { /* the carrier's own STOP still protects */ }
   }
+  // A text they said STOP to is still on the record, with why it didn't go (lib/notice-record).
+  if (stopped) { stopped.logId = await logText(db, tenantId, to, e164, body, stopped, fallback, meta); return stopped; }
   let firstContact = false;
   if (e164) {
     try {
@@ -233,7 +247,7 @@ export async function sendTenantSms(
     const ref = db.collection(`tenants/${tenantId}/private`).doc('smsLog')
       .collection('messages').doc();
     await ref.set({
-      id: ref.id, to: toE164(to) || String(to).slice(0, 30), body: branded.slice(0, 500),
+      id: ref.id, to: toE164(to) || String(to).slice(0, 30), body: hideCodes(meta?.kind, branded).slice(0, 500),
       ok: result.ok, via: result.via || 'sms', sid: result.sid || null, error: result.error || null,
       fallbackEmail: (!result.ok || result.via === 'email') ? (fallback?.email || null) : null,
       at: new Date().toISOString(),
@@ -242,50 +256,64 @@ export async function sendTenantSms(
 
   // v17 — the shared journey log (what the Message Log screen and the
   // appointment Communications panel read), with recipient linkage.
-  if (!meta?.skipMessageLog) {
-    try {
-      const who = (meta && (meta.recipientType || meta.recipientId))
-        ? { recipientType: meta.recipientType || 'other', recipientId: meta.recipientId || null, recipientName: meta.recipientName || null }
-        : (await resolveRecipient(db, tenantId, e164))
-          || { recipientType: 'other' as const, recipientId: null, recipientName: meta?.recipientName || null };
-      const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
-      await logRef.set({
-        id: logRef.id,
-        channel: result.via === 'email' ? 'email' : 'sms',
-        kind: meta?.kind || 'text',
-        to: result.via === 'email' ? (fallback?.email || '') : (e164 || String(to).slice(0, 30)),
-        subject: null,
-        preview: hideCodes(meta?.kind, body).slice(0, 140),
-        body: hideCodes(meta?.kind, body).slice(0, 1600),   // the whole text, for the conversation record (a one-time code hidden)
-        sentBy: (meta as any)?.sentBy || null,
-        renterId: (meta as any)?.renterId || null,
-        status: result.ok ? 'sent' : 'failed',
-        error: result.ok ? null : (result.error || null),
-        providerId: result.sid || null,
-        appointmentId: meta?.appointmentId || null,
-        orderId: meta?.orderId || null,
-        clientId: who.recipientType === 'client' ? who.recipientId : null,
-        clientName: who.recipientType === 'client' ? who.recipientName : null,
-        recipientType: who.recipientType,
-        recipientId: who.recipientId,
-        recipientName: who.recipientName,
-        sentAt: new Date().toISOString(),
-        deliveredAt: null, openedAt: null, clickedAt: null,
-        bouncedAt: null, failureDetail: null,
-      });
-      // Delivery tracking: Twilio's status callback finds this entry by sid.
-      if (result.sid) {
-        try {
-          await db.doc(`msgIndex/${result.sid}`).set({
-            tenantId, logId: logRef.id, channel: 'sms', at: new Date().toISOString(),
-          });
-        } catch { /* tracking is best-effort */ }
-      }
-    } catch { /* the log never blocks the message */ }
+  result.logId = await logText(db, tenantId, to, e164, body, result, fallback, meta, result.ok && result.via !== 'email' ? branded : null);
   // Sent on a renter's behalf: the renter's conversation keeps it too, so a reply reads in context (lib/renter-inbox).
-  if ((meta as any)?.renterId && result.ok && result.via !== 'email') {
+  if (!meta?.skipMessageLog && (meta as any)?.renterId && result.ok && result.via !== 'email') {
     try { const { recordRenterSent } = await import('@/lib/renter-inbox'); await recordRenterSent(db, tenantId, String((meta as any).renterId), to, body, { clientId: meta?.recipientType === 'client' ? meta?.recipientId || null : null, clientName: meta?.recipientName || null, kind: meta?.kind || null }); } catch { /* best-effort */ }
   }
-  }
   return result;
+}
+
+/** One text (or its email fallback) in the message log, word for word with any one-time code hidden, whatever happened
+ *  to it: sent, failed, or not sent because they replied STOP. Returns the entry's id. */
+async function logText(db: any, tenantId: string, to: string, e164: string | null, body: string, result: SmsResult,
+  fallback: { email?: string | null } | undefined, meta: SmsMeta | undefined, went: string | null = null): Promise<string | null> {
+  if (meta?.skipMessageLog) return null;
+  try {
+    const who = (meta && (meta.recipientType || meta.recipientId))
+      ? { recipientType: meta.recipientType || 'other', recipientId: meta.recipientId || null, recipientName: meta.recipientName || null }
+      : (await resolveRecipient(db, tenantId, e164))
+        || { recipientType: 'other' as const, recipientId: null, recipientName: meta?.recipientName || null };
+    const words = hideCodes(meta?.kind, body).slice(0, 1600);   // the whole text, for the conversation record (a one-time code hidden)
+    const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
+    await logRef.set({
+      id: logRef.id,
+      channel: result.via === 'email' ? 'email' : 'sms',
+      kind: meta?.kind || 'text',
+      to: result.via === 'email' ? (fallback?.email || '') : (e164 || String(to).slice(0, 30)),
+      subject: null,
+      preview: words.slice(0, 140),
+      body: words,
+      // Exactly what reached their phone: the business's name in front, and on a first text the opt-out line
+      // (lib/notice-record shows and prints this; body stays the message itself for the conversation views).
+      ...(went ? { sentText: hideCodes(meta?.kind, went).slice(0, 1700) } : {}),
+      fingerprint: wordsFingerprint(null, went ? hideCodes(meta?.kind, went).slice(0, 1700) : words),
+      sentBy: (meta as any)?.sentBy || null,
+      renterId: (meta as any)?.renterId || null,
+      threadMessageId: meta?.threadMessageId || null,
+      noticeKey: meta?.noticeKey || null,
+      status: result.ok ? 'sent' : result.optedOut ? 'skipped_by_policy' : 'failed',
+      error: result.ok ? null : (result.error || null),
+      providerId: result.sid || null,
+      appointmentId: meta?.appointmentId || null,
+      orderId: meta?.orderId || null,
+      clientId: who.recipientType === 'client' ? who.recipientId : null,
+      clientName: who.recipientType === 'client' ? who.recipientName : null,
+      recipientType: who.recipientType,
+      recipientId: who.recipientId,
+      recipientName: who.recipientName,
+      sentAt: new Date().toISOString(),
+      deliveredAt: null, openedAt: null, clickedAt: null,
+      bouncedAt: null, failureDetail: null,
+    });
+    // Delivery tracking: Twilio's status callback finds this entry by sid.
+    if (result.sid) {
+      try {
+        await db.doc(`msgIndex/${result.sid}`).set({
+          tenantId, logId: logRef.id, channel: 'sms', at: new Date().toISOString(),
+        });
+      } catch { /* tracking is best-effort */ }
+    }
+    return logRef.id;
+  } catch { return null; /* the log never blocks the message */ }
 }

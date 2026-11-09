@@ -88,6 +88,11 @@ export type NotifyInput = {
   fromName?: string | null;
   /** Email only: mail headers to add. Only the unsubscribe pair is passed on (lib/campaigns unsubHeaders). */
   headers?: Record<string, string>;
+  /** The renter conversation message this carries (renterThreads/{id}/messages): the notice record and the timeline
+   *  show the message once, with how each copy got there (lib/notice-record). */
+  threadMessageId?: string | null;
+  /** Ties the email and the text of one notice together, when the caller sends both. */
+  noticeKey?: string | null;
 };
 
 // The only mail headers a caller may add: the pair the mailbox's own Unsubscribe button reads (RFC 8058), each in the
@@ -110,6 +115,8 @@ export type NotifyResult = {
   error?: string;
   /** A text held for the shop's quiet hours: it goes out when they end, so the caller counts it as on its way. */
   held?: boolean;
+  /** The message log entry this attempt was written to. */
+  logId?: string | null;
 };
 
 const mask = (to: string) => {
@@ -271,6 +278,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
    * 3am wakes someone up. Deferred rather than dropped: the log records why,
    * and nothing that must reach a person tonight is a text anyway. */
   let quietDeferred = false;
+  // A text that reached the texting layer is logged there (lib/sms), with its delivery tracking; every other text
+  // attempt (switched off, held for quiet hours, no provider) is logged below, so nothing goes unrecorded.
+  let smsLogged = false;
   if (!suppressed && channel === 'sms' && tenantDoc && !input.essential && !input.afterQuiet) {
     try {
       const { resolveQuietHours, inQuietHours } = await import('./message-policy');
@@ -290,6 +300,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     result = queued
       ? { ok: false, status: 'skipped_by_policy', error: 'held until your quiet hours end', held: true }
       : { ok: false, status: 'failed', error: 'could not be held for after quiet hours' };
+  } else if (channel === 'email' && !/@/.test(String(to || ''))) {
+    result = { ok: false, status: 'failed', error: 'No email address on file' };
   } else if (channel === 'email') {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
@@ -366,6 +378,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       } else {
         const r = await sendTenantSms(db, tenantId, to, input.text || '', undefined, {
           kind,
+          threadMessageId: input.threadMessageId || null,
+          noticeKey: input.noticeKey || null,
           appointmentId: input.appointmentId || null,
           orderId: input.orderId || null,
           recipientType: input.recipientType || (input.clientId ? 'client' : undefined),
@@ -374,9 +388,10 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
           sentBy: (input as any).sentBy || null,
           renterId: (input as any).renterId || null,   // sent on a renter's behalf: replies go back to them (lib/renter-inbox)
         } as any);
+        smsLogged = !!r.logId;   // logged there; if that write failed, it's logged below instead
         result = r.ok
-          ? { ok: true, status: 'sent', providerId: r.sid || null }
-          : { ok: false, status: 'failed', error: r.error || 'SMS failed' };
+          ? { ok: true, status: 'sent', providerId: r.sid || null, logId: r.logId || null }
+          : { ok: false, status: r.optedOut ? 'skipped_by_policy' : 'failed', error: r.error || 'SMS failed', logId: r.logId || null };
       }
     } catch (e: any) {
       result = { ok: false, status: 'failed', error: String(e?.message || e).slice(0, 200) };
@@ -384,11 +399,19 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
   }
 
   // ── The auditable trail: every attempt, whatever the outcome ──
-  // (SMS sends are logged inside sendTenantSms with recipient linkage —
-  // only email logs here, to avoid duplicate entries.)
+  // (A text that reached lib/sms is logged there, with recipient linkage and delivery tracking; every email, and every
+  // text that never got that far, is logged here. One entry per attempt, never two.)
   try {
-    if (channel === 'email') {
+    // A text that couldn't go only because texting isn't set up on this copy of the app is logged for renters (their
+    // notice record says why it didn't arrive), not for every reminder to every client.
+    if (channel === 'email' || (!smsLogged && (result.status !== 'skipped_no_provider' || input.recipientType === 'renter'))) {
     const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
+    const subject = channel === 'email' && input.subject ? hideCodes(kind, String(input.subject)) : null;
+    // The whole message, word for word, for the conversation and notice records (lib/conversation, lib/notice-record).
+    // A one-time code is never kept readable in the log the team can open (lib/code-redact).
+    const words = hideCodes(kind, String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : ''))).slice(0, channel === 'email' ? 6000 : 1600);
+    let fingerprint: string | null = null;
+    try { const { wordsFingerprint } = await import('./notice-fingerprint'); fingerprint = wordsFingerprint(subject, words); } catch { /* the words are kept either way */ }
     await logRef.set({
       id: logRef.id,
       channel, kind,
@@ -396,12 +419,15 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       // log to spot typos ("client swears they got nothing" → the log
       // shows gmial.com) and fix-and-resend. Masking stays in the audit
       // summary below, which is the broader-audience surface.
-      to,
-      // A one-time code is never kept readable in the log the team can open (lib/code-redact).
-      subject: input.subject ? hideCodes(kind, String(input.subject)) : null,
+      to: channel === 'sms' ? await (async () => { try { const { toE164 } = await import('./sms'); return toE164(to) || to; } catch { return to; } })() : to,
+      subject,
       preview: input.text ? hideCodes(kind, String(input.text)).slice(0, 140) : null,
-      // The whole message, for the conversation record (lib/conversation).
-      body: hideCodes(kind, String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : ''))).slice(0, 6000) || null,
+      body: words || null,
+      fingerprint,
+      ...(result.held ? { held: true } : {}),
+      threadMessageId: input.threadMessageId || null,
+      noticeKey: input.noticeKey || null,
+      renterId: (input as any).renterId || null,
       sentBy: (input as any).sentBy || null,
       status: result.status,
       error: result.error || null,
@@ -429,6 +455,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
         });
       } catch { /* tracking is best-effort */ }
     }
+    result.logId = logRef.id;
     }
     await logAuditAdmin(db, tenantId, {
       action: `notify.${result.status}`,
@@ -436,7 +463,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       summary: `${kind.replace(/_/g, ' ')} ${channel} to ${input.recipientName || input.clientName || mask(to)} — ${
         result.status === 'sent' ? 'sent'
           : result.status === 'failed' ? `FAILED (${result.error})`
-            : result.status === 'skipped_by_policy' ? 'skipped (switched off in message settings)'
+            : result.status === 'skipped_by_policy' ? `skipped (${result.error || 'switched off in message settings'})`
               : 'skipped (no provider configured)'
       }`,
       actor: { type: 'system', name: 'notifications' },
@@ -463,7 +490,25 @@ export async function releaseHeldTexts(db: any, tenantId: string, tenant: any, n
   let sent = 0;
   for (const d of snap.docs) {
     const h: any = d.data() || {}; await d.ref.delete().catch(() => {});
-    if (now - (Date.parse(h.heldAt) || 0) > 16 * 3600e3 || !h.input?.to) continue;
+    if (!h.input?.to) continue;
+    if (now - (Date.parse(h.heldAt) || 0) > 16 * 3600e3) {
+      // Too late to be useful by the time quiet hours ended: not sent, and the record says so (lib/notice-record).
+      try {
+        const i = h.input || {}; const ref = db.collection(`tenants/${tenantId}/messageLog`).doc();
+        const words = hideCodes(i.kind, String(i.text || '')).slice(0, 1600);
+        const { toE164 } = await import('./sms');
+        await ref.set({
+          id: ref.id, channel: 'sms', kind: i.kind || 'text', to: toE164(i.to) || String(i.to), subject: null, preview: words.slice(0, 140), body: words,
+          fingerprint: (await import('./notice-fingerprint')).wordsFingerprint(null, words),
+          status: 'skipped_by_policy', error: 'held for quiet hours, then too late to send', heldExpired: true, heldAt: h.heldAt || null,
+          threadMessageId: i.threadMessageId || null, noticeKey: i.noticeKey || null, appointmentId: i.appointmentId || null,
+          clientId: i.clientId || null, clientName: i.clientName || null,
+          recipientType: i.recipientType || (i.clientId ? 'client' : 'other'), recipientId: i.recipientId || i.clientId || null, recipientName: i.recipientName || i.clientName || null,
+          sentAt: new Date(now).toISOString(), deliveredAt: null, openedAt: null, clickedAt: null, bouncedAt: null, failureDetail: null,
+        });
+      } catch { /* the held entry stays on the record as held */ }
+      continue;
+    }
     const r = await sendNotification(db, { ...h.input, afterQuiet: true }).catch(() => null); if ((r as any)?.ok) sent++;
   }
   return sent;

@@ -37,6 +37,7 @@ import {
 import { Chip, SectionTitle, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
+import { RenterInbox } from '@/components/rent/RenterInbox';
 import { LoginFlow, MySwaps, RenterConcerns, RenterDocuments, RenterInterruptions, RenterLeave, RenterMaintenance, RenterThread, ResCard, STORE, TodayQuick, api } from '@/components/rent/studio';
 import { RenterCard } from '@/components/rent/RenterCard';
 
@@ -785,6 +786,10 @@ export default function RenterPortalPage() {
               <BuildingRules tenantId={tenantId} token={session.token} name={data?.renter?.name || null} />
             )}
             {!booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere={false} />}
+
+            {session?.token && data?.renter?.id && (
+              <RenterInbox tenantId={tenantId} token={session.token} businessName={data?.studioName || data?.tenant?.name || 'the business'} />
+            )}
 
             {session?.token && data?.renter?.id && (
               <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />

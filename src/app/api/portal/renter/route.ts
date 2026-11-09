@@ -43,7 +43,7 @@ import { createHash, randomBytes } from 'crypto';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from '@/lib/audit';
-import { smsConfigured, sendTenantSms } from '@/lib/sms';
+import { smsConfigured } from '@/lib/sms';
 
 const WEEK_DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
@@ -124,7 +124,7 @@ async function tries(req: NextRequest, scope: string, who: string, max: number):
 }
 
 // ── Code delivery — swap this for SMS/email when a provider is wired ─────
-async function deliverCode(db: any, tenantId: string, contact: string, code: string, name?: string) {
+async function deliverCode(db: any, tenantId: string, contact: string, code: string, name?: string, renterId?: string | null) {
   // SMS-FIRST: when Twilio is configured and the contact is a phone
   // number, the code goes straight to the renter — the owner is out of
   // the loop entirely. Anything else (email contact, SMS down, not yet
@@ -133,16 +133,25 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
   // Secondary method: know their email too? SMS failure falls through to
   // an emailed code before bothering the owner.
   let fallbackEmail: string | null = null;
+  let who: any = null;
   try {
     const rs = await db.collection(`tenants/${tenantId}/renters`).get();
     const norm = (s: any) => String(s || '').replace(/\D+/g, '');
-    const r = rs.docs.map((d: any) => d.data() as any).find((x: any) => norm(x.phone) && norm(x.phone) === norm(contact));
-    if (r?.email && /@/.test(r.email)) fallbackEmail = r.email;
+    const hit = rs.docs.find((d: any) => d.id === renterId) || rs.docs.find((d: any) => { const x = d.data() as any; return norm(x.phone) && norm(x.phone) === norm(contact); });
+    if (hit) { who = hit.data() as any; renterId = renterId || hit.id; }
+    if (isPhone && who?.email && /@/.test(who.email)) fallbackEmail = who.email;
   } catch { /* fallback is a bonus */ }
+  let studioName = 'The studio';
+  try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
   if (isPhone && smsConfigured()) {
-    const sent = await sendTenantSms(db, tenantId, contact,
-      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can safely ignore this message.`,
-      { email: fallbackEmail, subject: 'Your sign-in code' });
+    // Through message settings like every other text (lib/renter-text): any hour, as they just asked for it, and on their
+    // record with the code hidden (lib/code-redact).
+    const { textRenter } = await import('@/lib/renter-text');
+    const sent = await textRenter(db, {
+      tenantId, renterId: renterId || null, renter: who || { name: name || '' }, kind: 'renter_signin_code', essential: true, phone: contact.trim(),
+      text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can safely ignore this message.`,
+      tokens: { code, studio: studioName, link: '' },
+    });
     if (sent.ok) {
       const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
       await ref.set({
@@ -158,8 +167,6 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
   const contactIsEmail = /@/.test(contact);
   if ((contactIsEmail || fallbackEmail) && process.env.RESEND_API_KEY) {
     try {
-      let studioName = 'The studio';
-      try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
       const { brandedEmailHtml } = await import('@/lib/email-template');
       // Through the logged sender, as a mandatory kind: a sign-in code the
       // owner cannot see in the delivery log is a support call waiting to
@@ -177,8 +184,9 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
           bigCode: code,
           footerNote: `If you did not request this code, you can safely ignore this email. Sent by ${studioName}.`,
         }),
-        kind: 'renter_signin_code',
-        recipientType: 'renter', recipientName: name || null,
+        kind: 'renter_signin_code', essential: true,
+        recipientType: 'renter', recipientId: renterId || null, recipientName: name || null,
+        tokens: { code, studio: studioName, link: '' },
       });
       if (sent.ok) {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
@@ -677,14 +685,16 @@ async function swapNotify(
           footerNote: `Day swaps are arranged between you and the other professional, and rent is not affected. Sent by ${studioName}.`,
         }),
         kind: 'renter_day_swap',
-        recipientType: 'renter', recipientName: target.name || null,
+        recipientType: 'renter', recipientId: target.renterId || null, recipientName: target.name || null,
       });
     } catch { /* the swap stands whether or not the email lands */ }
   }
 
   if (!emailOnly && comms.swapNotifySms !== false && target.phone && smsConfigured()) {
+    // Through message settings and quiet hours, and on their record (lib/renter-text). The email above already went.
     try {
-      await sendTenantSms(db, tenantId, target.phone, smsText, { email: target.email, subject });
+      const { textRenter } = await import('@/lib/renter-text');
+      await textRenter(db, { tenantId, renterId: target.renterId || null, renter: { name: target.name }, kind: 'renter_day_swap', phone: target.phone, text: smsText, tokens: { studio: studioName } });
     } catch { /* same */ }
   }
 }
@@ -745,7 +755,7 @@ export async function POST(req: NextRequest) {
         await db.doc(`tenants/${tenantId}/private/renterCodes`).set({
           [key]: { codeHash: sha256(code), expiresAt: Date.now() + CODE_TTL_MS, attempts: 0, createdAt: new Date().toISOString(), name: fp.name, renterId: fp.renterId },
         }, { merge: true });
-        await deliverCode(db, tenantId, raw, code, fp.name || undefined);
+        await deliverCode(db, tenantId, raw, code, fp.name || undefined, fp.renterId || null);
         await logAuditAdmin(db, tenantId, {
           action: 'portal.renter_code_requested',
           targetType: 'renterContact', targetId: maskContact(raw),
@@ -3488,6 +3498,13 @@ export async function POST(req: NextRequest) {
       const items: Item[] = [];
       const t = (thread.data() as any) || {};
       if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
+      // A formal notice from the last 30 days they haven't opened in the portal yet (lib/notice-record).
+      try {
+        const { loadRenterNotices } = await import('@/lib/notice-record-server');
+        const { forRenter } = await import('@/lib/notice-record');
+        const fresh = forRenter((await loadRenterNotices(db, tenantId, rid)).items).filter((n) => n.formal && !n.portalSeenAt && n.at >= since(30));
+        if (fresh.length) items.push({ kind: 'notice', tab: 'studio', title: fresh.length === 1 ? 'A notice to read' : `${fresh.length} notices to read`, body: fresh[0].title.slice(0, 90), at: fresh[0].at, tone: 'amber' });
+      } catch { /* the rest of Today still shows */ }
 
       for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.kind === 'lease' ? 'Your lease is ready to sign' : x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.kind === 'lease' ? 'Rent starts once you sign.' : x.title, at: x.sentAt, tone: 'amber' }); }
       // Building rules from the studio (lib/renter-rules) — new ones to sign, or a new version to sign again.
@@ -4052,6 +4069,23 @@ export async function POST(req: NextRequest) {
         message: `Action needed: ${r.firstName || 'A renter'} has asked to use ${days} banked rental day${days === 1 ? '' : 's'}. Please approve the request to credit their rent.`,
       });
       return NextResponse.json({ ok: true, days });
+    }
+
+    // ── notices / notice-seen: everything the business sent them, word for word (lib/notice-record) ──
+    // Every email and text, and every formal notice even when it didn't get through. Opening a notice records that
+    // they've seen it, on the record the business keeps.
+    if (action === 'notices') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { loadRenterNotices } = await import('@/lib/notice-record-server');
+      const { forRenter, renterView } = await import('@/lib/notice-record');
+      const { items } = await loadRenterNotices(db, tenantId, session.renterId);
+      return NextResponse.json({ ok: true, items: forRenter(items).slice(0, 200).map(renterView) });
+    }
+    if (action === 'notice-seen') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const { markNoticeSeen } = await import('@/lib/notice-record-server');
+      const r = await markNoticeSeen(db, tenantId, session.renterId, String(body.id || '').slice(0, 200));
+      return NextResponse.json(r, { status: r.ok ? 200 : 404 });
     }
 
     // ── thread-list / thread-send: the renter's side of the conversation ───

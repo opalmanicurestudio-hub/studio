@@ -60,6 +60,9 @@ export async function POST(req: NextRequest) {
       if (!col || !mine.includes(await ownerOf(col, params.id || ''))) return no(NOT_YOURS);
     } else if (path === '/api/booths/statement' || path === '/api/booths/account-statement') {
       if (!mine.includes(String(params.renterId || ''))) return no(NOT_YOURS);
+    } else if (path === '/api/booths/notice-record') {
+      if (!mine.includes(String(params.renterId || ''))) return no(NOT_YOURS);
+      params.view = 'renter';   // their own copy: what their portal shows them (lib/notice-record forRenter)
     } else if (path === '/api/booths/renter-document') {
       const owner = await ownerOf('renterDocuments', params.id || '');
       if (!mine.includes(owner)) return no(NOT_YOURS);
