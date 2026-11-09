@@ -3,10 +3,11 @@
 // (part of a bill when it runs out), then whole one-off charges with what's left, oldest first, and anything over what
 // they owe is kept as credit that comes off their next bill. The same money never pays two things.
 // Pure: it decides, it never writes.
-import { invoiceOwedCents, isOpenLedgerCharge } from '@/lib/booth-rental-types';
+import { invoiceOwedCents, isOpenLedgerCharge, RENT_CREDIT_TYPES, isRentCredit } from '@/lib/booth-rental-types';
 
-/** Ledger lines that are money held for the renter, drawn down against rent bills (appliedCents says how much is used). */
-export const RENT_CREDIT_TYPES = ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit'] as const;
+/** Ledger lines that are money held for the renter, drawn down against rent bills (appliedCents says how much is used).
+ *  Defined with the ledger's types (lib/booth-rental-types), so what's owed there counts them too. */
+export { RENT_CREDIT_TYPES };
 
 export interface PlannedBill { id: string; takeCents: number; full: boolean; paidCentsBefore: number }
 export interface PlannedCharge { id: string; cents: number; status: string }
@@ -69,7 +70,7 @@ export function planRentPayment(amountCents: number, invoices: any[], ledger: an
 
 /** What a credit line still has to give. */
 export function creditRemainingCents(line: any): number {
-  if (!(RENT_CREDIT_TYPES as readonly string[]).includes(String(line?.type || ''))) return 0;
+  if (!isRentCredit(line)) return 0;
   return Math.max(0, Math.abs(n(line.amountCents)) - n(line.appliedCents));
 }
 
@@ -77,7 +78,7 @@ export function creditRemainingCents(line: any): number {
 export function creditLabel(type: string): string {
   return type === 'desk_offset' ? 'front-desk collections' : type === 'prepaid_credit' ? 'paid ahead' : type === 'gift_card_credit' ? 'gift cards'
     : type === 'retail_sale_credit' ? 'online shop sales' : type === 'rent_abatement' ? 'closure credit' : type === 'leave_credit' ? 'time-away credit'
-    : type === 'sublet_credit' ? 'sublet income' : String(type || 'credit').replace(/_/g, ' ');
+    : type === 'sublet_credit' ? 'sublet income' : type === 'deposit_forfeit' ? 'security deposit' : String(type || 'credit').replace(/_/g, ' ');
 }
 
 /** Can credits safely go on this open bill now? Not while autopay may still be charging it, or has charged it without
@@ -97,8 +98,9 @@ export function accountPosition(invoices: any[], ledger: any[]): { owedCents: nu
 }
 
 export interface CreditUse { lineId: string; type: string; takeCents: number }
-/** Credits (oldest first) against open bills (oldest first). */
-export function planCredits(invoices: any[], ledger: any[]): { bills: { id: string; takeCents: number; full: boolean; paidCentsBefore: number; uses: CreditUse[] }[] } {
+/** Credits (oldest first) against open bills (oldest first), then against whole one-off charges (oldest first, the same
+ *  rule as a payment: the first the credit can't cover stops the run). */
+export function planCredits(invoices: any[], ledger: any[]): { bills: { id: string; takeCents: number; full: boolean; paidCentsBefore: number; uses: CreditUse[] }[]; charges: { id: string; cents: number; uses: CreditUse[] }[] } {
   const credits = (ledger || []).map((l) => ({ l, left: creditRemainingCents(l) })).filter((x) => x.left > 0)
     .sort((a, b) => String(a.l.date || a.l.createdAt || '').localeCompare(String(b.l.date || b.l.createdAt || '')) || String(a.l.id || '').localeCompare(String(b.l.id || '')));
   const bills = (invoices || []).filter(billTakesCredit).sort(byDue);
@@ -115,5 +117,19 @@ export function planCredits(invoices: any[], ledger: any[]): { bills: { id: stri
     if (take > 0) out.push({ id: String(inv.id), takeCents: take, full: owed <= 0, paidCentsBefore: n(inv.paidCents), uses });
     if (!credits.some((c) => c.left > 0)) break;
   }
-  return { bills: out };
+  const charges: { id: string; cents: number; uses: CreditUse[] }[] = [];
+  for (const e of (ledger || []).filter(rentCharge).sort(byDue)) {
+    const cost = n(e.amountCents);
+    if (credits.reduce((s, c) => s + c.left, 0) < cost) break;
+    let need = cost; const uses: CreditUse[] = [];
+    for (const c of credits) {
+      if (need <= 0) break;
+      if (c.left <= 0) continue;
+      const t = Math.min(c.left, need);
+      c.left -= t; need -= t;
+      uses.push({ lineId: String(c.l.id), type: String(c.l.type), takeCents: t });
+    }
+    charges.push({ id: String(e.id), cents: cost, uses });
+  }
+  return { bills: out, charges };
 }

@@ -369,6 +369,8 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
           note: String(l.redeem?.note || ''), dueDate: null, paidAt: nowIso.slice(0, 10), method: 'leave_credit',
           stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
         });
+        // It comes off their open rent now, and they're told (api/rent/notify).
+        void fetch('/api/rent/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, kind: 'credit_added', id: ref.id }) }).catch(() => null);
       }
       await updateDoc(doc(firestore, 'tenants', tenantId, 'renterLeaves', l.id), {
         redeem: { ...(l.redeem || {}), status: ok ? 'approved' : 'declined', decidedAt: new Date().toISOString(), creditCents: ok ? cents : 0 },
@@ -1282,6 +1284,13 @@ export default function RentRollPage() {
     }
   };
 
+  // The renter is told about a change made to their account by hand, written from the record on the server, once
+  // (api/rent/notify, lib/renter-account-notice). Best effort: the change stands either way.
+  const tellRenter = (kind: 'charge_added' | 'fee_waived' | 'bill_waived' | 'charge_waived' | 'credit_added', id: string) => {
+    if (!tenantId || !id) return;
+    void fetch('/api/rent/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, kind, id }) }).catch(() => null);
+  };
+
   const handleAddCharge = async () => {
     if (!firestore || !chargeRenter) return;
     const amountCents = Math.round(toNumber(chargeForm.amountDollars) * 100);
@@ -1290,7 +1299,7 @@ export default function RentRollPage() {
     try {
       const lease = leaseByRenter.get(chargeRenter.id);
       const now = new Date().toISOString();
-      await addDoc(
+      const added = await addDoc(
         collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)),
         {
           leaseId: lease?.id ?? '',
@@ -1310,6 +1319,7 @@ export default function RentRollPage() {
           updatedAt: now,
         }
       );
+      tellRenter('charge_added', added.id);
       setChargeRenter(null);
       setChargeForm({
         description: '',
@@ -1369,6 +1379,7 @@ export default function RentRollPage() {
         setCycleResult(`Waived the invoice due ${inv.dueDate}${owed > 0 ? ` (${formatCents(owed)})` : ''}.`);
       }
       await batch.commit();
+      tellRenter(what === 'fee' ? 'fee_waived' : 'bill_waived', inv.id);
       setWaiveReason((m) => ({ ...m, [inv.id]: '' }));
     } catch { setCycleResult('Could not waive that \u2014 try again.'); }
     setWaiveBusy('');
@@ -1378,8 +1389,9 @@ export default function RentRollPage() {
     if (!firestore) return;
     await updateDoc(
       doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), entry.id),
-      { status: 'waived', updatedAt: new Date().toISOString() }
+      { status: 'waived', waivedAt: new Date().toISOString(), waivedBy: 'owner', updatedAt: new Date().toISOString() }
     );
+    tellRenter('charge_waived', entry.id);
   };
 
   const historyEntries = historyRenter

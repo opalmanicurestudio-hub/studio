@@ -185,6 +185,7 @@ export function RenterProfileDrawer({
   const [dedReason, setDedReason] = useState('');
   const [refundArm, setRefundArm] = useState(false);
   const [forfeitArm, setForfeitArm] = useState(false);
+  const [depBusy, setDepBusy] = useState(false);
   const [dedPhotos, setDedPhotos] = useState<string[]>([]);
   const [docPick, setDocPick] = useState(false);
   useEffect(() => { if (!forfeitArm) return; const t = setTimeout(() => setForfeitArm(false), 5000); return () => clearTimeout(t); }, [forfeitArm]);
@@ -616,22 +617,23 @@ export function RenterProfileDrawer({
               {lease && (() => {
                 const dep = depositPosition(lease, record?.ledger || []);
                 if (dep.status === 'none') return null;
-                const write = async (type: string, cents: number, description: string, evidenceUrls: string[] = []) => {
-                  if (!firestore || !tenantId || cents <= 0) return;
-                  const nowIso = new Date().toISOString();
-                  const ref = doc(collection(firestore, 'tenants', tenantId, 'rentLedger'));
-                  await setDoc(ref, {
-                    leaseId: lease.id, renterId: renter.id, boothId: lease.boothId || null,
-                    type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents,
-                    description, note: '', dueDate: null, paidAt: nowIso.slice(0, 10), method: type === 'deposit_refund' ? 'refund' : type === 'deposit_forfeit' ? 'forfeit' : null,
-                    evidenceUrls, stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
-                  });
-                  writeBoothAudit(firestore, tenantId, {
-                    action: `booth.${type}`, targetType: 'lease', targetId: lease.id,
-                    summary: `${description} — $${(cents / 100).toFixed(2)} for ${renter.firstName || ''} ${renter.lastName || ''}`.trim(),
-                    amount: cents / 100, actor: { type: 'user' },
-                  });
-                  setRecord((r) => r ? { ...r, ledger: [...r.ledger, { id: ref.id, leaseId: lease.id, type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? cents : -cents, description, evidenceUrls, createdAt: nowIso }] } : r);
+                // Recorded on the server (api/rent/deposit, lib/rent-deposit): checked against the deposit as it stands,
+                // written once, in the books, and the renter is told in writing.
+                const write = async (type: string, cents: number, description: string, evidenceUrls: string[] = []): Promise<boolean> => {
+                  if (!tenantId || cents <= 0 || depBusy) return false;
+                  const action = type === 'deposit_charge' ? 'received' : type === 'deposit_deduction' ? 'deduct' : type === 'deposit_refund' ? 'refund' : 'apply';
+                  setDepBusy(true);
+                  try {
+                    const d: any = await fetch('/api/rent/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tenantId, leaseId: lease.id, action, cents, reason: action === 'deduct' ? description : '', evidenceUrls, requestId: crypto.randomUUID() }) })
+                      .then((r) => r.json()).catch(() => null);
+                    if (!d?.ok) { drawerToast({ variant: 'destructive', title: 'Not recorded', description: d?.error || 'Nothing was saved. Try again.' }); return false; }
+                    const nowIso = new Date().toISOString();
+                    setRecord((r) => r ? { ...r, ledger: [...r.ledger.filter((l: any) => !(action === 'received' && l.type === 'deposit_charge' && l.status !== 'paid')),
+                      { id: d.lineId, leaseId: lease.id, type, status: 'paid', amountCents: type === 'deposit_deduction' || type === 'deposit_charge' ? d.cents : -d.cents, description, evidenceUrls, createdAt: nowIso }] } : r);
+                    if (d.sentTo) drawerToast({ title: 'Notice sent', description: `${d.sentTo}.` });
+                    return true;
+                  } finally { setDepBusy(false); }
                 };
                 return (
                   <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
@@ -649,7 +651,7 @@ export function RenterProfileDrawer({
                       </div>
                     </div>
                     {dep.status === 'not_collected' && (
-                      <button type="button" onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')}
+                      <button type="button" disabled={depBusy} onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')}
                         className="h-10 w-full rounded-xl bg-foreground text-[10px] font-black uppercase tracking-widest text-background">
                         Record deposit received · {formatCents(dep.agreedCents)}
                       </button>
@@ -678,8 +680,8 @@ export function RenterProfileDrawer({
                             className="h-10 w-24 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
                           <input value={dedReason} onChange={(e) => setDedReason(e.target.value.slice(0, 120))} placeholder="Reason — goes on their statement" aria-label="Deduction reason"
                             className="h-10 flex-1 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
-                          <button type="button" disabled={!(Number(dedAmt) > 0) || !dedReason.trim()}
-                            onClick={async () => { await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim(), dedPhotos); setDedAmt(''); setDedReason(''); setDedPhotos([]); drawerToast({ title: 'Deduction recorded', description: dedPhotos.length ? `${dedPhotos.length} photo${dedPhotos.length === 1 ? '' : 's'} attached.` : undefined }); }}
+                          <button type="button" disabled={!(Number(dedAmt) > 0) || !dedReason.trim() || depBusy}
+                            onClick={async () => { if (!(await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim(), dedPhotos))) return; setDedAmt(''); setDedReason(''); setDedPhotos([]); drawerToast({ title: 'Deduction recorded', description: dedPhotos.length ? `${dedPhotos.length} photo${dedPhotos.length === 1 ? '' : 's'} attached.` : undefined }); }}
                             className="h-10 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800 disabled:opacity-40">
                             Deduct
                           </button>
@@ -695,14 +697,14 @@ export function RenterProfileDrawer({
                           {dedPhotos.length > 0 && <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">attached to the next deduction</span>}
                         </div>
                         <div className="flex gap-2">
-                          <button type="button" disabled={dep.returnableCents <= 0}
-                            onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then(() => drawerToast({ title: 'Refund recorded', description: 'Move the money by whatever means you use — this records that you did.' })); setRefundArm(false); } else setRefundArm(true); }}
+                          <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
+                            onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then((ok) => { if (ok) drawerToast({ title: 'Refund recorded', description: 'Move the money by whatever means you use. This records that you did, with every deduction listed for them.' }); }); setRefundArm(false); } else setRefundArm(true); }}
                             className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40', refundArm ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
                             {refundArm ? `Tap again — record ${formatCents(dep.returnableCents)} refunded` : `Refund ${formatCents(dep.returnableCents)}`}
                           </button>
-                          <button type="button" disabled={dep.returnableCents <= 0}
+                          <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
                             title="Apply the deposit to what they owe instead of returning it"
-                            onClick={() => { if (forfeitArm) { void write('deposit_forfeit', dep.returnableCents, 'Deposit applied to balance').then(() => drawerToast({ title: 'Deposit applied to balance', description: 'Recorded as a credit against what they owe.' })); setForfeitArm(false); } else setForfeitArm(true); }}
+                            onClick={() => { if (forfeitArm) { void write('deposit_forfeit', dep.returnableCents, 'Deposit applied to balance').then((ok) => { if (ok) drawerToast({ title: 'Deposit applied to balance', description: 'It’s a credit on their account and comes off their open rent now.' }); }); setForfeitArm(false); } else setForfeitArm(true); }}
                             className={cn('h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', forfeitArm ? 'bg-red-700 text-white' : 'border-2 border-red-200 text-red-700')}>
                             {forfeitArm ? 'Tap again — apply to balance' : 'Apply to balance'}
                           </button>

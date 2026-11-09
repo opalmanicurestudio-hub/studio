@@ -221,7 +221,8 @@ async function fresh(tenant: any = {}) {
   const booths = src('src/app/(app)/booths/page.tsx');
   check('the Rent page records through the server', rentPage.includes("fetch('/api/rent/record-payment'") && !/paymentRef = doc\(\s*collection\(firestore, BOOTH_RENTAL_COLLECTIONS\.rentLedger/.test(rentPage));
   check('Spaces records rent through the same path', booths.includes("fetch('/api/rent/record-payment'") && !booths.includes('paidAmountCents: cents, paidLedgerEntryId: txnRef.id, recordedManually: true'));
-  check('a deposit recorded on Spaces writes its account line', /type: 'deposit_charge', status: 'paid', amountCents: cents/.test(booths));
+  // Deposits now go through the server (lib/rent-deposit, checked in launch-money-deposits).
+  check('a deposit recorded on Spaces writes its account line', booths.includes("fetch('/api/rent/deposit'") && /type: 'deposit_charge', amountCents: cents/.test(readFileSync('src/lib/rent-deposit.ts', 'utf8')));
   check('autopay only uses an account that can take cards', src('src/app/api/cron/autopay-leases/route.ts').includes('const stripeAccountId = spacePayAccount(tenantDoc.data());'));
   check('a new station booking needs an account that can take cards', src('src/app/api/stripe/book-station/route.ts').includes("if (!spacePayAccount(tenantSnap.data())) problem ="));
   check('the nightly job applies open-bill credits before the late sweep', (() => { const n = src('src/app/api/cron/nightly/route.ts'); const a = n.indexOf('applyAllOpenCredits(db, tDoc.id)'); const l = n.indexOf('markedLateAt:'); return a > 0 && l > a; })());
@@ -229,7 +230,7 @@ async function fresh(tenant: any = {}) {
   check('autopay works out what to charge from the bill as it is when it claims it, and adds to what is paid', /const cents = Math\.max\(0, Math\.round\(\(Number\(cur\.amountCents/.test(ap) && ap.includes('paidCents: FieldValue.increment(chargeCents)'));
   const st = src('src/app/api/booths/account-statement/route.ts');
   check('statements count an overpayment once and show bills before credits', st.includes("e.type === 'prepaid_credit' && e.paymentEntryId") && st.includes('cents: Number(i.grossCents ?? i.amountCents) || 0'));
-  check('a deposit recorded on Spaces is written once per lease', booths.includes('Deposit already recorded') && booths.includes("`deposit_${reqKey}`"));
+  check('a deposit recorded on Spaces is written once per lease', readFileSync('src/lib/rent-deposit.ts', 'utf8').includes('already recorded as received') && readFileSync('src/lib/rent-deposit.ts', 'utf8').includes('transactions/deposit_${req}'));
 
   const bad = new RegExp([['cl', 'aude'], ['anth', 'ropic']].map((x) => x.join('')).join('|'), 'i');
   check('no assistant names in the changed files', ['src/lib/rent-payment-plan.ts', 'src/lib/rent-credits.ts', 'src/app/api/rent/record-payment/route.ts', 'scripts/verify/launch-money-fixes.verify.ts'].every((f) => !bad.test(src(f))));

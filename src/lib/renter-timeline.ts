@@ -115,6 +115,9 @@ export function buildRenterTimeline(input: TimelineInput): TimelineEntry[] {
       });
     } else if (e.type === 'late_fee') {
       push({ at, kind: 'late_fee', title: e.description || 'Late fee', amountCents: c, actor: 'system', ref: { type: 'ledger', id: e.id } });
+    } else if (['deposit_charge', 'deposit_deduction', 'deposit_refund'].includes(String(e.type)) && c !== 0) {
+      // The deposit is their money held, accounted for on its own (lib/deposit-accounting): shown, but not in what they owe.
+      push({ at, kind: c < 0 ? 'credit' : 'charge', title: `${e.description || 'Security deposit'} · $${(Math.abs(c) / 100).toFixed(2)}`, detail: e.note || undefined, actor: e.createdBy || 'owner', ref: { type: 'ledger', id: e.id } });
     } else if (c !== 0) {
       push({ at, kind: c < 0 ? 'credit' : 'charge', title: e.description || (c < 0 ? 'Credit' : 'Charge'), detail: e.note || undefined, amountCents: c, actor: e.createdBy || 'owner', ref: { type: 'ledger', id: e.id } });
     }

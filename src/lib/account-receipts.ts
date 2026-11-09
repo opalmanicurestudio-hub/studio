@@ -65,9 +65,11 @@ export async function sendAccountReceipt(db: any, tenantId: string, tenant: any,
   return { sentTo: ch.length ? `${first} by ${ch.join(' and ')}` : null, noContact: !c.email && !c.phone, autopayOn: c.autopayOn };
 }
 
-/** Money moved on a renter's account that they're told about: a refund to their card (lib/renter-refund), or an agreed
- *  charge taken from the card on file (lib/renter-incidentals). In the owner's wording for that message, filed under them. */
-export async function sendRenterMoneyNotice(db: any, tenantId: string, tenant: any, x: { kind: 'renter_refund' | 'renter_charge'; renterId: string; tokens: Record<string, string> }) {
+/** Money moved on a renter's account that they're told about: a refund to their card (lib/renter-refund), an agreed
+ *  charge taken from the card on file (lib/renter-incidentals), their security deposit (lib/rent-deposit), or a charge,
+ *  waiver or credit put on their account by hand (lib/renter-account-notice). In the owner's wording for that message,
+ *  filed under them. */
+export async function sendRenterMoneyNotice(db: any, tenantId: string, tenant: any, x: { kind: 'renter_refund' | 'renter_charge' | 'deposit_notice' | 'renter_charge_added' | 'renter_credit'; renterId: string; tokens: Record<string, string> }) {
   const c = await accountContact(db, tenantId, 'rent', x.renterId);
   const first = String(c.name).split(' ')[0];
   const ch = await send(db, tenantId, tenant, x.kind, c, { renter_first: first, first, studio: tenant?.name || 'The studio', ...x.tokens });

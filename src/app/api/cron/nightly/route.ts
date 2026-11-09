@@ -15,7 +15,8 @@
 
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { applyAllOpenCredits } from '@/lib/rent-credits';
-import { RENT_CREDIT_TYPES, creditLabel } from '@/lib/rent-payment-plan';
+import { creditLabel } from '@/lib/rent-payment-plan';
+import { isRentCredit } from '@/lib/booth-rental-types';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
@@ -352,7 +353,7 @@ export async function GET(req: NextRequest) {
         try {
           const credSnap = await db.collection(`tenants/${tDoc.id}/rentLedger`).where('renterId', '==', lease.renterId).get();
           const creds = credSnap.docs.map((d) => ({ ref: d.ref, ...(d.data() as any) }))
-            .filter((c: any) => (RENT_CREDIT_TYPES as readonly string[]).includes(String(c.type || '')))
+            .filter((c: any) => isRentCredit(c))
             .map((c: any) => ({ ...c, remaining: Math.abs(Number(c.amountCents) || 0) - (Number(c.appliedCents) || 0) }))
             .filter((c: any) => c.remaining > 0)
             .sort((a: any, b: any) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')));

@@ -754,9 +754,26 @@ export function invoiceOwedCents(inv: any): number {
 /** What one renter owes now. */
 export function renterOwedCents(renterId: string, invoices: any[], ledger: any[]): number {
   const bills = (invoices || []).filter((i) => i?.renterId === renterId).reduce((n, i) => n + invoiceOwedCents(i), 0);
-  const charges = (ledger || []).filter((e) => e?.renterId === renterId && isOpenLedgerCharge(e)).reduce((n, e) => n + (Number(e.amountCents) || 0), 0);
+  // A deposit isn't rent: it's their money held, recorded on its own (lib/rent-deposit), and a rent payment never pays it.
+  const charges = (ledger || []).filter((e) => e?.renterId === renterId && isOpenLedgerCharge(e) && !String(e?.type || '').startsWith('deposit_')).reduce((n, e) => n + (Number(e.amountCents) || 0), 0);
+  // Credit comes off open bills and whole charges as soon as it's posted (lib/rent-credits), so this is what's still
+  // owed after it.
   return bills + charges;
 }
+
+/** Is this ledger line credit held for the renter, drawn down against what they owe? A deposit applied to a balance
+ *  counts only when it's one recorded since that started (it carries appliedCents): one from before was settled by hand
+ *  at move-out, and is never drawn down again. */
+export function isRentCredit(line: any): boolean {
+  const t = String(line?.type || '');
+  if (!(RENT_CREDIT_TYPES as readonly string[]).includes(t)) return false;
+  return t !== 'deposit_forfeit' || typeof line?.appliedCents === 'number';
+}
+
+/** Ledger lines that are money held for the renter, drawn down against rent bills (appliedCents says how much is used):
+ *  closure credit, time away, sublet income, front-desk collections, money paid ahead, gift cards, shop sales, and a
+ *  security deposit applied to what they owe. */
+export const RENT_CREDIT_TYPES = ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit', 'deposit_forfeit'] as const;
 
 /** Pending charges whose due date + grace period has passed. */
 export function getPastDueEntries(

@@ -291,6 +291,8 @@ ${printButton}`);
       lines.push({ date, kind: 'late_fee', label: e.description || 'Late fee', detail: '', cents });
     } else if (e.type === 'prepaid_credit' && e.paymentEntryId) {
       continue;   // the part of a payment over what was owed: the payment's own line already counts it
+    } else if (['deposit_charge', 'deposit_deduction', 'deposit_refund'].includes(String(e.type))) {
+      continue;   // the deposit is their money held, accounted for on its own (mode=deposit); applied to a balance, it's a credit here
     } else if (cents < 0) {
       lines.push({ date, kind: 'credit', label: e.description || 'Credit', detail: e.note || '', cents });
     } else if (cents > 0) {

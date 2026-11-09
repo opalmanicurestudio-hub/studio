@@ -270,6 +270,8 @@ export async function GET(req: NextRequest) {
     const txnSeen = new Set<string>();
     for (const t of await renterRentPayments(db, tenantId, { renterId })) {
       if (txnSeen.has(t.id)) continue;
+      // A security deposit is their money held, not rent paid (one applied to what they owe is, and is booked as rent).
+      if (t.category === 'Booth Deposit' || t.taxBucket === 'transfer') continue;
       // A booking's own payment is already counted above (as the booking). Its other lines (overage, incidentals,
       // refunds) are separate money and stay.
       const bk = t.sourceId && counted.has(String(t.sourceId)) ? resById.get(String(t.sourceId)) : null;

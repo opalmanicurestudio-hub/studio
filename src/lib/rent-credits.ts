@@ -1,10 +1,10 @@
 // src/lib/rent-credits.ts — CREDITS COME OFF BILLS ALREADY OPEN (server). A credit posted to a renter's account (a
 // closure credit, time away, sublet income, money paid ahead, gift cards they took, their shop sales) used to wait for
 // the next new bill, so a renter with a bill already open was asked to pay it in full while the business held their
-// credit. Now the credit is drawn down against their open bills, oldest first, in one step that re-reads both, so the
-// same credit is never used twice and a bill is never credited past what's owed. Bills autopay may still be charging are
-// left for autopay to settle (lib/rent-payment-plan billTakesCredit).
-import { planCredits, creditLabel, RENT_CREDIT_TYPES } from '@/lib/rent-payment-plan';
+// credit. Now the credit is drawn down against their open bills, oldest first, then against whole one-off charges, in
+// one step that re-reads them all, so the same credit is never used twice and nothing is credited past what's owed.
+// Bills autopay may still be charging are left for autopay to settle (lib/rent-payment-plan billTakesCredit).
+import { planCredits, creditLabel, creditRemainingCents, RENT_CREDIT_TYPES } from '@/lib/rent-payment-plan';
 
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
@@ -20,7 +20,7 @@ export async function applyCreditsToOpenBills(db: any, tenantId: string, renterI
     const invoices = invSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
     const ledger = ledSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
     const plan = planCredits(invoices, ledger);
-    if (!plan.bills.length) return { applied: 0, lines: [] as string[] };
+    if (!plan.bills.length && !plan.charges.length) return { applied: 0, lines: [] as string[] };
     const byLine = new Map<string, number>();
     const lines: string[] = [];
     let applied = 0;
@@ -37,6 +37,15 @@ export async function applyCreditsToOpenBills(db: any, tenantId: string, renterI
       for (const u of b.uses) byLine.set(u.lineId, (byLine.get(u.lineId) || 0) + u.takeCents);
       applied += b.takeCents;
       lines.push(`${usd(b.takeCents)} on the bill due ${String(inv.dueDate || '').slice(0, 10)}${b.full ? ', now paid' : ''}`);
+    }
+    // Whole one-off charges the rest of the credit covers.
+    for (const c of plan.charges) {
+      const e: any = ledger.find((x: any) => x.id === c.id) || {};
+      tx.set(db.doc(`${T}/rentLedger/${c.id}`), { status: 'paid', paidAt: nowIso.slice(0, 10), paidVia: 'credit',
+        creditNote: c.uses.map((u) => `${creditLabel(u.type)} ${usd(u.takeCents)}`).join(', '), updatedAt: nowIso }, { merge: true });
+      for (const u of c.uses) byLine.set(u.lineId, (byLine.get(u.lineId) || 0) + u.takeCents);
+      applied += c.cents;
+      lines.push(`${usd(c.cents)} on ${String(e.description || 'a charge')}, now paid`);
     }
     for (const [lineId, take] of byLine) {
       const l: any = ledger.find((x: any) => x.id === lineId) || {};
@@ -61,7 +70,7 @@ export async function applyAllOpenCredits(db: any, tenantId: string, nowIso: str
   const renterIds = new Set<string>();
   for (const d of snap.docs) {
     const l: any = d.data() || {};
-    if (l.renterId && Math.abs(n(l.amountCents)) - n(l.appliedCents) > 0) renterIds.add(String(l.renterId));
+    if (l.renterId && creditRemainingCents(l) > 0) renterIds.add(String(l.renterId));
   }
   let renters = 0; let appliedCents = 0;
   for (const rid of renterIds) {
