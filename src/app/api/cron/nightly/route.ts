@@ -26,7 +26,7 @@ import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
 import { brandedEmailHtml } from '@/lib/email-template';
-import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
+import { buildRentInvoice, leasesToInvoice, invoiceKey, billDocId, monthAlreadyBilled } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
 import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS } from '@/lib/leave-policy';
 import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
@@ -291,7 +291,16 @@ export async function GET(req: NextRequest) {
       const leases = leasesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       const existingSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('dueDate', '==', today).get();
       const existing = new Set(existingSnap.docs.map((d) => invoiceKey(String((d.data() as any).leaseId || ''), today)));
-      const due = leasesToInvoice(leases, today, existing);
+      const dueAll = leasesToInvoice(leases, today, existing);
+      // A month already billed on another day isn't billed again (the same guard as the catch-up, lib/rent-invoices).
+      const due: any[] = [];
+      for (const l of dueAll) {
+        if ((l.frequency || 'monthly') === 'monthly') {
+          const bills = (await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('leaseId', '==', l.id).get()).docs.map((d) => d.data());
+          if (monthAlreadyBilled(l, today, bills)) continue;
+        }
+        due.push(l);
+      }
       if (due.length === 0) continue;
 
       // Approved leave changes what is invoiced — paused, reduced, or full —
@@ -302,8 +311,8 @@ export async function GET(req: NextRequest) {
       const leaves = leavesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
 
       const nowIso = new Date().toISOString();
-      const batch = db.batch();
-      const names: string[] = [];
+      const names: string[] = []; let made = 0;
+      const tellDue: { rd: any; inv: any; creditApplied: number; renterId: string }[] = [];
       for (const lease of due) {
         const leave = leaveCovering(leaves, lease.id, today);
         const treat = rentUnderLeave(leave, Number(lease.rentAmountCents) || 0, leavePolicy);
@@ -315,11 +324,15 @@ export async function GET(req: NextRequest) {
         if (leave?.treatment === 'bank') {
           await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ bankedDays: (Number(leave.bankedDays) || 0) + leavePolicy.bankDaysPerWeek, lastBankedDue: today }, { merge: true });
         }
+        // One bill per write, with the credits it uses: a bill that already exists (another run made it a moment ago)
+        // leaves that lease alone and never holds up anyone else's.
+        const batch = db.batch();
         const [renterSnap, boothSnap] = await Promise.all([
           db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`).get(),
           db.doc(`tenants/${tDoc.id}/booths/${lease.boothId}`).get(),
         ]);
-        const ref = db.collection(`tenants/${tDoc.id}/rentInvoices`).doc();
+        // The bill's own id for the day (lib/rent-invoices), created, never overwritten.
+        const ref = db.doc(`tenants/${tDoc.id}/rentInvoices/${billDocId(lease.id, today)}`);
         const inv = buildRentInvoice({
           id: ref.id, lease: { ...lease, rentAmountCents: treat.amountCents }, renter: renterSnap.data(), booth: boothSnap.data(),
           dueDate: today, source: 'nightly', nowIso,
@@ -363,51 +376,66 @@ export async function GET(req: NextRequest) {
           }
         } catch (e) { console.error('[cron/nightly] credit application', tDoc.id, lease.renterId, e); }
 
-        batch.set(ref, inv);
+        batch.create(ref, inv);
+        // Already made by another run: nothing to add. Anything else is tried once more, then logged (the catch-up later in
+        // this run fills in a bill that still isn't there).
+        let saved = false;
+        for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+          try { await batch.commit(); saved = true; }
+          catch (e: any) {
+            if (Number(e?.code) === 6 || /already exists/i.test(String(e?.message || ''))) break;
+            if (attempt === 1) console.error('[cron/nightly] could not save rent bill', tDoc.id, lease.id, e?.message);
+          }
+        }
+        if (!saved) continue;
         if (names.length < 3) names.push(inv.renterName);
-        rentInvoiced++;
+        rentInvoiced++; made++;
 
-        // Tell the renter it's due today. Autopay renters are told there is
-        // nothing to do; manual payers get the pay link. Switchable and
+        // Tell the renter it's due today, once the bill is saved (below). Autopay renters with a card the business can
+        // charge are told there's nothing to do; everyone else gets their own sign-in link to pay. Switchable and
         // rewordable in message settings as 'rent_invoiced'.
         const rd = renterSnap.data() as any;
-        if (rd && String(rd.email || '').includes('@')) {
-          try {
-            const { sendNotification } = await import('@/lib/notify');
-            const first = String(rd.firstName || '').trim() || 'there';
-            const amount = creditApplied > 0
-              ? (inv.amountCents === 0 ? `$0.00 (your $${(creditApplied / 100).toFixed(2)} credit covered it)` : `$${(inv.amountCents / 100).toFixed(2)} after $${(creditApplied / 100).toFixed(2)} credit`)
-              : `$${(inv.amountCents / 100).toFixed(2)}`;
-            const payUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio-one-blue.vercel.app'}/rent/${tDoc.id}`;
-            const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The studio';
-            await sendNotification(db, {
-              tenantId: tDoc.id, channel: 'email', to: rd.email,
-              subject: `Your rent of ${amount} is due today`,
-              html: brandedEmailHtml({ studioName: studio, title: 'Your rent is due today', bodyLines: [
-                `Hi ${first},`,
-                `This is a friendly reminder that your booth rent of ${amount} for ${inv.boothName} is due today.`,
-                rd.autopayEnabled === true
-                  ? 'As you are enrolled in autopay, there is nothing you need to do. We will send you a receipt once the payment has been processed.'
-                  : 'You can pay securely from your portal using the button below, or in person. Thank you.',
-                `Kind regards, ${studio}`,
-              ], ...(rd.autopayEnabled === true ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
-              kind: 'rent_invoiced', recipientType: 'renter', recipientId: lease.renterId, recipientName: inv.renterName,
-              tokens: { renter_first: first, amount, when: today, link: payUrl, studio },
-            });
-          } catch { /* the invoice stands */ }
-        }
+        if (rd && String(rd.email || '').includes('@')) tellDue.push({ rd, inv: { ...inv }, creditApplied, renterId: String(lease.renterId) });
       }
+      if (made === 0) continue;
       const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();
-      batch.set(nRef, {
+      await nRef.set({
         id: nRef.id, type: 'rent_invoiced', read: false, createdAt: nowIso, link: '/rent',
-        message: due.length === 1
+        message: made === 1
           ? `Rent has been invoiced for ${names[0]} and is due today.`
-          : `Rent has been invoiced for ${due.length} renters (${names.join(', ')}${due.length > 3 ? ', …' : ''}) and is due today.`,
+          : `Rent has been invoiced for ${made} renters (${names.join(', ')}${made > 3 ? ', …' : ''}) and is due today.`,
       });
-      await batch.commit();
+      for (const t of tellDue) {
+        try {
+          const { sendNotification } = await import('@/lib/notify');
+          const { spacePayAccount } = await import('@/lib/space-stripe');
+          const { rd, inv, creditApplied } = t;
+          const first = String(rd.firstName || '').trim() || 'there';
+          const amount = creditApplied > 0
+            ? (inv.amountCents === 0 ? `$0.00 (your $${(creditApplied / 100).toFixed(2)} credit covered it)` : `$${(inv.amountCents / 100).toFixed(2)} after $${(creditApplied / 100).toFixed(2)} credit`)
+            : `$${(inv.amountCents / 100).toFixed(2)}`;
+          const onAutopay = rd.autopayEnabled === true && !!renterBusinessCard(rd, spacePayAccount(tenantData));
+          const payUrl = onAutopay ? '' : ((await renterPortalLink(db, tDoc.id, t.renterId, rd).catch(() => null)) || `${linkOrigin(tenantData)}/rent/${tDoc.id}`);
+          const studio = String(tenantData.name || tenantData.businessName || '').trim() || 'The business';
+          await sendNotification(db, {
+            tenantId: tDoc.id, channel: 'email', to: rd.email,
+            subject: `Your rent of ${amount} is due today`,
+            html: brandedEmailHtml({ studioName: studio, title: 'Your rent is due today', bodyLines: [
+              `Hi ${first},`,
+              `This is a friendly reminder that your rent of ${amount} for ${inv.boothName} is due today.`,
+              onAutopay
+                ? 'You’re on autopay, so there’s nothing you need to do. We’ll send you a receipt once the payment goes through.'
+                : 'You can pay securely from your portal with the button below, or in person. Thank you.',
+              `Kind regards, ${studio}`,
+            ], ...(onAutopay ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
+            kind: 'rent_invoiced', recipientType: 'renter', recipientId: t.renterId, recipientName: inv.renterName,
+            tokens: { renter_first: first, amount, when: today, link: payUrl, studio },
+          });
+        } catch { /* the bill stands */ }
+      }
       await logAuditAdmin(db, tDoc.id, {
         action: 'rent.invoice', targetType: 'rentInvoice',
-        summary: `Invoiced ${due.length} lease${due.length === 1 ? '' : 's'} for ${today}`,
+        summary: `Invoiced ${made} lease${made === 1 ? '' : 's'} for ${today}`,
         actor: { type: 'system', name: 'rent-invoicer' },
       });
     } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }

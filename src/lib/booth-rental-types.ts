@@ -734,6 +734,30 @@ export function computeBalanceCents(ledger: RentLedgerEntry[]): number {
     .reduce((sum, e) => sum + e.amountCents, 0);
 }
 
+// ─── What a renter owes (one rule for the rent page) ─────────────────────────
+// Rent owed lives on rent bills (rentInvoices); the rent ledger keeps history and one-off charges. So what someone owes
+// now is what's left on their open rent bills plus one-off charges still open on the ledger. Paid, waived, refunded and
+// failed lines don't count, nor old ledger charges already moved onto bills ('migrated'), nor payments (credits come off
+// the next bill when it's made).
+
+/** One ledger line that's still owed (a positive charge, not settled or moved onto a bill). */
+export function isOpenLedgerCharge(e: any): boolean {
+  return (Number(e?.amountCents) || 0) > 0 && !['paid', 'waived', 'failed', 'refunded', 'migrated'].includes(String(e?.status || '')) && !e?.migratedToInvoiceId;
+}
+/** What's left on one rent bill (nothing once it's paid, voided or waived). */
+export function invoiceOwedCents(inv: any): number {
+  if (!['due', 'late'].includes(String(inv?.status || ''))) return 0;
+  // Autopay took it but the rest of its record didn't save: the charge noted on the bill still counts as paid.
+  const autopayUnsaved = inv?.autopayIntentId && inv?.paidVia !== 'autopay' ? (Number(inv?.autopayChargedCents) || 0) : 0;
+  return Math.max(0, (Number(inv?.amountCents) || 0) + (Number(inv?.lateFeeCents) || 0) - (Number(inv?.paidCents) || 0) - autopayUnsaved);
+}
+/** What one renter owes now. */
+export function renterOwedCents(renterId: string, invoices: any[], ledger: any[]): number {
+  const bills = (invoices || []).filter((i) => i?.renterId === renterId).reduce((n, i) => n + invoiceOwedCents(i), 0);
+  const charges = (ledger || []).filter((e) => e?.renterId === renterId && isOpenLedgerCharge(e)).reduce((n, e) => n + (Number(e.amountCents) || 0), 0);
+  return bills + charges;
+}
+
 /** Pending charges whose due date + grace period has passed. */
 export function getPastDueEntries(
   entries: RentLedgerEntry[],
@@ -917,34 +941,45 @@ export function buildRentRollSummary(params: {
   ledger: RentLedgerEntry[];
   todayIso: string;
   cycleStartIso: string; // start of the current reporting window (e.g. this month)
+  /** Rent bills: what's owed lives here (see renterOwedCents). */
+  invoices?: any[];
 }): RentRollSummary {
   const { booths, renters, leases, ledger, todayIso, cycleStartIso } = params;
+  const invoices = params.invoices || [];
 
   const activeLeases = leases.filter((l) => l.status === 'active');
   const leaseById = new Map(activeLeases.map((l) => [l.id, l]));
 
+  // Collected: payments recorded by hand or at the desk (ledger 'payment' lines), autopay charges (the ledger line autopay
+  // writes, paid), and rent paid online (on the bill itself, which writes no ledger line). Each payment counted once.
   const collectedThisCycleCents = ledger
     .filter(
       (e) =>
-        e.type === 'payment' &&
-        e.status === 'paid' &&
+        ((e.type === 'payment' && e.status === 'paid') || (e.type === 'rent_charge' && e.status === 'paid' && /autopay/i.test(String((e as any).description || '')))) &&
         e.paidAt != null &&
         e.paidAt >= cycleStartIso
     )
-    .reduce((sum, e) => sum + Math.abs(e.amountCents), 0);
+    .reduce((sum, e) => sum + Math.abs(e.amountCents), 0)
+    + invoices
+      .filter((i: any) => i?.status === 'paid' && i?.paidMethod === 'Card (Stripe)' && String(i?.paidAt || '') >= cycleStartIso)
+      .reduce((sum: number, i: any) => sum + (Number(i.paidAmountCents) || Number(i.amountCents) || 0), 0);
 
-  const outstandingCents = Math.max(0, computeBalanceCents(ledger));
+  const outstandingCents = invoices.reduce((n, i) => n + invoiceOwedCents(i), 0)
+    + ledger.filter((e) => isOpenLedgerCharge(e)).reduce((n, e) => n + (Number(e.amountCents) || 0), 0);
 
+  // Past due: a rent bill the nightly job has marked late, or a one-off charge past its due date and grace.
   const pastDueRenterIds = Array.from(
-    new Set(
-      ledger
+    new Set([
+      ...invoices.filter((i) => i?.status === 'late' && invoiceOwedCents(i) > 0).map((i) => String(i.renterId)),
+      ...ledger
         .filter((e) => {
+          if (!isOpenLedgerCharge(e)) return false;
           const lease = e.leaseId ? leaseById.get(e.leaseId) : undefined;
           const grace = lease?.lateFeePolicy?.graceDays ?? 0;
           return getPastDueEntries([e], grace, todayIso).length > 0;
         })
-        .map((e) => e.renterId)
-    )
+        .map((e) => e.renterId),
+    ])
   );
 
   return {

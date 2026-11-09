@@ -1,7 +1,7 @@
 // src/lib/rent-outlook.ts — WHAT A RENTER SEES ABOUT WHAT'S NEXT: owed now, credit waiting, and the next rent after
 // credits. Same rules as the nightly rent job (a credit's remaining = amount − applied; credits come off the next
 // invoice when it's made, not what's already owed), so the portal never promises a figure the bill won't match.
-import { nextChargeDate } from '@/lib/rent-schedule';
+import { nextChargeDate, billCents } from '@/lib/rent-schedule';
 import { renterBusinessCard } from '@/lib/space-stripe';
 
 export const CREDIT_LABELS: Record<string, string> = { prepaid_credit: 'Paid ahead', desk_offset: 'Front-desk collections', leave_credit: 'Leave credit', sublet_credit: 'Sublet credit', rent_abatement: 'Rent reduction', gift_card_credit: 'Studio gift cards', retail_sale_credit: 'Online shop sales' };
@@ -17,7 +17,7 @@ export function rentOutlook(x: { lease: any; renter: any; invoices: any[]; ledge
   const tomorrow = new Date(Date.parse(`${x.todayIso}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const due = active ? nextChargeDate(x.lease, tomorrow) : null;
   const already = due ? (x.invoices || []).find((i) => String(i.dueDate || '').slice(0, 10) === due) : null;   // already billed → it's in "owed now"
-  const nextRentCents = due && !already ? Math.max(0, Number(x.lease.rentAmountCents) || 0) : 0;
+  const nextRentCents = due && !already ? billCents(x.lease, due) : 0;   // a prorated first bill when the lease is set to
   const covered = Math.min(creditCents, nextRentCents);
   const r = x.renter || {};
   // On only with a card autopay can charge: saved on the business's own account (lib/space-stripe), when that's known.

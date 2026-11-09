@@ -19,7 +19,7 @@
 // Historical arrears are the owner's to record deliberately, not something a
 // sweep should invent overnight and then charge late fees on.
 
-import { nextChargeDate } from './rent-schedule';
+import { nextChargeDate, billCents, billingStart } from './rent-schedule';
 
 export interface RentInvoiceDoc {
   id: string;
@@ -57,7 +57,7 @@ export function buildRentInvoice(input: {
     boothId: lease.boothId,
     renterName: `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || 'Renter',
     boothName: booth?.name || 'Space',
-    amountCents: Number(lease.rentAmountCents) || 0,
+    amountCents: billCents(lease, dueDate),   // the lease's rent; a prorated first bill when the lease is set to
     lateFeeCents: 0,
     status: 'due',
     dueDate,
@@ -83,3 +83,22 @@ export function leasesToInvoice(leases: any[], dayIso: string, existing: Set<str
 }
 
 export const invoiceKey = (leaseId: string, dueDate: string) => `${leaseId}|${dueDate}`;
+
+/** The id a lease's bill for a day always has (written with create), so two runs at once can't make two bills. */
+export const billDocId = (leaseId: string, dueDate: string) => `${String(leaseId).replace(/[^A-Za-z0-9_-]/g, '')}_${dueDate}`;
+
+/**
+ * A monthly lease's regular bill when that month already has another regular bill for it (an older rule billed leases
+ * due on the 29th to 31st on the 28th): not billed again. The lease's first bill is its own (a part-month), and a void
+ * bill doesn't count. `leaseBills` are that lease's bills.
+ */
+export function monthAlreadyBilled(lease: any, dueDate: string, leaseBills: any[]): boolean {
+  if ((lease?.frequency || 'monthly') !== 'monthly') return false;
+  const first = billingStart(lease);
+  if (dueDate === first) return false;
+  const ym = dueDate.slice(0, 7);
+  return (leaseBills || []).some((b: any) => {
+    const d = String(b?.dueDate || '').slice(0, 10);
+    return d.slice(0, 7) === ym && d !== dueDate && d !== first && String(b?.status || '') !== 'void';
+  });
+}

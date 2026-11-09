@@ -1,7 +1,7 @@
 'use client';
 
 import { DeskOwedCard } from '@/components/rent/DeskOwedCard';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   collection,
   doc,
@@ -47,7 +47,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
-import { buildRentInvoice, leasesToInvoice, invoiceKey } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
 import { resolveLeavePolicy, addDays as addLeaseDays, subletIncome, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -63,9 +62,10 @@ import {
   FREQUENCY_LABELS,
   LEDGER_TYPE_LABELS,
   formatCents,
-  parseIsoDate,
   toIsoDate,
-  computeBalanceCents,
+  renterOwedCents,
+  invoiceOwedCents,
+  isOpenLedgerCharge,
   getPastDueEntries,
   computeLateFeeCents,
   buildRentRollSummary,
@@ -83,38 +83,12 @@ const PAYMENT_METHODS: { value: PaymentMethodKind; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
-const MAX_GENERATED_CHARGES_PER_LEASE = 26;
 
 function toNumber(value: string): number {
   const n = parseFloat(value);
   return Number.isFinite(n) ? n : 0;
 }
 
-function enumerateDueDates(lease: Lease, todayIso: string): string[] {
-  const today = parseIsoDate(todayIso);
-  const last = lease.lastChargeDate ? parseIsoDate(lease.lastChargeDate) : null;
-  const dates: string[] = [];
-  let cursor = parseIsoDate(lease.firstChargeDate);
-  let guard = 0;
-
-  while (cursor <= today && guard < MAX_GENERATED_CHARGES_PER_LEASE) {
-    if (!last || cursor <= last) {
-      dates.push(toIsoDate(cursor));
-    }
-    if (lease.frequency === 'monthly') {
-      const next = new Date(cursor);
-      next.setMonth(next.getMonth() + 1);
-      next.setDate(Math.min(lease.dueDay, 28));
-      cursor = next;
-    } else {
-      const next = new Date(cursor);
-      next.setDate(next.getDate() + (lease.frequency === 'weekly' ? 7 : 14));
-      cursor = next;
-    }
-    guard += 1;
-  }
-  return dates;
-}
 
 // ─── Charge settlement (display-only) ─────────────────────────────────────────
 // Derives each charge's paid/partial/unpaid state by applying payments
@@ -1101,44 +1075,15 @@ export default function RentRollPage() {
     return ((ledger ?? []) as any[]).filter((e) =>
       e.type === 'rent_charge'
       && (Number(e.amountCents) || 0) > 0
-      && !['paid', 'waived', 'refunded'].includes(String(e.status))
+      && !['paid', 'waived', 'refunded', 'failed', 'migrated'].includes(String(e.status))
       && !invoiced.has(e.id)
       && !byKey.has(`${e.leaseId}|${e.dueDate}`));
   }, [ledger, invoices]);
 
-  const [importing, setImporting] = useState(false);
-  const importCharges = async () => {
-    if (!firestore || !tenantId || uninvoicedCharges.length === 0) return;
-    setImporting(true);
-    try {
-      const batch = writeBatch(firestore);
-      const nowIso = new Date().toISOString();
-      for (const e of uninvoicedCharges) {
-        const lease = (leases ?? []).find((l) => l.id === e.leaseId);
-        const renter = scheduleRenterById.get(e.renterId);
-        const booth = scheduleBoothById.get(e.boothId || lease?.boothId || '');
-        const grace = Number(lease?.lateFeePolicy?.graceDays ?? 0);
-        const due = String(e.dueDate || '').slice(0, 10);
-        const graceEnd = new Date(due + 'T00:00:00'); graceEnd.setDate(graceEnd.getDate() + grace);
-        const isLate = !!due && graceEnd.getTime() < new Date(todayIso + 'T00:00:00').getTime();
-        const ref = doc(collection(firestore, 'tenants', tenantId, 'rentInvoices'));
-        batch.set(ref, {
-          id: ref.id, leaseId: e.leaseId || '', renterId: e.renterId, boothId: e.boothId || lease?.boothId || '',
-          renterName: renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter' : 'Renter',
-          boothName: booth?.name || 'Space',
-          amountCents: Number(e.amountCents) || 0, lateFeeCents: 0,
-          status: isLate ? 'late' : 'due', dueDate: due || todayIso, paidAt: null,
-          ledgerEntryId: e.id, dueSoonNotifiedAt: null,
-          source: 'imported', createdAt: nowIso, updatedAt: nowIso,
-        });
-      }
-      await batch.commit();
-      setCycleResult(`Brought ${uninvoicedCharges.length} open charge${uninvoicedCharges.length === 1 ? '' : 's'} into invoices.`);
-    } catch {
-      setCycleResult('Could not import those charges \u2014 try again.');
-    }
-    setImporting(false);
-  };
+  // Old ledger charges are moved onto rent bills by the server's catch-up (lib/rent-cycle migrateLedger), the same run as
+  // "Bring rent up to date": rent bills are written only by the server.
+  const importCharges = () => runRentCycle();
+  const importing = running;
 
   const rentSchedule = useMemo(
     () => buildRentSchedule((leases ?? []) as any[], scheduleRenterById, (ledger ?? []) as any[], todayIso, selectedTenant ? ((selectedTenant as any).stripeAccountId || null) : undefined),
@@ -1180,9 +1125,12 @@ export default function RentRollPage() {
         ledger: ledger ?? [],
         todayIso,
         cycleStartIso,
+        invoices: (invoices ?? []) as any[],
       }),
-    [booths, renters, leases, ledger, todayIso, cycleStartIso]
+    [booths, renters, leases, ledger, todayIso, cycleStartIso, invoices]
   );
+  // What each renter owes now: open rent bills plus open one-off charges (lib/booth-rental-types renterOwedCents).
+  const owedOf = useCallback((renterId: string) => renterOwedCents(renterId, (invoices ?? []) as any[], (ledger ?? []) as any[]), [invoices, ledger]);
 
   const rosterRenters = useMemo(() => {
     const list = (renters ?? []).filter(
@@ -1204,9 +1152,9 @@ export default function RentRollPage() {
   const currentRenters = useMemo(() => rosterRenters.filter((r) => r.status === 'active' || leaseByRenter.has(r.id)), [rosterRenters, leaseByRenter]);
   const formerOwing = useMemo(() => rosterRenters.filter((r) => {
     if (r.status === 'active' || leaseByRenter.has(r.id)) return false;
-    const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+    const bal = owedOf(r.id);
     return bal > 0 || (r as any).doNotRent === true;
-  }), [rosterRenters, leaseByRenter, ledgerByRenter]);
+  }), [rosterRenters, leaseByRenter, owedOf]);
   const [formerBusy, setFormerBusy] = useState<string>('');
   const [owedOpen, setOwedOpen] = useState<string>('');
   const [armed, setArmed] = useState<string>('');
@@ -1243,7 +1191,7 @@ export default function RentRollPage() {
   // forgiveness, and forgiveness is not a write-off.
   const writeOff = async (r: any) => {
     if (!firestore || !tenantId) return;
-    const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+    const bal = owedOf(r.id);
     if (bal <= 0) return;
     setFormerBusy(r.id);
     try {
@@ -1258,7 +1206,7 @@ export default function RentRollPage() {
         note: 'Written off as uncollectable', createdAt: nowIso, updatedAt: nowIso,
       });
       for (const e of (ledgerByRenter.get(r.id) ?? [])) {
-        if (e.type === 'rent_charge' && !['paid', 'waived', 'refunded'].includes(String(e.status))) {
+        if (isOpenLedgerCharge(e)) {
           batch.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), e.id), { status: 'waived', updatedAt: nowIso });
         }
       }
@@ -1279,34 +1227,6 @@ export default function RentRollPage() {
     );
   }
 
-  // Invoice today's rent on demand. The nightly job does this at 7am; this
-  // is for the day you change a lease and don't want to wait. Same rule, same
-  // document, so nothing can be invoiced twice.
-  const invoiceToday = async () => {
-    if (!firestore || !tenantId) return;
-    setRunning(true);
-    setCycleResult(null);
-    try {
-      const existing = new Set(((invoices ?? []) as any[]).map((i) => invoiceKey(String(i.leaseId || ''), String(i.dueDate || ''))));
-      const due = leasesToInvoice((leases ?? []) as any[], todayIso, existing);
-      if (due.length === 0) { setCycleResult('Nothing is due today that isn\u2019t already invoiced.'); setRunning(false); return; }
-      const batch = writeBatch(firestore);
-      const nowIso = new Date().toISOString();
-      for (const lease of due) {
-        const ref = doc(collection(firestore, 'tenants', tenantId, 'rentInvoices'));
-        batch.set(ref, buildRentInvoice({
-          id: ref.id, lease, renter: scheduleRenterById.get(lease.renterId), booth: scheduleBoothById.get(lease.boothId),
-          dueDate: todayIso, source: 'manual', nowIso,
-        }));
-      }
-      await batch.commit();
-      setCycleResult(`Invoiced ${due.length} renter${due.length === 1 ? '' : 's'} for today.`);
-    } catch {
-      setCycleResult('Could not invoice today \u2014 try again.');
-    }
-    setRunning(false);
-  };
-
   // One rent record: the cycle runs on the server — an invoice for every due date that doesn't have one, and the old
   // ledger charges folded into invoices. It never creates a second invoice for the same due date.
   const runRentCycle = async () => {
@@ -1323,8 +1243,7 @@ export default function RentRollPage() {
   };
 
   const openPaymentDialog = (renter: Renter) => {
-    const entries = ledgerByRenter.get(renter.id) ?? [];
-    const balance = computeBalanceCents(entries);
+    const balance = owedOf(renter.id);
     setPaymentForm({
       amountDollars: balance > 0 ? (balance / 100).toString() : '',
       method: 'venmo',
@@ -1345,19 +1264,15 @@ export default function RentRollPage() {
       const now = new Date().toISOString();
       const entries = ledgerByRenter.get(paymentRenter.id) ?? [];
 
+      // The money settles their rent bills first (oldest first, below), then one-off charges with what's left; the same
+      // money never settles both.
       const unpaidCharges = entries
-        .filter(
-          (e) =>
-            e.amountCents > 0 &&
-            e.status !== 'paid' &&
-            e.status !== 'waived' &&
-            e.status !== 'refunded'
-        )
+        .filter((e) => isOpenLedgerCharge(e))
         .sort((a, b) =>
           (a.dueDate ?? a.createdAt).localeCompare(b.dueDate ?? b.createdAt)
         );
-
-      let remaining = amountCents;
+      const billsOwed = ((invoices ?? []) as any[]).filter((i) => i.renterId === paymentRenter.id).reduce((n, i) => n + invoiceOwedCents(i), 0);
+      let remaining = Math.max(0, amountCents - billsOwed);
       const settledIds: string[] = [];
       for (const charge of unpaidCharges) {
         if (remaining < charge.amountCents) break;
@@ -1456,9 +1371,20 @@ export default function RentRollPage() {
         if (invoiceRemaining === 0) break;
       }
 
+      // Anything more than they owe is kept as paid-ahead credit, which comes off their next rent bill (the nightly job
+      // applies it), instead of disappearing.
+      const chargesSettled = unpaidCharges.filter((c) => settledIds.includes(c.id)).reduce((n, c) => n + (Number(c.amountCents) || 0), 0);
+      const leftover = Math.max(0, amountCents - Math.min(amountCents, billsOwed) - chargesSettled);
+      if (leftover > 0) {
+        batch.set(doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))), {
+          renterId: paymentRenter.id, leaseId: lease?.id ?? null, type: 'prepaid_credit', status: 'paid', amountCents: -leftover,
+          note: 'Paid ahead: comes off the next rent', paymentEntryId: paymentRef.id, createdAt: now, date: paymentForm.date,
+        });
+      }
+
       await batch.commit();
       setPaymentRenter(null);
-      setCycleResult(`Recorded ${formatCents(amountCents)} from ${renterName}. `);
+      setCycleResult(`Recorded ${formatCents(amountCents)} from ${renterName}.${leftover > 0 ? ` ${formatCents(leftover)} is kept as credit toward their next rent.` : ''} `);
       setLastReceipt({ renterId: paymentRenter.id, paymentId: paymentRef.id });
     } finally {
       setSaving(false);
@@ -1598,10 +1524,10 @@ export default function RentRollPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <LocationSwitcher />
-          <Button variant="outline" onClick={invoiceToday} disabled={running}
-            className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-            <PlayCircle className="h-3.5 w-3.5 mr-1.5" />
-            {running ? 'Working…' : 'Invoice today'}
+          <Button variant="outline" onClick={runRentCycle} disabled={running}
+            className="h-11 rounded-xl border-2 text-[14px] font-medium">
+            <PlayCircle className="h-4 w-4 mr-1.5" />
+            {running ? 'Working…' : 'Bring rent up to date'}
           </Button>
         </div>
       </header>
@@ -1681,6 +1607,15 @@ export default function RentRollPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[12px] font-black">Rent due {inv.dueDate}<span className="font-bold text-muted-foreground"> · {inv.boothName}</span></p>
+                    {inv.autopayUnconfirmed === true && (
+                      <div className="mt-1.5 space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <p className="text-[13px] text-[#b45309]">Autopay tried this on {String(inv.autopayTriedAt || '').slice(0, 10)} but the card company didn’t answer, so it may have gone through. Check your Stripe payments. If it went through, record it with Record payment. If it didn’t, let them pay it.</p>
+                        <Button variant="outline" size="sm" className="h-11 rounded-xl text-[13.5px]"
+                          onClick={() => { void updateDoc(doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id), { autopayUnconfirmed: false, autopayDeclined: 'not taken (checked by the business)', updatedAt: new Date().toISOString() }).then(() => setCycleResult('They can pay that bill now.')).catch(() => setCycleResult('That didn’t save. Try again.')); }}>
+                          It didn’t go through: let them pay
+                        </Button>
+                      </div>
+                    )}
                     <p className="text-[10px] font-bold text-muted-foreground">
                       {formatCents(Number(inv.amountCents) || 0)} rent{fee > 0 ? ` + ${formatCents(fee)} late fee` : ''}{(Number(inv.paidCents) || 0) > 0 ? ` − ${formatCents(Number(inv.paidCents))} paid` : ''}
                       {inv.feeWaivedAt ? ` · fee waived ${String(inv.feeWaivedAt).slice(0, 10)}` : ''}
@@ -1740,7 +1675,7 @@ export default function RentRollPage() {
           </CardHeader>
           <CardContent className="p-5 pt-2 space-y-2">
             {formerOwing.map((r) => {
-              const bal = computeBalanceCents(ledgerByRenter.get(r.id) ?? []);
+              const bal = owedOf(r.id);
               const barred = (r as any).doNotRent === true;
               const busy = formerBusy === r.id;
               return (
@@ -1793,7 +1728,7 @@ export default function RentRollPage() {
           const entries = ledgerByRenter.get(renter.id) ?? [];
           const lease = leaseByRenter.get(renter.id);
           const booth = lease ? boothById.get(lease.boothId) : undefined;
-          const balance = computeBalanceCents(entries);
+          const balance = owedOf(renter.id);
           const isPastDue = summary.pastDueRenterIds.includes(renter.id);
           const balanceClass =
             balance > 0
@@ -1899,6 +1834,11 @@ export default function RentRollPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {paymentRenter && ((invoices ?? []) as any[]).some((i) => i.renterId === paymentRenter.id && i.autopayUnconfirmed === true && ['due', 'late'].includes(String(i.status))) && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-[#b45309]">
+                Autopay got no answer from the card company on one of their bills, so it may already have been paid. Check your Stripe payments before recording another payment.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="pay-amount">Amount ($)</Label>

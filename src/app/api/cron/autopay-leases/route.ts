@@ -7,31 +7,24 @@ import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { renterBusinessCard } from '@/lib/space-stripe';
+import { stripeRefused } from '@/lib/stripe-said-no';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
 // Runs once daily (wire to Vercel Cron / Cloud Scheduler / GitHub Actions —
 // whatever already triggers other scheduled jobs in this app; hits this URL
 // with header `Authorization: Bearer ${CRON_SECRET}`).
 //
-// For every ACTIVE lease where the renter has autopayEnabled + a card on
-// file, and today matches the lease's billing cycle, charges rent
-// off-session (mirrors charge-card's `mode: 'auto'` branch exactly — same
-// off_session reasoning: no one's present, the card was authorized in
-// advance) and writes the charge to both tenants/{t}/transactions (fee
-// reconciliation) and tenants/{t}/rentLedger (rent roll), exactly like
-// book-station does for day-use bookings — same dual-ledger reasoning
-// applies here, it's the same studio's money either way.
+// For every ACTIVE lease with autopay on (the renter's switch, or the owner's auto-collect) and a card saved on the
+// business's account, charges the open rent bill the nightly job made: one dated today or yesterday (first bills
+// included; the day before covers businesses far west of UTC, where the nightly run lands on the previous local day).
+// Writes the payment to tenants/{t}/transactions (source 'booth_rent', with the renter and the bill) and the rent ledger.
 //
-// IDEMPOTENCY: keyed by `autopay_${leaseId}_${todayIso}` — Stripe's
-// idempotency key AND a NotificationLog dedupeKey check both prevent a
-// re-run (retried cron, duplicate trigger) from double-charging the same
-// lease on the same day.
+// ONCE PER BILL: the bill is claimed (autopayTriedAt) in one step before it's charged, and the charge is keyed to the
+// bill, so a second run, a retried trigger or a failed save never charges it twice.
 //
-// FAILURE HANDLING: a failed charge does NOT retry same-day. It writes a
-// 'pending' ledger charge (so it shows up as owed, same as a manual charge
-// would) and a NotificationLog entry so the existing reminder/escalation
-// pipeline (see StudioSettings.reminders) picks it up on its normal
-// cadence, rather than building a second dunning system in parallel.
+// FAILURE HANDLING: a declined card isn't tried again on its own. The bill stays open (the late sweep and reminders take
+// it from there) and the ledger keeps a 'failed' line as history, not as a second amount owed. A late fee on a bill is
+// never taken by autopay; it stays on the bill.
 // ─────────────────────────────────────────────────────────────────────────
 
 
@@ -92,38 +85,6 @@ function resolveChargeId(intent: Stripe.PaymentIntent): string | null {
   return typeof intent.latest_charge === 'string' ? intent.latest_charge : (intent.latest_charge as any)?.id || null;
 }
 
-/** True if `dueDay` matches today, honoring lease frequency (daily/weekly/biweekly = day-of-cycle count; monthly = day-of-month).
- *
- *  Both dates are read as CALENDAR days, not as instants. The previous form
- *  parsed `${day}T00:00:00` — a string with no zone, which JavaScript reads
- *  in whatever zone the process happens to run in — and then asked it for a
- *  day-of-month. It gave the right answer only because Vercel runs in UTC;
- *  the same code on a laptop in Eastern reported the day before. A day is a
- *  day: take the numbers out of the string and never build an instant. */
-function isDueToday(lease: any, todayIso: string): boolean {
-  const parts = (v: any) => {
-    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
-    return m ? { y: +m[1], mo: +m[2], d: +m[3] } : null;
-  };
-  const today = parts(todayIso);
-  if (!today) return false;
-  if (lease.frequency === 'monthly') {
-    // A lease due on the 31st was never charged in a 30-day month, and one
-    // due on the 29th–31st skipped February entirely: day-of-month equality
-    // has no answer for a day the month does not have. The rent falls due on
-    // the last day of any month too short for its due day.
-    const dim = new Date(Date.UTC(today.y, today.mo, 0)).getUTCDate();
-    const effective = Math.min(Number(lease.dueDay) || 0, dim);
-    return today.d === effective;
-  }
-  const anchor = parts(lease.firstChargeDate);
-  if (!anchor) return false;
-  const stepDays = lease.frequency === 'daily' ? 1 : lease.frequency === 'weekly' ? 7 : 14;
-  const diffDays = Math.round(
-    (Date.UTC(today.y, today.mo - 1, today.d) - Date.UTC(anchor.y, anchor.mo - 1, anchor.d)) / 86_400_000,
-  );
-  return diffDays >= 0 && diffDays % stepDays === 0;
-}
 
 export async function POST(req: NextRequest) {
   // Only the scheduler, holding the secret exactly. No secret set: nobody (a missing secret used to let
@@ -155,9 +116,23 @@ export async function POST(req: NextRequest) {
 
     const leasesSnap = await db.collection(`tenants/${tenantId}/leases`).where('status', '==', 'active').get();
 
+    // What autopay takes is the rent bill the nightly job made (lib/rent-schedule decides the days, first bills
+    // included): one dated today or yesterday (the nightly run lands on the previous local day for businesses far west of
+    // UTC), still open, and not tried by autopay before. A declined card isn't tried again on its own: the bill waits for
+    // the renter or the business.
+    const yesterdayIso = new Date(Date.parse(`${todayIso}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    const openBills = new Map<string, any>();
+    for (const d of (await db.collection(`tenants/${tenantId}/rentInvoices`).where('dueDate', 'in', [yesterdayIso, todayIso]).get()).docs) {
+      const x: any = d.data() || {};
+      if (!['due', 'late'].includes(String(x.status || '')) || x.autopayTriedAt || !x.leaseId) continue;
+      const prev = openBills.get(String(x.leaseId));
+      if (!prev || String(x.dueDate) < String(prev.data.dueDate)) openBills.set(String(x.leaseId), { ref: d.ref, data: x });
+    }
+
     for (const leaseDoc of leasesSnap.docs) {
       const lease = { id: leaseDoc.id, ...leaseDoc.data() } as any;
-      if (!isDueToday(lease, todayIso)) continue;
+      const bill = openBills.get(lease.id);
+      if (!bill) continue;
 
       const dedupeKey = `autopay_${lease.id}_${todayIso}`;
       const alreadyRun = await db.collection(`tenants/${tenantId}/notificationLog`).where('dedupeKey', '==', dedupeKey).limit(1).get();
@@ -193,48 +168,86 @@ export async function POST(req: NextRequest) {
 
       // The invoice this draft settles — raised by the nightly job this
       // morning. Marked paid on success, left for the late sweep on decline.
-      const invSnap = await db.collection(`tenants/${tenantId}/rentInvoices`)
-        .where('leaseId', '==', lease.id).where('dueDate', '==', todayIso).limit(1).get();
-      const invoiceRef = invSnap.empty ? null : invSnap.docs[0].ref;
+      const invoiceRef = bill.ref;
       // Charge what today's invoice still owes — never the lease's full rent blindly. No invoice (rent paused by approved
       // leave, or not billed today) → nothing to charge; already paid (the renter paid early) → nothing to charge. The
       // invoice already has credits and leave reductions taken off.
-      const inv: any = invSnap.empty ? null : invSnap.docs[0].data();
+      const inv: any = bill.data;
       if (!inv) { results.push({ leaseId: lease.id, ok: false, reason: 'no_invoice_today' }); continue; }
       if (['paid', 'void', 'waived', 'cancelled'].includes(String(inv.status || ''))) { results.push({ leaseId: lease.id, ok: false, reason: 'already_paid' }); continue; }
       const chargeCents = Math.max(0, Math.round((Number(inv.amountCents ?? lease.rentAmountCents) || 0) - (Number(inv.paidCents) || 0)));
       if (chargeCents <= 0) { results.push({ leaseId: lease.id, ok: false, reason: 'nothing_owed' }); continue; }
 
+      // Claimed before it's charged, in one step: whatever happens next (a decline, a failed save, a second run at the same
+      // moment), autopay never takes this bill again on its own. The charge is named after the bill, so Stripe makes it
+      // once however often it's asked.
+      const claimed = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(invoiceRef)).data() as any) || {};
+        if (cur.autopayTriedAt || !['due', 'late'].includes(String(cur.status || ''))) return false;
+        tx.set(invoiceRef, { autopayTriedAt: nowISO, autopayChargeCents: chargeCents }, { merge: true });
+        return true;
+      }).catch(() => false);
+      if (!claimed) { results.push({ leaseId: lease.id, ok: false, reason: 'already_tried' }); continue; }
+
       const now = new Date().toISOString();
       let intent: Stripe.PaymentIntent | null = null;
       let failureReason: string | null = null;
 
-      try {
-        intent = await stripe.paymentIntents.create(
-          {
-            amount: chargeCents,
-            currency: 'usd',
-            customer: card.customer,
-            payment_method: card.pm,
-            off_session: true,
-            confirm: true,
-            description: `Autopay rent — ${booth?.name ?? lease.boothId}`,
-            metadata: { tenantId, leaseId: lease.id, renterId: lease.renterId, kind: 'lease_autopay' },
-          },
-          { stripeAccount: stripeAccountId, idempotencyKey: dedupeKey }
-        );
-        if (intent.status !== 'succeeded') failureReason = `stripe_${intent.status}`;
-      } catch (err: any) {
-        failureReason = err?.code || err?.message || 'charge_failed';
+      // Stripe saying no (a declined card) is a decline. No answer (a dropped connection, Stripe's own error) may have
+      // gone through, so it's asked again under the same key, which finds what Stripe did; still no answer, and the
+      // bill is left for the business to check, never treated as a decline.
+      let unconfirmed = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          intent = await stripe.paymentIntents.create(
+            {
+              amount: chargeCents,
+              currency: 'usd',
+              customer: card.customer,
+              payment_method: card.pm,
+              off_session: true,
+              confirm: true,
+              description: `Autopay rent — ${booth?.name ?? 'space'}`,
+              metadata: { tenantId, leaseId: lease.id, renterId: lease.renterId, invoiceId: invoiceRef.id, kind: 'lease_autopay' },
+            },
+            { stripeAccount: stripeAccountId, idempotencyKey: `autopay-bill-${invoiceRef.id}-${chargeCents}` }
+          );
+          // Still processing (it may yet go through) is unconfirmed, not a decline. One that needs the renter (another card,
+          // or their bank's check) or was canceled didn't go through: a decline, which the renter can pay themselves.
+          unconfirmed = intent.status === 'processing';
+          failureReason = intent.status !== 'succeeded' ? `stripe_${intent.status}` : null;
+          break;
+        } catch (err: any) {
+          if (stripeRefused(err)) { unconfirmed = false; failureReason = err?.code || err?.raw?.code || 'card_declined'; break; }
+          unconfirmed = true; failureReason = String(err?.message || 'no answer').slice(0, 120);
+        }
+      }
+      if (unconfirmed) {
+        await invoiceRef.set({ autopayUnconfirmed: true, autopayUnconfirmedNote: failureReason, updatedAt: nowISO }, { merge: true }).catch(() => {});
+        const n0 = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await n0.set({ id: n0.id, type: 'renter_autopay', read: false, createdAt: nowISO, link: '/rent',
+          message: `Autopay couldn’t confirm the rent payment for ${`${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || 'a renter'} (due ${inv.dueDate}). Check your Stripe payments before taking it another way.` }).catch(() => {});
+        results.push({ leaseId: lease.id, ok: false, reason: 'unconfirmed' });
+        continue;
+      }
+      // Taken: noted on the bill straight away, so even if saving the rest fails the bill shows it was paid by autopay.
+      if (intent && intent.status === 'succeeded') {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { await invoiceRef.set({ autopayIntentId: intent.id, autopayChargedCents: chargeCents }, { merge: true }); break; } catch { /* try again */ }
+        }
       }
 
       const ledgerRef = db.collection(`tenants/${tenantId}/rentLedger`).doc();
       const notifRef = db.collection(`tenants/${tenantId}/notificationLog`).doc();
       const batch = db.batch();
       if (intent && intent.status === 'succeeded' && invoiceRef) {
+        // A late fee on the bill isn't taken by autopay: the rent is, and the fee stays on the bill for the business.
+        const feeLeft = Math.max(0, Number(inv.lateFeeCents) || 0);
         batch.set(invoiceRef, {
-          status: 'paid', paidAt: new Date().toISOString(), ledgerEntryId: ledgerRef.id,
-          paidVia: 'autopay', updatedAt: new Date().toISOString(),
+          ...(feeLeft > 0 ? {} : { status: 'paid', paidAt: new Date().toISOString() }),
+          ledgerEntryId: ledgerRef.id,
+          paidCents: (Number(inv.paidCents) || 0) + chargeCents,
+          paidVia: 'autopay', autopayIntentId: intent.id, updatedAt: new Date().toISOString(),
         }, { merge: true });
       }
 
@@ -245,11 +258,15 @@ export async function POST(req: NextRequest) {
         batch.set(txnRef, {
           id: txnRef.id,
           date: nowISO,
-          description: `Autopay rent — ${booth?.name ?? lease.boothId}`,
+          description: `Rent — ${booth?.name ?? 'space'} (due ${inv.dueDate}, autopay)`,
           clientOrVendor: `${renter.firstName} ${renter.lastName}`,
           type: 'income',
           context: 'Business',
-          category: 'Rent income',
+          // The same fields every rent payment has, so it shows in the renter's history and the rent reports.
+          source: 'booth_rent',
+          category: 'Booth Rent',
+          renterId: lease.renterId,
+          sourceId: invoiceRef.id,
           taxBucket: 'revenue',
           amount: chargeCents / 100,
           paymentMethod: 'Card on file (Stripe autopay)',
@@ -297,9 +314,8 @@ export async function POST(req: NextRequest) {
 
         results.push({ leaseId: lease.id, ok: true });
       } else {
-        // Charge failed — post a PENDING charge (so it shows as owed, same
-        // as any other unpaid rent) rather than silently dropping it, and
-        // let the existing reminder/escalation pipeline handle follow-up.
+        // Charge failed: a 'failed' line for the history (what's owed stays on the bill, so it isn't counted twice), and
+        // the existing reminder pipeline follows up on the open bill.
         batch.set(ledgerRef, {
           id: ledgerRef.id,
           locationId: lease.locationId,
@@ -309,13 +325,16 @@ export async function POST(req: NextRequest) {
           boothId: lease.boothId,
           type: 'rent_charge',
           amountCents: chargeCents,
-          status: 'pending',
-          dueDate: todayIso,
+          // History only: what's owed stays on the rent bill, so this line isn't counted as owed again.
+          status: 'failed',
+          dueDate: String(inv.dueDate || todayIso).slice(0, 10),
           paidAt: null,
           description: `Autopay rent charge — card declined (${failureReason})`,
           createdAt: nowISO,
           updatedAt: nowISO,
         });
+        // Tried once (claimed above): the bill stays open for the renter or the business, and autopay doesn't try again.
+        batch.set(invoiceRef, { autopayDeclined: String(failureReason || 'declined').slice(0, 120), updatedAt: nowISO }, { merge: true });
 
         batch.set(notifRef, {
           id: notifRef.id,
@@ -335,7 +354,13 @@ export async function POST(req: NextRequest) {
         results.push({ leaseId: lease.id, ok: false, reason: failureReason ?? 'unknown' });
       }
 
-      await batch.commit();
+      // The money already moved (or didn't), so the record is saved even through a passing hiccup: tried three times.
+      let saved = false;
+      for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+        try { await batch.commit(); saved = true; }
+        catch (e) { if (attempt === 2) console.error('[autopay] could not save the result for bill', invoiceRef.id, intent?.id || failureReason, e); }
+      }
+      if (!saved) { results.push({ leaseId: lease.id, ok: false, reason: 'save_failed' }); continue; }
 
       // ── comms: receipts + decline notices, honoring tenants/{t}.rentComms ──
       // After the commit on purpose: the money truth is on the ledger before

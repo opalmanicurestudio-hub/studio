@@ -96,6 +96,7 @@ import { boothNoShowPolicyOf, hasOldBoothFee } from '@/lib/booth-no-show';
 import { BoothNoShowRow } from '@/components/booths/BoothNoShowRow';
 import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
+import { firstBill } from '@/lib/rent-schedule';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -525,6 +526,8 @@ interface LeaseFormState {
   requireSignature: boolean;
   /** Send the renter their portal link when the lease is made (to sign it, or to see rent and save a card). */
   sendInvite: boolean;
+  /** Monthly: bill the first, partial period by the day. */
+  prorateFirst: boolean;
 }
 
 function buildEmptyLeaseForm(): LeaseFormState {
@@ -536,6 +539,7 @@ function buildEmptyLeaseForm(): LeaseFormState {
     leaseTerms: '',
     requireSignature: false,
     sendInvite: true,
+    prorateFirst: true,
     depositDollars: '', depositRefundable: true, depositConditions: '',
     lateFeeEnabled: true, lateFeeGraceDays: '3', lateFeeType: 'flat',
     lateFeeAmountDollars: '25', lateFeePercent: '5',
@@ -4753,13 +4757,13 @@ export default function BoothsPage() {
             phone: renterForm.phone.trim(),
             businessName: renterForm.businessName.trim(),
             specialty: renterForm.specialty.trim(),
-            notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
+            notes: [renterForm.notes.trim(), renterForm.linkedStaffId && !/Hybrid — also a team member\./.test(renterForm.notes) ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
             avatarUrl: renterForm.avatarUrl || null,
             amenitiesEnabled: renterForm.amenitiesEnabled,
             amenityCompAllowance: renterForm.amenitiesEnabled ? Math.max(0, Math.round(parseFloat(renterForm.amenityCompAllowance) || 0)) : 0,
             amenityPayer: renterForm.amenityPayer,
             credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
-            linkedStaffId: renterForm.linkedStaffId || undefined,
+            linkedStaffId: renterForm.linkedStaffId || null,   // never undefined: the database refuses it
             updatedAt: now,
           }
         );
@@ -4912,6 +4916,7 @@ export default function BoothsPage() {
         requireSignature: leaseForm.requireSignature,
         renterName: leaseRenterName || null,
         sentBy: (selectedTenant as any)?.name || null,
+        prorateFirst: leaseForm.frequency === 'monthly' && leaseForm.prorateFirst,
         boothId: leaseForm.boothId,
         renterId: leaseRenterId,
         rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
@@ -6535,6 +6540,13 @@ export default function BoothsPage() {
                   <p className="text-xs text-muted-foreground">Continues unless either party gives notice</p></div>
                 <Switch checked={leaseForm.autoRenew} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, autoRenew: c }))} />
               </div>
+              {leaseForm.frequency === 'monthly' && (
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div><p className="text-sm font-medium">Bill the first part-month by the day</p>
+                    <p className="text-xs text-muted-foreground">When the first charge date isn’t the due day, the first bill covers only the days until the due day. Off: a full month’s rent.</p></div>
+                  <Switch checked={leaseForm.prorateFirst} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, prorateFirst: c }))} />
+                </div>
+              )}
             </div>
           )}
 
@@ -6645,7 +6657,14 @@ export default function BoothsPage() {
                 )}
                 <p><span className="text-muted-foreground">Rent:</span>{' '}
                   <span className="font-medium">{formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} / {(FREQUENCY_LABELS[leaseForm.frequency] ?? leaseForm.frequency ?? 'period').toLowerCase()}</span></p>
-                <p><span className="text-muted-foreground">First charge:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate}</span></p>
+                {(() => {
+                  // The first bill, by the same rule the rent jobs use (lib/rent-schedule).
+                  const fb = firstBill({ frequency: leaseForm.frequency, dueDay: parseInt(leaseForm.dueDay, 10) || 1, firstChargeDate: leaseForm.firstChargeDate || leaseForm.startDate,
+                    startDate: leaseForm.startDate, rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100), prorateFirst: leaseForm.frequency === 'monthly' && leaseForm.prorateFirst });
+                  if (!fb) return <p><span className="text-muted-foreground">First bill:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate || '—'}</span></p>;
+                  return <p><span className="text-muted-foreground">First bill:</span>{' '}<span className="font-medium">{formatCents(fb.cents)} on {fb.due}{fb.prorated ? ' (by the day, to the first due date)' : ''}{fb.nextDue ? `, then ${formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} on ${fb.nextDue}` : ''}</span>
+                    {leaseForm.requireSignature && <span className="block text-[12px] text-muted-foreground">If they sign after {fb.due}, the first bill is on the day they sign.</span>}</p>;
+                })()}
                 <p><span className="text-muted-foreground">Term:</span>{' '}
                   <span className="font-medium">{leaseForm.startDate} — {leaseForm.endDate || 'month-to-month'}{leaseForm.autoRenew ? ' (auto-renews)' : ''}</span></p>
                 <p><span className="text-muted-foreground">Deposit:</span>{' '}

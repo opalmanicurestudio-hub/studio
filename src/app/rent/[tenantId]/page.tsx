@@ -48,6 +48,8 @@ export default function RenterPortalPage() {
 
   const [session, setSession] = useState<{ token: string; expiresAt: number; name: string | null } | null>(() => {
     if (typeof window === 'undefined') return null;
+    // Opened from a personal link: that link decides who's signed in (below), not a session left on this phone.
+    if (new URLSearchParams(window.location.search).get('rt')) return null;
     try {
       const s = JSON.parse(localStorage.getItem(STORE(tenantId)) || 'null');
       return s && s.expiresAt > Date.now() ? s : null;
@@ -66,23 +68,26 @@ export default function RenterPortalPage() {
     if (s) localStorage.setItem(STORE(tenantId), JSON.stringify(s));
     else localStorage.removeItem(STORE(tenantId));
     setSession(s);
-    if (!s) setData(null);
+    setData(null);   // a new session (or none) never shows the last one's data
   };
 
   // Magic link (?rt=TOKEN): the owner shared a personal sign-in link from
   // the renter's profile — exchange it for a session on arrival, then wipe
   // the token from the URL so it doesn't linger in history or share sheets.
   // This is the no-SMS path: it works before Twilio is configured.
+  // A personal link always wins over a session already on this phone (two renters on one phone, or an expired one).
   useEffect(() => {
-    if (typeof window === 'undefined' || session?.token) return;
+    if (typeof window === 'undefined') return;
     const rt = new URLSearchParams(window.location.search).get('rt');
     if (!rt) return;
     const keepTab = new URLSearchParams(window.location.search).get('tab');   // e.g. ?tab=rent from an autopay link
     window.history.replaceState({}, '', window.location.pathname + (keepTab ? `?tab=${encodeURIComponent(keepTab)}` : ''));
     (async () => {
       const d = await api({ action: 'token-login', tenantId, magicToken: rt });
-      if (d.ok && d.token) saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
-      else toast({ variant: 'destructive', title: 'Link didn’t work', description: d.error || 'Sign in with your phone or email below.' });
+      if (d.ok && d.token) { saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null }); return; }
+      // The link didn't work: a session still on this phone carries on, otherwise they sign in below.
+      try { const prev = JSON.parse(localStorage.getItem(STORE(tenantId)) || 'null'); if (prev && prev.expiresAt > Date.now()) { setSession(prev); return; } } catch { /* none */ }
+      toast({ variant: 'destructive', title: 'Link didn’t work', description: d.error || 'Sign in with your phone or email below.' });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

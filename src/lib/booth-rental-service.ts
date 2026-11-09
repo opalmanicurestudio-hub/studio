@@ -242,6 +242,8 @@ export interface CreateLeaseInput {
   sentBy?: string | null;
   /** The renter's name, for the document's record. */
   renterName?: string | null;
+  /** Monthly leases: bill the first, partial period by the day (lib/rent-schedule billCents). */
+  prorateFirst?: boolean;
 }
 
 /**
@@ -301,13 +303,14 @@ export async function createLease(
   if (awaitSignature && !terms) throw new Error('Add the lease terms, so there is something for the renter to sign.');
   const signDocRef = awaitSignature ? doc(collection(firestore, 'tenants', input.tenantId, 'renterDocuments')) : null;
 
-  const leaseDoc: Omit<Lease, 'id'> & { locationId: string; leaseTerms: string | null; signatureDocumentId: string | null } = {
+  const leaseDoc: Omit<Lease, 'id'> & { locationId: string; leaseTerms: string | null; signatureDocumentId: string | null; prorateFirst: boolean } = {
     locationId: input.locationId,
     boothId: input.boothId,
     renterId: input.renterId,
     status: awaitSignature ? 'pending_signature' : 'active',
     leaseTerms: terms || null,
     signatureDocumentId: signDocRef ? signDocRef.id : null,
+    prorateFirst: input.frequency === 'monthly' && input.prorateFirst === true,
     rentAmountCents: input.rentAmountCents,
     frequency: input.frequency,
     dueDay: input.dueDay,

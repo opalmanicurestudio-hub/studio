@@ -3705,6 +3705,9 @@ export async function POST(req: NextRequest) {
       // meanwhile isn't signed at all.
       const isLease = d.kind === 'lease' && !!d.leaseId;
       const lRef = isLease ? db.doc(`tenants/${tenantId}/leases/${d.leaseId}`) : null;
+      // The business's own day: a lease signed in the evening starts that day, not the next (lib/rent-schedule billingStart).
+      let signedOn = nowIso.slice(0, 10);
+      if (isLease) { try { const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time'); signedOn = todayIn(tenantTimeZone(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {})); } catch { /* UTC day */ } }
       const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
       const outcome: 'ok' | 'taken' | 'lease_gone' = await db.runTransaction(async (tx: any) => {
         const cur: any = ((await tx.get(dRef)).data() as any) || {};
@@ -3715,7 +3718,7 @@ export async function POST(req: NextRequest) {
         tx.set(sRef, record);
         tx.set(dRef, { status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
         if (lRef) {
-          tx.set(lRef, { status: 'active', signedAt: nowIso, signedByName: signedName, signedDocumentId: sRef.id, signatureDocumentId: docId, activatedAt: nowIso, updatedAt: nowIso }, { merge: true });
+          tx.set(lRef, { status: 'active', signedAt: nowIso, signedByName: signedName, signedDocumentId: sRef.id, signatureDocumentId: docId, activatedAt: nowIso, activatedOn: signedOn, updatedAt: nowIso }, { merge: true });
           if (!who?.status || who.status === 'prospective') tx.set(rRef, { status: 'active', updatedAt: nowIso }, { merge: true });
         }
         return 'ok';
@@ -4136,6 +4139,12 @@ export async function POST(req: NextRequest) {
 
       if (action === 'pay-invoice') {
         if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+        // Autopay is taking it right now, or took it and is still saving the record: not paid twice.
+        const autopayBusy = !!inv.autopayTriedAt && !inv.autopayDeclined && inv.paidVia !== 'autopay'
+          && (!!inv.autopayIntentId || Date.now() - (Date.parse(String(inv.autopayTriedAt)) || 0) < 10 * 60 * 1000);
+        if (autopayBusy) return NextResponse.json({ ok: false, error: 'Autopay is taking this payment from your card. Check back in a few minutes.' }, { status: 409 });
+        // Autopay got no answer from the card company: it may have gone through, so the business checks first.
+        if (inv.autopayUnconfirmed === true) return NextResponse.json({ ok: false, error: 'Autopay may already have taken this payment. The business is checking it, so you aren’t charged twice.' }, { status: 409 });
         if (!['due', 'late'].includes(inv.status)) {
           return NextResponse.json({ ok: false, error: 'This invoice isn’t open.' }, { status: 409 });
         }
