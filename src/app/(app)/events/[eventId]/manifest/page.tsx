@@ -1227,14 +1227,24 @@ export default function EventManifestPage() {
   };
 
   const courseLabels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
-  const shareableLink = typeof window !== 'undefined' ? `${window.location.origin}/event/${tenantId}/${eventId}` : '';
+  // The event's page (reserve a place) and its meal order page; the per-seat codes open the meal order page with the
+  // table and seat filled in.
+  const eventPageLink = typeof window !== 'undefined' ? `${window.location.origin}/event/${tenantId}/${eventId}` : '';
+  const shareableLink = eventPageLink ? `${eventPageLink}/rsvp` : '';
 
   const generateQRDataUrl = async (url: string) => `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
   const handleGenerateQRs = async () => {
-    const tables = qrTables.split(',').map(t => t.trim()).filter(Boolean);
-    const seats  = parseInt(qrSeatsPerTable) || 4;
     const codes: { label: string; dataUrl: string }[] = [];
-    for (const t of tables) for (let s = 1; s <= seats; s++) codes.push({ label: `T${t} · S${s}`, dataUrl: await generateQRDataUrl(`${shareableLink}?table=${t}&seat=${s}`) });
+    // With a seating chart, one code per seat on it, by the chart's own table and seat names (what the meal order page
+    // matches); without one, from the tables typed here.
+    const chart = (Array.isArray(event?.seatingTables) ? event.seatingTables : []).filter((t: any) => t?.name && Array.isArray(t.seats) && t.seats.length);
+    if (chart.length) {
+      for (const t of chart) for (const s of t.seats) if (s?.label) codes.push({ label: `${t.name} · ${s.label}`, dataUrl: await generateQRDataUrl(`${shareableLink}?table=${encodeURIComponent(t.name)}&seat=${encodeURIComponent(s.label)}`) });
+    } else {
+      const tables = qrTables.split(',').map(t => t.trim()).filter(Boolean);
+      const seats  = parseInt(qrSeatsPerTable) || 4;
+      for (const t of tables) for (let s = 1; s <= seats; s++) codes.push({ label: `T${t} · S${s}`, dataUrl: await generateQRDataUrl(`${shareableLink}?table=${encodeURIComponent(t)}&seat=${s}`) });
+    }
     setQrCodes(codes); toast({ title: `${codes.length} QR codes generated` });
   };
 
@@ -1917,16 +1927,24 @@ export default function EventManifestPage() {
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
               className="bg-card rounded-2xl border-2 border-primary/20 p-5 space-y-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Guest Order Link</p>
-              <div className="w-full bg-muted/60 rounded-xl px-4 py-3 border-2 border-border">
-                <p className="text-xs font-bold text-foreground/80 break-all">{shareableLink}</p>
-              </div>
-              <Button onClick={() => { navigator.clipboard.writeText(shareableLink); toast({ title: 'Link Copied' }); }}
-                className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2">
-                <Copy className="w-4 h-4" /> Copy Link
-              </Button>
+              {[
+                { label: 'Event page', hint: 'Guests reserve a place and land on your guest list.', url: eventPageLink },
+                { label: 'Meal order page', hint: 'Guests choose their meal and tell the kitchen what to avoid. Their order goes onto their entry in your guest list.', url: shareableLink },
+              ].map((l) => (
+                <div key={l.label} className="space-y-2">
+                  <div><p className="text-[14px] font-semibold text-foreground">{l.label}</p><p className="text-[13px] text-muted-foreground">{l.hint}{event?.accessPin ? ' Guests enter the event’s PIN first.' : ''}</p></div>
+                  <div className="w-full bg-muted/60 rounded-xl px-4 py-3 border-2 border-border">
+                    <p className="text-xs font-bold text-foreground/80 break-all">{l.url}</p>
+                  </div>
+                  <Button onClick={() => { navigator.clipboard.writeText(l.url); toast({ title: 'Link copied' }); }}
+                    className="w-full h-11 rounded-xl font-semibold text-[14px] gap-2">
+                    <Copy className="w-4 h-4" /> Copy link
+                  </Button>
+                </div>
+              ))}
               <div className="space-y-3 pt-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Generate Per-Seat QR Codes</p>
+                <p className="text-[14px] font-semibold text-foreground">Meal order QR codes for each seat</p>
+                {(event?.seatingTables || []).some((t: any) => t?.seats?.length) && <p className="text-[13px] text-muted-foreground">Made from your seating chart, one for each seat.</p>}
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Input placeholder="Tables (e.g. 1,2,3)" value={qrTables} onChange={e => setQrTables(e.target.value)} className="h-10 rounded-xl border-2 flex-1" />
                   <Input placeholder="Seats per table" value={qrSeatsPerTable} onChange={e => setQrSeatsPerTable(e.target.value)} className="h-10 rounded-xl border-2 sm:w-36" />

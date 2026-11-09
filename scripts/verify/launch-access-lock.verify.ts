@@ -50,7 +50,7 @@ const read = (p: string) => readFileSync(p, 'utf8');
     ['src/app/api/appointments/book-group/route.ts', /closedReply\(tenant\)/],
     ['src/app/api/stripe/deposit/route.ts', /closedReply\(tenantSnap\.data\(\)\)/],
     ['src/app/api/stripe/booking-card/route.ts', /closedReply\(tenant\)/],
-    ['src/app/api/stripe/checkout/route.ts', /closedReply\(tenantSnap\.data\(\)\)/],
+    ['src/app/api/public/event/route.ts', /closedReply\(tenant\)/],
     ['src/app/api/stripe/completion/route.ts', /closedReply\(tenantSnap\.data\(\)\)/],
     ['src/app/api/retail/checkout/route.ts', /closedReplyFor\(db, tenantId\)/],
     ['src/app/api/academy/public/route.ts', /closedReply\(t\)/],
