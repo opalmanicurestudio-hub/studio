@@ -46,6 +46,21 @@ export async function POST(req: NextRequest) {
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
   const R = rc0.reversal;
   const { reverseRentPayment } = await import('@/lib/rent-desk');
+  // A rent payment whose extra has already come off another bill as credit can't simply be undone: that bill would stay
+  // paid with money that's no longer there. Refunding is the way back for that one.
+  for (const x of (Array.isArray(R.rentPayments) ? R.rentPayments : [])) {
+    if (!x?.creditId) continue;
+    const c: any = (await db.doc(`${T}/rentLedger/${x.creditId}`).get()).data() || {};
+    if ((Number(c.appliedCents) || 0) > 0) return NextResponse.json({ ok: false, error: 'Part of this rent payment has already come off another bill as credit, so the sale can’t be voided. Refund it instead.' }, { status: 409 });
+  }
+  // Nor one whose bill has been paid on since: undoing it would leave that bill's status out of step with what's paid.
+  for (const x of (Array.isArray(R.rentPayments) ? R.rentPayments : [])) {
+    for (const i of (Array.isArray(x?.invoices) ? x.invoices : [])) {
+      if (typeof i?.takeCents !== 'number') continue;
+      const cur: any = (await db.doc(`${T}/rentInvoices/${i.id}`).get()).data() || {};
+      if ((Number(cur.paidCents) || 0) > (Number(i.paidCents) || 0) + i.takeCents) return NextResponse.json({ ok: false, error: 'A rent bill this sale paid has had another payment since, so the sale can’t be voided. Refund it instead.' }, { status: 409 });
+    }
+  }
   // The void window: the same day (default), or while that day's till is still open.
   const tz = tenant.timezone || undefined; const dayOf = (d: Date) => d.toLocaleDateString('en-US', { timeZone: tz });
   const windowRule = tenant?.voidRules?.window === 'till_open' ? 'till_open' : 'same_day';

@@ -14,6 +14,8 @@
 //      storm from outside.
 
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
+import { applyAllOpenCredits } from '@/lib/rent-credits';
+import { RENT_CREDIT_TYPES, creditLabel } from '@/lib/rent-payment-plan';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
@@ -350,7 +352,7 @@ export async function GET(req: NextRequest) {
         try {
           const credSnap = await db.collection(`tenants/${tDoc.id}/rentLedger`).where('renterId', '==', lease.renterId).get();
           const creds = credSnap.docs.map((d) => ({ ref: d.ref, ...(d.data() as any) }))
-            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit'].includes(String(c.type || '')))
+            .filter((c: any) => (RENT_CREDIT_TYPES as readonly string[]).includes(String(c.type || '')))
             .map((c: any) => ({ ...c, remaining: Math.abs(Number(c.amountCents) || 0) - (Number(c.appliedCents) || 0) }))
             .filter((c: any) => c.remaining > 0)
             .sort((a: any, b: any) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')));
@@ -360,7 +362,7 @@ export async function GET(req: NextRequest) {
             const take = Math.min(c.remaining, due);
             due -= take; creditApplied += take;
             batch.set(c.ref, { appliedCents: (Number(c.appliedCents) || 0) + take, lastAppliedInvoiceId: ref.id, lastAppliedAt: nowIso }, { merge: true });
-            creditLines.push(`${c.type === 'desk_offset' ? 'front-desk collections' : c.type === 'prepaid_credit' ? 'paid ahead' : c.type === 'gift_card_credit' ? 'studio gift cards' : c.type === 'retail_sale_credit' ? 'online shop sales' : String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
+            creditLines.push(`${creditLabel(String(c.type))} $${(take / 100).toFixed(2)}`);
           }
           if (creditApplied > 0) {
             (inv as any).grossCents = inv.amountCents;
@@ -441,6 +443,17 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error('[cron/nightly] rent invoicing', tDoc.id, e); }
   }
   results.rentInvoiced = rentInvoiced;
+
+  // ── Credits onto bills already open ──────────────────────────────────
+  // A credit posted after a bill went out (a closure credit, money paid ahead, gift cards they took, their shop sales)
+  // comes off that open bill tonight instead of waiting for the next one (lib/rent-credits), before the late sweep
+  // judges it. Its own loop, so one business's trouble here never stops another's bills.
+  let rentCreditsAppliedCents = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try { rentCreditsAppliedCents += (await applyAllOpenCredits(db, tDoc.id)).appliedCents; }
+    catch (e) { console.error('[cron/nightly] open-bill credits', tDoc.id, e); }
+  }
+  results.rentCreditsAppliedCents = rentCreditsAppliedCents;
 
   // ── Leave lifecycle — bring people home on the day they said ────────────
   // Runs AFTER invoicing so a leave's last day is still honoured by the run

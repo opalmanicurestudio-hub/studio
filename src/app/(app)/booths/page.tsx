@@ -3433,7 +3433,9 @@ export default function BoothsPage() {
   const [recordPayMethod, setRecordPayMethod] = useState('Cash');
   const [recordPayNote, setRecordPayNote] = useState('');
   const [recordPaySaving, setRecordPaySaving] = useState(false);
+  const [recordPayReq, setRecordPayReq] = useState('');
   const openRecordPay = (mode: 'rent' | 'deposit', row: any) => {
+    setRecordPayReq(crypto.randomUUID());
     setRecordPay({ mode, lease: row.lease, renter: row.renter, booth: row.booth, invoice: row.open || null });
     setRecordPayAmount(mode === 'deposit'
       ? String(((row.lease as any)?.deposit?.amountCents || 0) / 100)
@@ -3511,54 +3513,50 @@ export default function BoothsPage() {
     if (cents <= 0) return;
     setRecordPaySaving(true);
     const nowIso = new Date().toISOString();
-    const { mode, lease: pl, renter: prt, booth: pbt, invoice } = recordPay;
+    const { mode, lease: pl, renter: prt, booth: pbt } = recordPay;
     const who = prt ? `${prt.firstName || ''} ${prt.lastName || ''}`.trim() || 'Renter' : 'Renter';
     try {
-      const batch = writeBatch(firestore);
-      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
-      if (mode === 'rent' && invoice) {
-        batch.update(doc(firestore, 'tenants', tenantId, 'rentInvoices', invoice.id), {
-          status: 'paid', paidAt: nowIso, paidMethod: recordPayMethod,
-          paidAmountCents: cents, paidLedgerEntryId: txnRef.id, recordedManually: true,
-        });
-        batch.set(txnRef, {
-          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-          source: 'booth_rent', category: 'Booth Rent',
-          amount: cents / 100,
-          description: `Booth rent — ${pbt?.name || 'space'} (due ${invoice.dueDate})${recordPayNote ? ` · ${recordPayNote}` : ''}`,
-          clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
-          hasReceipt: false, sourceId: invoice.id, tenantId, createdAt: nowIso, renterId: prt?.id || null,
-        });
-        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
-        batch.set(aRef, { id: aRef.id, ...auditEntry({
-          action: 'booth.rent_recorded', targetType: 'rentInvoice', targetId: invoice.id,
-          summary: `Recorded ${recordPayMethod} rent payment of $${(cents / 100).toFixed(2)} from ${who} (${pbt?.name || 'space'})`,
-          amount: cents / 100, actor: auditActor,
-        }) });
-      } else if (mode === 'rent') {
-        // No open invoice — a current renter handing over cash early (prepay)
-        // or paying outside the invoice cycle. Still lands in the ledger and
-        // audit trail; the nightly biller sees the ledger entry.
-        batch.set(txnRef, {
-          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-          source: 'booth_rent', category: 'Booth Rent',
-          amount: cents / 100,
-          description: `Booth rent (prepaid) — ${pbt?.name || 'space'}${recordPayNote ? ` · ${recordPayNote}` : ''}`,
-          clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
-          hasReceipt: false, sourceId: pl?.id || null, tenantId, createdAt: nowIso, renterId: prt?.id || null,
-        });
-        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
-        batch.set(aRef, { id: aRef.id, ...auditEntry({
-          action: 'booth.rent_recorded', targetType: 'lease', targetId: pl?.id || 'unknown',
-          summary: `Recorded ${recordPayMethod} rent prepayment of $${(cents / 100).toFixed(2)} from ${who} (${pbt?.name || 'space'})`,
-          amount: cents / 100, actor: auditActor,
-        }) });
-      } else if (mode === 'deposit') {
+      if (mode === 'rent') {
+        // The same path as the Rent page (api/rent/record-payment): bills first, oldest first, then whole charges, any
+        // extra kept as credit for the next bill, all in one step on the server, and a receipt to the renter. (This
+        // used to mark one bill paid whatever amount was typed, and a payment with no open bill was never counted.)
+        if (!prt?.id) { toast({ variant: 'destructive', title: 'Couldn’t record it', description: 'This lease has no renter attached.' }); return; }
+        const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+        const r: any = await fetch('/api/rent/record-payment', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+          body: JSON.stringify({ tenantId, renterId: prt.id, amountCents: cents, method: recordPayMethod.toLowerCase().replace(/[^a-z]+/g, '_'), methodLabel: recordPayMethod, note: recordPayNote, requestId: recordPayReq || crypto.randomUUID() }) })
+          .then((x) => x.json()).catch(() => null);
+        if (!r?.ok) { toast({ variant: 'destructive', title: 'Couldn’t record it', description: r?.error || 'Nothing was saved. Try again.' }); return; }
+        toast({ title: 'Payment recorded', description: `$${(cents / 100).toFixed(2)} · ${recordPayMethod}.${r.creditCents > 0 ? ` $${(r.creditCents / 100).toFixed(2)} kept as credit toward their next rent.` : ''}${r.receiptSentTo ? ` Receipt sent to ${r.receiptSentTo}.` : ''}` });
+        setRecordPay(null);
+        return;
+      }
+      if (mode === 'deposit') {
+        // One deposit per lease: a deposit already on their account isn't recorded again, and one waiting to be paid is
+        // the line that gets marked paid. Named after this dialog, so pressing Save twice writes one record.
+        const existing = (await getDocs(query(collection(firestore, 'tenants', tenantId, 'rentLedger'), where('leaseId', '==', pl.id)))).docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) })).filter((l: any) => l.type === 'deposit_charge');
+        const reqKey = (recordPayReq || crypto.randomUUID()).replace(/[^A-Za-z0-9_-]/g, '');
+        if (existing.some((l: any) => l.status === 'paid' && !String(l.id).endsWith(reqKey))) {
+          toast({ title: 'Deposit already recorded', description: 'This lease’s deposit is already on their account. Change it from their profile.' });
+          setRecordPay(null); return;
+        }
+        const pending = existing.find((l: any) => l.status !== 'paid');
+        const batch = writeBatch(firestore);
+        const txnRef = doc(firestore, 'tenants', tenantId, 'transactions', `deposit_${reqKey}`);
+        const depRef = pending ? doc(firestore, 'tenants', tenantId, 'rentLedger', pending.id) : doc(firestore, 'tenants', tenantId, 'rentLedger', `deposit_${reqKey}`);
         batch.update(doc(firestore, 'tenants', tenantId, 'leases', pl.id), {
           'deposit.collectedLedgerEntryId': txnRef.id,
           'deposit.collectedAt': nowIso,
           'deposit.collectedMethod': recordPayMethod,
           'deposit.collectedCents': cents,
+        });
+        // The deposit's own line on the renter's account, which the deposit card, statements and move-out sheet read
+        // (lib/deposit-accounting). Without it the deposit still showed as not collected.
+        batch.set(depRef, {
+          leaseId: pl.id, renterId: prt?.id || null, boothId: pl.boothId || null,
+          type: 'deposit_charge', status: 'paid', amountCents: cents,
+          description: 'Deposit collected', note: recordPayNote || '', dueDate: null, paidAt: nowIso.slice(0, 10), method: recordPayMethod,
+          evidenceUrls: [], stripePaymentIntentId: null, appliesToEntryIds: [], transactionId: txnRef.id, createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
         });
         batch.set(txnRef, {
           id: txnRef.id, type: 'income', context: 'Business',
@@ -3571,17 +3569,16 @@ export default function BoothsPage() {
           clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
           hasReceipt: false, sourceId: pl.id, tenantId, createdAt: nowIso, renterId: prt?.id || null,
         });
-        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+        const aRef = doc(firestore, 'tenants', tenantId, 'auditLogs', `deposit_${reqKey}`);
         batch.set(aRef, { id: aRef.id, ...auditEntry({
           action: 'booth.deposit_collected', targetType: 'lease', targetId: pl.id,
           summary: `Collected $${(cents / 100).toFixed(2)} security deposit (${recordPayMethod}) from ${who} (${pbt?.name || 'space'})`,
           amount: cents / 100, actor: auditActor,
         }) });
+        await batch.commit();
+        toast({ title: 'Deposit recorded', description: `$${(cents / 100).toFixed(2)} · ${recordPayMethod}. It's held, not counted as income.` });
+        setRecordPay(null);
       }
-      await batch.commit();
-      toast({ title: mode === 'deposit' ? 'Deposit recorded' : 'Payment recorded',
-        description: `$${(cents / 100).toFixed(2)} · ${recordPayMethod} — it's in your ledger and audit trail.` });
-      setRecordPay(null);
     } catch {
       toast({ variant: 'destructive', title: 'Couldn’t record it', description: 'Nothing was saved — try again.' });
     } finally { setRecordPaySaving(false); }
@@ -7394,7 +7391,7 @@ export default function BoothsPage() {
             <DialogDescription>
               {recordPay?.mode === 'deposit'
                 ? 'Log a deposit collected outside the app (cash, check, transfer). It books as held funds — not revenue — and the lease is marked collected.'
-                : 'Log a rent payment collected outside the app. The invoice is marked paid and the income lands in your ledger, activity feed, and reports.'}
+                : 'Log a rent payment collected outside the app. It pays their oldest bills first, any extra is kept as credit for their next rent, and they get a receipt.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

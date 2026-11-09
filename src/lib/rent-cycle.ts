@@ -9,6 +9,7 @@
 import { buildRentInvoice, invoiceKey, billDocId, monthAlreadyBilled } from '@/lib/rent-invoices';
 import { billingStart, dueDatesBetween } from '@/lib/rent-schedule';
 import { resolveLeavePolicy, leaveCovering, rentUnderLeave } from '@/lib/leave-policy';
+import { applyCreditsToOpenBills } from '@/lib/rent-credits';
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const MAX_PER_LEASE = 120;
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -57,7 +58,11 @@ export async function runRentCycle(db: any, tenantId: string, todayIso: string, 
       // Created, never overwritten: a bill another run made a moment ago stays as it is.
       const made1 = await ref.create(inv).then(() => true).catch(() => false);
       existing.add(invoiceKey(lease.id, dueDate)); allInv.push(inv);
-      if (made1) { created++; if (lt.late) lateCount++; made.push({ leaseId: lease.id, dueDate, late: lt.late }); } }
+      if (made1) { created++; if (lt.late) lateCount++; made.push({ leaseId: lease.id, renterId: lease.renterId, dueDate, late: lt.late }); } }
+  }
+  // Credits the renter already has come off these catch-up bills, as they do off the nightly ones (lib/rent-credits).
+  for (const rid of new Set<string>(made.map((m: any) => String(m.renterId || '')).filter(Boolean))) {
+    try { await applyCreditsToOpenBills(db, tenantId, rid, nowIso); } catch (e) { console.error('[rent-cycle] credits', tenantId, rid, e); }
   }
   return { created, late: lateCount, made };
 }

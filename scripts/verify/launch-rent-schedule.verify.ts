@@ -205,7 +205,7 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
   const rp = read('src/app/(app)/rent/page.tsx');
   check('the Rent page never writes rent bills from the browser (the rules refuse it)', !/doc\(collection\(firestore, 'tenants', tenantId, 'rentInvoices'\)\)/.test(rp) && /onClick=\{runRentCycle\}/.test(rp) && /importCharges = \(\) => runRentCycle\(\)/.test(rp));
   check('its balances and Record payment use what’s owed on rent bills', !/computeBalanceCents/.test(rp) && /owedOf\(renter\.id\)/.test(rp));
-  check('paying more than owed is kept as credit toward the next rent', /type: 'prepaid_credit', status: 'paid', amountCents: -leftover/.test(rp));
+  check('paying more than owed is kept as credit toward the next rent', /type: 'prepaid_credit', status: 'paid', amountCents: -plan\.creditCents/.test(readFileSync('src/app/api/rent/record-payment/route.ts', 'utf8')) && rp.includes("fetch('/api/rent/record-payment'"));
   const nightly = read('src/app/api/cron/nightly/route.ts');
   check('each nightly bill is saved on its own (one that exists holds up no one), and the due email goes after it’s saved, with the renter’s own link',
     /try \{ await batch\.commit\(\); saved = true; \}/.test(nightly) && /if \(!saved\) continue;/.test(nightly) && nightly.indexOf('if (!saved) continue;') < nightly.indexOf('for (const t of tellDue)')

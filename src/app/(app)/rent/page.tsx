@@ -990,6 +990,8 @@ export default function RentRollPage() {
     useCollection<RentLedgerEntry>(ledgerRef);
 
   const [paymentRenter, setPaymentRenter] = useState<Renter | null>(null);
+  const [payRequestId, setPayRequestId] = useState('');
+  const [payError, setPayError] = useState<string | null>(null);
   const [chargeRenter, setChargeRenter] = useState<Renter | null>(null);
   const [historyRenter, setHistoryRenter] = useState<Renter | null>(null);
   const [paymentForm, setPaymentForm] = useState<PaymentFormState>({
@@ -1250,142 +1252,29 @@ export default function RentRollPage() {
       date: todayIso,
       note: '',
     });
+    setPayRequestId(nanoid(16)); setPayError(null);
     setPaymentRenter(renter);
   };
 
+  // One path for every recorded payment (api/rent/record-payment): the renter's bills and charges are read and paid in
+  // one step on the server (bills first, oldest first, then whole charges, anything over kept as credit), so a bill
+  // autopay or an online payment has just paid is never paid twice, and the renter gets a receipt.
   const handleRecordPayment = async () => {
-    if (!firestore || !paymentRenter) return;
+    if (!paymentRenter || !tenantId) return;
     const amountCents = Math.round(toNumber(paymentForm.amountDollars) * 100);
     if (amountCents <= 0) return;
-    setSaving(true);
+    setSaving(true); setPayError(null);
     try {
-      const lease = leaseByRenter.get(paymentRenter.id);
-      const booth = lease ? boothById.get(lease.boothId) : undefined;
-      const now = new Date().toISOString();
-      const entries = ledgerByRenter.get(paymentRenter.id) ?? [];
-
-      // The money settles their rent bills first (oldest first, below), then one-off charges with what's left; the same
-      // money never settles both.
-      const unpaidCharges = entries
-        .filter((e) => isOpenLedgerCharge(e))
-        .sort((a, b) =>
-          (a.dueDate ?? a.createdAt).localeCompare(b.dueDate ?? b.createdAt)
-        );
-      const billsOwed = ((invoices ?? []) as any[]).filter((i) => i.renterId === paymentRenter.id).reduce((n, i) => n + invoiceOwedCents(i), 0);
-      let remaining = Math.max(0, amountCents - billsOwed);
-      const settledIds: string[] = [];
-      for (const charge of unpaidCharges) {
-        if (remaining < charge.amountCents) break;
-        remaining -= charge.amountCents;
-        settledIds.push(charge.id);
-      }
-
-      const methodLabel =
-        PAYMENT_METHODS.find((m) => m.value === paymentForm.method)?.label ??
-        paymentForm.method;
+      const methodLabel = PAYMENT_METHODS.find((m) => m.value === paymentForm.method)?.label ?? paymentForm.method;
       const renterName = `${paymentRenter.firstName} ${paymentRenter.lastName}`;
-
-      const batch = writeBatch(firestore);
-
-      // Refs first so each record can cross-reference the other.
-      const paymentRef = doc(
-        collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))
-      );
-      const txnRef = doc(
-        collection(firestore, 'tenants', tenantId, 'transactions'),
-        ledgerEntryId('booth_rent', paymentRef.id)
-      );
-
-      // 1. Rent subledger payment (negative cents = credit)
-      batch.set(paymentRef, {
-        leaseId: lease?.id ?? '',
-        renterId: paymentRenter.id,
-        boothId: lease?.boothId ?? null,
-        type: 'payment',
-        status: 'paid',
-        amountCents: -amountCents,
-        description: `Payment — ${methodLabel}`,
-        dueDate: null,
-        paidAt: paymentForm.date,
-        method: paymentForm.method,
-        stripePaymentIntentId: null,
-        appliesToEntryIds: settledIds,
-        createdBy: 'owner',
-        note: paymentForm.note.trim(),
-        transactionId: txnRef.id,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // 2. General-ledger income line — routed through the canonical funnel.
-      const entry = buildLedgerEntry({
-        source: 'booth_rent',
-        sourceId: paymentRef.id,
-        amountCents,
-        category: 'Booth Rent',
-        description: `Booth rent — ${booth ? booth.name : 'booth'} — ${renterName}`,
-        clientOrVendor: renterName,
-        date: paymentForm.date,
-        paymentMethod: methodLabel,
-      });
-      batch.set(txnRef, { ...entry, id: txnRef.id, renterId: paymentRenter.id, leaseId: lease?.id || null });   // whose it is, by id (lib/renter-rent-history)
-
-      // 3. Mark settled charges paid
-      for (const chargeId of settledIds) {
-        batch.update(
-          doc(
-            firestore,
-            BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId),
-            chargeId
-          ),
-          { status: 'paid', paidAt: paymentForm.date, updatedAt: now }
-        );
-      }
-
-      // 4. Settle the renter's open invoices, oldest first, with the same
-      //    money. Invoices are what the Owed card, the late sweep, the
-      //    reminder and the portal read — a cash payment that only touched the
-      //    ledger left all four still saying "owes". Whole invoices only; a
-      //    part-payment leaves the invoice open with the remainder recorded on
-      //    it so nobody is chased for money they've handed over.
-      let invoiceRemaining = amountCents;
-      const openForRenter = ((invoices ?? []) as any[])
-        .filter((i) => i.renterId === paymentRenter.id && (i.status === 'due' || i.status === 'late'))
-        .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
-      for (const inv of openForRenter) {
-        const owed = (Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0);
-        if (owed <= 0) continue;
-        const ref = doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id);
-        if (invoiceRemaining >= owed) {
-          invoiceRemaining -= owed;
-          batch.update(ref, {
-            status: 'paid', paidAt: paymentForm.date, paidVia: paymentForm.method,
-            paidCents: (Number(inv.paidCents) || 0) + owed, ledgerEntryId: paymentRef.id, updatedAt: now,
-          });
-        } else if (invoiceRemaining > 0) {
-          batch.update(ref, {
-            paidCents: (Number(inv.paidCents) || 0) + invoiceRemaining, ledgerEntryId: paymentRef.id, updatedAt: now,
-          });
-          invoiceRemaining = 0;
-        }
-        if (invoiceRemaining === 0) break;
-      }
-
-      // Anything more than they owe is kept as paid-ahead credit, which comes off their next rent bill (the nightly job
-      // applies it), instead of disappearing.
-      const chargesSettled = unpaidCharges.filter((c) => settledIds.includes(c.id)).reduce((n, c) => n + (Number(c.amountCents) || 0), 0);
-      const leftover = Math.max(0, amountCents - Math.min(amountCents, billsOwed) - chargesSettled);
-      if (leftover > 0) {
-        batch.set(doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))), {
-          renterId: paymentRenter.id, leaseId: lease?.id ?? null, type: 'prepaid_credit', status: 'paid', amountCents: -leftover,
-          note: 'Paid ahead: comes off the next rent', paymentEntryId: paymentRef.id, createdAt: now, date: paymentForm.date,
-        });
-      }
-
-      await batch.commit();
+      const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+      const r: any = await fetch('/api/rent/record-payment', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
+        body: JSON.stringify({ tenantId, renterId: paymentRenter.id, amountCents, method: paymentForm.method, methodLabel, date: paymentForm.date, note: paymentForm.note, requestId: payRequestId || nanoid(16) }) })
+        .then((x) => x.json()).catch(() => null);
+      if (!r?.ok) { setPayError(r?.error || 'That didn’t save, so nothing was recorded. Try again.'); return; }
       setPaymentRenter(null);
-      setCycleResult(`Recorded ${formatCents(amountCents)} from ${renterName}.${leftover > 0 ? ` ${formatCents(leftover)} is kept as credit toward their next rent.` : ''} `);
-      setLastReceipt({ renterId: paymentRenter.id, paymentId: paymentRef.id });
+      setCycleResult(`Recorded ${formatCents(amountCents)} from ${renterName}.${r.creditCents > 0 ? ` ${formatCents(r.creditCents)} is kept as credit toward their next rent.` : ''}${r.receiptSentTo ? ` Receipt sent to ${r.receiptSentTo}.` : ''}`);
+      setLastReceipt({ renterId: paymentRenter.id, paymentId: r.paymentId });
     } finally {
       setSaving(false);
     }
@@ -1900,6 +1789,7 @@ export default function RentRollPage() {
               />
             </div>
           </div>
+          {payError && <p role="alert" className="text-[13px] text-[#b45309]">{payError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaymentRenter(null)}>
               Cancel

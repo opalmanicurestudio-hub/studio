@@ -153,8 +153,11 @@ export async function GET(req: NextRequest) {
     const pay = pd.data() as any;
     if (pay.type !== 'payment' || (Number(pay.amountCents) || 0) >= 0) return new NextResponse('Not a payment', { status: 400 });
     const paidCents = -Number(pay.amountCents);
+    // The bills this payment paid: named on the payment itself (recorded payments list them), or, for older ones, the
+    // bills that point back at it.
+    const named = new Set<string>(Array.isArray(pay.appliesToInvoiceIds) ? pay.appliesToInvoiceIds.map(String) : []);
     const applied = invSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      .filter((i) => i.ledgerEntryId === receiptId);
+      .filter((i) => named.has(String(i.id)) || i.ledgerEntryId === receiptId);
     const balanceAfter = [...invSnap.docs.map((d) => d.data() as any)]
       .filter((i) => i.status === 'due' || i.status === 'late')
       .reduce((n, i) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0), 0);
@@ -250,7 +253,8 @@ ${printButton}`);
       date: String(i.dueDate || i.createdAt || '').slice(0, 10),
       kind: 'invoice', label: `Rent — ${i.boothName || 'space'}`,
       detail: `Invoice due ${day(i.dueDate)}${i.status === 'late' ? ' · late' : i.status === 'paid' ? ` · paid ${day(i.paidAt)}` : ''}`,
-      cents: Number(i.amountCents) || 0, status: i.status,
+      // The bill before any credit came off it: each credit is its own line below, so it's counted once.
+      cents: Number(i.grossCents ?? i.amountCents) || 0, status: i.status,
     });
     if ((Number(i.lateFeeCents) || 0) > 0) {
       lines.push({
@@ -278,6 +282,8 @@ ${printButton}`);
       });
     } else if (e.type === 'late_fee') {
       lines.push({ date, kind: 'late_fee', label: e.description || 'Late fee', detail: '', cents });
+    } else if (e.type === 'prepaid_credit' && e.paymentEntryId) {
+      continue;   // the part of a payment over what was owed: the payment's own line already counts it
     } else if (cents < 0) {
       lines.push({ date, kind: 'credit', label: e.description || 'Credit', detail: e.note || '', cents });
     } else if (cents > 0) {

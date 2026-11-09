@@ -164,7 +164,7 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
       : { paidCents: (Number(cur.paidCents) || 0) + take, lastPaidOnlineAt: nowIso, updatedAt: nowIso }),
       ...(over > 0 ? { extraPayments: { [k]: { sessionId: String(cs.id), paymentIntentId: pi, account, cents: over, why: 'overpaid', state: 'to_refund', firstAt: nowIso } },
         extraRefundOpenAt: cur.extraRefundOpenAt && cur.extraRefundOpenAt < nowIso ? cur.extraRefundOpenAt : nowIso } : {}) }, { merge: true });
-    return { take, over };
+    return { take, over, owed };
   });
   if (out.already) return { already: true };
   if (out.extra) { const r = await refundExtra(out.extra, out.why); return { extra: true, refunded: r.refunded, message: r.message }; }
@@ -212,6 +212,27 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
     type: 'rent_paid', link: '/rent',
     message: `${renterName} has paid $${(out.take / 100).toFixed(2)} in rent online.`,
   });
+  // The renter's receipt, as every rent payment sends (lib/account-receipts). Only the call that recorded the payment
+  // gets here (a repeat of the same page returns above), so it goes out once; a mail problem never undoes the payment.
+  try {
+    const rid = String(inv.renterId || lease?.renterId || '');
+    const tenant: any = rid ? ((await db.doc(`tenants/${tenantId}`).get()).data() || {}) : {};
+    if (rid && tenant.rentComms?.sendReceipts !== false) {
+      const { sendAccountReceipt } = await import('@/lib/account-receipts');
+      const { linkOrigin } = await import('@/lib/app-origin');
+      const { accountPosition } = await import('@/lib/rent-payment-plan');
+      const [invNow, ledNow] = await Promise.all([
+        db.collection(`tenants/${tenantId}/rentInvoices`).where('renterId', '==', rid).get(),
+        db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', rid).get(),
+      ]);
+      const pos = accountPosition(invNow.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), ledNow.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })));
+      const base = linkOrigin(tenant);
+      // Their portal's Rent tab, where they sign in as usual: no sign-in link is made for a receipt, so links they were
+      // already sent keep working.
+      await sendAccountReceipt(db, tenantId, tenant, { kind: 'rent', id: rid, amountCents: out.take, receiptLink: base ? `${base}/rent/${encodeURIComponent(tenantId)}?tab=rent` : null,
+        owedAfterCents: pos.owedCents, creditCents: pos.creditCents });
+    }
+  } catch (e) { console.error('[rent-online-pay] receipt', tenantId, invoiceId, e); }
   return { paidCents: out.take, ...(out.over > 0 ? { refundedCents } : {}) };
 }
 

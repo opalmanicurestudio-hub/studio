@@ -1,6 +1,8 @@
-// src/lib/rent-desk.ts — RENT AT THE DESK (server). The same rule as the Rent page's "Record payment": the payment
-// settles whole charges oldest-first (anything left over stays as credit on their account), and is written to the
-// renter's rent ledger. Taken through the shared checkout, so the till, receipt, Today's sales, split and void all work.
+// src/lib/rent-desk.ts — RENT AT THE DESK (server). The same rule as the Rent page's "Record payment"
+// (lib/rent-payment-plan): rent bills first, oldest first, then whole one-off charges, anything left over kept as credit
+// on their account, all written to the renter's rent ledger. Taken through the shared checkout, so the till, receipt, Today's sales, split and void all work.
+import { FieldValue } from 'firebase-admin/firestore';
+import { planRentPayment } from '@/lib/rent-payment-plan';
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const renterName = (r: any) => `${r?.firstName || ''} ${r?.lastName || ''}`.trim() || r?.name || 'Renter';
 
@@ -25,32 +27,34 @@ export async function renterAccount(db: any, T: string, renterId: string) {
     balanceCents: Math.max(0, balanceCents), owedCents: Math.max(unpaid.reduce((s: number, e: any) => s + num(e.amountCents), 0), invoiceOwedCents) };
 }
 
-/** Writes the rent payment (in the checkout's batch). Returns what a void needs to undo it. */
+/** Writes the rent payment (in the checkout's batch). Returns what a void needs to undo it. Where the money goes is the
+ *  one rule every recorded payment uses (lib/rent-payment-plan): bills first, then whole charges, the rest as credit. */
 export function applyRentPayment(batch: any, db: any, T: string, acct: any, o: { amountCents: number; method: string; receiptId: string; transactionId: string; now: string; by: string }) {
-  let remaining = o.amountCents; const settled: { id: string; status: string }[] = [];
-  for (const c of acct.unpaid) { if (remaining < num(c.amountCents)) break; remaining -= num(c.amountCents); settled.push({ id: c.id, status: String(c.status || 'pending') }); }
+  const plan = planRentPayment(o.amountCents, acct.usesInvoices ? (acct.invoices || []) : [], acct.unpaid || []);
+  const settled = plan.charges.map((c) => ({ id: c.id, status: c.status }));
   const ref = db.collection(`${T}/rentLedger`).doc();
   batch.set(ref, { locationId: acct.lease?.locationId || acct.booth?.locationId || null, leaseId: acct.lease?.id || null, renterId: acct.renter.id, boothId: acct.lease?.boothId || null,
     type: 'payment', status: 'paid', amountCents: -o.amountCents, description: `Payment — ${o.method.replace(/_/g, ' ')} (at the desk)`, dueDate: '', paidAt: o.now, method: o.method,
-    appliesToEntryIds: settled.map((x) => x.id), createdBy: o.by, note: 'Paid at the front desk', receiptId: o.receiptId, transactionId: o.transactionId, createdAt: o.now, updatedAt: o.now });
+    appliesToEntryIds: settled.map((x) => x.id), appliesToInvoiceIds: plan.bills.map((x) => x.id), createdBy: o.by, note: 'Paid at the front desk', receiptId: o.receiptId, transactionId: o.transactionId, createdAt: o.now, updatedAt: o.now });
   for (const c of settled) batch.set(db.doc(`${T}/rentLedger/${c.id}`), { status: 'paid', paidAt: o.now, updatedAt: o.now }, { merge: true });
-  // Rent invoices (what autopay, late notices and reminders read): oldest first, part-payments recorded. Anything
-  // over what's owed becomes credit that comes off their next rent invoice — never a tip.
-  let left = o.amountCents; const invoices: { id: string; status: string; paidCents: number }[] = []; let creditId: string | null = null; let creditCents = 0;
-  if (acct.usesInvoices) {
-    for (const inv of acct.invoices || []) { if (left <= 0) break; const take = Math.min(left, inv.owedCents); left -= take;
-      invoices.push({ id: inv.id, status: String(inv.status || 'due'), paidCents: num(inv.paidCents) });
-      const full = take >= inv.owedCents;
-      batch.set(db.doc(`${T}/rentInvoices/${inv.id}`), { paidCents: num(inv.paidCents) + take, updatedAt: o.now, ...(full ? { status: 'paid', paidAt: o.now, paidVia: 'desk', ledgerEntryId: ref.id } : {}) }, { merge: true }); }
-    if (left > 0) { const c = db.collection(`${T}/rentLedger`).doc(); creditId = c.id; creditCents = left;
-      batch.set(c, { renterId: acct.renter.id, leaseId: acct.lease?.id || null, type: 'prepaid_credit', status: 'paid', amountCents: -left, note: 'Paid ahead at the front desk — comes off the next rent', receiptId: o.receiptId, createdAt: o.now, date: o.now }); }
+  // Rent invoices (what autopay, late notices and reminders read): oldest first, part-payments recorded. Anything over
+  // what's owed becomes credit that comes off their next rent invoice — never a tip.
+  const invoices: { id: string; status: string; paidCents: number; takeCents: number }[] = []; let creditId: string | null = null; let creditCents = 0;
+  for (const bill of plan.bills) {
+    const inv: any = (acct.invoices || []).find((i: any) => i.id === bill.id) || {};
+    invoices.push({ id: bill.id, status: String(inv.status || 'due'), paidCents: bill.paidCentsBefore, takeCents: bill.takeCents });
+    batch.set(db.doc(`${T}/rentInvoices/${bill.id}`), { paidCents: bill.paidCentsBefore + bill.takeCents, updatedAt: o.now, ...(bill.full ? { status: 'paid', paidAt: o.now, paidVia: 'desk', ledgerEntryId: ref.id } : {}) }, { merge: true });
   }
+  if (acct.usesInvoices && plan.creditCents > 0) { const c = db.collection(`${T}/rentLedger`).doc(); creditId = c.id; creditCents = plan.creditCents;
+    batch.set(c, { renterId: acct.renter.id, leaseId: acct.lease?.id || null, type: 'prepaid_credit', status: 'paid', amountCents: -plan.creditCents, note: 'Paid ahead at the front desk — comes off the next rent', paymentEntryId: ref.id, receiptId: o.receiptId, createdAt: o.now, date: o.now }); }
   return { renterId: acct.renter.id, entryId: ref.id, settled, invoices, creditId, creditCents };
 }
 
 /** A void puts it back: the payment is marked voided (it no longer counts) and the charges it settled are owed again. */
-export function reverseRentPayment(batch: any, db: any, T: string, x: { entryId: string; settled: { id: string; status: string }[]; invoices?: { id: string; status: string; paidCents: number }[]; creditId?: string | null }, now: string, reason: string) {
-  for (const i of x.invoices || []) batch.set(db.doc(`${T}/rentInvoices/${i.id}`), { status: i.status, paidCents: i.paidCents, paidAt: null, paidVia: null, ledgerEntryId: null, updatedAt: now }, { merge: true });
+export function reverseRentPayment(batch: any, db: any, T: string, x: { entryId: string; settled: { id: string; status: string }[]; invoices?: { id: string; status: string; paidCents: number; takeCents?: number }[]; creditId?: string | null }, now: string, reason: string) {
+  // Only what this payment put on each bill comes off it, so anything paid on the bill since (another payment, a credit)
+  // still counts. (Payments taken before this was kept give back the snapshot they saved.)
+  for (const i of x.invoices || []) batch.set(db.doc(`${T}/rentInvoices/${i.id}`), { status: i.status, paidCents: typeof i.takeCents === 'number' ? FieldValue.increment(-i.takeCents) : i.paidCents, paidAt: null, paidVia: null, ledgerEntryId: null, updatedAt: now }, { merge: true });
   if (x.creditId) batch.set(db.doc(`${T}/rentLedger/${x.creditId}`), { type: 'prepaid_credit_voided', voidedAt: now, voidReason: reason }, { merge: true });
   // 'refunded' is the status every rent screen already leaves out of what's been paid — so the Rent page, statements and
   // balances all agree at once; `voided` + the reason say what actually happened.

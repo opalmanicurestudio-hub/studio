@@ -6,7 +6,7 @@ import { mintRenterLink } from '@/lib/renter-link';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
-import { renterBusinessCard } from '@/lib/space-stripe';
+import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { stripeRefused } from '@/lib/stripe-said-no';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
@@ -60,6 +60,8 @@ async function sendRentEmail(opts: {
   }
 }
 
+const { FieldValue } = require('firebase-admin/firestore');
+
 function getAdmin() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
@@ -104,7 +106,8 @@ export async function POST(req: NextRequest) {
 
   for (const tenantDoc of tenantsSnap.docs) {
     const tenantId = tenantDoc.id;
-    const stripeAccountId = tenantDoc.data().stripeAccountId;
+    // Only an account that can take cards (lib/space-stripe): the same check every other space payment makes.
+    const stripeAccountId = spacePayAccount(tenantDoc.data());
     if (!stripeAccountId) continue;
 
     // Which day it is decides whether rent is charged AND forms the dedupe
@@ -175,19 +178,23 @@ export async function POST(req: NextRequest) {
       const inv: any = bill.data;
       if (!inv) { results.push({ leaseId: lease.id, ok: false, reason: 'no_invoice_today' }); continue; }
       if (['paid', 'void', 'waived', 'cancelled'].includes(String(inv.status || ''))) { results.push({ leaseId: lease.id, ok: false, reason: 'already_paid' }); continue; }
-      const chargeCents = Math.max(0, Math.round((Number(inv.amountCents ?? lease.rentAmountCents) || 0) - (Number(inv.paidCents) || 0)));
-      if (chargeCents <= 0) { results.push({ leaseId: lease.id, ok: false, reason: 'nothing_owed' }); continue; }
+      if (Math.max(0, Math.round((Number(inv.amountCents ?? lease.rentAmountCents) || 0) - (Number(inv.paidCents) || 0))) <= 0) { results.push({ leaseId: lease.id, ok: false, reason: 'nothing_owed' }); continue; }
 
       // Claimed before it's charged, in one step: whatever happens next (a decline, a failed save, a second run at the same
-      // moment), autopay never takes this bill again on its own. The charge is named after the bill, so Stripe makes it
-      // once however often it's asked.
-      const claimed = await db.runTransaction(async (tx: any) => {
+      // moment), autopay never takes this bill again on its own. What it charges is worked out from the bill as it is at
+      // that moment, so a payment or credit that landed since it was first read is never charged again. The charge is
+      // named after the bill and amount, so Stripe makes it once however often it's asked.
+      const claim: any = await db.runTransaction(async (tx: any) => {
         const cur: any = ((await tx.get(invoiceRef)).data() as any) || {};
-        if (cur.autopayTriedAt || !['due', 'late'].includes(String(cur.status || ''))) return false;
-        tx.set(invoiceRef, { autopayTriedAt: nowISO, autopayChargeCents: chargeCents }, { merge: true });
-        return true;
-      }).catch(() => false);
-      if (!claimed) { results.push({ leaseId: lease.id, ok: false, reason: 'already_tried' }); continue; }
+        if (cur.autopayTriedAt || !['due', 'late'].includes(String(cur.status || ''))) return { taken: true };
+        const cents = Math.max(0, Math.round((Number(cur.amountCents ?? lease.rentAmountCents) || 0) - (Number(cur.paidCents) || 0)));
+        if (cents <= 0) return { none: true };
+        tx.set(invoiceRef, { autopayTriedAt: nowISO, autopayChargeCents: cents }, { merge: true });
+        return { cents };
+      }).catch(() => ({ taken: true }));
+      if (claim.none) { results.push({ leaseId: lease.id, ok: false, reason: 'nothing_owed' }); continue; }
+      if (!claim.cents) { results.push({ leaseId: lease.id, ok: false, reason: 'already_tried' }); continue; }
+      const chargeCents: number = claim.cents;
 
       const now = new Date().toISOString();
       let intent: Stripe.PaymentIntent | null = null;
@@ -246,7 +253,8 @@ export async function POST(req: NextRequest) {
         batch.set(invoiceRef, {
           ...(feeLeft > 0 ? {} : { status: 'paid', paidAt: new Date().toISOString() }),
           ledgerEntryId: ledgerRef.id,
-          paidCents: (Number(inv.paidCents) || 0) + chargeCents,
+          // Added to what's already there, never a copy of an earlier read, so nothing recorded meanwhile is lost.
+          paidCents: FieldValue.increment(chargeCents),
           paidVia: 'autopay', autopayIntentId: intent.id, updatedAt: new Date().toISOString(),
         }, { merge: true });
       }

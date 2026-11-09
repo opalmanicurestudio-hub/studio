@@ -4,7 +4,7 @@ import { daysOf, recordStationBooking, releaseStationBooking, stationSlotPath } 
 import Stripe from 'stripe';
 import { createHash } from 'crypto';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
-import { renterBusinessCard } from '@/lib/space-stripe';
+import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 
 // ─── /api/stripe/book-station/route.ts ─────────────────────────────────────
 // Path A of the hourly/daily day-use feature: an EXISTING renter with a
@@ -159,7 +159,8 @@ export async function POST(req: NextRequest) {
     const bufferMinutes = booth.dayUseBufferMinutes ?? 0;
     const minHours = booth.dayUseMinHours ?? 0;
     let problem: any = null;
-    if (!booth.dayUseEnabled) problem = { ok: false, reason: 'This booth is not set up for day-use booking.' };
+    if (!spacePayAccount(tenantSnap.data())) problem = { ok: false, reason: 'This business can’t take card payments yet. Finish card payment setup in Settings first.' };
+    else if (!booth.dayUseEnabled) problem = { ok: false, reason: 'This booth is not set up for day-use booking.' };
     // The renter's card saved on this business's account (lib/space-stripe; the card setup and online rent save it there).
     else if (!renterBusinessCard(renter, String(stripeAccountId))) problem = { ok: false, reason: renter.stripeCustomerId && (renter.stripePaymentMethodId || renter.defaultPaymentMethodId) ? 'This renter’s card needs to be saved again before it can be charged. Send a card-setup link or use the guest booking flow.' : 'This renter has no card on file. Send a card-setup link or use the guest booking flow.', code: 'no_card_on_file' };
     else if (totalCents <= 0) problem = { ok: false, reason: 'This booth has no day-use rate configured for that duration.' };

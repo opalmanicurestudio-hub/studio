@@ -189,7 +189,7 @@ const read = (p: string) => readFileSync(p, 'utf8');
   await db.doc(`${T}/renters/${r1}`).set({ linkedStaffId: 'st_ana' }, { merge: true });
   const mine = ((await MR.myRent(db, 't1', 'st_ana')) as any).payments.map((p: any) => p.id).sort();
   check('the staff portal’s rent tab shows only their own payments too (their rent and their bookings)', JSON.stringify(mine) === JSON.stringify(['boothover_res_ana', 'boothrent_res_ana', 't_mine_new', 't_mine_old']), mine);
-  check('new rent payment lines record whose they are', /renterId: paymentRenter\.id/.test(read('src/app/(app)/rent/page.tsx')) && (wiz.match(/renterId: prt\?\.id \|\| null/g) || []).length === 3);
+  check('new rent payment lines record whose they are', /renterId: paymentRenter\.id/.test(read('src/app/(app)/rent/page.tsx')) && read('src/app/api/rent/record-payment/route.ts').includes('tx.set(txnRef, { ...entry, id: txnRef.id, tenantId, renterId,') && (wiz.match(/renterId: prt\?\.id \|\| null/g) || []).length >= 2);
 
   console.log('Renters page');
   const rp = read('src/app/(app)/renters/page.tsx');
