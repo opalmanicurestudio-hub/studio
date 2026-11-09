@@ -33,8 +33,9 @@
 //                  30+ min early with ≥$1 value records a PENDING credit
 //                  for the owner to approve (never auto-issued).
 //
-// Rate limits (per tenant, sliding windows in tenants/{id}/private/renterAuth):
-//   10 code requests / 15 min · 5 failed verifies / 15 min (423 when locked).
+// Rate limits, counted per visitor or per contact (never per business, so one person can't lock out the rest):
+//   code requests: 10 an hour per visitor, 5 an hour per contact, 300 a day per business (texting bills)
+//   code checks: 20 an hour per visitor, and each code allows 5 wrong tries · personal links: 30 opens an hour per visitor
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -75,13 +76,17 @@ import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignT
 import { searchFields } from '@/lib/client-search';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { spacePayAccount, onAccount, renterCardAccount, renterBusinessCard } from '@/lib/space-stripe';
+import { mintRenterLink, renterFromLink } from '@/lib/renter-link';
+import { saveServiceCost, serviceCosts } from '@/lib/renter-service-costs';
+import { linkOrigin } from '@/lib/app-origin';
+import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-const WINDOW_MS = 15 * 60 * 1000;
 const CODE_TTL_MS = 10 * 60 * 1000;
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_CODE_REQUESTS = 10;
-const MAX_VERIFY_FAILS = 5;
+const MAX_CODE_REQUESTS = 5;    // codes sent to one contact per hour
+const MAX_VERIFY_TRIES = 20;   // code checks per visitor per hour (each code also allows only 5 wrong tries)
+const MAX_LINK_TRIES = 30;     // personal-link opens per visitor per hour
 
 // ── Contact normalization ─────────────────────────────────────────────────
 // Stored contact fields are un-normalized (raw-trimmed at write time), so
@@ -110,19 +115,12 @@ const localTodayFallback = () => new Date().toISOString().slice(0, 10);
 const safeToday = (v: any) =>
   typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : localTodayFallback();
 
-// ── Rate limiting (private/renterAuth: { requestedAt:[], failedAt:[] }) ──
-async function slidingWindow(db: any, tenantId: string, field: string, max: number): Promise<boolean> {
-  const snap = await db.doc(`tenants/${tenantId}/private/renterAuth`).get();
-  const stamps: number[] = (((snap.data() as any) || {})[field] || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  return stamps.length >= max;
-}
-async function recordStamp(db: any, tenantId: string, field: string, clear = false) {
-  const ref = db.doc(`tenants/${tenantId}/private/renterAuth`);
-  const snap = await ref.get();
-  const prior: number[] = (((snap.data() as any) || {})[field] || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  await ref.set({ [field]: clear ? [] : [...prior, Date.now()].slice(-30) }, { merge: true });
+// ── Rate limiting ──
+// Counted per visitor (and per contact for codes), never per business: one person's wrong tries can't lock
+// the other renters out. A counting hiccup never blocks a real renter.
+async function tries(req: NextRequest, scope: string, who: string, max: number): Promise<boolean> {
+  try { return await bump(`${scope}_${sha256(who).slice(0, 32)}_${Math.floor(Date.now() / 3600000)}`, max, 2 * 3600000); }
+  catch { return true; }
 }
 
 // ── Code delivery — swap this for SMS/email when a provider is wired ─────
@@ -233,20 +231,16 @@ async function findFootprint(db: any, tenantId: string, key: string): Promise<{ 
 async function createSession(db: any, tenantId: string, key: string, name: string | null, renterId: string | null) {
   const token = randomBytes(24).toString('hex');
   const ref = db.doc(`tenants/${tenantId}/private/renterSessions`);
-  const snap = await ref.get();
-  const all = ((snap.data() as any) || {});
-  // prune expired sessions while we're here
-  const kept: any = {};
-  for (const [k, v] of Object.entries<any>(all)) {
-    if (v && v.expiresAt > Date.now()) kept[k] = v;
-  }
-  kept[sha256(token)] = {
-    contactKey: key, name, renterId,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-    createdAt: new Date().toISOString(),
-  };
-  await ref.set(kept); // whole-doc set = prune sticks
-  return { token, expiresAt: kept[sha256(token)].expiresAt };
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  // One step, so two sign-ins at once (or a sign-in beside "turn off links", lib/renter-link) never drop each other.
+  await db.runTransaction(async (tx: any) => {
+    const all = (((await tx.get(ref)).data() as any) || {});
+    const kept: any = {};
+    for (const [k, v] of Object.entries<any>(all)) if (v && v.expiresAt > Date.now()) kept[k] = v;   // prune expired ones while here
+    kept[sha256(token)] = { contactKey: key, name, renterId, expiresAt, createdAt: new Date().toISOString() };
+    tx.set(ref, kept);   // whole-doc set, so the prune sticks
+  });
+  return { token, expiresAt };
 }
 async function resolveSession(db: any, tenantId: string, token: any) {
   if (!token || typeof token !== 'string') return null;
@@ -392,7 +386,7 @@ const fromMin = (n: number): string =>
 type SwapSeg = { start: string; end: string };
 type SwapCtx = {
   renterId: string; staffId: string; name: string;
-  email: string | null; phone: string | null; portalToken: string | null;
+  email: string | null; phone: string | null;
   week: any; dates: Record<string, any>;
   leaseDays: number[] | null; leaseStart: string; leaseEnd: string;
   leaseEndDate: string | null;
@@ -630,7 +624,6 @@ async function loadSwapProviders(db: any, tenantId: string, today: string): Prom
         name: `${r.firstName || ''} ${r.lastName || ''}`.trim() || m.name || 'Renter',
         email: r.email || null,
         phone: r.phone || null,
-        portalToken: r.portalToken || null,
         week: (m.availability?.week && typeof m.availability.week === 'object') ? m.availability.week : {},
         dates: (m.availability?.dates && typeof m.availability.dates === 'object') ? m.availability.dates : {},
         leaseDays: Array.isArray(days) && days.length > 0
@@ -656,7 +649,7 @@ async function loadSwapProviders(db: any, tenantId: string, today: string): Prom
  */
 async function swapNotify(
   db: any, tenantId: string, tenant: any,
-  target: { name: string; email: string | null; phone: string | null; portalToken: string | null },
+  target: { renterId?: string | null; name: string; email: string | null; phone: string | null },
   subject: string, headline: string, lines: string[], smsText: string,
   // A conflicted "ask anyway" is not urgent. Texting for it trains people to
   // mute swap notifications, which costs the ones that DO need answering.
@@ -664,11 +657,9 @@ async function swapNotify(
 ) {
   const comms = (tenant?.rentComms || {}) as any;
   const studioName = tenant?.name || 'The studio';
-  const origin = String(tenant?.publicOrigin
-    || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
-  const portalUrl = origin
-    ? `${origin}/rent/${tenantId}${target.portalToken ? `?rt=${encodeURIComponent(target.portalToken)}` : ''}`
-    : '';
+  const origin = linkOrigin(tenant);
+  // A fresh personal link for this notice; without a renter record, the portal's own sign-in page.
+  const portalUrl = !origin ? '' : (target.renterId ? await mintRenterLink(db, tenantId, target.renterId, origin).catch(() => null) : null) || `${origin}/rent/${tenantId}`;
 
   if (comms.swapNotifyEmail !== false && target.email && /@/.test(target.email)) {
     try {
@@ -742,10 +733,11 @@ export async function POST(req: NextRequest) {
       if (!key || (!isEmail(raw) && key.length < 7)) {
         return NextResponse.json({ ok: false, error: 'Enter the phone number or email you booked with.' }, { status: 400 });
       }
-      if (await slidingWindow(db, tenantId, 'requestedAt', MAX_CODE_REQUESTS)) {
-        return NextResponse.json({ ok: false, error: 'Too many code requests — try again in a few minutes.' }, { status: 429 });
+      const limited = await limitPublic(req, 'renter-code', String(tenantId), { perHour: 10, perDay: 300 });
+      if (limited) return limited;
+      if (!(await tries(req, 'renter-code-to', `${tenantId}|${key}`, MAX_CODE_REQUESTS))) {
+        return NextResponse.json({ ok: false, error: 'Too many codes sent to that contact. Try again in an hour.' }, { status: 429 });
       }
-      await recordStamp(db, tenantId, 'requestedAt');
 
       const fp = await findFootprint(db, tenantId, key);
       if (fp.found) {
@@ -773,18 +765,25 @@ export async function POST(req: NextRequest) {
       if (!key || !/^\d{6}$/.test(code)) {
         return NextResponse.json({ ok: false, error: 'Enter the 6-digit code.' }, { status: 400 });
       }
-      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
-        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
+      if (!(await tries(req, 'renter-verify', `${tenantId}|${visitorIp(req)}`, MAX_VERIFY_TRIES))) {
+        return NextResponse.json({ ok: false, error: 'Too many tries from here. Try again in an hour.' }, { status: 429 });
       }
+      // Checked and counted in one step, so tries sent at the same moment can't each see "no wrong tries yet". A code
+      // is used once, and the fifth wrong try uses it up.
       const codesRef = db.doc(`tenants/${tenantId}/private/renterCodes`);
-      const entry = ((((await codesRef.get()).data() as any) || {})[key]) || null;
-      if (!entry || Date.now() > entry.expiresAt || entry.attempts >= 5 || entry.codeHash !== sha256(code)) {
-        if (entry) await codesRef.set({ [key]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true });
-        await recordStamp(db, tenantId, 'failedAt');
-        return NextResponse.json({ ok: false, error: 'That code isn’t valid — check it or request a new one.' }, { status: 401 });
-      }
-      await codesRef.set({ [key]: null }, { merge: true }); // single-use
-      await recordStamp(db, tenantId, 'failedAt', true);
+      const entry: any = await db.runTransaction(async (tx: any) => {
+        const e: any = ((((await tx.get(codesRef)).data() as any) || {})[key]) || null;
+        if (!e) return null;
+        if (Date.now() > e.expiresAt || (Number(e.attempts) || 0) >= 5) { tx.set(codesRef, { [key]: null }, { merge: true }); return null; }
+        if (e.codeHash !== sha256(code)) {
+          const attempts = (Number(e.attempts) || 0) + 1;
+          tx.set(codesRef, { [key]: attempts >= 5 ? null : { ...e, attempts } }, { merge: true });
+          return null;
+        }
+        tx.set(codesRef, { [key]: null }, { merge: true });
+        return e;
+      });
+      if (!entry) return NextResponse.json({ ok: false, error: 'That code isn’t valid. Check it or ask for a new one.' }, { status: 401 });
       const session = await createSession(db, tenantId, key, entry.name || null, entry.renterId || null);
       if (entry.renterId) {
         await db.doc(`tenants/${tenantId}/renters/${entry.renterId}`)
@@ -800,32 +799,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: entry.name || null });
     }
 
-    // ═══ token-login — the renter's MAGIC LINK ════════════════════════════
-    // The owner shares /rent/{tenantId}?rt=TOKEN from the renter's profile;
-    // opening it signs the renter straight in — no code, no SMS required.
-    // This is what makes the portal usable BEFORE Twilio is set up (and
-    // easier after). The token lives on the renter doc; the owner clears or
-    // regenerates it to revoke. Same rate-limit pool as code attempts, so
-    // token guessing burns the same budget as code guessing.
+    // ═══ token-login — the renter's personal link ═════════════════════════
+    // /rent/{tenantId}?rt=TOKEN signs the renter straight in, no code needed (lib/renter-link). Each email or text
+    // carries a fresh link that works for 30 days; only its hash is stored, and the owner can turn them all off.
+    // Wrong tries are counted per visitor, so one person guessing never locks out the other renters.
     if (action === 'token-login') {
       const tok = String(body.magicToken || '').trim();
       if (!tok || tok.length < 12) {
-        return NextResponse.json({ ok: false, error: 'This link is incomplete — ask the studio to resend it.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: 'This link is incomplete. Ask the business to send it again.' }, { status: 400 });
       }
-      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
-        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
+      if (!(await tries(req, 'renter-link', `${tenantId}|${visitorIp(req)}`, MAX_LINK_TRIES))) {
+        return NextResponse.json({ ok: false, error: 'Too many tries from here. Try again in an hour.' }, { status: 429 });
       }
-      const rs = await db.collection(`tenants/${tenantId}/renters`).where('portalToken', '==', tok).limit(1).get();
-      if (rs.empty) {
-        await recordStamp(db, tenantId, 'failedAt');
-        return NextResponse.json({ ok: false, error: 'This link is no longer valid — ask the studio for a fresh one.' }, { status: 401 });
+      const linkRenterId = await renterFromLink(db, String(tenantId), tok);
+      const rSnap = linkRenterId ? await db.doc(`tenants/${tenantId}/renters/${linkRenterId}`).get() : null;
+      if (!rSnap?.exists) {
+        return NextResponse.json({ ok: false, error: 'This link has expired or was turned off. Sign in with a code below, or ask the business for a new link.' }, { status: 401 });
       }
-      const r = { id: rs.docs[0].id, ...(rs.docs[0].data() as any) };
+      const r = { id: rSnap.id, ...(rSnap.data() as any) };
       const key = normContact(String(r.phone || r.email || ''));
       if (!key) {
-        return NextResponse.json({ ok: false, error: 'No phone or email on your renter record — the studio needs to add one.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: 'There’s no phone or email on your record yet. Ask the business to add one.' }, { status: 400 });
       }
-      await recordStamp(db, tenantId, 'failedAt', true);
       const session = await createSession(db, tenantId, key, r.name || null, r.id);
       if (r.portalInviteStatus !== 'accepted') {
         await db.doc(`tenants/${tenantId}/renters/${r.id}`)
@@ -1164,10 +1159,11 @@ export async function POST(req: NextRequest) {
 
             const svSnap = await db.collection(`tenants/${tenantId}/renterServices`)
               .where('staffId', '==', st.id).get();
+            const costs = await serviceCosts(db, tenantId, svSnap.docs);
             myServices = svSnap.docs
               .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
               .filter((sv: any) => sv.isActive !== false)
-              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: Number(sv.productCost) || 0, depositAmount: Number(sv.depositAmount) || 0,
+              .map((sv: any) => ({ id: sv.id, name: sv.name || '', price: Number(sv.price) || 0, duration: Number(sv.duration) || 60, productCost: costs[sv.id] || 0, depositAmount: Number(sv.depositAmount) || 0,
                 depositPercent: Number(sv.depositPercent) || 0, depositMode: sv.depositMode || 'none', description: sv.description || '', category: sv.category || '', videoUrl: sv.videoUrl || '', imageUrl: sv.imageUrl || null,
                 membersOnly: sv.membersOnly === true, rebookWeeks: Number(sv.rebookWeeks) || 0 }))
               .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
@@ -1584,9 +1580,10 @@ export async function POST(req: NextRequest) {
       if (cur.exists && (cur.data() as any)?.staffId !== st.id) {
         return NextResponse.json({ ok: false, error: 'Not your service' }, { status: 403 });
       }
+      await saveServiceCost(db, tenantId, id, productCost);   // before the service, so a failed save never loses it (lib/renter-service-costs)
       await ref.set({
         id, tenantId, staffId: st.id, renterId: session.renterId,
-        name, price: priceCents / 100, duration, productCost, depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
+        name, price: priceCents / 100, duration, productCost: FieldValue.delete(), depositAmount, depositPercent, depositMode: canCharge ? depositMode : 'none',
         description, category, videoUrl,
         membersOnly: body.membersOnly === true,
         rebookWeeks: Math.max(0, Math.min(52, Math.round(Number(body.rebookWeeks) || 0))),
@@ -3665,7 +3662,7 @@ export async function POST(req: NextRequest) {
       const signed = sSnap.docs.map((d) => { const x = d.data() as any; return { id: d.id, kind: x.kind, title: x.title, signedAt: x.signedAt, signedName: x.signedName }; })
         .sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
       const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
-      return NextResponse.json({ ok: true, documents: docs, signed, portalToken: renter.portalToken || null });
+      return NextResponse.json({ ok: true, documents: docs, signed });
     }
     if (action === 'document-sign' || action === 'document-decline') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -3776,7 +3773,7 @@ export async function POST(req: NextRequest) {
         : [];
       const today = new Date().toISOString().slice(0, 10);
       return NextResponse.json({
-        ok: true, portalToken: renter.portalToken || null, booksHere: !!prov,
+        ok: true, booksHere: !!prov,
         interruptions: mine.map((r) => {
           const own = losses.filter((l) => l.interruptionId === r.id).sort((a, b) => String(a.date).localeCompare(String(b.date)));
           const hit = appointmentsInWindow(myAppts, r, null, today).map((a) => ({

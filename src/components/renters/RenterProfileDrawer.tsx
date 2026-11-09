@@ -25,6 +25,8 @@ import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
 import { depositPosition, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { PrintLink } from '@/components/shared/PrintLink';
+import { RenterPortalAccess } from '@/components/renters/RenterPortalAccess';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -497,11 +499,7 @@ export function RenterProfileDrawer({
                   </div>
                 );
               })()}
-              {(renter as any).portalEnabled && (
-                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Portal active · PIN {(renter as any).portalPin}</p>
-                </div>
-              )}
+              <RenterPortalAccess tenantId={tenantId} renter={renter} />
 
               {onSaveNote && (
                 <div className="rounded-2xl border-2 p-4 space-y-1.5">
@@ -569,21 +567,19 @@ export function RenterProfileDrawer({
                 <div className="grid grid-cols-2 gap-1.5">
                   {([
                     ['Account statement', '', 'Balance, every charge and payment, with a remittance slip'],
-                    ['Full account record', '&mode=full', 'The statement plus every notice, message, ticket and change'],
-                    ['Deposit accounting', '&mode=deposit', 'Held, deductions with reasons and photos, returnable'],
-                    ['Move-out statement', '&mode=final', 'What is owed, the deposit, and which way the money goes'],
-                  ] as const).map(([label, q, note]) => (
-                    <a key={label} href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}${q}`}
-                      target="_blank" rel="noopener" className="rounded-xl border-2 bg-card px-3 py-2.5">
+                    ['Full account record', 'full', 'The statement plus every notice, message, ticket and change'],
+                    ['Deposit accounting', 'deposit', 'Held, deductions with reasons and photos, returnable'],
+                    ['Move-out statement', 'final', 'What is owed, the deposit, and which way the money goes'],
+                  ] as const).map(([label, mode, note]) => (
+                    <PrintLink key={label} path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode }} className="rounded-xl border-2 bg-card px-3 py-2.5">
                       <span className="block text-[10px] font-black uppercase tracking-widest">{label}</span>
                       <span className="block text-[9px] font-bold text-muted-foreground leading-snug">{note}</span>
-                    </a>
+                    </PrintLink>
                   ))}
-                  <a href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${thisYear}`}
-                    target="_blank" rel="noopener" className="rounded-xl border-2 bg-card px-3 py-2.5 col-span-2">
+                  <PrintLink path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: thisYear }} className="rounded-xl border-2 bg-card px-3 py-2.5 col-span-2">
                     <span className="block text-[10px] font-black uppercase tracking-widest">{thisYear} annual statement</span>
                     <span className="block text-[9px] font-bold text-muted-foreground leading-snug">Total rent paid this year — for their bookkeeping</span>
-                  </a>
+                  </PrintLink>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
@@ -823,22 +819,22 @@ export function RenterProfileDrawer({
               <div className="space-y-2">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
                 {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
-                  <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
+                  <PrintLink key={yr} path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: yr }}
                     className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
                     <p className="text-xs font-black">{yr} Rent Statement</p>
                     <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600">Open →</span>
-                  </a>
+                  </PrintLink>
                 ))}
               </div>
               {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Receipts</p>
                   {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).map(r => (
-                    <a key={r.id} href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer"
+                    <PrintLink key={r.id} path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }}
                       className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
                       <p className="text-xs font-black truncate">{r.boothName} · {r.startDate}</p>
                       <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0 flex items-center gap-1"><FileText className="h-3 w-3" /> Receipt</span>
-                    </a>
+                    </PrintLink>
                   ))}
                 </div>
               )}
@@ -882,8 +878,7 @@ export function RenterProfileDrawer({
               <div className="space-y-0">
                 <div className="flex items-center justify-between pb-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{timeline.length} events · money, notices, tickets, changes</p>
-                  <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&mode=full`}
-                    target="_blank" rel="noopener" className="text-[9px] font-black uppercase tracking-widest text-foreground underline">Print full record</a>
+                  <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode: 'full' }} className="text-[9px] font-black uppercase tracking-widest text-foreground underline">Print full record</PrintLink>
                 </div>
                 {timeline.map((e, i) => {
                   const tone = ({
@@ -957,11 +952,11 @@ function RenterSignedDocs({ tenantId, firestore, renterId }: { tenantId: string;
     <div className="space-y-2">
       <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents &amp; signatures</p>
       {sentSorted.map((d) => (
-        <a key={d.id} href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noreferrer"
+        <PrintLink key={d.id} path="/api/booths/renter-document" params={{ tenantId, id: d.id }}
           className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between gap-2 hover:border-slate-400 transition-colors">
           <span className="min-w-0"><span className="block text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {d.title}</span><span className={cn('block text-[10px] font-bold', tone(d.status))}>{label(d)}</span></span>
           <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Open</span>
-        </a>
+        </PrintLink>
       ))}
       {otherSigned.map((x) => (
         <div key={x.id} className="rounded-xl border-2 px-3.5 py-2.5">

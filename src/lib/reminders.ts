@@ -25,6 +25,7 @@
 // from an ISO instant — so we never show the wrong timezone.
 
 import { linkOrigin } from '@/lib/app-origin';
+import { mintRenterLink } from '@/lib/renter-link';
 import { logAuditAdmin } from './audit';
 import { brandedEmailHtml } from './email-template';
 
@@ -283,7 +284,7 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
           const r: any = lease?.renterId ? renterById.get(lease.renterId) : null;
           if (rentComms.remindRenterBeforeDue !== false && r?.email && !r?.autopayEnabled) {
             const base = linkOrigin(tenantData, 'https://studio-one-blue.vercel.app');
-            const payLink = r?.portalToken ? `${base}/rent/${tenantId}?rt=${r.portalToken}` : '';
+            const payLink = (await mintRenterLink(db, tenantId, String(lease.renterId), base, { renter: r }).catch(() => null)) || '';
             const businessName = String(tenantData.name || 'ClarityFlow');
             await sendRentEmail({
               db, tenantId, kind: 'renter_rent_due',

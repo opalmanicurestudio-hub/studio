@@ -8,6 +8,7 @@
 // or show a QR code on the desk screen (no sign-in in it — a shared screen can be photographed).
 import { MESSAGE_KINDS, resolveMessagePolicy, renderMessage } from '@/lib/message-policy';
 import { linkOrigin } from '@/lib/app-origin';
+import { mintRenterLink } from '@/lib/renter-link';
 import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 
 const money = (c: number) => `$${(Math.max(0, Number(c) || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -70,9 +71,8 @@ export async function autopayLink(db: any, tenantId: string, tenant: any, kind: 
   const base = linkOrigin(tenant); if (!base) return null;
   if (kind === 'tuition') return `${base}/learn/${tenantId}/my?tab=tuition`;
   if (!withSignIn) return `${base}/rent/${tenantId}?tab=rent`;
-  const ref = db.doc(`tenants/${tenantId}/renters/${id}`); const r: any = (await ref.get()).data() || {};
-  let tok = r.portalToken; if (!tok) { tok = [...Array(32)].map(() => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join(''); await ref.set({ portalToken: tok }, { merge: true }); }
-  return `${base}/rent/${tenantId}?rt=${tok}&tab=rent`;
+  const r: any = (await db.doc(`tenants/${tenantId}/renters/${id}`).get()).data() || {};
+  return (await mintRenterLink(db, tenantId, id, base, { query: 'tab=rent', renter: r })) || `${base}/rent/${tenantId}?tab=rent`;
 }
 
 export async function sendAutopayInvite(db: any, tenantId: string, tenant: any, kind: 'rent' | 'tuition', id: string) {

@@ -16,6 +16,7 @@ import { FileText, Scissors, FileSignature, MoreHorizontal } from 'lucide-react'
 import { contactKey as boothContactKey } from '@/lib/booth-contacts';
 import { buildGuestBook } from '@/lib/guest-book';
 import { PRINT, esc, printPage } from '@/lib/print-style';
+import { PrintLink, openPrint } from '@/components/shared/PrintLink';
 
 type OverflowItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
 
@@ -506,7 +507,7 @@ const openReschedule = (r: any) => {
                       ) : (r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') ? (
                         <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>
                       ) : (
-                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</a>
+                        <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }} className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</PrintLink>
                       )}
                       <OverflowMenu
                         align="right"
@@ -519,7 +520,7 @@ const openReschedule = (r: any) => {
                           ...(r.overageStatus === 'due' && r.cardOnFile ? [{ label: 'Mark paid in person', onClick: () => markOverageCollected(r) }] : []),
                           ...(r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) ? [{ label: incidentalForId === r.id ? 'Close incidental' : 'Add incidental charge', onClick: () => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); } }] : []),
                           ...(['confirmed', 'checked_in', 'cancel_requested', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status) || r.overageStatus === 'due'
-                            ? [{ label: 'Open receipt', onClick: () => window.open(`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`, '_blank') }] : []),
+                            ? [{ label: 'Open receipt', onClick: () => { void openPrint('/api/booths/receipt', { tenantId, type: 'reservation', id: r.id }).catch((e: any) => toast({ title: 'Didn’t open', description: String(e?.message || 'Try again.') })); } }] : []),
                           ...(r.agreementSignedAt ? [{ label: 'Open signed agreement', onClick: () => openSignedAgreement(r) }] : []),
                           ...(['confirmed', 'checked_in'].includes(r.status) ? [{ label: 'Open guest check-in link', onClick: () => window.open(`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(r.id)}`, '_blank') }] : []),
                         ]}

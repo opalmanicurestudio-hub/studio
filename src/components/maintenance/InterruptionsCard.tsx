@@ -23,6 +23,7 @@ import {
 import { useInventory } from '@/context/InventoryContext';
 import { useAppointmentWindow, useAppointmentsInRange } from '@/hooks/use-appointments';
 import { InterruptionClients } from '@/components/maintenance/InterruptionClients';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 const money = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -301,8 +302,8 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
         </div>
 
         <div className="flex gap-2">
-          <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(rec.id)}`} target="_blank" rel="noopener"
-            className="h-9 inline-flex flex-1 items-center justify-center rounded-lg border-2 bg-card text-[9px] font-black uppercase tracking-widest text-foreground/80">Print packet</a>
+          <PrintLink path="/api/booths/interruption-packet" params={{ tenantId, id: rec.id }}
+            className="h-9 inline-flex flex-1 items-center justify-center rounded-lg border-2 bg-card text-[9px] font-black uppercase tracking-widest text-foreground/80">Print packet</PrintLink>
           {isOpen && (
             <Button variant="outline" onClick={() => resolve(rec)} disabled={busy === `res-${rec.id}`} className="h-9 flex-1 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest">{busy === `res-${rec.id}` ? '…' : 'Mark resolved · ends today'}</Button>
           )}

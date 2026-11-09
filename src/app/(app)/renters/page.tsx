@@ -31,6 +31,7 @@ import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { RenterCommsDesk } from '@/components/renters/RenterCommsDesk';
 import { staffMirrorFields, mirrorDiffers, publicName } from '@/lib/renter-identity';
 import { bookableState } from '@/lib/bookable';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 type R = any;
 
@@ -417,11 +418,10 @@ export default function RentersPage() {
                 </div>
               )}
               {lease && (
-                <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId || '')}&renterId=${encodeURIComponent(ending.id)}&mode=final`}
-                  target="_blank" rel="noopener"
+                <PrintLink path="/api/booths/account-statement" params={{ tenantId: tenantId || '', renterId: ending.id, mode: 'final' }}
                   className="flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-foreground/80">
                   <span>Print move-out statement</span><span className="text-muted-foreground">↗</span>
-                </a>
+                </PrintLink>
               )}
               <div className="flex gap-2 pt-1">
                 <button disabled={busy || !lease} onClick={async () => {

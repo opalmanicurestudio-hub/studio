@@ -54,6 +54,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL } from '@/lib/renter-timeline';
 import { depositPosition, moveOutSummary, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
@@ -73,6 +74,7 @@ type Line = { date: string; kind: 'invoice' | 'late_fee' | 'payment' | 'write_of
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
+  if (!printLinkValid('/api/booths/account-statement', sp)) return printLinkExpired();   // opens only from a short-lived signed link (lib/print-link)
   const tenantId = String(sp.get('tenantId') || '').trim();
   const renterId = String(sp.get('renterId') || '').trim();
   const from = String(sp.get('from') || '').slice(0, 10);

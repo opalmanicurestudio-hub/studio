@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { disruptionTotals } from '@/lib/disruptions';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 const money = (c: number) => `$${((c || 0) / 100).toFixed(2)}`;
 async function staffPost(url: string, body: any) { const u = getAuth().currentUser; const tk = u ? await u.getIdToken() : '';
@@ -54,7 +55,7 @@ export function InterruptionClients({ tenantId, firestore, rec }: { tenantId: st
           {undecided > 0 && <button type="button" disabled={busy} onClick={() => follow('chase')} className="h-8 rounded-lg border-2 px-3 text-xs font-semibold disabled:opacity-50">Remind {undecided} undecided</button>}
           <button type="button" disabled={busy} onClick={() => follow('reopen')} className="h-8 rounded-lg border-2 px-3 text-xs font-semibold disabled:opacity-50">We’re open again — invite them back</button>
           <a href={`/api/booths/interruption-export?tenantId=${tenantId}&id=${rec.id}`} className="inline-flex h-8 items-center rounded-lg border-2 px-3 text-xs font-semibold">Download spreadsheet</a>
-          <a href={`/api/booths/interruption-packet?tenantId=${tenantId}&id=${rec.id}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center rounded-lg border-2 px-3 text-xs font-semibold">Print packet (save as PDF)</a>
+          <PrintLink path="/api/booths/interruption-packet" params={{ tenantId, id: rec.id }} className="inline-flex h-8 items-center rounded-lg border-2 px-3 text-xs font-semibold">Print packet (save as PDF)</PrintLink>
         </div>
       </div>}
     </div>

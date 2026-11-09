@@ -14,6 +14,7 @@
 import { disruptionTotals } from '@/lib/disruptions';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { INTERRUPTION_TYPE_LABEL, abatementProposals, exposureCents, interruptionDays, lossesByRenter, lossTotals, appointmentsInWindow, bookedValueCents, type InterruptionRecord } from '@/lib/interruptions';
 
 export const dynamic = 'force-dynamic';
@@ -31,10 +32,10 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const tenantId = String(sp.get('tenantId') || '').trim();
   const id = String(sp.get('id') || '').trim();
-  // ?renter=<portalToken> → the RENTER'S statement: their slice only, proven
-  // by the token their portal link carries. Without it, this is the shop's
-  // packet on a capability URL like the account statement.
-  const renterToken = String(sp.get('renter') || '').trim();
+  // Opens only from a short-lived signed link (lib/print-link). With renterId on it, this is that RENTER'S statement:
+  // their part only (a renter's own link always carries it). Without it, the business's whole packet.
+  if (!printLinkValid('/api/booths/interruption-packet', sp)) return printLinkExpired();
+  const scopeRenterId = String(sp.get('renterId') || '').trim();
   if (!tenantId || !id) return new NextResponse('Missing tenantId or id', { status: 400 });
 
   const db = getAdminDb();
@@ -57,9 +58,9 @@ export async function GET(req: NextRequest) {
   const boothById = new Map<string, any>(boothSnap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as any) }]));
 
   let renterScope: any = null;
-  if (renterToken) {
-    renterScope = [...renterById.values()].find((r) => r.portalToken && r.portalToken === renterToken) || null;
-    if (!renterScope) return new NextResponse('That link is not valid', { status: 403 });
+  if (scopeRenterId) {
+    renterScope = renterById.get(scopeRenterId) || null;
+    if (!renterScope) return new NextResponse('Renter not found', { status: 404 });
   }
 
   // The studio's own bookings the closure hit — read from the calendar, not

@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
 import { LINK_KINDS, SECTION_KINDS, RENTER_FONTS, onAccent } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
+import { PrintLink } from '@/components/shared/PrintLink';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
   CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
@@ -116,7 +117,7 @@ export function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, v
 // is a message to the studio, not a silent no.
 export const DOC_STATUS: Record<string, string> = { sent: 'Waiting for you', signed: 'Signed', declined: 'Declined', withdrawn: 'Withdrawn by the studio' };
 export function RenterDocuments({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ documents: any[]; signed: any[]; portalToken: string | null } | null>(null);
+  const [state, setState] = useState<{ documents: any[]; signed: any[] } | null>(null);
   const [openId, setOpenId] = useState('');
   const [name, setName] = useState('');
   const [declining, setDeclining] = useState('');
@@ -125,7 +126,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
   const [err, setErr] = useState('');
   const load = useCallback(async () => {
     const d = await api({ action: 'documents-list', tenantId, token });
-    if (d?.ok) setState({ documents: d.documents || [], signed: d.signed || [], portalToken: d.portalToken || null });
+    if (d?.ok) setState({ documents: d.documents || [], signed: d.signed || [] });
   }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   if (!state) return null;
@@ -146,7 +147,6 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
     if (!d?.ok) { setErr(d?.error || 'Could not send that.'); return; }
     setDeclining(''); setDeclineNote(''); setOpenId(''); void load();
   };
-  const printUrl = (id: string) => `/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(id)}${state.portalToken ? `&renter=${encodeURIComponent(state.portalToken)}` : ''}`;
   return (
     <section className="space-y-3">
       <SectionTitle icon={FileSignature}>Documents</SectionTitle>
@@ -182,7 +182,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
                       <div className="flex gap-2">
                         <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
                         <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Decline</button>
-                        <a href={printUrl(d.id)} target="_blank" rel="noopener" className="h-11 inline-flex items-center rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Print</a>
+                        <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="h-11 inline-flex items-center rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Print</PrintLink>
                       </div>
                     </div>
                   )}
@@ -197,7 +197,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
             {past.map((d) => (
               <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
                 <span className="truncate">{d.title} · {DOC_STATUS[d.status] || d.status}{d.signedAt ? ` ${fmtDate(String(d.signedAt).slice(0, 10))}` : ''}</span>
-                {d.status === 'signed' && <a href={printUrl(d.id)} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>}
+                {d.status === 'signed' && <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</PrintLink>}
               </p>
             ))}
             {state.signed.filter((sd) => !past.some((d) => d.signedDocumentId === sd.id)).map((sd) => (
@@ -218,7 +218,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
 // it. "Print my statement" is their slice of the packet, signed by them.
 export const ITYPE: Record<string, string> = { flood: 'Flood / water damage', fire: 'Fire / smoke', power: 'Power loss', water: 'No running water', weather: 'Weather', closure: 'Forced closure', other: 'Closure' };
 export function RenterInterruptions({ tenantId, token }: { tenantId: string; token: string }) {
-  const [state, setState] = useState<{ interruptions: any[]; portalToken: string | null } | null>(null);
+  const [state, setState] = useState<{ interruptions: any[] } | null>(null);
   const [logFor, setLogFor] = useState('');
   const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), appointmentsLost: '', lost: '', note: '' });
   const [busy, setBusy] = useState(false);
@@ -228,7 +228,7 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
   const [result, setResult] = useState('');
   const load = useCallback(async () => {
     const d = await api({ action: 'interruption-list', tenantId, token });
-    if (d?.ok) setState({ interruptions: d.interruptions || [], portalToken: d.portalToken || null });
+    if (d?.ok) setState({ interruptions: d.interruptions || [] });
   }, [tenantId, token]);
   const logTicked = async (id: string) => {
     const ids = ticked[id] || [];
@@ -322,9 +322,9 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
             ) : (
               <div className="flex gap-2">
                 <button type="button" onClick={() => { setLogFor(r.id); setErr(''); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Log a day</button>
-                {r.losses.length > 0 && state.portalToken && (
-                  <a href={`/api/booths/interruption-packet?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(r.id)}&renter=${encodeURIComponent(state.portalToken)}`} target="_blank" rel="noopener"
-                    className="h-10 inline-flex items-center rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">Print my statement</a>
+                {r.losses.length > 0 && (
+                  <PrintLink path="/api/booths/interruption-packet" params={{ tenantId, id: r.id }} token={token}
+                    className="h-10 inline-flex items-center rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">Print my statement</PrintLink>
                 )}
               </div>
             )}

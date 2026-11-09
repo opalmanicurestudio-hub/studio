@@ -27,10 +27,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { closedReply, closedReplyFor } from '@/lib/tenant-open-server';
+import { accessLockOf } from '@/lib/tenant-access';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
-import { requireCan } from '@/lib/route-guard';
+import { requireCan, requireRole } from '@/lib/route-guard';
 import { recordBoothIncidental, recordBoothOverage, recordBoothRefund } from '@/lib/booth-money';
 import { resolveIncidentalPolicy, validateIncidental, incidentalScheduleText } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
@@ -40,6 +41,15 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { subletOpenOn } from '@/lib/leave-policy';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { spacePayAccount, onAccount, SPACE_NO_PAYMENTS } from '@/lib/space-stripe';
+
+/** The front desk: the business's own team, who may take bookings or payments (never a renter working here). */
+async function deskStaff(req: NextRequest, tenantId: string): Promise<{ actor?: any; deny?: NextResponse }> {
+  const g = await requireRole(req, tenantId, 'staff'); if (g.deny) return g;
+  const a = g.actor || {}; const caps: string[] = Array.isArray(a.caps) ? a.caps : [];
+  if (a.isRenter) return { deny: NextResponse.json({ ok: false, error: 'The front desk is for the business’s own team.' }, { status: 403 }) };
+  if (a.isTenantOwner || a.isManager || caps.includes('bookings.manage') || caps.includes('checkout.take')) return g;
+  return { deny: NextResponse.json({ ok: false, error: 'Your role doesn’t allow that. Ask the owner.' }, { status: 403 }) };
+}
 
 
 
@@ -285,6 +295,8 @@ export async function POST(req: NextRequest) {
       if (!tid || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
         return NextResponse.json({ ok: false, error: 'Missing tenant or date.' }, { status: 400 });
       }
+      // The business's own team only: it shows who has each space booked.
+      const g = await deskStaff(req, String(tid)); if (g.deny) return g.deny;
       const db = getAdminDb();
       const boothSnap = await db.collection(`tenants/${tid}/booths`).get();
       // A booth at an INACTIVE location isn't offered — the booth's own
@@ -376,9 +388,16 @@ export async function POST(req: NextRequest) {
     // rather than a Stripe id being invented.
     if (body?.action === 'desk-book') {
       const { tenantId: tid, boothId, date, bookingType, startTime, endTime,
-        name, phone, email, paid, staffId, staffName } = body || {};
+        name, phone, email, paid } = body || {};
       if (!tid || !boothId || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) || !String(name || '').trim()) {
         return NextResponse.json({ ok: false, error: 'Need a space, a date and a name.' }, { status: 400 });
+      }
+      // Only the business's team books at the desk (who booked it comes from their sign-in, never the request), and a
+      // paused business takes no new bookings.
+      const g = await deskStaff(req, String(tid)); if (g.deny) return g.deny;
+      const staffId: string | null = String(g.actor?.uid || '') || null; const staffName: string | null = String(g.actor?.name || '') || null;
+      if (accessLockOf((await getAdminDb().doc(`tenants/${tid}`).get()).data()).locked) {
+        return NextResponse.json({ ok: false, closed: true, error: 'This business’s ClarityFlow account is paused, so the desk can’t take new bookings right now.' }, { status: 403 });
       }
       const isHourly = bookingType === 'hourly';
       if (isHourly && !(/^([01]\d|2[0-3]):[0-5]\d$/.test(String(startTime)) && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(endTime)) && startTime < endTime)) {

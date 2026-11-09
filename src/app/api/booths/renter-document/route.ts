@@ -3,12 +3,12 @@
 // One renter document on paper. Before signature it is the text as sent;
 // after, the same text with the signature record beneath it — who, when,
 // from what device — read from signedDocuments, the same place the lease
-// signature lives. The shop opens it by capability URL like the other print
-// routes; a renter opens it with their own portal token, which unlocks only
-// documents addressed to them.
+// signature lives. It opens only from a short-lived signed link (lib/print-link, api/print-link): the team by role,
+// a renter only for documents addressed to them (the link then carries their renterId).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 
 export const dynamic = 'force-dynamic';
@@ -21,9 +21,10 @@ const when = (iso: any) => {
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
+  if (!printLinkValid('/api/booths/renter-document', sp)) return printLinkExpired();
   const tenantId = String(sp.get('tenantId') || '').trim();
   const id = String(sp.get('id') || '').trim();
-  const renterToken = String(sp.get('renter') || '').trim();
+  const scopeRenter = String(sp.get('renterId') || '').trim();
   if (!tenantId || !id) return new NextResponse('Missing tenantId or id', { status: 400 });
 
   const db = getAdminDb();
@@ -32,10 +33,7 @@ export async function GET(req: NextRequest) {
   const tenant = (tSnap.data() as any) || {};
   const d = dSnap.data() as any;
 
-  if (renterToken) {
-    const r = ((await db.doc(`tenants/${tenantId}/renters/${d.renterId}`).get()).data() as any) || {};
-    if (!r.portalToken || r.portalToken !== renterToken) return new NextResponse('That link is not valid', { status: 403 });
-  }
+  if (scopeRenter && String(d.renterId || '') !== scopeRenter) return new NextResponse('Document not found', { status: 404 });
 
   const signed = d.signedDocumentId ? ((await db.doc(`tenants/${tenantId}/signedDocuments/${d.signedDocumentId}`).get()).data() as any) || null : null;
   const studio = String(tenant.name || tenant.businessName || 'The studio');

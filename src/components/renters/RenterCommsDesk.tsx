@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { GRIEVANCE_CATEGORY_LABEL, GRIEVANCE_STATUS_LABEL, isOpenGrievance } from '@/lib/grievances';
 import { credentialViews, isProblem, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
 import { RENTER_DOC_TEMPLATES, RENTER_DOC_FIELDS, renterDocVars, renderRenterDoc, unfilledPlaceholders, type RenterDocKind } from '@/lib/renter-documents';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 const ago = (iso: string) => {
   const ms = Date.now() - new Date(iso || 0).getTime();
@@ -337,7 +338,7 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
                 <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-2.5 flex items-center justify-between gap-2">
                   <p className="text-[11px] font-black truncate"><button type="button" onClick={() => onOpenRenter(d.renterId)} className="underline decoration-2 underline-offset-2">{d.renterName}</button><span className="font-bold text-muted-foreground"> · {d.title} · sent {ago(d.sentAt)}</span></p>
                   <div className="flex shrink-0 gap-1.5">
-                    <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="h-8 inline-flex items-center rounded-lg border-2 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">View</a>
+                    <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} className="h-8 inline-flex items-center rounded-lg border-2 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-foreground/80">View</PrintLink>
                     <button type="button" onClick={() => withdrawDoc(d)} className="h-8 rounded-lg border-2 border-red-200 bg-card px-2.5 text-[9px] font-black uppercase tracking-widest text-red-700">Withdraw</button>
                   </div>
                 </div>
@@ -350,7 +351,7 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
               {doneDocs.map((d) => (
                 <p key={d.id} className="text-[10px] font-bold text-foreground/80 flex items-center justify-between gap-2">
                   <span className="truncate">{d.renterName} · {d.title} · <span className={cn('font-black', d.status === 'signed' ? 'text-emerald-700' : d.status === 'declined' ? 'text-red-700' : 'text-muted-foreground')}>{d.status}</span>{d.signedName ? ` as ${d.signedName}` : ''}{d.declineNote ? ` — “${d.declineNote}”` : ''}</span>
-                  <a href={`/api/booths/renter-document?tenantId=${encodeURIComponent(tenantId)}&id=${encodeURIComponent(d.id)}`} target="_blank" rel="noopener" className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</a>
+                  <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</PrintLink>
                 </p>
               ))}
             </div>

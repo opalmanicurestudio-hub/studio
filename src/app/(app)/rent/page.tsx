@@ -71,6 +71,7 @@ import {
   buildRentRollSummary,
 } from '@/lib/booth-rental-types';
 import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 const PAYMENT_METHODS: { value: PaymentMethodKind; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -1609,8 +1610,7 @@ export default function RentRollPage() {
         <p className="text-[11px] font-bold text-muted-foreground">
           {cycleResult}
           {lastReceipt && (
-            <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(lastReceipt.renterId)}&receipt=${encodeURIComponent(lastReceipt.paymentId)}`}
-              target="_blank" rel="noopener" className="ml-1 underline text-foreground">Print receipt</a>
+            <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: lastReceipt.renterId, receipt: lastReceipt.paymentId }} className="ml-1 underline text-foreground">Print receipt</PrintLink>
           )}
         </p>
       )}
@@ -1776,11 +1776,10 @@ export default function RentRollPage() {
                     )}
                     <Button variant="outline" onClick={() => setHistoryRenter(r)} aria-label="Payment history"
                       className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"><History className="h-4 w-4" /></Button>
-                    <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`}
-                      target="_blank" rel="noopener"
+                    <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: r.id }}
                       className="h-11 inline-flex items-center rounded-xl border-2 bg-card px-3 text-[10px] font-black uppercase tracking-widest text-foreground/80">
                       <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
-                    </a>
+                    </PrintLink>
                   </div>
                 </div>
               );
@@ -1871,13 +1870,11 @@ export default function RentRollPage() {
                     >
                       <History className="h-4 w-4" />
                     </Button>
-                    <a
-                      href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}`}
-                      target="_blank" rel="noopener"
+                    <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id }}
                       className="h-11 inline-flex items-center rounded-xl border-2 bg-card px-3 text-[10px] font-black uppercase tracking-widest text-foreground/80"
                     >
                       <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
-                    </a>
+                    </PrintLink>
                   </div>
                 </div>
               </CardContent>
@@ -2124,11 +2121,10 @@ export default function RentRollPage() {
                       {formatCents(Math.abs(entry.amountCents))}
                     </p>
                     {entry.type === 'payment' && isCredit && historyRenter && (
-                      <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(historyRenter.id)}&receipt=${encodeURIComponent(entry.id)}`}
-                        target="_blank" rel="noopener" title="Print receipt"
+                      <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: historyRenter.id, receipt: entry.id }} title="Print receipt"
                         className="grid h-9 w-9 place-items-center rounded-lg border-2 bg-card text-foreground/80">
                         <Receipt className="h-3.5 w-3.5" />
-                      </a>
+                      </PrintLink>
                     )}
                     {canWaive && (
                       <Button

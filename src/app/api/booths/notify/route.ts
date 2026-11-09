@@ -25,7 +25,9 @@
  * POST { action: 'application-received',  tenantId, applicationId }
  */
 
-import { staffOrServer } from '@/lib/route-guard';
+import { requireRole, staffOrServer } from '@/lib/route-guard';
+import { mintRenterLink, revokeRenterLinks, RENTER_LINK_DAYS } from '@/lib/renter-link';
+import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
@@ -89,6 +91,7 @@ export async function POST(req: NextRequest) {
   const studioName = tenant.name || tenant.businessName || 'The studio';
   const ownerEmail = String(tenant.notificationEmail || tenant.email || tenant.contactEmail || '').trim();
   const origin = req.nextUrl?.origin || '';
+  const linkBase = linkOrigin(tenant, origin);   // personal portal links never point at a frozen copy of the app
 
   try {
     /* ── The tour invitation ────────────────────────────────────────────────
@@ -529,7 +532,7 @@ export async function POST(req: NextRequest) {
       let sent = 0, emailed = 0, texted = 0;
       for (const r of targets) {
         const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
-        const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+        const portal = (await mintRenterLink(db, tenantId, r.id, linkBase, { renter: r }).catch(() => null)) || `${origin}/rent/${tenantId}`;
         let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
         const to = String(r.email || '').trim();
         if (to.includes('@')) {
@@ -589,7 +592,7 @@ export async function POST(req: NextRequest) {
       const rSnap = await db.doc(`tenants/${tenantId}/renters/${g.renterId}`).get();
       const r = (rSnap.data() as any) || {};
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
-      const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+      const portal = (await mintRenterLink(db, tenantId, String(g.renterId), linkBase, { renter: r }).catch(() => null)) || `${origin}/rent/${tenantId}`;
       let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
       const to = String(r.email || '').trim();
       if (to.includes('@')) {
@@ -626,7 +629,7 @@ export async function POST(req: NextRequest) {
       const nowIso = new Date().toISOString();
       const mRef = db.collection(`tenants/${tenantId}/renterThreads/${renterId}/messages`).doc();
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
-      const portal = r.portalToken ? `${origin}/rent/${tenantId}?rt=${r.portalToken}` : `${origin}/rent/${tenantId}`;
+      const portal = (await mintRenterLink(db, tenantId, String(renterId), linkBase, { renter: r }).catch(() => null)) || `${origin}/rent/${tenantId}`;
 
       let emailStatus = 'skipped_no_email', emailLogId: string | null = null;
       const to = String(r.email || '').trim();
@@ -709,18 +712,26 @@ export async function POST(req: NextRequest) {
      * which minted a personal link as a side effect. This mints the same
      * link on purpose and sends it. The renters page has said "No portal yet"
      * against everyone forever, because nothing ever moved that status. */
+    if (action === 'portal-invite' || action === 'portal-revoke') {
+      // A sign-in link is the renter's key to their own records and signatures, so only managers send or turn them
+      // off, and the link itself goes only to the renter, never back to whoever pressed the button.
+      const g = await requireRole(req, String(tenantId), 'manager'); if (g.deny) return g.deny;
+    }
+    if (action === 'portal-revoke') {
+      const renterId = String(body.renterId || '');
+      const rSnap = renterId ? await db.doc(`tenants/${tenantId}/renters/${renterId}`).get() : null;
+      if (!rSnap?.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
+      const links = await revokeRenterLinks(db, String(tenantId), renterId, rSnap.data());
+      return NextResponse.json({ ok: true, links });
+    }
     if (action === 'portal-invite') {
       const { renterId } = body;
       const rRef = db.doc(`tenants/${tenantId}/renters/${renterId}`);
       const rSnap = await rRef.get();
       if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
       const r = rSnap.data() as any;
-      let tok = r.portalToken;
-      if (!tok || String(tok).length < 12) {
-        tok = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
-        await rRef.set({ portalToken: tok }, { merge: true });
-      }
-      const link = `${origin}/rent/${tenantId}?rt=${tok}`;
+      const link = await mintRenterLink(db, String(tenantId), String(renterId), linkBase, { renter: r });
+      if (!link) return NextResponse.json({ ok: false, error: 'The portal link couldn’t be made. Try again in a moment.' }, { status: 500 });
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
       const to = String(r.email || '').trim();
       let emailStatus = 'skipped_no_email';
@@ -734,7 +745,7 @@ export async function POST(req: NextRequest) {
             bodyLines: [
               `Hi ${first},`,
               'Here is your personal link to your renter portal, where you can view your rent and invoices, your card on file, autopay, documents and your bookings.',
-              'Please keep this email. The link is personal to you and does not expire. If you ever lose it, please ask us for a new one.',
+              `This link is personal to you and works for ${RENTER_LINK_DAYS} days. After that, sign in with a code sent to your phone or email, or ask us for a new link.`,
               `Kind regards, ${studioName}`,
             ],
             cta: { label: 'Open my portal', url: link },
@@ -749,14 +760,14 @@ export async function POST(req: NextRequest) {
       const smsStatus = await alsoText(db, {
         tenantId, to: String(r.phone || ''), kind: 'renter_portal_invite', recipientId: renterId,
         recipientName: `${r.firstName || ''} ${r.lastName || ''}`.trim() || null,
-        text: `Hi ${first}, here is your personal link to your renter portal for rent, your card on file, autopay and documents: ${link}`,
+        text: `Hi ${first}, here is your personal link to your renter portal for rent, your card on file, autopay and documents. It works for ${RENTER_LINK_DAYS} days: ${link}`,
       });
       const sent = emailStatus === 'sent' || smsStatus === 'sent';
       await rRef.set({
         portalInviteStatus: r.portalInviteStatus === 'accepted' ? 'accepted' : (sent ? 'sent' : (r.portalInviteStatus || 'not_sent')),
         portalInviteSentAt: sent ? new Date().toISOString() : (r.portalInviteSentAt || null),
       }, { merge: true });
-      return NextResponse.json({ ok: sent, status: emailStatus, sms: smsStatus, link });
+      return NextResponse.json({ ok: sent, status: emailStatus, sms: smsStatus });
     }
 
     /* ── A renter was barred by hand ────────────────────────────────────────

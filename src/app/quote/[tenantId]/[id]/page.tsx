@@ -24,7 +24,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
 import {
-    CheckCircle2, XCircle, Loader, CreditCard, Lock, Sparkles,
+    CheckCircle2, XCircle, Loader, Lock, Sparkles,
     DollarSign, Users, TrendingUp, AlertTriangle, ChevronDown, ChevronUp,
     Calendar, MapPin, ArrowRight, Edit, MessageSquare, Clock, Shield,
     FileText, Phone, Mail, Star, RefreshCw, Building,
@@ -97,7 +97,7 @@ const PaymentSchedule = ({ quote, total }: { quote: any; total: number }) => {
                 <div className="space-y-2">
                     <div className="flex justify-between items-center p-3 rounded-xl bg-white border">
                         <div>
-                            <p className="font-black text-sm text-slate-900">Retainer Deposit</p>
+                            <p className="font-black text-sm text-slate-900">Deposit</p>
                             <p className="text-[10px] font-bold text-muted-foreground uppercase">Due upon acceptance</p>
                         </div>
                         <p className="font-black font-mono text-primary">{formatCurrency(quote.depositAmount)}</p>
@@ -192,7 +192,7 @@ export default function PublicQuotePage() {
     const [quote,   setQuote]   = useState<any>(null);
     const [tenant,  setTenant]  = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [step, setStep]       = useState<'review' | 'payment' | 'decline_reason' | 'success' | 'declined' | 'expired' | 'revision_sent'>('review');
+    const [step, setStep]       = useState<'review' | 'decline_reason' | 'success' | 'declined' | 'expired' | 'revision_sent'>('review');
     const [isPaying,   setIsPaying]   = useState(false);
     const [declineReason, setDeclineReason] = useState('');
     const [declineNote,   setDeclineNote]   = useState('');
@@ -271,13 +271,8 @@ export default function PublicQuotePage() {
     const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFeeAmount;
 
     // ── Accept flow ────────────────────────────────────────────────────────────
-    const handleAccept = () => {
-        if (quote?.depositAmount && quote.depositAmount > 0) {
-            setStep('payment');
-        } else {
-            finalizeAcceptance();
-        }
-    };
+    // No card is taken on this page: a deposit is asked for afterwards, with a secure payment link from the business.
+    const handleAccept = () => { void finalizeAcceptance(); };
 
     const finalizeAcceptance = async () => {
         if (!quote) return;
@@ -331,7 +326,7 @@ export default function PublicQuotePage() {
             await addDoc(collection(db, `tenants/${tenantId}/notifications`), {
                 id:        nanoid(),
                 type:      'quote_accepted',
-                message:   `🎉 Quote accepted: "${quote.eventName}" — ${formatCurrency(total)}. Deposit of ${formatCurrency(quote.depositAmount || 0)} is pending.`,
+                message:   `Quote accepted: "${quote.eventName}", ${formatCurrency(total)}.${(quote.depositAmount || 0) > 0 ? ` Send them a payment link for the ${formatCurrency(quote.depositAmount)} deposit.` : ''}`,
                 link:      '/quotes',
                 read:      false,
                 priority:  'high',
@@ -547,7 +542,7 @@ export default function PublicQuotePage() {
                                     {(quote.depositAmount || 0) > 0 && (
                                         <div className="pt-4 border-t border-white/10 flex justify-between items-center">
                                             <div>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-primary">Retainer Due Today</span>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-primary">Deposit, paid after you accept</span>
                                                 <p className="text-[9px] font-bold opacity-40 uppercase mt-0.5">Balance due per payment terms</p>
                                             </div>
                                             <span className="text-2xl font-black font-mono text-primary">{formatCurrency(quote.depositAmount)}</span>
@@ -592,11 +587,11 @@ export default function PublicQuotePage() {
                                 <div className="space-y-3">
                                     <Button
                                         onClick={handleAccept}
-                                        className="w-full h-16 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30 group"
+                                        disabled={isPaying}
+                                        className="w-full h-16 rounded-2xl text-lg font-black tracking-tight shadow-2xl shadow-primary/30 group"
                                         style={{ background: primaryColor }}
                                     >
-                                        Accept & Secure Date
-                                        <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" />
+                                        {isPaying ? <Loader className="animate-spin" /> : <>Accept quote<ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
                                     </Button>
                                     <div className="grid grid-cols-2 gap-3">
                                         <Button
@@ -623,63 +618,6 @@ export default function PublicQuotePage() {
                                     <p className="text-[10px] font-black uppercase tracking-widest text-green-700">This proposal has been accepted and is locked</p>
                                 </div>
                             )}
-                        </motion.div>
-                    )}
-
-                    {step === 'payment' && (
-                        <motion.div key="payment" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-8 md:p-12 space-y-8 text-center">
-                            <div className="space-y-2">
-                                <div className="p-4 bg-primary/10 rounded-full w-fit mx-auto mb-4">
-                                    <CreditCard className="w-8 h-8 text-primary" />
-                                </div>
-                                <h2 className="text-3xl font-black uppercase tracking-tighter">Secure Your Date</h2>
-                                <p className="text-sm font-medium text-slate-500">
-                                    Authorize a {formatCurrency(quote.depositAmount)} retainer to confirm your booking
-                                </p>
-                            </div>
-
-                            <div className="space-y-4 text-left">
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Card Number</Label>
-                                    <Input placeholder="•••• •••• •••• ••••" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expiry</Label>
-                                        <Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center font-bold" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">CVC</Label>
-                                        <Input placeholder="•••" className="h-12 rounded-xl border-2 text-center font-bold" />
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Name on Card</Label>
-                                    <Input placeholder="JESSICA WILLIAMS" className="h-12 rounded-xl border-2 font-bold uppercase" />
-                                </div>
-                            </div>
-
-                            <div className="p-4 rounded-2xl bg-slate-50 border-2 flex justify-between items-center">
-                                <span className="font-black text-sm uppercase text-slate-700">Retainer Total</span>
-                                <span className="font-black font-mono text-xl text-primary">{formatCurrency(quote.depositAmount)}</span>
-                            </div>
-
-                            <Button
-                                onClick={finalizeAcceptance}
-                                className="w-full h-16 rounded-2xl text-lg font-black uppercase shadow-2xl shadow-primary/30"
-                                style={{ background: primaryColor }}
-                                disabled={isPaying}
-                            >
-                                {isPaying ? <Loader className="animate-spin" /> : `Authorize ${formatCurrency(quote.depositAmount)}`}
-                            </Button>
-                            <div className="flex items-center justify-center gap-2 opacity-30">
-                                <Lock className="w-3.5 h-3.5" />
-                                <span className="text-[9px] font-black uppercase tracking-widest">SSL Encrypted · Secure Payment</span>
-                            </div>
-                            <Button variant="ghost" onClick={() => setStep('review')} className="w-full text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                                ← Back to Proposal
-                            </Button>
                         </motion.div>
                     )}
 
@@ -744,9 +682,11 @@ export default function PublicQuotePage() {
                                 <CheckCircle2 className="w-14 h-14 text-green-500" />
                             </motion.div>
                             <div className="space-y-3">
-                                <h2 className="text-4xl font-black uppercase tracking-tighter text-slate-900">You're Booked!</h2>
+                                <h2 className="text-4xl font-black tracking-tighter text-slate-900">Quote accepted</h2>
                                 <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    Your date is secured. We'll be in touch shortly with next steps and confirmation details.
+                                    {(quote.depositAmount || 0) > 0
+                                        ? `${tenant?.name || 'The business'} will send you a secure link to pay the ${formatCurrency(quote.depositAmount)} deposit.`
+                                        : `${tenant?.name || 'The business'} will be in touch with the next steps.`}
                                 </p>
                             </div>
                             <div className="p-6 rounded-2xl bg-slate-50 border-2 text-left space-y-3">

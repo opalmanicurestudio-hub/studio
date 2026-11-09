@@ -17,6 +17,8 @@ import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
+import { mintRenterLink, clearOldPortalTokens } from '@/lib/renter-link';
+import { moveLegacyCosts } from '@/lib/renter-service-costs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
@@ -67,19 +69,12 @@ async function sendRentEmail(opts: {
   }
 }
 
-// Magic portal link for a renter — mints their portalToken when missing,
-// same mechanism as the owner's "Send portal link" button.
+// A renter's personal portal link: a fresh one for each message, working for 30 days (lib/renter-link).
 async function renterPortalLink(db: any, tenantId: string, renterId: string, r: any): Promise<string | null> {
   try {
-    const base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin
-      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+    const base = linkOrigin(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {});
     if (!base) return null;
-    let tok = r?.portalToken;
-    if (!tok || String(tok).length < 12) {
-      tok = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
-      await db.doc(`tenants/${tenantId}/renters/${renterId}`).set({ portalToken: tok }, { merge: true });
-    }
-    return `${base}/rent/${tenantId}?rt=${tok}`;
+    return await mintRenterLink(db, tenantId, renterId, base, { renter: r });
   } catch { return null; }
 }
 
@@ -1216,6 +1211,18 @@ export async function GET(req: NextRequest) {
       results[`reminders:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
     }
   }
+
+  // ── Old renter secrets — the plain portal links once kept on renter records (any staff member could read them;
+  // they stopped working when personal links moved to lib/renter-link), and product costs once kept on the public
+  // service record (lib/renter-service-costs). Cleared once; after that there's nothing to find.
+  const tidied = { oldLinks: 0, costsMoved: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try { tidied.oldLinks += await clearOldPortalTokens(db, tDoc.id); }
+    catch (e) { results[`renterLinksTidy:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) }; }
+    try { tidied.costsMoved += await moveLegacyCosts(db, tDoc.id, (await db.collection(`tenants/${tDoc.id}/renterServices`).get()).docs); }
+    catch (e) { results[`renterCostsTidy:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) }; }
+  }
+  if (tidied.oldLinks || tidied.costsMoved) results.renterTidy = tidied;
 
   // ── No-show sweep — for EVERY tenant, flag confirmed reservations whose booked
   // window fully elapsed without a check-in, and (only if the owner enabled it

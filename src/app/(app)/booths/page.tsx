@@ -233,6 +233,7 @@ import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -1714,7 +1715,7 @@ function ContactProfileDrawer({
                     <p className="text-xs font-black truncate">{r.boothName}</p>
                     <p className="text-[10px] font-bold text-muted-foreground">{r.bookingType === 'hourly' && r.startTime ? `${r.startDate} · ${t12(r.startTime)}–${t12(r.endTime)}` : r.startDate}</p>
                   </div>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" title="Receipt" className="text-indigo-600 shrink-0"><FileText className="h-3.5 w-3.5" /></a>
+                  <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }} title="Receipt" className="text-indigo-600 shrink-0"><FileText className="h-3.5 w-3.5" /></PrintLink>
                 </div>
               ))}
             </div>
@@ -5643,7 +5644,7 @@ export default function BoothsPage() {
                     <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
                   </div>
                   <p className="font-black text-emerald-700 shrink-0 mr-2">${txnDollars(t).toFixed(2)}</p>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=ledger&id=${encodeURIComponent(t.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground/80 underline underline-offset-2 shrink-0">PDF</a>
+                  <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'ledger', id: t.id }} className="text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground/80 underline underline-offset-2 shrink-0">PDF</PrintLink>
                 </div>
               ))}
             </div>

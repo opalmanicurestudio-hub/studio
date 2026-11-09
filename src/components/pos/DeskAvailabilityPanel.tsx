@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Loader, AlertTriangle, CheckCircle2, Armchair, Clock, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 // ─── Desk availability ───────────────────────────────────────────────────────
 // One question, one screen: what's free, when, and how much.
@@ -67,7 +68,7 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
     try {
       const [a, t] = await Promise.all([
         fetch('/api/booths/reserve', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
           body: JSON.stringify({ action: 'desk-availability', tenantId, date: d }),
         }).then((r) => r.json()),
         fetch('/api/booths/kiosk', {
@@ -92,12 +93,12 @@ export function DeskAvailabilityPanel({ tenantId, staffId, staffName, onAddToTic
     setBusySaving(true); setErr('');
     try {
       const res = await fetch('/api/booths/reserve', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
           action: 'desk-book', tenantId, date, boothId: form.boothId,
           bookingType: form.bookingType, startTime: form.startTime, endTime: form.endTime,
           name: form.name.trim(), phone: form.phone || '', email: form.email || '',
-          paid: form.paid !== false, staffId: staffId || null, staffName: staffName || null,
+          paid: form.paid !== false,   // who booked comes from the sign-in, on the server
         }),
       });
       const d = await res.json();

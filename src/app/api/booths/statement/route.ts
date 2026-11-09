@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 
 const esc =(s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -189,6 +190,7 @@ function buildStatementHtml(data: {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    if (!printLinkValid('/api/booths/statement', searchParams)) return printLinkExpired();   // opens only from a short-lived signed link (lib/print-link)
     const tenantId  = searchParams.get('tenantId');
     const renterId  = searchParams.get('renterId');
     const yearParam = searchParams.get('year');

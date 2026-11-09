@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
+import { mintRenterLink } from '@/lib/renter-link';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
@@ -344,7 +345,7 @@ export async function POST(req: NextRequest) {
         const comms: any = { sendReceipts: true, ownerEmailOnFailedAutopay: true, ...(tData.rentComms || {}) };
         const businessName = String(tData.name || 'ClarityFlow');
         const base = linkOrigin(tData, 'https://studio-one-blue.vercel.app');
-        const portalUrl = renter?.portalToken ? `${base}/rent/${tenantId}?rt=${renter.portalToken}` : '';
+        const portalUrl = renter?.email && lease.renterId ? ((await mintRenterLink(db, tenantId, String(lease.renterId), base, { renter }).catch(() => null)) || '') : '';
         const amountStr = `$${(chargeCents / 100).toFixed(2)}`;
         const boothName = booth?.name || 'your booth';
         if (!failureReason) {

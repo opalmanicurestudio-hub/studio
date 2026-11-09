@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import SignatureCanvas from 'react-signature-canvas';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { PrintLink } from '@/components/shared/PrintLink';
 
 interface Props {
   tenantId:    string;
@@ -262,11 +263,10 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
                       {' · '}${((r.amountCents || 0) / 100).toFixed(2)}
                     </p>
                   </div>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`}
-                    target="_blank" rel="noreferrer"
+                  <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }}
                     className="h-8 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0">
-                    📄 Receipt
-                  </a>
+                    Receipt
+                  </PrintLink>
                 </div>
               ))}
             </div>
@@ -281,11 +281,10 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
                     <p className="text-xs font-black truncate">{t.description || 'Booth rent'}</p>
                     <p className="text-[10px] font-bold text-muted-foreground">{dstr(t.date || t.createdAt)} · ${dollars(t).toFixed(2)}</p>
                   </div>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=ledger&id=${encodeURIComponent(t.id)}`}
-                    target="_blank" rel="noreferrer"
+                  <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'ledger', id: t.id }}
                     className="h-8 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0">
-                    📄 Receipt
-                  </a>
+                    Receipt
+                  </PrintLink>
                 </div>
               ))}
             </div>
@@ -307,11 +306,10 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
               <p className="text-xs font-black">{yr} Annual Rent Statement</p>
               <p className="text-[10px] font-bold text-muted-foreground">Full year summary · IRS Schedule C reference</p>
             </div>
-            <a href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}&year=${yr}`}
-              target="_blank" rel="noreferrer"
+            <PrintLink path="/api/booths/statement" params={{ tenantId, renterId: staffMember.id, year: yr }}
               className="h-8 px-3 rounded-lg border-2 border-slate-200 text-slate-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0 hover:border-slate-400">
-              📋 Download
-            </a>
+              Download
+            </PrintLink>
           </div>
         ))}
       </div>

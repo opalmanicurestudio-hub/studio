@@ -250,7 +250,7 @@ export async function POST(req: NextRequest) {
   void ap; void sh; void sb; void dof; void tk; void mp; void ce; void sp; // busy data: used only by 'availability' above, never sent
   return NextResponse.json({
     ok: true, fromDay, eventsFromDay,
-    services: rows(sv, (x) => x), consentForms: rows(cf, (x) => x), resources: rows(rs, (x) => x), renterServices: rows(rsv, (x) => x),
+    services: rows(sv, (x) => x), consentForms: rows(cf, (x) => x), resources: rows(rs, (x) => x), renterServices: rows(rsv, (x) => drop(x, /^productCost/)),   // a renter's costs are theirs (kept privately, lib/renter-service-costs)
     staff: rows(st, (x) => drop(x, STAFF_DROP)),
     studioEvents, pricingTiers: rows(pt, (x) => drop(x, GENERAL_DROP)),
     // Busy times are no longer sent — open times come from action 'availability'.
