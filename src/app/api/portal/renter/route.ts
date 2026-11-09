@@ -1071,7 +1071,7 @@ export async function POST(req: NextRequest) {
         payments = (await renterRentPayments(db, tenantId, { renterId: renter?.id || null, extraSourceIds: myBookingIds }))
           .map((t: any) => ({
             id: t.id, date: t.date, description: t.description || '',
-            amount: t.amount || 0, type: t.type, category: t.category || '',
+            amount: t.amount || 0, type: t.rentRefundOf ? 'reversal' : t.type, category: t.category || '',
           }))
           .sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''))
           .slice(0, 15);

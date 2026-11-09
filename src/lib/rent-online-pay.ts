@@ -144,6 +144,7 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
       clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card (Stripe)',
       hasReceipt: false, sourceId: invoiceId, checkoutSessionId: String(cs.id),
       stripePaymentIntentId: pi, renterId: cur.renterId || null,   // whose it is, by id (lib/renter-rent-history)
+      ...(account ? { stripeConnectedAccountId: account } : {}),   // where a refund of it goes (lib/renter-refund)
       tenantId, createdAt: nowIso,
     });
     if (feeCents > 0) { const feeRef = feeRefFor(); tx.set(feeRef, {

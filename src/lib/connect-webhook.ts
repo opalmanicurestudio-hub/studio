@@ -697,9 +697,40 @@ export async function handleConnectWebhook(req: NextRequest) {
         const chPi = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent as any)?.id || null;
         if (!meta.type && chPi) { try { const pi: any = await stripe2.paymentIntents.retrieve(chPi, {}, { stripeAccount: connAcct }); meta = { ...(pi?.metadata || {}), ...meta }; } catch { /* told without it */ } }
         const shopOrder = meta.type === 'retail_order' || meta.type === 'address_change' || meta.type === 'delivery_retry';
+        // A renter's own card payment (rent online or by autopay, an agreed charge from the card on file), or money a
+        // rent bill didn't need going back: the renter is told as a renter, on their account (lib/renter-refund).
+        const { RENTER_PAYMENT_KINDS } = await import('@/lib/renter-refund');
+        const renterPay = (RENTER_PAYMENT_KINDS as readonly string[]).includes(String(meta.kind || ''));
         for (const rf of refunds) {
           if (!rf || ['failed', 'canceled'].includes(String(rf.status || ''))) continue;
-          if (!shopOrder && !rf.metadata?.retailOrderId) {
+          const { recordOutsideRefund, notOutside } = await import('@/lib/outside-refund');
+          let accountNote: string | null = null; let lineExtra: Record<string, any> | null = null;
+          if (renterPay || ['renter_refund', 'rent_refund'].includes(String(rf.metadata?.kind || ''))) {
+            // The app's own refund is recorded here if the screen never heard back; one made in the Stripe Dashboard goes
+            // on the renter's account as money back they don't owe again, and the owners' note says so. If it can't be
+            // written, the notice fails, so Stripe sends it again (all of it is safe to receive twice).
+            const { noticeRenterRefund } = await import('@/lib/renter-refund');
+            const tData: any = (await tenant.ref.get()).data() || {};
+            let who: any = null;
+            try { who = await noticeRenterRefund(db, tenant.id, tData, charge, rf, meta, { piId: chPi, outside: !notOutside(charge, rf) }); }
+            catch (e) {
+              console.error('[connect-webhook] renter refund', e);
+              // Asked again by Stripe a few times; one that still can't be written after that is left to the owners (told
+              // once), so it never holds up the rest of this charge's refunds or Stripe's notices.
+              const fRef = db.doc(`tenants/${tenant.id}/refundNotices/renterfail_${String(rf.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
+              const tries = await db.runTransaction(async (tx: any) => { const f: any = (await tx.get(fRef)).data() || {}; const k = (Number(f.tries) || 0) + 1; tx.set(fRef, { tries: k, lastAt: new Date().toISOString() }, { merge: true }); return k; }).catch(() => 1);
+              if (tries < 5) throw e;
+              if (tries === 5) {
+                const nRef = db.doc(`tenants/${tenant.id}/notifications/renterrefundfail_${String(rf.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
+                await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(), type: 'outside_refund', link: '/rent',
+                  message: `A $${((Number(rf.amount) || 0) / 100).toFixed(2)} refund to a renter’s card went through in Stripe but couldn’t be added to their account automatically, so it won’t show in their account history. It’s in Money as a refund.` }).catch(() => {});
+              }
+            }
+            if (who?.renterId && !notOutside(charge, rf)) {
+              lineExtra = { renterId: who.renterId, ...(who.transactionId ? { rentRefundOf: who.transactionId } : {}) };
+              if (who.onAccount) accountNote = `It’s also on ${who.name || 'the renter'}’s account as money back they don’t owe again. If they still owe it, add it as a charge on the Rent page.`;
+            }
+          } else if (!shopOrder && !rf.metadata?.retailOrderId) {
             try {
               const { sendRefundNotice } = await import('@/lib/refund-notice');
               await sendRefundNotice(db, tenant.id, { key: `refund_${rf.id}`, kind: 'refund', amountCents: Number(rf.amount) || 0,
@@ -710,7 +741,7 @@ export async function handleConnectWebhook(req: NextRequest) {
           // Made outside the app (in the Stripe Dashboard): in the books too, once, and the owners are told
           // (lib/outside-refund). The app's own refunds carry its mark and are recorded where they're sent. Asked again
           // if it fails: everything in this notice is safe to receive twice.
-          { const { recordOutsideRefund } = await import('@/lib/outside-refund'); await recordOutsideRefund(db, tenant.id, charge, rf, meta, { piId: chPi, account: connAcct }); }
+          await recordOutsideRefund(db, tenant.id, charge, rf, meta, { piId: chPi, account: connAcct, accountNote, lineExtra });
           const refundBalTxnId = typeof rf.balance_transaction === 'string' ? rf.balance_transaction : (rf.balance_transaction as any)?.id;
           if (!refundBalTxnId) continue;
           // Once: by its own id, and by the lines written before it had one.

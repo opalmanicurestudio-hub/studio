@@ -79,6 +79,10 @@ export async function refundSaleToCard(db: any, tenantId: string, tenant: any, t
   // An online order is refunded on the order (api/retail/refund), so its items, its sales tax and the customer's email
   // all follow; a refund from here would miss them.
   if (x.retailOrderId) return { ok: false, error: 'This is an online order. Refund it from the order in Orders, so the items, the sales tax and the customer’s email all follow.', status: 409 };
+  // A renter's own card payment from their account (rent online or by autopay, an agreed charge): refunded from their
+  // account (lib/renter-refund), so the account, the renter's notice and what's left to refund all follow.
+  const { isRenterAccountPaymentIn } = await import('@/lib/renter-refund');
+  if (await isRenterAccountPaymentIn(db, tenantId, transactionId, x)) return { ok: false, error: 'This is a renter’s payment from their account. Refund it with Refund on the Rent page, so their account and their notice show it.', status: 409 };
   // A booking's deposit: refunded as a deposit, so its credit is closed and it can't also come off their next bill.
   const { isDepositLine, depositForLine, refundDepositCredit } = await import('@/lib/deposit-refund');
   if (isDepositLine(x) && String(x.paymentMethod || '').toLowerCase() !== 'cash') {

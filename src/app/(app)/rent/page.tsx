@@ -1,6 +1,7 @@
 'use client';
 
 import { DeskOwedCard } from '@/components/rent/DeskOwedCard';
+import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   collection,
@@ -993,6 +994,7 @@ export default function RentRollPage() {
   const [payRequestId, setPayRequestId] = useState('');
   const [payError, setPayError] = useState<string | null>(null);
   const [chargeRenter, setChargeRenter] = useState<Renter | null>(null);
+  const [refundRenter, setRefundRenter] = useState<Renter | null>(null);
   const [historyRenter, setHistoryRenter] = useState<Renter | null>(null);
   const [paymentForm, setPaymentForm] = useState<PaymentFormState>({
     amountDollars: '',
@@ -1688,6 +1690,13 @@ export default function RentRollPage() {
                     </Button>
                     <Button
                       variant="outline"
+                      onClick={() => setRefundRenter(renter)}
+                      className="h-11 rounded-xl border-2 text-[13px] font-medium"
+                    >
+                      Refund
+                    </Button>
+                    <Button
+                      variant="outline"
                       onClick={() => setHistoryRenter(renter)}
                       aria-label={`Payment history for ${renter.firstName} ${renter.lastName}`}
                       className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"
@@ -1803,6 +1812,14 @@ export default function RentRollPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RenterRefundDialog
+        open={refundRenter !== null}
+        onOpenChange={(o) => { if (!o) setRefundRenter(null); }}
+        tenantId={tenantId || ''}
+        renter={refundRenter}
+        onDone={(m) => setCycleResult(m)}
+      />
 
       <Dialog
         open={chargeRenter !== null}

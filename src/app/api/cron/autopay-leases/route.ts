@@ -280,6 +280,7 @@ export async function POST(req: NextRequest) {
           paymentMethod: 'Card on file (Stripe autopay)',
           stripePaymentIntentId: intent.id,
           stripeChargeId: chargeId,
+          ...(stripeAccountId ? { stripeConnectedAccountId: stripeAccountId } : {}),   // where a refund of it goes (lib/renter-refund)
           leaseId: lease.id,
           hasReceipt: true,
           tenantId, locationId: lease.locationId,

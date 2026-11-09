@@ -49,7 +49,7 @@ import Stripe from 'stripe';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
-import { incidentalOpened, recordRenterIncidental, releaseRenterIncidental } from '@/lib/renter-incidentals';
+import { incidentalOpened, recordRenterIncidental, releaseRenterIncidental, tellRenterCharged } from '@/lib/renter-incidentals';
 import { requireCan, requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
@@ -380,7 +380,8 @@ export async function PUT(req: NextRequest) {
       return { cents: amountCents, pm: card!.pm, customer: card!.customer, account: card!.account, description: v.description, label: v.category.label };
     });
     if (claim.noCard) return NextResponse.json({ ok: false, error: RENTER_CARD_AGAIN }, { status: 409 });
-    if (claim.already) return NextResponse.json({ ok: true, chargedCents: claim.cents, already: true });
+    // Charged already (asked again): the renter's receipt goes now if it never did (it's sent once).
+    if (claim.already) { await tellRenterCharged(db, String(tenantId), tenantDoc, String(renterId), key).catch(() => null); return NextResponse.json({ ok: true, chargedCents: claim.cents, already: true }); }
     if (claim.busy) return NextResponse.json({ ok: false, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
     const cents = Number(claim.cents) || 0;
     const description = String(claim.description);
@@ -412,14 +413,16 @@ export async function PUT(req: NextRequest) {
 
     // ── Recorded once (lib/renter-incidentals): the income line, its Stripe fee, and the renter's incidentals log, with the attempt marked ──
     const wrote = await recordRenterIncidental(db, String(tenantId), String(renterId), key, intent, cents, description, renterName, { stripe, account: claim.account || null });
-    if (!wrote) return NextResponse.json({ ok: true, chargedCents: cents, already: true });
+    if (!wrote) { await tellRenterCharged(db, String(tenantId), tenantDoc, String(renterId), key).catch(() => null); return NextResponse.json({ ok: true, chargedCents: cents, already: true }); }
     await logAuditAdmin(db, String(tenantId), {
       action: 'booth.renter_charged', targetType: 'renter', targetId: String(renterId),
       summary: `Incidental charged to card on file: ${renterName} — ${description} ($${(cents / 100).toFixed(2)})`,
       amount: cents / 100, actor: { type: 'user', id: g.actor?.uid || undefined, name: g.actor?.name || undefined, role: g.actor?.role || undefined },
     } as any).catch(() => {});
 
-    return NextResponse.json({ ok: true, chargedCents: cents });
+    // The renter's receipt (lib/renter-incidentals): money was taken from their card, so they're always told.
+    const receiptTo = await tellRenterCharged(db, String(tenantId), tenantDoc, String(renterId), key).catch(() => null);
+    return NextResponse.json({ ok: true, chargedCents: cents, receiptSentTo: receiptTo });
   } catch (err) {
     console.error('[setup-card] PUT failed', err);
     return NextResponse.json({ ok: false, error: 'Could not charge card.' }, { status: 500 });

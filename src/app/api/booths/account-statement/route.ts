@@ -49,7 +49,12 @@
  *   rentLedger   — payments (type 'payment', negative cents) and write-offs
  *                  (status 'waived'); rent_charge rows there are skipped when
  *                  an invoice already represents them (ledgerEntryId), and
- *                  included otherwise so pre-invoice history still shows.
+ *                  included otherwise so pre-invoice history still shows; a
+ *                  refund to their card and what of it isn't owed again
+ *                  (lib/renter-refund) are lines here too
+ *   transactions — what they paid by card (rent online or by autopay, an
+ *                  agreed charge from the card on file), which isn't a
+ *                  payment line on their account
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -58,6 +63,7 @@ import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL } from '@/lib/renter-timeline';
 import { depositPosition, moveOutSummary, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
+import { renterPaymentKind } from '@/lib/renter-refund';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,11 +93,12 @@ export async function GET(req: NextRequest) {
   const finalMode = mode === 'final';
 
   const db = getAdminDb();
-  const [tSnap, rSnap, invSnap, ledSnap] = await Promise.all([
+  const [tSnap, rSnap, invSnap, ledSnap, txSnap] = await Promise.all([
     db.doc(`tenants/${tenantId}`).get(),
     db.doc(`tenants/${tenantId}/renters/${renterId}`).get(),
     db.collection(`tenants/${tenantId}/rentInvoices`).where('renterId', '==', renterId).get(),
     db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', renterId).get(),
+    db.collection(`tenants/${tenantId}/transactions`).where('renterId', '==', renterId).get(),
   ]);
   // The rest of the record, only when it will be printed.
   const leaseDocs = (depositMode || finalMode)
@@ -288,6 +295,31 @@ ${printButton}`);
       lines.push({ date, kind: 'credit', label: e.description || 'Credit', detail: e.note || '', cents });
     } else if (cents > 0) {
       lines.push({ date, kind: 'charge', label: e.description || 'Charge', detail: e.note || '', cents, status: e.status });
+    }
+  }
+
+  // Paid by card: rent paid online or by autopay, and an agreed charge taken from the card on file, are written in the
+  // books, not as a payment line on the account, so they come from there (lib/renter-refund names the same three). A
+  // payment recorded by hand is its own line above and names its line in the books, so it's never counted twice.
+  const named = new Set<string>(ledSnap.docs.filter((d) => (d.data() as any).type === 'payment').map((d) => String((d.data() as any).transactionId || '')).filter(Boolean));
+  const billIds = new Set<string>(invSnap.docs.map((d) => String(d.id)));
+  // Lines from before they carried the renter are found by their bills.
+  const txDocs = new Map<string, any>(txSnap.docs.map((d) => [String(d.id), d.data() as any]));
+  const billList = [...billIds];
+  for (let i = 0; i < billList.length; i += 30) {
+    for (const d of (await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', 'in', billList.slice(i, i + 30)).get()).docs) if (!txDocs.has(String(d.id))) txDocs.set(String(d.id), d.data() as any);
+  }
+  for (const [id, t] of txDocs) {
+    if (named.has(id)) continue;
+    const kind = renterPaymentKind(t, billIds, id); if (!kind) continue;
+    if (kind === 'agreed' && String(t.renterId || t.sourceId || '') !== renterId) continue;
+    const cents = Math.round((Number(t.amount) || 0) * 100); if (!(cents > 0)) continue;
+    const date = String(t.date || t.createdAt || '').slice(0, 10);
+    if (kind === 'agreed') {
+      lines.push({ date, kind: 'charge', label: `Agreed charge — ${String(t.description || 'charge').split(' — ')[0]}`, detail: '', cents });
+      lines.push({ date, kind: 'payment', label: 'Payment — card on file', detail: '', cents: -cents });
+    } else {
+      lines.push({ date, kind: 'payment', label: `Payment — ${kind === 'autopay' ? 'autopay' : 'card, online'}`, detail: '', cents: -cents });
     }
   }
 

@@ -27,6 +27,7 @@ import { depositPosition, DEPOSIT_STATUS_LABEL } from '@/lib/deposit-accounting'
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PrintLink } from '@/components/shared/PrintLink';
 import { RenterPortalAccess } from '@/components/renters/RenterPortalAccess';
+import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -107,6 +108,7 @@ export function RenterProfileDrawer({
   onAddCard?: () => void;
 }) {
   const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'messages' | 'activity'>('overview');
+  const [refundOpen, setRefundOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
   const [chargeAmt, setChargeAmt] = useState('');
   const [chargeCat, setChargeCat] = useState('');
@@ -167,7 +169,7 @@ export function RenterProfileDrawer({
       if (d.ok) {
         // The server records the charge in the activity log, with who made it.
         setChargeAmt(''); setChargeCat(''); setChargeNote('');
-        drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} — ${chargeCat} recorded in the ledger.` });
+        drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} for ${chargeCat}, recorded in the ledger.${d.receiptSentTo ? ` Receipt sent to ${d.receiptSentTo}.` : ''}` });
       } else {
         drawerToast({ variant: 'destructive', title: 'Charge failed', description: d.error || 'Try again or collect another way.' });
       }
@@ -274,7 +276,7 @@ export function RenterProfileDrawer({
       try {
         const col = collection(firestore, 'tenants', tenantId, 'transactions');
         const found = new Map<string, any>();
-        const keep = (docs: any[]) => { for (const d of docs) { const x: any = d.data() || {}; if (x.source === 'booth_rent') found.set(d.id, { id: d.id, ...x }); } };
+        const keep = (docs: any[]) => { for (const d of docs) { const x: any = d.data() || {}; if (x.source === 'booth_rent' || x.rentRefundOf) found.set(d.id, { id: d.id, ...x }); } };
         keep((await getDocs(query(col, where('renterId', '==', renter.id)))).docs);
         const ids = sourceKey ? sourceKey.split(',') : [];
         for (let i = 0; i < ids.length; i += 30) keep((await getDocs(query(col, where('sourceId', 'in', ids.slice(i, i + 30))))).docs);
@@ -285,7 +287,8 @@ export function RenterProfileDrawer({
     return () => { cancelled = true; };
   }, [firestore, tenantId, renter?.id, sourceKey]);
 
-  const dollars = (t: any) => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
+  // A refund to their card (lib/renter-refund) counts against what they paid.
+  const dollars = (t: any) => { const v = typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100; return t.type === 'reversal' || t.rentRefundOf ? -Math.abs(v) : v; };
   const dateStr = (v: any) => {
     if (!v) return '';
     if (typeof v === 'string') return v.slice(0, 10);
@@ -338,7 +341,8 @@ export function RenterProfileDrawer({
     // Money events from their ledger — payments recorded (cash, card, Zelle…).
     for (const t of (txns || [])) {
       const at = stampStr(t.date || t.createdAt);
-      if (at && (t.type === 'income' || typeof t.amount === 'number')) {
+      if (at && (t.type === 'reversal' || t.rentRefundOf)) items.push({ at, label: `Refund to card $${Math.abs(dollars(t)).toFixed(2)}` });
+      else if (at && (t.type === 'income' || typeof t.amount === 'number')) {
         items.push({ at, label: `${t.category === 'Booth Rent' || /rent/i.test(t.description || '') ? 'Rent' : t.category || 'Payment'} $${(typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100).toFixed(2)}${t.paymentMethod ? ` · ${t.paymentMethod}` : ''}` });
       }
     }
@@ -602,7 +606,12 @@ export function RenterProfileDrawer({
                     <CreditCard className="h-3.5 w-3.5" /> Add card on file
                   </button>
                 ) : null}
+                <button type="button" onClick={() => setRefundOpen(true)} className="col-span-2 h-11 rounded-2xl border border-[#ececee] bg-white text-[13px] font-medium text-[#16171a] hover:bg-[#f5f5f7] transition-colors">
+                  Refund a payment
+                </button>
               </div>
+              <RenterRefundDialog open={refundOpen} onOpenChange={setRefundOpen} tenantId={tenantId} renter={renter}
+                onDone={(m) => drawerToast({ title: 'Refunded', description: m })} />
 
               {lease && (() => {
                 const dep = depositPosition(lease, record?.ledger || []);
@@ -768,7 +777,7 @@ export function RenterProfileDrawer({
                           {t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
                         </p>
                       </div>
-                      <p className="font-black text-emerald-700 text-sm shrink-0">${dollars(t).toFixed(2)}</p>
+                      <p className={`font-black text-sm shrink-0 ${dollars(t) < 0 ? 'text-[#6d7075]' : 'text-emerald-700'}`}>{dollars(t) < 0 ? '−' : ''}${Math.abs(dollars(t)).toFixed(2)}</p>
                     </div>
                   ))}
                 </>

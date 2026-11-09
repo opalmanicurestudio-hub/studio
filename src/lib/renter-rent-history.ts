@@ -21,7 +21,9 @@ export async function renterSourceIds(db: any, tenantId: string, renterId: strin
 export async function renterRentPayments(db: any, tenantId: string, opts: { renterId?: string | null; extraSourceIds?: string[] }): Promise<any[]> {
   const T = `tenants/${tenantId}`;
   const found = new Map<string, any>();
-  const keep = (docs: any[]) => { for (const d of docs) { const x: any = d.data() || {}; if (x.source === 'booth_rent') found.set(d.id, { ...x, id: x.id || d.id }); } };
+  // A refund to their card of one of these (lib/renter-refund, or one made in the Stripe Dashboard, lib/outside-refund)
+  // is kept with them, and counts against what they paid (rentRefundOf names the payment).
+  const keep = (docs: any[]) => { for (const d of docs) { const x: any = d.data() || {}; if (x.source === 'booth_rent' || x.rentRefundOf) found.set(d.id, { ...x, id: x.id || d.id }); } };
   const sources = new Set<string>((opts.extraSourceIds || []).filter(Boolean).map(String));
   if (opts.renterId) {
     keep((await db.collection(`${T}/transactions`).where('renterId', '==', opts.renterId).get()).docs);

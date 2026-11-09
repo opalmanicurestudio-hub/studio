@@ -24,16 +24,23 @@ const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
 
 export type OutsideRefund = { recorded: false; why: string } | { recorded: true; lineId: string; cents: number; orderId?: string | null; matched?: boolean };
 
-/** Record one refund on a charge, if it was made outside the app. `meta` is the charge's (and its payment's) metadata. */
-export async function recordOutsideRefund(db: any, tenantId: string, charge: any, rf: any, meta: any, opts: { piId?: string | null; account?: string | null } = {}): Promise<OutsideRefund> {
+/** Why a refund on a charge isn't one made outside the app to record, or null when it is. */
+export function notOutside(charge: any, rf: any): string | null {
+  if (!rf?.id || !(c0(rf?.amount) > 0)) return 'nothing';
+  if (['failed', 'canceled'].includes(String(rf.status || ''))) return 'not_refunded';
+  if (madeByApp(rf)) return 'app';
+  if ((Number(rf.created) || 0) * 1000 < OUTSIDE_FROM) return 'before';
+  // Money held but never taken isn't a refund of a sale.
+  if (charge?.captured === false || (typeof charge?.amount_captured === 'number' && charge.amount_captured < (Number(charge?.amount) || 0))) return 'hold';
+  return null;
+}
+
+/** Record one refund on a charge, if it was made outside the app. `meta` is the charge's (and its payment's) metadata.
+ *  `accountNote` is added to the owners' note (a renter's refund also goes on their account, lib/renter-refund). */
+export async function recordOutsideRefund(db: any, tenantId: string, charge: any, rf: any, meta: any, opts: { piId?: string | null; account?: string | null; accountNote?: string | null; lineExtra?: Record<string, any> | null } = {}): Promise<OutsideRefund> {
   const T = `tenants/${tenantId}`;
   const cents = c0(rf?.amount);
-  if (!rf?.id || !(cents > 0)) return { recorded: false, why: 'nothing' };
-  if (['failed', 'canceled'].includes(String(rf.status || ''))) return { recorded: false, why: 'not_refunded' };
-  if (madeByApp(rf)) return { recorded: false, why: 'app' };
-  if ((Number(rf.created) || 0) * 1000 < OUTSIDE_FROM) return { recorded: false, why: 'before' };
-  // Money held but never taken isn't a refund of a sale.
-  if (charge?.captured === false || (typeof charge?.amount_captured === 'number' && charge.amount_captured < (Number(charge?.amount) || 0))) return { recorded: false, why: 'hold' };
+  const no = notOutside(charge, rf); if (no) return { recorded: false, why: no };
 
   const now = new Date().toISOString();
   const at = new Date((Number(rf.created) || Math.floor(Date.now() / 1000)) * 1000).toISOString();
@@ -101,7 +108,9 @@ export async function recordOutsideRefund(db: any, tenantId: string, charge: any
       const line = await tx.get(lineRef);
       const ds: any[] = []; for (const r of deps) ds.push(await tx.get(r));
       if (line.exists) return { recorded: false, why: 'already' } as OutsideRefund;
-      tx.set(lineRef, { ...base, taxRefunded: 0, ...((meta?.type === 'address_change' || meta?.type === 'delivery_retry') && meta?.retailOrderId ? { retailOrderId: safe(meta.retailOrderId) } : {}),
+      // A renter's own card payment refunded: the line names them and the payment (lib/renter-refund), so their rent
+      // history and yearly statement count it against what they paid.
+      tx.set(lineRef, { ...base, ...(opts.lineExtra || {}), taxRefunded: 0, ...((meta?.type === 'address_change' || meta?.type === 'delivery_retry') && meta?.retailOrderId ? { retailOrderId: safe(meta.retailOrderId) } : {}),
         description: `Refund made in Stripe — ${who === 'a customer' ? (charge?.description || 'a card payment') : who}`.slice(0, 200) });
       let left = cents;
       for (const d of ds) {
@@ -125,7 +134,7 @@ export async function recordOutsideRefund(db: any, tenantId: string, charge: any
       for (const d of admins.docs) {
         const n = db.doc(`${T}/notifications/outsiderefund_${safe(rf.id)}_${safe(d.id)}`);
         await n.set({ id: n.id, userId: d.id, type: 'outside_refund', read: false, createdAt: now, link: orderId ? `/orders?order=${orderId}` : '/money',
-          message: `A $${(cents / 100).toFixed(2)} refund${who !== 'a customer' ? ` to ${who}` : ''} was made in Stripe, outside the app. It’s recorded in Money as a refund${orderId ? ' and on the order' : ''}, so there’s no need to add it by hand.` });
+          message: `A $${(cents / 100).toFixed(2)} refund${who !== 'a customer' ? ` to ${who}` : ''} was made in Stripe, outside the app. It’s recorded in Money as a refund${orderId ? ' and on the order' : ''}, so there’s no need to add it by hand.${opts.accountNote ? ` ${opts.accountNote}` : ''}` });
       }
     } catch { /* recorded; the note is a courtesy */ }
   }

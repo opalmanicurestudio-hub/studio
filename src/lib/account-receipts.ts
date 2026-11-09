@@ -65,6 +65,15 @@ export async function sendAccountReceipt(db: any, tenantId: string, tenant: any,
   return { sentTo: ch.length ? `${first} by ${ch.join(' and ')}` : null, noContact: !c.email && !c.phone, autopayOn: c.autopayOn };
 }
 
+/** Money moved on a renter's account that they're told about: a refund to their card (lib/renter-refund), or an agreed
+ *  charge taken from the card on file (lib/renter-incidentals). In the owner's wording for that message, filed under them. */
+export async function sendRenterMoneyNotice(db: any, tenantId: string, tenant: any, x: { kind: 'renter_refund' | 'renter_charge'; renterId: string; tokens: Record<string, string> }) {
+  const c = await accountContact(db, tenantId, 'rent', x.renterId);
+  const first = String(c.name).split(' ')[0];
+  const ch = await send(db, tenantId, tenant, x.kind, c, { renter_first: first, first, studio: tenant?.name || 'The studio', ...x.tokens });
+  return { sentTo: ch.length ? `${first} by ${ch.join(' and ')}` : null, noContact: !c.email && !c.phone };
+}
+
 export async function sendReversalNotice(db: any, tenantId: string, tenant: any, x: { kind: 'rent' | 'tuition'; id: string; amountCents: number; paidOn: string; details?: string }) {
   const c = await accountContact(db, tenantId, x.kind, x.id); const tz = tenant?.timezone || 'America/New_York';
   return send(db, tenantId, tenant, 'account_payment_reversed', c, { first: String(c.name).split(' ')[0], amount: money(x.amountCents), what: x.kind === 'rent' ? 'rent' : 'tuition', when: day(x.paidOn, tz), details: x.details || '', studio: tenant?.name || 'The studio' });

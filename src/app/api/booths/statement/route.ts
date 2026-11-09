@@ -25,7 +25,7 @@ import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 
 const esc =(s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (s: string) => { try { return new Date(s.slice(0,10)+'T00:00:00').toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }); } catch { return s.slice(0,10); } };
 
 interface PaymentRow {
@@ -277,7 +277,9 @@ export async function GET(req: NextRequest) {
       txnSeen.add(t.id);
       const d = (t.date || t.createdAt || '').slice(0, 10);
       if (d < yearStart || d > yearEnd) continue;
-      const amount = typeof t.amount === 'number' ? t.amount : (t.amountCents || 0) / 100;
+      const amount0 = typeof t.amount === 'number' ? t.amount : (t.amountCents || 0) / 100;
+      // A refund to their card (lib/renter-refund) comes off what they paid.
+      const amount = t.type === 'reversal' || t.rentRefundOf ? -Math.abs(amount0) : amount0;
       rows.push({
         date:        d,
         description: t.description || 'Booth rent',

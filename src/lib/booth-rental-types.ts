@@ -962,7 +962,11 @@ export function buildRentRollSummary(params: {
     .reduce((sum, e) => sum + Math.abs(e.amountCents), 0)
     + invoices
       .filter((i: any) => i?.status === 'paid' && i?.paidMethod === 'Card (Stripe)' && String(i?.paidAt || '') >= cycleStartIso)
-      .reduce((sum: number, i: any) => sum + (Number(i.paidAmountCents) || Number(i.amountCents) || 0), 0);
+      .reduce((sum: number, i: any) => sum + (Number(i.paidAmountCents) || Number(i.amountCents) || 0), 0)
+    // Less money refunded to renters' cards this cycle (lib/renter-refund).
+    - ledger
+      .filter((e: any) => e.type === 'card_refund' && String(e.createdAt || '') >= cycleStartIso)
+      .reduce((sum, e) => sum + Math.abs(Number(e.amountCents) || 0), 0);
 
   const outstandingCents = invoices.reduce((n, i) => n + invoiceOwedCents(i), 0)
     + ledger.filter((e) => isOpenLedgerCharge(e)).reduce((n, e) => n + (Number(e.amountCents) || 0), 0);

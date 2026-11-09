@@ -110,6 +110,7 @@ export async function recordRenterIncidental(db: any, tenantId: string, renterId
       description: `${description} — ${renterName} (card on file)`,
       clientOrVendor: renterName, date: at, paymentMethod: 'Card on file (Stripe)',
       hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId, renterId, sourceId: renterId, tenantId, createdAt: at,
+      ...(o.account ? { stripeConnectedAccountId: o.account } : {}),   // where a refund of it goes (lib/renter-refund)
     });
     // Paired Processing Fees expense for the incidental charge.
     if (feeCents > 0) tx.set(feeRef, {
@@ -121,13 +122,85 @@ export async function recordRenterIncidental(db: any, tenantId: string, renterId
       renterId, relatedTxnId: txnRef.id, tenantId, createdAt: at,
       ...(fee0.balTxnId ? { stripeBalanceTxnId: fee0.balTxnId, ...(o.account ? { stripeConnectedAccountId: o.account } : {}) } : {}),
     });
-    // The renter's incidentals log, for their history.
+    // The renter's incidentals log, for their history, and the receipt they're owed (tellRenterCharged sends it; until
+    // it has, the five-minute check finds it by incidentalTellDueAt).
+    const due = Object.values({ ...(r.incidentalTellDue || {}), [key]: at }).filter(Boolean).map(String).sort()[0] || at;
     tx.set(renterRef, { incidentals: FieldValue.arrayUnion({ amountCents: cents, description, at, paymentIntentId: intent.id }), incidentalsTotalCents: FieldValue.increment(cents),
-      ...(incidentalClosed(r, key) || {}) }, { merge: true });
+      incidentalTellDue: { [key]: at }, incidentalTellDueAt: due, ...(incidentalClosed(r, key) || {}) }, { merge: true });
     tx.set(attemptRef, { status: 'charged', chargedAt: at, paymentIntentId: intent.id, claimAt: null, ...(o.extra || {}) }, { merge: true });
     if (noteRef && o.note) tx.set(noteRef, noteDoc(noteRef.id, o.note));
+    // Their portal says it in the same step, so it's there whatever happens to the email.
+    const alertRef = db.doc(`tenants/${tenantId}/renterAlerts/charge_${safeKey(renterId)}_${key}`);
+    tx.set(alertRef, { id: alertRef.id, renterId, kind: 'charge', tab: 'rent', tone: 'slate', at,
+      text: `${money(cents)} was charged to ${cardOf(r)} for ${description}, as set out in your rental agreement.` });
     return true;
   });
+}
+
+const cardOf = (r: any) => (r?.cardLast4 ? `${r.cardBrand ? `${String(r.cardBrand).charAt(0).toUpperCase()}${String(r.cardBrand).slice(1)} ` : 'card '}ending ${r.cardLast4}` : 'your card on file');
+
+/** The receipt for one charge is done (sent, or nothing to send): it comes off the renter's list of receipts owed. */
+async function receiptDone(db: any, renterRef: any, key: string) {
+  await db.runTransaction(async (tx: any) => {
+    const r: any = (await tx.get(renterRef)).data() || {};
+    const due = { ...(r.incidentalTellDue || {}) };
+    if (due[key] == null) return;
+    due[key] = null;
+    tx.set(renterRef, { incidentalTellDue: { [key]: null }, incidentalTellDueAt: Object.values(due).filter(Boolean).map(String).sort()[0] || null }, { merge: true });
+  }).catch(() => {});
+}
+
+/** The renter is told about a charge taken from their card, once, by email or text (Messages: "Agreed charge", which
+ *  can't be switched off: money was taken from their card); the note in their portal is written with the charge.
+ *  Claimed on the attempt first, so the screen, a retry and the five-minute check never all tell them. */
+export async function tellRenterCharged(db: any, tenantId: string, tenant: any, renterId: string, key: string): Promise<string | null> {
+  const aRef = db.doc(incidentalAttemptPath(tenantId, renterId, key));
+  const renterRef = db.doc(`tenants/${tenantId}/renters/${renterId}`);
+  const now = new Date().toISOString();
+  const a: any = await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(aRef)).data() || {};
+    if (cur.status !== 'charged' || cur.renterToldAt) return { done: true };
+    if (cur.renterTellClaimAt && Date.now() - ms(cur.renterTellClaimAt) < 10 * 60000) return null;
+    tx.set(aRef, { renterTellClaimAt: now }, { merge: true });
+    return cur;
+  }).catch(() => null);
+  if (!a) return null;
+  if (a.done) { await receiptDone(db, renterRef, key); return null; }
+  const cents = Math.round(Number(a.amountCents) || 0);
+  const what = String(a.description || a.category || 'an agreed charge');
+  const r: any = (await renterRef.get()).data() || {};
+  let sentTo: string | null = null; let noContact = false;
+  try {
+    const { sendRenterMoneyNotice } = await import('@/lib/account-receipts');
+    const { linkOrigin } = await import('@/lib/app-origin');
+    const base = linkOrigin(tenant);
+    const res = await sendRenterMoneyNotice(db, tenantId, tenant, { kind: 'renter_charge', renterId, tokens: {
+      amount: money(cents), what, card: cardOf(r), reason: '', link: base ? `${base}/rent/${encodeURIComponent(tenantId)}?tab=rent` : '' } });
+    sentTo = res.sentTo; noContact = res.noContact;
+  } catch (e) { console.error('[renter-incidentals] receipt', tenantId, renterId, key, e); }
+  // Sent, or nowhere to send it (the note in their portal is there): done. A send that failed is tried again by the
+  // five-minute check, up to three times in all, so it's never sent twice and never tried forever.
+  const tries = (Number(a.renterTellTries) || 0) + 1;
+  if (sentTo || noContact || tries >= 3) {
+    await aRef.set({ renterToldAt: now, renterTellClaimAt: null, renterToldTo: sentTo, renterTellTries: tries }, { merge: true }).catch(() => {});
+    await receiptDone(db, renterRef, key);
+  } else await aRef.set({ renterTellClaimAt: null, renterTellTries: tries }, { merge: true }).catch(() => {});
+  return sentTo;
+}
+
+/** Receipts owed for charges the screen recorded but never got to send (it stopped part way): sent by the five-minute
+ *  check, a few renters a run. */
+async function sendOwedReceipts(db: any, tenantId: string, tenant: any, now: number): Promise<number> {
+  const rs = (await db.collection(`tenants/${tenantId}/renters`).where('incidentalTellDueAt', '<=', iso(now - TAKEN_MS)).limit(25).get().catch(() => ({ docs: [] as any[] }))).docs;
+  let sent = 0;
+  for (const rd of rs) {
+    for (const [key, at] of Object.entries((rd.data() || {}).incidentalTellDue || {})) {
+      if (!at) continue;
+      try { if (await tellRenterCharged(db, tenantId, tenant, String(rd.id), key)) sent++; }
+      catch (e: any) { console.error('[renter-incidentals] owed receipt', tenantId, rd.id, key, String(e?.message || e).slice(0, 160)); }
+    }
+  }
+  return sent;
 }
 
 /** Nothing moved: the attempt is closed ('failed', and no longer open on the renter) and nothing is recorded. Only while
@@ -255,9 +328,11 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
     const at = Number(found.pi.created) > 0 ? iso(Number(found.pi.created) * 1000) : iso(now);
     const wrote = await recordRenterIncidental(db, tenantId, renterId, key, found.pi, cents, description, renterName, { stripe, at, extra: settled, account: a.account || null, note: {
       id: noteId, link: '/booths',
-      message: `${what} went through, though the screen never heard back. It’s recorded in Money. If it was also collected another way, refund it from Money.`,
+      message: `${what} went through, though the screen never heard back. It’s recorded in Money, and the renter has their receipt. If it was also collected another way, refund it with Refund on the Rent page.`,
     } });
     if (wrote) {
+      const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      await tellRenterCharged(db, tenantId, tenant, renterId, key).catch(() => null);
       await logAuditAdmin(db, tenantId, {
         action: 'booth.renter_charged', targetType: 'renter', targetId: renterId,
         summary: `Incidental charged to card on file: ${renterName} — ${description} ($${(cents / 100).toFixed(2)}), recorded by the automatic check after Stripe’s answer was lost`,
@@ -309,5 +384,7 @@ export async function settleLostRenterIncidentals(db: any, tenantId: string, ten
       out[r]++;
     }
   }
+  // Receipts the screen never got to send.
+  await sendOwedReceipts(db, tenantId, tenant, now).catch((e: any) => console.error('[renter-incidentals] owed receipts', tenantId, String(e?.message || e).slice(0, 160)));
   return out;
 }
