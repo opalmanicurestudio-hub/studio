@@ -174,6 +174,27 @@ export async function handleConnectWebhook(req: NextRequest) {
           break;
         }
 
+        // A security deposit paid online (api/portal/renter, pay-deposit): recorded once (lib/rent-deposit), whichever comes
+        // first, this notice or the renter's return to the portal. Not written: this notice fails, so Stripe sends it again.
+        if (session.metadata?.kind === 'rent_deposit') {
+          const leaseId = String(session.metadata?.leaseId || '');
+          if (session.payment_status === 'paid' && String(session.metadata?.tenantId || '') === tenant.id && /^[A-Za-z0-9_-]{1,128}$/.test(leaseId)) {
+            const { recordCardDeposit } = await import('@/lib/rent-deposit');
+            const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
+            const tData: any = (await tenant.ref.get()).data() || {};
+            const r = await recordCardDeposit(db, stripe2, tenant.id, tData, leaseId, session, { account: connAcct, today: todayIn(tenantTimeZone(tData)) });
+            if (!r.ok && !r.extra) {
+              // Asked again by Stripe a few times; then the owners are told (once), since the renter was charged.
+              const fRef = db.doc(`tenants/${tenant.id}/refundNotices/depositpayfail_${String(session.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
+              const tries = await db.runTransaction(async (tx: any) => { const f: any = (await tx.get(fRef)).data() || {}; const k = (Number(f.tries) || 0) + 1; tx.set(fRef, { tries: k, lastAt: new Date().toISOString() }, { merge: true }); return k; }).catch(() => 1);
+              if (tries < 5) throw new Error(`deposit payment not recorded: ${r.error}`);
+              if (tries === 5) await db.doc(`tenants/${tenant.id}/notifications/depositpayfail_${String(session.id).replace(/[^A-Za-z0-9_-]/g, '')}`).set({ userId: null, read: false, createdAt: new Date().toISOString(), type: 'booth_deposit', link: '/booths',
+                message: `A renter paid a $${((Number(session.amount_total) || 0) / 100).toFixed(2)} security deposit online, but it couldn’t be recorded on their lease (${r.error}). Check their deposit in their profile, and refund the payment in Stripe if it isn’t owed.` }).catch(() => {});
+            }
+          }
+          break;
+        }
+
         // Tickets for a paid event, bought on its page (lib/event-tickets): the guests go on the list and the sale in the
         // books, once, whichever comes first, this notice or the guest's return. Not finished on our side: this notice
         // fails too, so Stripe sends it again.
@@ -705,7 +726,31 @@ export async function handleConnectWebhook(req: NextRequest) {
           if (!rf || ['failed', 'canceled'].includes(String(rf.status || ''))) continue;
           const { recordOutsideRefund, notOutside } = await import('@/lib/outside-refund');
           let accountNote: string | null = null; let lineExtra: Record<string, any> | null = null;
-          if (renterPay || ['renter_refund', 'rent_refund'].includes(String(rf.metadata?.kind || ''))) {
+          if (meta.kind === 'rent_deposit' || ['deposit_refund', 'deposit_extra'].includes(String(rf.metadata?.kind || ''))) {
+            // A security deposit paid by card (lib/rent-deposit): the app's own return recorded if the screen never heard
+            // back; one made in the Stripe Dashboard recorded on the deposit, and in the books as held money going out.
+            const { noticeDepositRefund } = await import('@/lib/rent-deposit');
+            const tData: any = (await tenant.ref.get()).data() || {};
+            // Held money going out, whatever happens below (never a refund of a sale).
+            lineExtra = { category: 'Booth Deposit', taxBucket: 'transfer' };
+            let who: any = null;
+            try { who = await noticeDepositRefund(db, tenant.id, tData, charge, rf, meta, { outside: !notOutside(charge, rf) }); }
+            catch (e) {
+              console.error('[connect-webhook] deposit refund', e);
+              // Asked again by Stripe a few times; then left to the owners (told once), so it never holds up the rest.
+              const fRef = db.doc(`tenants/${tenant.id}/refundNotices/depositfail_${String(rf.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
+              const tries = await db.runTransaction(async (tx: any) => { const f: any = (await tx.get(fRef)).data() || {}; const k = (Number(f.tries) || 0) + 1; tx.set(fRef, { tries: k, lastAt: new Date().toISOString() }, { merge: true }); return k; }).catch(() => 1);
+              if (tries < 5) throw e;
+              if (tries === 5) await db.doc(`tenants/${tenant.id}/notifications/depositrefundfail_${String(rf.id).replace(/[^A-Za-z0-9_-]/g, '')}`).set({ userId: null, read: false, createdAt: new Date().toISOString(), type: 'booth_deposit', link: '/booths',
+                message: `A $${((Number(rf.amount) || 0) / 100).toFixed(2)} refund of a security deposit went through in Stripe but couldn’t be recorded on the deposit automatically. Check the renter’s deposit in their profile.` }).catch(() => {});
+            }
+            // A second payment sent back (never held or booked): nothing more to write.
+            if (who?.skipBooks) continue;
+            if (who && !notOutside(charge, rf)) {
+              lineExtra = { category: 'Booth Deposit', taxBucket: 'transfer', renterId: who.renterId, leaseId: who.leaseId };
+              accountNote = `It’s recorded on ${who.name || 'the renter'}’s security deposit as returned.`;
+            }
+          } else if (renterPay || ['renter_refund', 'rent_refund'].includes(String(rf.metadata?.kind || ''))) {
             // The app's own refund is recorded here if the screen never heard back; one made in the Stripe Dashboard goes
             // on the renter's account as money back they don't owe again, and the owners' note says so. If it can't be
             // written, the notice fails, so Stripe sends it again (all of it is safe to receive twice).

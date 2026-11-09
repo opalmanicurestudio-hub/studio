@@ -271,7 +271,9 @@ const NO_ANSWER = 'Stripe didn’t answer, so the refund may or may not have gon
 async function settleStaleClaims(db: any, stripe: any, tenantId: string, tenant: any, txRef: any, nowMs: number): Promise<{ recorded: number; released: number; waiting: number }> {
   const out = { recorded: 0, released: 0, waiting: 0 };
   const t: any = (await txRef.get()).data() || {};
-  const stale = Object.entries(t.renterRefunds || {}).filter(([, c]: any) => c?.state === 'refunding' && nowMs - (Date.parse(String(c?.at || '')) || 0) >= REFUND_CLAIM_MS);
+  // Stale: nothing asked of it (claimed, or asked again) in the last quarter hour.
+  const lastAsked = (c: any) => Math.max(Date.parse(String(c?.at || '')) || 0, Date.parse(String(c?.retryAt || '')) || 0);
+  const stale = Object.entries(t.renterRefunds || {}).filter(([, c]: any) => c?.state === 'refunding' && nowMs - lastAsked(c) >= REFUND_CLAIM_MS);
   if (!stale.length) {
     // Nothing left on its way: the mark the five-minute check finds it by goes.
     if (t.renterRefundOpenAt && !openAt(t.renterRefunds || {})) await txRef.set({ renterRefundOpenAt: null }, { merge: true }).catch(() => {});
@@ -291,7 +293,7 @@ async function settleStaleClaims(db: any, stripe: any, tenantId: string, tenant:
       const let_go = await db.runTransaction(async (tx: any) => {
         const cur: any = (await tx.get(txRef)).data() || {};
         const cl: any = (cur.renterRefunds || {})[k];
-        if (cl?.state !== 'refunding' || cl.at !== c.at) return false;
+        if (cl?.state !== 'refunding' || cl.at !== c.at || String(cl.retryAt || '') !== String(c.retryAt || '')) return false;
         const claims = { ...(cur.renterRefunds || {}), [k]: { ...cl, state: 'released' } };
         tx.set(txRef, { renterRefunds: { [k]: { state: 'released', releasedAt: new Date(nowMs).toISOString() } }, renterRefundOpenAt: openAt(claims) }, { merge: true });
         return true;
@@ -345,7 +347,11 @@ export async function refundRenterPayment(db: any, stripe: any, tenantId: string
     if (mine?.state === 'refunded') return { already: true, cents: n(mine.cents), refundId: mine.refundId || null, stillOwed: mine.stillOwed === true, card: mine.card || null };
     // The same request is the same refund: asked again for a different amount, it's refused, never sent as the old one.
     if (mine && n(mine.cents) !== cents) return { changed: n(mine.cents) };
-    if (mine?.state === 'refunding') return { t, again: true, cents: n(mine.cents), stillOwed: mine.stillOwed === true, reason: String(mine.reason || '') };
+    if (mine?.state === 'refunding') {
+      // Asked again: stamped, so the five-minute check never lets go of it while this ask is with Stripe.
+      tx.set(txRef, { renterRefunds: { [req]: { retryAt: at } } }, { merge: true });
+      return { t, again: true, cents: n(mine.cents), stillOwed: mine.stillOwed === true, reason: String(mine.reason || '') };
+    }
     const left = refundableCents(t, req);
     if (cents > left) return { tooMuch: left, refundedAt: !!t.refundedAt };
     const c = { state: 'refunding', cents, stillOwed: kind !== 'agreed' && o.stillOwed === true, reason: clip(o.reason, 300), by: o.by || null, at };

@@ -82,6 +82,8 @@ export async function refundSaleToCard(db: any, tenantId: string, tenant: any, t
   // A renter's own card payment from their account (rent online or by autopay, an agreed charge): refunded from their
   // account (lib/renter-refund), so the account, the renter's notice and what's left to refund all follow.
   const { isRenterAccountPaymentIn } = await import('@/lib/renter-refund');
+  // A renter's security deposit: returned from the deposit card in their profile, so the deposit's account follows.
+  if (x.category === 'Booth Deposit') return { ok: false, error: 'This is a renter’s security deposit. Return it from the deposit card in their profile, so their deposit and their notice show it.', status: 409 };
   if (await isRenterAccountPaymentIn(db, tenantId, transactionId, x)) return { ok: false, error: 'This is a renter’s payment from their account. Refund it with Refund on the Rent page, so their account and their notice show it.', status: 409 };
   // A booking's deposit: refunded as a deposit, so its credit is closed and it can't also come off their next bill.
   const { isDepositLine, depositForLine, refundDepositCredit } = await import('@/lib/deposit-refund');

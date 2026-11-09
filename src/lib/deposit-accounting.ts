@@ -38,6 +38,8 @@ export interface DepositPosition {
   deductions: DepositDeduction[];
   deductedCents: number;
   refundedCents: number;
+  /** Of what's refunded: a return to their card still on its way (lib/rent-deposit); counted as returned meanwhile. */
+  refundingCents: number;
   forfeitedCents: number;
   /** What is still in the shop's hands: collected − refunded − forfeited. */
   heldCents: number;
@@ -60,6 +62,7 @@ export function depositPosition(lease: any, ledger: any[]): DepositPosition {
   }));
   const deductedCents = deductions.reduce((n, d) => n + d.cents, 0);
   const refundedCents = mine.filter((e) => e.type === 'deposit_refund').reduce((n, e) => n + Math.abs(c(e.amountCents)), 0);
+  const refundingCents = mine.filter((e) => e.type === 'deposit_refund' && e.status === 'refunding').reduce((n, e) => n + Math.abs(c(e.amountCents)), 0);
   const forfeitedCents = mine.filter((e) => e.type === 'deposit_forfeit').reduce((n, e) => n + Math.abs(c(e.amountCents)), 0);
 
   const heldCents = Math.max(0, collectedCents - refundedCents - forfeitedCents);
@@ -76,7 +79,7 @@ export function depositPosition(lease: any, ledger: any[]): DepositPosition {
 
   return {
     agreedCents, refundable: dep?.refundable !== false, conditions: String(dep?.refundConditions || ''),
-    collectedCents, deductions, deductedCents, refundedCents, forfeitedCents, heldCents, returnableCents, status,
+    collectedCents, deductions, deductedCents, refundedCents, refundingCents, forfeitedCents, heldCents, returnableCents, status,
   };
 }
 

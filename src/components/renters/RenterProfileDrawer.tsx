@@ -186,6 +186,8 @@ export function RenterProfileDrawer({
   const [refundArm, setRefundArm] = useState(false);
   const [forfeitArm, setForfeitArm] = useState(false);
   const [depBusy, setDepBusy] = useState(false);
+  // A card return Stripe didn't answer: pressing it again asks the same request (lib/rent-deposit), never a second one.
+  const [depReq, setDepReq] = useState<{ action: string; leaseId: string; id: string } | null>(null);
   const [dedPhotos, setDedPhotos] = useState<string[]>([]);
   const [docPick, setDocPick] = useState(false);
   useEffect(() => { if (!forfeitArm) return; const t = setTimeout(() => setForfeitArm(false), 5000); return () => clearTimeout(t); }, [forfeitArm]);
@@ -619,14 +621,20 @@ export function RenterProfileDrawer({
                 if (dep.status === 'none') return null;
                 // Recorded on the server (api/rent/deposit, lib/rent-deposit): checked against the deposit as it stands,
                 // written once, in the books, and the renter is told in writing.
+                // Paid by card from their portal: a return goes back to that card (lib/rent-deposit refundDepositToCard).
+                const paidByCard = (record?.ledger || []).some((l: any) => l.leaseId === lease.id && l.type === 'deposit_charge' && l.status === 'paid' && l.stripePaymentIntentId);
                 const write = async (type: string, cents: number, description: string, evidenceUrls: string[] = []): Promise<boolean> => {
                   if (!tenantId || cents <= 0 || depBusy) return false;
                   const action = type === 'deposit_charge' ? 'received' : type === 'deposit_deduction' ? 'deduct' : type === 'deposit_refund' ? 'refund' : 'apply';
                   setDepBusy(true);
+                  const reqId = depReq?.action === action && depReq.leaseId === lease.id ? depReq.id : crypto.randomUUID();
                   try {
                     const d: any = await fetch('/api/rent/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ tenantId, leaseId: lease.id, action, cents, reason: action === 'deduct' ? description : '', evidenceUrls, requestId: crypto.randomUUID() }) })
+                      body: JSON.stringify({ tenantId, leaseId: lease.id, action, cents, reason: action === 'deduct' ? description : '', evidenceUrls, requestId: reqId, toCard: action === 'refund' && paidByCard }) })
                       .then((r) => r.json()).catch(() => null);
+                    // No answer from Stripe: the same request is asked again on the next tap, so it can't go back twice.
+                    if (!d || d.retry) { setDepReq({ action, leaseId: lease.id, id: reqId }); drawerToast({ title: 'Not sure yet', description: d?.error || 'We couldn’t tell whether it went through. Press it again: it won’t happen twice.' }); return false; }
+                    setDepReq(null);
                     if (!d?.ok) { drawerToast({ variant: 'destructive', title: 'Not recorded', description: d?.error || 'Nothing was saved. Try again.' }); return false; }
                     const nowIso = new Date().toISOString();
                     setRecord((r) => r ? { ...r, ledger: [...r.ledger.filter((l: any) => !(action === 'received' && l.type === 'deposit_charge' && l.status !== 'paid')),
@@ -641,7 +649,7 @@ export function RenterProfileDrawer({
                       <div>
                         <p className="text-[11px] font-black uppercase tracking-widest">Deposit</p>
                         <p className="text-[10px] font-bold text-muted-foreground">
-                          {DEPOSIT_STATUS_LABEL[dep.status]} · agreed {formatCents(dep.agreedCents)}{dep.refundable ? '' : ' · non-refundable'}
+                          {DEPOSIT_STATUS_LABEL[dep.status]}{dep.refundingCents > 0 ? ` · ${formatCents(dep.refundingCents)} on its way to their card` : ''} · agreed {formatCents(dep.agreedCents)}{dep.refundable ? '' : ' · non-refundable'}
                           {dep.conditions ? ` · ${dep.conditions}` : ''}
                         </p>
                       </div>
@@ -698,9 +706,9 @@ export function RenterProfileDrawer({
                         </div>
                         <div className="flex gap-2">
                           <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
-                            onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then((ok) => { if (ok) drawerToast({ title: 'Refund recorded', description: 'Move the money by whatever means you use. This records that you did, with every deduction listed for them.' }); }); setRefundArm(false); } else setRefundArm(true); }}
+                            onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then((ok) => { if (ok) drawerToast({ title: paidByCard ? 'Returned to their card' : 'Refund recorded', description: paidByCard ? 'It usually shows on their card within 5 to 10 business days. They’re told, with every deduction listed.' : 'Move the money by whatever means you use. This records that you did, with every deduction listed for them.' }); }); setRefundArm(false); } else setRefundArm(true); }}
                             className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40', refundArm ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
-                            {refundArm ? `Tap again — record ${formatCents(dep.returnableCents)} refunded` : `Refund ${formatCents(dep.returnableCents)}`}
+                            {refundArm ? (paidByCard ? `Tap again — return ${formatCents(dep.returnableCents)} to their card` : `Tap again — record ${formatCents(dep.returnableCents)} refunded`) : `Refund ${formatCents(dep.returnableCents)}${paidByCard ? ' to card' : ''}`}
                           </button>
                           <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
                             title="Apply the deposit to what they owe instead of returning it"

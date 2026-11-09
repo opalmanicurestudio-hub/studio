@@ -19,6 +19,7 @@ import { settleLostKioskCharges } from '@/lib/kiosk-charges';
 import { settleLostRenterIncidentals } from '@/lib/renter-incidentals';
 import { settleLostStationBookings } from '@/lib/station-booking';
 import { settleStuckRenterRefunds } from '@/lib/renter-refund';
+import { settleStuckSecurityDepositRefunds } from '@/lib/rent-deposit';
 
 export type SweepCounts = { checked: number; recorded: number; released: number; waiting: number };
 type Part = (db: any, tenantId: string, tenant: any, o: { stripe?: any; now?: number }) => Promise<Partial<SweepCounts> & Record<string, any>>;
@@ -36,6 +37,7 @@ const PARTS: [string, Part][] = [
   ['stationBookings', settleLostStationBookings as Part], // a station booked and charged in one step (lib/station-booking)
   ['rentRefunds', settleStuckRentRefunds as Part],      // rent paid online that wasn't owed, on its way back (lib/rent-online-pay)
   ['renterRefunds', settleStuckRenterRefunds as Part],  // a renter's card payment refunded from their account (lib/renter-refund)
+  ['securityDepositRefunds', settleStuckSecurityDepositRefunds as Part], // a renter's security deposit returned to their card (lib/rent-deposit)
   ['groupGifts', settleCancellingGroups as Part],       // a cancelled group gift's shares, on their way back (lib/gift-groups)
   ['bulkGiftRefunds', settleStuckBulkRefunds as Part],  // a company's second payment for gift cards, on its way back (lib/gift-bulk)
 ];

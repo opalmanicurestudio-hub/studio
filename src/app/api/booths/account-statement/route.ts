@@ -212,7 +212,8 @@ ${head(depositMode ? 'Deposit <b>accounting</b>' : 'Move-out <b>statement</b>', 
     <tr><td>Agreed in the lease${dep.conditions ? `<div class="detail">${esc(dep.conditions)}</div>` : ''}${dep.refundable ? '' : '<div class="detail">Non-refundable</div>'}</td><td class="n">${money(dep.agreedCents)}</td></tr>
     <tr><td>Collected</td><td class="n">${money(dep.collectedCents)}</td></tr>
     ${dep.deductions.map((d) => `<tr class="late_fee"><td>Deduction — ${esc(d.reason)}<div class="detail">${day(d.at)}${d.by ? ` · ${esc(d.by)}` : ''}${(d.evidenceUrls || []).length ? ` · ${(d.evidenceUrls || []).map((u, i) => `<a href="${esc(u)}">photo ${i + 1}</a>`).join(', ')}` : ''}</div></td><td class="n">−${money(d.cents)}</td></tr>`).join('')}
-    ${dep.refundedCents > 0 ? `<tr class="payment"><td>Refunded</td><td class="n">−${money(dep.refundedCents)}</td></tr>` : ''}
+    ${dep.refundedCents - dep.refundingCents > 0 ? `<tr class="payment"><td>Refunded</td><td class="n">−${money(dep.refundedCents - dep.refundingCents)}</td></tr>` : ''}
+    ${dep.refundingCents > 0 ? `<tr class="payment"><td>Refund on its way to their card</td><td class="n">−${money(dep.refundingCents)}</td></tr>` : ''}
     ${dep.forfeitedCents > 0 ? `<tr class="write_off"><td>Applied to balance</td><td class="n">−${money(dep.forfeitedCents)}</td></tr>` : ''}
   </tbody></table>
   <div class="totals">

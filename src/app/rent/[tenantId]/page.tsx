@@ -142,6 +142,22 @@ export default function RenterPortalPage() {
     })();
   }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Returning from paying the security deposit (?cfDepositLease=&cfSession=): recorded on the server, once.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session?.token) return;
+    const params = new URLSearchParams(window.location.search);
+    const leaseId = params.get('cfDepositLease'); const sessionId = params.get('cfSession');
+    if (!leaseId || !sessionId) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      const d = await api({ action: 'confirm-deposit', tenantId, token: session.token, leaseId, sessionId });
+      if (d.ok) toast({ title: 'Deposit paid', description: 'It’s held for you. Your receipt is on its way.' });
+      else if (d.pending) toast({ title: 'Payment on its way', description: d.error });
+      else toast({ variant: 'destructive', title: d.extra ? 'Already paid' : 'Payment needs attention', description: d.error || 'If you were charged, let the business know. Nothing is lost.' });
+      refresh();
+    })();
+  }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const today = localISO();
   const todays = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate <= today && r.endDate >= today), [data, today]);
   const later = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate > today), [data, today]);
@@ -196,6 +212,17 @@ export default function RenterPortalPage() {
     else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid' }); refresh(); }
     else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can always pay at the front desk.' });
+  };
+
+  const payDeposit = async (leaseId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'pay-deposit', tenantId, token: session.token, leaseId, returnUrl: window.location.href });
+    setActionBusy(false);
+    if (d.ok && d.url) { window.location.href = d.url; }
+    else if (d.ok && d.alreadyPaid) { toast({ title: 'Deposit already paid' }); refresh(); }
+    else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can pay your deposit at the front desk.' });
   };
 
   const requestReschedule = async (reservationId: string) => {
@@ -614,6 +641,44 @@ export default function RenterPortalPage() {
                       </button>
                     </div>
                   ))}
+                  {data.lease.deposit && (() => {
+                    const d: any = data.lease.deposit;
+                    // What they'd get back is "held for you"; a deduction is money kept, said as kept.
+                    const kept = (d.deductions || []).reduce((n: number, x: any) => n + (Number(x.cents) || 0), 0);
+                    const line = d.status === 'not_collected' ? `${fmtMoney(d.agreedCents)} due`
+                      : [d.returnableCents > 0 ? `${fmtMoney(d.returnableCents)} held for you` : '', d.refundedCents > 0 ? `${fmtMoney(d.refundedCents)} returned` : '', d.refundingCents > 0 ? `${fmtMoney(d.refundingCents)} on its way to your card` : '',
+                        d.appliedCents > 0 ? `${fmtMoney(d.appliedCents)} applied to what you owed` : '', kept > 0 ? `${fmtMoney(kept)} kept` : ''].filter(Boolean).join(' · ') || 'Settled';
+                    const stillOpen = d.status === 'not_collected' || d.returnableCents > 0;
+                    return (
+                      <div className="rounded-xl border border-[#ececee] bg-white p-3 text-[#16171a]">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[14px] font-medium">Security deposit</p>
+                            <p className="text-[13px] text-[#6d7075]">{line}</p>
+                          </div>
+                          {d.canPayOnline && (
+                            <button type="button" onClick={() => payDeposit(data.lease.id)} disabled={actionBusy}
+                              className="h-11 shrink-0 rounded-xl bg-[#16171a] px-4 text-[13px] font-medium text-white disabled:opacity-50">
+                              {actionBusy ? 'Opening…' : 'Pay deposit'}
+                            </button>
+                          )}
+                        </div>
+                        {d.deductions?.length > 0 && (
+                          <ul className="mt-2 space-y-1 border-t border-[#ececee] pt-2">
+                            {d.deductions.map((x: any, i: number) => (
+                              <li key={i} className="flex justify-between gap-3 text-[12px]"><span className="min-w-0 text-[#6d7075]">{x.reason} · {fmtDate(x.at)}</span><span className="shrink-0 tabular-nums">−{fmtMoney(x.cents)}</span></li>
+                            ))}
+                          </ul>
+                        )}
+                        {stillOpen && (
+                          <p className="mt-2 text-[12px] text-[#6d7075]">
+                            {d.status === 'not_collected' && !d.canPayOnline ? 'Pay it at the front desk. ' : ''}
+                            {d.refundable ? `Held for you, not spent, and returned as your rental agreement sets out.${d.conditions ? ` ${String(d.conditions).replace(/\.?$/, '.')}` : ''}` : 'Your rental agreement says this deposit isn’t refundable.'}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>

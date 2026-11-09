@@ -1351,12 +1351,20 @@ export async function POST(req: NextRequest) {
       // RENT OUTLOOK — what's owed now, credits waiting, and the next rent after credits. Same rules as the nightly rent
       // job (each credit's remaining = amount − applied; credits come off the next invoice when it's made), so the
       // portal never promises a figure the bill won't match.
-      let rentOutlook: any = null;
+      let rentOutlook: any = null; let deposit: any = null;
       if (lease && session.renterId) {
         try {
           const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get();
           const { rentOutlook: outlook } = await import('@/lib/rent-outlook'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
           rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)), businessAccount: spacePayAccount(tenant) });
+          // Their security deposit, as the business's deposit card has it (lib/deposit-accounting): what was agreed, what's
+          // held and what's been kept and why; payable here when it's due and the business takes cards.
+          const { depositPosition } = await import('@/lib/deposit-accounting');
+          const p = depositPosition(lease, led.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+          if (p.status !== 'none') deposit = { status: p.status, agreedCents: p.agreedCents, collectedCents: p.collectedCents, heldCents: p.heldCents, returnableCents: p.returnableCents,
+            refundedCents: p.refundedCents - p.refundingCents, refundingCents: p.refundingCents, appliedCents: p.forfeitedCents, refundable: p.refundable, conditions: p.conditions,
+            deductions: p.deductions.map((d) => ({ at: d.at, cents: d.cents, reason: d.reason })),
+            canPayOnline: p.status === 'not_collected' && p.agreedCents > 0 && !!spacePayAccount(tenant) && ['active', 'on_leave'].includes(String(lease.status || '')) };
         } catch { rentOutlook = null; }
       }
       return NextResponse.json({
@@ -1386,7 +1394,7 @@ export async function POST(req: NextRequest) {
           id: lease.id, boothName: leaseBoothName,
           rentAmountCents: lease.rentAmountCents || 0, frequency: lease.frequency || 'monthly',
           dueDay: lease.dueDay ?? 1, endDate: lease.endDate || null, status: lease.status,
-          scheduleSlot: lease.scheduleSlot || null,
+          scheduleSlot: lease.scheduleSlot || null, deposit,
         } : null,
         invoices, credits, availableCreditCents,
         upcoming, past,
@@ -4240,6 +4248,97 @@ export async function POST(req: NextRequest) {
       if (r.already) return NextResponse.json({ ok: true, alreadyPaid: true });
       if (r.extra) return NextResponse.json({ ok: false, alreadyPaid: true, refunded: r.refunded, error: r.message }, { status: 409 });
       return NextResponse.json({ ok: true, paidCents: r.paidCents, ...(r.refundedCents !== undefined ? { refundedCents: r.refundedCents } : {}) });
+    }
+
+    // ═══ pay-deposit / confirm-deposit — the security deposit paid online, once ════════════
+    // One page per deposit while it can still be paid (two taps get the same page), on the business's own account. A paid
+    // page is recorded once (lib/rent-deposit), on their return here or Stripe's notice (lib/connect-webhook); a deposit
+    // recorded by hand in the meantime makes this payment one too many, and it goes straight back to the card.
+    if (action === 'pay-deposit' || action === 'confirm-deposit') {
+      const leaseId = String(body.leaseId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128);
+      if (!leaseId) return NextResponse.json({ ok: false, error: 'Missing lease.' }, { status: 400 });
+      if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Online payments aren’t set up yet. Pay your deposit at the front desk.' }, { status: 400 });
+      const tenant: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const leaseRef = db.doc(`tenants/${tenantId}/leases/${leaseId}`);
+      const lease: any = (await leaseRef.get()).data() || null;
+      const renter: any = lease?.renterId ? ((await db.doc(`tenants/${tenantId}/renters/${String(lease.renterId)}`).get()).data() || null) : null;
+      if (!lease || !renter || !contactMatches(key, renter.phone, renter.email)) return NextResponse.json({ ok: false, error: 'This lease belongs to a different renter.' }, { status: 403 });
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
+      const { recordCardDeposit } = await import('@/lib/rent-deposit');
+      const today = todayIn(tenantTimeZone(tenant));
+      const dep: any = lease.deposit || {};
+      const pageAcct: string | null = typeof dep.stripeSessionAccount === 'string' && dep.stripeSessionAccount ? dep.stripeSessionAccount : null;
+      const sidKey = (x: any) => String(x || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 120);
+
+      if (action === 'pay-deposit') {
+        const { depositPosition } = await import('@/lib/deposit-accounting');
+        const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('leaseId', '==', leaseId).get();
+        const pos = depositPosition({ id: leaseId, ...lease }, led.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+        if (pos.status !== 'not_collected') return NextResponse.json({ ok: true, alreadyPaid: true });
+        if (lease.status === 'pending_signature') return NextResponse.json({ ok: false, error: 'Sign your lease first, then pay your deposit.' }, { status: 409 });
+        if (!['active', 'on_leave'].includes(String(lease.status || ''))) return NextResponse.json({ ok: false, error: 'This lease isn’t active, so its deposit can’t be paid here.' }, { status: 409 });
+        const cents = pos.agreedCents;
+        if (!(cents > 0)) return NextResponse.json({ ok: false, error: 'There’s no deposit to pay.' }, { status: 400 });
+        const returnUrl = String(body.returnUrl || ''); if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
+        const base = returnUrl.split('?')[0];
+        // The page they were given, while it can still be paid; one already paid is recorded now instead of a new one.
+        if (dep.stripeSessionId) {
+          let cur: any = null; let gone = false;
+          try { cur = await stripe.checkout.sessions.retrieve(String(dep.stripeSessionId), {}, onAccount({ stripeAccountId: pageAcct })); } catch (e: any) { gone = String(e?.type || '') === 'StripeInvalidRequestError'; }
+          if (!cur && !gone) return NextResponse.json({ ok: false, error: 'The payment page couldn’t be opened just now. Try again in a moment.' }, { status: 502 });
+          if (cur?.status === 'open' && Math.round(Number(cur.amount_total) || 0) === cents && cur.url) return NextResponse.json({ ok: true, url: cur.url });
+          if (cur?.status === 'complete' && cur.payment_status === 'paid') {
+            const r = await recordCardDeposit(db, stripe, tenantId, tenant, leaseId, cur, { account: pageAcct, today });
+            return r.ok ? NextResponse.json({ ok: true, alreadyPaid: true }) : NextResponse.json({ ok: false, error: r.error }, { status: 409 });
+          }
+          if (cur?.status === 'complete') {
+            // Finished, but the money hasn't arrived: a bank payment still clearing waits; one that failed makes way for a
+            // new page (lib/rent-online-pay, as rent).
+            const { pageClearing } = await import('@/lib/rent-online-pay');
+            const st = await pageClearing(stripe, cur, pageAcct);
+            if (st === 'clearing') return NextResponse.json({ ok: false, error: 'Your last payment is still going through. Check back in a few minutes.' }, { status: 409 });
+            if (st === 'unknown') return NextResponse.json({ ok: false, error: 'The payment page couldn’t be checked just now. Try again in a moment.' }, { status: 502 });
+          }
+          if (cur?.status === 'open') await stripe.checkout.sessions.expire(String(cur.id), {}, onAccount({ stripeAccountId: pageAcct })).catch(() => null);
+        }
+        const payAcct = spacePayAccount(tenant);
+        if (!payAcct) return NextResponse.json({ ok: false, error: 'This business isn’t set up to take card payments online yet. Pay your deposit at the front desk.' }, { status: 409 });
+        const customerId: string | null = renterCardAccount(renter) === payAcct ? (renter.stripeCustomerId || null) : null;
+        const n = (Number(dep.payPages) || 0) + 1;
+        const booth: any = lease.boothId ? ((await db.doc(`tenants/${tenantId}/booths/${String(lease.boothId)}`).get()).data() || {}) : {};
+        const checkout = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          ...(customerId ? { customer: customerId } : { customer_creation: 'always', ...(renter.email ? { customer_email: renter.email } : {}) }),
+          payment_intent_data: { metadata: { tenantId, leaseId, kind: 'rent_deposit' } },
+          line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: cents, product_data: {
+            name: `Security deposit — ${booth.name || 'your space'}`, description: 'Held for you and returned as your rental agreement sets out.' } } }],
+          success_url: `${base}?cfDepositLease=${leaseId}&cfSession={CHECKOUT_SESSION_ID}`,
+          cancel_url: base,
+          metadata: { tenantId, leaseId, kind: 'rent_deposit' },
+        } as any, { stripeAccount: payAcct, idempotencyKey: `rent-deposit-${sidKey(leaseId)}-${cents}-${n}` });
+        await leaseRef.set({ deposit: { stripeSessionId: checkout.id, stripeSessionAccount: payAcct, paymentStartedAt: new Date().toISOString(), payPages: n } }, { merge: true });
+        return NextResponse.json({ ok: true, url: checkout.url });
+      }
+
+      // confirm-deposit — after Stripe sends them back.
+      const sessionId = String(body.sessionId || '');
+      if (!sessionId) return NextResponse.json({ ok: false, error: 'Missing session.' }, { status: 400 });
+      let cs: any = null; let csAcct: string | null = pageAcct;
+      try { cs = await stripe.checkout.sessions.retrieve(sessionId, {}, onAccount({ stripeAccountId: pageAcct })); }
+      catch (e: any) {
+        if (String(e?.code || e?.raw?.code || '') !== 'resource_missing') throw e;
+        csAcct = spacePayAccount(tenant); if (!csAcct || csAcct === pageAcct) throw e;
+        cs = await stripe.checkout.sessions.retrieve(sessionId, {}, onAccount({ stripeAccountId: csAcct }));
+      }
+      if (cs?.metadata?.leaseId !== leaseId || (cs?.metadata?.tenantId && cs.metadata.tenantId !== tenantId)) return NextResponse.json({ ok: false, error: 'That payment isn’t for this deposit.' }, { status: 400 });
+      if (cs?.payment_status !== 'paid') {
+        if (cs?.status === 'complete') return NextResponse.json({ ok: false, pending: true, error: 'Your bank payment is on its way. Your deposit will show as paid once it clears.' }, { status: 202 });
+        return NextResponse.json({ ok: false, error: 'Payment not completed. Nothing was charged.' }, { status: 402 });
+      }
+      const r = await recordCardDeposit(db, stripe, tenantId, tenant, leaseId, cs, { account: csAcct, today });
+      if (r.ok) return NextResponse.json({ ok: true, paidCents: r.cents, already: !!r.already });
+      return NextResponse.json({ ok: false, extra: r.extra, refunded: r.refunded, error: r.error }, { status: 409 });
     }
 
     // ═══ request-reschedule ═══════════════════════════════════════════════
