@@ -220,7 +220,7 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
           <div className="space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Studio Role</Label>
+            <Label className="text-[13px] font-medium text-muted-foreground ml-1">Role</Label>
             <Controller name="role" control={control} render={({ field }) => (
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
@@ -638,13 +638,13 @@ const WizardFormBody = ({
     <DialogHeader className={cn('flex-shrink-0 text-left border-b bg-muted/5', isMobile ? 'p-6' : 'p-8 pb-6')}>
       <div className="flex items-center gap-3 mb-2">
         <Sparkles className="w-5 h-5 text-primary" />
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Strategic Intake</span>
+        <span className="text-[13px] font-medium text-muted-foreground">New team member</span>
       </div>
-      <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">
-        Register Provider
+      <DialogTitle className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground leading-none">
+        Add to your team
       </DialogTitle>
-      <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-        Onboard a new technician and secure their studio credentials.
+      <DialogDescription className="text-[14px] text-muted-foreground mt-1">
+        Add someone who works with you, and choose what they can do in the app.
       </DialogDescription>
       <div className="pt-6">
         <Progress value={(step / totalSteps) * 100} className="h-1 rounded-full bg-muted" />

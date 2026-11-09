@@ -4,6 +4,7 @@ import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { useClientsOwing } from '@/hooks/use-clients';
 import { deliverRefreshment } from '@/lib/lounge-delivery';
+import { moduleEnabled } from '@/lib/modules';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { MovingInCard } from '@/components/import/MovingInCard';
@@ -239,9 +240,9 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, scale: 0.95 }}
-                            className="flex flex-col sm:flex-row items-center justify-between p-6 rounded-[2.5rem] border-2 bg-card shadow-sm hover:border-primary/20 transition-all gap-6 group"
+                            className="flex flex-col xl:flex-row items-start xl:items-center justify-between p-5 rounded-2xl border bg-card transition-all gap-5 group"
                         >
-                            <div className="flex flex-col sm:flex-row items-center gap-6 text-left w-full sm:w-auto">
+                            <div className="flex flex-row items-start gap-4 text-left w-full xl:w-auto min-w-0">
                                 <div className="p-4 bg-primary/5 rounded-2xl shadow-inner border border-primary/10 relative shrink-0">
                                     {item?.imageUrl ? (
                                         <div className="relative w-10 h-10">
@@ -260,13 +261,13 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                             {request.accessNote}
                                         </p>
                                     )}
-                                    <div className="flex items-center gap-3">
-                                        <p className="font-black text-xl uppercase tracking-tighter text-foreground">{request.itemName}</p>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                        <p className="text-[18px] font-semibold text-foreground">{request.itemName}</p>
                                         {(() => {
                                             const mins = requestWaitMinutes(request as any, nowTick);
                                             if (mins === null) return null;
                                             return (
-                                                <Badge variant="outline" className={cn('h-5 px-2 border-2 font-black text-[10px] uppercase tracking-widest',
+                                                <Badge variant="outline" className={cn('h-6 px-2 border whitespace-nowrap font-medium text-[12.5px]',
                                                     mins >= LOUNGE_ESCALATE_MIN ? 'border-destructive/50 bg-destructive/10 text-destructive'
                                                         : mins >= 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
                                                         : 'border-primary/30 bg-primary/5 text-primary')}>
@@ -280,7 +281,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                             </Badge>
                                         )}
                                         <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{safeQuantity} UNIT(S)</Badge>
+                                            <Badge variant="outline" className="h-6 px-2 whitespace-nowrap bg-primary/10 text-primary border-none font-medium text-[12.5px]">{safeQuantity} {safeQuantity === 1 ? 'item' : 'items'}</Badge>
                                             {request.isRedemption && (
                                                 <Badge className="bg-indigo-600 text-white border-none h-5 px-2 font-black text-[8px] uppercase tracking-widest shadow-sm">
                                                     <Star className="w-2.5 h-2.5 mr-1 fill-current" /> Perk
@@ -308,8 +309,8 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                     )}
 
                                     <div className="flex flex-col gap-2 mt-2">
-                                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex flex-wrap items-center gap-x-2 gap-y-1">
-                                            Guest: <span className="text-primary">{request.clientName}</span>
+                                        <p className="text-[13px] text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                                            For <span className="font-medium text-foreground">{request.clientName}</span>
                                             <span className="opacity-40">&middot;</span>
                                             <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {request.stationName || 'Lounge'}</span>
                                             {request.staffName && request.staffName !== 'Unassigned' && (
@@ -340,9 +341,10 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
                                 <Button 
                                     variant="outline"
+                                    aria-label="Cancel this request"
                                     onClick={() => onCancel(request.id)}
                                     className="h-12 flex-1 sm:flex-none sm:w-12 rounded-xl border-2 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/20 transition-all"
                                 >
@@ -350,15 +352,15 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                 </Button>
                                 <Button 
                                     onClick={() => onDeliver(request)}
-                                    className="h-12 flex-1 sm:w-48 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 group"
+                                    className="h-12 flex-1 sm:w-44 rounded-xl font-medium text-[14px] group"
                                 >
-                                    Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+                                    Mark delivered <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                                 </Button>
                                 {!request.bringingOutAt && onBringing && (
                                     <Button
                                         variant="outline"
                                         onClick={() => onBringing(request.id)}
-                                        className="h-12 flex-1 sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-[0.2em]"
+                                        className="h-12 flex-1 sm:w-40 rounded-xl border font-medium text-[14px]"
                                     >
                                         I&apos;m bringing it
                                     </Button>
@@ -538,154 +540,113 @@ export default function DashboardPage() {
     };
   }, [transactions, clients, staff, walkIns, appointments, inventory, refreshmentRequests]);
 
-  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">Syncing Operational Board...</p></div>;
+  if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-8 w-8 animate-spin text-muted-foreground" /><p className="text-[14px] text-muted-foreground">Loading today…</p></div>;
+
+  // What the day looks like, in plain words. The lounge sections (drink and snack requests from guests) show only for a
+  // business that has its lounge tool on and has had a request today, so a business without one never sees them.
+  const owed = safeNumber(dashboardMetrics.totalArrears);
+  const usesLounge = moduleEnabled(selectedTenant, 'hospitality') && ((pendingRequests?.length || 0) > 0 || safeNumber(dashboardMetrics.totalHospitalityRequests) > 0);
+  const bookedToday = safeNumber(appointments?.filter(a => isToday(safeDate(a.startTime))).length);
+  const stat = (label: string, value: React.ReactNode, note?: string, tone?: 'warn') => (
+    <div className={cn('rounded-2xl border bg-card p-4 md:p-5', tone === 'warn' ? 'border-amber-200 dark:border-amber-900' : 'border-border')}>
+      <p className="text-[13px] text-muted-foreground">{label}</p>
+      <p className={cn('mt-1 text-[26px] md:text-[32px] font-semibold tracking-tight tabular-nums', tone === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'text-foreground')}>{value}</p>
+      {note && <p className="text-[12.5px] text-muted-foreground">{note}</p>}
+    </div>
+  );
+  const heading = (text: string, extra?: React.ReactNode) => <div className="flex items-center justify-between gap-3 px-1"><h3 className="text-[17px] font-semibold text-foreground">{text}</h3>{extra}</div>;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
-      <AppHeader title="Command Hub" />
-      <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-10">
+      <AppHeader title="Today" />
+      <main className="flex-1 p-4 md:p-10 max-w-7xl mx-auto w-full space-y-8">
         <MovingInCard tenantId={selectedTenant?.id || ''} tenant={selectedTenant} role={String(tenantRole || '')} />
         <BusinessPulse tenantId={selectedTenant?.id || ''} />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 text-left">
-                <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-primary tracking-widest flex items-center gap-2"><TrendingUp className="w-3 h-3"/>Today's Gross</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-primary font-mono">${safeNumber(dashboardMetrics.dailyIncome).toFixed(2)}</p></CardContent>
-            </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-card text-left">
-                <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><Users className="w-3 h-3"/>Team Capacity</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-foreground font-mono">{safeNumber(dashboardMetrics.activeStaff)}<span className="text-xs ml-1">Pro</span></p></CardContent>
-            </Card>
-            <Card className="border-2 shadow-sm rounded-[2rem] bg-card text-left">
-                <CardHeader className="p-5 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2 opacity-60"><MapPin className="w-3 h-3"/>Total Arrivals</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className="text-2xl md:text-4xl font-black tracking-tighter text-foreground font-mono">{safeNumber(dashboardMetrics.todayArrivals)}<span className="text-xs ml-1">Guests</span></p></CardContent>
-            </Card>
-            <Card className={cn("border-2 shadow-sm rounded-[2rem] transition-all text-left", safeNumber(dashboardMetrics.totalArrears) > 0 ? "border-destructive/20 bg-destructive/[0.02]" : "bg-card")}>
-                <CardHeader className="p-5 pb-1 text-left"><CardTitle className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-2", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-muted-foreground opacity-60")}><Wallet className="w-3 h-3"/>Arrears Recovery</CardTitle></CardHeader>
-                <CardContent className="p-5 pt-0 text-left"><p className={cn("text-2xl md:text-4xl font-black tracking-tighter font-mono", safeNumber(dashboardMetrics.totalArrears) > 0 ? "text-destructive" : "text-foreground")}>${safeNumber(dashboardMetrics.totalArrears).toFixed(2)}</p></CardContent>
-            </Card>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {stat('Sales today', `$${safeNumber(dashboardMetrics.dailyIncome).toFixed(2)}`)}
+          {stat('Working now', safeNumber(dashboardMetrics.activeStaff), 'Clocked in, not on a break')}
+          {stat('Visits today', safeNumber(dashboardMetrics.todayArrivals), `${bookedToday} booked`)}
+          {stat('Owed to you', `$${owed.toFixed(2)}`, owed > 0 ? 'Balances clients still owe' : 'Nothing owed', owed > 0 ? 'warn' : undefined)}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-            <div className="lg:col-span-2 space-y-10 text-left">
-                <section className="space-y-6">
-                    <div className="flex items-center justify-between px-1">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-primary/10 rounded-xl"><Coffee className="w-5 h-5 text-primary" /></div>
-                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground">Hospitality Priority</h3>
-                        </div>
-                        <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[9px] uppercase border-none bg-primary text-white shadow-lg animate-pulse">{pendingRequests?.length || 0} PENDING</Badge>
-                    </div>
-                    <RefreshmentQueue 
-                        requests={pendingRequests || []} 
-                        inventory={inventory} 
-                        user={user}
-                        onDeliver={handleDeliverRefreshment} 
-                        onCancel={handleCancelRefreshment}
-                        onBringing={handleBringingRefreshment}
-                        staff={staff}
-                    />
-                </section>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8 text-left">
+            {usesLounge && (
+              <section className="space-y-4">
+                {heading('Lounge requests', <Badge variant="secondary" className="h-7 rounded-full px-3 text-[13px] font-medium">{pendingRequests?.length || 0} waiting</Badge>)}
+                <RefreshmentQueue
+                  requests={pendingRequests || []}
+                  inventory={inventory}
+                  user={user}
+                  onDeliver={handleDeliverRefreshment}
+                  onCancel={handleCancelRefreshment}
+                  onBringing={handleBringingRefreshment}
+                  staff={staff}
+                />
+              </section>
+            )}
 
-                <section className="space-y-6">
-                    <div className="flex items-center gap-3 px-1 text-left">
-                        <div className="p-2 bg-indigo-500/10 rounded-xl"><Zap className="w-5 h-5 text-indigo-600" /></div>
-                        <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground">Live Studio Pulse</h3>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {dashboardMetrics.liveSessions.length > 0 ? dashboardMetrics.liveSessions.map(apt => (
-                            <ActiveSessionCard 
-                                key={apt.id} 
-                                appointment={apt} 
-                                service={services.find(s => s.id === apt.serviceId)}
-                                staffMember={staff.find(s => s.id === apt.staffId)}
-                            />
-                        )) : (
-                            <div className="col-span-full py-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3">
-                                <Activity className="w-10 h-10" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">No Technical Sessions in Progress</p>
-                            </div>
-                        )}
-                    </div>
-                </section>
-            </div>
+            <section className="space-y-4">
+              {heading('In progress now')}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {dashboardMetrics.liveSessions.length > 0 ? dashboardMetrics.liveSessions.map(apt => (
+                  <ActiveSessionCard
+                    key={apt.id}
+                    appointment={apt}
+                    service={services.find(s => s.id === apt.serviceId)}
+                    staffMember={staff.find(s => s.id === apt.staffId)}
+                  />
+                )) : (
+                  <div className="col-span-full rounded-2xl border border-dashed py-10 text-center text-[14.5px] text-muted-foreground">Nothing in progress right now. Visits show here once they start.</div>
+                )}
+              </div>
+            </section>
+          </div>
 
-            <div className="space-y-10 text-left">
-                <Card className="border-4 border-primary/10 bg-card rounded-[2.5rem] shadow-xl overflow-hidden text-left">
-                    <CardHeader className="bg-muted/5 border-b p-6">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                            <Timer className="w-3.5 h-3.5" /> Hospitality Insights
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-6 text-left">
-                        <div className="space-y-1 text-left">
-                            <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Avg. Wait Velocity</p>
-                            <p className="text-3xl font-black tracking-tighter text-foreground">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} <span className="text-xs uppercase opacity-40">Min</span></p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Engagement</p>
-                                <p className="text-sm font-black">{safeNumber(dashboardMetrics.totalHospitalityRequests)} <span className="text-[8px] opacity-40">Orders</span></p>
-                            </div>
-                            <div className="space-y-1 p-3 rounded-xl bg-muted/20 border text-left">
-                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60">Top Amenity</p>
-                                <p className="text-[10px] font-black truncate text-primary">{dashboardMetrics.topAmenity}</p>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+          <div className="space-y-6 text-left">
+            {usesLounge && (
+              <Card className="rounded-2xl border shadow-none text-left">
+                <CardHeader className="p-5 pb-2"><CardTitle className="text-[17px] font-semibold">Lounge today</CardTitle></CardHeader>
+                <CardContent className="p-5 pt-0 space-y-3">
+                  <div className="flex items-baseline justify-between"><span className="text-[14px] text-muted-foreground">Average wait</span><span className="text-[20px] font-semibold tabular-nums">{safeNumber(dashboardMetrics.hospitalityWaitVelocity)} min</span></div>
+                  <div className="flex items-baseline justify-between"><span className="text-[14px] text-muted-foreground">Requests</span><span className="text-[15px] font-medium tabular-nums">{safeNumber(dashboardMetrics.totalHospitalityRequests)}</span></div>
+                  {dashboardMetrics.topAmenity !== 'N/A' && <div className="flex items-baseline justify-between gap-3"><span className="text-[14px] text-muted-foreground">Asked for most</span><span className="truncate text-[15px] font-medium">{dashboardMetrics.topAmenity}</span></div>}
+                </CardContent>
+              </Card>
+            )}
 
-                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card text-left">
-                    <CardHeader className="bg-muted/5 border-b p-6 text-left">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><ShieldAlert className="w-3.5 h-3.5"/>Asset Safeguard</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-4 text-left">
-                        {dashboardMetrics.lowStockItems.length > 0 ? (
-                            <div className="space-y-3">
-                                {dashboardMetrics.lowStockItems.slice(0, 5).map(item => (
-                                    <div key={item.id} className="flex justify-between items-center p-3 rounded-xl border-2 border-destructive/10 bg-destructive/[0.02]">
-                                        <div className="min-w-0 flex-1 text-left">
-                                            <p className="text-[10px] font-black uppercase tracking-tight text-destructive truncate">{item.name}</p>
-                                            <p className="text-[8px] font-bold opacity-60 uppercase">{item.category}</p>
-                                        </div>
-                                        <Badge variant="destructive" className="h-5 px-1.5 font-black text-[9px] border-none shadow-sm">{safeNumber(item.totalStock)}u</Badge>
-                                    </div>
-                                ))}
-                                <Button variant="ghost" asChild className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5">
-                                    <Link href="/inventory">Audit Inventory <ArrowRight className="ml-2 h-3.5 w-3.5" /></Link>
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="py-10 text-center opacity-30 space-y-3 mx-auto">
-                                <CheckCircle2 className="w-10 h-10 mx-auto text-green-500" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">Manifest Optimized</p>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
+            <Card className="rounded-2xl border shadow-none text-left">
+              <CardHeader className="p-5 pb-2"><CardTitle className="text-[17px] font-semibold">Running low</CardTitle></CardHeader>
+              <CardContent className="p-5 pt-0 space-y-3">
+                {dashboardMetrics.lowStockItems.length > 0 ? (
+                  <>
+                    {dashboardMetrics.lowStockItems.slice(0, 5).map(item => (
+                      <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-900 px-3 py-2.5">
+                        <div className="min-w-0 flex-1"><p className="truncate text-[14.5px] font-medium">{item.name}</p>{item.category && <p className="truncate text-[12.5px] text-muted-foreground">{item.category}</p>}</div>
+                        <span className="shrink-0 text-[14px] font-semibold tabular-nums text-amber-700 dark:text-amber-400">{safeNumber(item.totalStock)} left</span>
+                      </div>
+                    ))}
+                    <Button variant="ghost" asChild className="h-11 w-full rounded-xl text-[14px] font-medium">
+                      <Link href="/inventory">See inventory <ArrowRight className="ml-2 h-4 w-4" /></Link>
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-[14.5px] text-muted-foreground">Nothing is running low. Items you give a reorder point show here when they get close.</p>
+                )}
+              </CardContent>
+            </Card>
 
-                <Card className="border-4 border-indigo-500/20 bg-indigo-500/5 rounded-[2.5rem] shadow-2xl shadow-indigo-500/5 overflow-hidden group text-left">
-                    <CardHeader className="p-8 pb-4 text-left">
-                        <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-700 flex items-center gap-2">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Studio Performance
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-8 pt-0 space-y-6 text-left">
-                        <div className="space-y-1 text-left">
-                            <p className="text-[9px] font-bold text-foreground/80 uppercase tracking-widest">Daily Trajectory</p>
-                            <p className="text-4xl font-black text-indigo-700 tracking-tighter leading-none">${safeNumber(dashboardMetrics.dailyIncome).toFixed(0)}</p>
-                        </div>
-                        <div className="pt-4 border-t border-indigo-500/10">
-                            <p className="text-[10px] font-medium text-indigo-600 leading-relaxed uppercase tracking-tight text-left">
-                                Business orchestration is active. You are currently tracking {safeNumber(walkIns?.length)} walk-ins and {safeNumber(appointments?.filter(a => isToday(safeDate(a.startTime))).length)} scheduled sessions.
-                            </p>
-                        </div>
-                        <Button asChild className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-500/20">
-                            <Link href="/reports">Analyze Yield Dossier</Link>
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
+            <Card className="rounded-2xl border shadow-none text-left">
+              <CardHeader className="p-5 pb-2"><CardTitle className="text-[17px] font-semibold">Today so far</CardTitle></CardHeader>
+              <CardContent className="p-5 pt-0 space-y-3">
+                <p className="text-[32px] font-semibold tracking-tight tabular-nums">${safeNumber(dashboardMetrics.dailyIncome).toFixed(0)}</p>
+                <p className="text-[14.5px] text-muted-foreground">{safeNumber(walkIns?.length)} walk-in{safeNumber(walkIns?.length) === 1 ? '' : 's'} and {bookedToday} booked visit{bookedToday === 1 ? '' : 's'} today.</p>
+                <Button asChild variant="outline" className="h-11 w-full rounded-xl text-[14px] font-medium">
+                  <Link href="/reports">See reports</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </main>
     </div>

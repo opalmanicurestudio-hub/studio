@@ -57,6 +57,7 @@ async function sendFallbackEmail(toEmail: string, subject: string, body: string,
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey || !toEmail || !/@/.test(toEmail)) return false;
     const { brandedEmailHtml, applyEmailBrand, emailLookOf } = await import('./email-template');
+    const { fromLine } = await import('./notify');
     let discreet = false;
     try { const { privacyOf } = await import('./health-privacy'); discreet = !!tenant && privacyOf(tenant).discreet; } catch { /* the font stays */ }
     // Lift a link out of the message body into a proper CTA button.
@@ -66,14 +67,15 @@ async function sendFallbackEmail(toEmail: string, subject: string, body: string,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
+        // In the business's name (or the renter's), from the app's one sending address (lib/notify).
+        from: fromLine(String(fromName || '').trim() || studioName),
         to: [toEmail],
-        subject: subject || `${studioName || 'Studio'} — notification`,
-        text: `${body}\n\n— ${studioName || 'The studio'} (sent by email because your phone couldn't receive our text)`,
+        subject: subject || (studioName ? `${studioName}: a message for you` : 'A message for you'),
+        text: `${body}\n\n${String(fromName || '').trim() || studioName || ''}${(String(fromName || '').trim() || studioName) ? ' ' : ''}(sent by email because your phone couldn’t receive our text)`.trim(),
         html: (() => {
           // The shared shell (lib/email-template): in the business's look, or plain in a renter's name.
           const h = brandedEmailHtml({
-            studioName: String(fromName || '').trim() || studioName || 'Studio',
+            studioName: String(fromName || '').trim() || studioName || '',
             title: subject || 'Notification',
             bodyLines: [textOnly],
             cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,

@@ -5,7 +5,7 @@ import { brandedEmailHtml } from '@/lib/email-template';
 import { isPlaceholderName } from '@/lib/visit-email';
 
 // ─── /api/notifications/send-receipt/route.ts ─────────────────────────────────
-// Sends a cash/card receipt by email (Resend) or SMS (Twilio).
+// Sends a cash/card receipt by email (lib/notify) or text (lib/sms, the business's own texting).
 // Falls back gracefully if neither is configured.
 
 function getAdminDb() {
@@ -62,7 +62,7 @@ function buildEmailHtml(r: ReceiptPayload, when: string): string {
     { label: r.paymentMethod ? `${r.paymentMethod} tendered` : 'Tendered', value: $(r.tendered), muted: true },
     ...(r.change > 0.005 ? [{ label: 'Change returned', value: $(r.change), muted: true }] : []),
   ];
-  return brandedEmailHtml({ studioName: r.studioName || 'Your studio', eyebrow: 'Receipt', title: first ? 'Thanks for coming in,' : 'Thanks for coming in', titleBold: first,
+  return brandedEmailHtml({ studioName: r.studioName || '', eyebrow: 'Receipt', title: first ? 'Thanks for coming in,' : 'Thanks for coming in', titleBold: first,
     preheader: `Your receipt for ${$(r.total)}, ${when}`,
     details: { big: when, lines: r.cashierName ? [`Served by ${r.cashierName}`] : [] },
     amounts: rows });
@@ -71,8 +71,8 @@ function buildEmailHtml(r: ReceiptPayload, when: string): string {
 function buildSmsText(r: ReceiptPayload): string {
   const items = r.lineItems.map(l => `  ${l.label}: $${l.amount.toFixed(2)}`).join('\n');
   const lines = [
-    `${r.studioName} — Receipt`,
-    `${r.date}`,
+    // The business's name goes in front of every text it sends (lib/sms), so it isn't repeated here.
+    `Your receipt, ${r.date}`,
     ``,
     items,
     ``,
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       const { sendNotification } = await import('@/lib/notify');
       const sent = await sendNotification(getAdminDb(), {
         tenantId: String(tenantId), channel: 'email', to: contact,
-        subject: `Your receipt from ${receipt.studioName}`,
+        subject: String(receipt.studioName || '').trim() ? `Your receipt from ${String(receipt.studioName).trim()}` : 'Your receipt',
         // The time of the sale in the business's own time zone (the screen's date string can be in any format).
         html: buildEmailHtml(receipt, await (async () => { try {
           const { tenantTimeZone, formatShortDay, formatTime } = await import('@/lib/tenant-time');
@@ -143,28 +143,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (type === 'sms') {
-      const accountSid = process.env.TWILIO_ACCOUNT_SID;
-      const authToken  = process.env.TWILIO_AUTH_TOKEN;
-      const fromPhone  = process.env.TWILIO_PHONE_NUMBER;
-      if (!accountSid || !authToken || !fromPhone) {
-        return NextResponse.json({ ok: false, reason: 'Texting isn’t set up for ClarityFlow yet.' });
-      }
-      const body = buildSmsText(receipt);
-      const res  = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-        {
-          method:  'POST',
-          headers: {
-            'Authorization': `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
-            'Content-Type':  'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({ From: fromPhone, To: contact, Body: body }).toString(),
-        }
-      );
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        console.error('[send-receipt] Twilio error:', data);
-        return NextResponse.json({ ok: false, reason: data?.message || 'SMS send failed' });
+      // The business's own texting, like every other text it sends (lib/sms sendTenantSms): its number, a client who
+      // replied STOP never gets one, it's in the message log, and it counts toward its texting. This used to call the
+      // texting provider straight from the platform's settings, so none of that applied. Receipts switched off in
+      // Messages stay off.
+      if (!tenantId) return NextResponse.json({ ok: false, reason: 'Missing tenant' }, { status: 400 });
+      try {
+        const { gateMessage } = await import('@/lib/message-policy');
+        const gate = await gateMessage(getAdminDb(), String(tenantId), 'receipt');
+        if (!gate.send) return NextResponse.json({ ok: false, reason: gate.reason });
+      } catch { /* fail open — never lose a receipt over a settings lookup */ }
+      const { sendTenantSms } = await import('@/lib/sms');
+      const sent = await sendTenantSms(getAdminDb(), String(tenantId), contact, buildSmsText(receipt), undefined,
+        { kind: 'receipt', recipientType: 'client', recipientName: receipt.clientName || null });
+      if (!sent.ok) {
+        console.error('[send-receipt] text not sent:', sent.error);
+        return NextResponse.json({ ok: false, reason: sent.error || 'The text didn’t go out.' });
       }
       return NextResponse.json({ ok: true, smsSent: true });
     }

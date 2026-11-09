@@ -152,6 +152,17 @@ export function resolveFromAddress(): string {
   return raw || 'ClarityFlow <onboarding@resend.dev>';
 }
 
+/** The From line for an email in a business's name: its own name in front of the shared sending address, so a client
+ *  sees who it's from (every business sends from the same address, so the name is what tells them apart). No name: the
+ *  app's own From line, as for mail to an owner about their account. */
+export function fromLine(name?: string | null): string {
+  const base = resolveFromAddress();
+  const n = Array.from(String(name || '').replace(/[\x00-\x1f\x7f"<>\\]/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 70).join('').trim();
+  if (!n) return base;
+  const addr = ((base.match(/<([^>]+)>/) || [])[1] || base).trim();
+  return `"${n}" <${addr}>`;
+}
+
 export async function sendNotification(db: any, input: NotifyInput): Promise<NotifyResult> {
   /* THE ORDER PAGE FIRST (lib/order-inbox). A message about a shop order is posted in full on the customer's order
    * page; what goes out is a one-line nudge with the link. Returns null when the message isn't about an order the
@@ -250,7 +261,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       tenantDoc = tenantDoc || (await db.doc(`tenants/${tenantId}`).get()).data() || {};
       const { privacyOf, discreetVersion } = await import('./health-privacy');
       if (privacyOf(tenantDoc).discreet && c.discreetOff !== true) {
-        const dv = discreetVersion({ kind, text: input.text, subject: input.subject, channel }, tenantDoc.name || 'your studio');
+        const dv = discreetVersion({ kind, text: input.text, subject: input.subject, channel }, tenantDoc.name || 'the business');
         if (dv) input = { ...input, ...dv, html: undefined };
       }
     } catch { /* fail open */ }
@@ -297,12 +308,12 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
         const voice = String(input.fromName || '').trim();
         const renterVoice = !!voice;
         if (!html) {
-          const studioName = voice || String(biz?.name || '') || 'Your studio';
+          const studioName = voice || String(biz?.name || biz?.businessName || '') || 'A note for you';
           const text = input.text || '';
           const linkMatch = text.match(/https?:\/\/\S+/);
           html = brandedEmailHtml({
             studioName,
-            title: input.subject || 'A note from your studio',
+            title: input.subject || (studioName === 'A note for you' ? 'A note for you' : `A note from ${studioName}`),
             bodyLines: (linkMatch ? text.replace(linkMatch[0], '') : text).split(/\n{2,}/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean),
             cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
           });
@@ -310,7 +321,8 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
         const replyTo = await replyToFor(db, tenantId, input);
         // The business's look goes on emails in its own name. "Reply to reach us" and its place line are for the people
         // it serves, not its own team (staff and maintenance get the look, without either).
-        const team = input.recipientType === 'staff' || input.recipientType === 'maintenance' || (input.recipientType === 'other' && /^owner$/i.test(String(input.recipientName || '')));
+        const toOwner = input.recipientType === 'other' && /^owner$/i.test(String(input.recipientName || ''));
+        const team = input.recipientType === 'staff' || input.recipientType === 'maintenance' || toOwner;
         if (!renterVoice) {
           try { html = applyEmailBrand(html, emailLookOf(biz), { replies: !!replyTo && !team, place: !team }); } catch { /* cosmetic: the plain look */ }
         }
@@ -320,9 +332,11 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
-            from: resolveFromAddress(),
+            // In the business's name (or the renter's, when it's in theirs); mail to the owner about their own account
+            // keeps the app's name, as it's the app writing to them.
+            from: fromLine(voice || (toOwner ? '' : String(biz?.name || biz?.businessName || ''))),
             to: [to],
-            subject: input.subject || 'A note from your studio',
+            subject: input.subject || (() => { const n = String(voice || biz?.name || biz?.businessName || '').trim(); return n ? `A note from ${n}` : 'A note for you'; })(),
             html,
             ...(input.text ? { text: input.text } : {}),
             ...(mailHeaders(input.headers) ? { headers: mailHeaders(input.headers) } : {}),

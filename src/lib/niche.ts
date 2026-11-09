@@ -44,7 +44,7 @@ export function guessNiche(t: any): Niche {
   if (/\bevents?\b|venue/.test(txt)) return 'events';
   // The starter menu it added (suggested to it, so it comes after what the business said itself).
   const starter = String(t?.movingIn?.starterMenu || '');
-  if (['nails', 'hair', 'lash', 'barber', 'spa'].includes(starter)) return starter as Niche;
+  if (['nails', 'hair', 'lash', 'barber', 'spa', 'medspa', 'tattoo', 'fitness', 'events'].includes(starter)) return starter as Niche;
   // What a Making it right set chosen on purpose says (its "nails" set is also the starting set for any salon, so it
   // says nothing on its own).
   const preset = String(t?.makingItRight?.preset || '');

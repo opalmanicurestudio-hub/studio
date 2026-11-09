@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
 
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tenantSnap.exists) {
-      return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Business not found' }, { status: 404 });
     }
     { const closed = closedReply(tenantSnap.data()); if (closed) return closed; }
     // ── Whose account collects this? ────────────────────────────────────────

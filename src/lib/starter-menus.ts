@@ -33,14 +33,35 @@ export const STARTER_MENUS: StarterMenu[] = [
   { id: 'barber', label: 'Barbershop', services: [
     s('Cuts', 'Haircut', 30), s('Cuts', 'Skin fade', 45), s('Cuts', 'Kids’ cut', 30), s('Cuts', 'Haircut and beard', 45), s('Beard', 'Beard trim', 20), s('Beard', 'Hot towel shave', 30), s('Extras', 'Line-up', 15), s('Extras', 'Eyebrow cleanup', 10),
   ] },
+  { id: 'medspa', label: 'Med spa or clinic', services: [
+    s('Consultations', 'New client consultation', 30), s('Consultations', 'Follow-up visit', 15),
+    s('Skin', 'Chemical peel', 45), s('Skin', 'Microneedling', 60), s('Skin', 'Dermaplaning', 45), s('Skin', 'Hydrating facial', 60),
+    s('Injectables', 'Neurotoxin treatment', 30), s('Injectables', 'Dermal filler', 45),
+    s('Laser', 'Laser hair removal — small area', 20), s('Laser', 'Laser hair removal — large area', 45),
+  ] },
+  { id: 'tattoo', label: 'Tattoo and piercing', services: [
+    s('Tattoos', 'Tattoo consultation', 30), s('Tattoos', 'Small tattoo', 60), s('Tattoos', 'Medium tattoo', 120), s('Tattoos', 'Half-day session', 240), s('Tattoos', 'Full-day session', 480), s('Tattoos', 'Touch-up', 30),
+    s('Piercing', 'Ear lobe piercing', 15), s('Piercing', 'Cartilage piercing', 20), s('Piercing', 'Nose piercing', 20), s('Piercing', 'Navel piercing', 20), s('Piercing', 'Jewelry change', 15), s('Piercing', 'Piercing check-up', 15),
+  ] },
+  { id: 'fitness', label: 'Fitness and classes', services: [
+    s('Personal training', 'Intro session', 30), s('Personal training', 'Personal training — 30 min', 30), s('Personal training', 'Personal training — 60 min', 60), s('Personal training', 'Partner training — 60 min', 60), s('Personal training', 'Fitness assessment', 45),
+    s('Classes', 'Group class', 60), s('Classes', 'Yoga class', 60), s('Classes', 'Pilates mat class', 50), s('Classes', 'HIIT class', 45),
+    s('Recovery', 'Assisted stretch', 30),
+  ] },
+  { id: 'events', label: 'Venue and events', services: [
+    s('Planning', 'Venue tour', 30), s('Planning', 'Event planning consultation', 60), s('Planning', 'Menu tasting', 60),
+    s('Hire', 'Private room — 2 hours', 120), s('Hire', 'Private room — 4 hours', 240), s('Hire', 'Full venue — evening', 300),
+  ] },
+  { id: 'general', label: 'Appointments', services: [
+    s('Appointments', 'Consultation', 30), s('Appointments', 'Short appointment', 30), s('Appointments', 'Standard appointment', 60), s('Appointments', 'Extended appointment', 90), s('Appointments', 'Follow-up', 30),
+  ] },
 ];
 
-/** The menu most likely to fit, from the kind of business (lib/niche); '' when none of the starter menus fits (a gym,
- *  a café, a shop), so nothing is picked for them. */
+/** The menu most likely to fit, from the kind of business (lib/niche); '' when none of the starter menus fits (a café
+ *  or a shop sells things rather than booking time), so nothing is picked for them. */
 export function suggestMenu(t: any): string {
   const n = nicheOf(t);
-  if (n === 'nails' || n === 'hair' || n === 'lash' || n === 'barber' || n === 'spa') return n;
-  if (n === 'medspa') return 'spa';
+  if (['nails', 'hair', 'lash', 'barber', 'spa', 'medspa', 'tattoo', 'fitness', 'events', 'general'].includes(n)) return n;
   if (n === 'beauty') return 'hair';   // a salon that hasn't said more: most often hair, as before
   return '';
 }

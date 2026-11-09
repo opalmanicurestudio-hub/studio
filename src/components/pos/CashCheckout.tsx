@@ -152,11 +152,13 @@ export function CashCheckout({
         }),
       });
       const data: any = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error('not sent');
+      // The server's own reason when it has one (they replied STOP, receipts are off in Messages); a guess otherwise.
+      if (!res.ok || !data?.ok) throw new Error(String(data?.reason || data?.error || ''));
       setReceiptSent(true);
       toast({ title: `Receipt sent ${isEmail ? 'by email' : 'by text'}` });
-    } catch {
-      toast({ variant: 'destructive', title: 'Receipt not sent', description: isEmailContact(receiptContact) ? 'Check the email address and try again.' : 'Check the phone number and try again, or send it by email.' });
+    } catch (e: any) {
+      const why = String(e?.message || '').trim();
+      toast({ variant: 'destructive', title: 'Receipt not sent', description: why || (isEmailContact(receiptContact) ? 'Check the email address and try again.' : 'Check the phone number and try again, or send it by email.') });
     } finally {
       setIsSending(false);
     }

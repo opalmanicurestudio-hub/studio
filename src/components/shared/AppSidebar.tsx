@@ -168,7 +168,7 @@ const PUBLIC_PORTALS = [
 
 /** Every page in the menu, by area — what the header search looks through. */
 export const NAV_AREAS: { area: string; items: { href: string; label: string }[] }[] = [
-  { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Studio', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
+  { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Business', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
   { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Booth rental', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
 ] as any;
 
@@ -444,8 +444,8 @@ export function AppSidebar() {
             <Link href="/dashboard" className="cf-biz flex min-w-0 flex-1 items-center gap-3 rounded-[18px] p-2.5 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
               {brandLogo ? <img src={brandLogo} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-semibold text-primary-foreground">{String((selectedTenant as any)?.name || 'C').trim()[0]?.toUpperCase()}</span>}
               <div className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="truncate text-[14.5px] font-semibold tracking-tight text-primary">{(selectedTenant as any)?.name || 'Your studio'}</span>
-                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Studio'}</span>
+                <span className="truncate text-[14.5px] font-semibold tracking-tight text-primary">{(selectedTenant as any)?.name || 'Your business'}</span>
+                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Team'}</span>
               </div>
             </Link>
 
@@ -474,7 +474,7 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Studio" items={STUDIO_ASSETS} />
+              <NavSection label="Business" items={STUDIO_ASSETS} />
               <NavSection label="Shop" items={COMMERCE} />
             </>
           )}

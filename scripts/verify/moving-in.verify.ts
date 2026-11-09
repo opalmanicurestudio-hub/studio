@@ -161,9 +161,11 @@ import { makeDb, check, failures } from './fake-db';
     check('months already brought in are known (so they aren’t counted twice)', (await M.salesMonthsHere(db, T)).has('2025-11')); }
 
   console.log('Starter menus');
-  { check('five menus, every service with a length and no price', S.STARTER_MENUS.length === 5 && S.STARTER_MENUS.every((m) => m.services.every((x: any) => x.duration > 0 && !('price' in x))));
+  { check('ten menus, every service with a length and no price', S.STARTER_MENUS.length === 10 && S.STARTER_MENUS.every((m) => m.services.every((x: any) => x.duration > 0 && !('price' in x))));
     check('the nail menu has 18 services', S.STARTER_MENUS.find((m) => m.id === 'nails')?.services.length === 18);
-    check('the right menu is suggested', S.suggestMenu({ name: 'Opal Nail Bar', businessType: 'salon' }) === 'nails' && S.suggestMenu({ businessType: 'spa' }) === 'spa' && S.suggestMenu({ name: 'Fade Kings Barber' }) === 'barber' && S.suggestMenu({ businessType: 'salon', name: 'Curl Studio' }) === 'hair'); }
+    check('the right menu is suggested', S.suggestMenu({ name: 'Opal Nail Bar', businessType: 'salon' }) === 'nails' && S.suggestMenu({ businessType: 'spa' }) === 'spa' && S.suggestMenu({ name: 'Fade Kings Barber' }) === 'barber' && S.suggestMenu({ businessType: 'salon', name: 'Curl Studio' }) === 'hair');
+    check('beyond salons too: a tattoo studio, a gym, a clinic, a venue, anything else', S.suggestMenu({ name: 'Ink Well Tattoo' }) === 'tattoo' && S.suggestMenu({ name: 'Iron Gym' }) === 'fitness' && S.suggestMenu({ name: 'Glow Med Spa' }) === 'medspa' && S.suggestMenu({ name: 'The Loft Venue' }) === 'events' && S.suggestMenu({ name: 'Rivera Consulting' }) === 'general' && S.suggestMenu({ name: 'Corner Cafe' }) === '');
+    check('every menu’s names are its own (no repeats)', S.STARTER_MENUS.every((m) => new Set(m.services.map((x: any) => x.name)).size === m.services.length)); }
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

@@ -68,7 +68,7 @@ const wordsIn = (accent: string) => (readableOn(accent) === '#ffffff' ? accent :
 
 const firstLetter = (name: string) => (Array.from(String(name || '').trim())[0] || '·').toUpperCase();
 function markHtml(look: EmailLook): string {
-  const name = esc(look.name || 'Your studio');
+  const name = esc(look.name || '');
   const logo = look.show !== 'name' && look.logoUrl && /^https:\/\//i.test(look.logoUrl) ? look.logoUrl : null;
   const markOnly = !!logo && look.show === 'mark';
   const mark = logo
@@ -120,7 +120,7 @@ export function emailFrame(o: { look: EmailLook; tagged?: boolean; preheader?: s
 }
 
 export function brandedEmailHtml(i: BrandedEmailInput): string {
-  const look: EmailLook = i.brand ? { ...i.brand, accent: hex6(i.brand.accent) || PLAIN, name: i.brand.name || i.studioName } : { name: i.studioName || 'Your studio', accent: PLAIN };
+  const look: EmailLook = i.brand ? { ...i.brand, accent: hex6(i.brand.accent) || PLAIN, name: i.brand.name || i.studioName } : { name: i.studioName || '', accent: PLAIN };
   const tagged = !i.brand;   // the sender adds the business's look
   const accent = look.accent;
   const p = (l: string) => `<p style="margin:14px 0 0;font-family:${EMAIL_FONT};font-size:15px;line-height:1.6;color:${BODY}">${esc(l)}</p>`;
