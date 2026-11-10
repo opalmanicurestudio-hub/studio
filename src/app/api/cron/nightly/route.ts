@@ -855,6 +855,18 @@ export async function GET(req: NextRequest) {
           if (!nt) continue;
           const newEnd = nt.end;
           await ld.ref.set({ endDate: newEnd, renewedAt: new Date().toISOString(), ...(nt.termDays ? { termDays: nt.termDays } : {}) }, { merge: true });
+          // A renewed term takes what comes with the space as it is today, held for the new term (lib/renter-offers).
+          if (l.renterId) {
+            try {
+              const rRef = db.doc(`tenants/${tDoc.id}/renters/${l.renterId}`); const rd: any = (await rRef.get()).data() || {};
+              if (rd.signedOffers && (!rd.signedOffers.leaseId || rd.signedOffers.leaseId === ld.id)) {
+                const { signedOffersFrom, resolveOffers: ro } = await import('@/lib/renter-offers');
+                const now = ro(tDoc.data() || {});
+                const so = signedOffersFrom(now.modes, now.prices, newEnd, { leaseId: ld.id, at: new Date().toISOString(), from: 'renewal' });
+                if (so) await rRef.update({ signedOffers: so });
+              }
+            } catch (e) { console.error('[cron/nightly] renewal tools', tDoc.id, ld.id, e); }
+          }
           leasesRenewed++;
           await logAuditAdmin(db, tDoc.id, {
             action: 'lease.renewed', targetType: 'lease', targetId: ld.id,

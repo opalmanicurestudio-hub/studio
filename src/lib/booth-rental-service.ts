@@ -368,7 +368,9 @@ export async function createLease(
       BOOTH_RENTAL_COLLECTIONS.renters(input.tenantId),
       input.renterId
     ),
-    awaitSignature ? { updatedAt: now } : { status: 'active', updatedAt: now }
+    // A new lease not written by the lease builder doesn't carry what an earlier one kept for them (a builder lease
+    // replaces it as it's signed: api/portal/renter, components/renters/LeaseBuilder).
+    { ...(awaitSignature ? { updatedAt: now } : { status: 'active', updatedAt: now }), ...(input.extra?.leaseFrom === 'builder' ? {} : { signedOffers: null }) }
   );
 
   await batch.commit();
@@ -454,11 +456,14 @@ export async function endLease(
   const stillRenting = allLeases.some(
     (l) => l.renterId === renterId && l.id !== lease.id && isOccupyingLease(l)
   );
+  // What this lease kept for them (lib/renter-offers signedOffers) ends with it.
+  let heldHere = false;
+  try { const r: any = (await getDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), renterId))).data() || {}; heldHere = !!r.signedOffers && (!r.signedOffers.leaseId || r.signedOffers.leaseId === lease.id); } catch { /* left as it is */ }
 
   if (stillRenting) {
     batch.update(
       doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), renterId),
-      { updatedAt: now }
+      heldHere ? { updatedAt: now, signedOffers: null } : { updatedAt: now }
     );
     await batch.commit();
     return;
@@ -470,6 +475,7 @@ export async function endLease(
       status: 'past' as Renter['status'],
       offboardedAt: now,
       updatedAt: now,
+      ...(heldHere ? { signedOffers: null } : {}),
     }
   );
 

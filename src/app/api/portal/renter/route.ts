@@ -82,7 +82,7 @@ import { mintRenterLink, renterFromLink } from '@/lib/renter-link';
 import { saveServiceCost, serviceCosts } from '@/lib/renter-service-costs';
 import { linkOrigin } from '@/lib/app-origin';
 import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
-import { resolveOffers, offerAllows, offerBlocked, renterOfferLines, isOfferKey, offerDef, runningAddOn, activeAddOn, hasRunningAddOn, money as perMonth } from '@/lib/renter-offers';
+import { resolveOffers, offersFor, offerAllows, offerBlocked, renterOfferLines, isOfferKey, offerDef, runningAddOn, activeAddOn, hasRunningAddOn, money as perMonth } from '@/lib/renter-offers';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { nextTermEnd } from '@/lib/lease-builder';
 
@@ -1765,7 +1765,8 @@ export async function POST(req: NextRequest) {
       try {
         out = await db.runTransaction(async (tx: any) => {
           const t: any = (await tx.get(tRef)).data() || {}; const r: any = (await tx.get(rRef)).data() || {};
-          const o = resolveOffers(t); const today = todayIn(tenantTimeZone(t)); const title = offerDef(key).renterTitle(String(t.name || 'the business'));
+          // What this renter gets: today's settings, or what their signed lease keeps (lib/renter-offers offersFor).
+          const today = todayIn(tenantTimeZone(t)); const o = offersFor(resolveOffers(t), r, today); const title = offerDef(key).renterTitle(String(t.name || 'the business'));
           const prev: any = r.addOns?.[key] || null;
           if (action === 'addon-stop') {
             if (!runningAddOn(r, key)) throw Object.assign(new Error('You don’t have that add-on.'), { code: 409 });
@@ -2435,8 +2436,8 @@ export async function POST(req: NextRequest) {
     // Whether this renter can use one of the tools the business decides on (lib/renter-offers): null when they can, else why.
     const offerWhy = async (key: Parameters<typeof offerAllows>[1]): Promise<{ why: string | null; addPriceCents: number | null }> => {
       const [tS, rS] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), session.renterId ? db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get() : Promise.resolve(null)]);
-      const t: any = tS.data() || {}; const r: any = rS?.data?.() || {}; const o = resolveOffers(t);
-      const why = offerBlocked(o, key, r, t.name);
+      const t: any = tS.data() || {}; const r: any = rS?.data?.() || {}; const day = todayIn(tenantTimeZone(t)); const o = offersFor(resolveOffers(t), r, day);
+      const why = offerBlocked(o, key, r, t.name, day);
       return { why, addPriceCents: why && o.modes[key] === 'addon' ? o.prices[key] : null };
     };
     const myProvider = async () => {
@@ -3024,8 +3025,9 @@ export async function POST(req: NextRequest) {
     if (action.startsWith('gift-')) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'Sign in again.' }, { status: 401 });
       const gc = await import('@/lib/gift-cards');
-      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const giftOffers = resolveOffers(t);
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
       const renterRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`); const renter: any = (await renterRef.get()).data() || {};
+      const giftOffers = offersFor(resolveOffers(t), renter);
       // Taking the business's cards, and selling their own: each off, included, or an add-on they have (lib/renter-offers).
       const salonCards = offerAllows(giftOffers, 'salonGiftCards', renter), ownCards = offerAllows(giftOffers, 'ownGiftCards', renter);
       const ownWhy = offerBlocked(giftOffers, 'ownGiftCards', renter, t.name);
@@ -3421,7 +3423,7 @@ export async function POST(req: NextRequest) {
       const p = t.renterCampaigns || {};
       // Off, included, or an add-on this renter has or hasn't (lib/renter-offers): not theirs reads as off, with why.
       const me = session.renterId ? (((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {}) : {};
-      const o = resolveOffers(t); const blocked = offerBlocked(o, 'campaigns', me, t.name);
+      const day = todayIn(tenantTimeZone(t)); const o = offersFor(resolveOffers(t), me, day); const blocked = offerBlocked(o, 'campaigns', me, t.name, day);
       return { blocked, addPriceCents: blocked && o.modes.campaigns === 'addon' ? o.prices.campaigns : null,
         mode: (blocked ? 'off' : ['off', 'business_covers', 'renter_pays'].includes(p.mode) ? p.mode : 'off') as 'off' | 'business_covers' | 'renter_pays',
         monthlyTexts: Math.max(0, Math.round(Number(p.monthlyTexts ?? 100))), priceCents: Math.max(1, Math.round(Number(p.priceCentsPerText ?? 2))), tenantName: t.name || 'the business' };
@@ -3887,7 +3889,8 @@ export async function POST(req: NextRequest) {
       if (d.meta?.termsSha256 && d.meta.termsSha256 !== sha) return NextResponse.json({ ok: false, error: 'This document changed after it was sent, so it can’t be signed. Ask the business to send it again.' }, { status: 409 });
       if (toSign && typeof body.shownSha !== 'string') return NextResponse.json({ ok: false, error: 'Refresh this page to sign.' }, { status: 409 });
       if (toSign && body.shownSha !== sha) return NextResponse.json({ ok: false, error: 'This document changed while you were reading it. Open it again.' }, { status: 409 });
-      const bizName = String((((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).name || 'the business');
+      const tNow: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const bizName = String(tNow.name || 'the business');
       // The consent kept is the one their screen showed, word for word.
       if (toSign && typeof body.consentSha !== 'string') return NextResponse.json({ ok: false, error: 'Refresh this page to sign.' }, { status: 409 });
       if (toSign && body.consentSha !== sha256Hex(esignConsentText(bizName))) return NextResponse.json({ ok: false, error: 'The wording you agreed to has changed. Open it again.' }, { status: 409 });
@@ -3895,7 +3898,7 @@ export async function POST(req: NextRequest) {
       const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
       const record = buildSignedRecord(sRef.id, {
         subjectType: 'renter', subjectId: session.renterId, subjectName: renterName,
-        kind: d.kind === 'renewal_offer' || d.kind === 'lease' ? 'lease' : 'policy',
+        kind: d.kind === 'renewal_offer' || d.kind === 'lease' || d.kind === 'amendment' ? 'lease' : 'policy',
         title: d.title, agreementText: d.body,
         meta: { renterDocumentId: docId, renterDocKind: d.kind, leaseId: d.leaseId || null, ...(d.meta || {}) },
       }, signedName);
@@ -3916,25 +3919,54 @@ export async function POST(req: NextRequest) {
       let signedOn = nowIso.slice(0, 10);
       if (isLease) { try { const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time'); signedOn = todayIn(tenantTimeZone(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {})); } catch { /* UTC day */ } }
       const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
-      const outcome: 'ok' | 'taken' | 'lease_gone' | 'changed' = await db.runTransaction(async (tx: any) => {
+      const { offersDiffer: od, resolveOffers: roNow } = await import('@/lib/renter-offers');
+      const offersDifferNow = (a: any, t: any) => od(a, roNow(t || tNow));
+      const outcome: 'ok' | 'taken' | 'lease_gone' | 'changed' | 'out_of_date' = await db.runTransaction(async (tx: any) => {
         const cur: any = ((await tx.get(dRef)).data() as any) || {};
         const l: any = lRef ? (((await tx.get(lRef)).data() as any) || null) : null;
         const who: any = lRef ? (((await tx.get(rRef)).data() as any) || {}) : null;
+        const al: any = d.kind === 'amendment' && d.leaseId ? (((await tx.get(db.doc(`tenants/${tenantId}/leases/${d.leaseId}`))).data() as any) || null) : null;
+        // The business's settings as this signing commits, for an amendment (a save can't slip in between).
+        const tTx: any = d.kind === 'amendment' && d.meta?.amendOffers ? (((await tx.get(db.doc(`tenants/${tenantId}`))).data() as any) || {}) : null;
         if (cur.status !== 'sent') return 'taken';
         if (sha256Hex(String(cur.body || '')) !== sha) return 'changed';
         if (lRef && (!l || String(l.renterId || '') !== session.renterId || l.status !== 'pending_signature')) return 'lease_gone';
+        // An amendment changes a lease that's still theirs and running.
+        if (d.kind === 'amendment' && d.meta?.amendOffers && (!al || String(al.renterId || '') !== session.renterId || !['active', 'on_leave'].includes(String(al.status)))) return 'lease_gone';
+        // …and only while it still says what the business offers now.
+        if (d.kind === 'amendment' && d.meta?.amendOffers && offersDifferNow(d.meta.amendOffers, tTx)) return 'out_of_date';
         tx.set(sRef, record);
         tx.set(dRef, { status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
         if (toSign) tx.set(rRef, { esignConsent: { at: record.signedAt, version: ESIGN_CONSENT_VERSION } }, { merge: true });
+        // An amendment to what comes with the space: from today, what it says is what they hold, until their lease's term
+        // ends (or, with no end date, until the next change is announced).
+        if (d.kind === 'amendment' && d.meta?.amendOffers?.modes) {
+          const { signedOffersFrom } = await import('@/lib/renter-offers');
+          const so = signedOffersFrom(d.meta.amendOffers.modes, d.meta.amendOffers.prices, al?.endDate ? String(al.endDate).slice(0, 10) : null, { leaseId: d.leaseId || null, at: nowIso, from: 'amendment' });
+          if (so) tx.update(rRef, { signedOffers: so });
+        }
         if (lRef) {
           tx.set(lRef, { status: 'active', signedAt: nowIso, signedByName: signedName, signedDocumentId: sRef.id, signatureDocumentId: docId, activatedAt: nowIso, activatedOn: signedOn, updatedAt: nowIso }, { merge: true });
+          // What the lease says comes with the space is theirs until its term ends (lib/renter-offers offersFor). A lease
+          // with no end date keeps it until the business announces a change; one already announced since this lease was
+          // sent starts its notice today.
+          const snap = l?.leaseFrom === 'builder' ? l.leaseTermsSnapshot : null;
+          if (snap?.offersModes) {
+            const { signedOffersFrom, offersDiffer, resolveOffers: ro } = await import('@/lib/renter-offers');
+            const now = ro(tNow); const changed = offersDiffer({ modes: snap.offersModes, prices: snap.offersPrices }, now);
+            const plus = (n: number) => { const x = new Date(`${signedOn}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+            const until = l.endDate ? String(l.endDate).slice(0, 10) : changed ? plus(Math.max(1, Number(l.earlyTerminationNoticeDays) || 30)) : null;
+            const so = signedOffersFrom(snap.offersModes, snap.offersPrices, until, { leaseId: d.leaseId, at: nowIso, from: 'lease' });
+            if (so) tx.update(rRef, { signedOffers: so });
+          }
           if (!who?.status || who.status === 'prospective') tx.set(rRef, { status: 'active', updatedAt: nowIso }, { merge: true });
         }
         return 'ok';
       });
       if (outcome === 'taken') return NextResponse.json({ ok: false, error: 'This document was already signed, or the business took it back.' }, { status: 400 });
+      if (outcome === 'out_of_date') return NextResponse.json({ ok: false, error: 'What comes with your space has changed since this amendment was sent, so it can’t be signed. Your lease stays as you signed it.' }, { status: 409 });
       if (outcome === 'changed') return NextResponse.json({ ok: false, error: 'This document changed while you were reading it. Open it again.' }, { status: 409 });
-      if (outcome === 'lease_gone') return NextResponse.json({ ok: false, error: 'This lease was changed or ended by the business, so it can’t be signed. Ask them to send it again.' }, { status: 409 });
+      if (outcome === 'lease_gone') return NextResponse.json({ ok: false, error: d.kind === 'amendment' ? 'The lease this amends has ended or changed, so it can’t be signed.' : 'This lease was changed or ended by the business, so it can’t be signed. Ask them to send it again.' }, { status: 409 });
 
       // A renewal changes the lease at signature. End date now; a rent change
       // takes effect on its start date — today if that has passed, otherwise
@@ -3958,6 +3990,16 @@ export async function POST(req: NextRequest) {
             else { upd.scheduledRent = { cents: patch.rentAmountCents, from: patch.renewalEffective, documentId: docId }; leaseNote = ` Rent changes on ${patch.renewalEffective}.`; }
           }
           await lRef.set(upd, { merge: true });
+          // A renewal takes what comes with the space as it is today, held for the new term (lib/renter-offers).
+          try {
+            const rNow: any = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+            if (rNow.signedOffers && (!rNow.signedOffers.leaseId || rNow.signedOffers.leaseId === d.leaseId)) {
+              const { signedOffersFrom, resolveOffers: ro } = await import('@/lib/renter-offers');
+              const now = ro(tNow); const end = String(upd.endDate || lease.endDate || '').slice(0, 10) || null;
+              const so = signedOffersFrom(now.modes, now.prices, end, { leaseId: d.leaseId, at: nowIso, from: 'renewal' });
+              if (so) await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).update({ signedOffers: so });
+            }
+          } catch { /* the renewal stands; what they hold stays as it was */ }
           await logAuditAdmin(db, tenantId, {
             action: 'lease.renewed', targetType: 'lease', targetId: d.leaseId,
             summary: `Renewal signed by ${signedName}${patch.endDate ? ` — ends ${patch.endDate}` : ''}${patch.rentAmountCents ? `, rent ${(patch.rentAmountCents / 100).toFixed(2)}${patch.renewalEffective ? ` from ${patch.renewalEffective}` : ''}` : ''}`,

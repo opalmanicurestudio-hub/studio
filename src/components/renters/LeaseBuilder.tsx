@@ -11,7 +11,7 @@ import { collection, doc, getDocs, query, where, updateDoc } from 'firebase/fire
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { createLease } from '@/lib/booth-rental-service';
 import { resolveLeasePolicy, buildLease, leaseChecks, usd, shortDate, type LeaseDraft, type LeaseContext, type LeasePolicy, leaseEndAfter, slotsClash } from '@/lib/lease-builder';
-import { resolveOffers } from '@/lib/renter-offers';
+import { resolveOffers, signedOffersFrom } from '@/lib/renter-offers';
 import { resolveIncidentalPolicy } from '@/lib/incidentals';
 import { responseCommitments } from '@/lib/maintenance';
 import { resolveLeavePolicy } from '@/lib/leave-policy';
@@ -304,6 +304,12 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
           },
         },
       });
+      // Signed on paper and started now: what the lease says comes with the space is theirs until its term ends (with no
+      // end date, until a change is announced). One signed in the portal is kept as they sign (api/portal/renter).
+      if (!sign && !own.on) {
+        const so = signedOffersFrom(offers.modes, offers.prices, d.endDate || null, { leaseId, at: new Date().toISOString(), from: 'lease' });
+        if (so) await updateDoc(doc(p.firestore, `tenants/${tenantId}/renters/${renter.id}`), { signedOffers: so }).catch(() => { keptNote += ' What comes with their space wasn’t saved with the lease, so a later change to What renters get applies to them straight away.'; });
+      }
       // A notice address typed here is kept on the renter for next time.
       if (d.renterNoticeAddress.trim() && d.renterNoticeAddress.trim() !== String(renter?.noticeAddress || '')) {
         await updateDoc(doc(p.firestore, `tenants/${tenantId}/renters/${renter.id}`), { noticeAddress: d.renterNoticeAddress.trim() }).catch(() => {});

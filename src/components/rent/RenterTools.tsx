@@ -16,6 +16,11 @@ const btn = 'h-11 rounded-full border border-[#ececee] bg-white px-4 text-[15px]
 const dark = 'h-11 rounded-full bg-[#16171a] px-4 text-[15px] font-medium text-white disabled:opacity-50';
 const when = (iso?: string | null) => { const d = new Date(String(iso || '')); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
 
+/** A tool their signed lease keeps better than the business's settings today, and until when. */
+const heldLine = (l: { heldUntil?: string | null }) => (l.heldUntil
+  ? `As your lease says, until ${new Date(`${l.heldUntil}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.`
+  : 'As your lease says.');
+
 export function RenterTools({ tenantId, token }: { tenantId: string; token: string }) {
   const openScreen = useContext(OpenScreenContext);
   const [d, setD] = useState<Data | null>(null);
@@ -77,6 +82,7 @@ export function RenterTools({ tenantId, token }: { tenantId: string; token: stri
               <div className="min-w-0 flex-1">
                 <p className="text-[15px] font-medium text-[#16171a]">{l.title}</p>
                 <p className="text-[13px] leading-snug text-[#6d7075]">{l.sub}</p>
+                {l.held && <p className="text-[13px] text-[#6d7075]">{heldLine(l)}</p>}
               </div>
               {openBtn(l)}
             </li>
@@ -98,6 +104,7 @@ export function RenterTools({ tenantId, token }: { tenantId: string; token: stri
                       <p className="text-[15px] font-medium text-[#16171a]">{l.title}</p>
                       <p className="text-[13px] leading-snug text-[#6d7075]">{l.sub}</p>
                       {mine && !l.stopped && <p className="text-[13px] text-[#1f7a4d]">Added {when(l.startedAt)}</p>}
+                      {l.held && <p className="text-[13px] text-[#6d7075]">{heldLine(l)}</p>}
                       {mine && l.stopped && <p className="text-[13px] text-[#6d7075]">{l.paused ? 'Paused, as a charge didn’t go through' : 'Stopped'}. You can use it until {fmtDate(l.endsOn)}.</p>}
                       {!mine && l.paused && <p className="text-[13px] text-[#b45309]">Paused, as a charge didn’t go through. Add it again to start it.</p>}
                     </div>

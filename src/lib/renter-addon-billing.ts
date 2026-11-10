@@ -18,7 +18,7 @@ import { onAccount, renterBusinessCard, spacePayAccount } from '@/lib/space-stri
 import { stripeRefused } from '@/lib/stripe-said-no';
 import { todayIn, tenantTimeZone, addDays } from '@/lib/tenant-time';
 import { incidentalAttemptPath, incidentalOpened, recordRenterIncidental, releaseRenterIncidental, tellRenterCharged } from '@/lib/renter-incidentals';
-import { resolveOffers, offerDef, money, OFFER_KEYS, type OfferKey } from '@/lib/renter-offers';
+import { resolveOffers, offersFor, offerDef, money, OFFER_KEYS, type OfferKey } from '@/lib/renter-offers';
 
 export const ADDON_CATEGORY = 'Renter Add-on';
 const LIVE_LEASE = ['active', 'on_leave', 'pending_signature'];
@@ -119,7 +119,8 @@ export async function chargeAddOn(db: any, tenantId: string, tenant: any, renter
   const c: any = await db.runTransaction(async (tx: any) => {
     const r: any = (await tx.get(renterRef)).data() || {};
     const a: any = r.addOns?.[key];
-    if (!a || a.status !== 'active' || offers.modes[key] !== 'addon' || typeof a.nextBillOn !== 'string' || a.nextBillOn > today) return { skip: true };
+    // An add-on by what this renter gets: today's settings, or what their signed lease keeps.
+    if (!a || a.status !== 'active' || offersFor(offers, r, today).modes[key] !== 'addon' || typeof a.nextBillOn !== 'string' || a.nextBillOn > today) return { skip: true };
     const day = Number(a.billDay) || Number(String(a.nextBillOn).slice(8));
     // The month it's due for, charged already (only moving it on didn't get saved): it's moved on now, never charged again.
     const dueKey = addOnAttemptKey(key, a.nextBillOn);
@@ -211,7 +212,9 @@ export async function billRenterAddOns(db: any, tenantId: string, tenant: any, o
     for (const k of OFFER_KEYS) {
       const a = r.addOns?.[k];
       if (!(a?.status === 'active' && typeof a.nextBillOn === 'string' && a.nextBillOn <= today)) continue;
-      const end = offers.modes[k] !== 'addon' ? (offers.modes[k] === 'off' ? 'off' : 'included') : !leased.has(d.id) ? 'lease_ended' : null;
+      // By what this renter gets: their signed lease can keep an add-on (or include it) past a change to the settings.
+      const mine = offersFor(offers, r, today);
+      const end = mine.modes[k] !== 'addon' ? (mine.modes[k] === 'off' ? 'off' : 'included') : !leased.has(d.id) ? 'lease_ended' : null;
       if (end) { await d.ref.set({ addOns: { [k]: { status: 'stopped', stoppedAt: new Date().toISOString(), stoppedWhy: end, nextBillOn: null } } }, { merge: true }).catch(() => {}); out.stopped++; continue; }
       try {
         const res = await chargeAddOn(db, tenantId, tenant, d.id, k, o);

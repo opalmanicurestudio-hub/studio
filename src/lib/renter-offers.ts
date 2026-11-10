@@ -123,8 +123,68 @@ export function activeAddOn(renter: any, key: OfferKey, today: string = todayUtc
 /** Running and still to be charged (not stopped). */
 export const runningAddOn = (renter: any, key: OfferKey): AddOn | null => (renter?.addOns?.[key]?.status === 'active' ? renter.addOns[key] as AddOn : null);
 
-/** Can this renter use the tool now: it comes with the space, or it's an add-on they have. */
-export function offerAllows(offers: Offers, key: OfferKey, renter: any, today?: string): boolean {
+/** What a renter's signed lease says comes with their space (lease builder leases, kept on the renter as they sign):
+ *  each tool's mode and add-on price, held until `until` (the end of the lease's term, or the end of the notice given
+ *  after a change for a lease with no end date; null: no change announced yet). A signed amendment or a renewal
+ *  replaces it with the terms then. */
+export type SignedOffers = { modes: Partial<Record<OfferKey, OfferMode>>; prices?: Partial<Record<OfferKey, number>>; until: string | null; leaseId?: string | null; at?: string; from?: 'lease' | 'amendment' | 'renewal' };
+const RANK: Record<OfferMode, number> = { off: 0, addon: 1, included: 2 };
+
+/** The day a hold is checked against when the caller doesn't say: yesterday in UTC, never later than the business's own
+ *  day anywhere, so a hold is never dropped before billing (which uses the business's day) drops it. Without the
+ *  business's day a renter can keep their terms up to about a day longer, never shorter; callers that have it pass it. */
+const holdDay = () => { const d = new Date(); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
+
+/** The signed terms a renter still holds today, or null. */
+export function heldOffers(renter: any, today: string = holdDay()): SignedOffers | null {
+  const s = renter?.signedOffers;
+  if (!s || typeof s !== 'object' || !s.modes || typeof s.modes !== 'object') return null;
+  if (typeof s.until === 'string' && s.until && today > s.until) return null;
+  return s as SignedOffers;
+}
+
+/** What this renter gets today: the business's settings, or, while their signed lease's terms hold, the better of the
+ *  two for each tool (included beats an add-on beats off; of two add-on prices, the lower). A change never takes away
+ *  what a renter signed for before their lease says it can. */
+export function offersFor(offers: Offers, renter: any, today: string = holdDay()): Offers {
+  const s = heldOffers(renter, today);
+  if (!s) return offers;
+  const modes = { ...offers.modes }, prices = { ...offers.prices };
+  for (const k of OFFER_KEYS) {
+    const sm = s.modes[k]; if (!sm || !(sm in RANK)) continue;
+    const sp = Number(s.prices?.[k]) || 0;
+    if (RANK[sm] > RANK[modes[k]]) { modes[k] = sm; if (sm === 'addon' && sp >= PRICE_MIN_CENTS) prices[k] = sp; }
+    else if (sm === 'addon' && modes[k] === 'addon' && sp >= PRICE_MIN_CENTS) prices[k] = Math.min(prices[k], sp);
+  }
+  return { ...offers, modes, prices };
+}
+
+/** The tools a renter's signed terms keep better than today's settings, and until when. */
+export function heldBetter(offers: Offers, renter: any, today: string = holdDay()): { key: OfferKey; until: string | null }[] {
+  const s = heldOffers(renter, today); if (!s) return [];
+  const eff = offersFor(offers, renter, today);
+  return OFFER_KEYS.filter((k) => RANK[eff.modes[k]] > RANK[offers.modes[k]] || (eff.modes[k] === 'addon' && eff.prices[k] < offers.prices[k])).map((key) => ({ key, until: s.until }));
+}
+
+/** The signed terms to keep for a renter from what their lease (or amendment) says, held until `until`. */
+export function signedOffersFrom(modes: any, prices: any, until: string | null, meta: { leaseId?: string | null; at: string; from: SignedOffers['from'] }): SignedOffers | null {
+  if (!modes || typeof modes !== 'object') return null;
+  const m: Partial<Record<OfferKey, OfferMode>> = {}, p: Partial<Record<OfferKey, number>> = {};
+  for (const k of OFFER_KEYS) {
+    if (modes[k] in RANK) m[k] = modes[k];
+    const c = Math.round(Number(prices?.[k]) || 0); if (c > 0) p[k] = c;
+  }
+  return { modes: m, prices: p, until: until || null, leaseId: meta.leaseId || null, at: meta.at, from: meta.from };
+}
+
+/** Do two settings differ for any tool (its mode, or an add-on's price)? */
+export const offersDiffer = (a: { modes: any; prices?: any }, b: { modes: any; prices?: any }): boolean =>
+  OFFER_KEYS.some((k) => a.modes?.[k] !== b.modes?.[k] || (a.modes?.[k] === 'addon' && Number(a.prices?.[k]) !== Number(b.prices?.[k])));
+
+/** Can this renter use the tool now: it comes with the space, or it's an add-on they have (by today's settings, or
+ *  their signed lease's while it holds: offersFor). */
+export function offerAllows(offers0: Offers, key: OfferKey, renter: any, today?: string): boolean {
+  const offers = offersFor(offers0, renter, today);
   const m = offers.modes[key];
   if (m === 'off') return false;
   if (m === 'included') return true;
@@ -132,8 +192,9 @@ export function offerAllows(offers: Offers, key: OfferKey, renter: any, today?: 
 }
 
 /** Why a renter can't use a tool, in plain words, or null when they can. */
-export function offerBlocked(offers: Offers, key: OfferKey, renter: any, businessName?: string, today?: string): string | null {
-  if (offerAllows(offers, key, renter, today)) return null;
+export function offerBlocked(offers0: Offers, key: OfferKey, renter: any, businessName?: string, today?: string): string | null {
+  if (offerAllows(offers0, key, renter, today)) return null;
+  const offers = offersFor(offers0, renter, today);
   const d = offerDef(key); const b = bizOf(businessName);
   if (offers.modes[key] === 'off') return `${cap(b)} doesn’t offer ${d.noun(b)} right now.`;
   return `${cap(d.noun(b))} ${d.plural ? 'are' : 'is'} an add-on here. You can add ${d.plural ? 'them' : 'it'} in Space, under What comes with your space.`;
@@ -151,12 +212,17 @@ export type RenterOfferLine = {
   startedAt?: string | null; endsOn?: string | null; stopped?: boolean;
   /** Paused: a month's charge didn't go through (lib/renter-addon-billing); adding it again starts it. */
   paused?: boolean;
+  /** Kept from their signed lease, better than today's settings: until this day (null: until the business announces a
+   *  change, then the notice their lease gives). */
+  held?: boolean; heldUntil?: string | null;
 };
 
 /** The list a renter sees. Every one of these needs bookings, so someone who doesn't book here sees only add-ons they
  *  still have (to stop them). */
-export function renterOfferLines(offers: Offers, renter: any, o: { businessName?: string; booksHere: boolean; today?: string }): RenterOfferLine[] {
+export function renterOfferLines(offers0: Offers, renter: any, o: { businessName?: string; booksHere: boolean; today?: string }): RenterOfferLine[] {
   const b = bizOf(o.businessName);
+  const offers = offersFor(offers0, renter, o.today);
+  const held = new Map(heldBetter(offers0, renter, o.today).map((h) => [h.key, h.until] as const));
   const all = OFFER_DEFS.map((d) => {
     const m = offers.modes[d.key];
     const mine = m === 'addon' ? activeAddOn(renter, d.key, o.today) : null;
@@ -168,6 +234,7 @@ export function renterOfferLines(offers: Offers, renter: any, o: { businessName?
       priceCents: mine && !stopped ? Number(mine.priceCents) || 0 : offers.prices[d.key],
       startedAt: mine?.startedAt || null, endsOn: stopped ? mine?.paidThrough || null : null, stopped,
       paused: renter?.addOns?.[d.key]?.status === 'paused',
+      ...(held.has(d.key) ? { held: true, heldUntil: held.get(d.key) ?? null } : {}),
     };
   });
   return o.booksHere ? all : all.filter((l) => l.state === 'added' && !l.stopped);

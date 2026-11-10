@@ -753,7 +753,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       cardsIn.push({ id: String(g.id), code: d.code, wantCents: want, holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, ownerName: d.ownerName || null }); }
     const { planGiftUse } = await import('@/lib/gift-cards');
     const salonOk: Record<string, boolean> = {};
-    for (const rid of Object.keys(byRenter)) salonOk[rid] = salonOffers.modes.salonGiftCards === 'addon' ? offerAllows(salonOffers, 'salonGiftCards', (await db.doc(`${T}/renters/${rid}`).get()).data()) : salonOffers.modes.salonGiftCards === 'included';
+    // Each renter by what they get: today's settings, or what their signed lease keeps (offerAllows reads both).
+    for (const rid of Object.keys(byRenter)) salonOk[rid] = salonOffers.modes.salonGiftCards === 'included' || offerAllows(salonOffers, 'salonGiftCards', (await db.doc(`${T}/renters/${rid}`).get()).data());
     const plan = planGiftUse({ cards: cardsIn, byRenter, studioLeft, salonForRenters: (rid) => salonOk[rid] === true }); if (plan.error) return plan.error;
     giftUse.push(...plan.uses);
     return null;

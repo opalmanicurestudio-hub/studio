@@ -11,7 +11,8 @@ const btn = 'h-11 rounded-full border border-[#ececee] bg-white px-4 text-[15px]
 const input = 'h-11 rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a] tabular-nums';
 const MODE_LABEL: Record<OfferMode, string> = { off: 'Off', included: 'Included', addon: 'Add-on' };
 
-type Loaded = { offers: Offers; added: Record<OfferKey, number>; renters: number; paymentsReady: boolean; businessName: string };
+type Held = { renterId: string; name: string; until: string | null; amendmentWaiting?: boolean };
+type Loaded = { offers: Offers; added: Record<OfferKey, number>; renters: number; paymentsReady: boolean; businessName: string; held?: Held[] };
 type Draft = { modes: Record<OfferKey, OfferMode>; prices: Record<OfferKey, string>; campaignPayer: CampaignPayer; monthlyTexts: string; perTextCents: string };
 
 const draftOf = (o: Offers): Draft => ({
@@ -36,6 +37,9 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null);
+  // Renters whose signed lease keeps what it says after a change, and until when; they can be sent an amendment.
+  const [held, setHeld] = React.useState<Held[]>([]);
+  const [amendMsg, setAmendMsg] = React.useState<{ ok: boolean; t: string } | null>(null);
 
   const load = React.useCallback(async () => {
     try {
@@ -44,7 +48,7 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
       if (res.status === 403) { setHidden(true); return; }   // not theirs to change (settings): the card isn't shown
       const r = await res.json();
       if (!r?.ok) throw new Error();
-      setData(r); setDraft(draftOf(r.offers)); setFailed(false);
+      setData(r); setDraft(draftOf(r.offers)); setHeld(Array.isArray(r.held) ? r.held : []); setFailed(false);
     } catch { setFailed(true); }
   }, [tenantId]);
   React.useEffect(() => { void load(); }, [load]);
@@ -88,6 +92,7 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
         setMsg({ ok: false, t: r?.error || 'That didn’t save. Try again.' });
       } else {
         setData({ ...data, offers: r.offers, added: r.added || data.added }); setDraft(draftOf(r.offers));
+        setHeld(Array.isArray(r.held) ? r.held : []); setAmendMsg(null);
         setMsg(r.stopFailed
           ? { ok: true, t: `Saved, and renters were told. ${r.stopFailed} renter${r.stopFailed === 1 ? '’s add-on still shows' : 's’ add-ons still show'} as running on their record, but an add-on is never charged once it isn’t offered as one.` }
           : { ok: true, t: r.changed?.length ? (r.told ? `Saved. ${r.told} renter${r.told === 1 ? ' was' : 's were'} told.` : 'Saved.') : 'Saved. Nothing changed.' });
@@ -95,6 +100,22 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
     } catch { setMsg({ ok: false, t: 'That didn’t save. Check your connection and try again.' }); }
     setBusy(false);
   };
+
+  const toAmend = held.filter((x) => !x.amendmentWaiting);
+  const sendAmendment = async () => {
+    setBusy(true); setAmendMsg(null);
+    try {
+      const h = await staffAuthHeader();
+      const r = await (await fetch('/api/renters/offers', { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'amend', renterIds: toAmend.map((x) => x.renterId) }) })).json();
+      if (!r?.ok) setAmendMsg({ ok: false, t: r?.error || 'That didn’t send. Try again.' });
+      else {
+        setAmendMsg({ ok: true, t: `Sent to ${r.sent} renter${r.sent === 1 ? '' : 's'} to sign in their portal. Their lease changes the day each one signs.${r.skipped ? ` ${r.skipped} ${r.skipped === 1 ? 'has' : 'have'} no running lease, so nothing was sent to ${r.skipped === 1 ? 'them' : 'those'}.` : ''}` });
+        setHeld(held.map((x) => (toAmend.some((y) => y.renterId === x.renterId) ? { ...x, amendmentWaiting: true } : x)));
+      }
+    } catch { setAmendMsg({ ok: false, t: 'That didn’t send. Check your connection and try again.' }); }
+    setBusy(false);
+  };
+  const dateOf = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
   return (
     <section id="what-renters-get" className={`${box} scroll-mt-24 space-y-5`} aria-labelledby="what-renters-get-title">
@@ -169,6 +190,15 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
       )}
 
       {msg && <p role={msg.ok ? 'status' : 'alert'} className={`text-[14px] ${msg.ok ? 'text-[#1f7a4d]' : 'text-[#b45309]'}`}>{msg.t}</p>}
+      {held.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-[#ececee] p-4">
+          <p className="text-[14px] font-medium text-[#16171a]">{held.length === 1 ? 'One renter’s signed lease keeps what it says until it can change:' : `${held.length} renters’ signed leases keep what they say until they can change:`}</p>
+          <ul className="space-y-1">{held.map((x) => <li key={x.renterId} className="text-[14px] text-[#6d7075]">{x.name}{x.until ? `, until ${dateOf(x.until)}` : ''}{x.amendmentWaiting ? ' · amendment waiting for their signature' : ''}</li>)}</ul>
+          <p className="text-[13px] leading-relaxed text-[#6d7075]">To change it sooner, send an amendment for them to sign. It changes their lease the day they sign it; until then, they keep what they signed for.</p>
+          {toAmend.length > 0 && <button type="button" disabled={busy} onClick={() => void sendAmendment()} className={btn}>Send {toAmend.length === 1 ? 'an amendment' : 'amendments'} to sign</button>}
+        </div>
+      )}
+      {amendMsg && <p role={amendMsg.ok ? 'status' : 'alert'} className={`text-[14px] ${amendMsg.ok ? 'text-[#1f7a4d]' : 'text-[#b45309]'}`}>{amendMsg.t}</p>}
       <div className="flex gap-2">
         <button type="button" disabled={busy || !changes.length} onClick={() => void save()} className="h-11 flex-1 rounded-full bg-[#16171a] px-4 text-[15px] font-medium text-white disabled:opacity-40">{busy ? 'Saving…' : changes.length ? 'Save and tell renters' : 'No changes to save'}</button>
         {changes.length > 0 && <button type="button" disabled={busy} onClick={() => { setDraft(draftOf(data.offers)); setMsg(null); }} className={btn}>Undo</button>}
