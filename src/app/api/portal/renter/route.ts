@@ -84,6 +84,7 @@ import { linkOrigin } from '@/lib/app-origin';
 import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
 import { resolveOffers, offerAllows, offerBlocked, renterOfferLines, isOfferKey, offerDef, runningAddOn, activeAddOn, hasRunningAddOn, money as perMonth } from '@/lib/renter-offers';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { nextTermEnd } from '@/lib/lease-builder';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -3126,8 +3127,8 @@ export async function POST(req: NextRequest) {
       // Rent they PAID: 'payment' entries (manual, card, autopay's rent_charge
       // when it succeeded). Credits (leave, sublet, abatement) reduce rent and
       // show as negatives so the month's rent line is what actually left them.
-      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit', 'retail_sale_credit'].includes(String(r.type || '')))
-        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit', 'retail_sale_credit'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? (r.type === 'retail_sale_credit' ? 'online shop sale' : String(r.type).replace('_', ' ')) : (r.method || 'payment'), ...(r.note || r.description ? { note: String(r.note || r.description) } : {}) }; });
+      const rent = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => String(r.date || r.createdAt || '').slice(0, 7) === month && ['payment', 'rent_charge', 'leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit', 'retail_sale_credit', 'perk_credit'].includes(String(r.type || '')))
+        .map((r: any) => { const c = Math.abs(Number(r.amountCents) || Math.round((Number(r.amount) || 0) * 100)); const credit = ['leave_credit', 'sublet_credit', 'rent_abatement', 'desk_offset', 'gift_card_credit', 'retail_sale_credit', 'perk_credit'].includes(String(r.type)); return { id: r.id, date: String(r.date || r.createdAt).slice(0, 10), cents: credit ? -c : c, method: credit ? (r.type === 'retail_sale_credit' ? 'online shop sale' : r.type === 'perk_credit' ? 'lease perk' : String(r.type).replace('_', ' ')) : (r.method || 'payment'), ...(r.note || r.description ? { note: String(r.note || r.description) } : {}) }; });
       // Money the front desk collected for you (your clients paying at the studio's till) — owed to you until settled.
       const desk = rentSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((r: any) => r.type === 'desk_collected' && r.status !== 'voided' && String(r.date || r.createdAt || '').slice(0, 7) === month)
         .map((r: any) => ({ id: r.id, date: String(r.date || r.createdAt || '').slice(0, 10), cents: Number(r.amountCents) || 0, note: r.note || 'Collected at the front desk', status: r.status === 'settled' ? 'settled' : 'owed', settledHow: r.settledHow || null }))
@@ -3913,6 +3914,10 @@ export async function POST(req: NextRequest) {
           const today = nowIso.slice(0, 10);
           const upd: Record<string, any> = { renewedAt: nowIso, renewalDocumentId: docId, updatedAt: nowIso };
           if (patch.endDate) { upd.endDate = patch.endDate; upd.previousEndDate = lease.endDate || null; }
+          // A lease counted in days keeps its own term for renewing on its own (lib/lease-builder nextTermEnd), worked
+          // out from its record as it stood before this signing; a signed extension, short or long, doesn't change it.
+          // One in whole months keeps its months, running on from the new end.
+          if (!(Number(lease.termMonths) > 0) && !(Number(lease.termDays) > 0)) { const t = nextTermEnd(lease); if (t?.termDays) upd.termDays = t.termDays; }
           if (patch.rentAmountCents) {
             if (!patch.renewalEffective || patch.renewalEffective <= today) { upd.rentAmountCents = patch.rentAmountCents; upd.previousRentAmountCents = Number(lease.rentAmountCents) || 0; leaseNote = ' Rent updated now.'; }
             else { upd.scheduledRent = { cents: patch.rentAmountCents, from: patch.renewalEffective, documentId: docId }; leaseNote = ` Rent changes on ${patch.renewalEffective}.`; }

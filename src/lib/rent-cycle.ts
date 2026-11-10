@@ -27,7 +27,7 @@ export function enumerateDueDates(lease: any, todayIso: string): string[] {
 }
 /** Late, and the fee, by the lease's own policy (the same rule the nightly late sweep applies). */
 export function lateness(lease: any, inv: { dueDate: string; amountCents: number }, todayIso: string) {
-  const policy = lease?.lateFeePolicy || {}; const graceDays = policy.enabled ? n(policy.graceDays) : 3;
+  const policy = lease?.lateFeePolicy || {}; const graceDays = policy.enabled || lease?.leaseFrom === 'builder' ? n(policy.graceDays) : 3;
   const graceEnd = new Date(`${inv.dueDate}T12:00:00Z`); graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
   const late = new Date(`${todayIso}T12:00:00Z`) > graceEnd;
   const feeCents = late && policy.enabled ? (policy.type === 'percent' ? Math.round(n(inv.amountCents) * n(policy.percent) / 100) : Math.round(n(policy.amountCents) || n(policy.amount) * 100)) : 0;

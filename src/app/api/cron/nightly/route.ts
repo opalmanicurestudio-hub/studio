@@ -15,6 +15,8 @@
 
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { applyAllOpenCredits } from '@/lib/rent-credits';
+import { grantLeasePerks } from '@/lib/lease-perks';
+import { nextTermEnd } from '@/lib/lease-builder';
 import { creditLabel } from '@/lib/rent-payment-plan';
 import { isRentCredit } from '@/lib/booth-rental-types';
 import { recordCronRun } from '@/lib/cron-heartbeat';
@@ -449,12 +451,16 @@ export async function GET(req: NextRequest) {
   // A credit posted after a bill went out (a closure credit, money paid ahead, gift cards they took, their shop sales)
   // comes off that open bill tonight instead of waiting for the next one (lib/rent-credits), before the late sweep
   // judges it. Its own loop, so one business's trouble here never stops another's bills.
-  let rentCreditsAppliedCents = 0;
+  // Perks a lease from the builder promises are posted first, on the day they're due (lib/lease-perks), so they come
+  // off open bills in the same step.
+  let rentCreditsAppliedCents = 0; let perksGiven = 0;
   for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try { perksGiven += (await grantLeasePerks(db, tDoc.id, todayIn(tenantTimeZone(tDoc.data() || {})))).given; }
+    catch (e) { console.error('[cron/nightly] lease perks', tDoc.id, e); }
     try { rentCreditsAppliedCents += (await applyAllOpenCredits(db, tDoc.id)).appliedCents; }
     catch (e) { console.error('[cron/nightly] open-bill credits', tDoc.id, e); }
   }
-  results.rentCreditsAppliedCents = rentCreditsAppliedCents;
+  results.rentCreditsAppliedCents = rentCreditsAppliedCents; results.leasePerksGiven = perksGiven;
 
   // ── Leave lifecycle — bring people home on the day they said ────────────
   // Runs AFTER invoicing so a leave's last day is still honoured by the run
@@ -844,13 +850,11 @@ export async function GET(req: NextRequest) {
         const l = ld.data() as any;
         if (l.status !== 'active' || !l.endDate || String(l.endDate).slice(0, 10) >= todayStr) continue;
         if (l.autoRenew) {
-          const termDays = l.startDate
-            ? Math.max(1, Math.round((new Date(l.endDate + 'T00:00:00Z').getTime() - new Date(l.startDate + 'T00:00:00Z').getTime()) / 86400000))
-            : 30;
-          const base = new Date(String(l.endDate).slice(0, 10) + 'T00:00:00Z');
-          base.setUTCDate(base.getUTCDate() + termDays);
-          const newEnd = base.toISOString().slice(0, 10);
-          await ld.ref.set({ endDate: newEnd, renewedAt: new Date().toISOString() }, { merge: true });
+          // One more term of the same length (lib/lease-builder nextTermEnd, shared with the owner's Renew button).
+          const nt = nextTermEnd(l);
+          if (!nt) continue;
+          const newEnd = nt.end;
+          await ld.ref.set({ endDate: newEnd, renewedAt: new Date().toISOString(), ...(nt.termDays ? { termDays: nt.termDays } : {}) }, { merge: true });
           leasesRenewed++;
           await logAuditAdmin(db, tDoc.id, {
             action: 'lease.renewed', targetType: 'lease', targetId: ld.id,
@@ -893,7 +897,8 @@ export async function GET(req: NextRequest) {
         // the day the fix shipped onward are treated like any other. Older ones show in the rent roll for you to review.
         if (lease.autoCollect && due < AUTOCOLLECT_FIXED_FROM) continue;
         const policy = lease.lateFeePolicy || {};
-        const graceDays = policy.enabled ? (Number(policy.graceDays) || 0) : 3;
+        // A lease from the builder states its grace days even with no fee, so its late notices follow them.
+        const graceDays = policy.enabled || lease.leaseFrom === 'builder' ? (Number(policy.graceDays) || 0) : 3;
         const graceEnd = new Date(`${due}T12:00:00Z`);
         graceEnd.setUTCDate(graceEnd.getUTCDate() + graceDays);
         if (todayStr <= graceEnd.toISOString().slice(0, 10)) continue;

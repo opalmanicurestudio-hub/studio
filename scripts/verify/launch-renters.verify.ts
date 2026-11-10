@@ -112,8 +112,8 @@ const read = (p: string) => readFileSync(p, 'utf8');
   const inv = out(await Notify.POST(req({ tenantId: 't1', action: 'portal-invite', renterId: r1, reason: 'lease' })));
   const mail = mails[0] || {};
   check('the email says the lease is ready to sign', inv.ok && /ready to sign/.test(String(mail.subject || '')) && /Read and sign my lease/.test(String(mail.html || '')), { inv, subject: mail.subject });
-  const wiz = read('src/app/(app)/booths/page.tsx');
-  check('the lease wizard sends the portal link when asked (on by default)', /sendInvite: true/.test(wiz) && /action: 'portal-invite', tenantId, renterId: leaseRenterId, reason: leaseForm\.requireSignature \? 'lease' : 'welcome'/.test(wiz));
+  const wiz = read('src/app/(app)/booths/page.tsx'); const lb = read('src/components/renters/LeaseBuilder.tsx');
+  check('the lease builder sends the portal link when asked (on by default)', /const \[invite, setInvite\] = React\.useState\(true\)/.test(lb) && /action: 'portal-invite', tenantId, renterId: renter\.id, reason: sign \? 'lease' : 'welcome'/.test(lb) && /<LeaseBuilder/.test(wiz));
   check('the wizard no longer promises a "Documents tab" or auto-collection that never waited', !/signs in their portal \(Documents tab\)/.test(wiz) && !/Rent auto-collection begins only after they sign/.test(wiz));
 
   console.log('Signing in the portal');

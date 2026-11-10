@@ -244,6 +244,9 @@ export interface CreateLeaseInput {
   renterName?: string | null;
   /** Monthly leases: bill the first, partial period by the day (lib/rent-schedule billCents). */
   prorateFirst?: boolean;
+  /** More of what the lease says, kept on it as it was made (the lease builder: its version, a fingerprint of its
+   *  words, and the terms the lease record doesn't otherwise hold). */
+  extra?: Record<string, any>;
 }
 
 /**
@@ -304,6 +307,8 @@ export async function createLease(
   const signDocRef = awaitSignature ? doc(collection(firestore, 'tenants', input.tenantId, 'renterDocuments')) : null;
 
   const leaseDoc: Omit<Lease, 'id'> & { locationId: string; leaseTerms: string | null; signatureDocumentId: string | null; prorateFirst: boolean } = {
+    // Extra record-keeping from the lease builder goes first, so it can never replace a core field below.
+    ...(input.extra || {}),
     locationId: input.locationId,
     boothId: input.boothId,
     renterId: input.renterId,
@@ -337,7 +342,8 @@ export async function createLease(
     batch.set(signDocRef, {
       id: signDocRef.id, renterId: input.renterId, renterName: input.renterName || null, leaseId: leaseRef.id,
       kind: 'lease', title: 'Your lease', body: terms, action: 'sign', status: 'sent',
-      sentAt: now, sentBy: input.sentBy || null, meta: {},
+      sentAt: now, sentBy: input.sentBy || null,
+      meta: input.extra?.termsSha256 ? { termsSha256: input.extra.termsSha256, leaseVersion: input.extra.leaseVersion ?? null } : {},
     });
   }
 

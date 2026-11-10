@@ -2,7 +2,8 @@
 // (lib/rent-payment-plan): rent bills first, oldest first, then whole one-off charges, anything left over kept as credit
 // on their account, all written to the renter's rent ledger. Taken through the shared checkout, so the till, receipt, Today's sales, split and void all work.
 import { FieldValue } from 'firebase-admin/firestore';
-import { planRentPayment } from '@/lib/rent-payment-plan';
+import { planRentPayment, creditRemainingCents } from '@/lib/rent-payment-plan';
+import { isRentCredit } from '@/lib/booth-rental-types';
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const renterName = (r: any) => `${r?.firstName || ''} ${r?.lastName || ''}`.trim() || r?.name || 'Renter';
 
@@ -18,7 +19,9 @@ export async function renterAccount(db: any, T: string, renterId: string) {
     .sort((a: any, b: any) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')));
   const unpaid = entries.filter((e: any) => num(e.amountCents) > 0 && !['paid', 'waived', 'refunded', 'voided'].includes(String(e.status || '')))
     .sort((a: any, b: any) => String(a.dueDate || a.createdAt || '').localeCompare(String(b.dueDate || b.createdAt || '')));
-  const balanceCents = entries.filter((e: any) => !['waived', 'refunded', 'voided'].includes(String(e.status || ''))).reduce((s: number, e: any) => s + num(e.amountCents), 0);
+  // A credit drawn onto their bills (a closure credit, time away, a lease perk) already shows as less owed on those
+  // bills, so only what's left of it counts here.
+  const balanceCents = entries.filter((e: any) => !['waived', 'refunded', 'voided'].includes(String(e.status || ''))).reduce((s: number, e: any) => s + (isRentCredit(e) ? -creditRemainingCents(e) : num(e.amountCents)), 0);
   const lease: any = ((await db.collection(`${T}/leases`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .find((l: any) => !['ended', 'terminated', 'cancelled'].includes(String(l.status || '')))) || null;
   const booth: any = lease?.boothId ? { id: lease.boothId, ...((await db.doc(`${T}/booths/${lease.boothId}`).get()).data() || {}) } : null;

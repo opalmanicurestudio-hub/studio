@@ -772,8 +772,8 @@ export function isRentCredit(line: any): boolean {
 
 /** Ledger lines that are money held for the renter, drawn down against rent bills (appliedCents says how much is used):
  *  closure credit, time away, sublet income, front-desk collections, money paid ahead, gift cards, shop sales, and a
- *  security deposit applied to what they owe. */
-export const RENT_CREDIT_TYPES = ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit', 'deposit_forfeit'] as const;
+ *  security deposit applied to what they owe, and a perk their lease gives (lib/lease-perks). */
+export const RENT_CREDIT_TYPES = ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit', 'deposit_forfeit', 'perk_credit'] as const;
 
 /** Pending charges whose due date + grace period has passed. */
 export function getPastDueEntries(

@@ -5,7 +5,7 @@ import { nextChargeDate, billCents } from '@/lib/rent-schedule';
 import { renterBusinessCard } from '@/lib/space-stripe';
 import { isRentCredit } from '@/lib/booth-rental-types';
 
-export const CREDIT_LABELS: Record<string, string> = { prepaid_credit: 'Paid ahead', desk_offset: 'Front-desk collections', leave_credit: 'Leave credit', sublet_credit: 'Sublet credit', rent_abatement: 'Rent reduction', gift_card_credit: 'Studio gift cards', retail_sale_credit: 'Online shop sales', deposit_forfeit: 'Security deposit' };
+export const CREDIT_LABELS: Record<string, string> = { prepaid_credit: 'Paid ahead', desk_offset: 'Front-desk collections', leave_credit: 'Leave credit', sublet_credit: 'Sublet credit', rent_abatement: 'Rent reduction', gift_card_credit: 'Studio gift cards', retail_sale_credit: 'Online shop sales', deposit_forfeit: 'Security deposit', perk_credit: 'Lease perk' };
 
 export function rentOutlook(x: { lease: any; renter: any; invoices: any[]; ledger: any[]; todayIso: string; businessAccount?: string | null }) {
   const credits = (x.ledger || []).filter((c) => CREDIT_LABELS[String(c.type || '')] && isRentCredit(c))

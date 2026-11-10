@@ -107,7 +107,6 @@ import { CommsTrail } from '@/components/shared/CommsTrail';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
 import { PRINT, esc, printPage } from '@/lib/print-style';
-import { AGREEMENT_TEMPLATES, fillTemplate } from '@/lib/esign';
 import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
@@ -224,7 +223,6 @@ import {
   WEEKDAY_LABELS,
   formatCents,
   toIsoDate,
-  slotsOverlap,
 } from '@/lib/booth-rental-types';
 import { auditEntry } from '@/lib/audit';
 import { buildGuestBook } from '@/lib/guest-book';
@@ -237,6 +235,8 @@ import {
   useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
 import { createBooth, createRenter, createLease, endLease, offboardingTodos } from '@/lib/booth-rental-service';
+import { LeaseBuilder } from '@/components/renters/LeaseBuilder';
+import { nextTermEnd } from '@/lib/lease-builder';
 import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
@@ -409,22 +409,6 @@ const fmtStamp = (v: any): string => {
   } catch { return s.slice(0, 16); }
 };
 
-// Single default incidentals policy for the whole booths surface — the allowed
-// charge types and their hard caps. Mirrors src/lib/incidentals.ts (server) and
-// esign.ts's lease schedule, so the UI, the signed lease, and the server
-// enforcement all agree. Owners override this on tenants/{id}.incidentalCategories.
-const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
-  { label: 'Cleaning fee', capCents: 7500 },
-  { label: 'Damage', capCents: 50000 },
-  { label: 'Lost key / fob', capCents: 2500 },
-  { label: 'Late checkout', capCents: 5000 },
-  { label: 'Missing product / supplies', capCents: 15000 },
-];
-const resolveBoothIncidentalPolicy = (tenant: any): { label: string; capCents: number }[] => {
-  const saved = tenant?.incidentalCategories;
-  return (Array.isArray(saved) && saved.length) ? saved : BOOTH_DEFAULT_INCIDENTALS;
-};
-
 // Reusable rounded overflow menu — one visual language for "more actions" on
 // dense cards and toolbars. Closes on outside click or selection; matches the
 // app's rounded-2xl, uppercase-label styling. Mobile-friendly tap targets.
@@ -507,45 +491,6 @@ const writeBoothAudit = (firestore: any, tenantId: string, e: any) => {
   } catch { /* non-fatal */ }
 };
 
-// ─── Lease form ───────────────────────────────────────────────────────────────
-
-interface LeaseFormState {
-  boothId: string; rentDollars: string; frequency: RentFrequency;
-  dueDay: string; firstChargeDate: string; startDate: string; endDate: string;
-  autoRenew: boolean; noticeDays: string;
-  isShared: boolean; scheduleDays: WeekDay[]; scheduleStartTime: string;
-  scheduleEndTime: string; scheduleLabel: string;
-  depositDollars: string; depositRefundable: boolean; depositConditions: string;
-  lateFeeEnabled: boolean; lateFeeGraceDays: string; lateFeeType: 'flat' | 'percent';
-  lateFeeAmountDollars: string; lateFeePercent: string;
-  perks: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>[];
-  houseRules: string; signedFile: File | null;
-  // v73 — were returned by buildEmptyLeaseForm() and read at save/review
-  // time but missing from this interface: the file failed tsc because of it.
-  leaseTerms: string;
-  requireSignature: boolean;
-  /** Send the renter their portal link when the lease is made (to sign it, or to see rent and save a card). */
-  sendInvite: boolean;
-  /** Monthly: bill the first, partial period by the day. */
-  prorateFirst: boolean;
-}
-
-function buildEmptyLeaseForm(): LeaseFormState {
-  const today = toIsoDate(new Date());
-  return {
-    boothId: '', rentDollars: '', frequency: 'weekly', dueDay: '1',
-    firstChargeDate: today, startDate: today, endDate: '', autoRenew: true, noticeDays: '30',
-    isShared: false, scheduleDays: [], scheduleStartTime: '', scheduleEndTime: '', scheduleLabel: '',
-    leaseTerms: '',
-    requireSignature: false,
-    sendInvite: true,
-    prorateFirst: true,
-    depositDollars: '', depositRefundable: true, depositConditions: '',
-    lateFeeEnabled: true, lateFeeGraceDays: '3', lateFeeType: 'flat',
-    lateFeeAmountDollars: '25', lateFeePercent: '5',
-    perks: [], houseRules: '', signedFile: null,
-  };
-}
 
 // ─── Pricing Advisor ──────────────────────────────────────────────────────────
 
@@ -2927,12 +2872,8 @@ export default function BoothsPage() {
   const [savingRenter, setSavingRenter] = useState(false);
 
   // ── Lease wizard state ──────────────────────────────────────────────────────
-  const [leaseDialogOpen, setLeaseDialogOpen] = useState(false);
-  const [leaseRenterId, setLeaseRenterId] = useState<string | null>(null);
-  const [leaseStep, setLeaseStep] = useState(0);
-  const [leaseForm, setLeaseForm] = useState<LeaseFormState>(buildEmptyLeaseForm());
-  const [leaseError, setLeaseError] = useState<string | null>(null);
-  const [savingLease, setSavingLease] = useState(false);
+  // The lease builder (components/renters/LeaseBuilder): six steps, the lease's words beside the fields.
+  const [builderRenterId, setBuilderRenterId] = useState<string | null>(null);
 
   const [statusTarget, setStatusTarget] = useState<Renter | null>(null);
   const [newStatus, setNewStatus] = useState<RenterStatus>('on_leave');
@@ -3485,16 +3426,13 @@ export default function BoothsPage() {
     } finally { setReschedSaving(false); }
   };
   const renewLease = async (l: any) => {
-    if (!l.endDate) return;
+    // The same next term the nightly renewal uses (lib/lease-builder nextTermEnd).
+    const nt = nextTermEnd(l);
+    if (!nt) { toast({ title: 'Nothing to renew', description: 'A lease with no end date runs until either side ends it.' }); return; }
     try {
-      const termDays = l.startDate
-        ? Math.max(1, Math.round((new Date(l.endDate + 'T00:00:00Z').getTime() - new Date(l.startDate + 'T00:00:00Z').getTime()) / 86400000))
-        : 30;
-      const base = new Date(l.endDate + 'T00:00:00Z');
-      base.setUTCDate(base.getUTCDate() + termDays);
-      const newEnd = base.toISOString().slice(0, 10);
+      const newEnd = nt.end;
       await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', l.id), {
-        endDate: newEnd, renewedAt: new Date().toISOString(), status: 'active', expiryNotifiedAt: null,
+        endDate: newEnd, renewedAt: new Date().toISOString(), status: 'active', expiryNotifiedAt: null, ...(nt.termDays ? { termDays: nt.termDays } : {}),
       });
       writeBoothAudit(firestore, tenantId, {
         action: 'lease.renewed', targetType: 'lease', targetId: l.id,
@@ -3708,25 +3646,6 @@ export default function BoothsPage() {
     list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.lastName.localeCompare(b.lastName));
     return list;
   }, [renters.data]);
-
-  const conflictingSlots = useMemo(() => {
-    if (!leaseForm.boothId || !leaseForm.isShared) return [];
-    return (leases.data ?? [])
-      .filter((l) => l.boothId === leaseForm.boothId && l.scheduleSlot && l.status === 'active')
-      .map((l) => l.scheduleSlot!);
-  }, [leases.data, leaseForm.boothId, leaseForm.isShared]);
-
-  const hasSlotConflict = useMemo(() => {
-    if (!leaseForm.isShared || leaseForm.scheduleDays.length === 0) return false;
-    // v85 — time-aware: two shared renters CAN share a day with
-    // non-overlapping windows (Mon 9–1 and Mon 2–6 is fine).
-    const proposed = {
-      days: leaseForm.scheduleDays,
-      startTime: leaseForm.scheduleStartTime || undefined,
-      endTime: leaseForm.scheduleEndTime || undefined,
-    };
-    return conflictingSlots.some((existing) => slotsOverlap(proposed, existing));
-  }, [leaseForm.isShared, leaseForm.scheduleDays, conflictingSlots]);
 
   const metrics = useMemo(() => {
     const allBooths = (booths.data ?? []).filter((b) => displayStatus(b) !== 'inactive');
@@ -4757,176 +4676,7 @@ export default function BoothsPage() {
 
   // ── Lease wizard ─────────────────────────────────────────────────────────────
 
-  const openLeaseWizard = (renterId: string) => {
-    setLeaseRenterId(renterId); setLeaseForm(buildEmptyLeaseForm());
-    setLeaseStep(0); setLeaseError(null); setLeaseDialogOpen(true);
-  };
-  const handleLeaseDialogOpenChange = (open: boolean) => {
-    if (!open) { setLeaseStep(0); setLeaseForm(buildEmptyLeaseForm()); setLeaseError(null); }
-    setLeaseDialogOpen(open);
-  };
-  const handleBoothSelect = (boothId: string) => {
-    const booth = boothById.get(boothId);
-    // One-tap prefill: picking the space fills EVERYTHING money-related from
-    // its own rates — prefer the monthly option, fall back to the base rate —
-    // and defaults the deposit to one period's rent (the industry norm).
-    // Every value stays editable; this just makes the happy path zero-typing.
-    const opts: any[] = booth && Array.isArray((booth as any).pricingOptions) ? (booth as any).pricingOptions : [];
-    const monthly = opts.find((o) => o.frequency === 'monthly' && o.amountCents > 0);
-    const rentCents = monthly ? monthly.amountCents : (booth?.baseRentCents || 0);
-    const freq = monthly ? 'monthly' : (booth?.baseRentFrequency || 'monthly');
-    setLeaseForm((prev) => ({
-      ...prev, boothId,
-      rentDollars: booth && rentCents > 0 ? (rentCents / 100).toString() : prev.rentDollars,
-      frequency: booth ? (freq as any) : prev.frequency,
-      dueDay: '1',
-      depositDollars: prev.depositDollars || (rentCents > 0 ? (rentCents / 100).toString() : prev.depositDollars),
-    }));
-  };
-  const toggleScheduleDay = (day: WeekDay) => {
-    setLeaseForm((prev) => ({
-      ...prev,
-      scheduleDays: prev.scheduleDays.includes(day)
-        ? prev.scheduleDays.filter((d) => d !== day)
-        : [...prev.scheduleDays, day],
-    }));
-  };
-  const addPerk = () => {
-    setLeaseForm((prev) => ({
-      ...prev,
-      perks: [...prev.perks, { id: crypto.randomUUID(), type: 'free_week', label: 'Free week',
-        trigger: 'on_signup' }],
-    }));
-  };
-  const updatePerk = (id: string, updated: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>) =>
-    setLeaseForm((prev) => ({ ...prev, perks: prev.perks.map((p) => p.id === id ? updated : p) }));
-  const removePerk = (id: string) =>
-    setLeaseForm((prev) => ({ ...prev, perks: prev.perks.filter((p) => p.id !== id) }));
-
-  const step0Valid =
-    Boolean(leaseForm.boothId && toNumber(leaseForm.rentDollars) > 0) &&
-    !hasSlotConflict &&
-    (!leaseForm.isShared || leaseForm.scheduleDays.length > 0);
-  const step1Valid = (() => {
-    if (!leaseForm.lateFeeEnabled) return true;
-    if (leaseForm.lateFeeType === 'flat' && toNumber(leaseForm.lateFeeAmountDollars) <= 0) return false;
-    if (leaseForm.lateFeeType === 'percent' && toNumber(leaseForm.lateFeePercent) <= 0) return false;
-    return true;
-  })();
-  const wizardCanAdvance = leaseStep === 0 ? step0Valid : leaseStep === 1 ? step1Valid : true;
-
-  // One-tap "use the built-in lease" — fills the terms box with the app's
-  // lawyer-style template, auto-populated from the booth, rent, deposit, dates,
-  // and the studio's incidentals policy. The owner never has to write legal text.
-  const useBuiltInLeaseTemplate = () => {
-    const rt = leaseRenterId ? renterById.get(leaseRenterId) : null;
-    const booth = boothById.get(leaseForm.boothId);
-    const PERIOD: Record<string, string> = { monthly: 'month', weekly: 'week', biweekly: 'two weeks', daily: 'day', hourly: 'hour' };
-    let dateStr = '';
-    try { dateStr = new Date().toLocaleDateString('en-US', { dateStyle: 'long' } as any); } catch { dateStr = ''; }
-    const vars = {
-      date: dateStr,
-      studioName: (selectedTenant as any)?.name || 'the Studio',
-      signerName: rt ? `${rt.firstName || ''} ${rt.lastName || ''}`.trim() : 'the Renter',
-      boothName: booth?.name || 'the space',
-      startDate: leaseForm.startDate || 'the agreed date',
-      rentAmount: `$${toNumber(leaseForm.rentDollars).toFixed(2)}`,
-      rentPeriod: PERIOD[leaseForm.frequency] || 'period',
-      deposit: `$${toNumber(leaseForm.depositDollars).toFixed(2)}`,
-      incidentalsSchedule: resolveBoothIncidentalPolicy(selectedTenant)
-        .map((c: any) => `• ${c.label}${c.capCents ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}`).join('\n'),
-    };
-    setLeaseForm(prev => ({ ...prev, leaseTerms: fillTemplate(AGREEMENT_TEMPLATES.lease.body, vars) }));
-  };
-
-  const handleCreateLease = async () => {
-    if (!leaseRenterId || !leaseForm.boothId || !selectedLocationId || !tenantId) return;
-    if (leaseForm.requireSignature && !leaseForm.leaseTerms.trim()) {
-      setLeaseError('Add the lease terms (or tap “Use built-in lease”) so there’s something for them to sign.'); return;
-    }
-    setSavingLease(true); setLeaseError(null);
-    try {
-      let signedDocumentUrl: string | null = null;
-      if (leaseForm.signedFile) {
-        const path = `tenants/${tenantId}/leases/${Date.now()}-${leaseForm.signedFile.name}`;
-        const fileRef = storageRef(storage, path);
-        await uploadBytes(fileRef, leaseForm.signedFile);
-        signedDocumentUrl = await getDownloadURL(fileRef);
-      }
-      const booth = boothById.get(leaseForm.boothId);
-      const depositCents = Math.round(toNumber(leaseForm.depositDollars) * 100);
-      const scheduleSlot = leaseForm.isShared && leaseForm.scheduleDays.length > 0
-        ? {
-            days: leaseForm.scheduleDays,
-            ...(leaseForm.scheduleStartTime ? { startTime: leaseForm.scheduleStartTime } : {}),
-            ...(leaseForm.scheduleEndTime ? { endTime: leaseForm.scheduleEndTime } : {}),
-            ...(leaseForm.scheduleLabel ? { label: leaseForm.scheduleLabel } : {}),
-          }
-        : null;
-
-      // Every value is concrete (never undefined) and the whole payload is
-      // deep-stripped as a final guard, so Firestore can't reject the write.
-      const leaseRenter: any = renterById.get(leaseRenterId);
-      const leaseRenterName = leaseRenter ? `${leaseRenter.firstName || ''} ${leaseRenter.lastName || ''}`.trim() : '';
-      await createLease(firestore, stripUndefinedDeep({
-        tenantId,
-        locationId: booth?.locationId ?? selectedLocationId,
-        leaseTerms: leaseForm.leaseTerms.trim() || null,
-        requireSignature: leaseForm.requireSignature,
-        renterName: leaseRenterName || null,
-        sentBy: (selectedTenant as any)?.name || null,
-        prorateFirst: leaseForm.frequency === 'monthly' && leaseForm.prorateFirst,
-        boothId: leaseForm.boothId,
-        renterId: leaseRenterId,
-        rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
-        frequency: leaseForm.frequency,
-        dueDay: parseInt(leaseForm.dueDay, 10) || 1,
-        firstChargeDate: leaseForm.firstChargeDate || leaseForm.startDate || null,
-        startDate: leaseForm.startDate || null,
-        endDate: leaseForm.endDate || null,
-        autoRenew: leaseForm.autoRenew,
-        earlyTerminationNoticeDays: parseInt(leaseForm.noticeDays, 10) || 30,
-        deposit: depositCents > 0 ? {
-          amountCents: depositCents,
-          refundable: leaseForm.depositRefundable,
-          refundConditions: leaseForm.depositConditions.trim(),
-          collectedLedgerEntryId: null,
-          refundedLedgerEntryId: null,
-        } : null,
-        lateFeePolicy: {
-          enabled: leaseForm.lateFeeEnabled,
-          graceDays: parseInt(leaseForm.lateFeeGraceDays, 10) || 0,
-          type: leaseForm.lateFeeType,
-          ...(leaseForm.lateFeeType === 'flat'
-            ? { amountCents: Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100) }
-            : { percent: toNumber(leaseForm.lateFeePercent) }),
-        },
-        scheduleSlot,
-        perks: leaseForm.perks || null,
-        includedAmenities: booth?.amenities ?? [],
-        houseRules: leaseForm.houseRules.trim() || null,
-        signedDocumentUrl,
-        isShared: leaseForm.isShared,
-      }));
-
-      // Their portal link: to sign the lease, or to see their rent, save a card and turn on autopay.
-      let sent = '';
-      if (leaseForm.sendInvite) {
-        try {
-          const r = await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-            body: JSON.stringify({ action: 'portal-invite', tenantId, renterId: leaseRenterId, reason: leaseForm.requireSignature ? 'lease' : 'welcome' }) });
-          const d: any = await r.json().catch(() => ({}));
-          const how = [d?.status === 'sent' ? 'email' : '', d?.sms === 'sent' ? 'text' : ''].filter(Boolean).join(' and ');
-          sent = d?.ok && how ? ` ${leaseRenter?.firstName || 'They'} ${leaseRenter?.firstName ? 'has' : 'have'} their portal link by ${how}.` : ` Their portal link wasn’t sent${d?.error ? `: ${d.error}` : ' (no email or phone we could reach)'}. Send it from their profile.`;
-        } catch { sent = ' Their portal link wasn’t sent. Send it from their profile.'; }
-      }
-      toast({ title: leaseForm.requireSignature ? 'Lease sent for signature' : 'Lease created',
-        description: `${leaseForm.requireSignature ? 'Rent starts billing once they sign.' : 'Rent bills on its schedule.'}${sent}` });
-      setLeaseDialogOpen(false);
-    } catch (err) {
-      setLeaseError(err instanceof Error ? err.message : 'Failed to create lease.');
-    } finally { setSavingLease(false); }
-  };
+  const openLeaseWizard = (renterId: string) => { setBuilderRenterId(renterId); };
 
   const handleEndLease = async () => {
     if (!endLeaseTarget || !tenantId) return;
@@ -5020,7 +4770,6 @@ export default function BoothsPage() {
   const selectedRenter = selectedLease
     ? renterById.get(selectedLease.renterId)
     : undefined;
-  const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
 
   // Count only what Operations itself holds. Applications live on /pipeline
@@ -6382,305 +6131,16 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-muted-foreground" />
-              Set up lease
-            </DialogTitle>
-            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{WIZARD_STEPS[leaseStep]}</DialogDescription>
-          </DialogHeader>
-
-          <div className="flex items-center gap-2 pb-1">
-            {WIZARD_STEPS.map((s, i) => (
-              <div key={s} className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-black transition-colors ${i === leaseStep ? 'bg-foreground text-background' : i < leaseStep ? 'bg-emerald-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                  {i < leaseStep ? '✓' : i + 1}
-                </div>
-                {i < WIZARD_STEPS.length - 1 && <div className={`h-0.5 w-5 rounded ${i < leaseStep ? 'bg-emerald-500' : 'bg-border'}`} />}
-              </div>
-            ))}
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">{leaseStep + 1} / {WIZARD_STEPS.length}</p>
-          </div>
-
-          {leaseStep === 0 && (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <Label>Booth</Label>
-                <Select value={leaseForm.boothId} onValueChange={handleBoothSelect}>
-                  <SelectTrigger><SelectValue placeholder="Choose a booth" /></SelectTrigger>
-                  <SelectContent>
-                    {availableBooths.length === 0 && <SelectItem value="none" disabled>No available booths</SelectItem>}
-                    {availableBooths.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name} ({b.status === 'partial' ? 'shared' : 'vacant'}) — {formatCents(b.baseRentCents)} / {(FREQUENCY_LABELS[b.baseRentFrequency] ?? b.baseRentFrequency ?? 'period').toLowerCase()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <p className="text-sm font-medium">Shared / part-time booth</p>
-                  <p className="text-xs text-muted-foreground">Multiple renters share on different days</p>
-                </div>
-                <Switch checked={leaseForm.isShared}
-                  onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, isShared: c, scheduleDays: [] }))} />
-              </div>
-
-              {leaseForm.isShared && (
-                <div className="rounded-lg border p-3 space-y-3">
-                  <div className="space-y-2">
-                    <Label>Days of access</Label>
-                    <div className="flex gap-2 flex-wrap">
-                      {WEEKDAY_OPTIONS.map((opt) => {
-                        const taken = conflictingSlots.some((s) => s.days.includes(opt.value));
-                        const checked = leaseForm.scheduleDays.includes(opt.value);
-                        return (
-                          <button key={opt.value} type="button"
-                            disabled={taken && !checked}
-                            onClick={() => !taken && toggleScheduleDay(opt.value)}
-                            className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
-                              checked ? 'bg-primary text-primary-foreground border-primary'
-                              : taken ? 'opacity-40 cursor-not-allowed border-border'
-                              : 'border-border hover:bg-muted'
-                            }`}>
-                            {opt.label}{taken && !checked && <span className="ml-1 text-[10px] text-destructive">taken</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {hasSlotConflict && <p className="text-xs text-destructive">Selected days conflict with an existing lease.</p>}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1"><Label>Start time (optional)</Label>
-                      <Input type="time" value={leaseForm.scheduleStartTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleStartTime: e.target.value }))} /></div>
-                    <div className="space-y-1"><Label>End time (optional)</Label>
-                      <Input type="time" value={leaseForm.scheduleEndTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleEndTime: e.target.value }))} /></div>
-                  </div>
-                  <div className="space-y-1"><Label>Slot label (optional)</Label>
-                    <Input placeholder="e.g. Tuesday / Thursday mornings" value={leaseForm.scheduleLabel}
-                      onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleLabel: e.target.value }))} /></div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-rent">Rent ($)</Label>
-                  <Input id="l-rent" type="number" value={leaseForm.rentDollars} onChange={(e) => setLeaseForm((p) => ({ ...p, rentDollars: e.target.value }))} /></div>
-                <div className="space-y-1">
-                  <Label>Frequency</Label>
-                  <Select value={leaseForm.frequency} onValueChange={(v) => setLeaseForm((p) => ({ ...p, frequency: v as RentFrequency, dueDay: '1' }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="daily">Daily</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-start">Lease start</Label>
-                  <Input id="l-start" type="date" value={leaseForm.startDate} onChange={(e) => setLeaseForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
-                <div className="space-y-1"><Label htmlFor="l-end">End (blank = month-to-month)</Label>
-                  <Input id="l-end" type="date" min={leaseForm.startDate} value={leaseForm.endDate} onChange={(e) => setLeaseForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-fc">First charge date</Label>
-                  <Input id="l-fc" type="date" min={toIsoDate(new Date())} value={leaseForm.firstChargeDate} onChange={(e) => setLeaseForm((p) => ({ ...p, firstChargeDate: e.target.value }))} /></div>
-                <div className="space-y-1"><Label htmlFor="l-notice">Notice days</Label>
-                  <Input id="l-notice" type="number" value={leaseForm.noticeDays} onChange={(e) => setLeaseForm((p) => ({ ...p, noticeDays: e.target.value }))} /></div>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div><p className="text-sm font-medium">Auto-renew</p>
-                  <p className="text-xs text-muted-foreground">Continues unless either party gives notice</p></div>
-                <Switch checked={leaseForm.autoRenew} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, autoRenew: c }))} />
-              </div>
-              {leaseForm.frequency === 'monthly' && (
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <div><p className="text-sm font-medium">Bill the first part-month by the day</p>
-                    <p className="text-xs text-muted-foreground">When the first charge date isn’t the due day, the first bill covers only the days until the due day. Off: a full month’s rent.</p></div>
-                  <Switch checked={leaseForm.prorateFirst} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, prorateFirst: c }))} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {leaseStep === 1 && (
-            <div className="space-y-4">
-              <div className="space-y-1"><Label htmlFor="l-deposit">Security deposit ($)</Label>
-                <Input id="l-deposit" type="number" placeholder="0 for none" value={leaseForm.depositDollars}
-                  onChange={(e) => setLeaseForm((p) => ({ ...p, depositDollars: e.target.value }))} /></div>
-              {toNumber(leaseForm.depositDollars) > 0 && (
-                <div className="space-y-3 rounded-lg border p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">Deposit is refundable</p>
-                    <Switch checked={leaseForm.depositRefundable} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, depositRefundable: c }))} />
-                  </div>
-                  <div className="space-y-1"><Label htmlFor="l-depcond">Refund conditions</Label>
-                    <Textarea id="l-depcond" placeholder="Returned within 14 days of move-out…" value={leaseForm.depositConditions}
-                      onChange={(e) => setLeaseForm((p) => ({ ...p, depositConditions: e.target.value }))} /></div>
-                </div>
-              )}
-              <div className="space-y-3 rounded-lg border p-3">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-sm font-medium">Late fees</p>
-                    <p className="text-xs text-muted-foreground">Applied after grace period</p></div>
-                  <Switch checked={leaseForm.lateFeeEnabled} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, lateFeeEnabled: c }))} />
-                </div>
-                {leaseForm.lateFeeEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1"><Label>Grace days</Label>
-                      <Input type="number" min={0} value={leaseForm.lateFeeGraceDays} onChange={(e) => setLeaseForm((p) => ({ ...p, lateFeeGraceDays: e.target.value }))} /></div>
-                    <div className="space-y-1"><Label>Type</Label>
-                      <Select value={leaseForm.lateFeeType} onValueChange={(v) => setLeaseForm((p) => ({ ...p, lateFeeType: v as 'flat' | 'percent' }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="flat">Flat $</SelectItem>
-                          <SelectItem value="percent">% of rent</SelectItem>
-                        </SelectContent>
-                      </Select></div>
-                    <div className="space-y-1"><Label>{leaseForm.lateFeeType === 'flat' ? 'Fee ($)' : 'Fee (%)'}</Label>
-                      <Input type="number" min={0.01}
-                        value={leaseForm.lateFeeType === 'flat' ? leaseForm.lateFeeAmountDollars : leaseForm.lateFeePercent}
-                        onChange={(e) => setLeaseForm((p) => p.lateFeeType === 'flat'
-                          ? { ...p, lateFeeAmountDollars: e.target.value }
-                          : { ...p, lateFeePercent: e.target.value })} /></div>
-                  </div>
-                )}
-                {leaseForm.lateFeeEnabled && !step1Valid && <p className="text-xs text-destructive">Enter a fee amount greater than 0.</p>}
-              </div>
-              <div className="space-y-1"><Label htmlFor="l-rules">House rules (optional)</Label>
-                <Textarea id="l-rules" placeholder="Shared space expectations, product policies…" value={leaseForm.houseRules}
-                  onChange={(e) => setLeaseForm((p) => ({ ...p, houseRules: e.target.value }))} /></div>
-              <div className="space-y-1"><Label htmlFor="l-doc">Signed agreement (PDF, optional)</Label>
-                <div className="flex items-center gap-2">
-                  <Input id="l-doc" type="file" accept="application/pdf"
-                    onChange={(e) => setLeaseForm((p) => ({ ...p, signedFile: e.target.files?.[0] ?? null }))} />
-                  <Upload className="h-4 w-4 text-muted-foreground" />
-                </div></div>
-            </div>
-          )}
-
-          {leaseStep === 2 && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Perks are incentives attached to this lease — free weeks, discounts, or credits. They appear on receipts.
-              </p>
-              {leaseForm.perks.map((perk) => (
-                <PerkRow key={perk.id} perk={perk}
-                  onChange={(u) => updatePerk(perk.id, u)}
-                  onRemove={() => removePerk(perk.id)} />
-              ))}
-              <Button variant="outline" onClick={addPerk}><Gift className="h-4 w-4 mr-2" />Add perk</Button>
-              {leaseForm.perks.length === 0 && <p className="text-xs text-muted-foreground">No perks — skip to Review if not needed.</p>}
-            </div>
-          )}
-
-          {leaseStep === 3 && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>Lease terms (shown to the renter)</Label>
-                  <button type="button" onClick={useBuiltInLeaseTemplate} className="h-7 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-indigo-600 hover:bg-indigo-50 flex items-center gap-1 shrink-0">
-                    <FileText className="h-3 w-3" /> Use built-in lease
-                  </button>
-                </div>
-                <Textarea rows={4} placeholder="Tap “Use built-in lease” to auto-fill a ready template — or paste your own terms here…"
-                  value={leaseForm.leaseTerms}
-                  onChange={(e) => setLeaseForm(prev => ({ ...prev, leaseTerms: e.target.value }))} />
-                <p className="text-[12px] text-muted-foreground">With a signature asked for, no PDF upload is needed: the renter reads these terms and types their name to sign in their portal.</p>
-              </div>
-              <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, requireSignature: !prev.requireSignature }))}
-                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
-                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.requireSignature ? 'border-slate-900 bg-foreground text-background' : 'border-border'}`}>{leaseForm.requireSignature ? '✓' : ''}</span>
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-medium">Ask them to sign before it starts</span>
-                  <span className="block text-[12px] text-muted-foreground">The lease waits for their signature. They read these terms and sign in their renter portal, and no rent is billed until they do.</span>
-                </span>
-              </button>
-              <div className="rounded-lg border p-4 space-y-2 text-sm">
-                <p><span className="text-muted-foreground">Booth:</span>{' '}
-                  <span className="font-medium">{selectedLeaseBooth?.name ?? '—'}</span>
-                  {leaseForm.isShared && <Badge variant="outline" className="ml-2 text-[10px]">Shared</Badge>}</p>
-                {leaseForm.isShared && leaseForm.scheduleDays.length > 0 && (
-                  <p><span className="text-muted-foreground">Schedule:</span>{' '}
-                    <span className="font-medium">
-                      {leaseForm.scheduleLabel || leaseForm.scheduleDays.map((d) => WEEKDAY_LABELS[d]).join(', ')}
-                      {leaseForm.scheduleStartTime && ` · ${leaseForm.scheduleStartTime}`}
-                      {leaseForm.scheduleEndTime && `–${leaseForm.scheduleEndTime}`}
-                    </span></p>
-                )}
-                <p><span className="text-muted-foreground">Rent:</span>{' '}
-                  <span className="font-medium">{formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} / {(FREQUENCY_LABELS[leaseForm.frequency] ?? leaseForm.frequency ?? 'period').toLowerCase()}</span></p>
-                {(() => {
-                  // The first bill, by the same rule the rent jobs use (lib/rent-schedule).
-                  const fb = firstBill({ frequency: leaseForm.frequency, dueDay: parseInt(leaseForm.dueDay, 10) || 1, firstChargeDate: leaseForm.firstChargeDate || leaseForm.startDate,
-                    startDate: leaseForm.startDate, rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100), prorateFirst: leaseForm.frequency === 'monthly' && leaseForm.prorateFirst });
-                  if (!fb) return <p><span className="text-muted-foreground">First bill:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate || '—'}</span></p>;
-                  return <p><span className="text-muted-foreground">First bill:</span>{' '}<span className="font-medium">{formatCents(fb.cents)} on {fb.due}{fb.prorated ? ' (by the day, to the first due date)' : ''}{fb.nextDue ? `, then ${formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} on ${fb.nextDue}` : ''}</span>
-                    {leaseForm.requireSignature && <span className="block text-[12px] text-muted-foreground">If they sign after {fb.due}, the first bill is on the day they sign.</span>}</p>;
-                })()}
-                <p><span className="text-muted-foreground">Term:</span>{' '}
-                  <span className="font-medium">{leaseForm.startDate} — {leaseForm.endDate || 'month-to-month'}{leaseForm.autoRenew ? ' (auto-renews)' : ''}</span></p>
-                <p><span className="text-muted-foreground">Deposit:</span>{' '}
-                  <span className="font-medium">{toNumber(leaseForm.depositDollars) > 0
-                    ? `${formatCents(Math.round(toNumber(leaseForm.depositDollars) * 100))} (${leaseForm.depositRefundable ? 'refundable' : 'non-refundable'})`
-                    : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Late fee:</span>{' '}
-                  <span className="font-medium">{leaseForm.lateFeeEnabled
-                    ? leaseForm.lateFeeType === 'flat'
-                      ? `${formatCents(Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100))} after ${leaseForm.lateFeeGraceDays} grace days`
-                      : `${leaseForm.lateFeePercent}% after ${leaseForm.lateFeeGraceDays} grace days`
-                    : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Perks:</span>{' '}
-                  <span className="font-medium">{leaseForm.perks.length > 0 ? leaseForm.perks.map((p) => p.label).join(', ') : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Agreement:</span>{' '}
-                  <span className="font-medium">{leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}</span></p>
-              </div>
-              <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, sendInvite: !prev.sendInvite }))} aria-pressed={leaseForm.sendInvite}
-                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.sendInvite ? 'border-slate-900 bg-muted/60' : 'border-border'}`}>
-                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.sendInvite ? 'border-slate-900 bg-foreground text-background' : 'border-border'}`}>{leaseForm.sendInvite ? '✓' : ''}</span>
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-medium">Send their portal link now</span>
-                  <span className="block text-[12px] text-muted-foreground">{leaseForm.requireSignature
-                    ? 'By email and text: their lease is ready to sign. The link works for 30 days.'
-                    : 'By email and text, so they can see their rent, save a card and turn on autopay. The link works for 30 days.'}</span>
-                </span>
-              </button>
-              <p className="text-xs text-muted-foreground">
-                Creating this lease marks the space {leaseForm.isShared ? 'as shared' : 'taken'}{leaseForm.requireSignature ? ' while it waits for their signature' : ' and the renter active'}.
-              </p>
-              {leaseError && (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 shrink-0" />{leaseError}
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            {leaseStep > 0 && (
-              <Button variant="outline" onClick={() => setLeaseStep((s) => s - 1)} disabled={savingLease}>
-                <ChevronLeft className="h-4 w-4 mr-1" />Back
-              </Button>
-            )}
-            {leaseStep < WIZARD_STEPS.length - 1 && (
-              <Button onClick={() => setLeaseStep((s) => s + 1)} disabled={!wizardCanAdvance}>
-                Next<ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            )}
-            {leaseStep === WIZARD_STEPS.length - 1 && (
-              <Button onClick={handleCreateLease} disabled={savingLease}>
-                {savingLease ? 'Creating…' : 'Create lease'}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {builderRenterId && tenantId && renterById.get(builderRenterId) && (
+        <LeaseBuilder
+          tenantId={tenantId} tenant={selectedTenant} firestore={firestore}
+          renter={renterById.get(builderRenterId)}
+          booths={(booths.data || []) as any[]} locations={(locations || []) as any[]} leases={(leases.data || []) as any[]}
+          uploadSigned={storage ? async (file: File) => { const r = storageRef(storage, `tenants/${tenantId}/leases/${Date.now()}-${file.name}`); await uploadBytes(r, file); return getDownloadURL(r); } : undefined}
+          onClose={() => setBuilderRenterId(null)}
+          onCreated={(_id, said) => { setBuilderRenterId(null); toast({ title: 'Lease made', description: said }); }}
+        />
+      )}
 
       <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">

@@ -78,7 +78,7 @@ export function creditRemainingCents(line: any): number {
 export function creditLabel(type: string): string {
   return type === 'desk_offset' ? 'front-desk collections' : type === 'prepaid_credit' ? 'paid ahead' : type === 'gift_card_credit' ? 'gift cards'
     : type === 'retail_sale_credit' ? 'online shop sales' : type === 'rent_abatement' ? 'closure credit' : type === 'leave_credit' ? 'time-away credit'
-    : type === 'sublet_credit' ? 'sublet income' : type === 'deposit_forfeit' ? 'security deposit' : String(type || 'credit').replace(/_/g, ' ');
+    : type === 'sublet_credit' ? 'sublet income' : type === 'deposit_forfeit' ? 'security deposit' : type === 'perk_credit' ? 'lease perk' : String(type || 'credit').replace(/_/g, ' ');
 }
 
 /** Can credits safely go on this open bill now? Not while autopay may still be charging it, or has charged it without
