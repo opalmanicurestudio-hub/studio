@@ -130,7 +130,7 @@ export type NeedKind = 'late' | 'signature' | 'papers' | 'ending' | 'concern' | 
 export interface NeedAction { label: string; href: string; primary?: boolean }
 export interface NeedItem { id: string; kind: NeedKind; rank: number; title: string; detail: string; actions: NeedAction[] }
 
-const renterHref = (id: string) => `/renters?renter=${encodeURIComponent(id)}`;
+const renterHref = (id: string) => `/renters/${encodeURIComponent(id)}`;
 
 export interface RentalsHomeInput {
   todayIso: string; nowIso: string; tenant: any;
@@ -196,7 +196,7 @@ export function rentalsHome(x: RentalsHomeInput) {
     items.push({ id: `late-${rid}`, kind: 'late', rank: 10 - Math.min(9, daysLate) / 10,
       title: `${nameOf(r)} · rent ${daysLate ? `${plural(daysLate, 'day')} late` : 'late'}`,
       detail: withSpace(`${money(owed)} owed${fees ? ', including late fees' : ''}`, rid),
-      actions: [{ label: 'Message', href: renterHref(rid) }, { label: 'Record payment', href: `/rent?pay=${encodeURIComponent(rid)}`, primary: true }] });
+      actions: [{ label: 'Message', href: `${renterHref(rid)}?tab=messages` }, { label: 'Record payment', href: `/rent?pay=${encodeURIComponent(rid)}`, primary: true }] });
   }
   for (const l of leases.filter((l) => l.status === 'pending_signature')) {
     const r = renterById.get(l.renterId);
@@ -245,7 +245,7 @@ export function rentalsHome(x: RentalsHomeInput) {
     // Only from someone still on the books, as the messages desk shows them.
     const rid = String(t.renterId || t.id || ''); const r = renterById.get(rid); if (!r) continue;
     items.push({ id: `message-${rid}`, kind: 'message', rank: 25, title: `${nameOf(r)} wrote to you`, detail: 'Not read yet',
-      actions: [{ label: 'Reply', href: '/renters?desk=inbox' }] });
+      actions: [{ label: 'Reply', href: `${renterHref(rid)}?tab=messages` }] });
   }
   for (const t of (x.tickets || []).filter((t) => t?.status === 'open' || t?.status === 'in_progress')) {
     const answered = ticketAcknowledged(t); const late = isTicketOverdue(t, x.nowIso);

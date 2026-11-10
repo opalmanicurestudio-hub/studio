@@ -115,13 +115,13 @@ const nowIso = '2026-11-10T15:00:00.000Z';
   const ids = x.needs.map((n: any) => n.id);
   const by = (id: string) => x.needs.find((n: any) => n.id === id);
   check('late rent: days late, owed with late fees, Message and Record payment', by('late-r1')?.title === 'Jordan Lee · rent 9 days late' && /\$1,025 owed, including late fees · Suite 1/.test(by('late-r1')!.detail)
-    && by('late-r1')!.actions.map((a: any) => `${a.label}>${a.href}`).join() === 'Message>/renters?renter=r1,Record payment>/rent?pay=r1' && by('late-r1')!.actions[1].primary === true, by('late-r1'));
+    && by('late-r1')!.actions.map((a: any) => `${a.label}>${a.href}`).join() === 'Message>/renters/r1?tab=messages,Record payment>/rent?pay=r1' && by('late-r1')!.actions[1].primary === true, by('late-r1'));
   check('a lease not signed yet, sent days ago', by('sign-l7')?.title === 'Maya Ortiz hasn’t signed their lease' && by('sign-l7')!.detail === 'Sent Nov 4 · Suite 7');
   check('papers: insurance running out for a leased renter; license missing when required; a prospect isn’t asked', by('papers-r1-insurance')?.title === 'Jordan Lee · liability insurance expires in 6 days' && !!by('papers-r1-license') && /lease settings ask for it/.test(by('papers-r1-license')!.detail)
     && !ids.some((i: string) => i.startsWith('papers-r3') || i.startsWith('papers-r5') || i.startsWith('papers-r2')), ids);
   check('a lease ending that doesn’t renew; one that renews isn’t a to-do', by('ending-l1')?.title === 'Jordan Lee · lease ends Dec 31' && /Doesn’t renew on its own · in 51 days/.test(by('ending-l1')!.detail) && !by('ending-l2'));
   check('an unanswered concern, with Reply to the concerns desk; an answered one isn’t listed', by('concern-g1')?.title === 'Concern C-2611-K7PQ · Noise or disruption' && /raised yesterday/.test(by('concern-g1')!.detail) && by('concern-g1')!.actions[0].href === '/renters?desk=concerns' && !by('concern-g2'), by('concern-g1'));
-  check('an unread message', by('message-r4')?.title === 'Rosa Diaz wrote to you' && by('message-r4')!.actions[0].href === '/renters?desk=inbox');
+  check('an unread message', by('message-r4')?.title === 'Rosa Diaz wrote to you' && by('message-r4')!.actions[0].href === '/renters/r4?tab=messages');
   check('a repair nobody has answered, with how long is left; one being worked on in time isn’t listed', by('repair-t1')?.title === 'Repair · Suite 2 · Sink' && by('repair-t1')!.detail === 'High · answer due in 2 hours' && !by('repair-t2') && !by('repair-t3'), by('repair-t1'));
   check('time away asked for, to review on the Rent page', by('away-lv2')?.title === 'Alex Kim asked for time away' && by('away-lv2')!.detail === 'Dec 1 to Dec 14' && by('away-lv2')!.actions[0].href === '/rent#time-away');
   check('a new application, to review in the pipeline; waitlist and decided ones aren’t', by('app-a1')?.title === 'Dev Rao applied for Suite 3' && by('app-a1')!.actions[0].href === '/pipeline?lead=a1' && !by('app-a2') && !by('app-a3'));

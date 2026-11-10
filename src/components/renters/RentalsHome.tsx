@@ -132,7 +132,7 @@ export function RentalsHome({ tenantId, locationId, businessName, locationSwitch
                   <ul>
                     {data.ending.map((e, i) => (
                       <li key={e.leaseId} className={`flex items-center justify-between gap-3 py-1 text-[14px] ${i ? 'border-t border-[#ececee]' : ''}`}>
-                        <Link href={`/renters?renter=${encodeURIComponent(e.renterId)}`} className="flex min-h-[44px] min-w-0 items-center break-words text-[#16171a] hover:underline">{e.renter} · {e.space}</Link>
+                        <Link href={`/renters/${encodeURIComponent(e.renterId)}`} className="flex min-h-[44px] min-w-0 items-center break-words text-[#16171a] hover:underline">{e.renter} · {e.space}</Link>
                         <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${e.renews ? 'bg-[#f5f5f7] text-[#16171a]' : 'bg-[#fff7ed] text-[#b45309]'}`}>{monthDay(e.endDate)} · {e.renews ? 'renews' : 'ends'}</span>
                       </li>
                     ))}

@@ -187,7 +187,7 @@ const dep = (body: any) => import('../../src/app/api/rent/deposit/route').then((
 
   console.log('Where it’s used');
   const drawer = src('src/components/renters/RenterProfileDrawer.tsx'); const booths = src('src/app/(app)/booths/page.tsx');
-  check('a renter’s profile and the Spaces dialog both record deposits on the server', drawer.includes("fetch('/api/rent/deposit'") && !drawer.includes("method: type === 'deposit_refund' ? 'refund'") && booths.includes("fetch('/api/rent/deposit'") && !booths.includes("taxBucket: 'transfer',\n          source: 'booth_rent', category: 'Booth Deposit'"));
+  check('a renter’s profile records deposits on the server, and the Spaces page has no second payment dialog of its own', drawer.includes("fetch('/api/rent/deposit'") && !drawer.includes("method: type === 'deposit_refund' ? 'refund'") && !booths.includes("fetch('/api/rent/deposit'") && !booths.includes("fetch('/api/rent/record-payment'") && !booths.includes("taxBucket: 'transfer',\n          source: 'booth_rent', category: 'Booth Deposit'"));
   const MP = await import('../../src/lib/message-policy');
   const k = (id: string) => (MP.MESSAGE_KINDS as any[]).find((x) => x.id === id);
   check('the messages are in Messages for renters; deposit and charge notices can’t be switched off', k('deposit_notice')?.canDisable === false && k('renter_charge_added')?.canDisable === false && k('renter_credit')?.canDisable === true && ['deposit_notice', 'renter_charge_added', 'renter_credit'].every((id) => k(id)?.group === 'Renters'));

@@ -171,7 +171,7 @@ export function SpacesBoard({ tenantId, locationId, refreshKey, onEdit, onLease 
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {chosen.renterIds.slice(0, 2).map((id, i) => (
-                  <Link key={id} href={`/renters?renter=${encodeURIComponent(id)}`} className={dark}>{chosen.renterIds.length > 1 ? `Open ${chosen.renter.split(', ')[i] || 'renter'}` : 'Open renter'}</Link>
+                  <Link key={id} href={`/renters/${encodeURIComponent(id)}`} className={dark}>{chosen.renterIds.length > 1 ? `Open ${chosen.renter.split(', ')[i] || 'renter'}` : 'Open renter'}</Link>
                 ))}
                 <Link href="/maintenance" className={light}>Report a repair</Link>
                 <button type="button" className={light} onClick={() => onEdit(chosen.id)}>Edit space</button>

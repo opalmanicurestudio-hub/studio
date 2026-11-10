@@ -16,7 +16,9 @@ const rows = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {})
 export async function GET(req: NextRequest) {
   const tenantId = String(req.nextUrl.searchParams.get('tenantId') || '').trim().slice(0, 120);
   const locationId = String(req.nextUrl.searchParams.get('locationId') || '').trim().slice(0, 120);
-  const g = await requireCan(req, tenantId, 'money.view'); if (g.deny) return g.deny;
+  const g: any = await requireCan(req, tenantId, 'money.view'); if (g.deny) return g.deny;
+  // Renters' money is for the business, never for a renter signed in on the team side.
+  if (g.actor?.isRenter) return j({ ok: false, error: 'This is for the business only.' }, 403);
   try {
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
     const tenant: any = ((await db.doc(T).get()).data() as any) || {};

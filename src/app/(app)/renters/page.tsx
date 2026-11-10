@@ -16,7 +16,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { collection, doc, onSnapshot, updateDoc, setDoc, query, where } from 'firebase/firestore';
-import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -25,17 +24,16 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { RentalsHeader, RENTALS_BTN, RENTALS_BTN_DARK } from '@/components/renters/RentalsNav';
 import { RentersRoster } from '@/components/renters/RentersRoster';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { cn } from '@/lib/utils';
 import {
   Users, AlertTriangle, CheckCircle2, Loader, Phone, Mail,
   ArrowRight, Armchair, Moon, ExternalLink,
 } from 'lucide-react';
-import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { RenterCommsDesk } from '@/components/renters/RenterCommsDesk';
 import { staffMirrorFields, mirrorDiffers, publicName } from '@/lib/renter-identity';
 import { bookableState } from '@/lib/bookable';
-import { PrintLink } from '@/components/shared/PrintLink';
 
 type R = any;
 
@@ -64,21 +62,9 @@ export default function RentersPage() {
   const [leases, setLeases] = useState<R[]>([]);
   const [staff, setStaff] = useState<R[]>([]);
   const [booths, setBooths] = useState<R[]>([]);
-  const [reservations, setReservations] = useState<R[]>([]);
-  const [amenityRequests, setAmenityRequests] = useState<R[]>([]);
-  const [profileRenter, setProfileRenter] = useState<R | null>(null);
-  // Their W-9, as the owner may see it (the number masked: /api/booths/w9), for the profile they open.
-  const [w9Of, setW9Of] = useState<Record<string, any>>({});
-  useEffect(() => {
-    const id = profileRenter?.id; if (!id || !tenantId || w9Of[id] !== undefined) return;
-    staffAuthHeader().then((h) => fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(id)}`, { headers: h }))
-      // Only a real answer is kept; a failed look leaves it to try again next time the profile opens.
-      .then((res) => res.json()).then((d) => { if (d?.ok) setW9Of((m) => ({ ...m, [id]: d.w9 || null })); })
-      .catch(() => undefined);
-  }, [profileRenter?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [editing, setEditing] = useState<R | null>(null);
-  const [ending, setEnding] = useState<R | null>(null);
-  const [busy, setBusy] = useState(false);
+  const router = useRouter();
+  // Each renter has their own page (app/(app)/renters/[renterId]): the list, the messages desk and links all open it.
+  const openRenter = (id: string, tab?: string) => router.push(`/renters/${encodeURIComponent(id)}${tab ? `?tab=${tab}` : ''}`);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [renterServices, setRenterServices] = useState<any[]>([]);
@@ -91,7 +77,6 @@ export default function RentersPage() {
         () => { if (done) setLoading(false); });
     const unsubs = [sub('renters', setRenters, true), sub('leases', setLeases),
       sub('staff', setStaff), sub('booths', setBooths),
-      sub('boothReservations', setReservations), sub('amenityRequests', setAmenityRequests),
       sub('renterServices', setRenterServices)];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
@@ -113,7 +98,7 @@ export default function RentersPage() {
     linked.current = true;
     const q = new URLSearchParams(window.location.search);
     const rid = q.get('renter'); const desk = q.get('desk');
-    if (rid) { const r = renters.find((x) => x.id === rid); if (r) setProfileRenter(r); }
+    if (rid) { router.replace(`/renters/${encodeURIComponent(rid)}`); return; }   // older links to a renter
     if (desk === 'inbox' || desk === 'concerns') {
       setDeskTab(desk);
       setTimeout(() => document.getElementById('renter-desk')?.scrollIntoView({ block: 'start' }), 50);
@@ -201,137 +186,20 @@ export default function RentersPage() {
                 </div>
                 {book.reason === 'no_provider'
                   ? <button type="button" onClick={() => void enableBookings(r)} disabled={enabling === r.id} className={RENTALS_BTN_DARK}>{enabling === r.id ? 'Turning on…' : 'Turn on bookings'}</button>
-                  : <button type="button" onClick={() => setProfileRenter(r)} className={RENTALS_BTN}>Open</button>}
+                  : <button type="button" onClick={() => openRenter(r.id)} className={RENTALS_BTN}>Open</button>}
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      {tenantId && <RentersRoster tenantId={tenantId} locationId={selectedLocationId} refreshKey={rosterKey} onOpen={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} />}
+      {tenantId && <RentersRoster tenantId={tenantId} locationId={selectedLocationId} refreshKey={rosterKey} onOpen={(id) => openRenter(id)} />}
 
       {tenantId && (
         <div id="renter-desk" className="scroll-mt-20"><RenterCommsDesk tenantId={tenantId} firestore={firestore} tenant={selectedTenant} renters={renters} booths={booths} leases={leases} initialTab={deskTab}
-          studioName={selectedTenant?.name || 'The business'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} /></div>
+          studioName={selectedTenant?.name || 'The business'} onOpenRenter={(id) => openRenter(id, 'messages')} /></div>
       )}
 
-      {profileRenter && tenantId && (() => {
-        const myLease = leases.find((l) => l.renterId === profileRenter.id
-          && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
-        const booth = myLease ? booths.find((b) => b.id === myLease.boothId) : undefined;
-        return (
-          <RenterProfileDrawer
-            renter={profileRenter}
-            lease={myLease}
-            booth={booth}
-            reservations={reservations}
-            amenityRequests={amenityRequests}
-            w9={w9Of[profileRenter.id]}
-            tenantId={tenantId}
-            firestore={firestore}
-            onClose={() => setProfileRenter(null)}
-            onEdit={() => { const r = profileRenter; setProfileRenter(null); setEditing({ ...r }); }}
-            onLease={() => { window.location.href = `/booths?lease=${profileRenter.id}`; }}
-            onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEnding(r); }}
-          />
-        );
-      })()}
-
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEditing(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-card p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <p className="text-[11px] font-black uppercase tracking-widest">Edit renter</p>
-            {([['firstName', 'First name'], ['lastName', 'Last name'], ['email', 'Email'], ['phone', 'Phone'],
-              ['specialty', 'Specialty'], ['businessName', 'Business name']] as [string, string][]).map(([k, label]) => (
-              <label key={k} className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
-                <input value={editing[k] || ''} onChange={(e) => setEditing({ ...editing, [k]: e.target.value })}
-                  className="mt-1 w-full rounded-xl border-2 px-3 py-2 text-sm font-bold" />
-              </label>
-            ))}
-            <div className="flex gap-2 pt-1">
-              <button disabled={busy} onClick={async () => {
-                if (!firestore || !tenantId) return;
-                setBusy(true);
-                try {
-                  await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', editing.id), {
-                    firstName: editing.firstName || '', lastName: editing.lastName || '',
-                    email: editing.email || '', phone: editing.phone || '',
-                    specialty: editing.specialty || '', businessName: editing.businessName || '',
-                    updatedAt: new Date().toISOString(),
-                  });
-                  // Their provider record carries the name the booking page
-                  // shows. Editing one and not the other is how a renter ends
-                  // up publicly listed under a name nobody uses any more.
-                  const prov = staff.find((m: any) => m.isRenter && m.renterId === editing.id);
-                  if (prov) {
-                    const mirror = staffMirrorFields({ ...editing, photoUrl: undefined });
-                    if (mirrorDiffers(mirror, prov)) await updateDoc(doc(firestore, 'tenants', tenantId, 'staff', prov.id), mirror);
-                  }
-                  toast({ title: 'Saved', description: prov ? `${publicName(editing)} — booking page updated too` : `${editing.firstName} ${editing.lastName}` });
-                  setEditing(null);
-                } catch { toast({ title: 'Could not save', description: 'Try again.' }); }
-                setBusy(false);
-              }} className="flex-1 rounded-2xl bg-foreground py-3 text-[11px] font-black uppercase tracking-widest text-background disabled:opacity-50">
-                {busy ? 'Saving…' : 'Save'}
-              </button>
-              <button onClick={() => setEditing(null)} className="rounded-2xl bg-muted px-5 py-3 text-[11px] font-black uppercase tracking-widest text-foreground/80">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {ending && (() => {
-        const lease = leases.find((l) => l.renterId === ending.id && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
-        const others = leases.filter((l) => l.renterId === ending.id && l.id !== lease?.id && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
-        const todos = lease ? offboardingTodos(lease) : [];
-        return (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={() => setEnding(null)}>
-            <div className="w-full max-w-md rounded-2xl bg-card p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-              <p className="text-[11px] font-black uppercase tracking-widest">End lease</p>
-              <p className="text-sm font-bold">
-                This ends <strong>{ending.firstName} {ending.lastName}</strong>&apos;s lease immediately and frees the booth. It can&apos;t be undone.
-              </p>
-              {others.length > 0 ? (
-                <p className="text-xs font-bold">They still rent {others.length === 1 ? 'another space' : `${others.length} other spaces`}, so they stay an active renter and keep taking bookings.</p>
-              ) : (
-                <div className="rounded-xl border-2 p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest">Also happens</p>
-                  <p className="text-xs font-bold">They&apos;re marked Past and stop being bookable, so clients can&apos;t book someone who has left. Re-leasing them later turns it all back on.</p>
-                </div>
-              )}
-              {todos.length > 0 && (
-                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 space-y-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Still yours to settle</p>
-                  {todos.map((t) => <p key={t} className="text-xs font-bold text-amber-900">{t}</p>)}
-                  <p className="text-[10px] font-bold text-amber-700">Not done automatically — money doesn&apos;t move on a status change.</p>
-                </div>
-              )}
-              {lease && (
-                <PrintLink path="/api/booths/account-statement" params={{ tenantId: tenantId || '', renterId: ending.id, mode: 'final' }}
-                  className="flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-[11px] font-black uppercase tracking-widest text-foreground/80">
-                  <span>Print move-out statement</span><span className="text-muted-foreground">↗</span>
-                </PrintLink>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button disabled={busy || !lease} onClick={async () => {
-                  if (!firestore || !tenantId || !lease) return;
-                  setBusy(true);
-                  try {
-                    await endLease(firestore, tenantId, lease, ending.id, leases);
-                    toast({ title: 'Lease ended', description: `${ending.firstName} ${ending.lastName}` });
-                    setEnding(null);
-                  } catch { toast({ title: 'Could not end lease', description: 'Try again.' }); }
-                  setBusy(false);
-                }} className="flex-1 rounded-2xl bg-rose-600 py-3 text-[11px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                  {busy ? 'Ending…' : lease ? 'End lease' : 'No active lease'}
-                </button>
-                <button onClick={() => setEnding(null)} className="rounded-2xl bg-muted px-5 py-3 text-[11px] font-black uppercase tracking-widest text-foreground/80">Cancel</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
       </div>
     </div>
   );

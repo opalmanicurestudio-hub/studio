@@ -97,7 +97,7 @@ const AUTOPAY_PAPER_OK = (first?: string) => `Turn on automatic rent for ${first
 export function RenterProfileDrawer({
   renter, lease, booth, reservations, amenityRequests, w9, tenantId, firestore,
   onClose, onEdit, onLease, onEndLease, contactNote, onSaveNote,
-  onRecordPayment, onAddCard,
+  onRecordPayment, onAddCard, inPage, pageTab,
 }: {
   renter: Renter;
   lease?: Lease;
@@ -115,8 +115,13 @@ export function RenterProfileDrawer({
   onSaveNote?: (note: string) => void;
   onRecordPayment?: (() => void) | null;
   onAddCard?: () => void;
+  /** Shown inside the renter's own page (components/renters/RenterPage), which draws its own header and tabs: just
+   *  the chosen tab's content, no overlay. */
+  inPage?: boolean;
+  pageTab?: 'overview' | 'money' | 'documents' | 'messages' | 'activity';
 }) {
-  const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'messages' | 'activity'>('overview');
+  const [ptabOwn, setPtab] = useState<'overview' | 'money' | 'documents' | 'messages' | 'activity'>('overview');
+  const ptab = inPage && pageTab ? pageTab : ptabOwn;
   const [refundOpen, setRefundOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
   const [chargeAmt, setChargeAmt] = useState('');
@@ -204,15 +209,22 @@ export function RenterProfileDrawer({
   useEffect(() => { if (!refundArm) return; const t = setTimeout(() => setRefundArm(false), 5000); return () => clearTimeout(t); }, [refundArm]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Their messages are marked read once they can be seen: whenever the card is open, or on the page only on Messages.
+  const seenRef = React.useRef(!inPage || pageTab === 'messages');
+  seenRef.current = !inPage || pageTab === 'messages';
   useEffect(() => {
     if (!firestore || !tenantId || !renter?.id) return;
     const q = query(collection(firestore, 'tenants', tenantId, 'renterThreads', renter.id, 'messages'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setThread(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
-      setDoc(doc(firestore, 'tenants', tenantId, 'renterThreads', renter.id), { unreadForOwner: false, ownerSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      if (seenRef.current) setDoc(doc(firestore, 'tenants', tenantId, 'renterThreads', renter.id), { unreadForOwner: false, ownerSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
     }, () => setThread([]));
     return () => unsub();
   }, [firestore, tenantId, renter?.id]);
+  useEffect(() => {
+    if (!inPage || pageTab !== 'messages' || !firestore || !tenantId || !renter?.id || thread === null) return;
+    setDoc(doc(firestore, 'tenants', tenantId, 'renterThreads', renter.id), { unreadForOwner: false, ownerSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+  }, [inPage, pageTab, firestore, tenantId, renter?.id, thread === null]); // eslint-disable-line react-hooks/exhaustive-deps
   const sendMessage = async () => {
     const text = draft.trim();
     if (!text || sending) return;
@@ -375,68 +387,8 @@ export function RenterProfileDrawer({
     { id: 'activity', label: 'Activity' },
   ] as const;
 
-  return (
-    <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white px-5 pt-5 pb-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3.5 min-w-0">
-              {(renter as any).avatarUrl ? (
-                <img src={(renter as any).avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-2 ring-white/30" />
-              ) : (
-                <div className="w-14 h-14 rounded-2xl bg-card/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
-                  {(renter.firstName || '?').charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="font-black text-lg leading-tight truncate">{fullName}</p>
-                {renter.businessName && <p className="text-[10px] font-bold text-white/50 truncate">{renter.businessName}{renter.specialty ? ` · ${renter.specialty}` : ''}</p>}
-                {!renter.businessName && renter.specialty && <p className="text-[10px] font-bold text-white/50 truncate">{renter.specialty}</p>}
-                <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-card/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
-                  {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
-                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">W-9 on file</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">No W-9</span> : null}
-                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
-                </div>
-              </div>
-            </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Station</p>
-              <p className="text-sm font-black truncate">{booth?.name || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Rent</p>
-              <p className="text-sm font-black truncate">{lease ? `${formatCents(lease.rentAmountCents)}/${(lease.frequency || 'mo').slice(0, 2)}` : '—'}</p>
-            </div>
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">This year</p>
-              <p className="text-sm font-black truncate text-emerald-300">${ytdTotal.toFixed(0)}</p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 mt-3">
-            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
-            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
-            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
-            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
-          </div>
-
-          <div className="flex gap-0 mt-3">
-            {PTABS.map(t => (
-              <button key={t.id} onClick={() => setPtab(t.id)}
-                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-card text-foreground' : 'text-white/50 hover:text-white/80'}`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+  const body = (
+        <div className={inPage ? 'space-y-4' : 'flex-1 overflow-y-auto px-5 py-4 space-y-4'}>
           {ptab === 'overview' && (
             <>
               <div className="rounded-2xl border-2 p-4 space-y-2">
@@ -515,7 +467,7 @@ export function RenterProfileDrawer({
                 return (
                   <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-2">
                     <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5"><Coffee className="h-3 w-3" /> Client concierge</p>
-                    <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their booth'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
+                    <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their space'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
                     <div className="flex items-center gap-2">
                       <input readOnly value={link || (stationLinkBusy ? 'Making the link…' : '')} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-card truncate" onFocus={(e) => e.currentTarget.select()} />
                       <button onClick={() => { if (link) navigator.clipboard?.writeText(link).catch(() => {}); }} disabled={!link} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0 disabled:opacity-40">Copy</button>
@@ -807,7 +759,7 @@ export function RenterProfileDrawer({
                   {txns.map(t => (
                     <div key={t.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">{t.description || 'Booth rent'}</p>
+                        <p className="text-xs font-black truncate">{t.description || 'Rent'}</p>
                         <p className="text-[10px] font-bold text-muted-foreground truncate">
                           {(() => { try { return new Date(t.date || t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return dateStr(t.date || t.createdAt); } })()}
                           {t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
@@ -958,6 +910,71 @@ export function RenterProfileDrawer({
             )
           )}
         </div>
+  );
+  if (inPage) return body;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white px-5 pt-5 pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              {(renter as any).avatarUrl ? (
+                <img src={(renter as any).avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-2 ring-white/30" />
+              ) : (
+                <div className="w-14 h-14 rounded-2xl bg-card/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
+                  {(renter.firstName || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-black text-lg leading-tight truncate">{fullName}</p>
+                {renter.businessName && <p className="text-[10px] font-bold text-white/50 truncate">{renter.businessName}{renter.specialty ? ` · ${renter.specialty}` : ''}</p>}
+                {!renter.businessName && renter.specialty && <p className="text-[10px] font-bold text-white/50 truncate">{renter.specialty}</p>}
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-card/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
+                  {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
+                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">W-9 on file</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">No W-9</span> : null}
+                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
+                </div>
+              </div>
+            </div>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Space</p>
+              <p className="text-sm font-black truncate">{booth?.name || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Rent</p>
+              <p className="text-sm font-black truncate">{lease ? `${formatCents(lease.rentAmountCents)}/${(lease.frequency || 'mo').slice(0, 2)}` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">This year</p>
+              <p className="text-sm font-black truncate text-emerald-300">${ytdTotal.toFixed(0)}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-3">
+            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
+            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
+            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
+            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
+          </div>
+
+          <div className="flex gap-0 mt-3">
+            {PTABS.map(t => (
+              <button key={t.id} onClick={() => setPtab(t.id)}
+                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-card text-foreground' : 'text-white/50 hover:text-white/80'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {body}
       </div>
     </div>
   );

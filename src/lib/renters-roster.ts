@@ -67,7 +67,7 @@ export function rentersRoster(x: RosterInput) {
   const rows: RosterRow[] = [];
   for (const r of x.renters || []) {
     if (r.status === 'archived') continue;
-    const href = `/renters?renter=${encodeURIComponent(r.id)}`;
+    const href = `/renters/${encodeURIComponent(r.id)}`;
     const mine = (x.leases || []).filter((l) => l.renterId === r.id);
     const holding = mine.filter((l) => OCCUPYING.includes(String(l.status)));
     const running = holding.filter((l) => RUNNING.includes(String(l.status)));
@@ -112,7 +112,7 @@ export function rentersRoster(x: RosterInput) {
     let autopay: RosterCell = { text: 'None' };
     if (lease) {
       const a = autopayReadiness(lease, r, x.businessAccount);
-      autopay = a === 'ready' ? { text: 'On' } : a === 'no_card' ? { text: 'No card', warn: r.autopayEnabled === true, href } : { text: 'Off' };
+      autopay = a === 'ready' ? { text: 'On' } : a === 'no_card' ? { text: 'No card', warn: r.autopayEnabled === true, href: `${href}?tab=money` } : { text: 'Off' };
     }
 
     // Papers: asked of anyone with a lease running or being signed.

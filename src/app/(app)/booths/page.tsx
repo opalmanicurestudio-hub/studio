@@ -239,10 +239,9 @@ import {
   useOccupyingLeaseByRenter,
   useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
-import { createBooth, createRenter, createLease, endLease, offboardingTodos } from '@/lib/booth-rental-service';
+import { createBooth, createRenter, createLease } from '@/lib/booth-rental-service';
 import { LeaseBuilder } from '@/components/renters/LeaseBuilder';
 import { nextTermEnd } from '@/lib/lease-builder';
-import { RenterProfileDrawer } from '@/components/renters/RenterProfileDrawer';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -1949,6 +1948,9 @@ export default function BoothsPage() {
     } catch { /* navigation sync is best-effort */ }
   };
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
+  // A renter opened from here goes to their own page (app/(app)/renters/[renterId]): one page, opened the same way
+  // from every Rentals page, with one Record payment and one End lease.
+  useEffect(() => { if (profileRenter?.id) { const id = profileRenter.id; setProfileRenter(null); router.push(`/renters/${encodeURIComponent(id)}`); } }, [profileRenter]); // eslint-disable-line react-hooks/exhaustive-deps
   const [kioskOpen, setKioskOpen] = useState(false);
   const [viewingApp, setViewingApp] = useState<any | null>(null);
   const [autoSettingsOpen, setAutoSettingsOpen] = useState(false);
@@ -2889,8 +2891,6 @@ export default function BoothsPage() {
   const [newStatus, setNewStatus] = useState<RenterStatus>('on_leave');
   const [savingStatus, setSavingStatus] = useState(false);
 
-  const [endLeaseTarget, setEndLeaseTarget] = useState<Renter | null>(null);
-  const [savingEndLease, setSavingEndLease] = useState(false);
 
   // ── Floor plan layout state ─────────────────────────────────────────────────
   const [locked, setLocked] = useState(true);
@@ -3377,23 +3377,6 @@ export default function BoothsPage() {
     })();
   }, [tenantId]);
 
-  const [recordPay, setRecordPay] = useState<any>(null); // { mode:'rent'|'deposit', lease, renter, booth, invoice? }
-  const [recordPayAmount, setRecordPayAmount] = useState('');
-  const [recordPayMethod, setRecordPayMethod] = useState('Cash');
-  const [recordPayNote, setRecordPayNote] = useState('');
-  const [recordPaySaving, setRecordPaySaving] = useState(false);
-  const [recordPayReq, setRecordPayReq] = useState('');
-  const openRecordPay = (mode: 'rent' | 'deposit', row: any) => {
-    setRecordPayReq(crypto.randomUUID());
-    setRecordPay({ mode, lease: row.lease, renter: row.renter, booth: row.booth, invoice: row.open || null });
-    setRecordPayAmount(mode === 'deposit'
-      ? String(((row.lease as any)?.deposit?.amountCents || 0) / 100)
-      // No open invoice (they're current / prepaying)? Default to one
-      // period's rent — the owner is usually holding exactly that in cash.
-      : String(((row.owedCents || (row.lease as any)?.rentAmountCents || 0)) / 100));
-    setRecordPayMethod('Cash');
-    setRecordPayNote('');
-  };
   // ── v85: reschedule (server conflict-checked) + lease renewals ────────────
   const [reschedRes, setReschedRes] = useState<any>(null);
   const [reschedDate, setReschedDate] = useState('');
@@ -3453,44 +3436,6 @@ export default function BoothsPage() {
     }
   };
 
-  const handleRecordPayment = async () => {
-    if (!recordPay || recordPaySaving) return;
-    const cents = Math.round((Number(recordPayAmount) || 0) * 100);
-    if (cents <= 0) return;
-    setRecordPaySaving(true);
-    const nowIso = new Date().toISOString();
-    const { mode, lease: pl, renter: prt, booth: pbt } = recordPay;
-    const who = prt ? `${prt.firstName || ''} ${prt.lastName || ''}`.trim() || 'Renter' : 'Renter';
-    try {
-      if (mode === 'rent') {
-        // The same path as the Rent page (api/rent/record-payment): bills first, oldest first, then whole charges, any
-        // extra kept as credit for the next bill, all in one step on the server, and a receipt to the renter. (This
-        // used to mark one bill paid whatever amount was typed, and a payment with no open bill was never counted.)
-        if (!prt?.id) { toast({ variant: 'destructive', title: 'Couldn’t record it', description: 'This lease has no renter attached.' }); return; }
-        const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-        const r: any = await fetch('/api/rent/record-payment', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
-          body: JSON.stringify({ tenantId, renterId: prt.id, amountCents: cents, method: recordPayMethod.toLowerCase().replace(/[^a-z]+/g, '_'), methodLabel: recordPayMethod, note: recordPayNote, requestId: recordPayReq || crypto.randomUUID() }) })
-          .then((x) => x.json()).catch(() => null);
-        if (!r?.ok) { toast({ variant: 'destructive', title: 'Couldn’t record it', description: r?.error || 'Nothing was saved. Try again.' }); return; }
-        toast({ title: 'Payment recorded', description: `$${(cents / 100).toFixed(2)} · ${recordPayMethod}.${r.creditCents > 0 ? ` $${(r.creditCents / 100).toFixed(2)} kept as credit toward their next rent.` : ''}${r.receiptSentTo ? ` Receipt sent to ${r.receiptSentTo}.` : ''}` });
-        setRecordPay(null);
-        return;
-      }
-      if (mode === 'deposit') {
-        // Recorded on the server (api/rent/deposit, lib/rent-deposit), the same way as from a renter's profile: once per
-        // lease (a deposit waiting to be paid is the line marked paid), named after this dialog so Save twice writes one,
-        // held in the books (not income), and the renter gets a written receipt.
-        const r: any = await fetch('/api/rent/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, leaseId: pl.id, action: 'received', cents, methodLabel: recordPayMethod, note: recordPayNote, requestId: recordPayReq || crypto.randomUUID() }) })
-          .then((x) => x.json()).catch(() => null);
-        if (!r?.ok) { toast({ variant: 'destructive', title: 'Couldn’t record it', description: r?.error || 'Nothing was saved. Try again.' }); return; }
-        toast({ title: 'Deposit recorded', description: `$${(r.cents / 100).toFixed(2)} · ${recordPayMethod}. It's held, not counted as income.${r.sentTo ? ` Receipt sent to ${r.sentTo}.` : ''}` });
-        setRecordPay(null);
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Couldn’t record it', description: 'Nothing was saved — try again.' });
-    } finally { setRecordPaySaving(false); }
-  };
 
   // Canonical, boothId-keyed occupancy — confirmed via booth-rental-hooks.ts
   // to use OCCUPYING_LEASE_STATUSES (active, on_leave, pending_signature),
@@ -4615,23 +4560,6 @@ export default function BoothsPage() {
 
   const openLeaseWizard = (renterId: string, boothId?: string | null) => { setBuilderBoothId(boothId || null); setBuilderRenterId(renterId); };
 
-  const handleEndLease = async () => {
-    if (!endLeaseTarget || !tenantId) return;
-    const lease = occupyingLeaseByRenter.get(endLeaseTarget.id);
-    if (!lease) return;
-    setSavingEndLease(true);
-    try {
-      await endLease(firestore, tenantId, lease, endLeaseTarget.id, leases.data ?? []);
-      writeBoothAudit(firestore, tenantId, {
-        action: 'booth.lease_ended', targetType: 'lease', targetId: lease.id,
-        summary: `Lease ended: ${endLeaseTarget.firstName || ''} ${endLeaseTarget.lastName || ''}`.trim(),
-        amount: (lease.rentAmountCents || 0) / 100, actor: { type: 'user' },
-      });
-    } catch {
-      // v73 — the old version closed the dialog as if it succeeded.
-      toast({ variant: 'destructive', title: 'End lease failed', description: 'The lease is still active — try again.' });
-    } finally { setSavingEndLease(false); setEndLeaseTarget(null); }
-  };
 
   const handleStatusChange = async () => {
     if (!statusTarget || !tenantId) return;
@@ -6046,64 +5974,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(endLeaseTarget)} onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>End lease?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                <p>
-                  This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>&apos;s lease
-                  immediately and frees the booth. It can&apos;t be undone.
-                </p>
-                {(() => {
-                  const lease = endLeaseTarget ? occupyingLeaseByRenter.get(endLeaseTarget.id) : null;
-                  const others = (leases.data ?? []).filter((l) =>
-                    endLeaseTarget && l.renterId === endLeaseTarget.id && l.id !== lease?.id
-                    && ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
-                  const todos = lease ? offboardingTodos(lease) : [];
-                  return (
-                    <>
-                      {others.length > 0 ? (
-                        <p className="text-xs font-bold">
-                          They still rent {others.length === 1 ? 'another space' : `${others.length} other spaces`},
-                          so they stay an active renter and keep taking bookings.
-                        </p>
-                      ) : (
-                        <div className="rounded-xl border-2 p-3 space-y-1">
-                          <p className="text-[10px] font-black uppercase tracking-widest">Also happens</p>
-                          <p className="text-xs font-bold">
-                            They&apos;re marked Past and stop being bookable, so clients can&apos;t book someone
-                            who has left. Re-leasing them later turns it all back on.
-                          </p>
-                        </div>
-                      )}
-                      {todos.length > 0 && (
-                        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 space-y-1">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Still yours to settle</p>
-                          {todos.map((t) => (
-                            <p key={t} className="text-xs font-bold text-amber-900">{t}</p>
-                          ))}
-                          <p className="text-[10px] font-bold text-amber-700">
-                            Not done automatically — money doesn&apos;t move on a status change.
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={savingEndLease}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleEndLease} disabled={savingEndLease}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {savingEndLease ? 'Ending…' : 'End lease'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
 
       <Dialog open={sellPassOpen} onOpenChange={(o) => { if (!o) setSellPassOpen(false); }}>
@@ -6384,30 +6254,6 @@ export default function BoothsPage() {
         />
       )}
 
-      {profileRenter && (
-        <RenterProfileDrawer
-          renter={profileRenter}
-          lease={occupyingLeaseByRenter.get(profileRenter.id)}
-          booth={(() => { const l = occupyingLeaseByRenter.get(profileRenter.id); return l ? boothById.get(l.boothId) : undefined; })()}
-          reservations={reservations}
-          amenityRequests={amenityRequests}
-          w9={w9Map[profileRenter.id]}
-          tenantId={tenantId}
-          firestore={firestore}
-          onClose={() => setProfileRenter(null)}
-          onEdit={() => { const r = profileRenter; setProfileRenter(null); openEditRenter(r); }}
-          onLease={() => { const r = profileRenter; setProfileRenter(null); openLeaseWizard(r.id); }}
-          onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEndLeaseTarget(r); }}
-          contactNote={contactByKey.get(boothContactKey(profileRenter.phone, profileRenter.email))?.ownerNotes || ''}
-          onSaveNote={(note: string) => handleSaveNote({ name: `${profileRenter.firstName || ''} ${profileRenter.lastName || ''}`.trim(), phone: profileRenter.phone, email: profileRenter.email }, note)}
-          onRecordPayment={(() => {
-            const row = rentRoll.find(r => r.lease?.renterId === profileRenter.id);
-            if (!row) return null;
-            return () => { const r2 = row; setProfileRenter(null); openRecordPay('rent', r2); };
-          })()}
-          onAddCard={() => startCardSetup(profileRenter)}
-        />
-      )}
 
       {managingTour && (
         <TourManagerDialog
@@ -6686,47 +6532,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!recordPay} onOpenChange={(o) => { if (!o) setRecordPay(null); }}>
-        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>{recordPay?.mode === 'deposit' ? 'Record security deposit' : 'Record rent payment'}</DialogTitle>
-            <DialogDescription>
-              {recordPay?.mode === 'deposit'
-                ? 'Log a deposit collected outside the app (cash, check, transfer). It books as held funds — not revenue — and the lease is marked collected.'
-                : 'Log a rent payment collected outside the app. It pays their oldest bills first, any extra is kept as credit for their next rent, and they get a receipt.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Amount</Label>
-              <Input inputMode="decimal" value={recordPayAmount}
-                onChange={(e) => setRecordPayAmount(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>How was it paid?</Label>
-              <Select value={recordPayMethod} onValueChange={setRecordPayMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {['Cash', 'Check', 'Zelle / Venmo', 'Card (in person)', 'Other'].map((m) => (
-                    <SelectItem key={m} value={m}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Note (optional)</Label>
-              <Input value={recordPayNote} onChange={(e) => setRecordPayNote(e.target.value)}
-                placeholder="Check #204, paid early…" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRecordPay(null)}>Cancel</Button>
-            <Button onClick={handleRecordPayment} disabled={recordPaySaving || !(Number(recordPayAmount) > 0)}>
-              {recordPaySaving ? 'Saving…' : recordPay?.mode === 'deposit' ? 'Record deposit' : 'Record payment'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <CommandCenterPanel
         open={commandCenterOpen}

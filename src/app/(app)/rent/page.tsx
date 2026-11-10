@@ -1314,7 +1314,7 @@ export default function RentRollPage() {
           ) : owedByRenter.map((r) => (
             <div key={r.renterId} className={cn('flex items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5', r.late ? 'border-red-200 bg-red-50/60' : 'bg-card')}>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black">{r.renterName}<span className="font-bold text-muted-foreground"> · {r.boothName}</span></p>
+                <p className="truncate text-sm font-black"><Link href={`/renters/${encodeURIComponent(r.renterId)}`} className="hover:underline">{r.renterName}</Link><span className="font-bold text-muted-foreground"> · {r.boothName}</span></p>
                 <p className="text-[11px] font-bold text-muted-foreground">
                   {r.count} invoice{r.count === 1 ? '' : 's'} · oldest due {r.oldest}
                   {r.feeCents > 0 ? ` · ${formatCents(r.feeCents)} in late fees` : ''}
@@ -1476,7 +1476,7 @@ export default function RentRollPage() {
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-black text-base truncate">
-                        {renter.firstName} {renter.lastName}
+                        <Link href={`/renters/${encodeURIComponent(renter.id)}`} className="hover:underline">{renter.firstName} {renter.lastName}</Link>
                       </p>
                       {isPastDue && (
                         <Badge className="bg-red-100 text-red-700">

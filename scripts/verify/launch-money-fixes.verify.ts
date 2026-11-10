@@ -220,9 +220,11 @@ async function fresh(tenant: any = {}) {
   const rentPage = src('src/app/(app)/rent/page.tsx');
   const booths = src('src/app/(app)/booths/page.tsx');
   check('the Rent page records through the server', rentPage.includes("fetch('/api/rent/record-payment'") && !/paymentRef = doc\(\s*collection\(firestore, BOOTH_RENTAL_COLLECTIONS\.rentLedger/.test(rentPage));
-  check('Spaces records rent through the same path', booths.includes("fetch('/api/rent/record-payment'") && !booths.includes('paidAmountCents: cents, paidLedgerEntryId: txnRef.id, recordedManually: true'));
+  // Spaces has no payment dialog of its own any more: a renter opened there goes to their page, whose Record payment is
+  // the Rent page's (one Record payment), and whose deposit is recorded from their Money tab.
+  check('Spaces records rent through the same path', !booths.includes("fetch('/api/rent/record-payment'") && !booths.includes('paidAmountCents: cents, paidLedgerEntryId: txnRef.id, recordedManually: true') && /onRecordPayment=\{\(\) => router\.push\(`\/rent\?pay=/.test(src('src/app/(app)/renters/[renterId]/page.tsx')));
   // Deposits now go through the server (lib/rent-deposit, checked in launch-money-deposits).
-  check('a deposit recorded on Spaces writes its account line', booths.includes("fetch('/api/rent/deposit'") && /type: 'deposit_charge', amountCents: cents/.test(readFileSync('src/lib/rent-deposit.ts', 'utf8')));
+  check('a deposit recorded for a renter writes its account line', src('src/components/renters/RenterProfileDrawer.tsx').includes("fetch('/api/rent/deposit'") && /type: 'deposit_charge', amountCents: cents/.test(readFileSync('src/lib/rent-deposit.ts', 'utf8')));
   check('autopay only uses an account that can take cards', src('src/app/api/cron/autopay-leases/route.ts').includes('const stripeAccountId = spacePayAccount(tenantDoc.data());'));
   check('a new station booking needs an account that can take cards', src('src/app/api/stripe/book-station/route.ts').includes("if (!spacePayAccount(tenantSnap.data())) problem ="));
   check('the nightly job applies open-bill credits before the late sweep', (() => { const n = src('src/app/api/cron/nightly/route.ts'); const a = n.indexOf('applyAllOpenCredits(db, tDoc.id)'); const l = n.indexOf('markedLateAt:'); return a > 0 && l > a; })());
