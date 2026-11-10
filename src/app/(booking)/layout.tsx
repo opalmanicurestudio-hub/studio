@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Book an Appointment',
-  description: 'Book your visit at our studio.',
+  description: 'Book your visit.',
 };
 
 // No wrapper — let the booking page own 100% of the viewport

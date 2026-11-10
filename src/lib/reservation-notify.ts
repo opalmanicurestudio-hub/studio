@@ -22,12 +22,13 @@ const contactKeyOf = (phone?: any, email?: any): string => {
 const contactDocIdOf = (key: string): string =>
   String(key || '').replace(/[^a-z0-9@._-]/gi, '_').slice(0, 200) || 'unknown';
 
+// "1pm", "9:30am": the app's way of saying a time.
 const t12 = (t?: string | null) => {
   if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
   const [h, m] = t.split(':').map(Number);
-  const ap = h >= 12 ? 'PM' : 'AM';
+  const ap = h >= 12 ? 'pm' : 'am';
   const hr = h % 12 === 0 ? 12 : h % 12;
-  return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+  return m === 0 ? `${hr}${ap}` : `${hr}:${String(m).padStart(2, '0')}${ap}`;
 };
 
 const prettyDate = (iso?: string | null) => {
@@ -41,10 +42,10 @@ const prettyDate = (iso?: string | null) => {
 
 export function reservationWhenLabel(r: any): string {
   if (r.bookingType === 'hourly' && r.startTime && r.endTime) {
-    return `${prettyDate(r.startDate)} · ${t12(r.startTime)}–${t12(r.endTime)}`;
+    return `${prettyDate(r.startDate)}, ${t12(r.startTime)} to ${t12(r.endTime)}`;
   }
   if (r.startDate === r.endDate) return prettyDate(r.startDate);
-  return `${prettyDate(r.startDate)} → ${prettyDate(r.endDate)}${r.numDays ? ` (${r.numDays} days)` : ''}`;
+  return `${prettyDate(r.startDate)} to ${prettyDate(r.endDate)}${r.numDays ? ` (${r.numDays} days)` : ''}`;
 }
 
 // Mint (or reuse) the reservation's manage token — the key inside the
@@ -76,7 +77,7 @@ export async function sendReservationConfirmation(
     await resRef.set({ confirmationSentAt: new Date().toISOString() }, { merge: true });
 
     const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-    const studioName = tData.name || tData.businessName || 'The studio';
+    const studioName = tData.name || tData.businessName || 'The business';
     const base = String(
       tData.publicOrigin
       || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
@@ -142,5 +143,76 @@ export async function sendReservationConfirmation(
   } catch (err) {
     // Confirmation is best-effort — the reservation itself is already safe.
     console.error('[reservation-notify] send failed (reservation is safe)', err);
+  }
+}
+
+/** What a guest is told when money moves on their booking after they booked: a charge to their saved card (extra time,
+ *  a charge, the balance), a refund, or their prepaid days given back. Their receipt, with a link to the booking, where
+ *  every charge and what they've paid is listed. Once per thing that happened (its key), however often it's asked: the
+ *  booking keeps the keys it has sent. By email; by text when there's no email. Best-effort: the money is already
+ *  recorded, so a message that can't go out never undoes it. */
+export async function sendStayMoneyNotice(
+  db: any, tenantId: string, reservationId: string,
+  n: { kind: 'charge' | 'refund' | 'days_back'; cents: number; what: string; key: string; days?: number },
+): Promise<void> {
+  try {
+    const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+    const key = String(n.key || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+    if (!key) return;
+    const r: any = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(resRef)).data() || null;
+      if (!cur) return null;
+      const sent: string[] = Array.isArray(cur.moneyNoticeKeys) ? cur.moneyNoticeKeys.map(String) : [];
+      if (sent.includes(key)) return null;
+      tx.set(resRef, { moneyNoticeKeys: [...sent, key].slice(-50) }, { merge: true });
+      return cur;
+    });
+    if (!r) return;
+    const email = String(r.email || '').trim();
+    const phone = String(r.phone || '').trim();
+    if (!email.includes('@') && !phone) return;
+
+    const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+    const bizName = tData.name || tData.businessName || 'The business';
+    const base = String(tData.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, '');
+    const k = await ensureReservationToken(db, tenantId, reservationId);
+    const bookingUrl = (base && k) ? `${base}/reservation/${tenantId}/${reservationId}?k=${k}` : null;
+    const money = `$${(Math.max(0, n.cents) / 100).toFixed(2)}`;
+    const space = r.boothName || 'your space';
+    const whenStr = reservationWhenLabel(r);
+    const firstName = String(r.name || '').split(' ')[0] || 'there';
+    const days = Math.max(0, Math.round(Number(n.days) || 0));
+    const what = String(n.what || '').trim();
+
+    const head = n.kind === 'charge' ? `A charge of ${money} for your booking`
+      : n.kind === 'refund' ? `Your refund of ${money}`
+      : 'Your booking is cancelled';
+    const line = n.kind === 'charge'
+      ? `We charged ${money} to the card you booked with, for ${what ? what.charAt(0).toLowerCase() + what.slice(1) : 'your booking'}. This is for ${space} on ${whenStr}.`
+      : n.kind === 'refund'
+        ? `We refunded ${money} to the card you booked with${what ? `, for this reason: ${what}` : ''}. This is for ${space} on ${whenStr}. A refund usually shows on your statement within 5 to 10 business days.`
+        : `Your booking for ${space} on ${whenStr} is cancelled${days > 0 ? `, and ${days} prepaid day${days === 1 ? ' is' : 's are'} back on your pack to use another time` : ''}.`;
+    const who = { recipientType: 'contact' as const, recipientId: contactDocIdOf(contactKeyOf(r.phone, r.email)), recipientName: r.name || null };
+
+    if (email.includes('@')) {
+      const html = brandedEmailHtml({
+        studioName: bizName,
+        title: head,
+        bodyLines: [
+          `Hi ${firstName},`,
+          line,
+          bookingUrl ? 'Your booking lists every charge and everything you’ve paid.' : '',
+          'If you have a question about it, reply to this email.',
+          `Kind regards, ${bizName}`,
+        ].filter(Boolean),
+        cta: bookingUrl ? { label: 'See my booking', url: bookingUrl } : null,
+        footerNote: `Sent by ${bizName} about your booking.`,
+      });
+      await sendNotification(db, { tenantId, channel: 'email', to: email, subject: head, html, kind: 'reservation_money', ...who });
+    } else {
+      await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `Hi ${firstName}, ${line}${bookingUrl ? ` Your booking: ${bookingUrl}` : ''}`, kind: 'reservation_money', ...who });
+    }
+  } catch (err) {
+    console.error('[reservation-notify] money notice failed (the money is already recorded)', err);
   }
 }

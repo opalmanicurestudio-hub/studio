@@ -11,7 +11,7 @@ let db: any = strictTransactions(makeDb());
 let signedIn = true;
 // Stripe (the platform's own account): one charge or refund per key, an answer that can go missing, a card that can
 // say no.
-let charges: any[] = []; let refunds: any[] = []; const keys = new Map<string, any>(); let piCalls = 0; let rfCalls = 0;
+let notices: any[] = []; let charges: any[] = []; let refunds: any[] = []; const keys = new Map<string, any>(); let piCalls = 0; let rfCalls = 0;
 let mode: 'ok' | 'lost_after' | 'decline' = 'ok';
 const lost = () => { const e: any = new Error('connection reset'); e.type = 'StripeConnectionError'; return e; };
 function StripeMock(this: any) {
@@ -51,7 +51,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore' || /firebase-admin\/lib\/firestore\/index\.js$/.test(request)) return fake(request, { getFirestore: () => db, FieldValue: FV });
   if (request === '@/lib/route-guard') return { requireCan: async () => (signedIn ? { actor: { uid: 'm1', name: 'Ana Ruiz', role: 'manager' } } : { deny: { status: 401, body: { ok: false, error: 'Please sign in again.' } } }) };
   if (request === '@/lib/audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async () => undefined, auditEntry: () => ({}) });
-  if (request === '@/lib/reservation-notify') return { sendReservationConfirmation: async () => undefined };
+  if (request === '@/lib/reservation-notify') return { sendReservationConfirmation: async () => undefined, sendStayMoneyNotice: async (_db: any, _t: any, _id: any, n: any) => { notices.push(n); } };
   return load.call(this, request, ...rest);
 };
 

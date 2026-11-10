@@ -25,7 +25,7 @@ export function onAccount(rec: any, opts: Record<string, any> = {}): Record<stri
  *  them. A guest's space booking is 'space_booking'. 'booth_booking' is a renter's station booking
  *  (api/stripe/book-station), whose fee the notice DOES write, so it isn't here (a guest booking opened in the few minutes
  *  it was named that carries its reservation's id, and is told apart by it). */
-export const SPACE_OWN_FEE_KINDS = new Set(['space_booking', 'day_pass', 'booth_overage', 'booth_incidental', 'booth_no_show_fee', 'concierge_charge', 'concierge_renter_charge']);
+export const SPACE_OWN_FEE_KINDS = new Set(['space_booking', 'day_pass', 'booth_overage', 'booth_incidental', 'booth_balance', 'booth_no_show_fee', 'concierge_charge', 'concierge_renter_charge']);
 // (Rent paid online and a renter's incidental aren't here: their own fee line is named after Stripe's balance record, as
 // the notice names it, so the two can't both write one, and the notice writes the real fee when theirs couldn't.)
 export const writesOwnFee = (md: any): boolean => {

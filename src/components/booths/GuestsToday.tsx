@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * GuestsToday — the day-guest desk: check-in/out, refunds, credits, overages,
- * incidentals. Lifted VERBATIM from the booth hub so money-touching logic
- * moved without being rewritten. Lives beside the desk panel that SELLS them.
+ * GuestsToday — the desk's day and hourly guests: check in and out, the balance on a booking with a deposit (charged to
+ * the saved card, or taken in person), refunds (all or part, more than once), prepaid days given back, credits for
+ * unused time, extra time, other charges and moving a booking. Lives beside the desk panel that sells them.
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
@@ -12,7 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useLocation } from '@/context/LocationContext';
 import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
-import { FileText, Scissors, FileSignature, MoreHorizontal } from 'lucide-react';
+import { FileText, FileSignature, MoreHorizontal, Phone } from 'lucide-react';
+import { resolveIncidentalPolicy } from '@/lib/incidentals';
 import { contactKey as boothContactKey } from '@/lib/booth-contacts';
 import { buildGuestBook } from '@/lib/guest-book';
 import { PRINT, esc, printPage } from '@/lib/print-style';
@@ -33,11 +34,23 @@ const writeBoothAudit = (firestore: any, tenantId: string, e: any) => {
 const localISO = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const BTN = 'min-h-[44px] rounded-full px-4 text-[14px] font-semibold transition active:scale-[.99] disabled:opacity-40 inline-flex items-center justify-center gap-1.5';
+const BTN_DARK = `${BTN} bg-[#16171a] text-white`;
+const BTN_LINE = `${BTN} bg-white border border-[#ececee] text-[#16171a] font-medium`;
+const BTN_RED = `${BTN} bg-[#b42318] text-white`;
+const FIELD = 'min-h-[44px] w-full rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a]';
+const usd = (c: number) => `$${(Math.max(0, c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const hm = (t: any) => { const m = /^(\d{2}):(\d{2})/.exec(String(t || '')); if (!m) return String(t || ''); const h = Number(m[1]); return `${h % 12 || 12}${m[2] === '00' ? '' : `:${m[2]}`}${h < 12 ? 'am' : 'pm'}`; };
+const shortDay = (iso: any) => { const s = String(iso || '').slice(0, 10); const d = new Date(`${s}T12:00:00Z`); return isNaN(d.getTime()) ? s : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+/** Statuses where a booking is being called off and is waiting on its refund (or its prepaid days). */
+const CALLING_OFF = ['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'];
+
 function ZoneLabel({ children }: { children: any }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground shrink-0">{children}</p>
-      <div className="h-px flex-1 bg-border" />
+      <p className="text-[13px] font-medium shrink-0" style={{ color: MUTED }}>{children}</p>
+      <div className="h-px flex-1" style={{ background: LINE }} />
     </div>
   );
 }
@@ -52,21 +65,22 @@ function OverflowMenu({ items, align = 'right', label = 'More' }: { items: Overf
         type="button"
         aria-label={label}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:bg-muted/60 active:scale-95 transition"
+        aria-haspopup="menu" aria-expanded={open}
+        className="h-11 w-11 rounded-full border border-[#ececee] bg-white flex items-center justify-center text-[#6d7075] hover:bg-[#f5f5f7] active:scale-95 transition"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
-          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-card shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
+          <div role="menu" className={`absolute z-50 mt-1 min-w-[14rem] rounded-2xl border border-[#ececee] bg-white shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
             {usable.map((it, i) => (
               <button
                 key={i}
-                type="button"
+                type="button" role="menuitem"
                 disabled={it.disabled}
                 onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-foreground/80 hover:bg-muted/60'}`}
+                className={`w-full text-left px-3 min-h-[44px] rounded-xl text-[14px] transition disabled:opacity-40 ${it.danger ? 'text-[#b42318] hover:bg-[#fff7ed]' : 'text-[#16171a] hover:bg-[#f5f5f7]'}`}
               >{it.label}</button>
             ))}
           </div>
@@ -86,8 +100,14 @@ export function GuestsToday({ tenantId, firestore, reservations, boothById, tena
   const [reschedDate, setReschedDate] = useState('');
   const [reschedStartTime, setReschedStartTime] = useState('');
   const [reschedEndTime, setReschedEndTime] = useState('');
-  const incidentalPolicy: any[] = (Array.isArray((tenant as any)?.incidentalCategories) && (tenant as any).incidentalCategories.length)
+  const [reschedSaving, setReschedSaving] = useState(false);
+  // The business's own charge types and caps, the same list the server checks a charge against (lib/incidentals).
+  const incidentalPolicy: any[] = useMemo(() => resolveIncidentalPolicy(tenant), [tenant]);
+  const [refundFor, setRefundFor] = useState<string | null>(null);
+  const [refundAmt, setRefundAmt] = useState('');
+  const [refundWhy, setRefundWhy] = useState('');
   const [refundingId, setRefundingId] = useState<string | null>(null);
+  const [balanceBusyId, setBalanceBusyId] = useState<string | null>(null);
   const [chargingId, setChargingId] = useState<string | null>(null);
   const [incidentalForId, setIncidentalForId] = useState<string | null>(null);
   const [incidentalAmt, setIncidentalAmt] = useState('');
@@ -116,9 +136,9 @@ export function GuestsToday({ tenantId, firestore, reservations, boothById, tena
     return (key && tierByContact.get(key)) || r.guestTier || 'new';
   }, [tierByContact]);
   const TIER_BADGE: Record<string, { label: string; cls: string }> = {
-    resident: { label: 'Resident', cls: 'bg-indigo-100 text-indigo-700' },
-    regular: { label: 'Regular', cls: 'bg-emerald-100 text-emerald-700' },
-    returning: { label: 'Returning', cls: 'bg-sky-100 text-sky-700' },
+    resident: { label: 'Renter', cls: 'bg-[#f5f5f7] text-[#16171a]' },
+    regular: { label: 'Regular', cls: 'bg-[#ecf6f0] text-[#1f7a4d]' },
+    returning: { label: 'Returning', cls: 'bg-[#f5f5f7] text-[#6d7075]' },
   };
   const hourlyCentsOf = (boothId: string): number => {
     const b = boothById.get(boothId) as any;
@@ -128,15 +148,19 @@ export function GuestsToday({ tenantId, firestore, reservations, boothById, tena
 const upcomingReservations = useMemo(() => {
     const today = localISO();
     return reservations
-      .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due' || r.creditDecision === 'pending' || r.status === 'cancel_requested')
+      // Today's and coming guests, anything still to settle (extra time, a credit, a cancellation), and a stay that
+      // ended today with its balance still to take.
+      .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due' || r.creditDecision === 'pending' || r.status === 'cancel_requested'
+          || (r.status === 'completed' && r.endDate >= today && Number(r.balanceDueCents) > 0 && r.balancePaid !== true))
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
 
 const setResStatus = async (r: any, status: string) => {
     try {
+      // Saying no to a cancellation request clears it, so the guest's page no longer says they asked.
       await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-        { status, [`${status}At`]: new Date().toISOString() });
+        { status, [`${status}At`]: new Date().toISOString(), ...(status === 'confirmed' && r.status === 'cancel_requested' ? { cancelRequestedAt: null } : {}) });
       if (['cancelled_refund_pending', 'refunded', 'cancelled'].includes(status)) {
         writeBoothAudit(firestore, tenantId, {
           action: 'booth.reservation_' + status, targetType: 'boothReservation', targetId: r.id,
@@ -217,7 +241,52 @@ const declineCredit = async (r: any) => {
     }
   };
 
-const refundReservation = async (r: any) => {
+// A refund: all of what's left, or part of it (the amount typed), with a reason the guest is told. On a booking being
+// called off it closes it, and what isn't refunded is kept as a fee; on one that stands, it stands (api/booths/reserve).
+const openRefund = (r: any) => {
+    const left = Math.max(0, (Number(r.amountCents) || 0) - (Number(r.refundedCents) || 0));
+    setRefundFor(refundFor === r.id ? null : r.id); setRefundAmt(left > 0 ? (left / 100).toFixed(2) : ''); setRefundWhy('');
+  };
+
+const sendRefund = async (r: any) => {
+    if (refundingId) return;
+    const cents = Math.round(parseFloat(refundAmt) * 100);
+    if (!(cents > 0)) { toast({ variant: 'destructive', title: 'Enter an amount', description: 'Type how much to refund.' }); return; }
+    setRefundingId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, reservationId: r.id, amountCents: cents, reason: refundWhy.trim() || null }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        toast({ title: 'Refunded', description: `${usd(d.refundedCents || 0)} is going back to ${r.name || 'the guest'}’s card${d.alreadyRefunded ? ' (it had already gone through)' : d.closed ? '. The booking is called off.' : '. The booking stands.'}` });
+        setRefundFor(null);
+      } else toast({ variant: 'destructive', title: 'The refund didn’t go through', description: d.error || 'Try again.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'No answer', description: 'The refund may or may not have gone through. Try again in a couple of minutes: it won’t refund twice.' });
+    } finally { setRefundingId(null); }
+  };
+
+// Called off with nothing to refund to a card (paid at the desk and handed back there, or already refunded in full).
+const callOff = async (r: any) => {
+    if (refundingId) return;
+    setRefundingId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'call-off', tenantId, reservationId: r.id }),
+      });
+      const d = await res.json();
+      if (d.ok) toast(d.already ? { title: 'Already called off', description: 'Nothing more to do.' } : { title: 'Called off', description: `${r.name || 'The guest'}’s booking is called off.` });
+      else toast({ variant: 'destructive', title: 'Not called off', description: d.error || 'Try again.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'No answer', description: 'Nothing was changed. Try again.' });
+    } finally { setRefundingId(null); }
+  };
+
+// A booking paid with prepaid days is called off by giving the days back to the guest's pack (no money moved).
+const giveDaysBack = async (r: any) => {
     if (refundingId) return;
     setRefundingId(r.id);
     try {
@@ -226,11 +295,88 @@ const refundReservation = async (r: any) => {
         body: JSON.stringify({ tenantId, reservationId: r.id }),
       });
       const d = await res.json();
-      if (d.ok) toast({ title: 'Refunded', description: `$${((d.refundedCents || 0) / 100).toFixed(2)} refunded to ${r.name || 'guest'}'s card${d.alreadyRefunded ? ' (was already processed)' : ''}.` });
-      else toast({ variant: 'destructive', title: 'Refund failed', description: d.error || 'Try again, or record it manually.' });
+      if (d.ok) toast({ title: 'Called off', description: d.packMissing ? 'Their pack wasn’t found, so no days could go back to it.' : `${d.daysReturned} prepaid day${d.daysReturned === 1 ? ' is' : 's are'} back on ${r.name || 'the guest'}’s pack.` });
+      else toast({ variant: 'destructive', title: 'Not called off', description: d.error || 'Try again.' });
     } catch {
-      toast({ variant: 'destructive', title: 'Network error', description: 'The refund may not have completed — check Stripe before retrying.' });
+      toast({ variant: 'destructive', title: 'No answer', description: 'Nothing was changed. Try again.' });
     } finally { setRefundingId(null); }
+  };
+
+// The balance on a booking with a deposit, from the saved card (api/booths/reserve, recorded once on the server).
+const chargeBalanceToCard = async (r: any) => {
+    if (balanceBusyId) return;
+    setBalanceBusyId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'balance', tenantId, reservationId: r.id }),
+      });
+      const d = await res.json();
+      if (d.ok) toast(d.already ? { title: 'Already paid', description: 'This balance was already recorded.' } : { title: 'Balance paid', description: `${usd(d.chargedCents || 0)} taken from the saved card. ${r.name || 'The guest'} gets a receipt.` });
+      else toast({ variant: 'destructive', title: 'The card wasn’t charged', description: d.error || 'Take the balance in person instead.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'No answer', description: 'The charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
+    } finally { setBalanceBusyId(null); }
+  };
+
+// The balance taken in person: its line in the books and the booking marked paid, in one step and once (a card charge
+// going through at the same moment, or a second tap, finds it done).
+const markBalancePaid = async (r: any) => {
+    if (balanceBusyId) return;
+    setBalanceBusyId(r.id);
+    const nowIso = new Date().toISOString();
+    try {
+      const resRef = doc(firestore, 'tenants', tenantId, 'boothReservations', r.id);
+      const txnRef = doc(firestore, 'tenants', tenantId, 'transactions', `boothbal_${String(r.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      const out = await runTransaction(firestore, async (tx) => {
+        const cur: any = (await tx.get(resRef)).data() || {};
+        const due = Math.round(Number(cur.balanceDueCents) || 0);
+        if (cur.balancePaid === true || !(due > 0)) return { done: true };
+        if (!['confirmed', 'checked_in', 'completed'].includes(String(cur.status || ''))) return { closed: true };
+        if (cur.balanceStatus === 'charging') return { charging: true };
+        tx.set(txnRef, {
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent',
+          amount: due / 100, category: 'Booth Rent',
+          description: `Balance — ${r.boothName || 'Space'} — ${r.name || 'guest'}`,
+          clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
+          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso, renterId: r.renterId || null,
+        });
+        tx.update(resRef, { balancePaid: true, balancePaidAt: nowIso, balancePaidVia: 'in_person', balanceStatus: 'collected' });
+        tx.set(aRef, { id: aRef.id, ...auditEntry({
+          action: 'booth.balance_collected', targetType: 'transaction', targetId: txnRef.id,
+          summary: `Balance taken in person: ${r.name || 'guest'} · ${r.boothName || 'space'}`,
+          amount: due / 100, actor: { type: 'user' },
+        }) });
+        return { cents: due };
+      });
+      if ((out as any).closed) toast({ variant: 'destructive', title: 'Not recorded', description: 'This booking was called off.' });
+      else if ((out as any).charging) toast({ variant: 'destructive', title: 'A card charge is going through', description: 'Give it a moment, then look again.' });
+      else if ((out as any).done) toast({ title: 'Already paid', description: 'This balance was already recorded.' });
+      else toast({ title: 'Balance paid', description: `${usd((out as any).cents)} recorded as taken in person.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Not recorded', description: 'Nothing was saved. Try again.' });
+    } finally { setBalanceBusyId(null); }
+  };
+
+// Move a booking: same length, a new day (and hours, for an hourly one), checked against everything else on the space.
+const saveReschedule = async (r: any) => {
+    if (reschedSaving || !reschedDate) return;
+    setReschedSaving(true);
+    try {
+      const isHourly = r.bookingType === 'hourly';
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reschedule', tenantId, reservationId: r.id, startDate: reschedDate,
+          startTime: isHourly ? reschedStartTime : undefined, endTime: isHourly ? reschedEndTime : undefined }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.ok) { toast({ title: 'Booking moved', description: `Now ${shortDay(d.startDate)}${d.startTime ? `, ${hm(d.startTime)} to ${hm(d.endTime)}` : ''}.` }); setReschedRes(null); }
+      else toast({ variant: 'destructive', title: 'Not moved', description: d.error || 'Try again.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Not moved', description: 'No connection. Nothing was changed.' });
+    } finally { setReschedSaving(false); }
   };
 
 const openSignedAgreement = (r: any) => {
@@ -371,6 +517,7 @@ const markOverageCollected = async (r: any) => {
   };
 
 const openReschedule = (r: any) => {
+    if (reschedRes?.id === r.id) { setReschedRes(null); return; }
     setReschedRes(r);
     setReschedDate(r.startDate || '');
     setReschedStartTime(r.startTime || '');
@@ -384,146 +531,202 @@ const openReschedule = (r: any) => {
           {upcomingReservations.length > 0 && (
             <div id="ops-rentals" className="space-y-3 scroll-mt-14">
               <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Day Rentals</h2>
-                <span className="h-5 min-w-5 px-1.5 bg-emerald-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">{upcomingReservations.length}</span>
+                <h2 className="text-[15px] font-semibold" style={{ color: INK }}>Day and hourly guests</h2>
+                <span className="h-6 min-w-6 px-2 rounded-full text-[12px] font-medium inline-flex items-center justify-center" style={{ background: SOFT, color: MUTED }}>{upcomingReservations.length}</span>
               </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {upcomingReservations.map((r: any) => (
-                  <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 space-y-2 ${r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending' ? 'border-red-300 bg-red-50' : r.status === 'cancel_requested' ? 'border-amber-300 bg-amber-50' : r.status === 'checked_in' ? 'border-indigo-300 bg-indigo-50/50' : 'border-emerald-200 bg-emerald-50/40'}`}>
-                    <div className="flex items-center gap-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                {upcomingReservations.map((r: any) => {
+                  const callingOff = CALLING_OFF.includes(r.status);
+                  const byPass = !!r.paidWithPassId && !r.stripePaymentIntentId;
+                  const paidOnline = !!r.stripePaymentIntentId;
+                  const leftToRefund = Math.max(0, (Number(r.amountCents) || 0) - (Number(r.refundedCents) || 0));
+                  const balanceOpen = Number(r.balanceDueCents) > 0 && r.balancePaid !== true && ['confirmed', 'checked_in', 'completed'].includes(r.status);
+                  const chip = r.status === 'checked_in' ? { label: 'Here now', bg: '#ecf6f0', fg: GREEN }
+                    : r.status === 'confirmed' ? { label: 'Coming', bg: SOFT, fg: MUTED }
+                    : r.status === 'completed' ? { label: 'Checked out', bg: SOFT, fg: MUTED }
+                    : { label: 'Needs you', bg: '#fff7ed', fg: AMBER };
+                  const when = r.bookingType === 'hourly' ? `${shortDay(r.startDate)}, ${hm(r.startTime)} to ${hm(r.endTime)}` : r.startDate === r.endDate ? shortDay(r.startDate) : `${shortDay(r.startDate)} to ${shortDay(r.endDate)}`;
+                  const paidText = byPass ? `${r.passDaysUsed || 1} prepaid day${(r.passDaysUsed || 1) === 1 ? '' : 's'}`
+                    : r.paymentStatus === 'unpaid' ? 'not paid yet'
+                    : `${usd(Number(r.amountCents) || 0)} paid${Number(r.refundedCents) > 0 ? `, ${usd(Number(r.refundedCents))} refunded` : ''}`;
+                  const note = (text: any, tone: 'muted' | 'amber' | 'green' = 'muted') => <p className="text-[13px]" style={{ color: tone === 'amber' ? AMBER : tone === 'green' ? GREEN : MUTED }}>{text}</p>;
+                  return (
+                  <div key={r.id} className="rounded-2xl border p-4 space-y-2.5" style={{ borderColor: LINE, background: callingOff ? '#fff7ed' : 'white' }}>
+                    <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-black text-sm truncate">
-                          {r.name} <span className="font-bold text-muted-foreground normal-case text-xs">· {r.boothName}</span>
-                          {TIER_BADGE[tierFor(r)] && (
-                            <span className={`ml-1.5 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${TIER_BADGE[tierFor(r)].cls}`}>{TIER_BADGE[tierFor(r)].label}</span>
-                          )}
-                          {r.renterDiscountCents > 0 && (
-                            <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-indigo-50 text-indigo-600">−${(r.renterDiscountCents / 100).toFixed(0)}</span>
-                          )}
+                        <p className="text-[15px] font-semibold truncate" style={{ color: INK }}>
+                          {r.name || 'Guest'} <span className="font-normal" style={{ color: MUTED }}>· {r.boothName || 'Space'}</span>
                         </p>
-                        <p className="text-[10px] font-bold text-foreground/80 uppercase">{r.bookingType === 'hourly' ? `${r.startDate} · ${r.startTime}–${r.endTime}` : `${r.startDate} → ${r.endDate}`} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
+                        <p className="text-[13px] mt-0.5" style={{ color: MUTED }}>{when} · {paidText}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {TIER_BADGE[tierFor(r)] && <span className={`text-[12px] font-medium rounded-full px-2 py-0.5 ${TIER_BADGE[tierFor(r)].cls}`}>{TIER_BADGE[tierFor(r)].label}</span>}
+                          {r.renterDiscountCents > 0 && <span className="text-[12px] font-medium rounded-full px-2 py-0.5" style={{ background: SOFT, color: MUTED }}>{usd(r.renterDiscountCents)} renter discount</span>}
+                        </div>
                       </div>
-                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
-                        {r.status === 'checked_in' ? 'In' : r.status === 'confirmed' ? 'Upcoming' : 'Issue'}
-                      </span>
-                      {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
+                      <span className="text-[12px] font-medium rounded-full px-2.5 py-1 shrink-0" style={{ background: chip.bg, color: chip.fg }}>{chip.label}</span>
                     </div>
-                    {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
-                      <p className="text-[10px] font-black uppercase text-red-600">⚠ Refund needed · {r.stripePaymentIntentId || ''}</p>
-                    )}
-                    {r.status === 'cancel_requested' && (
-                      <p className="text-[10px] font-black uppercase text-amber-700">Cancellation requested{r.cancelReason ? ` · "${r.cancelReason}"` : ''}</p>
-                    )}
-                    {r.noShow && (
-                      <p className="text-[10px] font-black uppercase text-red-600">No-show — never checked in</p>
-                    )}
+
+                    {r.status === 'payment_received_conflict' && note('Paid, but the time was taken while they paid. Refund them.', 'amber')}
+                    {r.status === 'cancelled_refund_pending' && note(byPass ? 'Called off. Give their prepaid days back.' : paidOnline ? 'Called off. Refund what you’re giving back; the rest is kept as a cancellation fee.' : 'Called off. It was paid at the desk: hand back what you’re refunding, record it in Money, then mark it called off.', 'amber')}
+                    {r.status === 'cancel_requested' && note(`They asked to cancel${r.cancelRequestNote || r.cancelReason ? `: “${r.cancelRequestNote || r.cancelReason}”` : '.'}`, 'amber')}
+                    {r.noShow && note('Didn’t check in (no-show).', 'amber')}
                     {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices || r.licenseDocUrl || r.insuranceDocUrl || r.idDocUrl) && (
-                      <div className="text-[10px] font-black uppercase text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                        {r.doingServices && <span className="inline-flex items-center gap-1"><Scissors className="h-3 w-3" /> Services</span>}
-                        {r.licenseNumber && <span>· Lic {r.licenseNumber}</span>}
-                        {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1">· <FileText className="h-3 w-3" /> License</a>}
-                        {(r.insuranceConfirmed || r.insuranceDocUrl) && <span>· ✓ Insured</span>}
-                        {r.insuranceDocUrl && <a href={r.insuranceDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1"><FileText className="h-3 w-3" /> COI</a>}
-                        {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1">· <FileText className="h-3 w-3" /> ID</a> : r.idAcknowledged && <span>· ✓ ID</span>}
+                      <div className="text-[13px] flex flex-wrap items-center gap-x-3 gap-y-1" style={{ color: MUTED }}>
+                        {r.doingServices && <span>Seeing clients</span>}
+                        {r.licenseNumber && <span>License {r.licenseNumber}</span>}
+                        {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 inline-flex items-center gap-1 min-h-[44px]" style={{ color: INK }}><FileText className="h-3.5 w-3.5" /> License</a>}
+                        {(r.insuranceConfirmed && !r.insuranceDocUrl) && <span>Insured (they said so)</span>}
+                        {r.insuranceDocUrl && <a href={r.insuranceDocUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 inline-flex items-center gap-1 min-h-[44px]" style={{ color: INK }}><FileText className="h-3.5 w-3.5" /> Insurance</a>}
+                        {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="underline underline-offset-2 inline-flex items-center gap-1 min-h-[44px]" style={{ color: INK }}><FileText className="h-3.5 w-3.5" /> ID</a> : r.idAcknowledged && <span>ID shown</span>}
                       </div>
                     )}
                     {r.agreementSignedAt ? (
-                      <div className="text-[10px] font-black uppercase text-emerald-700 flex flex-wrap items-center gap-x-1.5">
-                        <span className="inline-flex items-center gap-1"><FileSignature className="h-3 w-3" /> Signed agreement · {r.agreementSignedName || 'guest'} · {new Date(r.agreementSignedAt).toLocaleDateString()}</span>
-                        <button onClick={() => openSignedAgreement(r)} className="text-indigo-600 underline">View / print</button>
+                      <div className="text-[13px] flex flex-wrap items-center gap-x-2" style={{ color: MUTED }}>
+                        <span className="inline-flex items-center gap-1"><FileSignature className="h-3.5 w-3.5" /> Agreement signed by {r.agreementSignedName || 'the guest'}, {new Date(r.agreementSignedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <button type="button" onClick={() => openSignedAgreement(r)} className="underline underline-offset-2 min-h-[44px]" style={{ color: INK }}>Open</button>
                       </div>
-                    ) : (r.status === 'confirmed' || r.status === 'checked_in') && (
-                      <p className="text-[10px] font-black uppercase text-amber-600">⚠ No signed agreement on file — capture one at check-in</p>
-                    )}
-                    {r.balanceDueCents > 0 && !r.balancePaid && (
-                      <p className="text-[10px] font-black uppercase text-amber-600">
-                        Deposit ${((r.depositCents || 0) / 100).toFixed(0)} paid · balance ${((r.balanceDueCents || 0) / 100).toFixed(2)} {r.balanceMode === 'at_checkin' ? 'at check-in' : 'due in person'}
-                      </p>
-                    )}
-                    {r.status === 'checked_in' && r.actualCheckIn && (
-                      <p className="text-[10px] font-black uppercase text-indigo-700">
-                        In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                        {r.bookingType === 'hourly' && r.endTime ? ` · booked until ${r.endTime}` : ''}
-                      </p>
-                    )}
+                    ) : (r.status === 'confirmed' || r.status === 'checked_in') && note('No signed agreement yet. Have them sign at check-in.', 'amber')}
+                    {r.status === 'checked_in' && r.actualCheckIn && note(`Here since ${new Date(r.actualCheckIn).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase()}${r.bookingType === 'hourly' && r.endTime ? `, booked until ${hm(r.endTime)}` : ''}.`)}
                     {r.overtimeUnchecked && (
-                      <p className="text-[12px] font-medium normal-case text-[#b45309]">Extra time wasn’t checked at check-out, because there was no clock to go by. Set your time zone in Settings, and check this stay by hand.</p>
+                      <p className="text-[13px]" style={{ color: AMBER }}>Extra time wasn’t checked at check-out, because there was no clock to go by. Set your time zone in Settings, and check this stay by hand.</p>
                     )}
-                    {r.overageStatus === 'due' && (
-                      <p className="text-[10px] font-black uppercase text-red-600">Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>
-                    )}
-                    {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 space-y-1.5">
-                        <p className="text-[10px] font-black uppercase text-emerald-700">Left {r.unusedMinutes} min early — issue ${(r.potentialCreditCents / 100).toFixed(2)} credit toward their next booking?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => issueCredit(r)} className="flex-1 h-7 rounded-lg bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Issue Credit</button>
-                          <button onClick={() => declineCredit(r)} className="h-7 px-3 rounded-lg border font-black uppercase text-[9px] tracking-widest text-muted-foreground">No Credit</button>
+                    {r.overageStatus === 'due' && note(`Stayed ${r.overageMinutes} minutes over: ${usd(r.overageDueCents || 0)} to collect.`, 'amber')}
+                    {r.rescheduleRequestedAt && r.status === 'confirmed' && note(`They asked to move it${r.rescheduleRequestNote ? `: “${r.rescheduleRequestNote}”` : '.'}`, 'amber')}
+
+                    {balanceOpen && (
+                      <div className="rounded-xl p-3 space-y-2" style={{ background: '#fff7ed' }}>
+                        <p className="text-[14px]" style={{ color: AMBER }}>
+                          {usd(r.depositCents || r.amountCents || 0)} deposit paid. <span className="font-semibold">{usd(r.balanceDueCents)} still to pay</span>{r.balanceMode === 'at_checkin' ? ', at check-in.' : '.'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {r.cardOnFile && <button type="button" onClick={() => chargeBalanceToCard(r)} disabled={balanceBusyId === r.id} className={BTN_DARK}>{balanceBusyId === r.id ? 'Charging…' : `Charge ${usd(r.balanceDueCents)} to the saved card`}</button>}
+                          <button type="button" onClick={() => markBalancePaid(r)} disabled={balanceBusyId === r.id} className={BTN_LINE}>Paid in person</button>
                         </div>
                       </div>
                     )}
-                    {r.creditDecision === 'issued' && r.creditIssuedCents > 0 && (
-                      <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued — auto-applies to their next booking</p>
+
+                    {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
+                      <div className="rounded-xl p-3 space-y-2" style={{ background: '#ecf6f0' }}>
+                        <p className="text-[14px]" style={{ color: GREEN }}>Left {r.unusedMinutes} minutes early. Give {usd(r.potentialCreditCents)} credit toward their next booking?</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => issueCredit(r)} className={BTN_DARK}>Give credit</button>
+                          <button type="button" onClick={() => declineCredit(r)} className={BTN_LINE}>No credit</button>
+                        </div>
+                      </div>
                     )}
-                    {r.rescheduleRequestedAt && r.status === 'confirmed' && (
-                      <p className="text-[10px] font-black uppercase text-indigo-600">Reschedule requested{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
-                    )}
-                    <div className="flex gap-2 items-center">
+                    {r.creditDecision === 'issued' && r.creditIssuedCents > 0 && note(`${usd(r.creditIssuedCents)} credit given. It comes off their next booking.`, 'green')}
+
+                    <div className="flex gap-2 items-center pt-1">
                       {r.status === 'confirmed' ? (
-                        <button onClick={() => checkInRes(r)} className="flex-1 h-9 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
+                        <button type="button" onClick={() => checkInRes(r)} className={`${BTN_DARK} flex-1`}>Check in</button>
                       ) : r.status === 'checked_in' ? (
-                        <button onClick={() => checkOutRes(r)} className="flex-1 h-9 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest">Check Out</button>
+                        <button type="button" onClick={() => checkOutRes(r)} className={`${BTN_DARK} flex-1`}>Check out</button>
                       ) : (r.overageStatus === 'due' && r.cardOnFile) ? (
-                        <button onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{chargingId === r.id ? 'Charging…' : `Charge Card $${((r.overageDueCents || 0) / 100).toFixed(2)}`}</button>
+                        <button type="button" onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className={`${BTN_DARK} flex-1`}>{chargingId === r.id ? 'Charging…' : `Charge ${usd(r.overageDueCents || 0)} to the saved card`}</button>
                       ) : (r.overageStatus === 'due') ? (
-                        <button onClick={() => markOverageCollected(r)} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest">{`Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>
-                      ) : r.status === 'cancel_requested' ? (
-                        <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund'}</button>
-                      ) : (r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') ? (
-                        <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>
+                        <button type="button" onClick={() => markOverageCollected(r)} className={`${BTN_DARK} flex-1`}>{`Paid ${usd(r.overageDueCents || 0)} in person`}</button>
+                      ) : callingOff && byPass ? (
+                        <button type="button" onClick={() => giveDaysBack(r)} disabled={refundingId === r.id} className={`${BTN_DARK} flex-1`}>{refundingId === r.id ? 'Giving back…' : `Call off and give back ${r.passDaysUsed || 1} prepaid day${(r.passDaysUsed || 1) === 1 ? '' : 's'}`}</button>
+                      ) : callingOff && paidOnline && leftToRefund > 0 ? (
+                        <button type="button" onClick={() => openRefund(r)} className={`${BTN_DARK} flex-1`}>{refundFor === r.id ? 'Close refund' : 'Refund'}</button>
                       ) : (
-                        <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }} className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</PrintLink>
+                        <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }} className={`${BTN_LINE} flex-1`}><FileText className="h-4 w-4" /> Receipt</PrintLink>
                       )}
+                      {r.phone && <a href={`tel:${r.phone}`} aria-label={`Phone ${r.name || 'the guest'}`} className="h-11 w-11 rounded-full border border-[#ececee] bg-white flex items-center justify-center shrink-0" style={{ color: MUTED }}><Phone className="h-4 w-4" /></a>}
                       <OverflowMenu
                         align="right"
+                        label={`More for ${r.name || 'this guest'}`}
                         items={[
                           ...(r.status === 'confirmed' ? [
-                            { label: 'Reschedule', onClick: () => openReschedule(r) },
-                            { label: 'Cancel booking', danger: true, onClick: () => setResStatus(r, 'cancelled_refund_pending') },
+                            { label: reschedRes?.id === r.id ? 'Close move' : 'Move to another time', onClick: () => openReschedule(r) },
+                            byPass
+                              ? { label: `Call off and give back prepaid days`, danger: true, onClick: () => giveDaysBack(r) }
+                              : { label: 'Call off the booking', danger: true, onClick: () => setResStatus(r, 'cancelled_refund_pending') },
                           ] : []),
-                          ...(r.status === 'cancel_requested' ? [{ label: 'Decline request', onClick: () => setResStatus(r, 'confirmed') }] : []),
-                          ...(r.overageStatus === 'due' && r.cardOnFile ? [{ label: 'Mark paid in person', onClick: () => markOverageCollected(r) }] : []),
-                          ...(r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) ? [{ label: incidentalForId === r.id ? 'Close incidental' : 'Add incidental charge', onClick: () => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); } }] : []),
-                          ...(['confirmed', 'checked_in', 'cancel_requested', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status) || r.overageStatus === 'due'
-                            ? [{ label: 'Open receipt', onClick: () => { void openPrint('/api/booths/receipt', { tenantId, type: 'reservation', id: r.id }).catch((e: any) => toast({ title: 'Didn’t open', description: String(e?.message || 'Try again.') })); } }] : []),
+                          ...(r.status === 'cancel_requested' ? [{ label: 'Keep the booking (say no)', onClick: () => setResStatus(r, 'confirmed') }] : []),
+                          ...(callingOff && !byPass && (!paidOnline || leftToRefund === 0) ? [{ label: 'Mark it called off', danger: true, onClick: () => callOff(r) }] : []),
+                          ...(paidOnline && leftToRefund > 0 && !callingOff && ['confirmed', 'checked_in', 'completed'].includes(r.status) ? [{ label: refundFor === r.id ? 'Close refund' : 'Refund part or all', onClick: () => openRefund(r) }] : []),
+                          ...(r.overageStatus === 'due' && r.cardOnFile ? [{ label: 'Extra time paid in person', onClick: () => markOverageCollected(r) }] : []),
+                          ...(r.cardOnFile && !callingOff ? [{ label: incidentalForId === r.id ? 'Close charge' : 'Add a charge', onClick: () => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); } }] : []),
+                          { label: 'Open receipt', onClick: () => { void openPrint('/api/booths/receipt', { tenantId, type: 'reservation', id: r.id }).catch((e: any) => toast({ title: 'Didn’t open', description: String(e?.message || 'Try again.') })); } },
                           ...(r.agreementSignedAt ? [{ label: 'Open signed agreement', onClick: () => openSignedAgreement(r) }] : []),
-                          ...(['confirmed', 'checked_in'].includes(r.status) ? [{ label: 'Open guest check-in link', onClick: () => window.open(`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(r.id)}`, '_blank') }] : []),
+                          ...(['confirmed', 'checked_in'].includes(r.status) ? [{ label: 'Open the guest’s check-in link', onClick: () => window.open(`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(r.id)}`, '_blank') }] : []),
                         ]}
                       />
                     </div>
+
+                    {refundFor === r.id && (
+                      <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'white', border: `1px solid ${LINE}` }}>
+                        <p className="text-[14px] font-semibold" style={{ color: INK }}>Refund to their card</p>
+                        <p className="text-[13px]" style={{ color: MUTED }}>
+                          Up to {usd(leftToRefund)}{Number(r.refundedCents) > 0 ? ` (${usd(Number(r.refundedCents))} already refunded)` : ''}. {callingOff ? 'The booking is called off; what you don’t refund is kept as a cancellation fee.' : 'The booking stands. Refund more later if you need to.'}
+                        </p>
+                        <label className="block text-[13px]" style={{ color: MUTED }}>Amount
+                          <input type="number" inputMode="decimal" min="0.5" step="0.01" value={refundAmt} onChange={e => setRefundAmt(e.target.value)} className={`${FIELD} mt-1`} />
+                        </label>
+                        <label className="block text-[13px]" style={{ color: MUTED }}>Reason (the guest is told)
+                          <input type="text" value={refundWhy} onChange={e => setRefundWhy(e.target.value)} placeholder="Optional" className={`${FIELD} mt-1`} maxLength={200} />
+                        </label>
+                        {Math.round(parseFloat(refundAmt) * 100) > leftToRefund && <p className="text-[13px]" style={{ color: AMBER }}>That’s more than the {usd(leftToRefund)} left to refund.</p>}
+                        <button type="button" onClick={() => sendRefund(r)} disabled={refundingId === r.id || !(parseFloat(refundAmt) > 0) || Math.round(parseFloat(refundAmt) * 100) > leftToRefund} className={`${BTN_RED} w-full`}>
+                          {refundingId === r.id ? 'Refunding…' : `Refund ${parseFloat(refundAmt) > 0 ? usd(Math.round(parseFloat(refundAmt) * 100)) : ''}`}
+                        </button>
+                      </div>
+                    )}
+
+                    {reschedRes?.id === r.id && (
+                      <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'white', border: `1px solid ${LINE}` }}>
+                        <p className="text-[14px] font-semibold" style={{ color: INK }}>Move to another time</p>
+                        <p className="text-[13px]" style={{ color: MUTED }}>Same length as booked. For a different length, call it off and book again.</p>
+                        <label className="block text-[13px]" style={{ color: MUTED }}>{r.bookingType === 'hourly' ? 'Day' : 'First day'}
+                          <input type="date" value={reschedDate} onChange={e => setReschedDate(e.target.value)} className={`${FIELD} mt-1`} />
+                        </label>
+                        {r.bookingType === 'hourly' && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="block text-[13px]" style={{ color: MUTED }}>From
+                              <input type="time" value={reschedStartTime} onChange={e => setReschedStartTime(e.target.value)} className={`${FIELD} mt-1`} />
+                            </label>
+                            <label className="block text-[13px]" style={{ color: MUTED }}>To
+                              <input type="time" value={reschedEndTime} onChange={e => setReschedEndTime(e.target.value)} className={`${FIELD} mt-1`} />
+                            </label>
+                          </div>
+                        )}
+                        <button type="button" onClick={() => saveReschedule(r)} disabled={reschedSaving || !reschedDate} className={`${BTN_DARK} w-full`}>{reschedSaving ? 'Moving…' : 'Move booking'}</button>
+                      </div>
+                    )}
+
                     {incidentalForId === r.id && (() => {
                       const sel = incidentalPolicy.find((c: any) => c.label === incidentalCat) || null;
                       const capCents = sel ? Math.round(Number(sel.capCents) || 0) : 0;
                       const overCap = capCents > 0 && Math.round(parseFloat(incidentalAmt) * 100) > capCents;
                       return (
-                        <div className="mt-2 rounded-xl border-2 border-border bg-muted/60 p-2.5 space-y-2">
-                          <select value={incidentalCat} onChange={e => setIncidentalCat(e.target.value)} className="w-full h-9 rounded-lg border-2 px-2 text-xs font-black uppercase bg-card">
-                            <option value="">Select a charge type…</option>
-                            {incidentalPolicy.map((c: any) => <option key={c.label} value={c.label}>{c.label}{c.capCents ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>)}
-                          </select>
-                          <div className="flex gap-2">
-                            <input type="number" inputMode="decimal" placeholder="$" value={incidentalAmt} onChange={e => setIncidentalAmt(e.target.value)} className={`w-20 h-9 rounded-lg border-2 px-2.5 text-sm font-bold ${overCap ? 'border-red-400' : ''}`} />
-                            <input type="text" placeholder="Note (optional)" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className="flex-1 h-9 rounded-lg border-2 px-3 text-sm font-medium" />
+                        <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'white', border: `1px solid ${LINE}` }}>
+                          <p className="text-[14px] font-semibold" style={{ color: INK }}>Add a charge to the saved card</p>
+                          <label className="block text-[13px]" style={{ color: MUTED }}>What it’s for
+                            <select value={incidentalCat} onChange={e => setIncidentalCat(e.target.value)} className={`${FIELD} mt-1`}>
+                              <option value="">Choose one of your charge types</option>
+                              {incidentalPolicy.map((c: any) => <option key={c.label} value={c.label}>{c.label}{c.capCents ? `, up to ${usd(c.capCents)}` : ''}</option>)}
+                            </select>
+                          </label>
+                          <div className="grid grid-cols-[7rem_1fr] gap-2">
+                            <label className="block text-[13px]" style={{ color: MUTED }}>Amount
+                              <input type="number" inputMode="decimal" value={incidentalAmt} onChange={e => setIncidentalAmt(e.target.value)} className={`${FIELD} mt-1`} style={overCap ? { borderColor: AMBER } : undefined} />
+                            </label>
+                            <label className="block text-[13px]" style={{ color: MUTED }}>Note
+                              <input type="text" placeholder="Optional" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className={`${FIELD} mt-1`} />
+                            </label>
                           </div>
-                          {overCap && sel && <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Over the ${(capCents / 100).toFixed(0)} cap for {sel.label}</p>}
-                          <button onClick={() => chargeIncidentalToCard(r)} disabled={!incidentalCat || !(parseFloat(incidentalAmt) > 0) || overCap || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                            {incidentalBusyId === r.id ? 'Charging…' : `Charge card${parseFloat(incidentalAmt) > 0 ? ` $${parseFloat(incidentalAmt).toFixed(2)}` : ''}`}
+                          {overCap && sel && <p className="text-[13px]" style={{ color: AMBER }}>Over the {usd(capCents)} limit for {sel.label}.</p>}
+                          <button type="button" onClick={() => chargeIncidentalToCard(r)} disabled={!incidentalCat || !(parseFloat(incidentalAmt) > 0) || overCap || incidentalBusyId === r.id} className={`${BTN_DARK} w-full`}>
+                            {incidentalBusyId === r.id ? 'Charging…' : `Charge the card${parseFloat(incidentalAmt) > 0 ? ` ${usd(Math.round(parseFloat(incidentalAmt) * 100))}` : ''}`}
                           </button>
-                          <p className="text-[9px] font-bold text-muted-foreground">Only your policy's charge types, each capped — no made-up charges. Records under “Renter Incidental” in the ledger.</p>
+                          <p className="text-[12.5px]" style={{ color: MUTED }}>Only your own charge types, each with its limit (Settings). The guest gets a receipt.</p>
                         </div>
                       );
                     })()}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

@@ -775,7 +775,9 @@ export async function handleConnectWebhook(req: NextRequest) {
               lineExtra = { renterId: who.renterId, ...(who.transactionId ? { rentRefundOf: who.transactionId } : {}) };
               if (who.onAccount) accountNote = `It’s also on ${who.name || 'the renter'}’s account as money back they don’t owe again. If they still owe it, add it as a charge on the Rent page.`;
             }
-          } else if (!shopOrder && !rf.metadata?.retailOrderId) {
+          } else if (!shopOrder && !rf.metadata?.retailOrderId && !(rf.metadata?.kind === 'booth_refund' && rf.metadata?.origin === 'app')) {
+            // (A day or hourly booking refunded from the desk: its guest is told by the booking route, with a link to
+            // their booking (lib/reservation-notify), so not twice.)
             try {
               const { sendRefundNotice } = await import('@/lib/refund-notice');
               await sendRefundNotice(db, tenant.id, { key: `refund_${rf.id}`, kind: 'refund', amountCents: Number(rf.amount) || 0,

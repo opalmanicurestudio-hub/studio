@@ -1,15 +1,15 @@
 // src/lib/stay-receipt.ts — THE LINES ON A DAY OR HOURLY STAY'S RECEIPT (api/booths/receipt). What was booked, in its
 // own terms (hours and times, a slot, or days), at the price before any renter discount; the discount and any credit
 // used, or the prepaid days it was paid with; and the extra time and other charges taken afterwards (on the saved card or
-// in person). With a deposit, a note says what was paid when booking and whether the balance is paid; a stay that's over
+// in person), and refunds. With a deposit, a note says what was paid when booking and whether the balance is paid; a stay that's over
 // with its balance never recorded says so, rather than claiming it's owed or paid. A booking taken at the desk and not yet
 // paid shows as such. The total is what has actually been paid. Pure.
 
 export interface StayReceiptLine { description: string; amountCents: number }
 /** paid: nothing left to pay. due: a balance is still to pay. unpaid: booked at the desk and not paid yet. unrecorded:
- *  the stay is over and what was left to pay was never recorded either way. */
-export type StayPaidState = 'paid' | 'due' | 'unpaid' | 'unrecorded';
-export interface StayReceipt { lines: StayReceiptLine[]; paidCents: number; stillDueCents: number; state: StayPaidState; depositOnly: boolean; method: string; periodLabel: string; bookedLabel: string; note: string }
+ *  the stay is over and what was left to pay was never recorded either way. refunded: called off and refunded. */
+export type StayPaidState = 'paid' | 'due' | 'unpaid' | 'unrecorded' | 'refunded';
+export interface StayReceipt { lines: StayReceiptLine[]; paidCents: number; refundedCents: number; stillDueCents: number; state: StayPaidState; depositOnly: boolean; method: string; periodLabel: string; bookedLabel: string; note: string }
 
 const n = (v: any) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0);
 const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -39,10 +39,13 @@ export function stayReceipt(r: any): StayReceipt {
   // A booking taken at the desk and not paid yet: nothing paid, the whole price still to pay.
   const unpaidDesk = r?.paymentStatus === 'unpaid';
   const pass = !!r?.paidWithPassId;
-  const paidAtBooking = unpaidDesk || pass ? 0 : Math.max(0, n(r?.amountCents));
+  // Called off without a refund to a card: paid at the desk and handed back there, or never paid at all.
+  const calledOff = String(r?.status || '') === 'cancelled';
+  const paidAtBooking = unpaidDesk || pass || calledOff ? 0 : Math.max(0, n(r?.amountCents));
   const balance = Math.max(0, n(r?.balanceDueCents));
   const balancePaid = r?.balancePaid === true;
   const over = String(r?.status || '') === 'completed';
+  const closed = ['refunded', 'cancelled'].includes(String(r?.status || ''));
   const booked = bookedLabel(r);
   const lines: StayReceiptLine[] = [{ description: `${space}: ${booked}`, amountCents: listed }];
   if (discount > 0) lines.push({ description: 'Renter discount', amountCents: -discount });
@@ -62,14 +65,21 @@ export function stayReceipt(r: any): StayReceipt {
     const c = n(x?.amountCents); if (c <= 0) continue; extras += c;
     lines.push({ description: String(x?.description || 'Charge'), amountCents: c });
   }
-  const paidCents = paidAtBooking + (balance > 0 && balancePaid ? balance : 0) + extras;
+  // Refunds, in one go or in parts: a line of their own, and out of what's been paid.
+  const refundedCents = Math.max(0, n(r?.refundedCents));
+  if (refundedCents > 0) lines.push({ description: 'Refunded', amountCents: -refundedCents });
+  // Called off without a card refund: nothing counts as paid (it was handed back, or never taken).
+  const paidCents = calledOff ? 0 : Math.max(0, paidAtBooking + (balance > 0 && balancePaid ? balance : 0) + extras - refundedCents);
   const balanceOpen = balance > 0 && !balancePaid;
   // Paid at the till, the booking is marked paid (api/checkout/complete); a stay that's over without that is unrecorded.
-  const stillDueCents = over ? 0 : unpaidDesk ? Math.max(0, n(r?.amountCents)) : balanceOpen ? balance : 0;
-  const state: StayPaidState = over ? (unpaidDesk || balanceOpen ? 'unrecorded' : 'paid') : unpaidDesk ? 'unpaid' : stillDueCents > 0 ? 'due' : 'paid';
+  // A booking called off owes nothing more.
+  const stillDueCents = over || closed ? 0 : unpaidDesk ? Math.max(0, n(r?.amountCents)) : balanceOpen ? balance : 0;
+  const state: StayPaidState = closed ? 'refunded' : over ? (unpaidDesk || balanceOpen ? 'unrecorded' : 'paid') : unpaidDesk ? 'unpaid' : stillDueCents > 0 ? 'due' : 'paid';
   const periodLabel = r?.startDate && r?.endDate && r.startDate !== r.endDate ? `${longDay(r.startDate)} to ${longDay(r.endDate)}` : longDay(r?.startDate);
   // With a deposit: what was paid when booking, and the balance, said in words under the lines (the lines are the price).
-  const note = unpaidDesk
+  const note = closed
+    ? (r?.status === 'cancelled' && r?.passDaysReturnedAt ? 'Called off. The prepaid days were given back.' : refundedCents > 0 ? `Called off. ${usd(refundedCents)} was refunded to the card.` : 'Called off.')
+    : unpaidDesk
     ? (over ? 'Booked at the desk. Its payment isn’t recorded here.' : `Booked at the desk. The ${usd(stillDueCents)} isn’t paid yet.`)
     : balance > 0
       ? `${usd(paidAtBooking)} deposit paid when booking. ${balancePaid ? `The ${usd(balance)} balance is paid.` : over ? `The ${usd(balance)} balance was due in person and isn’t recorded here.` : `The ${usd(balance)} balance is still to pay.`}`
@@ -77,6 +87,6 @@ export function stayReceipt(r: any): StayReceipt {
   const method = pass ? 'Prepaid days' : r?.source === 'desk' || r?.paidVia === 'pos' ? 'Paid at the desk' : 'Card (Stripe)';
   // Over with its balance never recorded, but its deposit was paid: said as such.
   const depositOnly = state === 'unrecorded' && !unpaidDesk && balance > 0;
-  return { lines, paidCents, stillDueCents, state, depositOnly, method, periodLabel, bookedLabel: booked, note };
+  return { lines, paidCents, refundedCents, stillDueCents, state, depositOnly, method, periodLabel, bookedLabel: booked, note };
 }
 

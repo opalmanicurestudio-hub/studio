@@ -269,7 +269,7 @@ async function fresh() {
   who = await RR.noticeRenterRefund(db, 't1', tData, { ...charge, payment_intent: 'pi_second' }, twice, { kind: 'rent_invoice', invoiceId: 'inv_nov' }, { piId: 'pi_second', outside: false });
   check('a second payment sent back is told to the renter, found by their bill, with why', who?.renterId === 'rt1' && toMaya().length === 3 && /already paid/.test(String(toMaya()[2].html)) && !(await get(`${T}/rentLedger/rrf_re_twice`)));
   const hook = src('src/lib/connect-webhook.ts');
-  check('the payments notice sends renters’ refunds this way, not as a client’s', hook.includes('noticeRenterRefund(db, tenant.id, tData, charge, rf, meta') && /renterPay \|\| \['renter_refund', 'rent_refund'\]/.test(hook) && hook.includes('} else if (!shopOrder && !rf.metadata?.retailOrderId) {'));
+  check('the payments notice sends renters’ refunds this way, not as a client’s', hook.includes('noticeRenterRefund(db, tenant.id, tData, charge, rf, meta') && /renterPay \|\| \['renter_refund', 'rent_refund'\]/.test(hook) && hook.includes('} else if (!shopOrder && !rf.metadata?.retailOrderId && !(rf.metadata?.kind === \'booth_refund\' && rf.metadata?.origin === \'app\')) {'));
   check('and if it can’t be written, the notice fails so Stripe sends it again, a few times, then the owners are told', hook.includes("console.error('[connect-webhook] renter refund', e);") && hook.includes('if (tries < 5) throw e;') && hook.includes('renterrefundfail_') && hook.includes('lineExtra });'));
 
   console.log('A receipt for an agreed charge');

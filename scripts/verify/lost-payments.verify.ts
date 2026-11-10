@@ -96,7 +96,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/charge-records' || /\/src\/lib\/charge-records(\.ts)?$/.test(request)) return fake(request, { recordCharge: async () => ({ id: 'cr1' }) });
   if (request === '@/lib/message-policy' || /\/src\/lib\/message-policy(\.ts)?$/.test(request)) return fake(request, { internalHeaders: () => ({ 'x-cf-internal': 'sec' }), resolveMessagePolicy: () => ({ enabled: false }), renderMessage: (s: string) => s, MESSAGE_KINDS: [] });
   if (request === '@/lib/app-origin') return { linkOrigin: () => 'https://studio.test' };
-  if (request === '@/lib/reservation-notify') return { sendReservationConfirmation: async () => undefined };
+  if (request === '@/lib/reservation-notify') return { sendReservationConfirmation: async () => undefined, sendStayMoneyNotice: async () => undefined };
   if (request === '@/lib/refund-notice' || /\/src\/lib\/refund-notice(\.ts)?$/.test(request)) return fake(request, { __esModule: true, sendRefundNotice: async () => undefined, default: { sendRefundNotice: async () => undefined } });
   return load.call(this, request, ...rest);
 };

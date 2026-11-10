@@ -46,7 +46,7 @@ function buildReceiptHtml(data: {
   paymentMethod: string;
   paymentRef:    string;
   notes:         string;
-  paidState?:    'paid' | 'due' | 'unpaid' | 'unrecorded';
+  paidState?:    'paid' | 'due' | 'unpaid' | 'unrecorded' | 'refunded';
   depositOnly?:  boolean;
 }): string {
   const fmt = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -110,7 +110,7 @@ function buildReceiptHtml(data: {
     </div>
     <div class="r">
       <p class="lbl">Status</p>
-      ${data.paidState === 'due' ? '<span class="pill warn">Balance due</span>' : data.paidState === 'unpaid' ? '<span class="pill warn">Payment due</span>' : data.paidState === 'unrecorded' ? `<span class="pill">${data.depositOnly ? 'Deposit paid' : 'Not recorded'}</span>` : '<span class="pill ok">Paid</span>'}
+      ${data.paidState === 'due' ? '<span class="pill warn">Balance due</span>' : data.paidState === 'unpaid' ? '<span class="pill warn">Payment due</span>' : data.paidState === 'unrecorded' ? `<span class="pill">${data.depositOnly ? 'Deposit paid' : 'Not recorded'}</span>` : data.paidState === 'refunded' ? '<span class="pill">Called off</span>' : '<span class="pill ok">Paid</span>'}
     </div>
   </div>
 
@@ -181,8 +181,9 @@ export async function GET(req: NextRequest) {
       const resSnap = await db.doc(`tenants/${tenantId}/boothReservations/${id}`).get();
       if (!resSnap.exists) return new NextResponse('Reservation not found.', { status: 404 });
       const r = resSnap.data() as any;
-      if (r.status !== 'confirmed' && r.status !== 'completed' && r.status !== 'checked_in') {
-        return new NextResponse('Receipt only available for confirmed reservations.', { status: 400 });
+      // A booking called off counts only when it was really booked (one whose payment page was left isn't).
+      if (!['confirmed', 'completed', 'checked_in', 'refunded'].includes(String(r.status || '')) && !(r.status === 'cancelled' && r.confirmedAt)) {
+        return new NextResponse('A receipt is only for a booking that was confirmed.', { status: 400 });
       }
 
       // What was booked in its own terms (hours, a slot or days), the discount and credit, the deposit and balance, and

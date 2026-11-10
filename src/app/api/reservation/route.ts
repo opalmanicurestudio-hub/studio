@@ -6,7 +6,7 @@
 // one reservation. Mirrors /api/appt for appointments.
 //
 // POST { action, tenantId, resId, k }
-//   'view'           → reservation details + studio info
+//   'view'           → reservation details, its receipt (every charge, refund and what's been paid) + the business's name
 //   'cancel-request' → flags the reservation cancel_requested and alerts
 //                      the owner (money already moved through Stripe, so
 //                      cancellations are owner-approved, never automatic)
@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { reservationWhenLabel } from '@/lib/reservation-notify';
+import { stayReceipt } from '@/lib/stay-receipt';
 
 async function loadAuthed(db: any, tenantId: string, resId: string, k: any) {
   if (!tenantId || !resId || !k || String(k).length < 16) return null;
@@ -37,11 +38,11 @@ export async function POST(req: NextRequest) {
     if (!action || !tenantId || !resId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     const db = getAdminDb();
     const authed = await loadAuthed(db, tenantId, resId, body.k);
-    if (!authed) return NextResponse.json({ ok: false, error: 'This link is no longer valid — call the studio and we\'ll help.' }, { status: 401 });
+    if (!authed) return NextResponse.json({ ok: false, error: 'This link no longer works. Ask the business for a new one.' }, { status: 401 });
     const { ref, r } = authed;
 
     const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-    const studioName = tData.name || tData.businessName || 'The studio';
+    const studioName = tData.name || tData.businessName || 'The business';
 
     if (action === 'view') {
       return NextResponse.json({
@@ -58,6 +59,8 @@ export async function POST(req: NextRequest) {
           balanceDueCents: (!r.balancePaid && Number(r.balanceDueCents) > 0) ? Number(r.balanceDueCents) : 0,
           balanceMode: r.balanceMode || null,
           cancelRequested: r.status === 'cancel_requested' || !!r.cancelRequestedAt,
+          // What they were charged and what they've paid, line by line (lib/stay-receipt): the guest's receipt.
+          receipt: (() => { const rc = stayReceipt(r); return { lines: rc.lines, paidCents: rc.paidCents, refundedCents: rc.refundedCents, stillDueCents: rc.stillDueCents, state: rc.state, note: rc.note }; })(),
         },
       });
     }
@@ -78,7 +81,7 @@ export async function POST(req: NextRequest) {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({
           id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
-          message: `Cancellation requested: ${r.name || 'A guest'} — ${r.boothName || 'space'}, ${reservationWhenLabel(r)}. Approve/refund from Booth Hub.`,
+          message: `Cancellation requested: ${r.name || 'A guest'} — ${r.boothName || 'space'}, ${reservationWhenLabel(r)}. Approve it from the desk.`,
         });
       } catch { /* bell is a bonus */ }
       await logAuditAdmin(db, tenantId, {
@@ -108,7 +111,7 @@ export async function GET(req: NextRequest) {
     if (!authed) return new NextResponse('Link expired', { status: 401 });
     const { r } = authed;
     const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-    const studioName = tData.name || 'Studio';
+    const studioName = tData.name || tData.businessName || 'Business';
 
     const clean = (s: string) => s.replace(/[\n,;]/g, ' ');
     let dtLines: string[];

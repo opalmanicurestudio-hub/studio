@@ -104,7 +104,7 @@ const today = '2026-11-10';
     invoices: [{ id: 'iz', leaseId: 'lp', renterId: 'z', status: 'late', amountCents: 50000, paidCents: 0, dueDate: '2026-11-01' },
       { id: 'iq', boothId: 'q', leaseId: 'lq', renterId: 'z', status: 'paid', amountCents: 40000, lateFeeCents: 0, paidCents: 30000, paidAmountCents: 10000, dueDate: '2026-10-01' }],
     ledger: [],
-    reservations: [{ id: 's1', boothId: 'g', startDate: '2026-11-02', endDate: '2026-11-06', status: 'completed', amountCents: 50000, balanceDueCents: 10000 }],
+    reservations: [{ id: 's1', boothId: 'g', startDate: '2026-11-02', endDate: '2026-11-06', status: 'completed', amountCents: 40000, balanceDueCents: 10000 }],   // a $400 deposit charged, $100 balance not taken
   });
   const yr = Object.fromEntries(y.rows.map((v: any) => [v.id, v]));
   check('late rent is the space’s, not every space its renter has', yr.p.status === 'Rent late' && yr.q.status === 'Leased', [yr.p.status, yr.q.status]);

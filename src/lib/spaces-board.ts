@@ -6,6 +6,7 @@
 import { spaceStates, leaseEnding, leasePastEnd, plusDays, dayDiff, monthDay, money, nameOf, type SpaceState } from '@/lib/rentals-home';
 import { invoiceOwedCents } from '@/lib/booth-rental-types';
 import { depositPosition } from '@/lib/deposit-accounting';
+import { stayReceipt } from '@/lib/stay-receipt';
 
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const day = (v: any) => String(v || '').slice(0, 10);
@@ -110,8 +111,9 @@ export function spacesBoard(x: SpacesBoardInput) {
     // This year: rent paid on this space's bills, and its day and hourly bookings so far.
     const billsIn = (x.invoices || []).filter((i) => i?.boothId === b.id && day(i.dueDate).startsWith(year))
       .reduce((s, i) => s + (i.status === 'paid' ? n(i.amountCents) + n(i.lateFeeCents) : ['due', 'late'].includes(String(i.status)) ? Math.max(0, n(i.amountCents) + n(i.lateFeeCents) - invoiceOwedCents(i)) : 0), 0);
-    const guestsIn = (x.reservations || []).filter((r) => r?.boothId === b.id && goodRes(r) && day(r.startDate).startsWith(year) && day(r.startDate) <= today)
-      .reduce((s, r) => s + Math.max(0, n(r.amountCents) - n(r.balanceDueCents)) + (r.overageStatus === 'charged' ? n(r.overageDueCents) : 0), 0);   // what's still owed on a booking isn't in yet
+    // (A booking called off and refunded in part still counts what was kept.)
+    const guestsIn = (x.reservations || []).filter((r) => r?.boothId === b.id && (goodRes(r) || r?.status === 'refunded') && day(r.startDate).startsWith(year) && day(r.startDate) <= today)
+      .reduce((s, r) => s + stayReceipt(r).paidCents, 0);   // what's actually been paid on each (lib/stay-receipt): the deposit and any balance taken, extra time and charges, less refunds
 
     // Used: of the days it could have been, in the last twelve months (or since it was added), how many a lease had it
     // or a guest booked it.

@@ -52,7 +52,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore' || /firebase-admin\/lib\/firestore\/index\.js$/.test(request)) return fake(request, { getFirestore: () => db, FieldValue: FV });
   if (request === '@/lib/route-guard') return { requireCan: async () => ({ actor: { uid: 'm1', name: 'Ana Ruiz', role: 'manager' } }) };
   if (request === '@/lib/audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async () => undefined, auditEntry: () => ({}) });
-  if (request === '@/lib/reservation-notify' || /\/src\/lib\/reservation-notify(\.ts)?$/.test(request)) return fake(request, { sendReservationConfirmation: async () => undefined });
+  if (request === '@/lib/reservation-notify' || /\/src\/lib\/reservation-notify(\.ts)?$/.test(request)) return fake(request, { sendReservationConfirmation: async () => undefined, sendStayMoneyNotice: async () => undefined });
   return load.call(this, request, ...rest);
 };
 

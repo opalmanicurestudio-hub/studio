@@ -1,6 +1,6 @@
 // src/lib/booth-money.ts — A BOOTH OR DAY-RENTAL BOOKING'S CHARGES AND REFUNDS, RECORDED ONCE (server).
-// The booking route (api/booths/reserve) charges an overage or an incidental to the guest's saved card, or refunds the
-// booking, on the account the booking was paid on (the business's own; lib/space-stripe). Each is claimed on the booking first, charged or refunded under one
+// The booking route (api/booths/reserve) charges an overage, an incidental or the balance to the guest's saved card, or
+// refunds the booking (in one go or in parts), on the account the booking was paid on (the business's own; lib/space-stripe). Each is claimed on the booking first, charged or refunded under one
 // key, and recorded here, once: its lines are named after the booking (and, for an incidental, the attempt), and
 // written in the same step as the booking's status.
 // When Stripe's answer is lost and nobody asks again, the claim would stay open with the money maybe taken and never
@@ -9,6 +9,7 @@
 import Stripe from 'stripe';
 import { onAccount } from '@/lib/space-stripe';
 import { FieldValue } from 'firebase-admin/firestore';
+import { sendStayMoneyNotice } from '@/lib/reservation-notify';
 
 export const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
 const OPEN_AFTER_MS = 15 * 60000;     // a claim still open this long has lost its answer
@@ -16,6 +17,11 @@ const NOTHING_AFTER_MS = 2 * 3600000; // nothing at Stripe by then: it never rea
 const stripeFor = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }) as any;
 const iso = (n: number) => new Date(n).toISOString();
 const older = (at: any, ms: number, now: number) => now - (Date.parse(String(at || '')) || now) >= ms;
+/** The guest's receipt for money found and recorded by the check: once, by its key (lib/reservation-notify). Never
+ *  stops the check. */
+async function tellGuest(db: any, tenantId: string, reservationId: string, n: { kind: 'charge' | 'refund'; cents: number; what: string; key: string }) {
+  try { await sendStayMoneyNotice(db, tenantId, reservationId, n); } catch { /* the money is recorded either way */ }
+}
 
 /** Stripe's fee on a charge: from the charge it came back with, else asked for, else the usual US rate as an estimate,
  *  so the fee is never left out of the books. */
@@ -97,14 +103,65 @@ export async function recordBoothIncidental(db: any, tenantId: string, reservati
   });
 }
 
-/** The booking refunded: its line and its status, once. */
-export async function recordBoothRefund(db: any, tenantId: string, reservationId: string, r: any, refund: any, refundCents: number, pi: string, reason: string | null, o: { at?: string } = {}) {
+/** The balance on a booking with a deposit, charged to the saved card: its line, its fee and the booking, once. */
+export async function recordBoothBalance(db: any, tenantId: string, reservationId: string, r: any, intent: any, cents: number, o: { stripe?: any; at?: string } = {}) {
   const at = o.at || new Date().toISOString();
   const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-  const txnRef = db.doc(`tenants/${tenantId}/transactions/boothrefund_${safeKey(reservationId)}`);
+  const { feeCents, chargeId, estimated } = await boothFeeOf(o.stripe, intent, cents, r).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+  const txnRef = db.doc(`tenants/${tenantId}/transactions/boothbal_${safeKey(reservationId)}`);
+  const feeRef = db.doc(`tenants/${tenantId}/transactions/boothbalfee_${safeKey(reservationId)}`);
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(resRef)).data() || {};
-    if (cur.status === 'refunded') return false;
+    if (cur.balancePaid === true) return false;
+    tx.set(txnRef, {
+      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+      source: 'booth_rent',
+      amount: cents / 100, category: 'Booth Rent',
+      description: `Balance — ${r.boothName || 'Space'} — ${r.name || 'guest'}`,
+      clientOrVendor: r.name || 'Day renter', date: at, paymentMethod: 'Card on file (Stripe)',
+      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, renterId: r?.renterId || null, tenantId, createdAt: at,
+    });
+    if (feeCents > 0) tx.set(feeRef, {
+      id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+      amount: feeCents / 100, category: 'Processing Fee', estimated,
+      description: `Stripe fee${estimated ? ' (est.)' : ''} — balance — ${r.boothName || 'Space'} (${r.name || 'guest'})`,
+      clientOrVendor: 'Stripe', date: at, paymentMethod: 'Deducted from payout',
+      hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
+      sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: at,
+    });
+    tx.set(resRef, { balancePaid: true, balancePaidAt: at, balancePaidVia: 'card', balanceChargedCents: cents, balancePaymentIntentId: intent.id,
+      balanceStatus: 'charged', balanceClaimAt: null, balanceClaimCents: null, balanceClaimPm: null }, { merge: true });
+    return true;
+  });
+}
+
+/** Where a booking's refunds stand: what was paid when booking, what's been refunded of it, and what's left. */
+export function stayRefundable(r: any): { paidCents: number; refundedCents: number; leftCents: number } {
+  const paidCents = Math.max(0, Math.round(Number(r?.amountCents) || 0));
+  const refundedCents = Math.max(0, Math.round(Number(r?.refundedCents) || 0));
+  return { paidCents, refundedCents, leftCents: r?.status === 'refunded' ? 0 : Math.max(0, paidCents - refundedCents) };
+}
+
+/** Statuses where the booking is being called off: any refund on it closes it (what isn't refunded is kept as a fee). */
+export const CANCELLING_STATUSES = ['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'];
+
+/** A refund on the booking (one of possibly several, numbered from 1): its line and the booking, once. The booking closes
+ *  (status 'refunded', its time let go) when all of what was paid is refunded, or when it was being called off; a part
+ *  refund on a booking that stands leaves it as it is. Returns null when it was already recorded, else whether it closed. */
+export async function recordBoothRefund(db: any, tenantId: string, reservationId: string, r: any, refund: any, refundCents: number, pi: string, reason: string | null, o: { at?: string; seq?: number } = {}): Promise<{ closed: boolean } | null> {
+  const at = o.at || new Date().toISOString();
+  const seq = Math.max(1, Math.round(Number(o.seq) || 1));
+  const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+  // The first keeps the name it always had, so one recorded before refunds were numbered is never written twice.
+  const txnRef = db.doc(`tenants/${tenantId}/transactions/boothrefund_${safeKey(reservationId)}${seq > 1 ? `_${seq}` : ''}`);
+  return db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(resRef)).data() || {};
+    const seqs: number[] = Array.isArray(cur.refundSeqs) ? cur.refundSeqs.map(Number) : [];
+    if (seqs.includes(seq)) return null;
+    if (cur.status === 'refunded' && !seqs.length) return null;   // refunded once, before refunds were numbered
+    if ((await tx.get(txnRef)).exists) return null;
+    const total = (Math.round(Number(cur.refundedCents) || 0)) + refundCents;
+    const closed = CANCELLING_STATUSES.includes(String(cur.status || '')) || total >= (Math.round(Number(cur.amountCents) || 0));
     tx.set(txnRef, {
       id: txnRef.id, type: 'reversal', context: 'Business', taxBucket: 'refund',
       source: 'booth_rent',
@@ -115,14 +172,25 @@ export async function recordBoothRefund(db: any, tenantId: string, reservationId
       sourceId: reservationId, renterId: r?.renterId || null, tenantId, createdAt: at,
     });
     tx.set(resRef, {
-      status: 'refunded', refundedAt: at,
-      refundedCents: refundCents, stripeRefundId: refund.id,
-      refundReason: reason ? String(reason).slice(0, 300) : null,
-      refundClaimAt: null, refundClaimCents: null,
+      ...(closed ? { status: 'refunded', refundedAt: at } : {}),
+      refundedCents: total, refundCount: Math.max(seq, Math.round(Number(cur.refundCount) || 0)),
+      refundSeqs: FieldValue.arrayUnion(seq),
+      refunds: FieldValue.arrayUnion({ seq, cents: refundCents, at, refundId: refund.id, reason: reason ? String(reason).slice(0, 300) : null }),
+      lastRefundAt: at, stripeRefundId: refund.id,
+      refundReason: reason ? String(reason).slice(0, 300) : (cur.refundReason || null),
+      refundClaimAt: null, refundClaimCents: null, refundClaimSeq: null,
     }, { merge: true });
-    return true;
+    return { closed };
   });
 }
+
+/** Which refund a claim is for: the one it named, else the next one. */
+export const refundSeqOf = (r: any): number => Math.max(1, Math.round(Number(r?.refundClaimSeq) || 0) || (Math.round(Number(r?.refundCount) || 0) + 1));
+
+/** The refund Stripe has for this booking under this number (one from before refunds were numbered counts as the first). */
+export const isBoothRefundFor = (x: any, reservationId: string, seq: number): boolean =>
+  x?.metadata?.reservationId === String(reservationId) && x?.metadata?.kind === 'booth_refund' && !['failed', 'canceled'].includes(String(x?.status || ''))
+  && String(x?.metadata?.seq || '1') === String(seq);
 
 export type LostBoothCounts = { checked: number; recorded: number; released: number; waiting: number };
 
@@ -155,7 +223,7 @@ async function takeOver(db: any, ref: any, field: string, isOpen: (d: any) => bo
   }).catch(() => null);
 }
 
-/** The five-minute check for booth bookings: overages, incidentals and refunds whose answer was lost (see the top). */
+/** The five-minute check for booth bookings: overages, balances, incidentals and refunds whose answer was lost (see the top). */
 export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: any, o: { stripe?: any; now?: number } = {}): Promise<LostBoothCounts> {
   const out: LostBoothCounts = { checked: 0, recorded: 0, released: 0, waiting: 0 };
   const now = o.now ?? Date.now(); const stripe = o.stripe || stripeFor();
@@ -173,13 +241,32 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
     const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(r.overageClaimAt || ''), r) : [];
     if (list === null) { await d.ref.set({ overageSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
     const pi = list.find((p: any) => p?.metadata?.kind === 'booth_overage' && String(p?.metadata?.reservationId || '') === d.id && Number(p.amount) === Number(r.overageClaimCents));
-    if (pi?.status === 'succeeded') { await recordBoothOverage(db, tenantId, d.id, r, pi, Number(r.overageClaimCents) || Number(pi.amount) || 0, { stripe, at: iso(now) }); await d.ref.set({ overageSettlingAt: null }, { merge: true }); tally('recorded'); continue; }
+    if (pi?.status === 'succeeded') { const c = Number(r.overageClaimCents) || Number(pi.amount) || 0; await recordBoothOverage(db, tenantId, d.id, r, pi, c, { stripe, at: iso(now) }); await d.ref.set({ overageSettlingAt: null }, { merge: true }); await tellGuest(db, tenantId, d.id, { kind: 'charge', cents: c, what: `Extra time${r.overageMinutes ? ` (${r.overageMinutes} minutes)` : ''}`, key: 'overage' }); tally('recorded'); continue; }
     if (pi?.status === 'processing' || (!pi && !older(r.overageClaimAt, NOTHING_AFTER_MS, now))) { await d.ref.set({ overageSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
     // Declined, or never reached Stripe: still due, for the desk to charge again or collect in person (only if nobody
     // asked again meanwhile; then that request finishes it).
     const let1 = await letGo(db, d.ref, (x) => x.overageStatus === 'charging' && String(x.overageClaimAt || '') === String(r.overageClaimAt || '') && x.overageSettlingAt === iso(now),
       { overageStatus: 'due', overageClaimAt: null, overageClaimCents: null, overageClaimPm: null, overageSettlingAt: null });
     tally(let1 ? 'released' : 'waiting');
+  }
+
+  // ── Balances: claimed ('charging') and never recorded ──
+  const balancing = (await col.where('balanceStatus', '==', 'charging').limit(50).get().catch(() => ({ docs: [] as any[] }))).docs;
+  for (const d of balancing) {
+    const r0: any = d.data() || {};
+    if (!older(r0.balanceClaimAt, OPEN_AFTER_MS, now)) continue;
+    const r: any = await takeOver(db, d.ref, 'balanceSettlingAt', (x) => x.balanceStatus === 'charging', now);
+    if (!r) continue;
+    out.checked++;
+    const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(r.balanceClaimAt || ''), r) : [];
+    if (list === null) { await d.ref.set({ balanceSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
+    const pi = list.find((p: any) => p?.metadata?.kind === 'booth_balance' && String(p?.metadata?.reservationId || '') === d.id && Number(p.amount) === Number(r.balanceClaimCents));
+    if (pi?.status === 'succeeded') { const c = Number(r.balanceClaimCents) || Number(pi.amount) || 0; await recordBoothBalance(db, tenantId, d.id, r, pi, c, { stripe, at: iso(now) }); await d.ref.set({ balanceSettlingAt: null }, { merge: true }); await tellGuest(db, tenantId, d.id, { kind: 'charge', cents: c, what: 'Your booking’s balance', key: 'balance' }); tally('recorded'); continue; }
+    if (pi?.status === 'processing' || (!pi && !older(r.balanceClaimAt, NOTHING_AFTER_MS, now))) { await d.ref.set({ balanceSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
+    // Declined, or never reached Stripe: still to pay, for the desk to charge again or take in person.
+    const letB = await letGo(db, d.ref, (x) => x.balanceStatus === 'charging' && String(x.balanceClaimAt || '') === String(r.balanceClaimAt || '') && x.balanceSettlingAt === iso(now),
+      { balanceStatus: null, balanceClaimAt: null, balanceClaimCents: null, balanceClaimPm: null, balanceSettlingAt: null });
+    tally(letB ? 'released' : 'waiting');
   }
 
   // ── Incidentals: an attempt left 'charging' (the booking says one is open) ──
@@ -200,7 +287,7 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
       const list = r.stripeCustomerId ? await paymentsSince(stripe, String(r.stripeCustomerId), String(a.claimAt || ''), r) : [];
       if (list === null) { await a0.ref.set({ settlingAt: null }, { merge: true }); stillOpen = true; tally('waiting'); continue; }
       const pi = list.find((p: any) => p?.metadata?.kind === 'booth_incidental' && String(p?.metadata?.reservationId || '') === d.id && String(p?.metadata?.attempt || '') === key);
-      if (pi?.status === 'succeeded') { await recordBoothIncidental(db, tenantId, d.id, r, key, pi, Number(a.amountCents) || Number(pi.amount) || 0, String(a.description || 'Incidental'), { stripe, at: iso(now) }); tally('recorded'); continue; }
+      if (pi?.status === 'succeeded') { const c = Number(a.amountCents) || Number(pi.amount) || 0; await recordBoothIncidental(db, tenantId, d.id, r, key, pi, c, String(a.description || 'Incidental'), { stripe, at: iso(now) }); await tellGuest(db, tenantId, d.id, { kind: 'charge', cents: c, what: String(a.description || 'A charge'), key: `inc_${key}` }); tally('recorded'); continue; }
       if (pi?.status === 'processing' || (!pi && !older(a.claimAt, NOTHING_AFTER_MS, now))) { await a0.ref.set({ settlingAt: null }, { merge: true }); stillOpen = true; tally('waiting'); continue; }
       const let2 = await letGo(db, a0.ref, (x) => x.status === 'charging' && String(x.claimAt || '') === String(a.claimAt || '') && x.settlingAt === iso(now),
         { status: 'failed', failedAt: iso(now), error: pi ? `Charge ${pi.status}` : 'It never reached Stripe.', settlingAt: null });
@@ -223,16 +310,17 @@ export async function settleLostBoothMoney(db: any, tenantId: string, _tenant: a
     if (!r) continue;
     out.checked++;
     let refund: any = null; let asked = true;
+    const seq = refundSeqOf(r);
     try {
       const l: any = await stripe.refunds.list({ payment_intent: String(r.stripePaymentIntentId), limit: 100 }, onAccount(r));
-      refund = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.reservationId === d.id && x?.metadata?.kind === 'booth_refund' && !['failed', 'canceled'].includes(String(x.status || ''))) || null;
+      refund = (Array.isArray(l?.data) ? l.data : []).find((x: any) => isBoothRefundFor(x, d.id, seq)) || null;
     } catch { asked = false; }
     if (!asked || (!refund && !older(r.refundClaimAt, NOTHING_AFTER_MS, now))) { await d.ref.set({ refundSettlingAt: null }, { merge: true }); tally('waiting'); continue; }
-    if (refund) { await recordBoothRefund(db, tenantId, d.id, r, refund, Number(refund.amount) || Number(r.refundClaimCents) || 0, String(r.stripePaymentIntentId), r.refundReason || null, { at: iso(now) }); await d.ref.set({ refundSettlingAt: null }, { merge: true }); tally('recorded'); continue; }
+    if (refund) { const c = Number(refund.amount) || Number(r.refundClaimCents) || 0; await recordBoothRefund(db, tenantId, d.id, r, refund, c, String(r.stripePaymentIntentId), r.refundClaimReason || null, { at: iso(now), seq }); await d.ref.set({ refundSettlingAt: null }, { merge: true }); await tellGuest(db, tenantId, d.id, { kind: 'refund', cents: c, what: String(r.refundClaimReason || ''), key: `refund_${seq}` }); tally('recorded'); continue; }
     // Never reached Stripe: the claim comes off, and the booking can be refunded again (only if nobody asked again
     // meanwhile).
     const let3 = await letGo(db, d.ref, (x) => String(x.refundClaimAt || '') === String(r.refundClaimAt || '') && x.refundSettlingAt === iso(now) && x.status !== 'refunded',
-      { refundClaimAt: null, refundClaimCents: null, refundSettlingAt: null });
+      { refundClaimAt: null, refundClaimCents: null, refundClaimSeq: null, refundClaimReason: null, refundSettlingAt: null });
     tally(let3 ? 'released' : 'waiting');
   }
   return out;
