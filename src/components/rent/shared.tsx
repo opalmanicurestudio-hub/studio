@@ -56,20 +56,20 @@ export const localDay = (d: Date | string): string => {
 };
 
 // ─── Shared UI bits ───────────────────────────────────────────────────────────
-export const SectionTitle = ({ icon: Icon, children }: { icon: any; children: React.ReactNode }) => (
-  <div className="flex items-center gap-2 px-1">
-    <Icon className="w-3.5 h-3.5 text-primary" />
-    <h2 className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{children}</h2>
-  </div>
-);
+// Inside a screen opened from a row, the header already names it, so a section's own title stays for screen readers
+// only (the page wraps each screen in ScreenContext).
+export const ScreenContext = React.createContext(false);
+export const SectionTitle = ({ children }: { icon?: any; children: React.ReactNode }) => {
+  const inScreen = React.useContext(ScreenContext);
+  return <h2 className={inScreen ? 'sr-only' : 'px-1 text-[14px] font-semibold text-[#6d7075]'}>{children}</h2>;
+};
 
+// A short status word. Amber for anything to sort out (red is kept for destructive actions).
 export const Chip = ({ tone, children }: { tone: 'green' | 'amber' | 'red' | 'slate' | 'violet'; children: React.ReactNode }) => (
-  <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest',
-    tone === 'green' && 'bg-emerald-100 text-emerald-700',
-    tone === 'amber' && 'bg-amber-100 text-amber-700',
-    tone === 'red' && 'bg-red-100 text-red-700',
-    tone === 'violet' && 'bg-violet-100 text-violet-700',
-    tone === 'slate' && 'bg-slate-100 text-slate-600')}>
-    {children}
+  <span className={cn('inline-block shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-medium',
+    tone === 'green' && 'bg-[#eef6f1] text-[#1f7a4d]',
+    (tone === 'amber' || tone === 'red') && 'bg-[#fdf6ee] text-[#b45309]',
+    (tone === 'violet' || tone === 'slate') && 'bg-[#f5f5f7] text-[#6d7075]')}>
+    {typeof children === 'string' ? children.charAt(0).toUpperCase() + children.slice(1) : children}
   </span>
 );

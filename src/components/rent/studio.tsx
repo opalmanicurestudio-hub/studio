@@ -190,39 +190,39 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
   return (
     <section className="space-y-3">
       <SectionTitle icon={FileSignature}>Documents</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+      <div className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
         {pending.map((d) => {
           const isOpen = openId === d.id;
           const verb = d.action === 'acknowledge' ? 'acknowledge' : 'sign';
           return (
-            <div key={d.id} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 space-y-2">
+            <div key={d.id} className="rounded-2xl border border-[#f3d9bd] bg-[#fdf6ee] px-3.5 py-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[12px] font-black">{d.title}</p>
-                <span className="shrink-0 rounded-full bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-900">To {verb}</span>
+                <p className="text-[15px] font-semibold">{d.title}</p>
+                <span className="shrink-0 rounded-full bg-[#f3d9bd] px-2.5 py-1 text-[12px] font-semibold text-[#b45309]">To {verb}</span>
               </div>
-              <p className="text-[10px] font-bold text-amber-900">Sent {fmtDate(String(d.sentAt).slice(0, 10))} by {d.sentBy}</p>
+              <p className="text-[13px] font-medium text-[#b45309]">Sent {fmtDate(String(d.sentAt).slice(0, 10))} by {d.sentBy}</p>
               {!isOpen ? (
-                <button type="button" onClick={() => { setOpenId(d.id); setErr(''); }} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Read it</button>
+                <button type="button" onClick={() => { setOpenId(d.id); setErr(''); }} className="h-11 w-full rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white">Read it</button>
               ) : (
                 <div className="space-y-2">
-                  <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border-2 border-slate-200 px-3.5 py-3 text-[12px] leading-relaxed font-medium text-slate-800 whitespace-pre-wrap">{d.body}</div>
+                  <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border border-[#ececee] px-3.5 py-3 text-[15px] leading-relaxed font-medium text-[#16171a] whitespace-pre-wrap">{d.body}</div>
                   {declining === d.id ? (
                     <div className="space-y-2">
-                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder={`Tell ${biz()} why (optional). This goes to them as a message.`} className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm bg-white" />
+                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder={`Tell ${biz()} why (optional). This goes to them as a message.`} className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm bg-white" />
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => decline(d.id)} disabled={busy} className="h-11 flex-1 rounded-2xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">{busy ? '…' : 'Decline this document'}</button>
-                        <button type="button" onClick={() => setDeclining('')} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Back</button>
+                        <button type="button" onClick={() => decline(d.id)} disabled={busy} className="h-11 flex-1 rounded-2xl border border-[#f1c7c2] bg-white text-[13px] font-semibold text-[#b42318] disabled:opacity-40">{busy ? '…' : 'Decline this document'}</button>
+                        <button type="button" onClick={() => setDeclining('')} className="h-11 rounded-2xl border border-[#ececee] bg-white px-3 text-[13px] font-semibold text-[#6d7075]">Back</button>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                      <p className="text-[9px] font-bold text-slate-500">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
-                      {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+                      <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border border-[#ececee] bg-white px-3 text-sm font-medium" />
+                      <p className="text-[12px] font-medium text-[#6d7075]">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
+                      {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
-                        <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Decline</button>
-                        <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="h-11 inline-flex items-center rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Print</PrintLink>
+                        <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
+                        <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border border-[#ececee] bg-white px-3 text-[13px] font-semibold text-[#6d7075]">Decline</button>
+                        <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="h-11 inline-flex items-center rounded-2xl border border-[#ececee] bg-white px-3 text-[13px] font-semibold text-[#6d7075]">Print</PrintLink>
                       </div>
                     </div>
                   )}
@@ -233,15 +233,15 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
         })}
         {(past.length > 0 || state.signed.length > 0) && (
           <div className="space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">On file</p>
+            <p className="text-[12px] font-semibold text-[#6d7075]">On file</p>
             {past.map((d) => (
-              <p key={d.id} className="text-[10px] font-bold text-slate-600 flex items-center justify-between gap-2">
+              <p key={d.id} className="text-[13px] font-medium text-[#6d7075] flex items-center justify-between gap-2">
                 <span className="truncate">{d.title} · {DOC_STATUS[d.status] || d.status}{d.signedAt ? ` ${fmtDate(String(d.signedAt).slice(0, 10))}` : ''}</span>
-                {d.status === 'signed' && <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="shrink-0 text-[9px] font-black uppercase tracking-widest underline">Print</PrintLink>}
+                {d.status === 'signed' && <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="shrink-0 text-[12px] font-semibold underline">Print</PrintLink>}
               </p>
             ))}
             {state.signed.filter((sd) => !past.some((d) => d.signedDocumentId === sd.id)).map((sd) => (
-              <p key={sd.id} className="text-[10px] font-bold text-slate-600">{sd.title} · Signed {fmtDate(String(sd.signedAt).slice(0, 10))}</p>
+              <p key={sd.id} className="text-[13px] font-medium text-[#6d7075]">{sd.title} · Signed {fmtDate(String(sd.signedAt).slice(0, 10))}</p>
             ))}
           </div>
         )}
@@ -277,11 +277,12 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
     const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, appointmentIds: ids, cancelAndTell: !!cancelToo[id] });
     setBusy(false);
     if (!d?.ok) { setErr(d?.error || 'Could not log those.'); return; }
-    setResult(`Logged ${d.stamped} appointment${d.stamped === 1 ? '' : 's'} across ${d.days} day${d.days === 1 ? '' : 's'}${d.cancelled ? ` · cancelled ${d.cancelled} and told the clients` : ''}.`);
+    setResult(`Logged ${d.stamped} appointment${d.stamped === 1 ? '' : 's'} across ${d.days} day${d.days === 1 ? '' : 's'}${d.cancelled ? ` · canceled ${d.cancelled} and told the clients` : ''}.`);
     setTicked((m) => ({ ...m, [id]: [] })); void load();
   };
   useEffect(() => { void load(); }, [load]);
-  if (!state || state.interruptions.length === 0) return null;
+  if (!state) return null;
+  if (state.interruptions.length === 0) return <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] leading-relaxed text-[#6d7075]">No closures so far. If the space can’t be used for a while, it shows here, with what you lost and what you were credited.</p>;
   const submit = async (id: string) => {
     setBusy(true); setErr('');
     const d = await api({ action: 'interruption-loss', tenantId, token, interruptionId: id, date: form.date, appointmentsLost: Number(form.appointmentsLost) || 0, lostCents: Math.round((Number(form.lost) || 0) * 100), note: form.note });
@@ -293,78 +294,78 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
     <section className="space-y-3">
       <SectionTitle icon={CloudLightning}>Closures · what it cost you</SectionTitle>
       {state.interruptions.map((r) => (
-        <div key={r.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+        <div key={r.id} className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[12px] font-black truncate">{r.title}</p>
-              <p className="text-[10px] font-bold text-slate-500">{ITYPE[r.type] || 'Closure'} · {fmtDate(r.startDate)}{r.endDate ? ` – ${fmtDate(r.endDate)}` : ' – ongoing'}</p>
+              <p className="text-[15px] font-semibold truncate">{r.title}</p>
+              <p className="text-[13px] font-medium text-[#6d7075]">{ITYPE[r.type] || 'Closure'} · {fmtDate(r.startDate)}{r.endDate ? ` – ${fmtDate(r.endDate)}` : ' – ongoing'}</p>
             </div>
-            <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', r.status === 'open' ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-700')}>{r.status === 'open' ? 'Ongoing' : 'Over'}</span>
+            <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold', r.status === 'open' ? 'bg-[#fdf6ee] text-[#b45309]' : 'bg-[#f5f5f7] text-[#16171a]')}>{r.status === 'open' ? 'Ongoing' : 'Over'}</span>
           </div>
           {r.updates.length > 0 && (
             <div className="space-y-1">
-              {r.updates.slice(-3).map((u: any, i: number) => <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))}</span> · {u.text}</p>)}
+              {r.updates.slice(-3).map((u: any, i: number) => <p key={i} className="text-[13px] font-medium text-[#6d7075]"><span className="font-semibold">{fmtDate(String(u.at).slice(0, 10))}</span> · {u.text}</p>)}
             </div>
           )}
-          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3 space-y-2">
+          <div className="rounded-2xl bg-[#f5f5f7] border border-[#ececee] px-3.5 py-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your loss log</p>
-              <p className="text-[11px] font-black tabular-nums">{r.totals.appointmentsLost} appt{r.totals.appointmentsLost === 1 ? '' : 's'} · ${(r.totals.lostCents / 100).toFixed(2)} · {r.totals.days} day{r.totals.days === 1 ? '' : 's'}</p>
+              <p className="text-[12px] font-semibold text-[#6d7075]">Your loss log</p>
+              <p className="text-[14px] font-semibold tabular-nums">{r.totals.appointmentsLost} appt{r.totals.appointmentsLost === 1 ? '' : 's'} · ${(r.totals.lostCents / 100).toFixed(2)} · {r.totals.days} day{r.totals.days === 1 ? '' : 's'}</p>
             </div>
             {Array.isArray(r.appointments) && r.appointments.length > 0 && (
-              <div className="rounded-xl bg-white border-2 border-slate-200 px-3 py-2.5 space-y-1.5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Your bookings inside the closure · tick the ones you couldn't do</p>
+              <div className="rounded-xl bg-white border border-[#ececee] px-3 py-2.5 space-y-1.5">
+                <p className="text-[12px] font-semibold text-[#6d7075]">Your bookings inside the closure · tick the ones you couldn't do</p>
                 {r.appointments.map((a: any) => {
                   const on = (ticked[r.id] || []).includes(a.id);
                   const d = new Date(a.startTime);
                   return (
                     <button key={a.id} type="button" disabled={a.lost} aria-pressed={on || a.lost}
                       onClick={() => setTicked((m) => ({ ...m, [r.id]: on ? (m[r.id] || []).filter((x) => x !== a.id) : [...(m[r.id] || []), a.id] }))}
-                      className={cn('w-full rounded-xl border-2 px-3 py-2 text-left flex items-center justify-between gap-2', a.lost ? 'border-slate-200 bg-slate-100 opacity-70' : on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white')}>
-                      <span className="min-w-0"><span className="block text-[11px] font-black truncate">{a.clientName} · {a.serviceName}</span><span className={cn('block text-[10px] font-bold', on ? 'text-slate-300' : 'text-slate-500')}>{isNaN(d.getTime()) ? a.startTime : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{a.status === 'cancelled' ? ' · cancelled' : ''}{a.lost ? ' · logged' : ''}</span></span>
-                      <span className="shrink-0 text-[11px] font-black tabular-nums">${Number(a.price).toFixed(0)}</span>
+                      className={cn('w-full rounded-xl border px-3 py-2 text-left flex items-center justify-between gap-2', a.lost ? 'border-[#ececee] bg-[#f5f5f7] opacity-70' : on ? 'border-[#16171a] bg-[#16171a] text-white' : 'border-[#ececee] bg-white')}>
+                      <span className="min-w-0"><span className="block text-[14px] font-semibold truncate">{a.clientName} · {a.serviceName}</span><span className={cn('block text-[13px] font-medium', on ? 'text-white/70' : 'text-[#6d7075]')}>{isNaN(d.getTime()) ? a.startTime : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{a.status === 'cancelled' ? ' · canceled' : ''}{a.lost ? ' · logged' : ''}</span></span>
+                      <span className="shrink-0 text-[14px] font-semibold tabular-nums">${Number(a.price).toFixed(0)}</span>
                     </button>
                   );
                 })}
                 {(ticked[r.id] || []).length > 0 && (
                   <div className="space-y-1.5 pt-1">
                     <button type="button" aria-pressed={!!cancelToo[r.id]} onClick={() => setCancelToo((m) => ({ ...m, [r.id]: !m[r.id] }))}
-                      className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', cancelToo[r.id] ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
+                      className={cn('h-11 w-full rounded-xl border px-3 text-left text-[13px] font-medium', cancelToo[r.id] ? 'border-[#16171a] bg-[#f5f5f7] text-[#16171a]' : 'border-[#ececee] text-[#6d7075]')}>
                       {cancelToo[r.id] ? 'Will also cancel these and tell each client, as you' : 'Also cancel them and tell the clients?'}
                     </button>
-                    <button type="button" disabled={busy} onClick={() => logTicked(r.id)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
+                    <button type="button" disabled={busy} onClick={() => logTicked(r.id)} className="h-11 w-full rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">
                       {busy ? '…' : `Log ${(ticked[r.id] || []).length} as lost · $${r.appointments.filter((a: any) => (ticked[r.id] || []).includes(a.id)).reduce((n: number, a: any) => n + Number(a.price || 0), 0).toFixed(0)}`}
                     </button>
                   </div>
                 )}
-                {result && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{result}</p>}
+                {result && <p className="text-[13px] font-semibold text-[#1f7a4d]">{result}</p>}
               </div>
             )}
-            {r.losses.length === 0 && <p className="text-[10px] font-bold text-slate-500">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
+            {r.losses.length === 0 && <p className="text-[13px] font-medium text-[#6d7075]">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
             {r.losses.map((l: any) => (
-              <p key={l.id} className="text-[10px] font-medium text-slate-700"><span className="font-black">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
+              <p key={l.id} className="text-[13px] font-medium text-[#16171a]"><span className="font-semibold">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
             ))}
             {logFor === r.id ? (
               <div className="space-y-2">
-                <input type="date" value={form.date} min={r.startDate} max={r.endDate || undefined} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} aria-label="Which day" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
+                <input type="date" value={form.date} min={r.startDate} max={r.endDate || undefined} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} aria-label="Which day" className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input inputMode="numeric" value={form.appointmentsLost} onChange={(e) => setForm((f) => ({ ...f, appointmentsLost: e.target.value.replace(/[^0-9]/g, '') }))} aria-label="Appointments you couldn't do" placeholder="Appts lost" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
-                  <input inputMode="decimal" value={form.lost} onChange={(e) => setForm((f) => ({ ...f, lost: e.target.value.replace(/[^0-9.]/g, '') }))} aria-label="Income lost, dollars" placeholder="$ lost (your estimate)" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
+                  <input inputMode="numeric" value={form.appointmentsLost} onChange={(e) => setForm((f) => ({ ...f, appointmentsLost: e.target.value.replace(/[^0-9]/g, '') }))} aria-label="Appointments you couldn't do" placeholder="Appts lost" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white" />
+                  <input inputMode="decimal" value={form.lost} onChange={(e) => setForm((f) => ({ ...f, lost: e.target.value.replace(/[^0-9.]/g, '') }))} aria-label="Income lost, dollars" placeholder="$ lost (your estimate)" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white" />
                 </div>
-                <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 500) }))} aria-label="Note" placeholder="Who you rescheduled, what you refunded (optional)" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm bg-white" />
-                {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+                <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 500) }))} aria-label="Note" placeholder="Who you rescheduled, what you refunded (optional)" className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm bg-white" />
+                {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => submit(r.id)} disabled={busy || !form.date} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save this day'}</button>
-                  <button type="button" onClick={() => setLogFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                  <button type="button" onClick={() => submit(r.id)} disabled={busy || !form.date} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save this day'}</button>
+                  <button type="button" onClick={() => setLogFor('')} className="h-11 rounded-2xl border border-[#ececee] px-4 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
                 </div>
-                <p className="text-[9px] font-bold text-slate-400">One entry per day. Saving a day again replaces it.</p>
+                <p className="text-[12px] font-medium text-[#6d7075]">One entry per day. Saving a day again replaces it.</p>
               </div>
             ) : (
               <div className="flex gap-2">
-                <button type="button" onClick={() => { setLogFor(r.id); setErr(''); }} className="h-10 flex-1 rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Log a day</button>
+                <button type="button" onClick={() => { setLogFor(r.id); setErr(''); }} className="h-11 flex-1 rounded-2xl border border-[#ececee] text-[13px] font-semibold text-[#16171a]">Log a day</button>
                 {r.losses.length > 0 && (
                   <PrintLink path="/api/booths/interruption-packet" params={{ tenantId, id: r.id }} token={token}
-                    className="h-10 inline-flex items-center rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">Print my statement</PrintLink>
+                    className="h-11 inline-flex items-center rounded-2xl border border-[#ececee] px-3 text-[13px] font-semibold text-[#16171a]">Print my statement</PrintLink>
                 )}
               </div>
             )}
@@ -433,15 +434,15 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
   return (
     <section className="space-y-3">
       <SectionTitle icon={Wrench}>Something broken?</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+      <div className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
         {promise.length > 0 && (
-          <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">{bizs(true)} promise</p>
+          <div className="rounded-2xl bg-[#f5f5f7] border border-[#ececee] px-3.5 py-3">
+            <p className="text-[12px] font-semibold text-[#6d7075] mb-1.5">{bizs(true)} promise</p>
             <div className="space-y-1">
               {promise.map((c) => (
-                <p key={c.priority} className="text-[11px] font-bold text-slate-700"><span className="capitalize font-black">{c.label}</span> · answered within {hrs(c.respondHours)}, fixed within {hrs(c.fixHours)}</p>
+                <p key={c.priority} className="text-[14px] font-medium text-[#16171a]"><span className="capitalize font-semibold">{c.label}</span> · answered within {hrs(c.respondHours)}, fixed within {hrs(c.fixHours)}</p>
               ))}
-              {urgent && <p className="text-[10px] font-bold text-slate-500">Safety or no-water issues {biz()} judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
+              {urgent && <p className="text-[13px] font-medium text-[#6d7075]">Safety or no-water issues {biz()} judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
             </div>
           </div>
         )}
@@ -452,37 +453,37 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
           const fix = clock(t.dueAt, done);
           const isOpen = expanded === t.id;
           return (
-            <div key={t.id} className="rounded-2xl border-2 border-slate-200 px-3.5 py-3 space-y-1.5">
+            <div key={t.id} className="rounded-2xl border border-[#ececee] px-3.5 py-3 space-y-1.5">
               <button type="button" onClick={() => setExpanded(isOpen ? '' : t.id)} aria-expanded={isOpen} className="w-full text-left">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[12px] font-black truncate">{t.title}</p>
-                  <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', t.status === 'in_progress' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{TSTATUS[t.status] || t.status}</span>
+                  <p className="text-[15px] font-semibold truncate">{t.title}</p>
+                  <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold', t.status === 'in_progress' ? 'bg-[#fdf6ee] text-[#b45309]' : 'bg-[#f5f5f7] text-[#16171a]')}>{TSTATUS[t.status] || t.status}</span>
                 </div>
-                <p className="text-[10px] font-bold text-slate-500">
-                  {t.priority} · reported {fmtDate(String(t.createdAt).slice(0, 10))}
+                <p className="text-[13px] font-medium text-[#6d7075]">
+                  {String(t.priority || '').charAt(0).toUpperCase() + String(t.priority || '').slice(1)} · reported {fmtDate(String(t.createdAt).slice(0, 10))}
                   {t.assigneeName ? ` · ${t.assigneeName} has it` : t.acknowledged ? ` · seen by ${biz()}` : ans ? ` · answer due: ${ans}` : ''}
                   {fix ? ` · fix due: ${fix}` : ''}
                 </p>
               </button>
               {isOpen && (
                 <div className="space-y-1.5 pt-1">
-                  {t.description && <p className="text-[11px] font-medium text-slate-700 whitespace-pre-wrap">{t.description}</p>}
+                  {t.description && <p className="text-[14px] font-medium text-[#16171a] whitespace-pre-wrap">{t.description}</p>}
                   {(t.updates || []).slice(1).map((u: any, i: number) => (
-                    <p key={i} className="text-[10px] font-medium text-slate-600"><span className="font-black">{fmtDate(String(u.at).slice(0, 10))} · {u.by}</span>{u.note ? ` — ${u.note}` : ''}{u.status ? ` (${TSTATUS[u.status] || u.status})` : ''}{u.photoUrl ? ' · photo' : ''}</p>
+                    <p key={i} className="text-[13px] font-medium text-[#6d7075]"><span className="font-semibold">{fmtDate(String(u.at).slice(0, 10))} · {u.by}</span>{u.note ? ` — ${u.note}` : ''}{u.status ? ` (${TSTATUS[u.status] || u.status})` : ''}{u.photoUrl ? ' · photo' : ''}</p>
                   ))}
                   {noteFor === t.id ? (
                     <div className="space-y-1.5">
-                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Add to this ticket" placeholder="Still happening? Something changed?" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2} aria-label="Add to this ticket" placeholder="Still happening? Something changed?" className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm" />
                       <div className="flex gap-2">
-                        <button type="button" disabled={busy || !note.trim()} onClick={() => addNote(t.id)} className="h-10 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Add note</button>
-                        <label className="h-10 rounded-2xl border-2 border-slate-200 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
+                        <button type="button" disabled={busy || !note.trim()} onClick={() => addNote(t.id)} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">Add note</button>
+                        <label className="h-11 rounded-2xl border border-[#ececee] px-3 inline-flex items-center text-[13px] font-semibold text-[#16171a] cursor-pointer">
                           Photo<input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this ticket" onChange={(e) => readPhoto(e.target.files?.[0], (d) => addNote(t.id, d))} />
                         </label>
-                        <button type="button" onClick={() => { setNoteFor(''); setNote(''); }} className="h-10 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                        <button type="button" onClick={() => { setNoteFor(''); setNote(''); }} className="h-11 rounded-2xl border border-[#ececee] px-3 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
                       </div>
                     </div>
                   ) : (
-                    <button type="button" onClick={() => setNoteFor(t.id)} className="h-9 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Add a note or photo</button>
+                    <button type="button" onClick={() => setNoteFor(t.id)} className="h-11 w-full rounded-2xl border border-[#ececee] text-[13px] font-semibold text-[#16171a]">Add a note or photo</button>
                   )}
                 </div>
               )}
@@ -491,36 +492,36 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
         })}
 
         {!open ? (
-          <button type="button" onClick={() => setOpen(true)} className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Report a problem</button>
+          <button type="button" onClick={() => setOpen(true)} className="h-11 w-full rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white">Report a problem</button>
         ) : (
           <div className="space-y-2">
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="What's wrong, in a few words" placeholder="Dryer at my station won't turn on" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 120) }))} aria-label="What's wrong, in a few words" placeholder="Dryer at my station won't turn on" className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm font-medium" />
             <div className="grid grid-cols-2 gap-2">
-              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="Category" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="Category" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white">
                 {TICKET_CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
-              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} aria-label="How urgent" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} aria-label="How urgent" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white">
                 <option value="high">High · can't work</option>
                 <option value="normal">Normal · a nuisance</option>
                 <option value="low">Low · whenever</option>
               </select>
             </div>
-            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value.slice(0, 2000) }))} rows={3} aria-label="Details" placeholder="What's happening, since when, what you've tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
-            <label className="h-11 w-full rounded-2xl border-2 border-slate-200 inline-flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-slate-700 cursor-pointer">
+            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value.slice(0, 2000) }))} rows={3} aria-label="Details" placeholder="What's happening, since when, what you've tried." className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm" />
+            <label className="h-11 w-full rounded-2xl border border-[#ececee] inline-flex items-center justify-center text-[13px] font-semibold text-[#16171a] cursor-pointer">
               {form.photoData ? 'Photo attached · tap to change' : 'Add a photo'}
               <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Photo of the problem" onChange={(e) => readPhoto(e.target.files?.[0], (d) => setForm((f) => ({ ...f, photoData: d })))} />
             </label>
-            {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+            {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
-              <button type="button" onClick={submit} disabled={busy || !form.title.trim()} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send it'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+              <button type="button" onClick={submit} disabled={busy || !form.title.trim()} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send it'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border border-[#ececee] px-4 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
             </div>
           </div>
         )}
-        {err && !open && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+        {err && !open && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
         {doneT.length > 0 && (
           <div className="space-y-1">
-            {doneT.map((t) => <p key={t.id} className="text-[10px] font-bold text-slate-500">{t.title} · {TSTATUS[t.status] || t.status}{t.resolvedAt ? ` ${fmtDate(String(t.resolvedAt).slice(0, 10))}` : ''}</p>)}
+            {doneT.map((t) => <p key={t.id} className="text-[13px] font-medium text-[#6d7075]">{t.title} · {TSTATUS[t.status] || t.status}{t.resolvedAt ? ` ${fmtDate(String(t.resolvedAt).slice(0, 10))}` : ''}</p>)}
           </div>
         )}
       </div>
@@ -568,49 +569,49 @@ export function RenterConcerns({ tenantId, token }: { tenantId: string; token: s
   return (
     <section className="space-y-3">
       <SectionTitle icon={ShieldAlert}>Raise a concern</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+      <div className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
         {justFiled && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On file · {justFiled}</p>
-            <p className="text-[11px] font-bold text-emerald-900">Keep that reference. A receipt is on its way to your email, and you'll see replies below.</p>
+          <div className="rounded-2xl border border-[#cfe5d8] bg-[#eef6f1] px-3.5 py-3">
+            <p className="text-[14px] font-semibold text-[#1f7a4d]">On file · {justFiled}</p>
+            <p className="text-[14px] font-medium text-[#1f7a4d]">Keep that reference. A receipt is on its way to your email, and you'll see replies below.</p>
           </div>
         )}
         {openOnes.map((c) => (
-          <div key={c.id} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3">
+          <div key={c.id} className="rounded-2xl border border-[#ececee] bg-[#f5f5f7] px-3.5 py-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{c.ref} · {(CONCERN_CATEGORIES.find(([k]) => k === c.category) || [])[1] || c.category}</p>
-              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', c.status === 'acknowledged' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700')}>{CONCERN_STATUS[c.status] || c.status}</span>
+              <p className="text-[14px] font-semibold text-[#16171a]">{c.ref} · {(CONCERN_CATEGORIES.find(([k]) => k === c.category) || [])[1] || c.category}</p>
+              <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold', c.status === 'acknowledged' ? 'bg-[#fdf6ee] text-[#b45309]' : 'bg-[#f5f5f7] text-[#16171a]')}>{CONCERN_STATUS[c.status] || c.status}</span>
             </div>
-            <p className="text-[11px] font-medium text-slate-700 mt-1 line-clamp-2">{c.what}</p>
-            <p className="text-[10px] font-bold text-slate-500 mt-1">Filed {fmtDate(String(c.filedAt).slice(0, 10))}{c.responses ? ` · ${c.responses} repl${c.responses === 1 ? 'y' : 'ies'} in your messages` : ''}</p>
+            <p className="text-[14px] font-medium text-[#16171a] mt-1 line-clamp-2">{c.what}</p>
+            <p className="text-[13px] font-medium text-[#6d7075] mt-1">Filed {fmtDate(String(c.filedAt).slice(0, 10))}{c.responses ? ` · ${c.responses} repl${c.responses === 1 ? 'y' : 'ies'} in your messages` : ''}</p>
           </div>
         ))}
         {!open ? (
           <button type="button" onClick={() => { setOpen(true); setJustFiled(''); }}
-            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">
+            className="h-11 w-full rounded-2xl border border-[#ececee] text-[13px] font-semibold text-[#16171a]">
             Raise a concern
           </button>
         ) : (
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-slate-500">For anything that should be on record. Quick questions belong in messages below.</p>
+            <p className="text-[13px] font-medium text-[#6d7075]">For anything that should be on record. Quick questions belong in messages below.</p>
             <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} aria-label="What is it about"
-              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white">
               {CONCERN_CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <input type="date" value={form.when} onChange={(e) => setForm((f) => ({ ...f, when: e.target.value }))} aria-label="When did it happen or start" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+            <input type="date" value={form.when} onChange={(e) => setForm((f) => ({ ...f, when: e.target.value }))} aria-label="When did it happen or start" className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm font-medium" />
             <textarea value={form.what} onChange={(e) => setForm((f) => ({ ...f, what: e.target.value.slice(0, 2000) }))} rows={4} aria-label="What happened"
-              placeholder="What happened, in your words. Dates, names, what you've already tried." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+              placeholder="What happened, in your words. Dates, names, what you've already tried." className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm" />
             <textarea value={form.wanted} onChange={(e) => setForm((f) => ({ ...f, wanted: e.target.value.slice(0, 800) }))} rows={2} aria-label="What you would like to see happen"
-              placeholder="What would put this right? (optional)" className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+              placeholder="What would put this right? (optional)" className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm" />
             <div className="flex flex-wrap items-center gap-2">
               {photos.map((p, i) => (
-                <button key={i} type="button" onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} className="relative h-14 w-14 overflow-hidden rounded-xl border-2 border-slate-200">
+                <button key={i} type="button" onClick={() => setPhotos((ps) => ps.filter((_, j) => j !== i))} aria-label={`Remove photo ${i + 1}`} className="relative h-14 w-14 overflow-hidden rounded-xl border border-[#ececee]">
                   <img src={p} alt="" className="h-full w-full object-cover" />
-                  <span className="absolute inset-x-0 bottom-0 bg-slate-900/80 text-[8px] font-black uppercase tracking-widest text-white">Remove</span>
+                  <span className="absolute inset-x-0 bottom-0 bg-[#16171a]/80 text-[12px] font-semibold text-white">Remove</span>
                 </button>
               ))}
               {photos.length < 3 && (
-                <label className="h-14 rounded-xl border-2 border-dashed border-slate-300 px-3 inline-flex items-center text-[10px] font-black uppercase tracking-widest text-slate-600 cursor-pointer">
+                <label className="h-14 rounded-xl border border-dashed border-[#ececee] px-3 inline-flex items-center text-[13px] font-semibold text-[#6d7075] cursor-pointer">
                   {photos.length ? 'Add another' : 'Add a photo'}
                   <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Add a photo to this concern"
                     onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { const d: string = await downscaleImageToDataUrl(f, { maxDim: 1400 }); setPhotos((ps) => [...ps, d].slice(0, 3)); } catch { setErr('Could not read that photo.'); } }} />
@@ -618,21 +619,21 @@ export function RenterConcerns({ tenantId, token }: { tenantId: string; token: s
               )}
             </div>
             <button type="button" aria-pressed={form.confidential || sensitive} onClick={() => setForm((f) => ({ ...f, confidential: !f.confidential }))} disabled={sensitive}
-              className={cn('h-10 w-full rounded-2xl border-2 px-3 text-left text-[10px] font-bold', (form.confidential || sensitive) ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
+              className={cn('h-11 w-full rounded-2xl border px-3 text-left text-[13px] font-medium', (form.confidential || sensitive) ? 'border-[#16171a] bg-[#f5f5f7] text-[#16171a]' : 'border-[#ececee] text-[#6d7075]')}>
               {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? `Confidential — for ${bizs()} owner only` : 'Mark confidential'}
             </button>
-            {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+            {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
               <button type="button" onClick={submit} disabled={busy || form.what.trim().length < 10}
-                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Put it on record'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? 'Sending…' : 'Put it on record'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border border-[#ececee] px-4 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
             </div>
           </div>
         )}
         {doneOnes.length > 0 && (
           <div className="space-y-1">
             {doneOnes.map((c) => (
-              <p key={c.id} className="text-[10px] font-bold text-slate-500">{c.ref} · {CONCERN_STATUS[c.status] || c.status}{c.resolvedAt ? ` ${fmtDate(String(c.resolvedAt).slice(0, 10))}` : ''}{c.resolution ? ` — ${c.resolution}` : ''}</p>
+              <p key={c.id} className="text-[13px] font-medium text-[#6d7075]">{c.ref} · {CONCERN_STATUS[c.status] || c.status}{c.resolvedAt ? ` ${fmtDate(String(c.resolvedAt).slice(0, 10))}` : ''}{c.resolution ? ` — ${c.resolution}` : ''}</p>
             ))}
           </div>
         )}
@@ -654,7 +655,8 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
     if (d?.ok) setState({ policy: d.policy, leaves: d.leaves || [] });
   }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
-  if (!state || state.policy.offered.length === 0) return null;
+  if (!state) return null;
+  if (state.policy.offered.length === 0) return <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] leading-relaxed text-[#6d7075]">{biz(true)} doesn’t offer time away through the portal yet. Send them a message to ask.</p>;
   const TL: Record<string, string> = { pause: 'Pause rent', reduced: 'Reduced holding rate', bank: 'Keep paying, bank days', sublet: 'Sublet while away' };
   const pending = state.leaves.find((l) => l.status === 'requested');
   const active = state.leaves.find((l) => l.status === 'approved');
@@ -679,81 +681,81 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
   return (
     <section className="space-y-3">
       <SectionTitle icon={CalendarClock}>Time away</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
+      <div className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
         {active && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-800">On leave · {fmtDate(active.startDate)} – {fmtDate(active.endDate)}</p>
-            <p className="text-[11px] font-bold text-emerald-900">{TL[active.treatment] || active.treatment}{active.treatment === 'bank' && active.bankedDays ? ` · ${active.bankedDays} day${active.bankedDays === 1 ? '' : 's'} banked so far` : ''}{active.treatment === 'pause' && active.pausedDays ? ` · lease extends ${active.pausedDays} day${active.pausedDays === 1 ? '' : 's'}` : ''}</p>
+          <div className="rounded-2xl border border-[#cfe5d8] bg-[#eef6f1] px-3.5 py-3">
+            <p className="text-[14px] font-semibold text-[#1f7a4d]">On leave · {fmtDate(active.startDate)} – {fmtDate(active.endDate)}</p>
+            <p className="text-[14px] font-medium text-[#1f7a4d]">{TL[active.treatment] || active.treatment}{active.treatment === 'bank' && active.bankedDays ? ` · ${active.bankedDays} day${active.bankedDays === 1 ? '' : 's'} banked so far` : ''}{active.treatment === 'pause' && active.pausedDays ? ` · lease extends ${active.pausedDays} day${active.pausedDays === 1 ? '' : 's'}` : ''}</p>
           </div>
         )}
         {pending && (
-          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3.5 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Requested · {fmtDate(pending.startDate)} – {fmtDate(pending.endDate)}</p>
-            <p className="text-[11px] font-bold text-amber-900">Waiting on {biz()}. Rent continues as normal until it is approved.</p>
+          <div className="rounded-2xl border border-[#f3d9bd] bg-[#fdf6ee] px-3.5 py-3">
+            <p className="text-[14px] font-semibold text-[#b45309]">Requested · {fmtDate(pending.startDate)} – {fmtDate(pending.endDate)}</p>
+            <p className="text-[14px] font-medium text-[#b45309]">Waiting on {biz()}. Rent continues as normal until it is approved.</p>
           </div>
         )}
 
         {banked.map((l) => (
-          <div key={`bank-${l.id}`} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 space-y-2">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{l.left} banked rental day{l.left === 1 ? '' : 's'}</p>
+          <div key={`bank-${l.id}`} className="rounded-2xl border border-[#ececee] bg-[#f5f5f7] px-3.5 py-3 space-y-2">
+            <p className="text-[14px] font-semibold text-[#16171a]">{l.left} banked rental day{l.left === 1 ? '' : 's'}</p>
             {l.redeem && l.redeem.status === 'requested' ? (
-              <p className="text-[11px] font-bold text-amber-800">You asked to use {l.redeem.days} — waiting on {biz()}.</p>
+              <p className="text-[14px] font-medium text-[#b45309]">You asked to use {l.redeem.days} — waiting on {biz()}.</p>
             ) : redeemFor === l.id ? (
               <div className="flex gap-2">
                 <input inputMode="numeric" aria-label="Days to use" value={redeemDays}
                   onChange={(e) => setRedeemDays(e.target.value.replace(/[^0-9]/g, ''))}
-                  className="h-11 w-20 rounded-2xl border-2 border-slate-200 px-3 text-center text-sm font-bold" />
+                  className="h-11 w-20 rounded-2xl border border-[#ececee] px-3 text-center text-sm font-medium" />
                 <button type="button" disabled={busy} onClick={() => askRedeem(l.id, l.left)}
-                  className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Ask to use them</button>
-                <button type="button" onClick={() => setRedeemFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                  className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">Ask to use them</button>
+                <button type="button" onClick={() => setRedeemFor('')} className="h-11 rounded-2xl border border-[#ececee] px-3 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
               </div>
             ) : (
               <button type="button" onClick={() => { setRedeemFor(l.id); setRedeemDays(String(l.left)); }}
-                className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700">Use banked days</button>
+                className="h-11 w-full rounded-2xl border border-[#ececee] text-[13px] font-semibold text-[#16171a]">Use banked days</button>
             )}
           </div>
         ))}
 
         {!open ? (
           <button type="button" onClick={() => setOpen(true)} disabled={!!pending}
-            className="h-11 w-full rounded-2xl border-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700 disabled:opacity-50">
+            className="h-11 w-full rounded-2xl border border-[#ececee] text-[13px] font-semibold text-[#16171a] disabled:opacity-50">
             {pending ? 'Request pending' : 'Request time away'}
           </button>
         ) : (
           <div className="space-y-2">
-            <p className="text-[10px] font-bold text-slate-500">
+            <p className="text-[13px] font-medium text-[#6d7075]">
               {state.policy.noticeDays > 0 ? `${biz(true)} asks for ${state.policy.noticeDays} days' notice where possible. ` : ''}Up to {state.policy.maxWeeks} weeks.
             </p>
             <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} aria-label="Type of leave"
-              className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
+              className="h-11 w-full rounded-2xl border border-[#ececee] px-3 text-sm font-medium bg-white">
               {[['maternity', 'Maternity / parental'], ['medical', 'Medical'], ['family', 'Family'], ['personal', 'Personal'], ['other', 'Other']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
             <div className="grid grid-cols-2 gap-2">
-              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day away" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-              <input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} aria-label="Expected return" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
+              <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} aria-label="First day away" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium" />
+              <input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} aria-label="Expected return" className="h-11 rounded-2xl border border-[#ececee] px-3 text-sm font-medium" />
             </div>
             <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">How you'd prefer rent handled</p>
+              <p className="text-[12px] font-semibold text-[#6d7075] mb-1">How you'd prefer rent handled</p>
               <div className="flex flex-wrap gap-1.5">
                 {state.policy.offered.map((t: string) => (
                   <button key={t} type="button" onClick={() => setForm((f) => ({ ...f, preferred: f.preferred === t ? '' : t }))}
-                    className={cn('h-10 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-widest', form.preferred === t ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600')}>
+                    className={cn('h-11 px-3 rounded-full border text-[13px] font-semibold', form.preferred === t ? 'bg-[#16171a] text-white border-[#16171a]' : 'border-[#ececee] text-[#6d7075]')}>
                     {TL[t]}
                   </button>
                 ))}
               </div>
-              <p className="text-[9px] font-bold text-slate-400 mt-1">A preference, not a promise — {biz()} decides.</p>
+              <p className="text-[12px] font-medium text-[#6d7075] mt-1">A preference, not a promise — {biz()} decides.</p>
             </div>
             <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 600) }))} rows={2} placeholder={`Anything ${biz()} should know (optional)`} aria-label="Note"
-              className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
+              className="w-full rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-sm" />
             <div className="flex gap-2">
               <button type="button" onClick={submit} disabled={busy || !form.startDate || !form.endDate}
-                className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
-              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
+                className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send request'}</button>
+              <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border border-[#ececee] px-4 text-[13px] font-semibold text-[#6d7075]">Cancel</button>
             </div>
           </div>
         )}
-        {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
+        {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
       </div>
     </section>
   );
@@ -1002,7 +1004,7 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
     setDeclineFor('');
     if (!d.ok) { setErr(d.error || 'That did not go through.'); onChanged(); return; }
     toast({
-      title: decision === 'accept' ? 'Swap confirmed ✓' : 'Swap declined',
+      title: decision === 'accept' ? 'Swap confirmed' : 'Swap declined',
       description: decision === 'accept'
         ? 'Your booking hours have moved for that window only. Rent is unchanged.'
         : 'Their day is unchanged and nothing was charged.',
@@ -1015,7 +1017,7 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
     const d = await api({ action: 'swap-claim', tenantId, token, today: localISO(), swapId: id });
     setBusy('');
     if (!d.ok) { setErr(d.error || 'Could not take that one.'); onChanged(); return; }
-    toast({ title: 'It’s yours ✓', description: 'Your booking hours have moved for that window only. Rent is unchanged.' });
+    toast({ title: 'It’s yours', description: 'Your booking hours have moved for that window only. Rent is unchanged.' });
     onChanged();
   };
 
@@ -1048,73 +1050,73 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
   return (
     <section className="space-y-3">
-      <SectionTitle icon={Repeat}>Day Swaps</SectionTitle>
+      <SectionTitle icon={Repeat}>Swap days</SectionTitle>
 
       {openOffers.map((o: any) => (
-        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-sky-300 space-y-3">
+        <div key={o.id} className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
           <div>
-            <p className="font-black text-slate-900 text-sm">{o.fromName} is offering a day</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+            <p className="font-semibold text-[#16171a] text-sm">{o.fromName} is offering a day</p>
+            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
               {o.giveLabel}, {o.windowLabel}{o.boothName ? ` · ${o.boothName}` : ''}
             </p>
-            {o.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{o.note}”</p>}
+            {o.note && <p className="text-[14px] font-medium text-[#6d7075] mt-1">“{o.note}”</p>}
           </div>
           <button onClick={() => claim(o.id)} disabled={!!busy}
-            className="w-full py-3 rounded-2xl bg-sky-600 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+            className="w-full py-3 rounded-2xl bg-[#16171a] text-white text-[14px] font-semibold transition-all disabled:opacity-50">
             {busy === o.id ? 'Taking…' : 'Take this day'}
           </button>
-          <p className="text-[10px] font-bold text-slate-400">
+          <p className="text-[13px] font-medium text-[#6d7075]">
             First to take it gets it{o.offeredTo > 1 ? ` — ${o.offeredTo} people were asked` : ''}. Rent is not affected.
           </p>
         </div>
       ))}
 
       {myOpen.map((o: any) => (
-        <div key={o.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
+        <div key={o.id} className="p-4 rounded-2xl bg-white border border-[#ececee] flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="font-black text-slate-900 text-sm truncate">Offered to anyone who can take it</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+            <p className="font-semibold text-[#16171a] text-sm truncate">Offered to anyone who can take it</p>
+            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
               {o.giveLabel}, {o.windowLabel}{o.offeredTo ? ` · ${o.offeredTo} asked` : ''}
             </p>
           </div>
           <button onClick={() => withdraw(o.id)} disabled={!!busy}
-            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
+            className="shrink-0 w-11 h-11 rounded-xl bg-[#f5f5f7] flex items-center justify-center text-[#6d7075] transition-all disabled:opacity-50">
             <X className="w-4 h-4" />
           </button>
         </div>
       ))}
 
       {incoming.map((s2: any) => (
-        <div key={s2.id} className={cn('p-4 rounded-3xl bg-white border-2 space-y-3',
-          s2.conflictCount > 0 ? 'border-red-300' : 'border-amber-300')}>
+        <div key={s2.id} className={cn('p-4 rounded-2xl bg-white border space-y-3',
+          s2.conflictCount > 0 ? 'border-[#f3d9bd]' : 'border-[#ececee]')}>
           <div>
-            <p className="font-black text-slate-900 text-sm">{s2.otherName} wants you to cover</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
-            {s2.note && <p className="text-[11px] font-bold text-slate-400 mt-1 italic">“{s2.note}”</p>}
+            <p className="font-semibold text-[#16171a] text-sm">{s2.otherName} wants you to cover</p>
+            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
+            {s2.note && <p className="text-[14px] font-medium text-[#6d7075] mt-1">“{s2.note}”</p>}
           </div>
 
           {s2.conflictCount > 0 ? (
             <div className="space-y-2">
               <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#fdf6ee]">
                 <AlertTriangle className="w-4 h-4 text-[#b45309] mt-0.5 shrink-0" />
-                <p className="text-[11px] font-bold text-[#b45309]">
+                <p className="text-[14px] font-medium text-[#b45309]">
                   You have {s2.conflictCount === 1 ? 'a client' : `${s2.conflictCount} clients`} booked in that window,
                   so you can&apos;t accept this yet. Move or cancel that booking yourself and this turns green on its own.
                 </p>
               </div>
               <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                className="w-full py-3 rounded-2xl bg-[#f5f5f7] text-[#6d7075] text-[14px] font-semibold transition-all disabled:opacity-50">
                 Decline
               </button>
             </div>
           ) : (
             <div className="flex gap-2">
               <button onClick={() => respond(s2.id, 'accept')} disabled={!!busy}
-                className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                className="flex-1 py-3 rounded-2xl bg-[#16171a] text-white text-[14px] font-semibold transition-all disabled:opacity-50">
                 {busy === s2.id ? 'Working…' : 'Accept'}
               </button>
               <button onClick={() => setDeclineFor(s2.id)} disabled={!!busy}
-                className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                className="px-5 py-3 rounded-2xl bg-[#f5f5f7] text-[#6d7075] text-[14px] font-semibold transition-all disabled:opacity-50">
                 Decline
               </button>
             </div>
@@ -1122,82 +1124,82 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
           {declineFor === s2.id && (
             <div className="space-y-2 pt-1">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Why?</p>
+              <p className="text-[13px] font-semibold text-[#6d7075]">Why?</p>
               <button onClick={() => respond(s2.id, 'decline', 'not_this_time')} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
+                className="w-full py-3 rounded-2xl bg-white border text-[#16171a] text-[14px] font-semibold transition-all disabled:opacity-50">
                 Not this time
               </button>
               <button onClick={() => respond(s2.id, 'decline', 'never_that_day')} disabled={!!busy}
-                className="w-full py-3 rounded-2xl bg-white border-2 text-slate-700 text-[11px] font-black active:scale-95 transition-all disabled:opacity-50">
+                className="w-full py-3 rounded-2xl bg-white border text-[#16171a] text-[14px] font-semibold transition-all disabled:opacity-50">
                 That day never works for me
               </button>
             </div>
           )}
 
-          <p className="text-[10px] font-bold text-slate-400">Your rent is not affected either way.</p>
+          <p className="text-[13px] font-medium text-[#6d7075]">Your rent is not affected either way.</p>
         </div>
       ))}
 
       {outgoing.map((s2: any) => (
-        <div key={s2.id} className="p-4 rounded-3xl bg-white border-2 border-slate-100 flex items-center justify-between gap-3">
+        <div key={s2.id} className="p-4 rounded-2xl bg-white border border-[#ececee] flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="font-black text-slate-900 text-sm truncate">Waiting on {s2.otherName}</p>
-            <p className="text-[11px] font-bold text-slate-500 mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
+            <p className="font-semibold text-[#16171a] text-sm truncate">Waiting on {s2.otherName}</p>
+            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">{s2.giveLabel}, {s2.windowLabel}</p>
           </div>
           <button onClick={() => withdraw(s2.id)} disabled={!!busy}
-            className="shrink-0 w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 active:scale-95 transition-all disabled:opacity-50">
+            className="shrink-0 w-11 h-11 rounded-xl bg-[#f5f5f7] flex items-center justify-center text-[#6d7075] transition-all disabled:opacity-50">
             <X className="w-4 h-4" />
           </button>
         </div>
       ))}
 
       {confirmed.map((s2: any) => (
-        <div key={s2.id} className="p-4 rounded-3xl bg-emerald-50 border-2 border-emerald-200">
+        <div key={s2.id} className="p-4 rounded-2xl bg-[#eef6f1] border border-[#cfe5d8]">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <p className="font-black text-emerald-900 text-sm">Swapped with {s2.otherName}</p>
+            <CheckCircle2 className="w-4 h-4 text-[#1f7a4d] shrink-0" />
+            <p className="font-semibold text-[#1f7a4d] text-sm">Swapped with {s2.otherName}</p>
           </div>
-          <p className="text-[11px] font-bold text-emerald-700 mt-1">{line(s2)}</p>
+          <p className="text-[14px] font-medium text-[#1f7a4d] mt-1">{line(s2)}</p>
         </div>
       ))}
 
       {!open ? (
         <button onClick={start}
-          className="w-full p-4 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-left active:scale-[0.99] transition-all">
-          <p className="font-black text-slate-900 text-sm">Give away a day, or part of one</p>
-          <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+          className="w-full p-4 rounded-2xl bg-white border border-dashed border-[#ececee] text-left active:scale-[0.99] transition-all">
+          <p className="font-semibold text-[#16171a] text-sm">Give away a day, or part of one</p>
+          <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
             Hand a whole day, or just your morning or afternoon, to another professional here. You arrange it between you.
           </p>
         </button>
       ) : (
-        <div className="p-4 rounded-3xl bg-white border-2 space-y-4">
+        <div className="p-4 rounded-2xl bg-white border space-y-4">
           {loadingOpts ? (
-            <div className="flex items-center gap-2 py-4 text-slate-400">
+            <div className="flex items-center gap-2 py-4 text-[#6d7075]">
               <Loader className="w-4 h-4 animate-spin" />
-              <span className="text-[11px] font-black uppercase tracking-widest">Finding your free time…</span>
+              <span className="text-[14px] font-semibold">Finding your free time…</span>
             </div>
           ) : myDates.length === 0 ? (
             <div className="space-y-2">
-              <p className="text-[11px] font-bold text-slate-500">
+              <p className="text-[14px] font-medium text-[#6d7075]">
                 Nothing to offer right now. A day shows up here when it is one of yours and somebody else could take at least part of it.
               </p>
-              <button onClick={reset} className="text-[11px] font-black uppercase tracking-widest text-slate-400">Close</button>
+              <button onClick={reset} className="text-[14px] font-semibold text-[#6d7075]">Close</button>
             </div>
           ) : (
             <>
               <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">1 · Which day</p>
+                <p className="text-[13px] font-semibold text-[#6d7075]">1 · Which day</p>
                 <div className="flex flex-wrap gap-2">
                   {myDates.map((d: any) => (
                     <button key={d.date} onClick={() => pickDate(d)}
-                      className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                        giveDate === d.date ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                      className={cn('px-3 py-2 rounded-xl text-[14px] font-semibold border transition-all',
+                        giveDate === d.date ? 'bg-[#16171a] text-white border-[#16171a]' : 'bg-white text-[#6d7075] border-[#ececee]')}>
                       {d.label}
                     </button>
                   ))}
                 </div>
                 {chosen && (
-                  <p className="text-[10px] font-bold text-slate-400">
+                  <p className="text-[13px] font-medium text-[#6d7075]">
                     You hold {fmtTime(chosen.held.start)}–{fmtTime(chosen.held.end)} that day.
                   </p>
                 )}
@@ -1205,15 +1207,15 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
               {chosen && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">2 · How much of it</p>
+                  <p className="text-[13px] font-semibold text-[#6d7075]">2 · How much of it</p>
                   <div className="space-y-2">
                     {SWAP_SLICE.map(([k, label]) => {
                       const avail = k === 'whole' ? chosen.held : k === 'leading' ? chosen.leading : chosen.trailing;
                       if (!avail) return null;
                       return (
                         <button key={k} onClick={() => pickSlice(k)}
-                          className={cn('w-full px-3 py-3 rounded-xl text-left text-[11px] font-black border-2 transition-all',
-                            slice === k ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                          className={cn('w-full px-3 py-3 rounded-xl text-left text-[14px] font-semibold border transition-all',
+                            slice === k ? 'bg-[#16171a] text-white border-[#16171a]' : 'bg-white text-[#6d7075] border-[#ececee]')}>
                           {label}
                         </button>
                       );
@@ -1221,18 +1223,18 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
                   </div>
                   {slice !== 'whole' && seg && (
                     <div className="flex items-center gap-2 pt-1">
-                      <label htmlFor="swap-edge" className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <label htmlFor="swap-edge" className="text-[13px] font-semibold text-[#6d7075]">
                         {slice === 'leading' ? 'Coming in at' : 'Leaving at'}
                       </label>
                       <input id="swap-edge" type="time" value={edge}
                         min={slice === 'leading' ? seg.start : seg.start}
                         max={slice === 'leading' ? seg.end : seg.end}
                         onChange={(e) => setEdge(e.target.value)}
-                        className="px-3 py-2 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+                        className="px-3 py-2 rounded-xl border border-[#ececee] text-sm font-medium" />
                     </div>
                   )}
                   {win && (
-                    <p className="text-[10px] font-bold text-slate-400">
+                    <p className="text-[13px] font-medium text-[#6d7075]">
                       Giving away {fmtTime(win.start)}–{fmtTime(win.end)}.
                     </p>
                   )}
@@ -1241,12 +1243,12 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
               {chosen && win && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">3 · Who you&apos;re asking</p>
+                  <p className="text-[13px] font-semibold text-[#6d7075]">3 · Who you&apos;re asking</p>
                   <div className="flex flex-wrap gap-2">
                     {partners.map((pp: any) => (
                       <button key={pp.staffId} onClick={() => { setToStaffId(pp.staffId); setConfirmAsk(''); setErr(''); }}
-                        className={cn('px-3 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-                          toStaffId === pp.staffId ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200')}>
+                        className={cn('px-3 py-2 rounded-xl text-[14px] font-semibold border transition-all',
+                          toStaffId === pp.staffId ? 'bg-[#16171a] text-white border-[#16171a]' : 'bg-white text-[#6d7075] border-[#ececee]')}>
                         {pp.name}
                       </button>
                     ))}
@@ -1256,23 +1258,23 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
               {toStaffId && (
                 <div className="space-y-2">
-                  <label htmlFor="swap-note" className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Message (optional)</label>
+                  <label htmlFor="swap-note" className="block text-[13px] font-semibold text-[#6d7075]">Message (optional)</label>
                   <input id="swap-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={240}
                     placeholder="Family thing that afternoon…"
-                    className="w-full px-3 py-3 rounded-xl border-2 border-slate-200 text-sm font-bold" />
+                    className="w-full px-3 py-3 rounded-xl border border-[#ececee] text-sm font-medium" />
                 </div>
               )}
 
               {confirmAsk && (
-                <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-2">
-                  <p className="text-[11px] font-bold text-amber-800">{confirmAsk}</p>
+                <div className="p-3 rounded-2xl bg-[#fdf6ee] border border-[#f3d9bd] space-y-2">
+                  <p className="text-[14px] font-medium text-[#b45309]">{confirmAsk}</p>
                   <div className="flex gap-2">
                     <button onClick={() => send(true)} disabled={!!busy}
-                      className="flex-1 py-3 rounded-2xl bg-amber-500 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50">
+                      className="flex-1 py-3 rounded-2xl bg-[#b45309] text-white text-[14px] font-semibold transition-all disabled:opacity-50">
                       {busy === 'send' ? 'Sending…' : 'Ask anyway'}
                     </button>
                     <button onClick={() => setConfirmAsk('')}
-                      className="px-5 py-3 rounded-2xl bg-white border-2 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                      className="px-5 py-3 rounded-2xl bg-white border text-[#6d7075] text-[14px] font-semibold transition-all">
                       Back
                     </button>
                   </div>
@@ -1282,17 +1284,17 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
               {err && (
                 <div className="flex items-start gap-2 text-[#b45309]">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                  <p className="text-[11px] font-bold">{err}</p>
+                  <p className="text-[14px] font-medium">{err}</p>
                 </div>
               )}
 
               {chosen && win && !confirmAsk && (
                 <button onClick={broadcast} disabled={!!busy}
-                  className="w-full p-3 rounded-2xl bg-sky-50 border-2 border-sky-200 text-left active:scale-[0.99] transition-all disabled:opacity-50">
-                  <p className="text-[11px] font-black text-sky-800">
+                  className="w-full p-3 rounded-2xl bg-[#f5f5f7] border border-[#ececee] text-left active:scale-[0.99] transition-all disabled:opacity-50">
+                  <p className="text-[14px] font-semibold text-[#16171a]">
                     {busy === 'send' ? 'Offering…' : 'Or offer it to anyone who can take it'}
                   </p>
-                  <p className="text-[10px] font-bold text-sky-600 mt-0.5">
+                  <p className="text-[13px] font-medium text-[#16171a] mt-0.5">
                     Everyone who could actually cover it gets asked once. First to take it gets it — no chasing.
                   </p>
                 </button>
@@ -1301,16 +1303,16 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
               {!confirmAsk && (
                 <div className="flex gap-2">
                   <button onClick={() => send(false)} disabled={!giveDate || !toStaffId || !win || !!busy}
-                    className="flex-1 py-3 rounded-2xl bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40">
+                    className="flex-1 py-3 rounded-2xl bg-[#16171a] text-white text-[14px] font-semibold transition-all disabled:opacity-40">
                     {busy === 'send' ? 'Sending…' : 'Send request'}
                   </button>
                   <button onClick={reset}
-                    className="px-5 py-3 rounded-2xl bg-slate-100 text-slate-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                    className="px-5 py-3 rounded-2xl bg-[#f5f5f7] text-[#6d7075] text-[14px] font-semibold transition-all">
                     Cancel
                   </button>
                 </div>
               )}
-              <p className="text-[10px] font-bold text-slate-400">
+              <p className="text-[13px] font-medium text-[#6d7075]">
                 Nothing moves until they accept, and rent stays exactly where it is.
               </p>
             </>
@@ -1321,7 +1323,7 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
       {err && !open && (
         <div className="flex items-start gap-2 text-[#b45309] px-1">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <p className="text-[11px] font-bold">{err}</p>
+          <p className="text-[14px] font-medium">{err}</p>
         </div>
       )}
     </section>
@@ -1345,12 +1347,12 @@ export const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule
     <Chip tone="slate">{String(r.status || '').replace(/_/g, ' ')}</Chip>;
 
   return (
-    <div className={cn('p-4 rounded-3xl border-2 bg-white space-y-3',
-      isToday ? 'border-violet-200 shadow-lg shadow-violet-100' : 'border-slate-100')}>
+    <div className={cn('p-4 rounded-2xl border bg-white space-y-3',
+      isToday ? 'border-[#16171a]' : 'border-[#ececee]')}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-black text-slate-900 text-sm truncate">{r.boothName}</p>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
+          <p className="font-semibold text-[#16171a] text-sm truncate">{r.boothName}</p>
+          <p className="text-[13px] font-medium text-[#6d7075] mt-0.5">
             {fmtDate(r.startDate)} · {window}{r.slotLabel ? ` · ${r.slotLabel}` : ''}
           </p>
         </div>
@@ -1358,25 +1360,25 @@ export const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule
       </div>
 
       {(r.balanceDueCents > 0 && !r.balancePaid && r.status !== 'refunded') && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-100">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          <p className="text-[10px] font-bold text-amber-700">
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#fdf6ee] border border-[#f3d9bd]">
+          <AlertTriangle className="w-3.5 h-3.5 text-[#b45309] shrink-0" />
+          <p className="text-[13px] font-medium text-[#b45309]">
             {fmtMoney(r.balanceDueCents)} balance {r.balanceMode === 'at_checkin' ? 'due at check-in' : 'payable in person'}
           </p>
         </div>
       )}
       {r.overageStatus === 'due' && r.overageDueCents > 0 && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-red-50 border border-red-100">
-          <Clock className="w-3.5 h-3.5 text-red-600 shrink-0" />
-          <p className="text-[10px] font-bold text-red-700">
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#fdf6ee] border border-[#f3d9bd]">
+          <Clock className="w-3.5 h-3.5 text-[#b45309] shrink-0" />
+          <p className="text-[13px] font-medium text-[#b45309]">
             {fmtMoney(r.overageDueCents)} overtime due ({r.overageMinutes} min past booked time)
           </p>
         </div>
       )}
       {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
-        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <p className="text-[10px] font-bold text-emerald-700">
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#eef6f1] border border-[#cfe5d8]">
+          <Sparkles className="w-3.5 h-3.5 text-[#1f7a4d] shrink-0" />
+          <p className="text-[13px] font-medium text-[#1f7a4d]">
             {fmtMoney(r.potentialCreditCents)} credit for unused time, waiting on {biz()} to review
           </p>
         </div>
@@ -1384,25 +1386,25 @@ export const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule
 
       {isToday && r.status === 'confirmed' && onCheckIn && (
         <button onClick={() => onCheckIn(r.id)} disabled={busy}
-          className="w-full h-12 rounded-2xl bg-violet-600 text-white font-black uppercase tracking-widest text-[11px] shadow-lg shadow-violet-200 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+          className="w-full h-12 rounded-2xl bg-[#16171a] text-white font-semibold text-[14px] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
           {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Check In
         </button>
       )}
       {isToday && r.status === 'checked_in' && onCheckOut && (
         <button onClick={() => onCheckOut(r.id)} disabled={busy}
-          className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+          className="w-full h-12 rounded-2xl bg-[#16171a] text-white font-semibold text-[14px] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
           {busy ? <Loader className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Check Out
         </button>
       )}
       {!isToday && r.status === 'confirmed' && onRequestReschedule && (
         r.rescheduleRequestedAt ? (
-          <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 text-center py-1.5">
-            Reschedule requested — {biz()} will reach out
+          <p className="text-[13px] font-semibold text-[#16171a] text-center py-1.5">
+            Asked to move it. {biz(true)} will be in touch.
           </p>
         ) : (
           <button onClick={() => onRequestReschedule(r.id)} disabled={busy}
-            className="w-full h-10 rounded-2xl border-2 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-all disabled:opacity-50">
-            Request Reschedule
+            className="w-full h-11 rounded-2xl border border-[#ececee] text-[#6d7075] font-semibold text-[13px] transition-all disabled:opacity-50">
+            Ask to move it
           </button>
         )
       )}
@@ -1447,31 +1449,31 @@ export const LoginFlow = ({ tenantId, onSession }: {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white flex items-center justify-center p-6">
+    <div className="min-h-screen bg-white flex items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-8">
         <div className="text-center space-y-3">
-          <div className="w-16 h-16 rounded-3xl bg-violet-100 flex items-center justify-center mx-auto">
-            <Armchair className="w-8 h-8 text-violet-600" />
+          <div className="w-16 h-16 rounded-2xl bg-[#f5f5f7] flex items-center justify-center mx-auto">
+            <Armchair className="w-8 h-8 text-[#16171a]" />
           </div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Renter Portal</h1>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-            {phase === 'contact' ? 'Your bookings, credits & rent — one place' : 'Enter your access code'}
+          <h1 className="text-3xl font-semibold text-[#16171a]">Renter portal</h1>
+          <p className="text-[14px] font-medium text-[#6d7075]">
+            {phase === 'contact' ? 'Your rent, bookings and messages in one place' : 'Enter your sign-in code'}
           </p>
         </div>
 
         {phase === 'contact' ? (
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">
+              <label className="text-[13px] font-semibold text-[#6d7075] px-1">
                 Phone or email you booked with
               </label>
 
-              <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
+              <p className="text-[13px] font-medium text-[#6d7075] px-1 leading-snug">
                 We'll text a one-time sign-in code to this number. Msg &amp; data rates may
                 apply. Reply STOP to opt out. <a href="/legal/sms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/legal/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
               </p>
               <div className="relative">
-                <Phone className="w-4 h-4 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
+                <Phone className="w-4 h-4 text-[#6d7075] absolute left-4 top-1/2 -translate-y-1/2" />
                 <input
                   value={contact}
                   onChange={e => setContact(e.target.value)}
@@ -1479,26 +1481,26 @@ export const LoginFlow = ({ tenantId, onSession }: {
                   inputMode="email"
                   autoComplete="tel"
                   placeholder="(555) 123-4567 or you@email.com"
-                  className="w-full h-14 pl-11 pr-4 rounded-2xl border-2 border-slate-200 bg-white font-bold text-slate-900 placeholder:text-slate-300 focus:border-violet-400 focus:outline-none"
+                  className="w-full h-14 pl-11 pr-4 rounded-2xl border border-[#ececee] bg-white font-medium text-[#16171a] placeholder:text-[#6d7075] focus:border-[#16171a] focus:outline-none"
                 />
               </div>
             </div>
             <button
               onClick={requestCode}
               disabled={busy || !contact.trim()}
-              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              className="w-full h-14 rounded-2xl bg-[#16171a] text-white font-semibold text-[13px] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {busy ? <Loader className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-              Get Access Code
+              Get a sign-in code
             </button>
-            <p className="text-[10px] font-medium text-slate-400 text-center leading-relaxed px-4">
+            <p className="text-[13px] font-medium text-[#6d7075] text-center leading-relaxed px-4">
               We’ll verify it’s really you. {bizs(true)} front desk can share your one-time code.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-violet-50 border border-violet-100 text-center">
-              <p className="text-[10px] font-bold text-violet-700 leading-relaxed">
+            <div className="p-4 rounded-2xl bg-[#f5f5f7] border border-[#ececee] text-center">
+              <p className="text-[13px] font-medium text-[#16171a] leading-relaxed">
                 A 6-digit code was sent to {biz()} for <strong>{contact.trim()}</strong>.
                 Ask the front desk to read it to you.
               </p>
@@ -1510,19 +1512,19 @@ export const LoginFlow = ({ tenantId, onSession }: {
               inputMode="numeric"
               autoFocus
               placeholder="••••••"
-              className="w-full h-16 rounded-2xl border-2 border-slate-200 bg-white font-black text-3xl text-center tracking-[0.5em] text-slate-900 placeholder:text-slate-200 focus:border-violet-400 focus:outline-none"
+              className="w-full h-16 rounded-2xl border border-[#ececee] bg-white font-semibold text-3xl text-center tracking-[0.5em] text-[#16171a] placeholder:text-[#6d7075] focus:border-[#16171a] focus:outline-none"
             />
             <button
               onClick={verify}
               disabled={busy || code.length !== 6}
-              className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs shadow-xl shadow-slate-900/20 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              className="w-full h-14 rounded-2xl bg-[#16171a] text-white font-semibold text-[13px] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {busy ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Sign In
+              Sign in
             </button>
             <button
               onClick={() => { setPhase('contact'); setCode(''); }}
-              className="w-full text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 py-2"
+              className="w-full text-[13px] font-semibold text-[#6d7075] hover:text-[#6d7075] py-2"
             >
               Use a different phone / email
             </button>

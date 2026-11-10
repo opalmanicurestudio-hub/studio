@@ -20,7 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Armchair, ChevronLeft, ChevronRight, Loader, Settings } from 'lucide-react';
 import { biz, setBusinessName } from '@/components/rent/biz';
 import { TAB_LABEL, VIEW_BACK, VIEW_PARENT, VIEW_TITLES, backMove, markSpot, needsTarget, placeRows, placesFor, pushSpot, setupRows, shownPlace, shownView, spotFromState, tabFor, type PortalTab, type RowGroupSpec, type Who } from '@/components/rent/portal-map';
-import { fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
+import { ScreenContext, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { RenterInbox } from '@/components/rent/RenterInbox';
@@ -373,7 +373,7 @@ export default function RenterPortalPage() {
       case 'notices': return (<div className="space-y-8"><RenterInbox tenantId={tenantId} token={token} businessName={business || 'the business'} /><RenterThread tenantId={tenantId} token={token} studioName={business || 'the business'} /></div>);
       case 'repairs': return <RenterMaintenance tenantId={tenantId} token={token} />;
       case 'concerns': return <RenterConcerns tenantId={tenantId} token={token} />;
-      case 'lease': return (<div className="space-y-8"><RenterDocuments tenantId={tenantId} token={token} />{!booksHere && hasRenter && <MyDocuments tenantId={tenantId} token={token} booksHere={false} />}</div>);
+      case 'lease': return (<div className="space-y-8"><RenterDocuments tenantId={tenantId} token={token} />{!booksHere && hasRenter && <ScreenContext.Provider value={false}><MyDocuments tenantId={tenantId} token={token} booksHere={false} /></ScreenContext.Provider>}</div>);
       case 'rules': return <BuildingRules tenantId={tenantId} token={token} name={data?.renter?.name || null} />;
       case 'insurance': return renderCreds();
       case 'away': return <RenterLeave tenantId={tenantId} token={token} />;
@@ -612,7 +612,7 @@ export default function RenterPortalPage() {
             {token && <div className={!view && tab === 'today' ? 'mb-8' : ''}><TodayQuick data={data} booksHere={booksHere} onGo={goFromToday} tenantId={tenantId} token={token} onBadges={setBadges} visible={!view && tab === 'today'} refreshKey={freshen} /></div>}
 
             {view ? (
-              <div className="space-y-8">{screen(view)}</div>
+              <ScreenContext.Provider value><div className="space-y-8">{screen(view)}</div></ScreenContext.Provider>
             ) : tab === 'today' ? (
               <div className="space-y-8">
                 {todays.length > 0 && (

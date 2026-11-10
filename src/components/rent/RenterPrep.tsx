@@ -3,10 +3,11 @@
 // my rules"). Their clients' answers come only to them, and they decide: approve the change (if it fits), keep it as
 // booked, ask the client to pick a new time (free), or cancel with no fee. Below: their own rules, and the questions on
 // each of their services. /api/portal/renter-prep.
+import { SectionTitle } from '@/components/rent/shared';
 import * as React from 'react';
 import { CheckEditor } from '@/components/prep/CheckEditor';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const font = { color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' } as const;
 const money = (n: number) => `$${Number.isInteger(Math.round(n * 100) / 100) ? Math.round(n) : n.toFixed(2)}`;
 const post = (body: any) => fetch('/api/portal/renter-prep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
@@ -23,10 +24,10 @@ export function RenterPrep({ tenantId, token }: { tenantId: string; token: strin
   const anyOn = (d.services || []).some((s: any) => s.prepCheck?.on);
   const saveS = async (patch: any) => { const r = await post({ tenantId, token, action: 'settings', prep: { ...S, ...patch } }); if (r.ok) setD((x: any) => ({ ...x, settings: r.settings })); };
   const pick = (label: string, value: string, opts: Array<[string, string]>, on: (v: string) => void) => <label className="flex items-center justify-between gap-2 py-2.5 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{label}</span>
-    <select value={value} onChange={(e) => on(e.target.value)} className="h-10 max-w-[56%] rounded-[10px] border bg-white px-2 text-[13.5px]" style={{ borderColor: LINE }}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>;
+    <select value={value} onChange={(e) => on(e.target.value)} className="h-11 max-w-[56%] rounded-[10px] border bg-white px-2 text-[13.5px]" style={{ borderColor: LINE }}>{opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>;
   return (
     <section className="space-y-3" style={font} aria-label="Before the visit">
-      <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>my business</p><h2 className="text-[24px] font-light tracking-[-0.02em]">Before the visit</h2>
+      <div className="space-y-1"><SectionTitle>Before the visit</SectionTitle>
         <p className="text-[13.5px]" style={{ color: MUTED }}>A few quick questions before maintenance visits, so you save the right time — and clients see any change and price before they agree.</p></div>
       {need.length > 0 && <div className="space-y-2"><p className="text-[15px] font-semibold">Needs you · {need.length}</p>{need.map((v) => <VisitCard key={v.id} v={v} tenantId={tenantId} token={token} word={S.quote === 'about' ? 'about' : 'up to'} onDone={load} />)}</div>}
       {waiting.length > 0 && <p className="rounded-[14px] px-3.5 py-3 text-[13.5px]" style={{ background: SOFT }}>Not answered yet: {waiting.map((v) => `${v.clientName} (${new Date(v.startTime).toLocaleDateString('en-US', { weekday: 'short' })})`).join(', ')}.{waiting.some((v) => v.suggestion) ? ' If they don’t answer, the weeks since their last visit suggest the service.' : ''}</p>}
@@ -57,7 +58,7 @@ function VisitCard({ v, tenantId, token, word, onDone }: { v: any; tenantId: str
   const [busy, setBusy] = React.useState(''); const [msg, setMsg] = React.useState(''); const [sure, setSure] = React.useState(false);
   const p = v.prep || {}; const q = p.quote;
   const go = async (decision: string) => { setBusy(decision); setMsg(''); const r = await post({ tenantId, token, action: 'decide', appointmentId: v.id, decision }); setBusy(''); if (r.ok) { setMsg(decision === 'cancel' && r.depositToRefund ? `Canceled. Refund their ${money(r.depositToRefund / 100)} deposit.` : 'Done — they’ve been told.'); setTimeout(onDone, 900); } else setMsg(r.error || 'That didn’t work.'); };
-  const btn = (label: string, decision: string, solid = false) => <button type="button" disabled={!!busy} onClick={() => go(decision)} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold disabled:opacity-40" style={solid ? { background: INK, color: '#fff' } : { background: SOFT }}>{busy === decision ? '…' : label}</button>;
+  const btn = (label: string, decision: string, solid = false) => <button type="button" disabled={!!busy} onClick={() => go(decision)} className="h-11 rounded-full px-3.5 text-[13.5px] font-semibold disabled:opacity-40" style={solid ? { background: INK, color: '#fff' } : { background: SOFT }}>{busy === decision ? '…' : label}</button>;
   const when = new Date(v.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   return (<div className="space-y-2 rounded-[18px] border bg-white p-3.5" style={{ borderColor: p.status === 'safety' ? '#f4c7c3' : LINE }}>
     <p className="text-[14.5px] font-semibold">{v.clientName} · {when} <span className="font-normal" style={{ color: MUTED }}>· {v.serviceName}</span></p>

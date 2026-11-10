@@ -144,12 +144,35 @@ const page = src(PAGE);
   check('nor does the portal’s server', !studioWords.test(code(route)), (code(route).match(studioWords) || [])[0]);
   check('no old place names in messages (Rent tab, under Rent, tap Studio)', ![src('src/app/api/comms/dispatch/route.ts'), src('src/app/api/booths/setup-card/route.ts'), src('src/components/rent/setup.tsx')].some((t) => /Rent tab|under Rent\b|<strong>Studio<\/strong>/.test(t)));
   check('links to a document or the rules open those screens', /\?view=lease/.test(src('src/components/shared/RenterDocumentsTab.tsx')) && /\?view=rules/.test(src('src/app/api/comms/dispatch/route.ts')));
-  check('US spelling on the portal (canceled, color)', !portalFiles.some((f) => /'Cancelled'|Cancelled —|[Cc]olour|Cancelling/.test(code(src(f)))));
+  check('US spelling on the portal (canceled, color)', !portalFiles.some((f) => /'Cancelled'|Cancelled —|· cancelled|[Cc]olour|Cancelling/.test(code(src(f)))));
 
   // The page's own screens in the one look: amber for anything to sort out, no tiny spaced capitals.
   const ownScreens = page.slice(page.indexOf("case 'history': return"), page.indexOf('const rowFor = '));
   check('history and insurance screens: no red, no spaced capitals', ownScreens.length > 2000 && !/red-|uppercase|tracking-widest|font-black/.test(ownScreens));
   check('the page has no red at all outside destructive actions', !/(text|bg|border)-red-/.test(page));
+
+  // One look across every portal screen: no tiny spaced capitals, no heavy weights, no old grays or thick borders,
+  // amber for problems (red only on destructive buttons), no emoji or check marks, 44px buttons.
+  const rentFiles = readdirSync('src/components/rent').filter((f) => f.endsWith('.tsx')).map((f) => `src/components/rent/${f}`);
+  const oldLook = /tracking-widest|tracking-\[0\.1em\]|font-light|font-black|font-bold|text-xs\b|border-2(?![\d])|rounded-3xl|text-\[(?:8|9|10|11)(?:\.5)?px\]|text-slate-|bg-slate-|border-slate-|(?<![\w:-])uppercase(?![\w-])|violet-|emerald-|(?:text|bg|border)-red-/;
+  // (the brand preview in setup shows the renter's own chosen type, so its lines are left out)
+  const stillOld = rentFiles.filter((f) => oldLook.test(code(src(f)).split('\n').filter((l) => !/RENTER_FONT_STACK/.test(l)).join('\n')));
+  check('every portal screen is in the one look', stillOld.length === 0, stillOld.join(', '));
+  const redUse = rentFiles.flatMap((f) => (code(src(f)).match(/.{0,120}#b42318.{0,160}/g) || []).filter((l) => !/RED = '#b42318'/.test(l)).map((l) => ({ f: f.split('/').pop(), l })));
+  const destructive = /cancel|Cancel|remove|Remove|stop|Stop|Decline|archive|Archive|delete|Delete|RED|danger/;
+  check('red only where something is canceled, removed or stopped', redUse.every((r) => destructive.test(r.l)), redUse.filter((r) => !destructive.test(r.l)).map((r) => `${r.f}: ${r.l.trim().slice(0, 90)}`));
+  const symbols = rentFiles.filter((f) => /[\u{1F300}-\u{1FAFF}\u2600-\u2604\u2607-\u27BF]/u.test(src(f)));   // review stars (★ ☆) are allowed
+  check('no emoji or check marks on the portal', symbols.length === 0, symbols.join(', '));
+  // Every class list with a 32 to 40px height, other than pictures, icon tiles and the autopay switch (inside a 44px button).
+  const decorative = /object-cover|items-center justify-center rounded-\[12px\]|grid h-10 w-10|relative block h-8 w-14|w-8 h-8 text-/;
+  const small = rentFiles.filter((f) => !f.endsWith('DeskOwedCard.tsx')).flatMap((f) => (code(src(f)).match(/(["'`])[^"'`\n]*(?<![\w-])h-(?:8|9|10)(?![\w\]])[^"'`\n]*\1/g) || []).filter((l) => !decorative.test(l)).map((l) => `${f.split('/').pop()}: ${l.slice(0, 70)}`));
+  check('buttons and fields are at least 44px tall', small.length === 0, small.slice(0, 5));
+  const shared = src('src/components/rent/shared.tsx');
+  check('inside a screen, a section’s own title is for screen readers only (the header names it)', /export const ScreenContext = React\.createContext\(false\)/.test(shared) && /inScreen \? 'sr-only'/.test(shared) && /<ScreenContext\.Provider value>/.test(page));
+  check('a second section inside a screen keeps its own visible title (their own documents under the lease)', /<ScreenContext\.Provider value=\{false\}><MyDocuments/.test(page));
+  check('a status word starts with a capital, in the one look', /children\.charAt\(0\)\.toUpperCase\(\)/.test(shared) && !/first-letter:uppercase/.test(shared));
+  check('old place names are gone from the portal’s words (My Book, Setup →)', !rentFiles.some((f) => /My Book\b|Setup →/.test(code(src(f)))));
+  check('Closures and Time away say so when there’s nothing, instead of a blank screen', /No closures so far\./.test(studio) && /doesn’t offer time away through the portal yet/.test(studio));
 
   // The messages screen: one title (the header's), and the conversation in the new look.
   const inbox = src('src/components/rent/RenterInbox.tsx');
