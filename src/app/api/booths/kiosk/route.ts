@@ -34,6 +34,7 @@ import Stripe from 'stripe';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { inPersonFromDb } from '@/lib/business-shape';
 import { onAccount, renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
+import { reservationHolds, stationHolds } from '@/lib/space-clash';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -616,17 +617,24 @@ export async function POST(req: NextRequest) {
       const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
         .where('boothId', '==', boothId).get();
       const now = Date.now();
-      const HOLD_MS = 30 * 60 * 1000;
       const booked = new Set<string>();
+      const addDays = (from: string, to: string) => {
+        let t = new Date(String(from).slice(0, 10) + 'T00:00:00Z').getTime();
+        const e = new Date(String(to || from).slice(0, 10) + 'T00:00:00Z').getTime();
+        for (let i = 0; Number.isFinite(t) && t <= e && i < 400; t += 86400000, i++) booked.add(new Date(t).toISOString().slice(0, 10));
+      };
+      // Who holds their time, by the one rule (lib/space-clash).
       for (const d of snap.docs) {
         const r = d.data() as any;
-        const holds = ['confirmed', 'checked_in'].includes(r.status) ||
-          (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < HOLD_MS);
-        if (!holds) continue;
+        if (!reservationHolds(r, now)) continue;
         if (r.bookingType === 'hourly') continue;   // hourly days remain bookable
-        let t = new Date(r.startDate + 'T00:00:00Z').getTime();
-        const e = new Date(r.endDate + 'T00:00:00Z').getTime();
-        for (; t <= e; t += 86400000) booked.add(new Date(t).toISOString().slice(0, 10));
+        addDays(r.startDate, r.endDate);
+      }
+      // A renter's whole-day station booking takes the day too (api/stripe/book-station).
+      const stations = await db.collection(`tenants/${tenantId}/bookings`).where('boothId', '==', boothId).get();
+      for (const d of stations.docs) {
+        const b = d.data() as any;
+        if (b?.rateType === 'daily' && b.startAt && stationHolds(b, new Date(now).toISOString())) addDays(b.startAt, b.endAt);
       }
       return NextResponse.json({ ok: true, bookedDates: Array.from(booked) });
     }

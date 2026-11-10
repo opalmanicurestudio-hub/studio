@@ -4,14 +4,17 @@
 // session), then turn autopay on or off. Autopay reads as on only when the business can actually charge the card
 // (rentOutlook.autopayOn); a card saved before the business's payments moved has to be saved again first. Turning it on
 // asks for their written OK first: the authorization's words, signed by typing their name, kept and emailed to them.
+// Just after a card is saved, with autopay off, it's offered there and then (still with their written OK).
 import * as React from 'react';
 import { CreditCard } from 'lucide-react';
 import { api } from '@/components/rent/studio';
 
 const brandName = (b: any) => { const s = String(b || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Card'; };
 
-export function RenterCard({ tenantId, token, renter, autopayOn, hasLease, waitingSignature = false, onChanged, onToast }: {
+export function RenterCard({ tenantId, token, renter, autopayOn, hasLease, waitingSignature = false, offerAutopay = false, onOfferSeen, onChanged, onToast }: {
   tenantId: string; token: string; renter: any; autopayOn: boolean; hasLease: boolean; waitingSignature?: boolean;
+  /** A card was just saved: offer autopay now, if it's off. */
+  offerAutopay?: boolean; onOfferSeen?: () => void;
   onChanged: () => void; onToast: (t: { title: string; description?: string; bad?: boolean }) => void;
 }) {
   const [busy, setBusy] = React.useState<'' | 'card' | 'autopay'>('');
@@ -21,6 +24,9 @@ export function RenterCard({ tenantId, token, renter, autopayOn, hasLease, waiti
   const stale = !usable && renter?.cardOnFile === true;
   const wantsAutopay = renter?.autopayEnabled === true;
   const card = `${brandName(renter?.cardBrand)} ending ${renter?.cardLast4 || '····'}`;
+  const offer = offerAutopay && hasLease && usable && !wantsAutopay && !auth;
+  // Once autopay is on (however it was turned on), the offer is done with.
+  React.useEffect(() => { if (offerAutopay && wantsAutopay) onOfferSeen?.(); }, [offerAutopay, wantsAutopay]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveCard = async () => {
     setBusy('card');
@@ -87,6 +93,16 @@ export function RenterCard({ tenantId, token, renter, autopayOn, hasLease, waiti
                 <span className={`absolute top-1 h-6 w-6 rounded-full bg-[#ffffff] shadow transition-all ${wantsAutopay ? 'left-7' : 'left-1'}`} />
               </span>
             </button>
+          </div>
+        )}
+        {offer && (
+          <div className="mt-3 space-y-2 rounded-2xl bg-[#ecf6f0] p-3.5" role="status" aria-label="Turn on autopay">
+            <p className="text-[14px] font-semibold text-[#16171a]">Your card is saved. Turn on autopay too?</p>
+            <p className="text-[13.5px] leading-snug text-[#16171a]">Rent is taken from your {card} on each due date, without you having to pay each bill. You can turn it off here any time.</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { onOfferSeen?.(); void askAutopay(); }} disabled={!!busy} className="h-11 flex-1 rounded-xl bg-[#16171a] text-[14px] font-medium text-white disabled:opacity-40">Turn on autopay</button>
+              <button type="button" onClick={() => onOfferSeen?.()} className="h-11 rounded-xl border border-[#ececee] bg-white px-4 text-[14px] font-medium text-[#16171a]">Not now</button>
+            </div>
           </div>
         )}
         {auth && !wantsAutopay && (

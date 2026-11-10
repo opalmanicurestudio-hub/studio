@@ -9,15 +9,17 @@
  * Design decisions:
  *  - Admin SDK (getAdminDb) — reservations carry PII, so they are NEVER
  *    publicly readable; all checks happen server-side. No rules changes.
- *  - Conflict engine: a booth-day can be sold once. Confirmed
- *    reservations always block; pending ones block for 30 minutes (a
- *    checkout in progress holds the dates, then expires — no deadlocks
- *    from abandoned carts).
+ *  - Conflict engine (lib/space-clash): a space's time can be sold once.
+ *    Confirmed, checked-in and still-being-cancelled bookings block, and so
+ *    do renters' station bookings, with the turnover gap kept clear; pending
+ *    ones block for 40 minutes, and their payment page closes at 33, so
+ *    nobody pays for a time that's been let go. Checked again just after a
+ *    pending booking is written, so one made at the same moment is caught.
  *  - The Stripe race window (two checkouts completing for the same dates)
  *    is closed at confirm time: if the dates got taken while paying, the
  *    reservation is NOT confirmed and the response tells the guest a refund
  *    is coming — flagged in the owner notification.
- *    Rare by construction (30-min holds), handled honestly when it happens.
+ *    Rare by construction (short holds), handled honestly when it happens.
  *  - The money goes to the business's own Stripe account (lib/space-stripe),
  *    saved on the booking, and every later charge or refund on it uses that
  *    account. Bookings paid before this stay on the platform account.
@@ -41,6 +43,8 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { subletOpenOn } from '@/lib/leave-policy';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { spacePayAccount, onAccount, SPACE_NO_PAYMENTS } from '@/lib/space-stripe';
+import { PENDING_HOLD_MS, CHECKOUT_OPEN_SECONDS, reservationHolds, stationHolds, shortestMinutes, minutesWords } from '@/lib/space-clash';
+import { spaceClash } from '@/lib/space-clash-server';
 
 /** The front desk: the business's own team, who may take bookings or payments (never a renter working here). */
 async function deskStaff(req: NextRequest, tenantId: string): Promise<{ actor?: any; deny?: NextResponse }> {
@@ -89,7 +93,7 @@ async function persistDayUseSignature(db: FirebaseFirestore.Firestore, tenantId:
 
 const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PENDING_HOLD_MS = 30 * 60 * 1000;
+// How long a booking waiting on its payment page holds its time, and the rule for what clashes (lib/space-clash).
 
 function daysInclusive(start: string, end: string): number {
   const s = new Date(start + 'T00:00:00Z').getTime();
@@ -102,10 +106,8 @@ function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): b
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-// v67 — TIME-AWARE conflicts. Two reservations conflict when their date
-// ranges overlap AND their times overlap. A daily booking (no times)
-// occupies the whole day, so it conflicts with everything that day.
-// Hourly bookings only conflict when their hour windows intersect.
+// Conflicts are time-aware (lib/space-clash): an hourly booking holds its hours, a daily one its whole days, and the
+// space's turnover gap is kept clear around each.
 
 // ─── Day rental → bookable availability ──────────────────────────────────────
 // A confirmed day rental gives someone a chair. Until now it did NOT make them
@@ -219,24 +221,10 @@ function FieldValueDelete(): any {
   return FieldValue.delete();
 }
 
-function timesConflict(a: any, b: any): boolean {
-  const aHourly = a.bookingType === 'hourly' && a.startTime && a.endTime;
-  const bHourly = b.bookingType === 'hourly' && b.startTime && b.endTime;
-  if (!aHourly || !bHourly) return true;           // any daily involved → whole-day block
-  return a.startTime < b.endTime && b.startTime < a.endTime;
-}
 
+// What's already taken on the space, by the one rule (lib/space-clash-server).
 async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, proposed: { startDate: string; endDate: string; bookingType?: string; startTime?: string; endTime?: string }, ignoreId?: string) {
-  const snap = await db.collection(`tenants/${tenantId}/boothReservations`).where('boothId', '==', boothId).get();
-  const now = Date.now();
-  for (const d of snap.docs) {
-    const r = d.data() as any;
-    if (ignoreId && d.id === ignoreId) continue;
-    const holds = r.status === 'confirmed' ||
-      (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < PENDING_HOLD_MS);
-    if (holds && overlaps(proposed.startDate, proposed.endDate, r.startDate, r.endDate) && timesConflict(proposed, r)) return true;
-  }
-  return false;
+  return spaceClash(db, tenantId, boothId, proposed, ignoreId);
 }
 
 // v85 — shared-lease occupancy. A 'partial' booth is bookable, but never
@@ -334,8 +322,7 @@ export async function POST(req: NextRequest) {
         const rSnap = await db.collection(`tenants/${tid}/boothReservations`).where('boothId', '==', bd.id).get();
         for (const rd of rSnap.docs) {
           const r: any = rd.data() || {};
-          const held = r.status === 'confirmed' || r.status === 'checked_in'
-            || (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < PENDING_HOLD_MS);
+          const held = reservationHolds(r, now);
           if (!held) continue;
           if (!overlaps(date, date, r.startDate, r.endDate || r.startDate)) continue;
           const isH = r.bookingType === 'hourly' && r.startTime && r.endTime;
@@ -348,6 +335,15 @@ export async function POST(req: NextRequest) {
             expiresInMin: r.status === 'pending_payment'
               ? Math.max(0, Math.round((PENDING_HOLD_MS - (now - new Date(r.createdAt).getTime())) / 60000)) : null,
           });
+        }
+        // A renter's station booking on this space this day (api/stripe/book-station).
+        const sSnap = await db.collection(`tenants/${tid}/bookings`).where('boothId', '==', bd.id).get();
+        for (const sd of sSnap.docs) {
+          const sb: any = sd.data() || {};
+          if (!sb.startAt || !sb.endAt || !stationHolds(sb, new Date(now).toISOString())) continue;
+          const [d1, t1] = String(sb.startAt).split('T'); const [d2, t2] = String(sb.endAt).split('T');
+          if (!(d1 <= date && date <= d2)) continue;
+          busy.push({ start: d1 === date ? String(t1 || '').slice(0, 5) : (b.openTime || '00:00'), end: d2 === date ? String(t2 || '').slice(0, 5) : (b.closeTime || '23:59'), kind: 'booked', who: 'A renter', wholeDay: false, expiresInMin: null });
         }
         const lSnap = await db.collection(`tenants/${tid}/leases`).where('boothId', '==', bd.id).get();
         for (const ld of lSnap.docs) {
@@ -538,7 +534,7 @@ export async function POST(req: NextRequest) {
             unit_amount: Number(pack.amountCents),
             product_data: {
               name: `${pack.label || `${pack.days}-day pack`} — ${pack.days} day pass`,
-              description: 'Prepaid studio days — bookings redeem automatically, no charge at checkout.',
+              description: 'Prepaid days. Each booking uses one, with nothing more to pay at checkout.',
             },
           },
         }],
@@ -650,6 +646,9 @@ export async function POST(req: NextRequest) {
       } else {
       const numHours = Math.round(((new Date(`2000-01-01T${endTime}:00Z`).getTime() - new Date(`2000-01-01T${startTime}:00Z`).getTime()) / 3600000) * 2) / 2;
       if (numHours < 1 || numHours > 14) return NextResponse.json({ ok: false, error: 'Hourly bookings are 1–14 hours.' }, { status: 400 });
+      // The shortest booking the business set for this space (lib/space-clash).
+      const shortest = shortestMinutes(booth);
+      if (shortest > 0 && numHours * 60 < shortest) return NextResponse.json({ ok: false, error: `The shortest booking here is ${minutesWords(shortest)}.` }, { status: 400 });
       amountCents = Math.round(hourRate!.amountCents * numHours);
       unitsLabel = `${numHours} hour${numHours === 1 ? '' : 's'} (${startTime}–${endTime})`;
       }
@@ -975,6 +974,12 @@ export async function POST(req: NextRequest) {
       idDocUrl: idDocUrl || null,
       complianceCapturedAt: (doingServices || licenseNumber || insuranceConfirmed || idAcknowledged || licenseDocUrl || insuranceDocUrl || idDocUrl) ? nowIso : null,
     });
+    // Checked again now this hold is written: a booking made at the same moment (another guest, or a renter's station
+    // booking) is caught, and this one lets go at once rather than both being sold.
+    if (await findConflict(db, tenantId, boothId, { startDate, endDate, bookingType: isHourly ? 'hourly' : 'daily', startTime, endTime }, resRef.id)) {
+      await resRef.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancellationReason: 'taken_meanwhile' }, { merge: true }).catch(() => {});
+      return NextResponse.json({ ok: false, error: 'Those dates were just taken. Try different dates.' }, { status: 409 });
+    }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     const base = String(returnUrl).split('?')[0];
@@ -1032,6 +1037,8 @@ export async function POST(req: NextRequest) {
       }],
       success_url: `${base}?cfReservationId=${resRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
       cancel_url: base,
+      // The payment page closes before the time it holds is let go, so nobody pays for a time someone else then takes.
+      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_OPEN_SECONDS,
       metadata: { tenantId, reservationId: resRef.id, kind: 'space_booking' },
     }, { stripeAccount: payAcct }); } catch (e) { await letGoNow(); throw e; }
     await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
@@ -1239,6 +1246,13 @@ export async function GET(req: NextRequest) {
     const pi: any = session.payment_intent;
     const savedPaymentMethodId: string | null = (pi && typeof pi === 'object' && pi.payment_method) ? String(pi.payment_method) : null;
     if (session.payment_status !== 'paid') {
+      // The payment page closed unpaid: the time is let go now (and any credit it set aside), not at the end of the hold,
+      // so they can book it again straight away.
+      if (session.status === 'expired' && r.status === 'pending_payment') {
+        await resRef.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancellationReason: 'checkout_expired' }, { merge: true }).catch(() => {});
+        for (const cid of (Array.isArray(r.appliedCreditIds) ? r.appliedCreditIds : [])) await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set({ status: 'available', reservedAt: null, reservedForReservationId: null }, { merge: true }).catch(() => {});
+        return NextResponse.json({ ok: false, confirmed: false, error: 'The payment page closed before it was paid, so the time was let go. Book it again to pay.' });
+      }
       return NextResponse.json({ ok: false, confirmed: false, error: 'Payment not completed.' });
     }
 

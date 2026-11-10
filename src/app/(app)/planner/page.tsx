@@ -72,6 +72,7 @@ import { LeftOpen, useLeftOpen } from '@/components/ops/LeftOpen';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { pageAccent } from '@/lib/studio-page';
 import { onTeam } from '@/lib/team-member';
+import { reservationHolds } from '@/lib/space-clash';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -312,10 +313,6 @@ function PlannerPageContent() {
   );
   const { data: reservationsRaw } = useCollection<any>(reservationsQ);
 
-  // Matches PENDING_HOLD_MS in /api/booths/reserve. Duplicated rather than
-  // imported — a page importing from an API route is not a dependency worth
-  // creating for one number — but it must be changed in both places together.
-  const PLANNER_HOLD_MS = 30 * 60 * 1000;
 
   const reservationsToday = useMemo(() => {
     if (!reservationsRaw) return [];
@@ -326,19 +323,15 @@ function PlannerPageContent() {
     // space as taken that anyone was free to sell.
     //
     // pending_payment is the interesting one. It is a real claim — someone is
-    // mid-checkout on the public page — but only for PLANNER_HOLD_MS. Inside
+    // mid-checkout on the public page — but only while its hold lasts (lib/space-clash, the one rule the booking routes
+    // use, which also keeps a cancellation not yet settled). Inside
     // that window it belongs on the calendar so nobody sells over it; past it
     // the hold is dead and showing it would block a space for nothing.
     const now = Date.now();
     return (reservationsRaw as any[]).filter(r => {
       if (!r || !r.startDate) return false;
       if (!(r.startDate <= curIso && (r.endDate || r.startDate) >= curIso)) return false;
-      const st = String(r.status || '');
-      if (st === 'confirmed' || st === 'checked_in') return true;
-      if (st === 'pending_payment' && r.createdAt) {
-        return now - new Date(r.createdAt).getTime() < PLANNER_HOLD_MS;
-      }
-      return false;
+      return reservationHolds(r, now);
     });
   }, [reservationsRaw, currentDate]);
 

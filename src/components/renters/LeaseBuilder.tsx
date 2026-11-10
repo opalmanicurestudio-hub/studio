@@ -7,7 +7,8 @@
 // renter signs it in their portal. A draft is kept on this device until it's sent.
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { collection, doc, getDocs, query, where, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, updateDoc, setDoc } from 'firebase/firestore';
+import { staffMirrorFields } from '@/lib/renter-identity';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { createLease } from '@/lib/booth-rental-service';
 import { resolveLeasePolicy, buildLease, leaseChecks, usd, shortDate, type LeaseDraft, type LeaseContext, type LeasePolicy, leaseEndAfter, slotsClash } from '@/lib/lease-builder';
@@ -112,6 +113,9 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
   const [rules, setRules] = React.useState<{ id: string; label: string }[] | null>(null);
   const [sign, setSign] = React.useState<boolean>(saved?.sign !== false);
   const [invite, setInvite] = React.useState(true);
+  // They see clients here: the lease turns bookings on for them (their menu, hours and booking link in their portal).
+  // Whether they list on the business's booking page or use their own system stays their choice there.
+  const [bookings, setBookings] = React.useState<boolean>(typeof saved?.bookings === 'boolean' ? saved.bookings : !!String(renter?.specialty || '').trim() || !!renter?.bookingMode);
   const [own, setOwn] = React.useState<{ on: boolean; text: string }>(saved?.own && typeof saved.own.text === 'string' ? { on: !!saved.own.on, text: saved.own.text } : { on: false, text: '' });
   const [paper, setPaper] = React.useState<File | null>(null);
   const [review, setReview] = React.useState<{ open: boolean; at: string; by: string }>({ open: false, at: todayIso(), by: '' });
@@ -148,7 +152,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
   const set = <K extends keyof LeaseDraft>(k: K, v: LeaseDraft[K]) => { setErr(''); setD((x) => ({ ...x, [k]: v })); };
 
   // The draft is kept on this device as it changes; a sent lease clears it.
-  React.useEffect(() => { try { localStorage.setItem(draftKey, JSON.stringify({ d, boothId, length, perks, sign, own, bizSig, policy: pickPolicy(policy), at: Date.now() })); } catch { /* fine */ } }, [d, boothId, length, perks, sign, own, bizSig, policy, draftKey]);
+  React.useEffect(() => { try { localStorage.setItem(draftKey, JSON.stringify({ d, boothId, length, perks, sign, own, bizSig, bookings, policy: pickPolicy(policy), at: Date.now() })); } catch { /* fine */ } }, [d, boothId, length, perks, sign, own, bizSig, bookings, policy, draftKey]);
 
   // Choosing a space fills in its details, and its rent (its monthly rate if it has one) and a deposit of one period's
   // rent, all still editable. A draft brought back keeps what it had.
@@ -342,6 +346,20 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
         await updateDoc(doc(p.firestore, `tenants/${tenantId}/renters/${renter.id}`), { noticeAddress: d.renterNoticeAddress.trim() }).catch(() => {});
       }
       let said = (sign ? 'Sent for their signature. Rent starts billing once they sign.' : 'Lease made. Rent bills on its schedule.') + keptNote;
+      // Bookings on for someone who sees clients here, unless they already have their booking record.
+      if (bookings && !staffLike.providerId) {
+        try {
+          const prov = (await getDocs(query(collection(p.firestore, `tenants/${tenantId}/staff`), where('renterId', '==', renter.id)))).docs.find((x) => (x.data() as any)?.isRenter);
+          if (!prov) {
+            const staffId = doc(collection(p.firestore, `tenants/${tenantId}/staff`)).id;
+            await setDoc(doc(p.firestore, `tenants/${tenantId}/staff/${staffId}`), {
+              id: staffId, tenantId, role: 'staff', isRenter: true, renterId: renter.id, payStructure: 'none',
+              isActive: true, active: false, onBreak: false, status: 'idle', ...staffMirrorFields(renter),
+            }, { merge: true });
+            said += ' Bookings are on for them: they set their menu and hours in their portal.';
+          }
+        } catch { said += ' Bookings weren’t turned on for them. Turn them on from Renters.'; }
+      }
       if (invite) {
         try {
           const r = await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
@@ -523,7 +541,9 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
               </section>
               <section className={card} aria-labelledby="lb-choices">
                 <h2 id="lb-choices" className="text-[17px] font-bold">Choices for this lease</h2>
-                <Row label="Taking bookings" sub="They can list on your booking page or use their own system. It’s their choice, in their portal."><span className="text-[14px] font-semibold">Their choice</span></Row>
+                {staffLike.providerId
+                  ? <Row label="Taking bookings" sub="Bookings are on for them. Listing on your booking page or using their own system is their choice, in their portal."><span className="text-[14px] font-semibold">On</span></Row>
+                  : <Toggle on={bookings} onChange={setBookings} label="They see clients here" sub="Turns bookings on in their portal: their menu, hours and booking link. Listing on your booking page or using their own system stays their choice." />}
                 <Toggle on={d.sellProducts} onChange={(v) => set('sellProducts', v)} label="Selling their own products" sub="In the space, and in your online shop under their name" />
                 <Row label="Portal tools" sub="Packages, gift cards, campaigns and swap days, as set in What renters get in Rental policies. Your draft is kept if you go there."><a href="/rental-policies#what-renters-get" className="inline-flex h-11 items-center rounded-full border border-[#ececee] px-4 text-[14px] font-medium">Open What renters get</a></Row>
                 <Toggle on={d.noPoach} onChange={(v) => set('noPoach', v)} label="No hiring away your team" sub="Off by default. Some states limit these promises; ask your attorney before turning it on." />

@@ -100,7 +100,8 @@ export default function RenterPortalPage() {
   useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Back from the card page (?cfCardSetup=1&cfSetupSession=&cfRenterId=): the card is stored on the server (once, however
-  // often this runs), then the Rent tab shows it.
+  // often this runs), then the Rent tab shows it, offering autopay straight away when it's off (lib RenterCard).
+  const [offerAutopay, setOfferAutopay] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined' || !session?.token) return;
     const params = new URLSearchParams(window.location.search);
@@ -112,6 +113,7 @@ export default function RenterPortalPage() {
       try {
         const r = await fetch(`/api/booths/setup-card?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(rid)}&session=${encodeURIComponent(setup)}`);
         const d: any = await r.json().catch(() => ({}));
+        if (d?.ok) setOfferAutopay(true);
         if (d?.ok) toast({ title: 'Card saved', description: `${d.cardBrand ? String(d.cardBrand).charAt(0).toUpperCase() + String(d.cardBrand).slice(1) : 'Your card'}${d.cardLast4 ? ` ending ${d.cardLast4}` : ''} is on file. You can turn on autopay below.` });
         else toast({ variant: 'destructive', title: 'Card not saved', description: d?.error || 'Try saving it again.' });
       } catch { toast({ variant: 'destructive', title: 'Card not saved', description: 'Try saving it again.' }); }
@@ -765,7 +767,7 @@ export default function RenterPortalPage() {
                   </section>
                 )}
                 {session?.token && data?.renter?.id && (
-                  <RenterCard tenantId={tenantId} token={session.token} renter={data.renter} autopayOn={data?.rentOutlook?.autopayOn === true}
+                  <RenterCard tenantId={tenantId} token={session.token} renter={data.renter} autopayOn={data?.rentOutlook?.autopayOn === true} offerAutopay={offerAutopay} onOfferSeen={() => setOfferAutopay(false)}
                     hasLease={!!data?.lease} waitingSignature={data?.rentOutlook?.waitingSignature === true} onChanged={refresh}
                     onToast={(t) => toast({ title: t.title, description: t.description, ...(t.bad ? { variant: 'destructive' as const } : {}) })} />
                 )}

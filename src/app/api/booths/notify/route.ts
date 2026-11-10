@@ -739,12 +739,13 @@ export async function POST(req: NextRequest) {
       const rSnap = await rRef.get();
       if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
       const r = rSnap.data() as any;
-      const link = await mintRenterLink(db, String(tenantId), String(renterId), linkBase, { renter: r });
+      // Sent with a new lease that waits for their signature: the lease is the point of the message, and the link opens
+      // on it, ready to read and sign.
+      const forLease = body.reason === 'lease';
+      const link = await mintRenterLink(db, String(tenantId), String(renterId), linkBase, { renter: r, ...(forLease ? { query: 'view=lease' } : {}) });
       if (!link) return NextResponse.json({ ok: false, error: 'The portal link couldn’t be made. Try again in a moment.' }, { status: 500 });
       const first = firstNameOf(`${r.firstName || ''} ${r.lastName || ''}`);
       const to = String(r.email || '').trim();
-      // Sent with a new lease that waits for their signature: the lease is the point of the message.
-      const forLease = body.reason === 'lease';
       let emailStatus = 'skipped_no_email';
       if (to.includes('@')) {
         const out = await sendNotification(db, {

@@ -5,6 +5,7 @@ import Stripe from 'stripe';
 import { createHash } from 'crypto';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
+import { reservationHolds, wallOverlap, wallRange } from '@/lib/space-clash';
 
 // ─── /api/stripe/book-station/route.ts ─────────────────────────────────────
 // Path A of the hourly/daily day-use feature: an EXISTING renter with a
@@ -176,6 +177,8 @@ export async function POST(req: NextRequest) {
     const nowISO = new Date().toISOString();
     const leasesQ = db.collection(`tenants/${tenantId}/leases`).where('boothId', '==', boothId).where('status', 'in', ['active', 'on_leave', 'pending_signature']);
     const bookingsQ = db.collection(`tenants/${tenantId}/bookings`).where('boothId', '==', boothId);
+    // A guest's day rental on the same space holds its time too (api/booths/reserve, lib/space-clash).
+    const guestsQ = db.collection(`tenants/${tenantId}/boothReservations`).where('boothId', '==', boothId);
 
     // ── The claim, in one step: the station's day lists, leases and other bookings are read, and the time is held
     //    on the station and in the booking together. This is the actual double-booking guard — everything upstream
@@ -193,7 +196,7 @@ export async function POST(req: NextRequest) {
       }
       if (problem) return { problem };
       const dayRefs = daysOf(startAt, endAt).map((d) => slotRef(boothId, d));
-      const [leaseSnap, bookingsSnap] = await Promise.all([tx.get(leasesQ), tx.get(bookingsQ)]);
+      const [leaseSnap, bookingsSnap, guestsSnap] = await Promise.all([tx.get(leasesQ), tx.get(bookingsQ), tx.get(guestsQ)]);
       const days: any[] = []; for (const r of dayRefs) days.push(await tx.get(r));
       const listed = new Set<string>();
       for (const d of days) for (const [bid, e] of Object.entries<any>((d.data() || {}).holds || {})) {
@@ -220,6 +223,7 @@ export async function POST(req: NextRequest) {
         }
       }
       if (!conflict) conflict = others.some((s) => s.exists && holdsTime(s.data(), nowISO));
+      if (!conflict) conflict = guestsSnap.docs.some((g: any) => { const r = g.data() || {}; return reservationHolds(r) && wallOverlap([String(startAt), String(endAt)], wallRange(r), bufferMinutes); });
       if (conflict) return { conflict: true };
 
       const b = {
