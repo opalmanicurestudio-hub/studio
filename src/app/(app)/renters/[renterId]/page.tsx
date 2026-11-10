@@ -48,6 +48,8 @@ function RenterOwn({ renterId }: { renterId: string }) {
   const [cardLink, setCardLink] = useState('');
   const [cardBusy, setCardBusy] = useState(false);
   const [ending, setEnding] = useState<false | { owedCents?: number; depositsByLease?: Record<string, number> }>(false);
+  // What they owe and the deposits held, as the page last read them, for End lease from the Details tab too.
+  const [left, setLeft] = useState<{ owedCents?: number; depositsByLease?: Record<string, number> } | null>(null);
 
   useEffect(() => {
     if (!firestore || !tenantId || !renterId) return;
@@ -126,12 +128,12 @@ function RenterOwn({ renterId }: { renterId: string }) {
             </div>
           ) : (
             <RenterPage tenantId={tenantId} renterId={renterId} phone={renter?.phone} refreshKey={refreshKey} tab={tab} onTab={chooseTab}
-              onEdit={() => setEditing(true)} onEndLease={(left) => setEnding(left)}
+              onEdit={() => setEditing(true)} onEndLease={(l) => setEnding(l)} onLoaded={setLeft}
               renderTab={(t) => renter ? (
                 <RenterProfileDrawer inPage pageTab={t === 'details' ? 'overview' : (t as any)} renter={renter}
                   lease={t === 'details' ? heldLease : lease} booth={booth} reservations={reservations} amenityRequests={amenity} w9={w9}
                   tenantId={tenantId} firestore={firestore} onClose={() => chooseTab('overview')} onEdit={() => setEditing(true)}
-                  onLease={() => router.push(`/booths?lease=${encodeURIComponent(renterId)}`)} onEndLease={() => setEnding({})}
+                  onLease={() => router.push(`/booths?lease=${encodeURIComponent(renterId)}`)} onEndLease={() => setEnding(left || {})}
                   onRecordPayment={() => router.push(`/rent?pay=${encodeURIComponent(renterId)}`)} onAddCard={sendCardLink}
                   {...(note !== undefined ? { contactNote: note, onSaveNote: (n: string) => { void setContactNote(firestore, tenantId, { name: `${renter.firstName || ''} ${renter.lastName || ''}`.trim(), phone, email }, n).then(() => toast({ title: 'Note saved' })).catch(() => toast({ title: 'Note not saved', description: 'Try again.' })); } } : {})} />
               ) : <p className="text-[13px] text-[#6d7075]">Loading…</p>} />

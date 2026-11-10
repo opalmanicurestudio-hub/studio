@@ -42,7 +42,7 @@ function Card({ id, title, lines, children, stacked }: { id: string; title: stri
   );
 }
 
-export function RenterPage({ tenantId, renterId, phone, refreshKey, tab, onTab, onEdit, onEndLease, renderTab }: {
+export function RenterPage({ tenantId, renterId, phone, refreshKey, tab, onTab, onEdit, onEndLease, onLoaded, renderTab }: {
   tenantId: string; renterId: string; phone?: string;
   /** Changes when the renter, their lease or money changes, so the summary reads again. */
   refreshKey?: string;
@@ -50,6 +50,8 @@ export function RenterPage({ tenantId, renterId, phone, refreshKey, tab, onTab, 
   onEdit: () => void;
   /** End their lease, knowing what they owe and the deposit held (so the dialog can say what's left to settle). */
   onEndLease: (left: { owedCents: number; depositsByLease: Record<string, number> }) => void;
+  /** What they owe and the deposits held, each time it's read, so End lease from another tab can say the same. */
+  onLoaded?: (left: { owedCents: number; depositsByLease: Record<string, number> }) => void;
   /** The deeper tabs (Money, Documents, Messages, Activity), drawn by the page. */
   renderTab: (t: RenterTab) => React.ReactNode;
 }) {
@@ -68,6 +70,7 @@ export function RenterPage({ tenantId, renterId, phone, refreshKey, tab, onTab, 
       .catch(() => { if (live) setErr('This renter didn’t load. Check your connection.'); });
     return () => { live = false; };
   }, [tenantId, renterId, refreshKey, tick]);
+  React.useEffect(() => { if (s) onLoaded?.({ owedCents: s.owedCents, depositsByLease: s.depositsByLease }); }, [s]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !s) return (
     <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[#ececee] bg-white p-5">

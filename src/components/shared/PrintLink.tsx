@@ -36,13 +36,15 @@ export async function openPrint(path: string, params: PrintParams, token?: strin
 }
 
 /** A control that opens a printable page, styled by the className it's given. */
-export function PrintLink({ path, params, token, className, title, children }: {
-  path: string; params: PrintParams; token?: string; className?: string; title?: string; children: React.ReactNode;
+export function PrintLink({ path, params, token, className, title, ariaLabel, children }: {
+  path: string; params: PrintParams; token?: string; className?: string; title?: string;
+  /** What a screen reader says when the button's own words ("Open") aren't enough on their own. */
+  ariaLabel?: string; children: React.ReactNode;
 }) {
   const { toast } = useToast();
   const [busy, setBusy] = React.useState(false);
   return (
-    <button type="button" title={title} aria-busy={busy || undefined} className={cn('text-left', className)}
+    <button type="button" title={title} aria-label={ariaLabel} aria-busy={busy || undefined} className={cn('text-left', className)}
       onClick={(e) => {
         e.preventDefault(); e.stopPropagation(); if (busy) return;
         setBusy(true);

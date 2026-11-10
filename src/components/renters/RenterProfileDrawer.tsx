@@ -1,13 +1,11 @@
 "use client";
 
 /**
- * The renter's full card — leases, money, documents, activity.
- *
- * Lifted VERBATIM from the booth hub (its 490 lines are unchanged below) so
- * it can be mounted anywhere without duplicating logic. During the migration
- * the hub and /renters both render THIS file: one truth, zero drift. Every
- * outside dependency arrives through props — the component owns presentation
- * and its own tab state, never data fetching.
+ * The deeper tabs of the renter's own page (components/renters/RenterPage draws the header and the tabs): Details
+ * (contact, papers, lease, concierge link, portal access, notes, charging their card), Money (statements, Record
+ * payment, refunds, the deposit, autopay, payments, amenity orders), Documents, Messages and Activity. Every outside
+ * dependency arrives through props; it reads only what each tab shows. In the new look: white cards, sentence-case
+ * titles, 44px controls, amber for what needs doing and red only for what can't be undone.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -18,8 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
 import { getDocs, query, where, doc, setDoc, updateDoc, onSnapshot, orderBy } from 'firebase/firestore';
-import { Badge } from '@/components/ui/badge';
-import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
+import { Coffee, CreditCard, FileText, Paperclip } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
 import { formatCents, RENTER_STATUS_LABELS } from '@/lib/booth-rental-types';
 import { buildRenterTimeline, withRunningBalance, TIMELINE_ACTOR_LABEL, type TimelineEntry } from '@/lib/renter-timeline';
@@ -32,6 +29,17 @@ import { RenterPortalAccess } from '@/components/renters/RenterPortalAccess';
 import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
 import { incidentalsForLease } from '@/lib/incidentals';
 import { latestCredential, primaryCredentialIndex, otherCredentials } from '@/lib/compliance';
+import { RENTALS_BTN, RENTALS_BTN_DARK } from '@/components/renters/RentalsNav';
+
+// The new look (the renter's own page): white cards, sentence-case titles, 44px controls.
+const CARD = 'min-w-0 rounded-[20px] border border-[#ececee] bg-white p-4';
+const TITLE = 'text-[15px] font-semibold text-[#16171a]';
+const TEXT = 'text-[14px] text-[#16171a]';
+const SUB = 'text-[13px] leading-snug text-[#6d7075]';
+const ROW = 'flex min-h-[44px] items-center justify-between gap-3 border-t border-[#ececee] py-2.5 first:border-t-0';
+const INPUT = 'h-11 min-w-0 rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a] outline-none focus:border-[#16171a]';
+/** 2026-12-31 → Dec 31, 2026 (left as it is when it isn't a date). */
+const longDay = (v: any) => { const s = String(v || '').slice(0, 10); const d = new Date(`${s}T12:00:00Z`); return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(d.getTime()) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : String(v || ''); };
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -126,8 +134,7 @@ export function RenterProfileDrawer({
   inPage?: boolean;
   pageTab?: 'overview' | 'money' | 'documents' | 'messages' | 'activity';
 }) {
-  const [ptabOwn, setPtab] = useState<'overview' | 'money' | 'documents' | 'messages' | 'activity'>('overview');
-  const ptab = inPage && pageTab ? pageTab : ptabOwn;
+  const ptab = pageTab || 'overview';
   const [refundOpen, setRefundOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
   const [chargeAmt, setChargeAmt] = useState('');
@@ -284,7 +291,6 @@ export function RenterProfileDrawer({
     return () => { cancelled = true; };
   }, [firestore, tenantId, renter?.id, renter?.email, renter?.phone, recordTick]);
 
-  const fullName = `${renter.firstName} ${renter.lastName}`.trim();
 
   // This renter's day rentals — matched by phone/email
   const myReservations = useMemo(() =>
@@ -385,58 +391,70 @@ export function RenterProfileDrawer({
     return items.filter(i => i.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
   }, [lease, booth, myReservations, renter, txns]);
 
-  const PTABS = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'money', label: 'Money' },
-    { id: 'documents', label: 'Docs' },
-    { id: 'messages', label: 'Messages' },
-    { id: 'activity', label: 'Activity' },
-  ] as const;
+  // Day rentals they've paid for (shown under Payments and as receipts).
+  const paidStays = myReservations.filter(r => ['confirmed', 'checked_in', 'completed'].includes(r.status));
 
   const body = (
-        <div className={inPage ? 'space-y-4' : 'flex-1 overflow-y-auto px-5 py-4 space-y-4'}>
+        <div className="space-y-4">
           {ptab === 'overview' && (
             <>
-              <div className="rounded-2xl border-2 p-4 space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
-                {renter.email && <p className="text-xs font-bold">{renter.email}</p>}
-                {renter.phone && <p className="text-xs font-bold">{renter.phone}</p>}
-                {renter.specialty && <p className="text-[10px] font-bold text-muted-foreground">{renter.specialty}</p>}
-                {renter.notes && <p className="text-[11px] text-muted-foreground leading-relaxed border-t pt-2">{renter.notes}</p>}
-              </div>
+              <section className={CARD}>
+                <h3 className={TITLE}>Contact</h3>
+                <div className="mt-1 space-y-0.5">
+                  {renter.email && <p className={`break-all ${TEXT}`}>{renter.email}</p>}
+                  {renter.phone && <p className={TEXT}>{renter.phone}</p>}
+                  {renter.specialty && <p className={SUB}>{renter.specialty}</p>}
+                  {!renter.email && !renter.phone && <p className={SUB}>No email or phone yet. Add them with Edit.</p>}
+                </div>
+                {(renter.email || renter.phone) && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {renter.phone && <a href={`tel:${renter.phone}`} className={RENTALS_BTN}>Call</a>}
+                    {renter.phone && <a href={`sms:${renter.phone}`} className={RENTALS_BTN}>Text</a>}
+                    {renter.email && <a href={`mailto:${renter.email}`} className={RENTALS_BTN}>Email</a>}
+                  </div>
+                )}
+                {renter.notes && <p className={`mt-3 border-t border-[#ececee] pt-3 ${SUB}`}>{renter.notes}</p>}
+              </section>
 
               {(() => {
                 const comp = complianceOf(renter as any);
-                const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-muted-foreground' };
+                const TONE: Record<string, string> = { ok: 'text-[#1f7a4d]', expiring: 'text-[#b45309]', expired: 'text-[#b45309]', missing: 'text-[#6d7075]' };
                 const WORD: Record<string, (d: string) => string> = {
-                  ok: d => `valid · exp ${d}`, expiring: d => `expires ${d}`, expired: d => `EXPIRED ${d}`, missing: () => 'no expiry on file',
+                  ok: d => `valid to ${longDay(d)}`, expiring: d => `expires ${longDay(d)}`, expired: d => `expired ${longDay(d)}`, missing: () => 'no date on file',
                 };
                 return (
-                  <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' || comp.worst === 'none' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Credentials & compliance</p>
+                  <section className={cn(CARD, comp.worst === 'expiring' || comp.worst === 'expired' ? 'bg-[#fff7ed]' : '')}>
+                    <h3 className={TITLE}>License, insurance and papers</h3>
                     {comp.items.length === 0 ? (
-                      <p className="text-xs font-bold text-muted-foreground">Nothing tracked yet — add credentials via Edit.</p>
-                    ) : comp.items.map((it, i) => (
-                      <p key={i} className="text-xs font-bold flex items-center gap-1.5 flex-wrap">
-                        <span>{it.label}{it.number ? ` #${it.number}` : ''}: <span className={STYLE[it.state]}>{WORD[it.state](it.expiry)}</span></span>
-                        {(it as any).fileUrl && <a href={(it as any).fileUrl} target="_blank" rel="noreferrer" className="text-[10px] font-black uppercase tracking-widest text-indigo-600 inline-flex items-center gap-0.5"><FileText className="h-3 w-3" /> File</a>}
-                      </p>
-                    ))}
-                  </div>
+                      <p className={`mt-1 ${SUB}`}>Nothing on file yet. They can upload their own in the portal, or add them with Edit.</p>
+                    ) : (
+                      <ul className="mt-1">
+                        {comp.items.map((it, i) => (
+                          <li key={i} className={ROW}>
+                            <span className="min-w-0">
+                              <span className={`block ${TEXT}`}>{it.label}{it.number ? ` #${it.number}` : ''}</span>
+                              <span className={`block text-[13px] ${TONE[it.state]}`}>{WORD[it.state](it.expiry)}</span>
+                            </span>
+                            {(it as any).fileUrl && <a href={(it as any).fileUrl} target="_blank" rel="noreferrer" aria-label={`Open the ${it.label}`} className={RENTALS_BTN}><FileText className="mr-1.5 h-4 w-4" aria-hidden /> Open</a>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
                 );
               })()}
+
               {lease && booth ? (
-                <div className="rounded-2xl border-2 border-slate-800 bg-foreground text-background p-4 space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Current lease</p>
-                  <p className="font-black text-sm uppercase">{booth.name}</p>
-                  <p className="text-xs font-bold text-white/80">{formatCents(lease.rentAmountCents)}/{lease.frequency} · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</p>
+                <section className={CARD}>
+                  <h3 className={TITLE}>Lease · {booth.name}</h3>
+                  <p className={SUB}>{formatCents(lease.rentAmountCents)} {lease.frequency || 'monthly'} · {lease.endDate ? `ends ${longDay(lease.endDate)}` : 'month to month'}</p>
                   {(() => {
                     // Automatic rent — the same rule the autopay job uses: the renter's own autopay, OR this lease set to
                     // auto-collect, with a saved card. One plain line; a switch only when it's the owner's call.
                     // A card autopay can charge: saved on the business's own account (lib/space-stripe).
                     const r: any = renter; const hasCard = !!renterBusinessCard(r, spacePayAccount(drawerTenant));
-                    if (r.autopayEnabled === true) return <p className="text-xs text-white/80">Rent is paid automatically — they set up autopay.</p>;
-                    if (!hasCard) return <p className="text-xs text-white/60">To charge rent automatically, they need to save a card in their portal first.</p>;
+                    if (r.autopayEnabled === true) return <p className={`mt-2 ${SUB}`}>Rent is paid automatically: they set up autopay.</p>;
+                    if (!hasCard) return <p className={`mt-2 ${SUB}`}>{r.cardOnFile ? 'To charge rent automatically, they need to save their card again in their portal first.' : 'To charge rent automatically, they need to save a card in their portal first.'}</p>;
                     const on = (lease as any).autoCollect === true;
                     const flip = async () => {
                       // Charging a card on each due date needs the renter's written OK: they give it in their portal
@@ -449,148 +467,135 @@ export function RenterProfileDrawer({
                         await setDoc(doc(firestore, 'tenants', tenantId, 'leases', (lease as any).id), { autoCollect: !on, updatedAt: new Date().toISOString() }, { merge: true });
                         writeBoothAudit(firestore, tenantId, { action: 'booth.autocollect_' + (!on ? 'on' : 'off'), targetType: 'lease', targetId: (lease as any).id,
                           summary: `Rent charged automatically turned ${!on ? 'on' : 'off'} for ${`${r.firstName || ''} ${r.lastName || ''}`.trim() || 'a renter'}` });
-                      } catch { window.alert('That didn’t save — try again.'); }
+                      } catch { window.alert('That didn’t save. Try again.'); }
                     };
                     return (
-                      <div className="flex items-center justify-between gap-3 pt-1">
-                        <p className="text-xs text-white/80">{on ? 'Rent is charged to their card automatically on each due date.' : 'Charge rent to their card automatically'}</p>
-                        <button type="button" role="switch" aria-checked={on} aria-label="Charge rent to their card automatically" onClick={() => void flip()}
-                          className="relative h-6 w-11 shrink-0 rounded-full transition-colors" style={{ background: on ? 'hsl(var(--primary))' : 'rgba(255,255,255,.25)' }}>
-                          <span className="absolute top-0.5 h-5 w-5 rounded-full shadow" style={{ left: on ? 22 : 2, background: 'hsl(var(--card))', transition: 'left .15s' }} />
+                      <div className="mt-2 flex min-h-[44px] items-center justify-between gap-3 border-t border-[#ececee] pt-2">
+                        <p id="rpd-collect" className={TEXT}>{on ? 'Rent is charged to their card automatically on each due date.' : 'Charge rent to their card automatically'}</p>
+                        <button type="button" role="switch" aria-checked={on} aria-label="Charge rent to their card automatically" aria-describedby="rpd-collect" onClick={() => void flip()}
+                          className="relative inline-flex h-11 w-14 shrink-0 items-center justify-center">
+                          <span className={cn('relative h-7 w-12 rounded-full transition-colors', on ? 'bg-[#1f7a4d]' : 'bg-[#6d7075]')}>
+                            <span className="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-[left]" style={{ left: on ? 22 : 2 }} />
+                          </span>
                         </button>
                       </div>);
                   })()}
-                  <button onClick={onEndLease} className="text-[9px] font-black uppercase tracking-widest text-red-300 underline underline-offset-2">End lease</button>
-                </div>
+                  <div className="mt-2 flex flex-wrap gap-2 border-t border-[#ececee] pt-3">
+                    <button type="button" onClick={onEndLease} className={cn(RENTALS_BTN, 'text-[#b42318]')}>End lease</button>
+                  </div>
+                </section>
               ) : (
-                <button onClick={onLease} className="w-full h-11 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:border-slate-400">
-                  + Assign a space
-                </button>
+                <section className={CARD}>
+                  <h3 className={TITLE}>No lease</h3>
+                  <p className={SUB}>They don’t hold a space right now.</p>
+                  <button type="button" onClick={onLease} className={`mt-3 ${RENTALS_BTN_DARK}`}>Write the lease</button>
+                </section>
               )}
+
               {stationBoothId && (() => {
                 const token = stationLink?.boothId === stationBoothId ? stationLink.token : '';
                 const link = token ? `${typeof window !== 'undefined' ? window.location.origin : ''}/concierge/${tenantId}?booth=${encodeURIComponent(stationBoothId)}&k=${encodeURIComponent(token)}` : '';
                 return (
-                  <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5"><Coffee className="h-3 w-3" /> Client concierge</p>
-                    <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their space'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
-                    <div className="flex items-center gap-2">
-                      <input readOnly value={link || (stationLinkBusy ? 'Making the link…' : '')} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-card truncate" onFocus={(e) => e.currentTarget.select()} />
-                      <button onClick={() => { if (link) navigator.clipboard?.writeText(link).catch(() => {}); }} disabled={!link} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0 disabled:opacity-40">Copy</button>
+                  <section className={CARD}>
+                    <h3 className={`flex items-center gap-1.5 ${TITLE}`}><Coffee className="h-4 w-4" aria-hidden /> Client concierge</h3>
+                    <p className={`mt-1 ${SUB}`}>Their clients scan or open this to order amenities to {booth?.name || 'their space'}. {(renter as any).amenityPayer === 'client' ? 'The client pays for anything over the free allowance.' : 'Extras are charged to this renter’s card.'}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input readOnly value={link || (stationLinkBusy ? 'Making the link…' : '')} aria-label="Concierge link" className={`flex-1 truncate font-mono ${INPUT}`} onFocus={(e) => e.currentTarget.select()} />
+                      <button type="button" onClick={() => { if (link) navigator.clipboard?.writeText(link).catch(() => {}); }} disabled={!link} className={RENTALS_BTN_DARK}>Copy</button>
                     </div>
-                    {stationLinkError && <p className="text-[10px] font-bold text-red-600">{stationLinkError}</p>}
-                    <button
-                      onClick={() => { if (window.confirm('Make a new link for this station?\n\nThe current link will still open the menu, but orders from it can no longer be charged to the station. Share the new link with the renter.')) void loadStationLink(true); }}
-                      disabled={stationLinkBusy}
-                      className="text-[9px] font-black uppercase tracking-widest text-amber-700 underline underline-offset-2 disabled:opacity-40"
-                    >
+                    {stationLinkError && <p role="alert" className="mt-1 text-[13px] text-[#b45309]">{stationLinkError}</p>}
+                    <button type="button"
+                      onClick={() => { if (window.confirm('Make a new link for this space?\n\nThe current link will still open the menu, but orders from it can no longer be charged to them. Share the new link with the renter.')) void loadStationLink(true); }}
+                      disabled={stationLinkBusy} className={`mt-2 ${RENTALS_BTN}`}>
                       Make a new link
                     </button>
-                  </div>
+                  </section>
                 );
               })()}
               <RenterPortalAccess tenantId={tenantId} renter={renter} />
 
               {onSaveNote && (
-                <div className="rounded-2xl border-2 p-4 space-y-1.5">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Notes</p>
-                  <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onBlur={() => { if ((noteDraft || '') !== (contactNote || '')) onSaveNote(noteDraft); }} rows={2} placeholder="Private notes about this person — carried across their whole journey…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
-                </div>
+                <section className={CARD}>
+                  <label htmlFor="renter-notes" className={TITLE}>Notes</label>
+                  <textarea id="renter-notes" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onBlur={() => { if ((noteDraft || '') !== (contactNote || '')) onSaveNote(noteDraft); }} rows={2}
+                    placeholder="Private notes about them, kept from their first visit on." className="mt-2 w-full resize-none rounded-xl border border-[#ececee] px-3 py-2.5 text-[15px] text-[#16171a] outline-none focus:border-[#16171a]" />
+                </section>
               )}
 
               {(renter as any).cardOnFile ? (
-                <div className="rounded-2xl border-2 p-4 space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                    Card on file{(renter as any).cardBrand ? ` · ${(renter as any).cardBrand} ····${(renter as any).cardLast4}` : ' · Stripe'}
-                  </p>
-                  <select
-                    value={chargeCat}
-                    onChange={e => { setChargeCat(e.target.value); const c = chargePolicy.find((x: any) => x.label === e.target.value); if (c && c.capCents > 0 && chargeCents > c.capCents) setChargeAmt((c.capCents / 100).toFixed(0)); }}
-                    className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold bg-card"
-                  >
-                    <option value="">Select charge type…</option>
-                    {chargePolicy.map((c: any) => (
-                      <option key={c.label} value={c.label}>{c.label}{c.capCents > 0 ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>
-                    ))}
-                  </select>
-                  <div className="grid grid-cols-[90px_1fr] gap-2">
-                    <input type="number" inputMode="decimal" placeholder="$" value={chargeAmt}
-                      onChange={e => setChargeAmt(e.target.value)}
-                      className={`h-10 rounded-xl border-2 px-3 text-sm font-bold ${chargeOverCap ? 'border-red-400 text-red-600' : ''}`} />
-                    <input type="text" placeholder="Note (optional)" value={chargeNote}
-                      onChange={e => setChargeNote(e.target.value)}
-                      className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+                <section className={CARD}>
+                  <h3 className={TITLE}>Charge their card</h3>
+                  <p className={SUB}>{(renter as any).cardBrand ? `${(renter as any).cardBrand} ····${(renter as any).cardLast4}` : 'Card on file'}. Only the charges your policies allow, each up to its limit.</p>
+                  <div className="mt-2 space-y-2">
+                    <select value={chargeCat} aria-label="What the charge is for"
+                      onChange={e => { setChargeCat(e.target.value); const c = chargePolicy.find((x: any) => x.label === e.target.value); if (c && c.capCents > 0 && chargeCents > c.capCents) setChargeAmt((c.capCents / 100).toFixed(0)); }}
+                      className={`w-full ${INPUT}`}>
+                      <option value="">What is it for?</option>
+                      {chargePolicy.map((c: any) => (
+                        <option key={c.label} value={c.label}>{c.label}{c.capCents > 0 ? `, up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>
+                      ))}
+                    </select>
+                    <div className="grid grid-cols-[110px_1fr] gap-2">
+                      <input type="number" inputMode="decimal" placeholder="$" aria-label="Amount" value={chargeAmt} onChange={e => setChargeAmt(e.target.value)}
+                        className={cn(INPUT, 'w-full', chargeOverCap ? 'border-[#b45309]' : '')} />
+                      <input type="text" placeholder="Note (optional)" aria-label="Note" value={chargeNote} onChange={e => setChargeNote(e.target.value)} className={`w-full ${INPUT}`} />
+                    </div>
+                    {chargeOverCap && <p role="alert" className="text-[13px] text-[#b45309]">That’s over the ${(chargeCapCents / 100).toFixed(0)} limit for {chargeCat}.</p>}
+                    <button type="button" onClick={() => chargeRenterCard(renter)}
+                      disabled={!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId === renter.id} className={`w-full ${RENTALS_BTN_DARK}`}>
+                      {renterChargingId === renter.id ? 'Charging…' : `Charge the card${chargeCents >= 50 ? ` $${(chargeCents / 100).toFixed(2)}` : ''}`}
+                    </button>
+                    <p className={SUB}>It’s charged without them present and kept in your books as a renter charge.</p>
                   </div>
-                  {chargeOverCap && (
-                    <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Over the ${(chargeCapCents / 100).toFixed(0)} cap for {chargeCat}</p>
-                  )}
-                  <button
-                    onClick={() => chargeRenterCard(renter)}
-                    disabled={!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId === renter.id}
-                    className="w-full h-10 rounded-xl bg-foreground text-background font-black uppercase text-[9px] tracking-widest disabled:opacity-40"
-                  >
-                    {renterChargingId === renter.id ? 'Charging…' : `Charge Card${chargeCents >= 50 ? ` $${(chargeCents / 100).toFixed(2)}` : ''}`}
-                  </button>
-                  <p className="text-[9px] font-bold text-muted-foreground">Only your policy's charge types, each capped. Charges off-session and records under "Renter Incidental" in the ledger.</p>
-                </div>
+                </section>
               ) : (
-                <div className="rounded-2xl border-2 border-dashed p-3">
-                  <p className="text-[10px] font-bold text-muted-foreground">No card on file yet — it's saved automatically the first time this renter pays rent online, or they can add one in their portal. Once on file, capped incidentals charge from right here.</p>
-                </div>
+                <section className={CARD}>
+                  <h3 className={TITLE}>No card on file</h3>
+                  <p className={SUB}>It’s saved the first time they pay rent online, or they can add one in their portal. Then the charges your policies allow can be made from here.</p>
+                </section>
               )}
             </>
           )}
 
           {ptab === 'money' && (
             <>
-              <div className="rounded-2xl bg-foreground text-background px-4 py-3 flex items-end justify-between gap-3">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
-                  <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <button type="button" onClick={() => setDocPick((v) => !v)} aria-expanded={docPick}
-                  className="h-9 rounded-xl border-2 border-white/30 px-3 text-[9px] font-black uppercase tracking-widest text-white">
-                  Documents
-                </button>
-              </div>
-              {docPick && (
-                <div className="grid grid-cols-2 gap-1.5">
-                  {([
-                    ['Account statement', '', 'Balance, every charge and payment, with a remittance slip'],
-                    ['Full account record', 'full', 'The statement plus every notice, message, ticket and change'],
-                    ['Deposit accounting', 'deposit', 'Held, deductions with reasons and photos, returnable'],
-                    ['Move-out statement', 'final', 'What is owed, the deposit, and which way the money goes'],
-                  ] as const).map(([label, mode, note]) => (
-                    <PrintLink key={label} path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode }} className="rounded-xl border-2 bg-card px-3 py-2.5">
-                      <span className="block text-[10px] font-black uppercase tracking-widest">{label}</span>
-                      <span className="block text-[9px] font-bold text-muted-foreground leading-snug">{note}</span>
-                    </PrintLink>
-                  ))}
-                  <PrintLink path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: thisYear }} className="rounded-xl border-2 bg-card px-3 py-2.5 col-span-2">
-                    <span className="block text-[10px] font-black uppercase tracking-widest">{thisYear} annual statement</span>
-                    <span className="block text-[9px] font-bold text-muted-foreground leading-snug">Total rent paid this year — for their bookkeeping</span>
-                  </PrintLink>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                {onRecordPayment && (
-                  <button onClick={onRecordPayment} className="h-11 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest transition-colors">
-                    Record payment
-                  </button>
-                )}
-                {(renter as any).cardOnFile ? (
-                  <div className="h-11 rounded-2xl border-2 border-emerald-200 bg-emerald-50 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-700">
-                    <CreditCard className="h-3.5 w-3.5" /> {(renter as any).cardBrand || 'Card'} ····{(renter as any).cardLast4 || ''}
+              <section className={CARD}>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p className={SUB}>Paid in {thisYear}</p>
+                    <p className="text-[28px] font-bold leading-9 tabular-nums text-[#16171a]">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
-                ) : onAddCard ? (
-                  <button onClick={onAddCard} className="h-11 rounded-2xl border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-black uppercase text-[9px] tracking-widest transition-colors flex items-center justify-center gap-1.5">
-                    <CreditCard className="h-3.5 w-3.5" /> Add card on file
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => setRefundOpen(true)} className="col-span-2 h-11 rounded-2xl border border-[#ececee] bg-white text-[13px] font-medium text-[#16171a] hover:bg-[#f5f5f7] transition-colors">
-                  Refund a payment
-                </button>
-              </div>
+                  <button type="button" onClick={() => setDocPick((v) => !v)} aria-expanded={docPick} className={RENTALS_BTN}>Statements</button>
+                </div>
+                {docPick && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {([
+                      ['Account statement', '', 'Balance, every charge and payment, with a remittance slip'],
+                      ['Full account record', 'full', 'The statement plus every notice, message, ticket and change'],
+                      ['Deposit accounting', 'deposit', 'Held, deductions with reasons and photos, what comes back'],
+                      ['Move-out statement', 'final', 'What is owed, the deposit, and which way the money goes'],
+                    ] as const).map(([label, mode, note]) => (
+                      <PrintLink key={label} path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode }} className="block min-h-[44px] rounded-xl border border-[#ececee] bg-white px-3 py-2.5 hover:bg-[#f5f5f7]">
+                        <span className={`block font-medium ${TEXT}`}>{label}</span>
+                        <span className={`block ${SUB}`}>{note}</span>
+                      </PrintLink>
+                    ))}
+                    <PrintLink path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: thisYear }} className="block min-h-[44px] rounded-xl border border-[#ececee] bg-white px-3 py-2.5 hover:bg-[#f5f5f7] sm:col-span-2">
+                      <span className={`block font-medium ${TEXT}`}>{thisYear} statement</span>
+                      <span className={`block ${SUB}`}>Total rent paid this year, for their bookkeeping</span>
+                    </PrintLink>
+                  </div>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-[#ececee] pt-3">
+                  {onRecordPayment && <button type="button" onClick={onRecordPayment} className={RENTALS_BTN_DARK}>Record payment</button>}
+                  {(renter as any).cardOnFile ? (
+                    <span className={`inline-flex min-h-[44px] items-center ${SUB}`}><CreditCard className="mr-1.5 h-4 w-4" aria-hidden /> {(renter as any).cardBrand || 'Card'} ····{(renter as any).cardLast4 || ''} on file</span>
+                  ) : onAddCard ? (
+                    <button type="button" onClick={onAddCard} className={RENTALS_BTN}><CreditCard className="mr-1.5 h-4 w-4" aria-hidden /> Add a card</button>
+                  ) : null}
+                  <button type="button" onClick={() => setRefundOpen(true)} className={RENTALS_BTN}>Refund a payment</button>
+                </div>
+              </section>
               <RenterRefundDialog open={refundOpen} onOpenChange={setRefundOpen} tenantId={tenantId} renter={renter}
                 onDone={(m) => drawerToast({ title: 'Refunded', description: m })} />
 
@@ -622,82 +627,80 @@ export function RenterProfileDrawer({
                   } finally { setDepBusy(false); }
                 };
                 return (
-                  <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
+                  <section className={CARD}>
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-black uppercase tracking-widest">Deposit</p>
-                        <p className="text-[10px] font-bold text-muted-foreground">
+                      <div className="min-w-0">
+                        <h3 className={TITLE}>Deposit</h3>
+                        <p className={SUB}>
                           {DEPOSIT_STATUS_LABEL[dep.status]}{dep.refundingCents > 0 ? ` · ${formatCents(dep.refundingCents)} on its way to their card` : ''} · agreed {formatCents(dep.agreedCents)}{dep.refundable ? '' : ' · non-refundable'}
                           {dep.conditions ? ` · ${dep.conditions}` : ''}
                         </p>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Returnable</p>
-                        <p className="text-lg font-black tabular-nums leading-none">{formatCents(dep.returnableCents)}</p>
+                      <div className="shrink-0 text-right">
+                        <p className={SUB}>Comes back</p>
+                        <p className="text-[20px] font-bold leading-7 tabular-nums text-[#16171a]">{formatCents(dep.returnableCents)}</p>
                       </div>
                     </div>
                     {dep.status === 'not_collected' && (
-                      <button type="button" disabled={depBusy} onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')}
-                        className="h-10 w-full rounded-xl bg-foreground text-[10px] font-black uppercase tracking-widest text-background">
-                        Record deposit received · {formatCents(dep.agreedCents)}
+                      <button type="button" disabled={depBusy} onClick={() => write('deposit_charge', dep.agreedCents, 'Deposit collected')} className={`mt-3 w-full ${RENTALS_BTN_DARK}`}>
+                        Record the deposit received · {formatCents(dep.agreedCents)}
                       </button>
                     )}
                     {dep.deductions.length > 0 && (
-                      <div className="space-y-1">
+                      <ul className="mt-2">
                         {dep.deductions.map((d) => (
-                          <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5">
-                            <p className="text-[11px] font-bold truncate">
-                              {d.reason}<span className="text-muted-foreground font-medium"> · {d.at}</span>
+                          <li key={d.id} className={ROW}>
+                            <p className={`min-w-0 ${TEXT}`}>
+                              {d.reason}<span className="text-[#6d7075]"> · {longDay(d.at)}</span>
                               {(d.evidenceUrls || []).length > 0 && (
-                                <span className="ml-1.5 text-muted-foreground font-medium">
-                                  {d.evidenceUrls!.map((u, i) => <a key={u} href={u} target="_blank" rel="noopener" className="underline mr-1">photo {i + 1}</a>)}
+                                <span className="ml-1.5 text-[#6d7075]">
+                                  {d.evidenceUrls!.map((u, i) => <a key={u} href={u} target="_blank" rel="noopener" className="mr-1 underline">photo {i + 1}</a>)}
                                 </span>
                               )}
                             </p>
-                            <p className="text-[11px] font-black tabular-nums text-red-700 shrink-0">−{formatCents(d.cents)}</p>
-                          </div>
+                            <p className={`shrink-0 tabular-nums ${TEXT}`}>−{formatCents(d.cents)}</p>
+                          </li>
                         ))}
-                      </div>
+                      </ul>
                     )}
                     {(dep.status === 'held' || dep.status === 'partly_returned') && (
-                      <div className="space-y-2">
-                        <div className="flex gap-2">
-                          <input value={dedAmt} onChange={(e) => setDedAmt(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.00" aria-label="Deduction amount"
-                            className="h-10 w-24 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
-                          <input value={dedReason} onChange={(e) => setDedReason(e.target.value.slice(0, 120))} placeholder="Reason — goes on their statement" aria-label="Deduction reason"
-                            className="h-10 flex-1 rounded-xl border-2 px-2.5 text-sm font-bold outline-none focus:border-slate-900" />
+                      <div className="mt-3 space-y-2 border-t border-[#ececee] pt-3">
+                        <p className={`font-medium ${TEXT}`}>Keep part of it</p>
+                        <div className="flex flex-wrap gap-2">
+                          <input value={dedAmt} onChange={(e) => setDedAmt(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.00" aria-label="Amount to keep" className={`w-28 ${INPUT}`} />
+                          <input value={dedReason} onChange={(e) => setDedReason(e.target.value.slice(0, 120))} placeholder="Reason, shown on their statement" aria-label="Reason" className={`min-w-0 flex-1 basis-48 ${INPUT}`} />
                           <button type="button" disabled={!(Number(dedAmt) > 0) || !dedReason.trim() || depBusy}
                             onClick={async () => { if (!(await write('deposit_deduction', Math.round(Number(dedAmt) * 100), dedReason.trim(), dedPhotos))) return; setDedAmt(''); setDedReason(''); setDedPhotos([]); drawerToast({ title: 'Deduction recorded', description: dedPhotos.length ? `${dedPhotos.length} photo${dedPhotos.length === 1 ? '' : 's'} attached.` : undefined }); }}
-                            className="h-10 rounded-xl border-2 border-amber-300 px-3 text-[9px] font-black uppercase tracking-widest text-amber-800 disabled:opacity-40">
-                            Deduct
+                            className={RENTALS_BTN}>
+                            Keep it
                           </button>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-2">
                           <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="renters"
                             onImageUploaded={(url) => { if (url && !url.startsWith('data:')) setDedPhotos((p) => [...p, url]); }} />
                           {dedPhotos.map((u, i) => (
-                            <a key={u} href={u} target="_blank" rel="noopener" className="h-9 w-9 overflow-hidden rounded-lg border-2">
-                              <img src={u} alt={`Evidence ${i + 1}`} className="h-full w-full object-cover" />
+                            <a key={u} href={u} target="_blank" rel="noopener" className="h-11 w-11 overflow-hidden rounded-lg border border-[#ececee]">
+                              <img src={u} alt={`Photo ${i + 1}`} className="h-full w-full object-cover" />
                             </a>
                           ))}
-                          {dedPhotos.length > 0 && <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">attached to the next deduction</span>}
+                          {dedPhotos.length > 0 && <span className={SUB}>Attached to the next deduction</span>}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2 border-t border-[#ececee] pt-3" aria-live="polite">
                           <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
                             onClick={() => { if (refundArm) { void write('deposit_refund', dep.returnableCents, 'Deposit refunded').then((ok) => { if (ok) drawerToast({ title: paidByCard ? 'Returned to their card' : 'Refund recorded', description: paidByCard ? 'It usually shows on their card within 5 to 10 business days. They’re told, with every deduction listed.' : 'Move the money by whatever means you use. This records that you did, with every deduction listed for them.' }); }); setRefundArm(false); } else setRefundArm(true); }}
-                            className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-40', refundArm ? 'bg-emerald-700 text-white' : 'border-2 border-emerald-300 text-emerald-800')}>
-                            {refundArm ? (paidByCard ? `Tap again — return ${formatCents(dep.returnableCents)} to their card` : `Tap again — record ${formatCents(dep.returnableCents)} refunded`) : `Refund ${formatCents(dep.returnableCents)}${paidByCard ? ' to card' : ''}`}
+                            className={cn(refundArm ? RENTALS_BTN_DARK : RENTALS_BTN, 'w-full py-2.5 text-center leading-snug sm:w-auto')}>
+                            {refundArm ? (paidByCard ? `Tap again to return ${formatCents(dep.returnableCents)} to their card` : `Tap again to record ${formatCents(dep.returnableCents)} returned`) : `Return ${formatCents(dep.returnableCents)}${paidByCard ? ' to their card' : ''}`}
                           </button>
                           <button type="button" disabled={dep.returnableCents <= 0 || depBusy}
-                            title="Apply the deposit to what they owe instead of returning it"
-                            onClick={() => { if (forfeitArm) { void write('deposit_forfeit', dep.returnableCents, 'Deposit applied to balance').then((ok) => { if (ok) drawerToast({ title: 'Deposit applied to balance', description: 'It’s a credit on their account and comes off their open rent now.' }); }); setForfeitArm(false); } else setForfeitArm(true); }}
-                            className={cn('h-10 rounded-xl px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', forfeitArm ? 'bg-red-700 text-white' : 'border-2 border-red-200 text-red-700')}>
-                            {forfeitArm ? 'Tap again — apply to balance' : 'Apply to balance'}
+                            title="Put the deposit toward what they owe instead of returning it"
+                            onClick={() => { if (forfeitArm) { void write('deposit_forfeit', dep.returnableCents, 'Deposit applied to balance').then((ok) => { if (ok) drawerToast({ title: 'Deposit put toward what they owe', description: 'It’s a credit on their account and comes off their open rent now.' }); }); setForfeitArm(false); } else setForfeitArm(true); }}
+                            className={cn(forfeitArm ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[#b42318] px-4 text-[15px] font-semibold text-white disabled:opacity-40' : cn(RENTALS_BTN, 'text-[#b42318]'), 'w-full py-2.5 text-center leading-snug sm:w-auto')}>
+                            {forfeitArm ? 'Tap again to put it toward what they owe' : 'Put it toward what they owe'}
                           </button>
                         </div>
                       </div>
                     )}
-                  </div>
+                  </section>
                 );
               })()}
 
@@ -706,7 +709,7 @@ export function RenterProfileDrawer({
                 const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(drawerTenant)));
                 const on = r.autopayEnabled === true;
                 const toggle = async () => {
-                  if (!hasCard && !on) { drawerToast({ title: 'No card on file', description: 'Add a card first — autopay needs something to draft from.' }); return; }
+                  if (!hasCard && !on) { drawerToast({ title: 'No card on file', description: 'Autopay needs a saved card to charge. They can add one in their portal.' }); return; }
                   // Autopay needs the renter's written OK: given in their portal, or on paper and recorded here.
                   const paper = !on && !autopayOk(r);
                   if (paper && !window.confirm(AUTOPAY_PAPER_OK(r.firstName))) return;
@@ -724,79 +727,83 @@ export function RenterProfileDrawer({
                       summary: `${!on ? 'Turned on' : 'Turned off'} autopay for ${r.firstName || ''} ${r.lastName || ''}`.trim(),
                       actor: { type: 'user' },
                     });
-                    drawerToast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Rent drafts on each due day from the card on file.' : 'They pay by hand from now on.' });
+                    drawerToast({ title: !on ? 'Autopay on' : 'Autopay off', description: !on ? 'Rent is charged on each due day to the card on file.' : 'They pay by hand from now on.' });
                   } catch {
                     drawerToast({ title: 'Could not save', description: 'Try again in a moment.' });
                   }
                 };
                 return (
-                  <button type="button" onClick={toggle} aria-pressed={on}
-                    className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors',
-                      on ? 'border-emerald-300 bg-emerald-50' : 'bg-card')}>
+                  <section className={cn(CARD, 'flex items-center justify-between gap-3')}>
                     <span className="min-w-0">
-                      <span className="block text-[11px] font-black uppercase tracking-widest">Autopay</span>
-                      <span className="block text-[10px] font-bold text-muted-foreground">
+                      <span className={`block ${TITLE}`}>Autopay</span>
+                      <span id="rpd-autopay" className={`block ${SUB}`}>
                         {on
-                          ? `Drafts rent on each due day from ${r.cardBrand || 'the card'} ····${r.cardLast4 || ''}.`
-                          : hasCard ? `Off — pays by hand. Card ····${r.cardLast4 || ''} is on file if you want to turn it on.`
-                          : 'Off — no card on file yet.'}
+                          ? `Rent is charged on each due day to ${r.cardBrand || 'the card'} ····${r.cardLast4 || ''}.`
+                          : hasCard ? `Off: they pay by hand. Card ····${r.cardLast4 || ''} is on file if you turn it on.`
+                          : r.cardOnFile ? 'Off: their card has to be saved again in their portal before autopay can use it.'
+                          : 'Off: no card on file yet.'}
                       </span>
                     </span>
-                    <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
-                      on ? 'bg-emerald-600 text-white' : 'bg-muted text-muted-foreground')}>
-                      {on ? 'On' : 'Off'}
-                    </span>
-                  </button>
+                    <button type="button" role="switch" aria-checked={on} aria-label="Autopay" aria-describedby="rpd-autopay" onClick={() => void toggle()} className="relative inline-flex h-11 w-14 shrink-0 items-center justify-center">
+                      <span className={cn('relative h-7 w-12 rounded-full transition-colors', on ? 'bg-[#1f7a4d]' : 'bg-[#6d7075]')}>
+                        <span className="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-[left]" style={{ left: on ? 22 : 2 }} />
+                      </span>
+                    </button>
+                  </section>
                 );
               })()}
 
-              {txns === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p> : (
-                <>
-                  {(txns.length + myReservations.length) === 0 && <p className="text-xs text-muted-foreground text-center py-4">No payments on record.</p>}
-                  {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).map(r => (
-                    <div key={r.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">Day rental · {r.boothName}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground">{r.startDate} → {r.endDate}</p>
-                      </div>
-                      <p className="font-black text-emerald-700 text-sm shrink-0">${((r.amountCents || 0) / 100).toFixed(2)}</p>
-                    </div>
-                  ))}
-                  {txns.map(t => (
-                    <div key={t.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">{t.description || 'Rent'}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground truncate">
-                          {(() => { try { return new Date(t.date || t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return dateStr(t.date || t.createdAt); } })()}
-                          {t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
-                        </p>
-                      </div>
-                      <p className={`font-black text-sm shrink-0 ${dollars(t) < 0 ? 'text-[#6d7075]' : 'text-emerald-700'}`}>{dollars(t) < 0 ? '−' : ''}${Math.abs(dollars(t)).toFixed(2)}</p>
-                    </div>
-                  ))}
-                </>
-              )}
+              <section className={CARD}>
+                <h3 className={TITLE}>Payments</h3>
+                {txns === null ? <p className={`py-2 ${SUB}`}>Loading…</p> : (txns.length + paidStays.length) === 0 ? <p className={`py-2 ${SUB}`}>No payments on record.</p> : (
+                  <ul className="mt-1">
+                    {paidStays.map(r => (
+                      <li key={r.id} className={ROW}>
+                        <span className="min-w-0">
+                          <span className={`block truncate ${TEXT}`}>Day rental · {r.boothName}</span>
+                          <span className={`block ${SUB}`}>{r.startDate === r.endDate ? longDay(r.startDate) : `${longDay(r.startDate)} to ${longDay(r.endDate)}`}</span>
+                        </span>
+                        <span className={`shrink-0 tabular-nums ${TEXT}`}>${((r.amountCents || 0) / 100).toFixed(2)}</span>
+                      </li>
+                    ))}
+                    {txns.map(t => (
+                      <li key={t.id} className={ROW}>
+                        <span className="min-w-0">
+                          <span className={`block truncate ${TEXT}`}>{t.description || 'Rent'}</span>
+                          <span className={`block truncate ${SUB}`}>
+                            {(() => { try { return new Date(t.date || t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return dateStr(t.date || t.createdAt); } })()}
+                            {t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
+                          </span>
+                        </span>
+                        <span className={cn('shrink-0 tabular-nums text-[14px]', dollars(t) < 0 ? 'text-[#6d7075]' : 'text-[#16171a]')}>{dollars(t) < 0 ? '−' : ''}${Math.abs(dollars(t)).toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
 
               {myAmenity.length > 0 && (
-                <div className="space-y-2 pt-1">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-1.5">Amenity orders · {myAmenity.length}</p>
-                  {myAmenity.slice(0, 20).map((a: any) => {
-                    const when = (() => { try { return new Date(a.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } })();
-                    const tag = a.compedByRenter ? { t: 'Comped', c: 'bg-green-100 text-green-700' }
-                      : a.chargedToStation ? { t: 'Charged to card', c: 'bg-foreground text-background' }
-                      : (Number(a.priceAtRequest) > 0 ? { t: 'Client paid', c: 'bg-emerald-100 text-emerald-700' } : { t: 'Complimentary', c: 'bg-sky-100 text-sky-700' });
-                    const statusTag = a.status === 'delivered' ? 'Delivered' : a.status === 'cancelled' ? 'Cancelled' : 'Pending';
-                    return (
-                      <div key={a.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-black truncate">{a.quantity > 1 ? `${a.quantity}× ` : ''}{a.itemName || 'Amenity'}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground truncate">{when}{a.clientName ? ` · ${a.clientName}` : ''} · {statusTag}</p>
-                        </div>
-                        <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${tag.c}`}>{tag.t}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <section className={CARD}>
+                  <h3 className={TITLE}>Amenity orders · {myAmenity.length}</h3>
+                  <ul className="mt-1">
+                    {myAmenity.slice(0, 20).map((a: any) => {
+                      const when = (() => { try { return new Date(a.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } })();
+                      const tag = a.compedByRenter ? { t: 'Covered by them', c: 'bg-[#ecf6f0] text-[#1f7a4d]' }
+                        : a.chargedToStation ? { t: 'Charged to their card', c: 'bg-[#f5f5f7] text-[#16171a]' }
+                        : (Number(a.priceAtRequest) > 0 ? { t: 'Client paid', c: 'bg-[#ecf6f0] text-[#1f7a4d]' } : { t: 'Free', c: 'bg-[#f5f5f7] text-[#6d7075]' });
+                      const statusTag = a.status === 'delivered' ? 'Delivered' : a.status === 'cancelled' ? 'Cancelled' : 'Waiting';
+                      return (
+                        <li key={a.id} className={ROW}>
+                          <span className="min-w-0">
+                            <span className={`block truncate ${TEXT}`}>{a.quantity > 1 ? `${a.quantity} × ` : ''}{a.itemName || 'Amenity'}</span>
+                            <span className={`block truncate ${SUB}`}>{when}{a.clientName ? ` · ${a.clientName}` : ''} · {statusTag}</span>
+                          </span>
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-medium ${tag.c}`}>{tag.t}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
               )}
             </>
           )}
@@ -804,51 +811,50 @@ export function RenterProfileDrawer({
           {ptab === 'documents' && (
             <>
               {w9 === undefined ? (
-                <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4"><p className="text-[11px] text-slate-500">Checking for a W-9…</p></div>
+                <section className={CARD}><p className={SUB}>Checking for a W-9…</p></section>
               ) : (
-              <div className={`rounded-2xl border-2 p-4 space-y-1 ${w9 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                <p className={`text-[9px] font-black uppercase tracking-widest ${w9 ? 'text-emerald-700' : 'text-amber-700'}`}>{w9 ? 'W-9 on file' : 'No W-9 yet'}</p>
-                {w9 ? (
-                  <p className="text-xs font-bold text-emerald-800">{w9.legalName} · TIN {w9.tinMasked}</p>
-                ) : (
-                  <p className="text-[11px] text-amber-700">They add it in their portal, under Space, then Tax form (W-9).</p>
-                )}
-              </div>
+                <section className={cn(CARD, w9 ? '' : 'bg-[#fff7ed]')}>
+                  <h3 className={TITLE}>{w9 ? 'W-9 on file' : 'No W-9 yet'}</h3>
+                  {w9 ? <p className={SUB}>{w9.legalName} · TIN {w9.tinMasked}</p> : <p className="text-[13px] leading-snug text-[#b45309]">They add it in their portal, under Space, then Tax form (W-9).</p>}
+                </section>
               )}
               <RenterSignedDocs tenantId={tenantId} firestore={firestore} renterId={renter.id} />
               {Array.isArray((renter as any).applicationAttachments) && (renter as any).applicationAttachments.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Application documents</p>
-                  {(renter as any).applicationAttachments.map((at: any) => (
-                    <a key={at.url} href={at.url} target="_blank" rel="noreferrer"
-                      className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
-                      <p className="text-xs font-black truncate flex items-center gap-1.5"><Paperclip className="h-3 w-3 shrink-0" /> {at.label || at.name || 'Document'}</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">Open →</span>
-                    </a>
-                  ))}
-                </div>
+                <section className={CARD}>
+                  <h3 className={TITLE}>From their application</h3>
+                  <ul className="mt-1">
+                    {(renter as any).applicationAttachments.map((at: any) => (
+                      <li key={at.url} className={ROW}>
+                        <span className={`flex min-w-0 items-center gap-1.5 ${TEXT}`}><Paperclip className="h-4 w-4 shrink-0" aria-hidden /> <span className="min-w-0 truncate">{at.label || at.name || 'Document'}</span></span>
+                        <a href={at.url} target="_blank" rel="noreferrer" aria-label={`Open ${at.label || at.name || 'the document'}`} className={RENTALS_BTN}>Open</a>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
-              <div className="space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
-                {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
-                  <PrintLink key={yr} path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: yr }}
-                    className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
-                    <p className="text-xs font-black">{yr} Rent Statement</p>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600">Open →</span>
-                  </PrintLink>
-                ))}
-              </div>
-              {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Receipts</p>
-                  {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).map(r => (
-                    <PrintLink key={r.id} path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }}
-                      className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
-                      <p className="text-xs font-black truncate">{r.boothName} · {r.startDate}</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0 flex items-center gap-1"><FileText className="h-3 w-3" /> Receipt</span>
-                    </PrintLink>
+              <section className={CARD}>
+                <h3 className={TITLE}>Yearly statements</h3>
+                <ul className="mt-1">
+                  {[new Date().getFullYear(), new Date().getFullYear() - 1].map(yr => (
+                    <li key={yr} className={ROW}>
+                      <span className={TEXT}>{yr} rent statement</span>
+                      <PrintLink path="/api/booths/statement" params={{ tenantId, renterId: renter.id, year: yr }} ariaLabel={`Open the ${yr} rent statement`} className={RENTALS_BTN}>Open</PrintLink>
+                    </li>
                   ))}
-                </div>
+                </ul>
+              </section>
+              {paidStays.length > 0 && (
+                <section className={CARD}>
+                  <h3 className={TITLE}>Receipts</h3>
+                  <ul className="mt-1">
+                    {paidStays.map(r => (
+                      <li key={r.id} className={ROW}>
+                        <span className={`min-w-0 truncate ${TEXT}`}>{r.boothName} · {longDay(r.startDate)}</span>
+                        <PrintLink path="/api/booths/receipt" params={{ tenantId, type: 'reservation', id: r.id }} ariaLabel={`Receipt for ${r.boothName}, ${longDay(r.startDate)}`} className={RENTALS_BTN}><FileText className="mr-1.5 h-4 w-4" aria-hidden /> Receipt</PrintLink>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
             </>
           )}
@@ -856,135 +862,71 @@ export function RenterProfileDrawer({
           {ptab === 'messages' && (
             <div className="flex flex-col gap-4">
               <RenterNoticeRecord tenantId={tenantId} renter={renter} rows={record ? record.messages : null} thread={thread} />
-              <div className="space-y-2">
-                <label htmlFor="renter-compose" className="block text-[13px] font-medium text-[#16171a]">Write to {renter.firstName || 'them'}</label>
-                <div className="flex gap-2">
+              <section className={CARD}>
+                <label htmlFor="renter-compose" className={TITLE}>Write to {renter.firstName || 'them'}</label>
+                <div className="mt-2 flex gap-2">
                   <textarea id="renter-compose" value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
                     placeholder="It goes by email and text, and stays in their portal."
-                    className="flex-1 rounded-2xl border border-[#ececee] px-3.5 py-2.5 text-[14px] outline-none focus:border-[#16171a]" />
-                  <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()}
-                    className="h-11 self-end rounded-full bg-[#16171a] px-5 text-[14px] font-medium text-white disabled:opacity-40">
+                    className="flex-1 rounded-xl border border-[#ececee] px-3.5 py-2.5 text-[15px] text-[#16171a] outline-none focus:border-[#16171a]" />
+                  <button type="button" onClick={sendMessage} disabled={sending || !draft.trim()} className={`self-end ${RENTALS_BTN_DARK}`}>
                     {sending ? 'Sending…' : 'Send'}
                   </button>
                 </div>
-              </div>
+              </section>
             </div>
           )}
 
           {ptab === 'activity' && (
-            record === null ? <p className="text-xs text-muted-foreground text-center py-6">Reading the account…</p>
-            : timeline.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">{activity.length ? 'Loading…' : 'No activity yet.'}</p> : (
-              <div className="space-y-0">
-                <div className="flex items-center justify-between pb-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{timeline.length} events · money, notices, tickets, changes</p>
-                  <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode: 'full' }} className="text-[9px] font-black uppercase tracking-widest text-foreground underline">Print full record</PrintLink>
+            record === null ? <section className={CARD}><p className={SUB}>Reading the account…</p></section>
+            : timeline.length === 0 ? <section className={CARD}><p className={SUB}>{activity.length ? 'Loading…' : 'No activity yet.'}</p></section> : (
+              <section className={CARD}>
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+                  <p className={SUB}>{timeline.length} events: money, notices, tickets and changes</p>
+                  <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: renter.id, mode: 'full' }} className={RENTALS_BTN}>Print the full record</PrintLink>
                 </div>
-                {timeline.map((e, i) => {
-                  const tone = ({
-                    late_fee: 'bg-red-500', autopay_failed: 'bg-red-500', barred: 'bg-foreground', notice: 'bg-amber-500',
-                    payment: 'bg-emerald-500', part_payment: 'bg-emerald-400', autopay_ok: 'bg-emerald-500', credit: 'bg-emerald-400',
-                    write_off: 'bg-slate-400', ticket_opened: 'bg-orange-500', ticket_resolved: 'bg-emerald-500',
-                    message_in: 'bg-sky-500', message_out: 'bg-sky-300',
-                  } as Record<string, string>)[e.kind] || 'bg-foreground';
-                  const money = typeof e.amountCents === 'number' && e.kind !== 'booking';
-                  return (
-                    <div key={`${e.at}-${i}`} className="flex gap-3 pb-4 relative">
-                      <div className="flex flex-col items-center">
-                        <div className={cn('h-2.5 w-2.5 rounded-full mt-1 shrink-0', tone)} />
-                        {i < timeline.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-                      </div>
-                      <div className="min-w-0 flex-1 -mt-0.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-xs font-bold leading-snug">{e.title}</p>
-                          {money && (
-                            <p className={cn('text-xs font-black tabular-nums shrink-0', (e.amountCents as number) < 0 ? 'text-emerald-700' : 'text-foreground')}>
-                              {(e.amountCents as number) < 0 ? '−' : '+'}{formatCents(Math.abs(e.amountCents as number))}
-                            </p>
-                          )}
+                <ol>
+                  {timeline.map((e, i) => {
+                    const tone = ({
+                      late_fee: 'bg-[#b45309]', autopay_failed: 'bg-[#b45309]', barred: 'bg-[#16171a]', notice: 'bg-[#b45309]',
+                      payment: 'bg-[#1f7a4d]', part_payment: 'bg-[#1f7a4d]', autopay_ok: 'bg-[#1f7a4d]', credit: 'bg-[#1f7a4d]',
+                      write_off: 'bg-[#6d7075]', ticket_opened: 'bg-[#b45309]', ticket_resolved: 'bg-[#1f7a4d]',
+                      message_in: 'bg-[#6d7075]', message_out: 'bg-[#c9cbd0]',
+                    } as Record<string, string>)[e.kind] || 'bg-[#16171a]';
+                    const money = typeof e.amountCents === 'number' && e.kind !== 'booking';
+                    return (
+                      <li key={`${e.at}-${i}`} className="relative flex gap-3 pb-4">
+                        <div className="flex flex-col items-center">
+                          <div className={cn('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', tone)} />
+                          {i < timeline.length - 1 && <div className="mt-1 w-px flex-1 bg-[#ececee]" />}
                         </div>
-                        {e.detail && <p className="text-[10px] font-medium text-foreground/80 leading-snug">{e.detail}</p>}
-                        <p className="text-[10px] font-bold text-muted-foreground">
-                          {fmtStamp(e.at)}
-                          {e.actor ? ` · ${TIMELINE_ACTOR_LABEL[e.actor] || e.actor}` : ''}
-                          {typeof (e as any).balanceCents === 'number' ? ` · balance ${formatCents(Math.max((e as any).balanceCents, 0))}` : ''}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className={TEXT}>{e.title}</p>
+                            {money && (
+                              <p className={cn('shrink-0 text-[14px] tabular-nums', (e.amountCents as number) < 0 ? 'text-[#1f7a4d]' : 'text-[#16171a]')}>
+                                {(e.amountCents as number) < 0 ? '−' : '+'}{formatCents(Math.abs(e.amountCents as number))}
+                              </p>
+                            )}
+                          </div>
+                          {e.detail && <p className={SUB}>{e.detail}</p>}
+                          <p className="text-[12px] text-[#6d7075]">
+                            {fmtStamp(e.at)}
+                            {e.actor ? ` · ${TIMELINE_ACTOR_LABEL[e.actor] || e.actor}` : ''}
+                            {typeof (e as any).balanceCents === 'number' ? ` · balance ${formatCents(Math.max((e as any).balanceCents, 0))}` : ''}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
             )
           )}
         </div>
   );
-  if (inPage) return body;
-
-  return (
-    <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white px-5 pt-5 pb-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3.5 min-w-0">
-              {(renter as any).avatarUrl ? (
-                <img src={(renter as any).avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-2 ring-white/30" />
-              ) : (
-                <div className="w-14 h-14 rounded-2xl bg-card/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
-                  {(renter.firstName || '?').charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="font-black text-lg leading-tight truncate">{fullName}</p>
-                {renter.businessName && <p className="text-[10px] font-bold text-white/50 truncate">{renter.businessName}{renter.specialty ? ` · ${renter.specialty}` : ''}</p>}
-                {!renter.businessName && renter.specialty && <p className="text-[10px] font-bold text-white/50 truncate">{renter.specialty}</p>}
-                <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-card/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
-                  {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
-                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">W-9 on file</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">No W-9</span> : null}
-                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
-                </div>
-              </div>
-            </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Space</p>
-              <p className="text-sm font-black truncate">{booth?.name || '—'}</p>
-            </div>
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Rent</p>
-              <p className="text-sm font-black truncate">{lease ? `${formatCents(lease.rentAmountCents)}/${(lease.frequency || 'mo').slice(0, 2)}` : '—'}</p>
-            </div>
-            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
-              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">This year</p>
-              <p className="text-sm font-black truncate text-emerald-300">${ytdTotal.toFixed(0)}</p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 mt-3">
-            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
-            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
-            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
-            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-card/10 hover:bg-card/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
-          </div>
-
-          <div className="flex gap-0 mt-3">
-            {PTABS.map(t => (
-              <button key={t.id} onClick={() => setPtab(t.id)}
-                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-card text-foreground' : 'text-white/50 hover:text-white/80'}`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {body}
-      </div>
-    </div>
-  );
+  return body;
 }
+
 
 // ─── Signed documents (drawer Documents tab) ─────────────────────────────────
 // The renter's paper file: everything sent to them (summary, move-in report,
@@ -1008,27 +950,33 @@ function RenterSignedDocs({ tenantId, firestore, renterId }: { tenantId: string;
     return signed.filter((x) => !linked.has(x.id)).sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
   }, [sent, signed]);
   if (sentSorted.length === 0 && otherSigned.length === 0) {
-    return <p className="text-[11px] font-bold text-muted-foreground px-1">No documents sent or signed yet. Send one from Renters → Documents.</p>;
+    return <section className={CARD}><h3 className={TITLE}>Documents and signatures</h3><p className={SUB}>Nothing sent or signed yet. Send one from Renters, then Documents.</p></section>;
   }
-  const tone = (st: string) => st === 'signed' ? 'text-emerald-700' : st === 'sent' ? 'text-amber-700' : st === 'declined' ? 'text-red-700' : 'text-muted-foreground';
-  const label = (d: any) => d.status === 'sent' ? `Waiting · sent ${String(d.sentAt).slice(0, 10)}` : d.status === 'signed' ? `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} ${String(d.signedAt).slice(0, 10)} as ${d.signedName}` : d.status === 'declined' ? `Declined ${String(d.declinedAt).slice(0, 10)}${d.declineNote ? ` — “${d.declineNote}”` : ''}` : 'Withdrawn';
+  const tone = (st: string) => st === 'signed' ? 'text-[#1f7a4d]' : st === 'sent' || st === 'declined' ? 'text-[#b45309]' : 'text-[#6d7075]';
+  const label = (d: any) => d.status === 'sent' ? `Waiting · sent ${longDay(d.sentAt)}` : d.status === 'signed' ? `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} ${longDay(d.signedAt)} as ${d.signedName}` : d.status === 'declined' ? `Declined ${longDay(d.declinedAt)}${d.declineNote ? `: “${d.declineNote}”` : ''}` : 'Withdrawn';
   return (
-    <div className="space-y-2">
-      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents &amp; signatures</p>
-      {sentSorted.map((d) => (
-        <PrintLink key={d.id} path="/api/booths/renter-document" params={{ tenantId, id: d.id }}
-          className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between gap-2 hover:border-slate-400 transition-colors">
-          <span className="min-w-0"><span className="block text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {d.title}</span><span className={cn('block text-[10px] font-bold', tone(d.status))}>{label(d)}</span></span>
-          <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Open</span>
-        </PrintLink>
-      ))}
-      {otherSigned.map((x) => (
-        <div key={x.id} className="rounded-xl border-2 px-3.5 py-2.5">
-          <p className="text-xs font-black truncate flex items-center gap-1.5"><FileText className="h-3 w-3 shrink-0" /> {x.title || x.kind}</p>
-          <p className="text-[10px] font-bold text-emerald-700">Signed {String(x.signedAt).slice(0, 10)} as {x.signedName}{x.kind ? ` · ${String(x.kind).replace(/_/g, ' ')}` : ''}</p>
-        </div>
-      ))}
-    </div>
+    <section className={CARD}>
+      <h3 className={TITLE}>Documents and signatures</h3>
+      <ul className="mt-1">
+        {sentSorted.map((d) => (
+          <li key={d.id} className={ROW}>
+            <span className="min-w-0">
+              <span className={`flex min-w-0 items-center gap-1.5 ${TEXT}`}><FileText className="h-4 w-4 shrink-0" aria-hidden /> <span className="min-w-0 truncate">{d.title}</span></span>
+              <span className={cn('block text-[13px]', tone(d.status))}>{label(d)}</span>
+            </span>
+            <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} ariaLabel={`Open ${d.title}`} className={RENTALS_BTN}>Open</PrintLink>
+          </li>
+        ))}
+        {otherSigned.map((x) => (
+          <li key={x.id} className={ROW}>
+            <span className="min-w-0">
+              <span className={`flex min-w-0 items-center gap-1.5 ${TEXT}`}><FileText className="h-4 w-4 shrink-0" aria-hidden /> <span className="min-w-0 truncate">{x.title || x.kind}</span></span>
+              <span className="block text-[13px] text-[#1f7a4d]">Signed {longDay(x.signedAt)} as {x.signedName}{x.kind ? ` · ${String(x.kind).replace(/_/g, ' ')}` : ''}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
