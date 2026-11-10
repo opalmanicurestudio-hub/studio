@@ -501,7 +501,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
                 <h2 id="lb-choices" className="text-[17px] font-bold">Choices for this lease</h2>
                 <Row label="Taking bookings" sub="They can list on your booking page or use their own system. It’s their choice, in their portal."><span className="text-[14px] font-semibold">Their choice</span></Row>
                 <Toggle on={d.sellProducts} onChange={(v) => set('sellProducts', v)} label="Selling their own products" sub="In the space, and in your online shop under their name" />
-                <Row label="Portal tools" sub="Packages, gift cards, campaigns and swap days, as set in What renters get on the Rent page. Your draft is kept if you go there."><a href="/rent#what-renters-get" className="inline-flex h-11 items-center rounded-full border border-[#ececee] px-4 text-[14px] font-medium">Open What renters get</a></Row>
+                <Row label="Portal tools" sub="Packages, gift cards, campaigns and swap days, as set in What renters get in Rental policies. Your draft is kept if you go there."><a href="/rental-policies#what-renters-get" className="inline-flex h-11 items-center rounded-full border border-[#ececee] px-4 text-[14px] font-medium">Open What renters get</a></Row>
                 <Toggle on={d.noPoach} onChange={(v) => set('noPoach', v)} label="No hiring away your team" sub="Off by default. Some states limit these promises; ask your attorney before turning it on." />
               </section>
               <ClassificationCheck renter={renter} />
@@ -553,7 +553,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
                     <li key={s.key} className="py-3"><p className="text-[15px] font-semibold">{s.title}</p><p className="text-[14px] leading-relaxed text-[#6d7075]">{s.text}</p></li>
                   ))}
                 </ul>
-                <p className={hint}>Repairs are set in Maintenance; time away, collections and closures on the Rent page; concerns, rule breaks and the rest in your lease settings.</p>
+                <p className={hint}>Repairs are set in Maintenance; time away, late rent, concerns, rule breaks and the rest in Rental policies.</p>
               </section>
             )}
 

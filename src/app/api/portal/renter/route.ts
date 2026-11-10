@@ -1816,7 +1816,7 @@ export async function POST(req: NextRequest) {
       const said = action === 'addon-add' ? `${who} added ${title} (${price}).` : `${who} stopped ${title} (${price}).`;
       await logAuditAdmin(db, tenantId, { action: action === 'addon-add' ? 'renters.addon_add' : 'renters.addon_stop', targetType: 'renter', targetId: session.renterId, summary: said, amount: cents / 100, actor: { type: 'user', id: session.renterId, name: who, role: 'renter', via: 'renter-portal' } } as any).catch(() => {});
       try { const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rent#what-renters-get', message: said }); } catch { /* the record above stands */ }
+        await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rental-policies#what-renters-get', message: said }); } catch { /* the record above stands */ }
       return NextResponse.json({ ...view(t, r), message });
     }
 

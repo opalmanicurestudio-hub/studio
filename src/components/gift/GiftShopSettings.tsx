@@ -93,7 +93,7 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
             <p className="text-[14px]" style={{ color: MUTED }}>
               Renters taking your gift cards: {s.renters?.salonCards !== false ? 'on' : 'off'}. Renters selling their own: {s.renters?.ownCards === true ? 'on' : 'off'}. Both are set with everything else renters get, where you can also make either one a paid add-on.
             </p>
-            <a href="/rent#what-renters-get" className="inline-flex h-11 items-center rounded-full px-4 text-[15px] font-medium" style={{ border: `1px solid ${LINE}`, color: INK }}>Open What renters get</a>
+            <a href="/rental-policies#what-renters-get" className="inline-flex h-11 items-center rounded-full px-4 text-[15px] font-medium" style={{ border: `1px solid ${LINE}`, color: INK }}>Open What renters get</a>
           </section>
           <section className="space-y-3 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Your gift card rules</p>

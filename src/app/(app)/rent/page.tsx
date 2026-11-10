@@ -3,6 +3,7 @@
 import { DeskOwedCard } from '@/components/rent/DeskOwedCard';
 import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
 import { useState, useMemo, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
   collection,
   doc,
@@ -73,7 +74,6 @@ import {
 } from '@/lib/booth-rental-types';
 import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 import { PrintLink } from '@/components/shared/PrintLink';
-import { WhatRentersGet } from '@/components/renters/WhatRentersGet';
 
 const PAYMENT_METHODS: { value: PaymentMethodKind; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -275,17 +275,9 @@ function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
  */
 function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById, reservations }: { tenantId: string; firestore: any; tenant: any; leaves: any[]; leaseById: Map<string, any>; renterById: Map<string, any>; reservations: any[] }) {
   const [cfg, setCfg] = useState<LeavePolicy>(() => resolveLeavePolicy(tenant));
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [deciding, setDeciding] = useState<string>('');
   const [chosen, setChosen] = useState<Record<string, LeaveTreatment>>({});
   useEffect(() => { setCfg(resolveLeavePolicy(tenant)); }, [tenant]);
-  const save = async () => {
-    if (!firestore || !tenantId) return;
-    setSaving(true);
-    try { await updateDoc(doc(firestore, `tenants/${tenantId}`), { leavePolicy: cfg }); setSaved(true); setTimeout(() => setSaved(false), 1800); }
-    finally { setSaving(false); }
-  };
   const decide = async (l: any, status: 'approved' | 'declined') => {
     if (!firestore || !tenantId) return;
     const treatment = status === 'approved' ? (chosen[l.id] || l.preferred || cfg.offered[0]) : null;
@@ -383,21 +375,11 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
   const active = leaves.filter((l) => l.status === 'approved');
   const redeems = leaves.filter((l) => l.redeem && l.redeem.status === 'requested');
   const todayIso = new Date().toISOString().slice(0, 10);
-  const Row = ({ t }: { t: LeaveTreatment }) => {
-    const on = cfg.offered.includes(t);
-    return (
-      <button type="button" aria-pressed={on} onClick={() => setCfg((c) => ({ ...c, offered: on ? c.offered.filter((x) => x !== t) : [...c.offered, t] }))}
-        className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
-        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">{LEAVE_TREATMENT_LABEL[t]}</span><span className="block text-[10px] font-bold text-muted-foreground">{LEAVE_TREATMENT_NOTE[t]}</span></span>
-        <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{on ? 'Offered' : 'Off'}</span>
-      </button>
-    );
-  };
   return (
     <Card className="rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Leave</CardTitle>
-        <p className="text-[11px] font-bold text-muted-foreground">Maternity, medical, family. What a renter can ask for, and what rent does while they're away. Nothing is offered until you tick it; every request is yours to decide.</p>
+        <p className="text-[11px] font-bold text-muted-foreground">Maternity, medical, family. Requests from renters, and what rent does while they're away. Every request is yours to decide.</p>
       </CardHeader>
       <CardContent className="p-5 pt-2 space-y-4">
         {pending.length > 0 && (
@@ -481,140 +463,7 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
             ); })}
           </div>
         )}
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What you offer</p>
-          {(['pause', 'reduced', 'bank', 'sublet'] as LeaveTreatment[]).map((t) => <Row key={t} t={t} />)}
-        </div>
-        <button type="button" aria-pressed={cfg.autoEnd} onClick={() => setCfg((c) => ({ ...c, autoEnd: !c.autoEnd }))}
-          className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left', cfg.autoEnd ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
-          <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest">Close a leave on its return date</span><span className="block text-[10px] font-bold text-muted-foreground">Rent goes back to normal on the day they said they'd be back. Off means the date raises a decision for you instead — a leave nobody closes never invoices again.</span></span>
-          <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', cfg.autoEnd ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{cfg.autoEnd ? 'On' : 'Off'}</span>
-        </button>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {([['reducedPercent', 'Holding rate %', 0, 100], ['bankDaysPerWeek', 'Banked days / week', 0, 7], ['maxWeeks', 'Max weeks', 1, 104], ['noticeDays', 'Notice days', 0, 90]] as const).map(([k, label, lo, hi]) => (
-            <div key={k} className="space-y-1">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
-              <input inputMode="numeric" aria-label={label} value={String((cfg as any)[k])}
-                onChange={(e) => { const n = Number(e.target.value.replace(/[^0-9]/g, '')); setCfg((c) => ({ ...c, [k]: Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : (c as any)[k] })); }}
-                className="h-9 w-full rounded-lg border-2 bg-card px-2 text-center font-mono text-sm font-bold outline-none focus:border-foreground/60" />
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-end gap-2">
-          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
-          <Button onClick={save} disabled={saving} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">{saving ? 'Saving…' : 'Save leave policy'}</Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/**
- * Collections — what happens to someone who does not pay. Every consequence
- * here is OFF until the shop turns it on; the code never decides to bar
- * someone on its own. Saved on the tenant as collectionsPolicy.
- */
-function CollectionsCard({ tenantId, firestore, tenant }: { tenantId: string; firestore: any; tenant: any }) {
-  const [cfg, setCfg] = useState<CollectionsPolicy>(() => resolveCollectionsPolicy(tenant));
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { setCfg(resolveCollectionsPolicy(tenant)); }, [tenant]);
-
-  const save = async () => {
-    if (!firestore || !tenantId) return;
-    setSaving(true);
-    try {
-      await updateDoc(doc(firestore, `tenants/${tenantId}`), { collectionsPolicy: cfg });
-      setSaved(true); setTimeout(() => setSaved(false), 1800);
-    } finally { setSaving(false); }
-  };
-  const toggleDay = (d: number) => setCfg((c) => ({
-    ...c, dunningDays: c.dunningDays.includes(d) ? c.dunningDays.filter((x) => x !== d) : [...c.dunningDays, d].sort((a, b) => a - b),
-  }));
-  const Row = ({ title, note, on, onToggle }: { title: string; note: string; on: boolean; onToggle: () => void }) => (
-    <button type="button" onClick={onToggle} aria-pressed={on}
-      className={cn('w-full rounded-2xl border-2 px-4 py-3 flex items-center justify-between gap-3 text-left transition-colors', on ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
-      <span className="min-w-0">
-        <span className="block text-[11px] font-black uppercase tracking-widest">{title}</span>
-        <span className="block text-[10px] font-bold text-muted-foreground">{note}</span>
-      </span>
-      <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest', on ? 'bg-foreground text-background' : 'bg-muted text-muted-foreground')}>{on ? 'On' : 'Off'}</span>
-    </button>
-  );
-
-  return (
-    <Card className="rounded-[2rem] border-2">
-      <CardHeader className="p-5 pb-2">
-        <CardTitle className="text-[11px] font-black uppercase tracking-widest">Collections</CardTitle>
-        <p className="text-[11px] font-bold text-muted-foreground">
-          What happens when rent goes unpaid. Everything here is off until you switch it on — the app never bars anyone on its own.
-        </p>
-      </CardHeader>
-      <CardContent className="p-5 pt-2 space-y-4">
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Escalating notices, days late</p>
-          <p className="text-[10px] font-bold text-muted-foreground">The first late notice always goes out. Tick the days you want a firmer follow-up. Each fires once per invoice, by email and text.</p>
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {[3, 7, 14, 21, 30].map((d) => {
-              const on = cfg.dunningDays.includes(d);
-              return (
-                <button key={d} type="button" onClick={() => toggleDay(d)} aria-pressed={on}
-                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80')}>
-                  Day {d}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Bar from booking automatically</p>
-          <div className="flex flex-wrap gap-1.5">
-            {[null, 7, 14, 30, 60].map((d) => {
-              const on = cfg.autoBarAfterDaysLate === d;
-              return (
-                <button key={String(d)} type="button" onClick={() => setCfg((c) => ({ ...c, autoBarAfterDaysLate: d }))} aria-pressed={on}
-                  className={cn('h-10 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-colors', on ? 'bg-foreground text-background border-slate-900' : 'border-border text-foreground/80')}>
-                  {d === null ? 'Never — I decide' : `${d} days late`}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[10px] font-bold text-muted-foreground">Barring stops day bookings and flags them in your pipeline. You can always bar or unbar by hand on this page.</p>
-        </div>
-
-        <Row title="Bar when a lease ends owing" note="Someone who leaves with a balance can't book again until it's settled." on={cfg.autoBarOnLeaseEndOwing} onToggle={() => setCfg((c) => ({ ...c, autoBarOnLeaseEndOwing: !c.autoBarOnLeaseEndOwing }))} />
-        <Row title="Tell them when they're barred" note="A short notice with the amount and a pay link, whether you barred them or the policy did." on={cfg.notifyOnBar} onToggle={() => setCfg((c) => ({ ...c, notifyOnBar: !c.notifyOnBar }))} />
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Make checks payable to</p>
-            <input value={(cfg as any).payableTo || ''} onChange={(e) => setCfg((c) => ({ ...c, payableTo: e.target.value.slice(0, 120) } as any))}
-              placeholder={tenant?.name || 'Your business name'} aria-label="Make checks payable to"
-              className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold outline-none focus:border-foreground/60" />
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Mail payments to</p>
-            <input value={(cfg as any).remitAddress || ''} onChange={(e) => setCfg((c) => ({ ...c, remitAddress: e.target.value.slice(0, 200) } as any))}
-              placeholder="Your studio address, if different" aria-label="Mail payments to"
-              className="h-10 w-full rounded-xl border-2 bg-card px-3 text-sm font-bold outline-none focus:border-foreground/60" />
-          </div>
-          <p className="sm:col-span-2 text-[10px] font-bold text-muted-foreground">Printed on the tear-off remittance slip at the bottom of every statement.</p>
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What a barred renter sees when they try to book</p>
-          <textarea value={cfg.wallMessage} onChange={(e) => setCfg((c) => ({ ...c, wallMessage: e.target.value.slice(0, 300) }))}
-            rows={3} aria-label="Message shown to a barred renter"
-            className="w-full rounded-2xl border-2 bg-card px-3.5 py-2.5 text-sm font-medium outline-none focus:border-foreground/60" />
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved</span>}
-          <Button onClick={save} disabled={saving} className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">
-            {saving ? 'Saving…' : 'Save collections policy'}
-          </Button>
-        </div>
+        <Link href="/rental-policies#away" className="inline-flex min-h-[44px] items-center text-[13px] font-medium text-[#16171a] underline">The ways renters can ask for time away are set in Rental policies</Link>
       </CardContent>
     </Card>
   );
@@ -1999,11 +1848,15 @@ export default function RentRollPage() {
       )}
       {tenantId && <DeskOwedCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} />}
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
-      {tenantId && <WhatRentersGet tenantId={tenantId} />}
+      {tenantId && (
+        <a href="/rental-policies" className="flex min-h-[44px] items-center justify-between gap-3 rounded-[20px] border border-[#ececee] bg-white p-5">
+          <span className="min-w-0"><span className="block text-[17px] font-bold text-[#16171a]">Rental policies</span><span className="block text-[13px] leading-snug text-[#6d7075]">Lease terms, late rent, time away, charges to their card and what comes with the space, in one place.</span></span>
+          <span aria-hidden className="text-[20px] text-[#6d7075]">›</span>
+        </a>
+      )}
       {tenantId && <RenterSwapsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <RentCommsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       {tenantId && <LeaveCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} leaves={(renterLeaves ?? []) as any[]} leaseById={scheduleLeaseById} renterById={scheduleRenterById} reservations={(boothReservations ?? []) as any[]} />}
-      {tenantId && <CollectionsCard tenantId={tenantId} firestore={firestore} tenant={selectedTenant} />}
       </div>
     </div>
   );

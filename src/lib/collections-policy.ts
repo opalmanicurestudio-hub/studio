@@ -49,7 +49,7 @@ export const DEFAULT_COLLECTIONS: CollectionsPolicy = {
   autoBarAfterDaysLate: null,
   autoBarOnLeaseEndOwing: false,
   notifyOnBar: true,
-  wallMessage: 'There is an outstanding balance on your account with us. Please get in touch with the studio to settle it before booking.',
+  wallMessage: 'There is an outstanding balance on your account. Please pay it in your portal before booking again.',
 };
 
 export function resolveCollectionsPolicy(tenant: any): CollectionsPolicy {

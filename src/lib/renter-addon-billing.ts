@@ -102,7 +102,7 @@ export async function addOnFailed(db: any, tenantId: string, tenant: any, renter
   } catch { /* the add-on is paused either way; the business's note below still goes */ }
   try {
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rent#what-renters-get',
+    await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rental-policies#what-renters-get',
       message: `${nameOf(r)}’s ${title} add-on ${m.first ? 'wasn’t added' : 'is paused'}: ${why === 'declined' ? 'their card was declined' : why === 'no_card' ? 'they have no card saved here' : 'the charge didn’t go through'}. Nothing was charged${detail ? ` (${String(detail).slice(0, 120)})` : ''}. They were told how to ${m.first ? 'add it again' : 'start it again'}.` });
   } catch { /* told the renter at least */ }
   return true;
@@ -201,7 +201,7 @@ export async function billRenterAddOns(db: any, tenantId: string, tenant: any, o
   if (!spacePayAccount(tenant)) {
     out.waiting = renters.length;
     const nRef = db.doc(`tenants/${tenantId}/notifications/addon_nopay_${today}`);
-    if (!(await nRef.get()).exists) await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(), type: 'renter_addon', link: '/rent#what-renters-get',
+    if (!(await nRef.get()).exists) await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(), type: 'renter_addon', link: '/rental-policies#what-renters-get',
       message: `Renters’ add-ons are due, but card payments aren’t on for your business right now, so they weren’t charged. Turn card payments back on and they’re charged on the next daily run.` }).catch(() => {});
     return out;
   }

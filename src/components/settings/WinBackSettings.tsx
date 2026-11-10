@@ -72,7 +72,7 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
         <p className="font-semibold">Renter campaigns</p>
         <p className="text-sm text-muted-foreground">Can renters send their own campaigns, and who pays for the texts. They send to their own clients only, in their own name, with the same consent, monthly limit and quiet-hour rules as yours. Emails are always free.</p>
         <p className="text-sm">{rc.mode === 'business_covers' ? `On. You cover ${rc.monthlyTexts ?? 100} texts per renter a month, then each one is ${rc.priceCentsPerText ?? 2}¢ to them.` : rc.mode === 'renter_pays' ? `On. Each text is ${rc.priceCentsPerText ?? 2}¢ to the renter.` : 'Off.'} Set with everything else renters get, where you can also make campaigns a paid add-on.</p>
-        <a href="/rent#what-renters-get" className="inline-flex h-11 items-center rounded-full border px-4 text-sm font-medium">Open What renters get</a>
+        <a href="/rental-policies#what-renters-get" className="inline-flex h-11 items-center rounded-full border px-4 text-sm font-medium">Open What renters get</a>
         <label className="flex items-center gap-2 text-sm"><input type="number" step="0.1" min={0.5} max={10} className={num} disabled={!canEdit} value={v('smsCostCentsPerSegment', tenant?.smsCostCentsPerSegment ?? 1.3)} onChange={(e) => typed('smsCostCentsPerSegment', Math.max(0.5, Math.min(10, parseFloat(e.target.value) || 1.3)))} /> ¢ — what a text costs you (for estimates)</label>
       </section>
     </div>

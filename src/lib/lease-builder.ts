@@ -86,6 +86,51 @@ export function resolveLeasePolicy(tenant: any): LeasePolicy {
   };
 }
 
+/** The business's lease settings as saved from Rental policies: each value read as resolveLeasePolicy reads it (one out
+ *  of range or not valid keeps what's there), the fields that changed, and the patch to save. The settings version goes up when
+ *  anything changed, so each new lease records which settings it was written from. Signed leases keep their own words. */
+export const LEASE_POLICY_FIELDS = ['legalName', 'accessHours', 'noticeDays', 'earlyEndFee', 'holdover', 'rentChangeNoticeDays', 'declinedFeeCents', 'depositReturnDays',
+  'payByCard', 'payByAutopay', 'payOffline', 'insurance', 'licenseRequired', 'changesNeedOk', 'damageByRenter', 'propertyClause', 'noPoach', 'concernReplyDays',
+  'fixItDays', 'repeatCount', 'repeatMonths', 'endForCauseDays', 'businessChangeNoticeDays', 'governingState', 'county', 'disputeTalkDays', 'mediation', 'attorneyReview'] as const;
+export function leasePolicyPatch(input: any, tenant: any): { changed: string[]; patch: Record<string, any>; next: LeasePolicy } {
+  const cur = resolveLeasePolicy(tenant);
+  // Each value is checked on its own: one that resolves to something other than what was sent (out of range, not a
+  // number, not one of the choices) keeps what's there now rather than falling back to the default.
+  const one = (k: string, v: any) => (resolveLeasePolicy({ ...tenant, leasePolicy: { [k]: v } }) as any)[k];
+  const ok = (k: string, v: any) => {
+    const r = one(k, v);
+    if (typeof r === 'number') return v !== '' && v !== null && Number.isFinite(Number(v)) && Math.round(Number(v)) === r;
+    if (typeof r === 'boolean') return typeof v === 'boolean';
+    if (k === 'earlyEndFee' || k === 'holdover') return r === v;
+    return true;
+  };
+  const merged: any = { ...cur, insurance: { ...cur.insurance } };
+  for (const k of LEASE_POLICY_FIELDS) {
+    if (!input || !(k in input)) continue;
+    const v = input[k];
+    if (k === 'insurance') {
+      for (const [ik, iv] of Object.entries(v || {})) {
+        const r = (resolveLeasePolicy({ ...tenant, leasePolicy: { insurance: { [ik]: iv } } }).insurance as any)[ik];
+        if (r === undefined) continue;
+        if (typeof r === 'number' ? iv !== '' && iv !== null && Number.isFinite(Number(iv)) && Math.round(Number(iv)) === r : typeof r === 'boolean' ? typeof iv === 'boolean' : true) merged.insurance[ik] = r;
+      }
+    } else if (k === 'attorneyReview') {
+      // Removed on purpose (null), or recorded with its date; a review left without a date keeps what's there.
+      if (v === null) merged.attorneyReview = null;
+      else if (v && String(v.at || '').trim()) merged.attorneyReview = one('attorneyReview', v);
+    } else if (k === 'governingState') {
+      const st = String(v ?? '').trim();
+      merged.governingState = /^[A-Za-z]{2}$/.test(st) ? st.toUpperCase() : st;
+    } else if (ok(k, v)) merged[k] = one(k, v);
+  }
+  const next = resolveLeasePolicy({ ...tenant, leasePolicy: merged });
+  const changed = LEASE_POLICY_FIELDS.filter((k) => JSON.stringify((next as any)[k]) !== JSON.stringify((cur as any)[k]));
+  const patch: Record<string, any> = {};
+  for (const k of changed) patch[`leasePolicy.${k}`] = (next as any)[k];
+  if (changed.length) patch['leasePolicy.version'] = cur.version + 1;
+  return { changed: [...changed], patch, next: changed.length ? { ...next, version: cur.version + 1 } : cur };
+}
+
 // ── One lease ────────────────────────────────────────────────────────────────
 export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 export type LeaseDraft = {
