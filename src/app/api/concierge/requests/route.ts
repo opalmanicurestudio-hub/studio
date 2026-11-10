@@ -36,6 +36,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
 import { createHash } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { closedReply } from '@/lib/tenant-open-server';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
 import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
@@ -228,6 +229,8 @@ export async function POST(req: NextRequest) {
     const tSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tSnap.exists) return bad('Not found.', 404);
     const tenant: any = tSnap.data() || {};
+    // A paused or closed business takes no orders or payments (lib/tenant-open-server).
+    { const closed = closedReply(tenant); if (closed) return closed; }
 
     // The item, from this business's own menu.
     const iSnap = await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get();

@@ -13,11 +13,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
 import {
-    getFirestore, doc, getDoc, collection, addDoc, getDocs,
+    getFirestore, doc, getDoc, collection, getDocs,
     query, where,
 } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { nanoid } from 'nanoid';
 import {
     ChevronRight, ChevronLeft, Check, Loader, AlertTriangle,
     User, Mail, Phone, Calendar, MapPin, Users, DollarSign,
@@ -28,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { INQUIRY_EVENT_TYPES, INQUIRY_BUDGETS, INQUIRY_TIMELINES, INQUIRY_HEARD_FROM } from '@/lib/inquiry-intake';
 
 // ─── Firebase ─────────────────────────────────────────────────────────────────
 const getDb = () => {
@@ -58,88 +58,22 @@ const STEP_META: Record<Step, { title: string; subtitle: string }> = {
     done:      { title: 'Submitted!',         subtitle: '' },
 };
 
-const EVENT_TYPES = [
-    { id: 'wedding',     label: 'Wedding',        icon: Heart },
-    { id: 'bridal',      label: 'Bridal Party',   icon: Sparkles },
-    { id: 'birthday',    label: 'Birthday',       icon: Star },
-    { id: 'corporate',   label: 'Corporate',      icon: Building },
-    { id: 'photoshoot',  label: 'Photoshoot',     icon: Camera },
-    { id: 'prom',        label: 'Prom / Formal',  icon: Music },
-    { id: 'babyshower',  label: 'Baby Shower',    icon: Heart },
-    { id: 'graduation',  label: 'Graduation',     icon: Star },
-    { id: 'other',       label: 'Something Else', icon: Palette },
-];
-
-const BUDGET_RANGES = [
-    { id: 'under_500',    label: 'Under $500' },
-    { id: '500_1000',     label: '$500 – $1,000' },
-    { id: '1000_2500',    label: '$1,000 – $2,500' },
-    { id: '2500_5000',    label: '$2,500 – $5,000' },
-    { id: '5000_10000',   label: '$5,000 – $10,000' },
-    { id: 'over_10000',   label: '$10,000+' },
-    { id: 'flexible',     label: 'Flexible / Unsure' },
-];
+// Options in words that fit any business (lib/inquiry-intake keeps the list the server checks against).
+const EVENT_ICON: Record<string, any> = { celebration: Star, wedding: Heart, corporate: Building, shoot: Camera, class: Users, other: Palette };
+const EVENT_TYPES = INQUIRY_EVENT_TYPES.map((e) => ({ ...e, icon: EVENT_ICON[e.id] || Palette }));
+const BUDGET_RANGES = INQUIRY_BUDGETS;
+const TIMELINE_OPTIONS = INQUIRY_TIMELINES;
+const REFERRAL_SOURCES = INQUIRY_HEARD_FROM;
 
 const CONTACT_METHODS = [
     { id: 'email', label: 'Email' },
-    { id: 'phone', label: 'Phone Call' },
-    { id: 'text',  label: 'Text / SMS' },
-];
-
-const REFERRAL_SOURCES = [
-    'Instagram', 'Google', 'Referral from a friend', 'Wedding planner',
-    'The Knot / WeddingWire', 'TikTok', 'Facebook', 'Pinterest', 'Other',
-];
-
-const TIMELINE_OPTIONS = [
-    { id: 'asap',      label: 'ASAP' },
-    { id: '1_month',   label: 'Within 1 month' },
-    { id: '3_months',  label: '1–3 months' },
-    { id: '6_months',  label: '3–6 months' },
-    { id: '1_year',    label: '6–12 months' },
-    { id: 'over_year', label: '1+ year away' },
+    { id: 'phone', label: 'A call' },
+    { id: 'text',  label: 'A text' },
 ];
 
 // FIX: Pre-filled day/time options for "best time to reach"
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const TIME_SLOTS = ['Morning (9am–12pm)', 'Afternoon (12pm–5pm)', 'Evening (5pm–8pm)', 'Anytime'];
-
-// ─── Mileage calculator ───────────────────────────────────────────────────────
-const COST_PER_MILE = 0.67; // IRS standard rate
-
-async function calculateMileage(origin: string, destination: string): Promise<{ miles: number; cost: number; duration: string } | null> {
-    try {
-        // Use Nominatim to geocode both addresses, then calculate haversine distance
-        const geocode = async (addr: string) => {
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addr)}&format=json&limit=1`);
-            const data = await res.json();
-            if (!data.length) return null;
-            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-        };
-
-        const [from, to] = await Promise.all([geocode(origin), geocode(destination)]);
-        if (!from || !to) return null;
-
-        // Haversine formula
-        const R = 3958.8; // miles
-        const dLat = (to.lat - from.lat) * Math.PI / 180;
-        const dLon = (to.lon - from.lon) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-            Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) *
-            Math.sin(dLon / 2) ** 2;
-        const straightLineMiles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        // Road distance is typically ~20–30% more than straight line
-        const estimatedRoadMiles = straightLineMiles * 1.25;
-        const roundTripMiles = estimatedRoadMiles * 2;
-        const cost = roundTripMiles * COST_PER_MILE;
-        const hours = Math.round((estimatedRoadMiles / 50) * 10) / 10; // assume 50mph avg
-        const duration = hours < 1 ? `${Math.round(hours * 60)}m` : `~${hours.toFixed(1)}h`;
-
-        return { miles: Math.round(roundTripMiles), cost: Math.round(cost * 100) / 100, duration };
-    } catch {
-        return null;
-    }
-}
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 const ProgressBar = ({ current, total }: { current: number; total: number }) => (
@@ -326,7 +260,6 @@ export default function QuoteInquiryPage() {
 
     const [tenant,      setTenant]      = useState<any>(null);
     const [services,    setServices]    = useState<any[]>([]);
-    const [studioAddress, setStudioAddress] = useState('');
     const [dataLoading, setDataLoading] = useState(true);
     const [step,        setStep]        = useState<Step>('contact');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -364,9 +297,8 @@ export default function QuoteInquiryPage() {
     const [venueZip,     setVenueZip]     = useState('');
     const [startTime,    setStartTime]    = useState('');
     const [endTime,      setEndTime]      = useState('');
-    // FIX: mileage calculation
-    const [mileageInfo, setMileageInfo]   = useState<{ miles: number; cost: number; duration: string } | null>(null);
-    const [calcingMiles, setCalcingMiles] = useState(false);
+    const [cfHp,         setCfHp]         = useState('');   // a field only robots fill in (api/inquiry drops those)
+    const startedAt = React.useRef(Date.now());
 
     // ── Budget ─────────────────────────────────────────────────────────────────
     const [budgetRange, setBudgetRange] = useState('');
@@ -391,11 +323,6 @@ export default function QuoteInquiryPage() {
                 if (tenantSnap.exists()) {
                     const t = tenantSnap.data();
                     setTenant(t);
-                    // Store studio address for mileage calculation
-                    const addr = t.studioAddress ||
-                        [t.studioAddressParts?.street, t.studioAddressParts?.city, t.studioAddressParts?.state]
-                            .filter(Boolean).join(', ');
-                    setStudioAddress(addr || '');
                 }
                 // FIX: Load services from the proper subcollection
                 const servicesSnap = await getDocs(collection(db, `tenants/${tenantId}/services`));
@@ -413,29 +340,10 @@ export default function QuoteInquiryPage() {
         load();
     }, [tenantId]);
 
-    // FIX: Auto-calculate mileage when venue address is complete and venue type is on_site/destination
-    useEffect(() => {
-        if (venueType !== 'on_site' && venueType !== 'destination') {
-            setMileageInfo(null);
-            return;
-        }
-        const dest = [venueStreet, venueCity, venueState, venueZip].filter(Boolean).join(', ');
-        if (!dest || dest.length < 10 || !studioAddress) return;
-
-        const timer = setTimeout(async () => {
-            setCalcingMiles(true);
-            const result = await calculateMileage(studioAddress, dest);
-            setMileageInfo(result);
-            setCalcingMiles(false);
-        }, 1200); // debounce
-
-        return () => clearTimeout(timer);
-    }, [venueStreet, venueCity, venueState, venueZip, venueType, studioAddress]);
-
     const currentStepIndex = STEPS.indexOf(step);
     const primaryColor = tenant?.kioskSettings?.primaryColor || '#0f172a';
     const logoUrl      = guestLogo(tenant);
-    const studioName   = tenant?.name || 'Studio';
+    const studioName   = tenant?.name || tenant?.businessName || 'the business';
 
     // ── Validation ─────────────────────────────────────────────────────────────
     const validateStep = (): boolean => {
@@ -484,84 +392,25 @@ export default function QuoteInquiryPage() {
         setIsSubmitting(true);
         setSubmitError('');
         try {
-            const db = getDb();
-            const id = nanoid();
-
-            const selectedServiceDetails = services
-                .filter(s => selectedServiceIds.includes(s.id))
-                .map(s => ({ id: s.id, name: s.name, price: s.price || 0, duration: s.duration || 60 }));
-
-            const venueAddress = [venueStreet, venueCity, venueState, venueZip].filter(Boolean).join(', ');
-
-            const requestData = {
-                id,
-                tenantId,
-                status: 'new',
-
-                // Contact
-                firstName:        firstName.trim(),
-                lastName:         lastName.trim(),
-                fullName:         `${firstName.trim()} ${lastName.trim()}`,
-                email:            email.trim().toLowerCase(),
-                phone:            phone.trim(),
-                preferredContact,
-                bestDays:         bestDays.length > 0 ? bestDays : null,
-                bestTimeSlot:     bestTimeSlot || null,
-
-                // Event
-                eventType,
-                eventName:        eventName.trim() ||
-                    `${firstName.trim()}'s ${EVENT_TYPES.find(e => e.id === eventType)?.label || 'Event'}`,
-                eventDate,
-                alternateDateA:   eventDate2 || null,
-                guestCount:       parseInt(guestCount) || 0,
-                partySize:        parseInt(partySize) || parseInt(guestCount) || 0,
-
-                // Services — FIX: storing full service details from library
-                interestedServiceIds:  selectedServiceIds,
-                interestedServices:    selectedServiceDetails,
-                customServiceNote:     customServiceNote.trim() || null,
-                estimatedHours:        selectedServiceDetails.reduce((a, s) => a + (s.duration / 60), 0) || null,
-
-                // Logistics
-                venueType:        venueType || null,
-                venueName:        venueName.trim() || null,
-                venueStreet:      venueStreet.trim() || null,
-                venueCity:        venueCity.trim() || null,
-                venueState:       venueState.trim() || null,
-                venueZip:         venueZip.trim() || null,
-                eventLocation:    venueAddress || null,
-                startTime:        startTime || null,
-                endTime:          endTime || null,
-                // FIX: mileage data pre-calculated
-                estimatedMiles:   mileageInfo?.miles || null,
-                estimatedTravelCost: mileageInfo?.cost || null,
-                estimatedDriveTime:  mileageInfo?.duration || null,
-
-                // Budget
-                budgetRange,
-                timeline,
-                readyToDeposit:   hasDeposit,
-
-                // Final
-                referralSource:     referralSource || null,
-                referralCode:       referralCode.trim().toUpperCase() || null,
-                specialRequests:    specialRequests.trim() || null,
-                inspirationImages:  inspoImageUrls.length > 0 ? inspoImageUrls : null,
-
-                // Meta
-                submittedAt: new Date().toISOString(),
-                source:      'inquiry_form',
-                viewed:      false,
-                priority:    parseInt(guestCount) >= 20 ? 'high' : 'normal',
-            };
-
-            // FIX: write to quoteRequests at the correct path the InquiriesTab reads
-            await addDoc(collection(db, `tenants/${tenantId}/quoteRequests`), requestData);
-            setStep('done');
-        } catch (e) {
-            console.error(e);
-            setSubmitError('Something went wrong. Please try again or contact us directly.');
+            // Saved on the server (api/inquiry): checked, tidied and priced from the business's own list there.
+            const res = await fetch('/api/inquiry', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId, cf_hp: cfHp, tookMs: Date.now() - startedAt.current,
+                    firstName, lastName, email, phone, preferredContact, bestDays, bestTimeSlot,
+                    eventType, eventName, eventDate, alternateDateA: eventDate2, guestCount, partySize,
+                    interestedServiceIds: selectedServiceIds, customServiceNote,
+                    venueType, venueName, venueStreet, venueCity, venueState, venueZip, startTime, endTime,
+                    budgetRange, timeline, readyToDeposit: hasDeposit,
+                    referralSource, referralCode, specialRequests, inspirationImages: inspoImageUrls,
+                    agreedToContact: agreedToTerms,
+                }),
+            });
+            const d = await res.json().catch(() => ({ ok: false }));
+            if (d.ok) setStep('done');
+            else setSubmitError(d.error || 'Your inquiry didn’t go through. Please try again in a moment.');
+        } catch {
+            setSubmitError('No connection. Check your signal and try again.');
         } finally {
             setIsSubmitting(false);
         }
@@ -689,7 +538,7 @@ export default function QuoteInquiryPage() {
                             </Field>
 
                             <Field label="Event Name / Title (optional)">
-                                <FieldInput value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. The Williams Wedding, Sarah's 30th" />
+                                <FieldInput value={eventName} onChange={e => setEventName(e.target.value)} placeholder="For example: Sam’s 30th, or the spring team day" />
                             </Field>
 
                             <div className="space-y-3">
@@ -702,11 +551,11 @@ export default function QuoteInquiryPage() {
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
-                                <Field label="Total Guest Count" error={errors.guestCount}>
-                                    <FieldInput type="number" value={guestCount} onChange={e => setGuestCount(e.target.value)} placeholder="e.g. 150" error={errors.guestCount} />
+                                <Field label="How many people" error={errors.guestCount}>
+                                    <FieldInput type="number" value={guestCount} onChange={e => setGuestCount(e.target.value)} placeholder="For example: 40" error={errors.guestCount} />
                                 </Field>
-                                <Field label="# Needing Services" hint="e.g. bridal party of 6">
-                                    <FieldInput type="number" value={partySize} onChange={e => setPartySize(e.target.value)} placeholder="e.g. 6" />
+                                <Field label="How many it’s for" hint="If it’s only some of them">
+                                    <FieldInput type="number" value={partySize} onChange={e => setPartySize(e.target.value)} placeholder="For example: 6" />
                                 </Field>
                             </div>
                         </motion.div>
@@ -799,7 +648,7 @@ export default function QuoteInquiryPage() {
                                 <FieldTextarea
                                     value={customServiceNote}
                                     onChange={e => setCustomServiceNote(e.target.value)}
-                                    placeholder="e.g. Full glam for 8 bridesmaids, airbrush foundation, lashes..."
+                                    placeholder="Tell them what you have in mind"
                                     rows={3}
                                 />
                             </Field>
@@ -817,15 +666,16 @@ export default function QuoteInquiryPage() {
                         <motion.div key="logistics" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
                                 <h1 className="text-3xl font-black text-slate-900 tracking-tight">Where and when?</h1>
-                                <p className="text-slate-500 font-medium">This helps us calculate travel and timing.</p>
+                                <p className="text-slate-500 font-medium">So they can plan the place and the time.</p>
                             </div>
 
-                            <Field label="Service Location">
-                                <div className="grid grid-cols-3 gap-2">
+                            <Field label="Where would it be?">
+                                <div className="grid grid-cols-2 gap-2">
                                     {[
-                                        { id: 'studio',      label: 'At Studio',    icon: Building },
-                                        { id: 'on_site',     label: 'On-Site',      icon: MapPin },
-                                        { id: 'destination', label: 'Destination',  icon: Plane },
+                                        { id: 'at_business', label: `At ${studioName}`, icon: Building },
+                                        { id: 'on_site',     label: 'At my place or venue', icon: MapPin },
+                                        { id: 'destination', label: 'Somewhere farther away', icon: Plane },
+                                        { id: 'unsure',      label: 'Not sure yet', icon: Clock },
                                     ].map(opt => {
                                         const Icon = opt.icon;
                                         return (
@@ -840,59 +690,32 @@ export default function QuoteInquiryPage() {
 
                             {(venueType === 'on_site' || venueType === 'destination') && (
                                 <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                                    <Field label="Venue / Hotel Name">
-                                        <FieldInput value={venueName} onChange={e => setVenueName(e.target.value)} placeholder="e.g. The Ritz-Carlton" />
+                                    <Field label="Place name (optional)">
+                                        <FieldInput value={venueName} onChange={e => setVenueName(e.target.value)} placeholder="For example: Riverside Hall" />
                                     </Field>
                                     <Field label="Street Address">
                                         <FieldInput value={venueStreet} onChange={e => setVenueStreet(e.target.value)} placeholder="123 Main Street" />
                                     </Field>
                                     <div className="grid grid-cols-2 gap-3">
                                         <Field label="City">
-                                            <FieldInput value={venueCity} onChange={e => setVenueCity(e.target.value)} placeholder="Atlanta" />
+                                            <FieldInput value={venueCity} onChange={e => setVenueCity(e.target.value)} placeholder="City" />
                                         </Field>
                                         <Field label="State">
-                                            <FieldInput value={venueState} onChange={e => setVenueState(e.target.value)} placeholder="GA" />
+                                            <FieldInput value={venueState} onChange={e => setVenueState(e.target.value)} placeholder="State" />
                                         </Field>
                                     </div>
                                     <Field label="ZIP Code">
-                                        <FieldInput value={venueZip} onChange={e => setVenueZip(e.target.value)} placeholder="30301" />
+                                        <FieldInput value={venueZip} onChange={e => setVenueZip(e.target.value)} placeholder="ZIP" />
                                     </Field>
 
-                                    {calcingMiles && (
-                                        <div className="flex items-center gap-3 p-4 rounded-2xl bg-blue-50 border-2 border-blue-100">
-                                            <Loader className="w-4 h-4 animate-spin text-blue-500 shrink-0" />
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Calculating travel distance...</p>
-                                        </div>
-                                    )}
-                                    {mileageInfo && !calcingMiles && (
-                                        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-                                            className="p-4 rounded-2xl bg-slate-900 text-white space-y-2">
-                                            <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Estimated Travel</p>
-                                            <div className="grid grid-cols-3 gap-3 text-center">
-                                                <div>
-                                                    <p className="text-xl font-black font-mono">{mileageInfo.miles}</p>
-                                                    <p className="text-[8px] font-black uppercase opacity-40">mi round trip</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xl font-black font-mono">{mileageInfo.duration}</p>
-                                                    <p className="text-[8px] font-black uppercase opacity-40">drive time</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xl font-black font-mono text-primary">${mileageInfo.cost}</p>
-                                                    <p className="text-[8px] font-black uppercase opacity-40">est. mileage</p>
-                                                </div>
-                                            </div>
-                                            <p className="text-[8px] font-bold opacity-30 text-center">Based on IRS standard rate · Straight-line estimate</p>
-                                        </motion.div>
-                                    )}
                                 </motion.div>
                             )}
 
                             <div className="grid grid-cols-2 gap-3">
-                                <Field label="Services Start Time">
+                                <Field label="Starting at">
                                     <FieldInput type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
                                 </Field>
-                                <Field label="Must Be Done By">
+                                <Field label="Finished by">
                                     <FieldInput type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
                                 </Field>
                             </div>
@@ -902,8 +725,8 @@ export default function QuoteInquiryPage() {
                     {step === 'budget' && (
                         <motion.div key="budget" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Investment & timeline.</h1>
-                                <p className="text-slate-500 font-medium">Helps us tailor the right proposal for you.</p>
+                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Budget and timing.</h1>
+                                <p className="text-slate-500 font-medium">So the quote fits what you have in mind.</p>
                             </div>
 
                             <Field label="Budget Range" error={errors.budgetRange}>
@@ -949,7 +772,7 @@ export default function QuoteInquiryPage() {
                                     {REFERRAL_SOURCES.map(src => (
                                         <Pill key={src} selected={referralSource === src} onClick={() => {
                                             setReferralSource(src);
-                                            setShowReferralCode(src === 'Referral from a friend');
+                                            setShowReferralCode(src === 'A friend');
                                         }} className="text-xs py-3">
                                             {src}
                                         </Pill>
@@ -966,7 +789,7 @@ export default function QuoteInquiryPage() {
                                                 <FieldInput
                                                     value={referralCode}
                                                     onChange={e => setReferralCode(e.target.value.toUpperCase())}
-                                                    placeholder="e.g. JESSICA2024"
+                                                    placeholder="For example: SAM20"
                                                     className="pl-12 font-mono tracking-widest"
                                                 />
                                             </div>
@@ -979,14 +802,16 @@ export default function QuoteInquiryPage() {
                                 <FieldTextarea
                                     value={specialRequests}
                                     onChange={e => setSpecialRequests(e.target.value)}
-                                    placeholder="Allergies, mobility needs, must-haves, deal-breakers..."
+                                    placeholder="Allergies, access needs, must-haves..."
                                     rows={3}
                                 />
                             </Field>
 
-                            <Field label="Inspiration Photos (optional)" hint="Upload images directly — Pinterest screenshots, saved looks, etc.">
+                            <Field label="Inspiration Photos (optional)" hint="Pictures of what you have in mind">
                                 <ImageUploader tenantId={tenantId} onUploaded={setInspoImageUrls} />
                             </Field>
+
+                            <input type="text" name="cf_hp" value={cfHp} onChange={e => setCfHp(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-px w-px opacity-0" />
 
                             <label className="flex items-start gap-3 cursor-pointer">
                                 <motion.button
@@ -1049,7 +874,7 @@ export default function QuoteInquiryPage() {
                                     ) : null}
                                     {selectedServiceIds.length > 0 && (
                                         <div className="flex items-start gap-2">
-                                            <Scissors className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
+                                            <Sparkles className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
                                             <span>{selectedServiceIds.length} service{selectedServiceIds.length !== 1 ? 's' : ''} requested</span>
                                         </div>
                                     )}
@@ -1066,7 +891,7 @@ export default function QuoteInquiryPage() {
 
                             {(tenant?.phone || tenant?.email || tenant?.address) && (
                                 <div className="p-5 rounded-2xl bg-slate-50 border-2 border-slate-200 text-left space-y-3">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Contact {studioName} Directly</p>
+                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{studioName}</p>
                                     <div className="space-y-2 text-sm font-bold text-slate-700">
                                         {tenant?.phone && (
                                             <a href={`tel:${tenant.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">

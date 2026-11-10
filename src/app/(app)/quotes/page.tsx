@@ -11,18 +11,31 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   useFirebase, useCollection, useMemoFirebase,
   addDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking,
 } from '@/firebase';
 import {
-  collection, doc, getDocs, addDoc, updateDoc, deleteDoc, setDoc, query, where,
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc, setDoc, query, where, runTransaction,
 } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
+import { quoteDay } from '@/lib/quote-public';
+
+/** The quote's day as the business writes it ("Nov 20, 2026"). Quotes keep either the day or the moment it starts
+ *  (lib/quote-public): never parsed by gluing a time onto it, which made an invalid date and broke the page. */
+const quoteDayText = (q: any, fmt = 'MMM d, yyyy'): string => {
+  const d = quoteDay(q, (x) => format(x, 'yyyy-MM-dd'));
+  if (!d) return '';
+  const x = new Date(`${d}T12:00:00`);
+  return isNaN(x.getTime()) ? d : format(x, fmt);
+};
+/** The client's link to their quote: its own key rides along (api/quote opens nothing without it). */
+const quoteLink = (tenantId: string | undefined, q: any, origin = typeof window !== 'undefined' ? window.location.origin : ''): string | null =>
+  q?.clientSecret && tenantId ? `${origin}/quote/${tenantId}/${q.id}?k=${encodeURIComponent(q.clientSecret)}` : null;
 import { format, parseISO, formatDistanceToNow, addDays, isPast } from 'date-fns';
 import {
   PlusCircle, Search, FileText, Copy, Trash2, Send,
@@ -182,7 +195,7 @@ const QuoteCard = ({
                 <DropdownMenuItem onClick={() => onCopyLink(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
                   <LinkIcon className="w-3.5 h-3.5 mr-2" /> Copy Client Link
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => window.open(`/quote/${tenantId}/${quote.id}`, '_blank')} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
+                <DropdownMenuItem onClick={() => { const u = quoteLink(tenantId, quote); if (u) window.open(`${u}&p=1`, '_blank'); }} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10">
                   <ExternalLink className="w-3.5 h-3.5 mr-2" /> Preview
                 </DropdownMenuItem>
                 {quote.status === 'draft' && (
@@ -216,7 +229,7 @@ const QuoteCard = ({
           {quote.eventDate && (
             <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase">
               <Calendar className="w-3 h-3 opacity-40" />
-              {format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy')}
+              {quoteDayText(quote)}
             </div>
           )}
           {quote.viewedAt && (
@@ -252,7 +265,7 @@ const QuoteCard = ({
                   ? 'bg-green-50 border-green-200 text-green-700'
                   : 'bg-muted/60 border-border text-muted-foreground',
               )}>
-                {quote.depositPaid ? 'Dep. ✓' : 'No deposit'}
+                {quote.depositPaid ? 'Deposit paid' : 'No deposit'}
               </span>
             )}
           </div>
@@ -589,7 +602,7 @@ const QuoteDetailSheet = ({
             <Button variant="outline" onClick={() => onCopyLink(quote)} className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
               <LinkIcon className="mr-1.5 h-3.5 w-3.5" /> Copy Link
             </Button>
-            <Button variant="outline" onClick={() => window.open(`/quote/${tenantId}/${quote.id}`, '_blank')} className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+            <Button variant="outline" onClick={() => { const u = quoteLink(tenantId, quote); if (u) window.open(`${u}&p=1`, '_blank'); }} className="flex-1 h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
               <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Preview
             </Button>
           </div>
@@ -709,7 +722,7 @@ const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, fi
             <div className="space-y-1.5">
               {[
                 { label: 'Event Title', value: quote.eventName || 'Untitled' },
-                quote.eventDate && { label: 'Date', value: format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy') },
+                quoteDayText(quote) && { label: 'Date', value: quoteDayText(quote) },
                 quote.venue && { label: 'Venue', value: quote.venue },
                 client && { label: 'First Guest', value: client.name },
               ].filter(Boolean).map((row: any) => (
@@ -1284,6 +1297,42 @@ export default function QuotesPage() {
   const [convertDialogQuote, setConvertDialogQuote] = useState<any>(null);
   const [templatesSheetOpen, setTemplatesSheetOpen] = useState(false);
 
+  // Every quote gets its own key for the client's link: older ones were made without one, and a copy could share its
+  // original's. Given in one step against what's saved (never this screen's possibly stale copy), and only while it's
+  // still missing or still shared, so a key already sent in a link is never replaced. Of quotes sharing a key, the
+  // first made keeps it.
+  const keyTried = React.useRef(new Set<string>());
+  useEffect(() => {
+    if (!quotes || !firestore || !tenantId) return;
+    const byKey = new Map<string, any[]>();
+    quotes.forEach(q => { const k = String(q.clientSecret || ''); if (k.length >= 16) byKey.set(k, [...(byKey.get(k) || []), q]); });
+    const needs = quotes.filter(q => {
+      const k = String(q.clientSecret || '');
+      if (k.length < 16) return true;
+      const same = (byKey.get(k) || []).slice().sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')) || String(a.id).localeCompare(String(b.id)));
+      return same.length > 1 && same[0].id !== q.id;
+    });
+    needs.forEach(q => {
+      // Once per quote while this page is open (someone who can't change quotes isn't asked again and again).
+      if (keyTried.current.has(q.id)) return;
+      keyTried.current.add(q.id);
+      const ref = doc(firestore, `tenants/${tenantId}/quotes`, q.id);
+      const was = String(q.clientSecret || '');
+      void runTransaction(firestore, async (tx) => {
+        const cur: any = (await tx.get(ref)).data();
+        if (!cur) return;
+        const k = String(cur.clientSecret || '');
+        if (k.length >= 16 && k !== was) return;   // given meanwhile (or never missing): kept
+        tx.update(ref, { clientSecret: nanoid(32) });
+      }).catch(() => { /* tried again next time the list loads */ });
+    });
+  }, [quotes, firestore, tenantId]);
+  // Opened from a notice about a new inquiry: straight to the inquiries (also when already on this page).
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams?.get('tab') === 'inquiries') setActiveTab('inquiries');
+  }, [searchParams]);
+
   // Auto-expire sent/viewed quotes past their expiry date
   useEffect(() => {
     if (!quotes || !firestore || !tenantId) return;
@@ -1329,11 +1378,12 @@ export default function QuotesPage() {
       doc(firestore, `tenants/${tenantId}/quotes`, quoteToSend.id),
       { status: 'sent', sentAt: new Date().toISOString(), expiresInDays: expiryDays }
     );
-    const link = `${window.location.origin}/quote/${tenantId}/${quoteToSend.id}`;
+    const link = quoteLink(tenantId, quoteToSend);
+    if (!link) { toast({ title: 'Marked as sent', description: 'Its link is being made. Copy it from the quote in a moment.' }); setQuoteToSend(null); return; }
     navigator.clipboard.writeText(link).then(() => {
-      toast({ title: 'Quote Sent ✓', description: 'Client link copied — paste it in your message to them.' });
+      toast({ title: 'Quote sent', description: 'The client’s link is copied. Paste it in your message to them.' });
     }).catch(() => {
-      toast({ title: 'Quote Sent ✓', description: `Share this link: ${link}` });
+      toast({ title: 'Quote sent', description: `Share this link: ${link}` });
     });
     setQuoteToSend(null);
   };
@@ -1347,15 +1397,18 @@ export default function QuotesPage() {
   };
 
   const handleCopyLink = (quote: any) => {
-    navigator.clipboard.writeText(`${window.location.origin}/quote/${tenantId}/${quote.id}`);
-    toast({ title: 'Link Copied', description: 'Paste it anywhere to share with the client.' });
+    const link = quoteLink(tenantId, quote);
+    if (!link) { toast({ title: 'One moment', description: 'This quote’s link is being made. Try again in a moment.' }); return; }
+    navigator.clipboard.writeText(link);
+    toast({ title: 'Link copied', description: 'Paste it in your message to the client.' });
   };
 
   const handleDuplicate = (quote: any) => {
     if (!firestore || !tenantId) return;
-    const { id, status, sentAt, viewedAt, acceptedAt, declinedAt, expiredAt, locked, convertedToEventId, convertedAt, ...rest } = quote;
+    const { id, status, sentAt, viewedAt, acceptedAt, declinedAt, expiredAt, locked, convertedToEventId, convertedAt, clientSecret,
+      acceptedVia, declineReason, declineNote, needsFollowUp, revisionRequestedAt, lastRevisionNote, payments, depositPaid, ...rest } = quote;
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/quotes`), {
-      ...rest, eventName: `${quote.eventName} (Copy)`, status: 'draft', createdAt: new Date().toISOString(),
+      ...rest, eventName: `${quote.eventName} (Copy)`, status: 'draft', createdAt: new Date().toISOString(), clientSecret: nanoid(32),
     });
     toast({ title: 'Duplicated' });
   };

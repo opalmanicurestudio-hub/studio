@@ -81,6 +81,7 @@ interface PrefillOptions {
     setRoundTripDistance?:  (miles: number) => void;    // travel section
     setDepositAmountValue?: (amount: number) => void;   // financial terms
     setDepositType?:        (type: 'percentage' | 'flat') => void;
+    setEventStartTime?:     (time: string) => void;     // the start time they asked for
 }
 
 export const useInquiryPrefill = ({
@@ -96,6 +97,7 @@ export const useInquiryPrefill = ({
     setRoundTripDistance,
     setDepositAmountValue,
     setDepositType,
+    setEventStartTime,
 }: PrefillOptions) => {
     const searchParams = useSearchParams();
     const { toast }    = useToast();
@@ -160,7 +162,7 @@ export const useInquiryPrefill = ({
                 }
 
                 // ── 3. Event name ──────────────────────────────────────────
-                const eventTypeLabel = req.eventType
+                const eventTypeLabel = req.eventTypeLabel ? String(req.eventTypeLabel) : req.eventType
                     ? req.eventType.charAt(0).toUpperCase() + req.eventType.slice(1)
                     : 'Event';
                 setEventName(
@@ -173,6 +175,7 @@ export const useInquiryPrefill = ({
                     const [y, m, d] = req.eventDate.split('-').map(Number);
                     setEventStartDate(new Date(y, m - 1, d));
                 }
+                if (req.startTime && /^\d{2}:\d{2}$/.test(String(req.startTime)) && setEventStartTime) setEventStartTime(String(req.startTime));
 
                 // ── 5. Location — FIX: use full address fields ─────────────
                 if (req.venueStreet || req.venueCity || req.venueName) {
@@ -218,10 +221,10 @@ export const useInquiryPrefill = ({
                 // ── 10. Notes — compile everything the owner needs to see ──
                 const parts: string[] = [];
                 parts.push(`=== INQUIRY FROM ${(req.fullName || req.firstName || 'Client').toUpperCase()} ===`);
-                parts.push(`Event: ${req.eventType || 'N/A'} · ${req.guestCount || '?'} guests · ${req.partySize || '?'} needing services`);
-                if (req.budgetRange)     parts.push(`Budget: ${req.budgetRange}`);
-                if (req.timeline)        parts.push(`Timeline: ${req.timeline}`);
-                if (req.venueType)       parts.push(`Location type: ${req.venueType}`);
+                parts.push(`Event: ${req.eventTypeLabel || req.eventType || 'N/A'} · ${req.guestCount || '?'} people · ${req.partySize || '?'} it’s for`);
+                if (req.budgetRange)     parts.push(`Budget: ${req.budgetLabel || req.budgetRange}`);
+                if (req.timeline)        parts.push(`Timeline: ${req.timelineLabel || req.timeline}`);
+                if (req.venueType)       parts.push(`Where: ${req.venueTypeLabel || req.venueType}`);
                 if (req.eventLocation)   parts.push(`Venue: ${req.eventLocation}`);
                 if (req.estimatedMiles)  parts.push(`Travel: ~${req.estimatedMiles} mi round trip · est. $${req.estimatedTravelCost}`);
                 if (req.startTime)       parts.push(`Start time: ${req.startTime}${req.endTime ? ` → ${req.endTime}` : ''}`);

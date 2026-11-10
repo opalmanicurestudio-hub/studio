@@ -1,815 +1,192 @@
 'use client';
 
-/**
- * COMPLETE PUBLIC QUOTE PAGE
- * Route: src/app/quote/[tenantId]/[id]/page.tsx
- *
- * Full lifecycle:
- * - Review → (deposit required?) Payment → Success
- * - Review → Decline (capture reason) → Void
- * - Revision request dialog
- * - Read receipt on first load
- * - Expiration enforcement
- * - On accept: creates calendar block, ledger entry, notification, locks quote
- * - On decline: captures reason, saves, triggers follow-up flag
- */
+// src/app/quote/[tenantId]/[id]/page.tsx — A CLIENT'S QUOTE, from the link the business sends (?k= is the quote's own
+// key). What's quoted, the total and the deposit, when it runs out, and the business's terms; the client accepts it,
+// asks for changes or declines it. Everything goes through api/quote: the page never reads or writes the business's
+// records itself. No card is taken here: a deposit is asked for afterwards, with a payment link from the business.
 
-import { guestLogo } from '@/lib/brand';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { initializeApp, getApps } from 'firebase/app';
-import {
-    getFirestore, doc, getDoc, updateDoc, addDoc, collection, serverTimestamp,
-} from 'firebase/firestore';
-import { motion, AnimatePresence } from 'framer-motion';
-import { nanoid } from 'nanoid';
-import {
-    CheckCircle2, XCircle, Loader, Lock, Sparkles,
-    DollarSign, Users, TrendingUp, AlertTriangle, ChevronDown, ChevronUp,
-    Calendar, MapPin, ArrowRight, Edit, MessageSquare, Clock, Shield,
-    FileText, Phone, Mail, Star, RefreshCw, Building,
-} from 'lucide-react';
-import { format, parseISO, isPast, addDays } from 'date-fns';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
 
-// ─── Standalone Firebase ───────────────────────────────────────────────────────
-const getDb = () => {
-    if (getApps().length === 0) {
-        initializeApp({
-            apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-            authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-            projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-            storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-            messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-            appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-        });
-    }
-    return getFirestore();
-};
-
-// ─── Decline reasons ───────────────────────────────────────────────────────────
-const DECLINE_REASONS = [
-    'Price is too high',
-    'Found another provider',
-    'Date no longer available',
-    'Event plans changed',
-    'Need more time to decide',
-    'Services don\'t match my needs',
-    'Other',
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
+const REASONS = [
+  'The price is more than I planned',
+  'I went with someone else',
+  'The date doesn’t work anymore',
+  'My plans changed',
+  'I need more time to decide',
+  'It isn’t what I’m looking for',
+  'Something else',
 ];
+const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const longDay = (d: string | null) => { if (!d) return ''; const x = new Date(`${d}T12:00:00Z`); return isNaN(x.getTime()) ? d : x.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); };
+const hm = (t: string | null) => { const m = /^(\d{2}):(\d{2})$/.exec(String(t || '')); if (!m) return ''; const h = Number(m[1]); return `${h % 12 || 12}${m[2] === '00' ? '' : `:${m[2]}`}${h < 12 ? 'am' : 'pm'}`; };
+const terms = (t: string | null) => t === 'net_30' ? 'The rest is due 30 days before the event.' : t === 'net_15' ? 'The rest is due 15 days before the event.' : t ? 'The rest is due as agreed.' : 'The rest is due as agreed with the business.';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-const formatCurrency = (n: number) => `$${(n || 0).toFixed(2)}`;
+type View = 'quote' | 'decline' | 'revise' | 'declined' | 'revised';
 
-const StatusBadge = ({ status }: { status: string }) => {
-    const config: Record<string, { label: string; className: string }> = {
-        draft:    { label: 'Draft',    className: 'bg-slate-100 border-slate-200 text-slate-600' },
-        sent:     { label: 'Sent',     className: 'bg-blue-50 border-blue-200 text-blue-700' },
-        viewed:   { label: 'Viewed',   className: 'bg-purple-50 border-purple-200 text-purple-700' },
-        accepted: { label: 'Accepted', className: 'bg-green-50 border-green-200 text-green-700' },
-        declined: { label: 'Declined', className: 'bg-red-50 border-red-200 text-red-700' },
-        expired:  { label: 'Expired',  className: 'bg-amber-50 border-amber-200 text-amber-700' },
-    };
-    const c = config[status] || config.sent;
-    return (
-        <Badge variant="outline" className={cn('h-7 px-4 rounded-full border-2 font-black uppercase text-[10px] tracking-widest', c.className)}>
-            {c.label}
-        </Badge>
-    );
-};
-
-// ─── Payment schedule display ──────────────────────────────────────────────────
-const PaymentSchedule = ({ quote, total }: { quote: any; total: number }) => {
-    const schedule = quote.paymentSchedule;
-    if (!schedule || schedule.length === 0) {
-        if (!quote.depositAmount) return null;
-        // Simple deposit + balance
-        const balance = total - (quote.depositAmount || 0);
-        return (
-            <div className="space-y-3 p-6 rounded-[2rem] border-2 border-primary/10 bg-primary/[0.02]">
-                <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">Payment Schedule</p>
-                <div className="space-y-2">
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white border">
-                        <div>
-                            <p className="font-black text-sm text-slate-900">Deposit</p>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase">Due upon acceptance</p>
-                        </div>
-                        <p className="font-black font-mono text-primary">{formatCurrency(quote.depositAmount)}</p>
-                    </div>
-                    {balance > 0 && (
-                        <div className="flex justify-between items-center p-3 rounded-xl bg-white border">
-                            <div>
-                                <p className="font-black text-sm text-slate-900">Remaining Balance</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                                    {quote.paymentTerms === 'net_30' ? 'Due 30 days before event' :
-                                     quote.paymentTerms === 'net_15' ? 'Due 15 days before event' :
-                                     'Due on receipt'}
-                                </p>
-                            </div>
-                            <p className="font-black font-mono text-slate-700">{formatCurrency(balance)}</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    }
-    return (
-        <div className="space-y-3 p-6 rounded-[2rem] border-2 border-primary/10 bg-primary/[0.02]">
-            <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">Payment Schedule</p>
-            <div className="space-y-2">
-                {schedule.map((payment: any, i: number) => (
-                    <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-white border">
-                        <div>
-                            <p className="font-black text-sm text-slate-900">{payment.label}</p>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase">{payment.dueDate}</p>
-                        </div>
-                        <p className="font-black font-mono text-primary">{formatCurrency(payment.amount)}</p>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-// ─── Revision request dialog ───────────────────────────────────────────────────
-const RevisionDialog = ({ open, onClose, onSubmit }: {
-    open: boolean; onClose: () => void;
-    onSubmit: (message: string) => void;
-}) => {
-    const [message, setMessage] = useState('');
-    if (!open) return null;
-    return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <motion.div
-                initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-lg bg-white rounded-[2.5rem] border-4 shadow-3xl overflow-hidden"
-            >
-                <div className="p-8 space-y-6">
-                    <div className="space-y-1">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter">Request a Revision</h3>
-                        <p className="text-sm font-medium text-muted-foreground">Describe what you'd like changed and we'll update the proposal.</p>
-                    </div>
-                    <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your Request</Label>
-                        <Textarea
-                            value={message}
-                            onChange={e => setMessage(e.target.value)}
-                            placeholder="e.g. Can we swap one service for another? Also curious if you can do 7 people instead of 6..."
-                            rows={4}
-                            className="rounded-2xl border-2 bg-muted/5"
-                        />
-                    </div>
-                    <div className="flex gap-3">
-                        <Button variant="outline" onClick={onClose} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={() => { onSubmit(message); setMessage(''); }}
-                            disabled={!message.trim()}
-                            className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
-                        >
-                            Send Request
-                        </Button>
-                    </div>
-                </div>
-            </motion.div>
-        </div>
-    );
-};
-
-// ─── Main page ─────────────────────────────────────────────────────────────────
 export default function PublicQuotePage() {
-    const { id, tenantId } = useParams() as { id: string; tenantId: string };
-    const db = getDb();
+  const { id, tenantId } = useParams() as { id: string; tenantId: string };
+  const k = useMemo(() => { try { return new URLSearchParams(window.location.search).get('k') || ''; } catch { return ''; } }, []);
+  const [q, setQ] = useState<any>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'denied'>('loading');
+  const [view, setView] = useState<View>('quote');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [ask, setAsk] = useState('');
 
-    const [quote,   setQuote]   = useState<any>(null);
-    const [tenant,  setTenant]  = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    const [step, setStep]       = useState<'review' | 'decline_reason' | 'success' | 'declined' | 'expired' | 'revision_sent'>('review');
-    const [isPaying,   setIsPaying]   = useState(false);
-    const [declineReason, setDeclineReason] = useState('');
-    const [declineNote,   setDeclineNote]   = useState('');
-    const [showRevision,  setShowRevision]  = useState(false);
+  const call = async (action: string, extra: any = {}) => {
+    const r = await fetch('/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, id, k, action, ...extra }) });
+    return r.json().catch(() => ({ ok: false, error: 'That didn’t go through. Try again in a moment.' }));
+  };
 
-    // ── Load quote + tenant ────────────────────────────────────────────────────
-    useEffect(() => {
-        if (!id || !tenantId) return;
-        const load = async () => {
-            try {
-                const [qSnap, tSnap] = await Promise.all([
-                    getDoc(doc(db, `tenants/${tenantId}/quotes`, id)),
-                    getDoc(doc(db, `tenants/${tenantId}`)),
-                ]);
-                if (qSnap.exists()) {
-                    const q = { id: qSnap.id, ...qSnap.data() };
-                    setQuote(q);
+  useEffect(() => {
+    if (!tenantId || !id) return;
+    if (!k) { setState('denied'); setError('This link is missing part of itself. Open the link the business sent you.'); return; }
+    const preview = (() => { try { return new URLSearchParams(window.location.search).get('p') === '1'; } catch { return false; } })();
+    call('view', { preview }).then((d) => {
+      if (d.ok) { setQ(d.quote); setState('ready'); }
+      else { setState('denied'); setError(d.error || 'This link no longer opens a quote.'); }
+    }).catch(() => { setState('denied'); setError('No connection. Check your signal and try again.'); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, id, k]);
 
-                    // ── Read receipt ─────────────────────────────────────────
-                    // Mark as viewed the first time a client opens it
-                    const qData = qSnap.data();
-                    if (qData.status === 'sent' && !qData.viewedAt) {
-                        await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
-                            status:   'viewed',
-                            viewedAt: new Date().toISOString(),
-                        });
-                        // Notify owner
-                        await addDoc(collection(db, `tenants/${tenantId}/notifications`), {
-                            id:        nanoid(),
-                            type:      'quote_viewed',
-                            message:   `Your quote for "${qData.eventName}" has been viewed by the client.`,
-                            link:      '/quotes',
-                            read:      false,
-                            createdAt: new Date().toISOString(),
-                        });
-                        setQuote((prev: any) => ({ ...prev, status: 'viewed', viewedAt: new Date().toISOString() }));
-                    }
+  const act = async (action: string, extra: any, then: (d: any) => void) => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try { const d = await call(action, extra); if (d.ok) then(d); else { if (d.quote) setQ(d.quote); setError(d.error || 'That didn’t go through. Try again.'); } }
+    catch { setError('No connection. Try again.'); }
+    finally { setBusy(false); }
+  };
 
-                    // ── Expiration check ──────────────────────────────────────
-                    if (['sent', 'viewed'].includes(qData.status)) {
-                        const expiryDays = qData.expiresInDays || 14;
-                        const sentAt = qData.sentAt || qData.createdAt;
-                        if (sentAt) {
-                            const expiryDate = addDays(new Date(sentAt), expiryDays);
-                            if (isPast(expiryDate)) {
-                                await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
-                                    status: 'expired',
-                                    expiredAt: new Date().toISOString(),
-                                });
-                                setStep('expired');
-                                setQuote((prev: any) => ({ ...prev, status: 'expired' }));
-                            }
-                        }
-                    }
+  const btn = 'w-full min-h-[48px] rounded-full text-[15px] font-semibold transition active:scale-[.99] disabled:opacity-40 flex items-center justify-center px-5';
+  const card = 'rounded-2xl p-5';
+  const cardStyle = { background: '#fff', border: `1px solid ${LINE}` };
+  const biz = q?.business || {};
 
-                    // Already accepted/declined/expired — skip to result screen
-                    if (qData.status === 'accepted') setStep('success');
-                    if (qData.status === 'declined') setStep('declined');
-                    if (qData.status === 'expired')  setStep('expired');
-                }
-                if (tSnap.exists()) setTenant(tSnap.data());
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setLoading(false);
-            }
-        };
-        load();
-    }, [id, tenantId]);
-
-    // ── Derived numbers ────────────────────────────────────────────────────────
-    const servicesSubtotal = useMemo(() =>
-        quote?.lineItems?.reduce((a: number, i: any) => a + ((i.price || 0) * (i.quantity || 1)), 0) || 0
-    , [quote]);
-    const projectFeeAmount = servicesSubtotal * ((quote?.projectFee || 0) / 100);
-    const total = servicesSubtotal + (quote?.travelExpenses || 0) + projectFeeAmount;
-
-    // ── Accept flow ────────────────────────────────────────────────────────────
-    // No card is taken on this page: a deposit is asked for afterwards, with a secure payment link from the business.
-    const handleAccept = () => { void finalizeAcceptance(); };
-
-    const finalizeAcceptance = async () => {
-        if (!quote) return;
-        setIsPaying(true);
-        try {
-            const now = new Date().toISOString();
-
-            // 1. Lock + mark quote accepted
-            await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
-                status:     'accepted',
-                acceptedAt: now,
-                locked:     true,
-            });
-
-            // 2. Create calendar block on the planner
-            if (quote.eventDate) {
-                const eventStart = new Date(quote.eventDate);
-                const eventEnd   = new Date(eventStart);
-                eventEnd.setHours(eventEnd.getHours() + (quote.totalHours || 4));
-                await addDoc(collection(db, `tenants/${tenantId}/events`), {
-                    id:          nanoid(),
-                    title:       quote.eventName || 'Booked Event',
-                    type:        'blocked',
-                    status:      'confirmed',
-                    clientId:    quote.clientId,
-                    quoteId:     id,
-                    startTime:   eventStart.toISOString(),
-                    endTime:     eventEnd.toISOString(),
-                    staffIds:    quote.staffPayouts?.map((s: any) => s.staffId) || ['all'],
-                    notes:       `Auto-created from accepted quote: ${quote.eventName}`,
-                    createdAt:   now,
-                });
-            }
-
-            // 3. Create ledger entry for deposit
-            if (quote.depositAmount && quote.depositAmount > 0) {
-                await addDoc(collection(db, `tenants/${tenantId}/transactions`), {
-                    id:          nanoid(),
-                    type:        'deposit',
-                    amount:      quote.depositAmount,
-                    clientId:    quote.clientId,
-                    quoteId:     id,
-                    description: `Deposit — ${quote.eventName}`,
-                    status:      'pending', // becomes 'paid' once payment is collected
-                    dueDate:     now,
-                    createdAt:   now,
-                });
-            }
-
-            // 4. Notify owner
-            await addDoc(collection(db, `tenants/${tenantId}/notifications`), {
-                id:        nanoid(),
-                type:      'quote_accepted',
-                message:   `Quote accepted: "${quote.eventName}", ${formatCurrency(total)}.${(quote.depositAmount || 0) > 0 ? ` Send them a payment link for the ${formatCurrency(quote.depositAmount)} deposit.` : ''}`,
-                link:      '/quotes',
-                read:      false,
-                priority:  'high',
-                createdAt: now,
-            });
-
-            // 5. Update client record
-            if (quote.clientId) {
-                await updateDoc(doc(db, `tenants/${tenantId}/clients`, quote.clientId), {
-                    lastQuoteAccepted: now,
-                    hasActiveBooking:  true,
-                });
-            }
-
-            setStep('success');
-        } catch (e) {
-            console.error('Accept error:', e);
-        } finally {
-            setIsPaying(false);
-        }
-    };
-
-    // ── Decline flow ───────────────────────────────────────────────────────────
-    const handleDeclineSubmit = async () => {
-        if (!quote) return;
-        const now = new Date().toISOString();
-        await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
-            status:        'declined',
-            declinedAt:    now,
-            declineReason: declineReason,
-            declineNote:   declineNote || null,
-            needsFollowUp: true, // flag for owner to follow up
-        });
-        // Notify owner with reason
-        await addDoc(collection(db, `tenants/${tenantId}/notifications`), {
-            id:        nanoid(),
-            type:      'quote_declined',
-            message:   `Quote declined: "${quote.eventName}". Reason: ${declineReason || 'Not specified'}.`,
-            link:      '/quotes',
-            read:      false,
-            createdAt: now,
-        });
-        setStep('declined');
-    };
-
-    // ── Revision request ───────────────────────────────────────────────────────
-    const handleRevisionSubmit = async (message: string) => {
-        if (!quote) return;
-        const now = new Date().toISOString();
-        // Save revision request to a subcollection
-        await addDoc(collection(db, `tenants/${tenantId}/quotes/${id}/revisions`), {
-            id:        nanoid(),
-            message,
-            requestedAt: now,
-            status:    'pending',
-        });
-        // Update quote status
-        await updateDoc(doc(db, `tenants/${tenantId}/quotes`, id), {
-            status:            'revision_requested',
-            revisionRequestedAt: now,
-            lastRevisionNote:  message,
-        });
-        // Notify owner
-        await addDoc(collection(db, `tenants/${tenantId}/notifications`), {
-            id:        nanoid(),
-            type:      'quote_revision',
-            message:   `Revision requested on "${quote.eventName}": ${message.slice(0, 80)}...`,
-            link:      '/quotes',
-            read:      false,
-            createdAt: now,
-        });
-        setShowRevision(false);
-        setStep('revision_sent');
-    };
-
-    // ── Loading ────────────────────────────────────────────────────────────────
-    if (loading) return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-white">
-            <div className="flex flex-col items-center gap-4">
-                <Loader className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading Proposal...</p>
-            </div>
+  return (
+    <div className="min-h-screen px-4 py-8" style={{ background: SOFT, color: INK, paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+      <div className="max-w-xl mx-auto space-y-3">
+        <div className="px-1 pb-2 flex items-center gap-3">
+          {biz.logoUrl ? <img src={biz.logoUrl} alt="" className="h-9 w-9 rounded-full object-cover" style={{ border: `1px solid ${LINE}` }} /> : null}
+          <p className="text-[14px]" style={{ color: MUTED }}>{biz.name || 'Your quote'}</p>
         </div>
-    );
 
-    if (!quote) return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-white">
-            <div className="text-center space-y-3">
-                <AlertTriangle className="w-12 h-12 text-muted-foreground opacity-20 mx-auto" />
-                <p className="font-black uppercase tracking-widest text-slate-500">Proposal not found</p>
-                <p className="text-sm text-muted-foreground">This link may have expired or been removed.</p>
+        {state === 'loading' && (
+          <div className={`${card} flex justify-center p-10`} style={cardStyle}>
+            <div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your quote" />
+          </div>
+        )}
+
+        {state === 'denied' && (
+          <div className={`${card} space-y-1`} style={cardStyle}>
+            <p className="text-[16px] font-semibold">This link doesn’t open a quote</p>
+            <p className="text-[14px]" style={{ color: MUTED }}>{error}</p>
+          </div>
+        )}
+
+        {state === 'ready' && q && view === 'quote' && (
+          <>
+            <div className={`${card} space-y-1.5`} style={cardStyle}>
+              <p className="text-[13px] font-medium" style={{ color: MUTED }}>Your quote</p>
+              <h1 className="text-[26px] font-semibold tracking-tight leading-tight">{q.eventName}</h1>
+              <p className="text-[15px]" style={{ color: MUTED }}>
+                {[q.eventDay ? `${longDay(q.eventDay)}${q.startTime ? `, from ${hm(q.startTime)}` : ''}` : '', q.hours ? `${q.hours} hour${q.hours === 1 ? '' : 's'}` : '', q.place].filter(Boolean).join(' · ')}
+              </p>
+              {q.notes && <p className="text-[15px] pt-2 whitespace-pre-line" style={{ borderTop: `1px solid ${LINE}` }}>{q.notes}</p>}
             </div>
-        </div>
-    );
 
-    const primaryColor = tenant?.bookingPageSettings?.primaryColor || tenant?.kioskSettings?.primaryColor || '#0f172a';
-    const logoUrl      = tenant?.bookingPageSettings?.logoUrl || guestLogo(tenant);
-    const isLocked     = quote.locked || quote.status === 'accepted';
-    const canInteract  = ['sent', 'viewed', 'revision_requested'].includes(quote.status);
+            {q.status === 'draft' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff', border: `1px solid ${LINE}` }}>A preview: this quote hasn’t been sent yet. It’s how your client will see it.</div>}
+            {q.status === 'accepted' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#ecf6f0', color: GREEN, border: `1px solid ${LINE}` }}>You accepted this quote. {q.deposit > 0 ? `${biz.name || 'The business'} will send you a link to pay the ${usd(q.deposit)} deposit.` : `${biz.name || 'The business'} will be in touch with what’s next.`}</div>}
+            {q.status === 'declined' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff', border: `1px solid ${LINE}` }}>You declined this quote.</div>}
+            {q.status === 'expired' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff7ed', color: AMBER, border: `1px solid ${LINE}` }}>This quote has run out. Ask {biz.name || 'the business'} for a new one.</div>}
+            {q.status === 'revision_requested' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff7ed', color: AMBER, border: `1px solid ${LINE}` }}>You asked for changes. {biz.name || 'The business'} will send you an updated quote.</div>}
 
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-            <div className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur-xl px-6 py-4">
-                <div className="max-w-3xl mx-auto flex items-center justify-between">
-                    {logoUrl ? (
-                        <img src={logoUrl} alt={tenant?.name} className="h-7 w-auto object-contain" />
-                    ) : (
-                        <p className="font-black uppercase tracking-tighter text-slate-900">{tenant?.name}</p>
-                    )}
-                    <StatusBadge status={quote.status} />
+            <div className={card} style={cardStyle}>
+              <p className="text-[13px] font-medium" style={{ color: MUTED }}>What’s included</p>
+              <div className="mt-2">
+                {q.lines.map((l: any, i: number) => (
+                  <div key={i} className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
+                    <span className="min-w-0">{l.name}{l.quantity > 1 ? <span style={{ color: MUTED }}> × {l.quantity}</span> : null}</span>
+                    <span className="tabular-nums shrink-0">{usd(l.price * l.quantity)}</span>
+                  </div>
+                ))}
+                {q.travel > 0 && <div className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]" style={{ borderTop: `1px solid ${LINE}` }}><span>Travel</span><span className="tabular-nums">{usd(q.travel)}</span></div>}
+                {q.fee > 0 && <div className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]" style={{ borderTop: `1px solid ${LINE}` }}><span>Project fee ({q.feePercent}%)</span><span className="tabular-nums">{usd(q.fee)}</span></div>}
+                <div className="flex items-baseline justify-between gap-3 pt-3 mt-1 text-[18px] font-semibold" style={{ borderTop: `1px solid ${INK}` }}><span>Total</span><span className="tabular-nums">{usd(q.total)}</span></div>
+                {q.deposit > 0 && (
+                  <p className="text-[14px] mt-2" style={{ color: MUTED }}>A {usd(q.deposit)} deposit holds your date, paid after you accept with a link from {biz.name || 'the business'}. {terms(q.paymentTerms)}</p>
+                )}
+              </div>
+            </div>
+
+            {q.open && q.expiresAt && <p className="text-[13.5px] px-1" style={{ color: AMBER }}>Open until {new Date(q.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}. Accept by then to hold your date.</p>}
+
+            {q.cancellationPolicy && (
+              <div className={card} style={cardStyle}>
+                <p className="text-[13px] font-medium" style={{ color: MUTED }}>If plans change</p>
+                <p className="text-[14px] mt-1.5 whitespace-pre-line">{q.cancellationPolicy}</p>
+              </div>
+            )}
+
+            {q.open && (
+              <div className="space-y-2.5 pt-1">
+                <button type="button" onClick={() => act('accept', { total: q.total }, (d) => setQ(d.quote))} disabled={busy} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Accepting…' : `Accept this quote, ${usd(q.total)}`}</button>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button type="button" onClick={() => { setView('revise'); setError(''); }} disabled={busy} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Ask for changes</button>
+                  <button type="button" onClick={() => { setView('decline'); setError(''); }} disabled={busy} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Decline</button>
                 </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {state === 'ready' && view === 'revise' && (
+          <div className={`${card} space-y-3`} style={cardStyle}>
+            <p className="text-[18px] font-semibold">What would you like changed?</p>
+            <label className="block text-[13px]" style={{ color: MUTED }}>Your note to {biz.name || 'the business'}
+              <textarea value={ask} onChange={(e) => setAsk(e.target.value)} rows={4} maxLength={1000} className="mt-1 w-full rounded-xl px-3 py-2.5 text-[15px]" style={{ border: `1px solid ${LINE}`, color: INK }} placeholder="For example: one more person, or a later start" />
+            </label>
+            <button type="button" onClick={() => act('revise', { message: ask }, () => setView('revised'))} disabled={busy || ask.trim().length < 3} className={btn} style={{ background: INK, color: '#fff' }}>{busy ? 'Sending…' : 'Send'}</button>
+            <button type="button" onClick={() => setView('quote')} disabled={busy} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Back to the quote</button>
+          </div>
+        )}
+
+        {state === 'ready' && view === 'decline' && (
+          <div className={`${card} space-y-3`} style={cardStyle}>
+            <p className="text-[18px] font-semibold">Decline this quote?</p>
+            <p className="text-[14px]" style={{ color: MUTED }}>Telling {biz.name || 'the business'} why is optional, and helps them.</p>
+            <div className="space-y-2" role="radiogroup" aria-label="Why you’re declining">
+              {REASONS.map((x) => (
+                <button key={x} type="button" role="radio" aria-checked={reason === x} onClick={() => setReason(reason === x ? '' : x)}
+                  className="w-full min-h-[44px] rounded-xl px-3.5 text-left text-[15px]" style={{ border: `1px solid ${reason === x ? INK : LINE}`, background: reason === x ? SOFT : '#fff', color: INK, fontWeight: reason === x ? 600 : 400 }}>{x}</button>
+              ))}
             </div>
+            <label className="block text-[13px]" style={{ color: MUTED }}>Anything else (optional)
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={1000} className="mt-1 w-full rounded-xl px-3 py-2.5 text-[15px]" style={{ border: `1px solid ${LINE}`, color: INK }} />
+            </label>
+            <button type="button" onClick={() => act('decline', { reason: reason || 'Something else', note }, () => setView('declined'))} disabled={busy} className={btn} style={{ background: RED, color: '#fff' }}>{busy ? 'Sending…' : 'Decline the quote'}</button>
+            <button type="button" onClick={() => setView('quote')} disabled={busy} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Back to the quote</button>
+          </div>
+        )}
 
-            <div className="max-w-3xl mx-auto px-4 py-10 pb-32 space-y-8">
-                <AnimatePresence mode="wait">
+        {state === 'ready' && (view === 'declined' || view === 'revised') && (
+          <div className={`${card} space-y-1`} style={cardStyle}>
+            <p className="text-[16px] font-semibold">{view === 'declined' ? 'You declined the quote' : 'Your note is on its way'}</p>
+            <p className="text-[14px]" style={{ color: MUTED }}>{view === 'declined' ? `Thank you for letting ${biz.name || 'the business'} know. If your plans change, ask them for a new quote.` : `${biz.name || 'The business'} will send you an updated quote.`}</p>
+          </div>
+        )}
 
-                    {step === 'review' && (
-                        <motion.div key="review" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+        {error && state === 'ready' && <div className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff7ed', color: AMBER, border: `1px solid ${LINE}` }} role="alert">{error}</div>}
 
-                            <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-6">
-                                <div className="space-y-2">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Custom Proposal for</p>
-                                    <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-                                        {quote.eventName || 'Your Event'}
-                                    </h1>
-                                    {quote.notes && (
-                                        <p className="text-sm font-medium text-muted-foreground leading-relaxed pt-2 border-t border-dashed">
-                                            {quote.notes}
-                                        </p>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    {quote.eventDate && (
-                                        <div className="flex items-center gap-2 p-3 rounded-2xl bg-muted/5 border">
-                                            <Calendar className="w-4 h-4 text-primary/40 shrink-0" />
-                                            <div>
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date</p>
-                                                <p className="font-black text-sm text-slate-900">
-                                                    {format(new Date(quote.eventDate + 'T12:00:00'), 'MMM d, yyyy')}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {(quote.eventLocation?.city || quote.eventLocation?.street) && (
-                                        <div className="flex items-center gap-2 p-3 rounded-2xl bg-muted/5 border">
-                                            <MapPin className="w-4 h-4 text-primary/40 shrink-0" />
-                                            <div>
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Location</p>
-                                                <p className="font-black text-sm text-slate-900 truncate">
-                                                    {typeof quote.eventLocation === 'string'
-                                                        ? quote.eventLocation
-                                                        : [quote.eventLocation?.street, quote.eventLocation?.city].filter(Boolean).join(', ')}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {quote.totalHours > 0 && (
-                                        <div className="flex items-center gap-2 p-3 rounded-2xl bg-muted/5 border">
-                                            <Clock className="w-4 h-4 text-primary/40 shrink-0" />
-                                            <div>
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Duration</p>
-                                                <p className="font-black text-sm text-slate-900">{quote.totalHours} hours</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {quote.expiresInDays && quote.sentAt && (
-                                    <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border-2 border-amber-100">
-                                        <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                                        <p className="text-[11px] font-bold text-amber-700">
-                                            This proposal expires {format(addDays(new Date(quote.sentAt), quote.expiresInDays), 'MMMM d, yyyy')}.
-                                            Accept before then to secure your date.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-4">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Services Included</p>
-                                <div className="space-y-3">
-                                    {quote.lineItems?.map((item: any, idx: number) => (
-                                        <div key={idx} className="flex justify-between items-center p-4 rounded-2xl bg-muted/10 border">
-                                            <div>
-                                                <p className="font-black text-sm uppercase tracking-tight text-slate-900">{item.name}</p>
-                                                <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">
-                                                    {item.quantity} × {formatCurrency(item.price)}
-                                                </p>
-                                            </div>
-                                            <p className="font-black font-mono text-slate-900">{formatCurrency(item.price * item.quantity)}</p>
-                                        </div>
-                                    ))}
-                                    {(quote.travelExpenses || 0) > 0 && (
-                                        <div className="flex justify-between items-center p-4 rounded-2xl border border-dashed">
-                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">Travel & Logistics</p>
-                                            <p className="font-black font-mono text-slate-900">{formatCurrency(quote.travelExpenses)}</p>
-                                        </div>
-                                    )}
-                                    {(quote.projectFee || 0) > 0 && (
-                                        <div className="flex justify-between items-center p-4 rounded-2xl border border-dashed">
-                                            <p className="font-black text-sm uppercase tracking-tight text-slate-900">Project Fee ({quote.projectFee}%)</p>
-                                            <p className="font-black font-mono text-slate-900">{formatCurrency(projectFeeAmount)}</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Total Investment</span>
-                                        <span className="text-4xl font-black font-mono tracking-tighter">{formatCurrency(total)}</span>
-                                    </div>
-                                    {(quote.depositAmount || 0) > 0 && (
-                                        <div className="pt-4 border-t border-white/10 flex justify-between items-center">
-                                            <div>
-                                                <span className="text-[10px] font-black uppercase tracking-widest text-primary">Deposit, paid after you accept</span>
-                                                <p className="text-[9px] font-bold opacity-40 uppercase mt-0.5">Balance due per payment terms</p>
-                                            </div>
-                                            <span className="text-2xl font-black font-mono text-primary">{formatCurrency(quote.depositAmount)}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <PaymentSchedule quote={quote} total={total} />
-
-                            {(quote.cancellationPolicy || tenant?.cancellationPolicy) && (
-                                <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        <Shield className="w-4 h-4 text-primary/40" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cancellation Policy</p>
-                                    </div>
-                                    <p className="text-sm font-medium text-slate-600 leading-relaxed">
-                                        {quote.cancellationPolicy || tenant?.cancellationPolicy}
-                                    </p>
-                                </div>
-                            )}
-
-                            {(tenant?.phone || tenant?.email) && (
-                                <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-6 space-y-3">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Questions? Reach us directly</p>
-                                    <div className="flex flex-wrap gap-3">
-                                        {tenant?.phone && (
-                                            <a href={`tel:${tenant.phone}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                                <Phone className="w-4 h-4 text-primary/40" /> {tenant.phone}
-                                            </a>
-                                        )}
-                                        {tenant?.email && (
-                                            <a href={`mailto:${tenant.email}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                                <Mail className="w-4 h-4 text-primary/40" /> {tenant.email}
-                                            </a>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {canInteract && (
-                                <div className="space-y-3">
-                                    <Button
-                                        onClick={handleAccept}
-                                        disabled={isPaying}
-                                        className="w-full h-16 rounded-2xl text-lg font-black tracking-tight shadow-2xl shadow-primary/30 group"
-                                        style={{ background: primaryColor }}
-                                    >
-                                        {isPaying ? <Loader className="animate-spin" /> : <>Accept quote<ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
-                                    </Button>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <Button
-                                            variant="outline"
-                                            onClick={() => setShowRevision(true)}
-                                            className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2"
-                                        >
-                                            <Edit className="w-3.5 h-3.5 mr-2" /> Request Changes
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            onClick={() => setStep('decline_reason')}
-                                            className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-slate-400"
-                                        >
-                                            <XCircle className="w-3.5 h-3.5 mr-2" /> Decline
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {isLocked && (
-                                <div className="flex items-center justify-center gap-2 p-4 rounded-2xl bg-green-50 border-2 border-green-100">
-                                    <Lock className="w-4 h-4 text-green-600" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-green-700">This proposal has been accepted and is locked</p>
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'decline_reason' && (
-                        <motion.div key="decline" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-8 space-y-8">
-                            <div className="space-y-2 text-center">
-                                <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Help Us Understand</h2>
-                                <p className="text-sm font-medium text-muted-foreground">
-                                    No problem at all — your feedback helps us improve. Why are you declining?
-                                </p>
-                            </div>
-                            <div className="space-y-2">
-                                {DECLINE_REASONS.map(reason => (
-                                    <button
-                                        key={reason}
-                                        onClick={() => setDeclineReason(reason)}
-                                        className={cn(
-                                            'w-full text-left p-4 rounded-2xl border-2 transition-all font-bold text-sm',
-                                            declineReason === reason
-                                                ? 'border-slate-900 bg-slate-900 text-white'
-                                                : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                                        )}
-                                    >
-                                        {reason}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Anything else you'd like us to know? (optional)</Label>
-                                <Textarea
-                                    value={declineNote}
-                                    onChange={e => setDeclineNote(e.target.value)}
-                                    placeholder="Any additional context is appreciated..."
-                                    rows={3}
-                                    className="rounded-2xl border-2 bg-muted/5"
-                                />
-                            </div>
-                            <div className="flex gap-3">
-                                <Button variant="outline" onClick={() => setStep('review')} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-                                    Go Back
-                                </Button>
-                                <Button
-                                    onClick={handleDeclineSubmit}
-                                    disabled={!declineReason}
-                                    className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-slate-800 hover:bg-slate-900"
-                                >
-                                    Submit & Decline
-                                </Button>
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {step === 'success' && (
-                        <motion.div key="success" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-10">
-                            <motion.div
-                                initial={{ scale: 0 }} animate={{ scale: 1 }}
-                                transition={{ type: 'spring', damping: 12, stiffness: 140, delay: 0.1 }}
-                                className="w-28 h-28 bg-green-500/10 rounded-[2rem] flex items-center justify-center mx-auto"
-                            >
-                                <CheckCircle2 className="w-14 h-14 text-green-500" />
-                            </motion.div>
-                            <div className="space-y-3">
-                                <h2 className="text-4xl font-black tracking-tighter text-slate-900">Quote accepted</h2>
-                                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    {(quote.depositAmount || 0) > 0
-                                        ? `${tenant?.name || 'The business'} will send you a secure link to pay the ${formatCurrency(quote.depositAmount)} deposit.`
-                                        : `${tenant?.name || 'The business'} will be in touch with the next steps.`}
-                                </p>
-                            </div>
-                            <div className="p-6 rounded-2xl bg-slate-50 border-2 text-left space-y-3">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Booking Summary</p>
-                                <div className="space-y-2 text-sm font-bold text-slate-700">
-                                    <div className="flex items-center gap-2">
-                                        <Star className="w-4 h-4 text-slate-300" />{quote.eventName}
-                                    </div>
-                                    {quote.eventDate && (
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="w-4 h-4 text-slate-300" />
-                                            {format(new Date(quote.eventDate + 'T12:00:00'), 'MMMM d, yyyy')}
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-2">
-                                        <DollarSign className="w-4 h-4 text-slate-300" />
-                                        Total: {formatCurrency(total)}
-                                        {quote.depositAmount > 0 && ` · Deposit: ${formatCurrency(quote.depositAmount)}`}
-                                    </div>
-                                </div>
-                            </div>
-                            {(tenant?.phone || tenant?.email) && (
-                                <p className="text-sm text-muted-foreground">
-                                    Questions? Contact us at{' '}
-                                    {tenant.email && <a href={`mailto:${tenant.email}`} className="font-bold text-primary underline">{tenant.email}</a>}
-                                    {tenant.phone && tenant.email && ' or '}
-                                    {tenant.phone && <a href={`tel:${tenant.phone}`} className="font-bold text-primary underline">{tenant.phone}</a>}
-                                </p>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'declined' && (
-                        <motion.div key="declined" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
-                            <div className="w-28 h-28 bg-slate-100 rounded-[2rem] flex items-center justify-center mx-auto opacity-50">
-                                <XCircle className="w-14 h-14 text-slate-400" />
-                            </div>
-                            <div className="space-y-3">
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Proposal Declined</h2>
-                                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    No worries — we appreciate you letting us know. If your plans change or you'd like to revisit, we're always here.
-                                </p>
-                            </div>
-                            {(tenant?.phone || tenant?.email) && (
-                                <div className="p-5 rounded-2xl bg-slate-50 border-2 space-y-2">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Changed your mind?</p>
-                                    <div className="flex flex-wrap justify-center gap-4">
-                                        {tenant?.phone && (
-                                            <a href={`tel:${tenant.phone}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                                <Phone className="w-4 h-4" /> {tenant.phone}
-                                            </a>
-                                        )}
-                                        {tenant?.email && (
-                                            <a href={`mailto:${tenant.email}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                                <Mail className="w-4 h-4" /> {tenant.email}
-                                            </a>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'expired' && (
-                        <motion.div key="expired" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
-                            <div className="w-28 h-28 bg-amber-50 rounded-[2rem] flex items-center justify-center mx-auto">
-                                <Clock className="w-14 h-14 text-amber-400" />
-                            </div>
-                            <div className="space-y-3">
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Proposal Expired</h2>
-                                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    This proposal is no longer active. Dates fill quickly — reach out and we'll see what's available.
-                                </p>
-                            </div>
-                            {(tenant?.phone || tenant?.email) && (
-                                <div className="flex flex-wrap justify-center gap-4">
-                                    {tenant?.phone && (
-                                        <a href={`tel:${tenant.phone}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                            <Phone className="w-4 h-4" /> {tenant.phone}
-                                        </a>
-                                    )}
-                                    {tenant?.email && (
-                                        <a href={`mailto:${tenant.email}`} className="flex items-center gap-2 font-bold text-sm text-slate-700 hover:text-primary transition-colors">
-                                            <Mail className="w-4 h-4" /> {tenant.email}
-                                        </a>
-                                    )}
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'revision_sent' && (
-                        <motion.div key="revision" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
-                            <div className="w-28 h-28 bg-blue-50 rounded-[2rem] flex items-center justify-center mx-auto">
-                                <RefreshCw className="w-14 h-14 text-blue-500" />
-                            </div>
-                            <div className="space-y-3">
-                                <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Revision Requested</h2>
-                                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    We've received your request and will send you an updated proposal shortly.
-                                </p>
-                            </div>
-                            <Button
-                                variant="outline"
-                                onClick={() => setStep('review')}
-                                className="h-12 px-8 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2"
-                            >
-                                Back to Proposal
-                            </Button>
-                        </motion.div>
-                    )}
-
-                </AnimatePresence>
-            </div>
-
-            <RevisionDialog
-                open={showRevision}
-                onClose={() => setShowRevision(false)}
-                onSubmit={handleRevisionSubmit}
-            />
-        </div>
-    );
+        {state === 'ready' && (biz.email || biz.phone) && (
+          <p className="text-center text-[13px] pt-2" style={{ color: MUTED }}>
+            Questions about it? {biz.email ? <a href={`mailto:${biz.email}`} className="underline underline-offset-2 inline-flex items-center min-h-[44px]" style={{ color: INK }}>{biz.email}</a> : null}{biz.email && biz.phone ? ' or ' : ''}{biz.phone ? <a href={`tel:${biz.phone}`} className="underline underline-offset-2 inline-flex items-center min-h-[44px]" style={{ color: INK }}>{biz.phone}</a> : null}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }

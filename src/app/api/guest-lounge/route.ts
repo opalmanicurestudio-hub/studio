@@ -38,6 +38,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { closedReplyFor } from '@/lib/tenant-open-server';
 import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -390,6 +391,8 @@ export async function POST(req: NextRequest) {
     if (!(await rateLimit(db, tenantId, 'loungeRate', 200))) {
       return NextResponse.json({ ok: false, error: 'Too many requests — give it a moment.' }, { status: 429 });
     }
+    // A paused or closed business takes no orders (lib/tenant-open-server). Taking one back is always fine.
+    if (action === 'request') { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
 
     // ── Cancel one of this guest's own pending requests ───────────────────────
     // Guests cannot do this from the browser: refreshmentRequests `update` is

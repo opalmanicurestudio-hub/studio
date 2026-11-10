@@ -88,7 +88,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Storage not available' }, { status: 500 });
         }
 
-        const ext      = file.name.split('.').pop() || 'jpg';
+        // A plain picture extension only, so the inquiry recognizes it as the form's own upload (lib/inquiry-intake).
+        const given    = String(file.name.split('.').pop() || '').toLowerCase();
+        const ext      = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif'].includes(given) ? given : 'jpg';
         const filename = `${nanoid()}.${ext}`;
         const path     = `tenants/${tenantId}/inquiryInspo/${filename}`;
 

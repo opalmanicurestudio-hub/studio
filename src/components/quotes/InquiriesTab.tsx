@@ -149,7 +149,7 @@ const InquiryCard = ({
                         {inquiry.budgetRange && (
                             <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
                                 <DollarSign className="w-3 h-3 opacity-40" />
-                                {BUDGET_LABELS[inquiry.budgetRange] || inquiry.budgetRange}
+                                {inquiry.budgetLabel || BUDGET_LABELS[inquiry.budgetRange] || inquiry.budgetRange}
                             </span>
                         )}
                     </div>
@@ -306,7 +306,7 @@ const InquiryDetailSheet = ({
                                         <p className="font-black text-[9px] uppercase tracking-widest text-muted-foreground">Location</p>
                                         <p className="font-bold text-sm text-foreground/80">{inquiry.eventLocation}</p>
                                         {inquiry.venueType && (
-                                            <p className="text-[10px] font-bold text-primary/60 uppercase mt-0.5">{inquiry.venueType.replace('_', '-')}</p>
+                                            <p className="text-[10px] font-bold text-primary/60 uppercase mt-0.5">{inquiry.venueTypeLabel || ({ studio: 'At the business', at_business: 'At the business', on_site: 'At their place or venue', destination: 'Farther away', unsure: 'Not sure yet' } as Record<string, string>)[inquiry.venueType] || inquiry.venueType}</p>
                                         )}
                                     </div>
                                 </div>
@@ -353,8 +353,8 @@ const InquiryDetailSheet = ({
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Investment</p>
                             <div className="grid grid-cols-2 gap-3">
-                                <InfoTile icon={DollarSign} label="Budget" value={BUDGET_LABELS[inquiry.budgetRange] || inquiry.budgetRange || '—'} />
-                                <InfoTile icon={Clock} label="Timeline" value={TIMELINE_LABELS[inquiry.timeline] || inquiry.timeline || '—'} />
+                                <InfoTile icon={DollarSign} label="Budget" value={inquiry.budgetLabel || BUDGET_LABELS[inquiry.budgetRange] || inquiry.budgetRange || '—'} />
+                                <InfoTile icon={Clock} label="Timeline" value={inquiry.timelineLabel || TIMELINE_LABELS[inquiry.timeline] || inquiry.timeline || '—'} />
                                 {inquiry.readyToDeposit !== null && inquiry.readyToDeposit !== undefined && (
                                     <InfoTile
                                         icon={inquiry.readyToDeposit ? CheckCircle2 : Clock}
