@@ -41,6 +41,26 @@ export function resolveIncidentalPolicy(tenantData: any): IncidentalCategory[] {
   return DEFAULT_INCIDENTALS;
 }
 
+/** The charges a renter's own signed lease allows: a lease from the builder lists them, each with its cap, and says only
+ *  those may be made. So a charge type added later isn't one, and a cap raised later doesn't apply to them (a lower one
+ *  does). Any other lease: today's list. */
+export function incidentalsForLease(cats: IncidentalCategory[], lease: any): { cats: IncidentalCategory[]; signed: boolean } {
+  // A builder lease always lists them (an empty list says none may be made).
+  if (!(lease?.leaseFrom === 'builder' && Array.isArray(lease?.leaseTermsSnapshot?.agreedCharges))) return { cats, signed: false };
+  const listed: any[] = lease.leaseTermsSnapshot.agreedCharges;
+  const out: IncidentalCategory[] = [];
+  for (const s of listed) {
+    const label = String(s?.label || '').trim(); if (!label) continue;
+    const signedCap = Math.max(0, Math.round(Number(s?.capCents) || 0));
+    const now = cats.find((c) => c.label.toLowerCase() === label.toLowerCase());
+    const nowCap = now ? Math.round(Number(now.capCents) || 0) : 0;
+    // The lower of the two caps (0 means none: the other one holds).
+    const cap = signedCap && nowCap ? Math.min(signedCap, nowCap) : signedCap || nowCap;
+    out.push({ label, capCents: cap });
+  }
+  return { cats: out, signed: true };
+}
+
 export type IncidentalValidation =
   | { ok: true; category: IncidentalCategory; description: string }
   | { ok: false; status: number; error: string };

@@ -31,6 +31,22 @@ export type LeaveTreatment = 'pause' | 'reduced' | 'bank' | 'sublet';
 export type LeaveType = 'maternity' | 'medical' | 'family' | 'personal' | 'other';
 export type LeaveStatus = 'requested' | 'approved' | 'declined' | 'ended' | 'cancelled';
 
+/** The time away a renter's own lease allows: a lease from the builder states the options it offered then, the holding
+ *  rate and the longest pause, so a later change can't take them away. Those are combined with today's in the renter's
+ *  favor (every option either offers, the lower holding rate, the longer leave); the rest is today's setting. Any other
+ *  lease: today's settings. */
+export function leaveForLease(policy: LeavePolicy, lease: any): LeavePolicy {
+  const s: any = lease?.leaseFrom === 'builder' ? lease?.leaseTermsSnapshot?.leave : null;
+  if (!s || !Array.isArray(s.offered)) return policy;
+  const n = (v: any, d: number) => (v == null || v === '' || !Number.isFinite(Number(v)) ? d : Number(v));
+  return {
+    ...policy,
+    offered: [...new Set([...(policy.offered || []), ...s.offered])] as LeaveTreatment[],
+    reducedPercent: Math.min(policy.reducedPercent, n(s.reducedPercent, policy.reducedPercent)),
+    maxWeeks: Math.max(policy.maxWeeks, n(s.maxWeeks, policy.maxWeeks)),
+  };
+}
+
 export interface LeavePolicy {
   /** Treatments this shop offers at all. Empty = leave is not offered. */
   offered: LeaveTreatment[];

@@ -301,6 +301,9 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
             depositReturnDays: d.depositReturnDays, depositAsLastMonth: d.depositAsLastMonth, agreedCharges: d.agreedCharges, sellProducts: d.sellProducts, noPoach: d.noPoach,
             insurance: d.insurance, licenseRequired: d.licenseRequired, changesNeedOk: d.changesNeedOk, damageByRenter: d.damageByRenter, propertyClause: d.propertyClause,
             offersModes: offers.modes, offersPrices: offers.prices,
+            // What the lease says about late rent and time away, so a later change to those settings can't make it
+            // stricter for them (lib/collections-policy, lib/leave-policy).
+            collections: { autoBarAfterDaysLate: ctx.collections.autoBarAfterDaysLate ?? null }, leave: { offered: ctx.leave.offered, reducedPercent: ctx.leave.reducedPercent, maxWeeks: ctx.leave.maxWeeks },
           },
         },
       });

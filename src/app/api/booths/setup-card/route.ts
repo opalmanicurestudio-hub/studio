@@ -48,7 +48,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
+import { resolveIncidentalPolicy, validateIncidental, incidentalsForLease } from '@/lib/incidentals';
 import { incidentalOpened, recordRenterIncidental, releaseRenterIncidental, tellRenterCharged } from '@/lib/renter-incidentals';
 import { requireCan, requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
@@ -353,9 +353,19 @@ export async function PUT(req: NextRequest) {
     // ── Incidentals policy — no made-up charges. Only owner-defined charge
     // types are allowed, each capped. Enforced HERE via the shared module so it
     // stays in lockstep with the day/hourly path and the signed lease.
-    const cats = resolveIncidentalPolicy(tenantDoc);
+    // A renter on a lease from the builder: only what their signed lease lists, at no more than its cap (lib/incidentals).
+    const liveLease: any = (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', renterId).get()).docs.map((d: any) => d.data() || {})
+      .find((l: any) => ['active', 'on_leave'].includes(String(l.status))) || null;
+    const forLease = incidentalsForLease(resolveIncidentalPolicy(tenantDoc), liveLease);
+    const cats = forLease.cats;
     const v = validateIncidental(cats, String(body.category || body.description || ''), amountCents, String(body.note || ''));
-    if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: v.status });
+    if (!v.ok) {
+      const who = `${renter.firstName || 'This renter'}’s lease`;
+      const err = !forLease.signed ? v.error
+        : !cats.some((c) => c.label.toLowerCase() === String(body.category || body.description || '').trim().toLowerCase()) ? (cats.length ? `${who} doesn’t list that charge, so it can’t be made to their card. Their lease lists: ${cats.map((c) => c.label).join(', ')}.` : `${who} allows no charges to their card other than rent and anything they add themselves.`)
+        : v.error.replace('your incidentals policy', 'their lease');
+      return NextResponse.json({ ok: false, error: err }, { status: v.status });
+    }
 
     // ── The attempt, claimed in one step ──
     const nowIso = new Date().toISOString();

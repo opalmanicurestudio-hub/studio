@@ -14,6 +14,17 @@
 // document, so a missing or malformed setting always means "the gentle
 // default", never "undefined behaviour".
 
+/** The day bookings pause for late rent for this renter: a lease from the builder states the day it gave then (or none),
+ *  so a later, stricter setting doesn't apply to them; a more lenient one does (the later day, or none). Any other lease:
+ *  today's setting. */
+export function autoBarDayFor(policyDay: number | null, lease: any): number | null {
+  const snap: any = lease?.leaseFrom === 'builder' ? lease?.leaseTermsSnapshot?.collections : null;
+  if (!snap || !('autoBarAfterDaysLate' in snap)) return policyDay;
+  if (policyDay == null || snap.autoBarAfterDaysLate == null) return null;   // the shop has none, or the lease gave none
+  const signed = Number(snap.autoBarAfterDaysLate);
+  return Number.isFinite(signed) && signed > 0 ? Math.max(policyDay, signed) : policyDay;
+}
+
 export interface CollectionsPolicy {
   /** Days-late at which an escalating notice goes out. Empty = the single
    *  late notice only. Each day fires once per invoice. */

@@ -8,7 +8,7 @@
 //                    that already covers that due date), then are marked migrated so they're never counted again
 import { buildRentInvoice, invoiceKey, billDocId, monthAlreadyBilled } from '@/lib/rent-invoices';
 import { billingStart, dueDatesBetween } from '@/lib/rent-schedule';
-import { resolveLeavePolicy, leaveCovering, rentUnderLeave } from '@/lib/leave-policy';
+import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leaveForLease } from '@/lib/leave-policy';
 import { applyCreditsToOpenBills } from '@/lib/rent-credits';
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const MAX_PER_LEASE = 120;
@@ -49,7 +49,7 @@ export async function runRentCycle(db: any, tenantId: string, todayIso: string, 
     const [renter, booth] = await Promise.all([db.doc(`${T}/renters/${lease.renterId}`).get(), db.doc(`${T}/booths/${lease.boothId}`).get()]);
     for (const dueDate of enumerateDueDates(lease, todayIso)) { if (existing.has(invoiceKey(lease.id, dueDate))) continue;
       if (monthAlreadyBilled(lease, dueDate, billsOf(lease.id))) continue;   // the same guard the nightly run uses
-      const leave = leaveCovering(leaves, lease.id, dueDate); const treat = rentUnderLeave(leave, n(lease.rentAmountCents), leavePolicy);
+      const leave = leaveCovering(leaves, lease.id, dueDate); const treat = rentUnderLeave(leave, n(lease.rentAmountCents), leaveForLease(leavePolicy, lease));
       if (treat === null) continue;   // paused for approved leave: nothing owed that day
       const ref = db.doc(`${T}/rentInvoices/${billDocId(lease.id, dueDate)}`); const inv: any = buildRentInvoice({ id: ref.id, lease: { ...lease, rentAmountCents: treat.amountCents }, renter: renter.data(), booth: booth.data(), dueDate, source: 'manual', nowIso });
       if (leave) { inv.leaveId = leave.id; inv.leaveNote = treat.label; }

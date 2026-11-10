@@ -30,6 +30,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PrintLink } from '@/components/shared/PrintLink';
 import { RenterPortalAccess } from '@/components/renters/RenterPortalAccess';
 import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
+import { incidentalsForLease } from '@/lib/incidentals';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -153,8 +154,9 @@ export function RenterProfileDrawer({
     if (stationBoothId) void loadStationLink(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stationBoothId, tenantId, renter?.id]);
-  // Constrained to the studio's capped incidentals policy — no made-up charges.
-  const chargePolicy = resolveBoothIncidentalPolicy(drawerTenant);
+  // Constrained to the studio's capped incidentals policy — no made-up charges. A renter on a lease from the builder:
+  // only what their signed lease lists, at no more than its cap (lib/incidentals, checked again when it's charged).
+  const chargePolicy = incidentalsForLease(resolveBoothIncidentalPolicy(drawerTenant).map((c: any) => ({ label: String(c.label), capCents: Math.round(Number(c.capCents) || 0) })), lease).cats;
   const chargeCatObj = chargePolicy.find((c: any) => c.label === chargeCat) || null;
   const chargeCapCents = chargeCatObj ? Math.round(Number(chargeCatObj.capCents) || 0) : 0;
   const chargeCents = Math.round((parseFloat(chargeAmt) || 0) * 100);

@@ -4239,18 +4239,21 @@ export async function POST(req: NextRequest) {
     if (action === 'leave-list') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const snap = await db.collection(`tenants/${tenantId}/renterLeaves`).where('renterId', '==', session.renterId).get();
-      const { resolveLeavePolicy } = await import('@/lib/leave-policy');
+      const { resolveLeavePolicy, leaveForLease } = await import('@/lib/leave-policy');
       const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      // What their own lease allows (a lease from the builder keeps the options it gave: lib/leave-policy leaveForLease).
+      const myLease: any = (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get()).docs.map((d: any) => d.data() || {}).find((l: any) => ['active', 'on_leave'].includes(String(l.status))) || null;
       return NextResponse.json({
-        ok: true, policy: resolveLeavePolicy(tenantDoc),
+        ok: true, policy: leaveForLease(resolveLeavePolicy(tenantDoc), myLease),
         leaves: snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt))),
       });
     }
     if (action === 'leave-request') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
-      const { resolveLeavePolicy, leaveDays } = await import('@/lib/leave-policy');
+      const { resolveLeavePolicy, leaveDays, leaveForLease } = await import('@/lib/leave-policy');
       const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      const policy = resolveLeavePolicy(tenantDoc);
+      const myLease: any = (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get()).docs.map((d: any) => d.data() || {}).find((l: any) => ['active', 'on_leave'].includes(String(l.status))) || null;
+      const policy = leaveForLease(resolveLeavePolicy(tenantDoc), myLease);
       if (policy.offered.length === 0) return NextResponse.json({ ok: false, error: 'Leave is not offered here yet. Send the business a message.' }, { status: 400 });
       const type = ['maternity', 'medical', 'family', 'personal', 'other'].includes(body.type) ? body.type : 'other';
       const startDate = String(body.startDate || '').slice(0, 10), endDate = String(body.endDate || '').slice(0, 10);

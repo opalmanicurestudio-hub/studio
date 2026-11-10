@@ -33,7 +33,7 @@ import { runReminderSweep } from '@/lib/reminders';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { buildRentInvoice, leasesToInvoice, invoiceKey, billDocId, monthAlreadyBilled } from '@/lib/rent-invoices';
 import { resolveCollectionsPolicy, dunningStepsDue, daysLate } from '@/lib/collections-policy';
-import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS } from '@/lib/leave-policy';
+import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addDays, SUBLET_CLEAR_FIELDS, leaveForLease } from '@/lib/leave-policy';
 import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
 import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
 import { sweepNoShows } from '@/lib/no-show';
@@ -320,14 +320,16 @@ export async function GET(req: NextRequest) {
       const tellDue: { rd: any; inv: any; creditApplied: number; renterId: string }[] = [];
       for (const lease of due) {
         const leave = leaveCovering(leaves, lease.id, today);
-        const treat = rentUnderLeave(leave, Number(lease.rentAmountCents) || 0, leavePolicy);
+        // Their own lease's time-away terms where it states them (lib/leave-policy leaveForLease).
+        const myLeave = leaveForLease(leavePolicy, lease);
+        const treat = rentUnderLeave(leave, Number(lease.rentAmountCents) || 0, myLeave);
         if (treat === null) {
           // Paused: no invoice. Count the day toward the lease extension.
           await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave!.id}`).set({ pausedDays: (Number(leave!.pausedDays) || 0) + 1, lastPausedDue: today }, { merge: true });
           continue;
         }
         if (leave?.treatment === 'bank') {
-          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ bankedDays: (Number(leave.bankedDays) || 0) + leavePolicy.bankDaysPerWeek, lastBankedDue: today }, { merge: true });
+          await db.doc(`tenants/${tDoc.id}/renterLeaves/${leave.id}`).set({ bankedDays: (Number(leave.bankedDays) || 0) + myLeave.bankDaysPerWeek, lastBankedDue: today }, { merge: true });
         }
         // One bill per write, with the credits it uses: a bill that already exists (another run made it a moment ago)
         // leaves that lease alone and never holds up anyone else's.
@@ -583,6 +585,14 @@ export async function GET(req: NextRequest) {
       const lateSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`).where('status', '==', 'late').get();
       if (lateSnap.empty && !policy.autoBarOnLeaseEndOwing) continue;
 
+      // Each renter's own lease can give a later day (lib/collections-policy autoBarDayFor).
+      const { autoBarDayFor } = await import('@/lib/collections-policy');
+      // The leases the late bills are for, whatever their status now (one that has ended still says what it said).
+      const leaseIds = [...new Set(lateSnap.docs.map((d: any) => String((d.data() as any).leaseId || '')).filter(Boolean))];
+      const leaseById = new Map<string, any>();
+      for (const id of leaseIds) { const l = await db.doc(`tenants/${tDoc.id}/leases/${id}`).get(); if (l.exists) leaseById.set(id, l.data()); }
+      // The kindest day across a renter's late bills' leases (none if any of them gives none).
+      const barDayOf = (invs: any[]) => { let best: number | null | undefined; for (const i of invs) { const d = autoBarDayFor(policy.autoBarAfterDaysLate, leaseById.get(String(i.leaseId || ''))); if (d === null) return null; best = best === undefined || best === null ? d : Math.max(best, d); } return best === undefined ? policy.autoBarAfterDaysLate : best; };
       const byRenter = new Map<string, any[]>();
       for (const d of lateSnap.docs) {
         const inv = { id: d.id, ...(d.data() as any) };
@@ -596,6 +606,8 @@ export async function GET(req: NextRequest) {
         const owedCents = invs.reduce((n, i) => n + (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0), 0);
         const oldestDays = Math.max(...invs.map((i) => daysLate(String(i.dueDate || ''), today)));
         const payUrl = `${origin}/rent/${tDoc.id}`;
+        // The day their bookings pause: the shop's setting, no earlier than the day their own lease gives.
+        const barDay = barDayOf(invs);
 
         // Escalating notices — one per step per invoice, ever.
         for (const inv of invs) {
@@ -608,8 +620,8 @@ export async function GET(req: NextRequest) {
           const bodyLines = [
             `Hi ${first},`,
             `Our records show that your rent of ${amount}, which was due on ${inv.dueDate}, is now ${step} days overdue.`,
-            policy.autoBarAfterDaysLate !== null && step < policy.autoBarAfterDaysLate
-              ? `As outlined in our collections policy, if the balance has not been paid by ${policy.autoBarAfterDaysLate} days after the due date, booking with us will be paused until it is paid.`
+            barDay !== null && step < barDay
+              ? `As outlined in our collections policy, if the balance has not been paid by ${barDay} days after the due date, booking with us will be paused until it is paid.`
               : 'Please pay the balance at your earliest convenience. If you need to make an arrangement, please reply to this email and we will be glad to discuss it.',
             `Kind regards, ${studio}`,
           ];
@@ -634,8 +646,8 @@ export async function GET(req: NextRequest) {
           dunningSent++;
         }
 
-        // Automatic bar — only if the shop set a day, and only once.
-        if (policy.autoBarAfterDaysLate !== null && oldestDays >= policy.autoBarAfterDaysLate && renter.doNotRent !== true && owedCents > 0) {
+        // Automatic bar — only if the shop set a day (no earlier than their lease's), and only once.
+        if (barDay !== null && oldestDays >= barDay && renter.doNotRent !== true && owedCents > 0) {
           const nowIso = new Date().toISOString();
           await rSnap.ref.set({ doNotRent: true, doNotRentAt: nowIso, doNotRentReason: `Rent ${oldestDays} days late (automatic, per collections policy)`, doNotRentBy: 'system' }, { merge: true });
           const nRef = db.collection(`tenants/${tDoc.id}/notifications`).doc();

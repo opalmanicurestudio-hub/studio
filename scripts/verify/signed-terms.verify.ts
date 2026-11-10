@@ -154,6 +154,37 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
   check('ending the lease ends what it kept; a new lease not from the builder doesn’t carry it', /heldHere \? \{ updatedAt: now, signedOffers: null \} : \{ updatedAt: now \}/.test(svc) && /\.\.\.\(heldHere \? \{ signedOffers: null \} : \{\}\)/.test(svc) && /input\.extra\?\.leaseFrom === 'builder' \? \{\} : \{ signedOffers: null \}/.test(svc));
   check('the renter’s list says it', /As your lease says, until/.test(readFileSync('src/components/rent/RenterTools.tsx', 'utf8')));
 
+  // Agreed charges: only what a builder lease lists, at no more than its cap.
+  const I = await import('../../src/lib/incidentals');
+  const nowCats = [{ label: 'Cleaning fee', capCents: 10000 }, { label: 'Damage', capCents: 30000 }, { label: 'Key replacement', capCents: 2500 }];
+  const leaseB = { leaseFrom: 'builder', leaseTermsSnapshot: { agreedCharges: [{ label: 'Cleaning fee', capCents: 7500 }, { label: 'Damage', capCents: 50000 }] } };
+  const fl = I.incidentalsForLease(nowCats, leaseB);
+  check('agreed charges: only the ones the signed lease lists, at the lower of the two caps', fl.signed && fl.cats.length === 2 && fl.cats[0].capCents === 7500 && fl.cats[1].capCents === 30000 && !fl.cats.some((c) => c.label === 'Key replacement'));
+  check('…a charge type added later can’t be made, and a raised cap doesn’t apply', !I.validateIncidental(fl.cats, 'Key replacement', 1000).ok && !I.validateIncidental(fl.cats, 'Cleaning fee', 9000).ok && I.validateIncidental(fl.cats, 'Cleaning fee', 7000).ok);
+  check('…any other lease: today’s list; a builder lease listing none allows none', I.incidentalsForLease(nowCats, { leaseFrom: 'own' }).cats === nowCats && !I.incidentalsForLease(nowCats, null).signed
+    && I.incidentalsForLease(nowCats, { leaseFrom: 'builder', leaseTermsSnapshot: { agreedCharges: [] } }).cats.length === 0);
+  check('the charge is checked against their lease when it’s made, and the drawer offers only those', /const forLease = incidentalsForLease\(resolveIncidentalPolicy\(tenantDoc\), liveLease\);/.test(readFileSync('src/app/api/booths/setup-card/route.ts', 'utf8')) && /doesn’t list that charge, so it can’t be made to their card/.test(readFileSync('src/app/api/booths/setup-card/route.ts', 'utf8'))
+    && /const chargePolicy = incidentalsForLease\(/.test(readFileSync('src/components/renters/RenterProfileDrawer.tsx', 'utf8')));
+
+  // Late rent and time away: a later, stricter setting doesn't apply to a builder lease; a kinder one does.
+  const C = await import('../../src/lib/collections-policy');
+  const lb30 = { leaseFrom: 'builder', leaseTermsSnapshot: { collections: { autoBarAfterDaysLate: 30 } } };
+  check('bookings pause no earlier than the lease says; a later or no pause from the shop still applies', C.autoBarDayFor(10, lb30) === 30 && C.autoBarDayFor(45, lb30) === 45 && C.autoBarDayFor(null, lb30) === null
+    && C.autoBarDayFor(10, { leaseFrom: 'builder', leaseTermsSnapshot: { collections: { autoBarAfterDaysLate: null } } }) === null && C.autoBarDayFor(10, { leaseFrom: 'own' }) === 10 && C.autoBarDayFor(10, null) === 10
+    && C.autoBarDayFor(10, { leaseFrom: 'builder', leaseTermsSnapshot: { collections: { autoBarAfterDaysLate: 'x' } } }) === 10);
+  const nightlySrc2 = readFileSync('src/app/api/cron/nightly/route.ts', 'utf8');
+  check('…the nightly pause and its reminder use that day for each renter, from the leases their late bills are for (whatever their status), the kindest of them', /const barDay = barDayOf\(invs\);/.test(nightlySrc2) && /const barDayOf = \(invs: any\[\]\) =>/.test(nightlySrc2) && /barDay !== null && step < barDay/.test(nightlySrc2) && /if \(barDay !== null && oldestDays >= barDay/.test(nightlySrc2));
+  const LP = await import('../../src/lib/leave-policy');
+  const nowLeave = { ...LP.resolveLeavePolicy({ leavePolicy: { offered: ['reduced'], reducedPercent: 60, maxWeeks: 8, noticeDays: 30 } }) };
+  const signedLeave = { offered: ['pause', 'reduced'], reducedPercent: 50, bankDaysPerWeek: 0, maxWeeks: 16, noticeDays: 14 };
+  const eff2 = LP.leaveForLease(nowLeave as any, { leaseFrom: 'builder', leaseTermsSnapshot: { leave: signedLeave } });
+  check('time away: every option either offers, the lower holding rate, the longer leave; what the lease doesn’t state stays today’s', eff2.offered.includes('pause' as any) && eff2.offered.includes('reduced' as any) && eff2.reducedPercent === 50 && eff2.maxWeeks === 16 && eff2.noticeDays === nowLeave.noticeDays && eff2.bankDaysPerWeek === nowLeave.bankDaysPerWeek);
+  check('…and the bills follow it, not only the screen', /const myLeave = leaveForLease\(leavePolicy, lease\);/.test(nightlySrc2) && /rentUnderLeave\(leave, Number\(lease\.rentAmountCents\) \|\| 0, myLeave\)/.test(nightlySrc2) && /myLeave\.bankDaysPerWeek/.test(nightlySrc2)
+    && /rentUnderLeave\(leave, n\(lease\.rentAmountCents\), leaveForLease\(leavePolicy, lease\)\)/.test(readFileSync('src/lib/rent-cycle.ts', 'utf8')));
+  check('…any other lease: today’s settings', LP.leaveForLease(nowLeave as any, { leaseFrom: 'own' }) === nowLeave);
+  check('the portal’s time-away list and request use it; the builder keeps both with the lease', (readFileSync('src/app/api/portal/renter/route.ts', 'utf8').match(/leaveForLease\(resolveLeavePolicy\(tenantDoc\), myLease\)/g) || []).length === 2
+    && /collections: \{ autoBarAfterDaysLate: ctx\.collections\.autoBarAfterDaysLate \?\? null \}, leave: \{ offered: ctx\.leave\.offered, reducedPercent: ctx\.leave\.reducedPercent, maxWeeks: ctx\.leave\.maxWeeks \},/.test(readFileSync('src/components/renters/LeaseBuilder.tsx', 'utf8')));
+
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
