@@ -388,7 +388,7 @@ export function RenterProfileDrawer({
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-card/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
                   {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
-                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">✓ W-9</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">⚠ W-9</span> : null}
+                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">W-9 on file</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">No W-9</span> : null}
                   {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
                 </div>
               </div>
@@ -826,14 +826,18 @@ export function RenterProfileDrawer({
 
           {ptab === 'documents' && (
             <>
+              {w9 === undefined ? (
+                <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4"><p className="text-[11px] text-slate-500">Checking for a W-9…</p></div>
+              ) : (
               <div className={`rounded-2xl border-2 p-4 space-y-1 ${w9 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                <p className={`text-[9px] font-black uppercase tracking-widest ${w9 ? 'text-emerald-700' : 'text-amber-700'}`}>{w9 ? 'W-9 on file ✓' : 'W-9 missing'}</p>
+                <p className={`text-[9px] font-black uppercase tracking-widest ${w9 ? 'text-emerald-700' : 'text-amber-700'}`}>{w9 ? 'W-9 on file' : 'No W-9 yet'}</p>
                 {w9 ? (
                   <p className="text-xs font-bold text-emerald-800">{w9.legalName} · TIN {w9.tinMasked}</p>
                 ) : (
-                  <p className="text-[11px] text-amber-700">Renter completes this in their portal → Documents tab.</p>
+                  <p className="text-[11px] text-amber-700">They add it in their portal, under Space, then Tax form (W-9).</p>
                 )}
               </div>
+              )}
               <RenterSignedDocs tenantId={tenantId} firestore={firestore} renterId={renter.id} />
               {Array.isArray((renter as any).applicationAttachments) && (renter as any).applicationAttachments.length > 0 && (
                 <div className="space-y-2">

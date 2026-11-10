@@ -16,26 +16,16 @@
  *  - The plaintext TIN is encrypted and immediately discarded.
  *  - Only tinLast4 and encryptedTin are persisted.
  *  - The route validates TIN format before encrypting.
- *  - No auth check on POST (renters are not signed in to their portal via
- *    Firebase auth — they use the PIN system). The tenantId + renterId
- *    pair acts as the access control; a valid submission requires knowing
- *    both. This is the same trust model as the public booking flow.
+ *  - Both POST and GET need a signed-in manager, or the renter themself signed in through the staff portal
+ *    (mayTouchW9). The renter portal saves a W-9 through its own session instead: /api/portal/renter, actions
+ *    w9-status and w9-save, with the same checks and sealing (lib/w9-record).
  */
 
 import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { encryptTin, tinLast4, maskTin } from '@/lib/tin-crypto';
-
-const SSN_RE = /^\d{3}-?\d{2}-?\d{4}$/;
-const EIN_RE = /^\d{2}-?\d{7}$/;
-
-function validateTin(tin: string, type: 'ssn' | 'ein'): boolean {
-  const clean = tin.replace(/\D/g, '');
-  if (type === 'ssn') return SSN_RE.test(tin) || clean.length === 9;
-  if (type === 'ein') return EIN_RE.test(tin) || clean.length === 9;
-  return false;
-}
+import { sealW9, w9Problem, w9View } from '@/lib/w9-record';
+import { readW9, writeW9 } from '@/lib/w9-store';
 
 // POST — W-9 submission from the portal
 /** A W-9 is read or saved only by a manager, or by the renter it belongs to (signed in through the staff portal). */
@@ -52,60 +42,24 @@ async function mayTouchW9(req: NextRequest, tenantId: string, renterId: string) 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {
-      tenantId, renterId,
-      tin, tinType,
-      legalName, businessName,
-      address, entityType,
-      certifiedUnderPenalty,
-    } = body || {};
-
+    const { tenantId, renterId } = body || {};
     if (!tenantId || !renterId) return NextResponse.json({ ok: false, error: 'Missing tenantId or renterId.' }, { status: 400 });
     { const deny = await mayTouchW9(req, String(tenantId), String(renterId)); if (deny) return deny; }
-    if (!tin || !tinType) return NextResponse.json({ ok: false, error: 'TIN and TIN type are required.' }, { status: 400 });
-    if (!['ssn','ein'].includes(tinType)) return NextResponse.json({ ok: false, error: 'Invalid TIN type.' }, { status: 400 });
-    if (!validateTin(tin, tinType)) return NextResponse.json({ ok: false, error: `Invalid ${tinType.toUpperCase()} format.` }, { status: 400 });
-    if (!legalName?.trim()) return NextResponse.json({ ok: false, error: 'Legal name is required.' }, { status: 400 });
-    if (!certifiedUnderPenalty) return NextResponse.json({ ok: false, error: 'Certification is required.' }, { status: 400 });
+    const problem = w9Problem(body || {});
+    if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 400 });
 
     const db = getAdminDb();
-
     // Verify the renter exists before writing
     const renterSnap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
     if (!renterSnap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
 
-    // ── ENCRYPT immediately — plaintext TIN never goes anywhere else ──
-    const encryptedTin = encryptTin(tin.replace(/\D/g, '')); // store digits only
-    const last4        = tinLast4(tin);
-    const now          = new Date().toISOString();
-
-    await db.doc(`tenants/${tenantId}/renters/${renterId}`).set({
-      w9: {
-        encryptedTin,
-        tinType,
-        tinLast4: last4,
-        legalName:    String(legalName).trim().slice(0, 120),
-        businessName: String(businessName || '').trim().slice(0, 120),
-        address: {
-          street: String(address?.street || '').trim().slice(0, 200),
-          city:   String(address?.city   || '').trim().slice(0, 100),
-          state:  String(address?.state  || '').trim().slice(0, 50),
-          zip:    String(address?.zip    || '').trim().slice(0, 20),
-        },
-        entityType:          String(entityType || '').trim(),
-        certifiedUnderPenalty: true,
-        certifiedAt:         now,
-        collectedAt:         now,
-      },
-    }, { merge: true });
+    // ── ENCRYPT immediately (lib/w9-record): plaintext TIN never goes anywhere else ──
+    const now = new Date().toISOString();
+    const w9 = sealW9(body, now);
+    await writeW9(db, String(tenantId), String(renterId), w9);   // lib/w9-store: the record in private, a flag on the renter
 
     // Return only masked data — never echo the TIN back
-    return NextResponse.json({
-      ok: true,
-      tinMasked: maskTin(last4, tinType),
-      collectedAt: now,
-    });
-
+    return NextResponse.json({ ok: true, tinMasked: w9View(w9)?.tinMasked || '', collectedAt: now });
   } catch (err: any) {
     // Never log body content — could contain TIN
     console.error('[w9] POST failed', err?.message || 'unknown');
@@ -125,24 +79,11 @@ export async function GET(req: NextRequest) {
     const db = getAdminDb();
     const snap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
     if (!snap.exists) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+    // This read can also write: a W-9 still on the renter document is moved into private (lib/w9-store). Don't cache it.
+    const stored = await readW9(db, String(tenantId), String(renterId));
 
-    const w9 = (snap.data() as any)?.w9;
-    if (!w9) return NextResponse.json({ ok: true, w9: null });
-
-    // Return status info only — no encrypted TIN, no last4 exposed to client
-    return NextResponse.json({
-      ok: true,
-      w9: {
-        tinMasked:    maskTin(w9.tinLast4, w9.tinType),
-        tinType:      w9.tinType,
-        legalName:    w9.legalName,
-        businessName: w9.businessName,
-        address:      w9.address,
-        entityType:   w9.entityType,
-        certifiedAt:  w9.certifiedAt,
-        collectedAt:  w9.collectedAt,
-      },
-    });
+    // Status only: the masked number and what was given, never the encrypted number (lib/w9-record)
+    return NextResponse.json({ ok: true, w9: w9View(stored) });
 
   } catch (err) {
     console.error('[w9] GET failed', err);

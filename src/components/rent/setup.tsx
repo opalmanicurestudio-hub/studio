@@ -496,20 +496,29 @@ export function MyProfile({ data, tenantId, token, onChanged }: { data: any; ten
 // THE CHECKLIST only appears for people who chose the studio system, is derived
 // live from what actually exists rather than a stored flag, and can be
 // dismissed once and for good. Setup prompts that come back are nags.
-export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; tenantId: string; token: string; onChanged: () => void }) {
+// "Getting set up" on Today: every step a renter still has (lib/renter-setup-steps, worked out on the server from
+// what's on file now), each opening the exact screen that finishes it. Choosing how they take bookings sits in the
+// same card until it's chosen. Hide this tucks it away on this visit and remembers it; a step that's still undone can
+// be brought back with Show.
+export function GettingSetUp({ data, tenantId, token, onChanged, onOpen }: { data: any; tenantId: string; token: string; onChanged: () => void; onOpen?: (place: string, view: string | null) => void }) {
   const { toast } = useToast();
   const cl = data?.checklist;
   const [busy, setBusy] = useState('');
   const [switching, setSwitching] = useState(false);
   const [err, setErr] = useState('');
+  const [shown, setShown] = useState<boolean | null>(null);
+  const [optionalOpen, setOptionalOpen] = useState(false);
 
   if (!cl) return null;
+  const items: any[] = Array.isArray(cl.items) ? cl.items : [];
+  const open = shown ?? !cl.dismissed;
 
   const setMode = async (mode: 'studio' | 'own') => {
     setBusy(mode); setErr('');
     const d = await api({ action: 'booking-mode', tenantId, token, mode });
-    setBusy(''); setSwitching(false);
-    if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
+    setBusy('');
+    if (!d.ok) { setErr(d.error || 'That didn’t save. Try again.'); return; }   // the choice stays open, with the reason
+    setSwitching(false);
     toast({
       title: mode === 'own' ? 'Set to your own system' : `Set to ${bizs()} booking system`,
       description: mode === 'own'
@@ -518,115 +527,96 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
     });
     onChanged();
   };
-
   const dismiss = async () => {
     setBusy('dismiss');
-    await api({ action: 'checklist-dismiss', tenantId, token });
+    const d = await api({ action: 'checklist-dismiss', tenantId, token });
     setBusy('');
-    onChanged();
+    setShown(false);   // tucked away on this visit either way
+    if (d?.ok) onChanged();
   };
 
-  if (!cl.modeChosen || switching) {
+  const chooser = (
+    <div className="space-y-2">
+      <p className="text-[15px] font-medium text-[#16171a]">How do you take bookings?</p>
+      <p className="text-[14px] text-[#6d7075]">Either is fine, and you can change it whenever you like. Your rent, documents and credits work the same either way.</p>
+      {([['studio', `I’ll book through ${biz()}`, 'Your own menu at your own prices, your own hours and a booking link of your own. You keep what you charge.'],
+         ['own', 'I use my own booking system', 'Whatever you already use. Nothing here will ask you about hours or a menu.']] as const).map(([m, t, sub]) => (
+        <button key={m} type="button" onClick={() => setMode(m)} disabled={!!busy}
+          className="w-full rounded-xl border border-[#ececee] bg-white p-3.5 text-left hover:bg-[#f5f5f7] disabled:opacity-50">
+          <span className="block text-[15px] font-medium text-[#16171a]">{busy === m ? 'Saving…' : t}</span>
+          <span className="mt-0.5 block text-[13px] text-[#6d7075]">{sub}</span>
+        </button>
+      ))}
+      {switching && <button type="button" onClick={() => setSwitching(false)} className="h-11 text-[14px] font-medium text-[#6d7075]">Never mind</button>}
+      {err && <p className="text-[14px] text-[#b45309]">{err}</p>}
+    </div>
+  );
+
+  const canBook = cl.canBook !== false;
+  const switchLine = canBook && cl.modeChosen && !switching && (
+    <button type="button" onClick={() => setSwitching(true)} className="h-11 text-left text-[14px] font-medium text-[#6d7075] underline-offset-2 hover:underline">
+      {cl.mode === 'own' ? `Book through ${biz()} instead` : 'I use my own booking system'}
+    </button>
+  );
+
+  // Nothing at all to do or choose: no card.
+  const optionalLeft = Number(cl.optionalLeft) || 0;
+  if (cl.allDone && optionalLeft === 0 && !canBook) return null;
+  // Everything required done, or tucked away: one quiet line, with any steps left a tap away.
+  if (((cl.allDone && !optionalOpen) || !open) && !switching && (cl.modeChosen || !canBook)) {
+    const left = cl.remaining || 0;
+    const more = left > 0 || optionalLeft > 0;
     return (
-      <section className="space-y-3">
-        <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
-        <div className="p-5 rounded-2xl bg-white border space-y-3">
-          <div>
-            <p className="font-semibold text-[#16171a] text-sm">How do you take bookings?</p>
-            <p className="text-[14px] font-medium text-[#6d7075] mt-1">
-              Either answer is fine, and you can change it whenever you like. Your rent, documents and credits work the same either way.
-            </p>
-          </div>
-          <button onClick={() => setMode('studio')} disabled={!!busy}
-            className="w-full p-4 rounded-2xl border text-left active:scale-[0.99] transition-all disabled:opacity-50">
-            <p className="text-[15px] font-semibold text-[#16171a]">I&apos;ll book through {biz()}</p>
-            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
-              You get your own menu at your own prices, your own hours, a personal booking link, and you keep what you charge.
-            </p>
-          </button>
-          <button onClick={() => setMode('own')} disabled={!!busy}
-            className="w-full p-4 rounded-2xl border text-left active:scale-[0.99] transition-all disabled:opacity-50">
-            <p className="text-[15px] font-semibold text-[#16171a]">I use my own booking system</p>
-            <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
-              Square, GlossGenius, Booksy, a paper book — whatever you already use. Nothing here will pester you about it.
-            </p>
-          </button>
-          {switching && (
-            <button onClick={() => setSwitching(false)}
-              className="text-[14px] font-semibold text-[#6d7075]">Never mind</button>
-          )}
-          {err && (
-            <div className="flex items-start gap-2 text-[#b45309]">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <p className="text-[14px] font-medium">{err}</p>
-            </div>
-          )}
-        </div>
+      <section className="flex flex-wrap items-center justify-between gap-x-3 rounded-2xl border border-[#ececee] bg-white px-4 py-1">
+        <p className="py-2 text-[14px] text-[#6d7075]">
+          {cl.allDone
+            ? `${!canBook ? 'You’re set up.' : cl.mode === 'own' ? 'You’re set up. You take bookings in your own system.' : `You’re set up, booking through ${biz()}.`}${optionalLeft ? ` ${optionalLeft === 1 ? 'One optional step' : `${optionalLeft} optional steps`} left.` : ''}`
+            : `${left === 1 ? 'One setup step' : `${left} setup steps`} left.`}
+        </p>
+        <span className="flex gap-4">
+          {more && <button type="button" onClick={() => { setShown(true); if (cl.allDone) setOptionalOpen(true); }} className="h-11 text-[14px] font-medium text-[#16171a]">Show</button>}
+          {switchLine}
+        </span>
       </section>
     );
   }
 
-  if (cl.mode === 'own') {
-    return (
-      <section className="space-y-3">
-        <div className="p-4 rounded-2xl bg-white border border-[#ececee]">
-          <p className="text-[14px] font-medium text-[#6d7075]">
-            You&apos;re running your own booking system. If you ever want to try {bizs()} — your own menu, your own prices, your own link —{' '}
-            <button onClick={() => setSwitching(true)} className="font-semibold text-[#16171a] underline">switch it on here</button>.
-          </p>
-        </div>
-      </section>
-    );
-  }
-
-  if (cl.dismissed || cl.allDone) {
-    return (
-      <section className="space-y-3">
-        <div className="p-4 rounded-2xl bg-white border border-[#ececee]">
-          <p className="text-[14px] font-medium text-[#6d7075]">
-            Booking through {biz()}.{' '}
-            <button onClick={() => setSwitching(true)} className="font-semibold text-[#16171a] underline">Use my own system instead</button>
-          </p>
-        </div>
-      </section>
-    );
-  }
-
+  const bookingWait = canBook && cl.modeChosen && cl.mode === 'studio' && cl.bookingReady === false;
+  const choosing = canBook && !cl.modeChosen;
   return (
-    <section className="space-y-3">
-      <SectionTitle icon={Sparkles}>Getting set up</SectionTitle>
-      <div className="p-5 rounded-2xl bg-white border space-y-3">
-        <div>
-          <p className="font-semibold text-[#16171a] text-sm">
-            {cl.remaining === 1 ? 'One thing left' : `${cl.remaining} things left`}
-          </p>
-          <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">
-            Until these are done, clients can&apos;t book you.
-          </p>
-        </div>
-        <div className="space-y-2">
-          {cl.items.map((it: any) => (
-            <div key={it.key} className={cn('flex items-start gap-3 p-3 rounded-2xl border',
-              it.done ? 'border-[#cfe5d8] bg-[#eef6f1]' : 'border-[#ececee]')}>
-              {it.done
-                ? <CheckCircle2 className="w-4 h-4 text-[#1f7a4d] mt-0.5 shrink-0" />
-                : <div className="w-4 h-4 rounded-full border border-[#ececee] mt-0.5 shrink-0" />}
-              <div className="min-w-0">
-                <p className={cn('text-[15px] font-semibold', it.done ? 'text-[#1f7a4d]' : 'text-[#16171a]')}>
-                  {it.label}{it.optional ? ' · optional' : ''}
-                </p>
-                {it.hint && <p className="text-[14px] font-medium text-[#6d7075] mt-0.5">{it.hint}</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <button onClick={() => setSwitching(true)} className="text-[13px] font-semibold text-[#6d7075]">
-            I use my own system
-          </button>
-          <button onClick={dismiss} disabled={!!busy} className="text-[13px] font-semibold text-[#6d7075]">
-            {busy === 'dismiss' ? '…' : 'Hide this'}
-          </button>
+    <section className="space-y-2" aria-labelledby="getting-set-up">
+      <h2 id="getting-set-up" className="px-1 text-[14px] font-semibold text-[#6d7075]">Getting set up</h2>
+      <div className="overflow-hidden rounded-2xl border border-[#ececee] bg-white">
+        {(items.length > 0 || cl.remaining > 0) && (
+          <div className="border-b border-[#ececee] px-4 py-3">
+            <p className="text-[15px] font-medium text-[#16171a]">{cl.remaining === 0 ? (choosing ? 'One choice left' : 'The essentials are done') : cl.remaining === 1 ? 'One thing left' : `${cl.remaining} things left`}</p>
+            <p className="text-[13px] text-[#6d7075]">{bookingWait ? 'Clients can’t book you until your hours and a service are set.' : choosing && cl.remaining === 0 ? 'Choose how you take bookings, below.' : 'Tap a step to finish it.'}</p>
+          </div>
+        )}
+        {items.length > 0 && (
+          <ul className="divide-y divide-[#ececee]">
+            {items.map((it: any) => (
+              <li key={it.key}>
+                <button type="button" onClick={() => onOpen?.(it.place, it.view)} className="flex min-h-[44px] w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#fafafa]">
+                  {it.done
+                    ? <CheckCircle2 className="h-5 w-5 shrink-0 text-[#1f7a4d]" aria-hidden />
+                    : <span className="h-5 w-5 shrink-0 rounded-full border-[1.5px] border-[#c9cbd0]" aria-hidden />}
+                  <span className="min-w-0 flex-1">
+                    <span className={cn('block text-[15px]', it.done ? 'text-[#6d7075]' : 'font-medium text-[#16171a]')}>
+                      {it.done ? (it.doneLabel || it.label) : it.label}{it.optional && !it.done ? <span className="font-normal text-[#6d7075]"> · optional</span> : null}
+                    </span>
+                    {!it.done && it.hint && <span className="block text-[13px] leading-snug text-[#6d7075]">{it.hint}</span>}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-[#6d7075]" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {canBook && (!cl.modeChosen || switching) && <div className={cn('px-4 py-4', items.length > 0 && 'border-t border-[#ececee]')}>{chooser}</div>}
+        <div className="flex items-center justify-between gap-3 border-t border-[#ececee] px-4">
+          {switchLine || <span />}
+          {(cl.modeChosen || !canBook) && <button type="button" onClick={dismiss} disabled={!!busy} className="h-11 shrink-0 whitespace-nowrap text-[14px] font-medium text-[#6d7075]">{busy === 'dismiss' ? 'Hiding…' : 'Hide this'}</button>}
         </div>
       </div>
     </section>

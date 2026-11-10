@@ -14,6 +14,7 @@
 // the full card — still lives in the hub until its zone moves here too.
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { collection, doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
 import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { useToast } from '@/hooks/use-toast';
@@ -63,6 +64,15 @@ export default function RentersPage() {
   const [reservations, setReservations] = useState<R[]>([]);
   const [amenityRequests, setAmenityRequests] = useState<R[]>([]);
   const [profileRenter, setProfileRenter] = useState<R | null>(null);
+  // Their W-9, as the owner may see it (the number masked: /api/booths/w9), for the profile they open.
+  const [w9Of, setW9Of] = useState<Record<string, any>>({});
+  useEffect(() => {
+    const id = profileRenter?.id; if (!id || !tenantId || w9Of[id] !== undefined) return;
+    staffAuthHeader().then((h) => fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(id)}`, { headers: h }))
+      // Only a real answer is kept; a failed look leaves it to try again next time the profile opens.
+      .then((res) => res.json()).then((d) => { if (d?.ok) setW9Of((m) => ({ ...m, [id]: d.w9 || null })); })
+      .catch(() => undefined);
+  }, [profileRenter?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState<R | null>(null);
   const [ending, setEnding] = useState<R | null>(null);
   const [busy, setBusy] = useState(false);
@@ -347,7 +357,7 @@ export default function RentersPage() {
             booth={booth}
             reservations={reservations}
             amenityRequests={amenityRequests}
-            w9={undefined}
+            w9={w9Of[profileRenter.id]}
             tenantId={tenantId}
             firestore={firestore}
             onClose={() => setProfileRenter(null)}

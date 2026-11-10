@@ -23,7 +23,7 @@ export function tabFor(t: unknown): PortalTab {
 
 export const VIEW_TITLES: Record<string, string> = {
   notices: 'Messages and notices', repairs: 'Something broken?', concerns: 'Raise a concern', lease: 'Lease and documents',
-  rules: 'House rules', insurance: 'Insurance and license', away: 'Time away', closures: 'Closures', swaps: 'Swap days',
+  rules: 'House rules', insurance: 'Insurance and license', w9: 'Tax form (W-9)', away: 'Time away', closures: 'Closures', swaps: 'Swap days',
   history: 'Payments and past bookings', books: 'Earnings and expenses', payouts: 'Payouts',
   followups: 'Follow-ups', campaigns: 'Campaigns', reconnect: 'Win back', giftcards: 'Gift cards', clientdocs: 'Client documents',
   setup: 'Business setup', 'setup:page': 'Your booking page', 'setup:services': 'Services', 'setup:hours': 'Hours',
@@ -31,7 +31,7 @@ export const VIEW_TITLES: Record<string, string> = {
   'setup:messages': 'Client messages', 'setup:alerts': 'Your own alerts', 'setup:payments': 'Card payments',
 };
 export const VIEW_PARENT: Record<string, PortalTab> = {
-  notices: 'space', repairs: 'space', concerns: 'space', lease: 'space', rules: 'space', insurance: 'space', away: 'space', closures: 'space', swaps: 'space',
+  notices: 'space', repairs: 'space', concerns: 'space', lease: 'space', rules: 'space', insurance: 'space', w9: 'space', away: 'space', closures: 'space', swaps: 'space',
   history: 'money', books: 'money', payouts: 'money', followups: 'clients', campaigns: 'clients', reconnect: 'clients', giftcards: 'clients', clientdocs: 'clients',
 };
 /** Where Back goes with no step to retrace (opened from a link): a setup screen to Business setup, anything else to its place. */
@@ -40,10 +40,12 @@ export const VIEW_BACK: Record<string, string> = Object.fromEntries(Object.keys(
 /** Screens that only make sense for someone who takes bookings here. */
 export const BOOKS_ONLY = new Set(['books', 'payouts', 'followups', 'campaigns', 'reconnect', 'giftcards', 'clientdocs', ...Object.keys(VIEW_TITLES).filter((k) => k.startsWith('setup:'))]);
 /** Screens that read or write the renter's own record (an account not yet linked to one has none). */
-export const RENTER_ONLY = new Set(['notices', 'repairs', 'concerns', 'lease', 'rules', 'insurance', 'closures', 'away', 'swaps', 'followups', 'clientdocs']);
+export const RENTER_ONLY = new Set(['notices', 'repairs', 'concerns', 'lease', 'rules', 'insurance', 'w9', 'closures', 'away', 'swaps', 'followups', 'clientdocs']);
 
 /** What decides what a renter can reach. */
-export type Who = { booksHere: boolean; hasRenter: boolean; hasLease: boolean; swapsOn: boolean };
+export type Who = { booksHere: boolean; hasRenter: boolean; hasLease: boolean; swapsOn: boolean;
+  /** Signed in as their renter record, not only matched by phone or email (saving their own W-9 needs it). */
+  linked?: boolean };
 
 export function placesFor(w: Who): PortalTab[] {
   return w.booksHere ? TABS : ['today', 'money', 'space'];
@@ -58,6 +60,7 @@ export function viewAllowed(v: string | null | undefined, w: Who): boolean {
   if (RENTER_ONLY.has(v) && !w.hasRenter) return false;
   if (v === 'away' && !w.hasLease) return false;
   if (v === 'swaps' && !w.swapsOn) return false;
+  if (v === 'w9' && w.linked === false) return false;
   return true;
 }
 /** The screen to show: the one asked for if this renter can open it, otherwise none (the place itself). */
@@ -71,7 +74,7 @@ export function placeRows(tab: PortalTab, w: Who): RowGroupSpec[] {
   const groups: RowGroupSpec[] =
     tab === 'space' ? [
       { id: 'talk', title: '', views: ['notices', 'repairs', 'concerns'] },
-      { id: 'papers', title: 'Your lease and papers', views: ['lease', 'rules', 'insurance'] },
+      { id: 'papers', title: 'Your lease and papers', views: ['lease', 'rules', 'insurance', 'w9'] },
       { id: 'time', title: 'Time in the space', views: ['away', 'swaps', 'closures'] },
     ]
     : tab === 'clients' ? [

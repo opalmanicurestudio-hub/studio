@@ -37,6 +37,8 @@
 //   code requests: 10 an hour per visitor, 5 an hour per contact, 300 a day per business (texting bills)
 //   code checks: 20 an hour per visitor, and each code allows 5 wrong tries · personal links: 30 opens an hour per visitor
 
+import { sealW9, w9Problem, w9View } from '@/lib/w9-record';
+import { readW9, writeW9, hasW9 } from '@/lib/w9-store';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createHash, randomBytes } from 'crypto';
@@ -716,7 +718,9 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    // An unreadable body gets a fixed answer: the parser's own message can quote it, and it may hold a tax number.
+    let body: any;
+    try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: 'The request couldn’t be read.' }, { status: 400 }); }
     const { action, tenantId } = body || {};
     if (!action || !tenantId) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
@@ -1322,41 +1326,7 @@ export async function POST(req: NextRequest) {
       // It ADAPTS to booking mode: someone on their own system is not
       // half-finished, they are finished. Nagging them about hours and menus
       // they will never use is how a portal gets ignored.
-      let checklist: any = null;
-      try {
-        if (renter) {
-          const mode = renter.bookingMode === 'own' ? 'own' : 'studio';
-          const modeChosen = renter.bookingMode === 'own' || renter.bookingMode === 'studio';
-          const items: any[] = [];
-          if (mode === 'studio' && provider) {
-            const week = (provider as any).week || {};
-            const hasHours = Object.keys(week).some((k) => week[k]?.enabled && week[k]?.start && week[k]?.end);
-            items.push({
-              key: 'hours', label: 'Set the hours you work',
-              hint: hasHours ? '' : 'Until this is set, nobody can book you at all.',
-              done: hasHours, optional: false,
-            });
-            items.push({
-              key: 'services', label: 'Add at least one service',
-              hint: (myServices || []).length > 0 ? '' : 'Your prices, your menu — clients see only yours.',
-              done: (myServices || []).length > 0, optional: false,
-            });
-            items.push({
-              key: 'deposits', label: 'Connect Stripe to take deposits',
-              hint: renter.stripeChargesEnabled ? '' : 'Optional. Without it, clients pay you in person.',
-              done: renter.stripeChargesEnabled === true, optional: true,
-            });
-          }
-          const required = items.filter((i) => !i.optional);
-          checklist = {
-            mode, modeChosen,
-            dismissed: !!renter.checklistDismissedAt,
-            items,
-            remaining: required.filter((i) => !i.done).length,
-            allDone: required.every((i) => i.done),
-          };
-        }
-      } catch { /* the checklist is additive — never fail the whole call */ }
+      let checklist: any = null;   // worked out below, once the deposit is known (lib/renter-setup-steps)
 
       // RENT OUTLOOK — what's owed now, credits waiting, and the next rent after credits. Same rules as the nightly rent
       // job (each credit's remaining = amount − applied; credits come off the next invoice when it's made), so the
@@ -1366,7 +1336,7 @@ export async function POST(req: NextRequest) {
         try {
           const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get();
           const { rentOutlook: outlook } = await import('@/lib/rent-outlook'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
-          rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)), businessAccount: spacePayAccount(tenant) });
+          try { rentOutlook = outlook({ lease, renter, invoices, ledger: led.docs.map((d: any) => d.data()), todayIso: todayIn(tenantTimeZone(tenant)), businessAccount: spacePayAccount(tenant) }); } catch { rentOutlook = null; }   // the deposit below stands on its own
           // Their security deposit, as the business's deposit card has it (lib/deposit-accounting): what was agreed, what's
           // held and what's been kept and why; payable here when it's due and the business takes cards.
           const { depositPosition } = await import('@/lib/deposit-accounting');
@@ -1377,6 +1347,15 @@ export async function POST(req: NextRequest) {
             canPayOnline: p.status === 'not_collected' && p.agreedCents > 0 && !!spacePayAccount(tenant) && ['active', 'on_leave'].includes(String(lease.status || '')) };
         } catch { rentOutlook = null; }
       }
+      try {
+        const { renterSetupSteps } = await import('@/lib/renter-setup-steps'); const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time');
+        checklist = renterSetupSteps({
+          renter, lease, deposit, provider, serviceCount: (myServices || []).length,
+          rules: tenant?.bookingPageSettings?.automationRules || null, todayIso: todayIn(tenantTimeZone(tenant)),
+          businessTakesCards: !!spacePayAccount(tenant), cardUsable: !!(renter?.cardOnFile && renterBusinessCard(renter, spacePayAccount(tenant))),
+          businessName: tenant?.name || '', linked: !!session.renterId && session.renterId === renter?.id,
+        });
+      } catch { checklist = null; /* the checklist is additive — never fail the whole call */ }
       return NextResponse.json({
         ok: true,
         rentOutlook,
@@ -1392,6 +1371,9 @@ export async function POST(req: NextRequest) {
           // business's payments moved is on file but has to be saved again.
           cardUsable: !!(renter.cardOnFile && renterBusinessCard(renter, spacePayAccount(tenant))),
           autopayEnabled: renter.autopayEnabled === true,
+          w9OnFile: hasW9(renter),
+          // Signed in as this renter (not only matched by phone or email): what their own screens need.
+          linked: !!session.renterId && session.renterId === renter.id,
           insuranceExpiry: renter.insuranceExpiry || null, insuranceDocUrl: renter.insuranceDocUrl || null,
           insuranceCarrier: renter.insuranceCarrier || null, insurancePolicyNumber: renter.insurancePolicyNumber || null,
           licenseExpiry: renter.licenseExpiry || null, licenseDocUrl: renter.licenseDocUrl || null,
@@ -1739,6 +1721,42 @@ export async function POST(req: NextRequest) {
         checklistDismissedAt: new Date().toISOString(),
       }, { merge: true });
       return NextResponse.json({ ok: true });
+    }
+
+    // ═══ w9-status / w9-save ══════════════════════════════════════════════
+    // Their W-9, for year-end tax forms (lib/w9-record, the same checks and sealing as /api/booths/w9). The number is
+    // encrypted at once and only its last four digits ever come back. Nothing here logs the request.
+    if (action === 'w9-status') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn’t linked to a renter record yet.' }, { status: 403 });
+      // This read can also write: a W-9 still on the renter document is moved into private (lib/w9-store).
+      return NextResponse.json({ ok: true, w9: w9View(await readW9(db, tenantId, session.renterId)) });
+    }
+    if (action === 'w9-save') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn’t linked to a renter record yet.' }, { status: 403 });
+      const problem = w9Problem(body || {});
+      if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 400 });
+      if (!(await tries(req, 'renter-w9', `${tenantId}|${session.renterId}`, 10))) {
+        return NextResponse.json({ ok: false, error: 'That’s a lot of saves in an hour. Try again later.' }, { status: 429 });
+      }
+      if (!(await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).exists) {
+        return NextResponse.json({ ok: false, error: 'Your renter record wasn’t found. Ask the business to check it.' }, { status: 404 });
+      }
+      try {
+        const before = await readW9(db, tenantId, session.renterId);
+        const now = new Date().toISOString();
+        const w9 = sealW9(body, now);
+        await writeW9(db, tenantId, session.renterId, w9);
+        await logAuditAdmin(db, tenantId, {
+          action: 'renter.w9_saved', targetType: 'renter', targetId: session.renterId,
+          summary: `${session.name || 'A renter'} ${before ? 'updated' : 'added'} their W-9 (${w9.tinType === 'ein' ? 'EIN' : 'SSN'} ending ${w9.tinLast4})`,
+          actor: { type: 'user', name: session.name || undefined, role: 'renter', via: 'renter-portal' },
+        });
+        return NextResponse.json({ ok: true, w9: w9View(w9) });
+      } catch (e: any) {
+        // Never the request or the error itself: either could hold the full number.
+        console.error('[portal/renter] w9-save failed', /W9_ENCRYPTION_KEY|tin-crypto/.test(String(e?.message || '')) ? 'encryption key missing' : 'write failed');
+        return NextResponse.json({ ok: false, error: 'Your W-9 couldn’t be saved just now. Try again in a minute.' }, { status: 500 });
+      }
     }
 
     // ═══ swap-options ═══════════════════════════════════════════════════
