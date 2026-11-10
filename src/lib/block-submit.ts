@@ -23,7 +23,7 @@ import { resolveBlockPermission, exceedsCap, type BlockPolicy, type BlockType } 
 import { notifyStaff, managerIds } from '@/lib/staff-notify';
 
 export type BlockSubmitResult =
-  | { ok: true; outcome: 'created' | 'requested'; message: string }
+  | { ok: true; outcome: 'created' | 'requested'; message: string; /** A manager should hear about it (left to a quiet caller). */ told?: boolean }
   | { ok: false; reason: string };
 
 export async function submitCalendarBlock(
@@ -45,6 +45,10 @@ export async function submitCalendarBlock(
     events?: any[];
     staff?: any[];
     ownerUid?: string | null;
+    /** Kept on the block or the request as well: the series a block belongs to when several are added at once. */
+    extra?: Record<string, unknown>;
+    /** Several blocks at once: the caller tells the managers once, not once per date. */
+    quiet?: boolean;
   },
 ): Promise<BlockSubmitResult> {
   if (!firestore || !tenantId) return { ok: false, reason: 'Missing studio' };
@@ -99,12 +103,13 @@ export async function submitCalendarBlock(
         status: 'pending',
         requestedBy: input.actor.uid || null,
         requestedAt: nowIso,
+        ...(input.extra || {}),
       });
     } catch {
       return { ok: false, reason: 'Could not send that — try again.' };
     }
 
-    await notifyStaff(firestore, tenantId, managerIds(input.staff || [], input.actor.uid, input.ownerUid).map(id => ({
+    if (!input.quiet) await notifyStaff(firestore, tenantId, managerIds(input.staff || [], input.actor.uid, input.ownerUid).map(id => ({
       userId: id,
       type: 'appointment_issue_raised' as const,
       message: `${input.subject.name || 'A provider'} asked to block time — ${input.title.trim()}.`,
@@ -135,12 +140,14 @@ export async function submitCalendarBlock(
       createdAt: nowIso,
       requestedBy: input.actor.uid || null,
       requestedAt: nowIso,
+      ...(input.extra || {}),
     });
   } catch {
     return { ok: false, reason: 'Could not save that — try again.' };
   }
 
   if (verdict.permission === 'notify') {
+    if (input.quiet) return { ok: true, outcome: 'created', message: 'Blocked.', told: true };
     await notifyStaff(firestore, tenantId, managerIds(input.staff || [], input.actor.uid, input.ownerUid).map(mid => ({
       userId: mid,
       type: 'appointment_issue_raised' as const,

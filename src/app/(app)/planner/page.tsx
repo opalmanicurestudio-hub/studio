@@ -28,7 +28,8 @@ import { cn, safeNumber } from '@/lib/utils';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { EditAppointmentDialog } from '@/components/planner/EditAppointmentDialog';
 import { Badge } from '@/components/ui/badge';
-import { AddEventDialog } from '@/components/planner/EventsDialog';
+import { AddEventDialog, EditEventDialog } from '@/components/planner/EventsDialog';
+import { saveNewEvents, laterInSeries, laterUpdates, writeUpdates, deleteEvents } from '@/lib/event-series';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -64,7 +65,6 @@ import { ResolveIssueSheet } from '@/components/planner/ResolveIssueSheet';
 import { resolveAuthority } from '@/lib/appointment-authority';
 import { ReportIssueDialog } from '@/components/planner/ReportIssueDialog';
 import { DayPulse } from '@/components/planner/DayPulse';
-import { submitCalendarBlock } from '@/lib/block-submit';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
@@ -1713,46 +1713,82 @@ function PlannerPageContent() {
       <AddEventDialog
         open={isAddEventOpen}
         onOpenChange={setIsAddEventOpen}
-        onConfirm={async (data: any) => {
+        onConfirm={async (data) => {
           if (!firestore || !tenantId) return;
           /* A BLOCK GOES THROUGH THE POLICY, an event does not. Blocking a
            * calendar is a decline made in advance, so it answers to the same
            * authority model as declining a booking; a business event on the
-           * shop's own calendar answers to nobody. */
-          if (data.type === 'blocked' && (data.staffIds || []).length > 0) {
-            const subjectId = String(data.staffIds[0]);
-            const subject = (allStaff || []).find((s: any) => s.id === subjectId);
-            const res = await submitCalendarBlock(firestore, tenantId, {
-              blockType: data.blockType || 'personal',
-              title: data.title,
-              startTime: data.startTime,
-              endTime: data.endTime,
-              allDay: !!data.allDay,
-              notes: data.notes,
-              staffIds: data.staffIds,
-              subject: {
-                id: subjectId,
-                name: (subject as any)?.name || null,
-                employmentModel: (subject as any)?.employmentModel || null,
-                role: (subject as any)?.role || null,
-              },
-              actor: { uid: currentUser?.uid, name: decidingStaffName, isManager: can('bookings.manage') },
-              policy: (selectedTenant as any)?.blockPolicy || null,
-              events: events || [],
-              staff: allStaff || [],
-              ownerUid: (selectedTenant as any)?.userId || null,
+           * shop's own calendar answers to nobody. Several at once go through
+           * it one date at a time (lib/event-series). */
+          try {
+            const res = await saveNewEvents(firestore, tenantId, data, {
+              by: currentUser?.uid || null, byName: decidingStaffName, isManager: can('bookings.manage'),
+              staff: allStaff || [], events: events || [], policy: (selectedTenant as any)?.blockPolicy || null, ownerUid: (selectedTenant as any)?.userId || null,
             });
-            if (res.ok) { setIsAddEventOpen(false); toast({ title: res.outcome === 'requested' ? 'Sent for approval' : 'Blocked', description: res.message }); }
-            else { toast({ variant: 'destructive', title: res.reason }); }
-            return;
+            const n = data.occurrences.length;
+            if (res.added + res.requested === 0) { toast({ variant: 'destructive', title: res.reason || 'Nothing was added.' }); return; }
+            setIsAddEventOpen(false);
+            const parts = [
+              res.added ? `${res.added} ${data.type === 'blocked' ? (res.added === 1 ? 'block' : 'blocks') : (res.added === 1 ? 'event' : 'events')} added` : '',
+              res.requested ? `${res.requested} sent to a manager` : '',
+              res.refused ? `${res.refused} not added: ${res.reason}` : '',
+            ].filter(Boolean);
+            toast({ title: n === 1 ? (res.requested ? 'Sent for approval' : data.type === 'blocked' ? 'Blocked' : 'Event added') : parts.join(' · '), description: n === 1 && res.requested ? 'Your time stays bookable until they answer.' : undefined });
+          } catch {
+            toast({ variant: 'destructive', title: 'Those events weren’t saved. Try again.' });
           }
-          const id = nanoid();
-          await setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'events', id), { ...data, id, tenantId, startTime: data.startTime.toISOString(), endTime: data.endTime.toISOString() }, {});
-          setIsAddEventOpen(false);
-          toast({ title: "Event Added" });
         }}
         staff={allStaff || []}
       />
+
+      {selectedEvent && (() => {
+        // Only an event saved on the calendar opens here: a lease hold or a maintenance visit drawn on it comes from the
+        // lease or the plan, and is changed there.
+        const raw: any = (events || []).find((e: any) => e.id === selectedEvent.id);
+        if (!raw) return null;
+        const uid = currentUser?.uid || '';
+        const manager = can('schedule.manage') || can('bookings.manage');
+        const blockManager = can('bookings.manage');   // blocks answer to the booking authority (lib/block-submit)
+        // Someone without schedule rights changes their own events: ones that are theirs, or that they added. A block
+        // someone else put on them is for the booking manager to lift.
+        const own = (e: any) => !!uid && ((e.staffIds || []).includes(uid) || e.createdBy === uid || e.requestedBy === uid);
+        const mayChange = (e: any) => manager || own(e);
+        const mayDelete = (e: any) => (e.type === 'blocked' ? blockManager || (own(e) && e.requestedBy === uid) : mayChange(e));
+        const later = laterInSeries(events || [], raw).filter(mayChange);
+        const laterDeletable = later.filter(mayDelete);
+        return (
+          <EditEventDialog
+            open={isEditEventOpen}
+            onOpenChange={(o) => { setIsEditEventOpen(o); if (!o) setSelectedEvent(null); }}
+            event={raw}
+            staff={allStaff || []}
+            laterCount={later.length}
+            readOnly={mayChange(raw) ? null : 'This is on someone else’s calendar. A manager can change it.'}
+            onConfirm={async ({ event: ev, later: alsoLater, changed }) => {
+              if (!firestore || !tenantId || !mayChange(raw)) return;
+              const { itemType, isSecondary, isStudioEvent, ...clean } = ev as any;
+              try {
+                const patch = Object.fromEntries(Object.entries({ ...clean, startTime: new Date(clean.startTime).toISOString(), endTime: new Date(clean.endTime).toISOString(), updatedAt: new Date().toISOString() }).filter(([, v]) => v !== undefined));
+                await writeUpdates(firestore, tenantId, [{ id: raw.id, patch }]);
+                const ups = alsoLater ? laterUpdates(later, changed) : [];
+                if (ups.length) await writeUpdates(firestore, tenantId, ups);
+                setIsEditEventOpen(false); setSelectedEvent(null);
+                toast({ title: ups.length ? `Saved, and ${ups.length} after it changed` : 'Saved' });
+              } catch { toast({ variant: 'destructive', title: 'That wasn’t saved. Try again.' }); }
+            }}
+            onDelete={mayDelete(raw) ? async (which) => {
+              if (!firestore || !tenantId) return;
+              const ids = [raw.id, ...(which === 'later' ? laterDeletable.map((e: any) => e.id) : [])];
+              try {
+                await deleteEvents(firestore, tenantId, ids);
+                setIsEditEventOpen(false); setSelectedEvent(null);
+                toast({ title: ids.length === 1 ? 'Deleted' : `${ids.length} events deleted` });
+              } catch { toast({ variant: 'destructive', title: 'That wasn’t deleted. Try again.' }); }
+            } : undefined}
+            deleteLaterCount={laterDeletable.length}
+          />
+        );
+      })()}
 
       <ScanCheckInDialog
         open={isScannerOpen}
