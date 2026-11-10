@@ -127,8 +127,12 @@ const read = (p: string) => readFileSync(p, 'utf8');
   const waitMe = await portal({ action: 'me', token: s1.token, today: '2026-11-08' });
   check('before signing, the portal promises no rent date and doesn’t call autopay on', waitMe.rentOutlook?.waitingSignature === true && !waitMe.rentOutlook?.nextDue && waitMe.rentOutlook?.autopayOn === false, waitMe.rentOutlook);
   await db.doc(`${T}/renters/${r1}`).set({ autopayEnabled: false, cardOnFile: false, stripeCustomerId: null, stripePaymentMethodId: null, stripeCustomerAccount: null }, { merge: true });
-  check('another renter can’t sign it', (await portal({ action: 'document-sign', token: s2.token, documentId: L1.signatureDocumentId, signedName: 'Bo Lee' })).status === 403);
-  const signed = await portal({ action: 'document-sign', token: s1.token, documentId: L1.signatureDocumentId, signedName: 'Ana Diaz' });
+  // Signing as the portal does: agreeing to sign electronically, over the exact words shown (lib/esign-consent).
+  const { esignConsentText } = await import('../../src/lib/esign-consent');
+  const hex = (t: string) => createHash('sha256').update(t, 'utf8').digest('hex');
+  const signArgs = async (id: string) => ({ consent: true, shownSha: hex(String(((await db.doc(`${T}/renterDocuments/${id}`).get()).data() || {}).body || '')), consentSha: hex(esignConsentText('Fern & Co')) });
+  check('another renter can’t sign it', (await portal({ action: 'document-sign', token: s2.token, documentId: L1.signatureDocumentId, signedName: 'Bo Lee', ...(await signArgs(L1.signatureDocumentId)) })).status === 403);
+  const signed = await portal({ action: 'document-sign', token: s1.token, documentId: L1.signatureDocumentId, signedName: 'Ana Diaz', ...(await signArgs(L1.signatureDocumentId)) });
   const L1b = await get(`${T}/leases/${l1}`);
   check('signing starts the lease, and they become an active renter', signed.ok && L1b?.status === 'active' && L1b?.signedDocumentId === signed.signedDocumentId && L1b?.signedByName === 'Ana Diaz'
     && (await get(`${T}/renters/${r1}`))?.status === 'active', { signed, L1b });
@@ -141,10 +145,10 @@ const read = (p: string) => readFileSync(p, 'utf8');
   await S.endLease(web as any, 't1', { id: l3, ...L3 } as any, r1, [{ id: l1, ...(await get(`${T}/leases/${l1}`)) }, { id: l3, ...L3 }] as any);
   check('ending a lease that was never signed takes its copy back from the portal', (await get(`${T}/renterDocuments/${L3.signatureDocumentId}`))?.status === 'withdrawn');
   await db.doc(`${T}/renterDocuments/${L3.signatureDocumentId}`).set({ status: 'sent' }, { merge: true });   // as if taken back by an older app
-  const late = await portal({ action: 'document-sign', token: s1.token, documentId: L3.signatureDocumentId, signedName: 'Ana Diaz' });
+  const late = await portal({ action: 'document-sign', token: s1.token, documentId: L3.signatureDocumentId, signedName: 'Ana Diaz', ...(await signArgs(L3.signatureDocumentId)) });
   check('…and signing an ended lease is refused, without marking anything signed', late.status === 409 && (await get(`${T}/leases/${l3}`))?.status === 'ended'
     && (await get(`${T}/renterDocuments/${L3.signatureDocumentId}`))?.status === 'sent', late);
-  check('it can’t be signed twice', (await portal({ action: 'document-sign', token: s1.token, documentId: L1.signatureDocumentId, signedName: 'Ana Diaz' })).status === 400);
+  check('it can’t be signed twice', (await portal({ action: 'document-sign', token: s1.token, documentId: L1.signatureDocumentId, signedName: 'Ana Diaz', ...(await signArgs(L1.signatureDocumentId)) })).status === 400);
   const note = (await db.collection(`${T}/notifications`).where('type', '==', 'renter_document').get()).docs.map((d: any) => d.data().message);
   check('the owner is told the lease is now active', note.some((m: string) => /Ana Diaz has signed "Your lease"\. Their lease is now active/.test(m)), note);
 

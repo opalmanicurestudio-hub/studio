@@ -6134,6 +6134,7 @@ export default function BoothsPage() {
       {builderRenterId && tenantId && renterById.get(builderRenterId) && (
         <LeaseBuilder
           tenantId={tenantId} tenant={selectedTenant} firestore={firestore}
+          signer={currentUser ? { uid: currentUser.uid, email: currentUser.email || null } : null}
           renter={renterById.get(builderRenterId)}
           booths={(booths.data || []) as any[]} locations={(locations || []) as any[]} leases={(leases.data || []) as any[]}
           uploadSigned={storage ? async (file: File) => { const r = storageRef(storage, `tenants/${tenantId}/leases/${Date.now()}-${file.name}`); await uploadBytes(r, file); return getDownloadURL(r); } : undefined}

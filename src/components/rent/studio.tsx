@@ -14,6 +14,8 @@ import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance'
 import { LINK_KINDS, SECTION_KINDS, RENTER_FONTS, onAccent } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
 import { PrintLink } from '@/components/shared/PrintLink';
+import { sha256Hex } from '@/lib/sha256';
+import { esignConsentText } from '@/lib/esign-consent';
 import {
   Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
   CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
@@ -162,8 +164,10 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
   const [name, setName] = useState('');
   const [declining, setDeclining] = useState('');
   const [declineNote, setDeclineNote] = useState('');
+  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [done, setDone] = useState('');
   const load = useCallback(async () => {
     const d = await api({ action: 'documents-list', tenantId, token });
     if (d?.ok) setState({ documents: d.documents || [], signed: d.signed || [] });
@@ -173,12 +177,16 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
   const pending = state.documents.filter((d) => d.status === 'sent');
   const past = state.documents.filter((d) => d.status !== 'sent').slice(0, 6);
   if (pending.length === 0 && past.length === 0 && state.signed.length === 0) return null;
-  const sign = async (id: string) => {
+  // Opening a document is noted once, for its signature certificate.
+  const open = (id: string) => { setOpenId(id); setErr(''); setConsent(false); setDone(''); void api({ action: 'document-viewed', tenantId, token, documentId: id }); };
+  // What's signed is the exact text on screen: its fingerprint goes with the signature and is checked.
+  const sign = async (doc: any) => {
     setBusy(true); setErr('');
-    const d = await api({ action: 'document-sign', tenantId, token, documentId: id, signedName: name });
+    const d = await api({ action: 'document-sign', tenantId, token, documentId: doc.id, signedName: name, consent, shownSha: sha256Hex(String(doc.body || '')), consentSha: sha256Hex(esignConsentText(biz())) });
     setBusy(false);
     if (!d?.ok) { setErr(d?.error || 'Could not sign.'); return; }
-    setOpenId(''); setName(''); void load();
+    setDone(doc.action === 'acknowledge' ? `“${doc.title}” acknowledged.` : `“${doc.title}” signed.${d.emailed ? ' A signed copy is on its way to your email.' : ' You can print a signed copy below.'}`);
+    setOpenId(''); setName(''); setConsent(false); void load();
   };
   const decline = async (id: string) => {
     setBusy(true); setErr('');
@@ -191,6 +199,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
     <section className="space-y-3">
       <SectionTitle icon={FileSignature}>Documents</SectionTitle>
       <div className="p-4 rounded-2xl bg-white border border-[#ececee] space-y-3">
+        {done && <p role="status" className="text-[13px] font-medium text-[#1f7a4d]">{done}</p>}
         {pending.map((d) => {
           const isOpen = openId === d.id;
           const verb = d.action === 'acknowledge' ? 'acknowledge' : 'sign';
@@ -202,7 +211,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
               </div>
               <p className="text-[13px] font-medium text-[#b45309]">Sent {fmtDate(String(d.sentAt).slice(0, 10))} by {d.sentBy}</p>
               {!isOpen ? (
-                <button type="button" onClick={() => { setOpenId(d.id); setErr(''); }} className="h-11 w-full rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white">Read it</button>
+                <button type="button" onClick={() => open(d.id)} className="h-11 w-full rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white">Read it</button>
               ) : (
                 <div className="space-y-2">
                   <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border border-[#ececee] px-3.5 py-3 text-[15px] leading-relaxed font-medium text-[#16171a] whitespace-pre-wrap">{d.body}</div>
@@ -217,10 +226,16 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
                   ) : (
                     <div className="space-y-2">
                       <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border border-[#ececee] bg-white px-3 text-sm font-medium" />
-                      <p className="text-[12px] font-medium text-[#6d7075]">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
+                      {verb === 'sign' && (
+                        <label className="flex min-h-[44px] items-start gap-3 rounded-2xl border border-[#ececee] bg-white px-3.5 py-3 text-[13px] font-medium leading-relaxed text-[#16171a]">
+                          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#16171a]" />
+                          <span>{esignConsentText(biz())}</span>
+                        </label>
+                      )}
+                      <p className="text-[12px] font-medium text-[#6d7075]">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it{verb === 'sign' ? `, and you and ${biz()} each get a signed copy by email` : ''}.</p>
                       {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
+                        <button type="button" onClick={() => sign(d)} disabled={busy || name.trim().length < 2 || (verb === 'sign' && !consent)} className="h-11 flex-1 rounded-2xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
                         <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border border-[#ececee] bg-white px-3 text-[13px] font-semibold text-[#6d7075]">Decline</button>
                         <PrintLink path="/api/booths/renter-document" params={{ tenantId, id: d.id }} token={token} className="h-11 inline-flex items-center rounded-2xl border border-[#ececee] bg-white px-3 text-[13px] font-semibold text-[#6d7075]">Print</PrintLink>
                       </div>

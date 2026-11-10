@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
+import { sha256Hex } from '@/lib/sha256';
+import { certificateRows } from '@/lib/esign-consent';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +61,18 @@ export async function GET(req: NextRequest) {
   const statusText = d.status === 'sent' ? 'Awaiting ' + (d.action === 'acknowledge' ? 'acknowledgment' : 'signature') : String(d.status || '');
   const statusTone = d.status === 'signed' ? 'ok' : d.status === 'declined' ? 'bad' : '';
   const blankSig = (who: string) => `<div class="box"><p class="lbl">${who}</p><p class="sl first">Name</p><p class="sl next">Date</p></div>`;
+  // The business signs first as it sends (the lease builder); the renter second, in their portal.
+  const bizSig: any = (signed && signed.businessSignature) || d.meta?.businessSignature || null;
+  const bizBox = bizSig?.name ? `<div class="box"><p class="lbl">For ${esc(studio)}</p><p class="name">${esc(bizSig.name)}</p><p class="muted">Signed ${when(bizSig.at)}</p></div>` : blankSig(`For ${esc(studio)}`);
+  // The signature certificate (lib/esign-consent): what was signed, by its fingerprint, and each step with its time.
+  const text = String((signed && signed.agreementText) || d.body || '');
+  const shaNow = sha256Hex(String(d.body || ''));
+  const cert = d.status === 'signed' && signed && signed.action !== 'acknowledge' ? certificateRows({
+    title: String(d.title || ''), business: studio, sha256: String(signed.termsSha256 || sha256Hex(text)), fingerprintMatches: signed.termsSha256 ? signed.termsSha256 === shaNow : null,
+    sentAt: d.sentAt, sentBy: d.sentBy, viewedAt: signed.viewedAt || d.viewedAt, consentAt: signed.esignConsent?.at, signedName: signed.signedName, signedAt: signed.signedAt,
+    ip: signed.ip, device: signed.userAgent, businessSignature: bizSig, recordId: d.signedDocumentId,
+  }) : [];
+  const certHtml = cert.length ? `<div class="sigs"><h2>Signature certificate</h2><div class="box">${cert.map((r) => `<p class="lbl">${esc(r.label)}</p><p style="margin:2px 0 8px;font-size:12px;word-break:break-all">${esc(r.value)}</p>`).join('')}</div>${signed.esignConsent?.text ? `<p class="note">Agreed before signing: “${esc(signed.esignConsent.text)}”</p>` : ''}</div>` : '';
 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(d.title)} — ${esc(d.renterName)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="${PRINT_FONT_HREF}" rel="stylesheet"><style>${styles}</style></head><body class="pp-screen"><div class="pp page">
   <div class="bar"><span>${esc(d.title)}</span><button onclick="window.print()">Print / Save as PDF</button></div>
@@ -72,12 +86,13 @@ export async function GET(req: NextRequest) {
     ${d.status === 'signed' && signed ? `
       <div class="grid2">
         <div class="box"><p class="lbl">Renter</p><p class="name">${esc(signed.signedName)}</p><p class="muted">${verb} ${when(signed.signedAt)}</p>${signed.ip ? `<p class="muted">From ${esc(signed.ip)}</p>` : ''}${signed.userAgent ? `<p class="faint" style="font-size:10px">${esc(String(signed.userAgent).slice(0, 90))}</p>` : ''}</div>
-        ${blankSig(`For ${esc(studio)}`)}
+        ${bizSig?.name ? bizBox : ''}
       </div>
       <p class="note">Electronic signature by typed name, recorded with the exact text above, the time and the device. Record ${esc(d.signedDocumentId)}.</p>`
     : d.status === 'declined' ? `<p class="muted">Declined ${when(d.declinedAt)}${d.declineNote ? ` — “${esc(d.declineNote)}”` : ''}.</p>`
-    : `<div class="grid2">${blankSig('Renter')}${blankSig(`For ${esc(studio)}`)}</div><p class="note">Not yet signed. The renter can sign this in their portal, or both parties can sign this printed copy.</p>`}
+    : `<div class="grid2">${blankSig('Renter')}${bizBox}</div><p class="note">Not yet signed. The renter can sign this in their portal, or both parties can sign this printed copy.</p>`}
   </div>
+  ${certHtml}
   </div></body></html>`;
   return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }

@@ -3831,11 +3831,23 @@ export async function POST(req: NextRequest) {
         db.collection(`tenants/${tenantId}/renterDocuments`).where('renterId', '==', session.renterId).get(),
         db.collection(`tenants/${tenantId}/signedDocuments`).where('subjectId', '==', session.renterId).get(),
       ]);
-      const docs = dSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
+      // The business's signature shows to the renter by name and time only (who on the team signed stays with the business).
+      const docs = dSnap.docs.map((d) => { const x: any = { id: d.id, ...(d.data() as any) }; if (x.meta?.businessSignature) x.meta = { ...x.meta, businessSignature: { name: x.meta.businessSignature.name || null, at: x.meta.businessSignature.at || null } }; return x; })
+        .sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
       const signed = sSnap.docs.map((d) => { const x = d.data() as any; return { id: d.id, kind: x.kind, title: x.title, signedAt: x.signedAt, signedName: x.signedName }; })
         .sort((a, b) => String(b.signedAt).localeCompare(String(a.signedAt)));
       const renter = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
       return NextResponse.json({ ok: true, documents: docs, signed });
+    }
+    // When a renter first opens a document to sign, for the signature certificate (lib/esign-consent).
+    if (action === 'document-viewed') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
+      const vRef = db.doc(`tenants/${tenantId}/renterDocuments/${String(body.documentId || '')}`);
+      await db.runTransaction(async (tx: any) => {
+        const v: any = ((await tx.get(vRef)).data() as any) || null;
+        if (v && v.renterId === session.renterId && v.status === 'sent' && !v.viewedAt) tx.set(vRef, { viewedAt: new Date().toISOString() }, { merge: true });
+      });
+      return NextResponse.json({ ok: true });
     }
     if (action === 'document-sign' || action === 'document-decline') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
@@ -3864,6 +3876,21 @@ export async function POST(req: NextRequest) {
 
       const signedName = String(body.signedName || '').trim().slice(0, 120);
       if (signedName.length < 2) return NextResponse.json({ ok: false, error: 'Type your full name to sign.' }, { status: 400 });
+      // Signing that holds up (lib/esign-consent): they agree to sign electronically first, and what they sign is the
+      // exact text that was sent and that they read. Its fingerprint is checked against the one taken when it was
+      // sent, and against what their screen showed.
+      const toSign = d.action !== 'acknowledge';
+      if (toSign && body.consent !== true) return NextResponse.json({ ok: false, error: 'Agree to sign electronically first.' }, { status: 400 });
+      const { sha256Hex } = await import('@/lib/sha256');
+      const { esignConsentText, ESIGN_CONSENT_VERSION } = await import('@/lib/esign-consent');
+      const sha = sha256Hex(String(d.body || ''));
+      if (d.meta?.termsSha256 && d.meta.termsSha256 !== sha) return NextResponse.json({ ok: false, error: 'This document changed after it was sent, so it can’t be signed. Ask the business to send it again.' }, { status: 409 });
+      if (toSign && typeof body.shownSha !== 'string') return NextResponse.json({ ok: false, error: 'Refresh this page to sign.' }, { status: 409 });
+      if (toSign && body.shownSha !== sha) return NextResponse.json({ ok: false, error: 'This document changed while you were reading it. Open it again.' }, { status: 409 });
+      const bizName = String((((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).name || 'the business');
+      // The consent kept is the one their screen showed, word for word.
+      if (toSign && typeof body.consentSha !== 'string') return NextResponse.json({ ok: false, error: 'Refresh this page to sign.' }, { status: 409 });
+      if (toSign && body.consentSha !== sha256Hex(esignConsentText(bizName))) return NextResponse.json({ ok: false, error: 'The wording you agreed to has changed. Open it again.' }, { status: 409 });
       const { buildSignedRecord } = await import('@/lib/esign');
       const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
       const record = buildSignedRecord(sRef.id, {
@@ -3875,6 +3902,11 @@ export async function POST(req: NextRequest) {
       (record as any).userAgent = req.headers.get('user-agent') || null;
       (record as any).ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
       (record as any).action = d.action || 'sign';
+      (record as any).termsSha256 = sha;
+      (record as any).sentAt = d.sentAt || null;
+      (record as any).viewedAt = d.viewedAt || null;
+      (record as any).businessSignature = d.meta?.businessSignature ? { name: d.meta.businessSignature.name || null, at: d.meta.businessSignature.at || null } : null;
+      if (toSign) (record as any).esignConsent = { agreed: true, at: record.signedAt, version: ESIGN_CONSENT_VERSION, text: esignConsentText(bizName) };
       // Signed once, in one step: two taps at once can't both sign. A lease is signed and started together (it was
       // waiting, and nothing billed it), so a signed lease can never be left waiting; one that was ended or changed
       // meanwhile isn't signed at all.
@@ -3884,14 +3916,16 @@ export async function POST(req: NextRequest) {
       let signedOn = nowIso.slice(0, 10);
       if (isLease) { try { const { todayIn, tenantTimeZone } = await import('@/lib/tenant-time'); signedOn = todayIn(tenantTimeZone(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {})); } catch { /* UTC day */ } }
       const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
-      const outcome: 'ok' | 'taken' | 'lease_gone' = await db.runTransaction(async (tx: any) => {
+      const outcome: 'ok' | 'taken' | 'lease_gone' | 'changed' = await db.runTransaction(async (tx: any) => {
         const cur: any = ((await tx.get(dRef)).data() as any) || {};
         const l: any = lRef ? (((await tx.get(lRef)).data() as any) || null) : null;
         const who: any = lRef ? (((await tx.get(rRef)).data() as any) || {}) : null;
         if (cur.status !== 'sent') return 'taken';
+        if (sha256Hex(String(cur.body || '')) !== sha) return 'changed';
         if (lRef && (!l || String(l.renterId || '') !== session.renterId || l.status !== 'pending_signature')) return 'lease_gone';
         tx.set(sRef, record);
         tx.set(dRef, { status: 'signed', signedAt: nowIso, signedName, signedDocumentId: sRef.id }, { merge: true });
+        if (toSign) tx.set(rRef, { esignConsent: { at: record.signedAt, version: ESIGN_CONSENT_VERSION } }, { merge: true });
         if (lRef) {
           tx.set(lRef, { status: 'active', signedAt: nowIso, signedByName: signedName, signedDocumentId: sRef.id, signatureDocumentId: docId, activatedAt: nowIso, activatedOn: signedOn, updatedAt: nowIso }, { merge: true });
           if (!who?.status || who.status === 'prospective') tx.set(rRef, { status: 'active', updatedAt: nowIso }, { merge: true });
@@ -3899,6 +3933,7 @@ export async function POST(req: NextRequest) {
         return 'ok';
       });
       if (outcome === 'taken') return NextResponse.json({ ok: false, error: 'This document was already signed, or the business took it back.' }, { status: 400 });
+      if (outcome === 'changed') return NextResponse.json({ ok: false, error: 'This document changed while you were reading it. Open it again.' }, { status: 409 });
       if (outcome === 'lease_gone') return NextResponse.json({ ok: false, error: 'This lease was changed or ended by the business, so it can’t be signed. Ask them to send it again.' }, { status: 409 });
 
       // A renewal changes the lease at signature. End date now; a rent change
@@ -3948,7 +3983,10 @@ export async function POST(req: NextRequest) {
       await mRef.set({ id: mRef.id, renterId: session.renterId, direction: 'inbound', createdAt: nowIso, documentId: docId, signedDocumentId: sRef.id,
         text: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}" as ${signedName}.` });
       await db.doc(`tenants/${tenantId}/renterThreads/${session.renterId}`).set({ renterId: session.renterId, lastAt: nowIso, lastText: `${d.action === 'acknowledge' ? 'Acknowledged' : 'Signed'} "${d.title}"`, lastDirection: 'inbound', unreadForOwner: true }, { merge: true });
-      return NextResponse.json({ ok: true, signedDocumentId: sRef.id });
+      // The signed copy, to both sides: the whole text and its signature certificate (lib/signed-copy).
+      let emailed = false;
+      if (toSign) { try { const { sendSignedCopy } = await import('@/lib/signed-copy'); emailed = (await sendSignedCopy(db, tenantId, docId)).renter; } catch (e) { console.error('[portal/renter] signed copy', e); } }
+      return NextResponse.json({ ok: true, signedDocumentId: sRef.id, emailed });
     }
 
     // ── interruption-list / interruption-loss: what a closure cost THEM ──────
@@ -4278,23 +4316,92 @@ export async function POST(req: NextRequest) {
     // Same flag the owner flips on the renter card; this is their side of it.
     // Refused without a card on file, because an autopay with nothing to draft
     // from is a promise the shop cannot keep.
-    if (action === 'autopay-set') {
+    // Autopay needs the renter's own written OK (lib/esign-consent autopayAuthorizationText): what's charged, from which
+    // card, when, and how to stop it. autopay-terms gives the words for their screen; autopay-set with enabled: true
+    // takes their typed name and the fingerprint of those words, keeps the signed authorization and emails them a copy.
+    if (action === 'autopay-terms' || action === 'autopay-set') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
       const rSnap = await rRef.get();
       const r = (rSnap.data() as any) || {};
-      const on = body.enabled === true;
+      const on = action === 'autopay-terms' || body.enabled === true;
+      const tData: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       // A card this business can charge: saved on its own account (lib/space-stripe). One saved before the move is saved
       // again first.
-      const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(((await db.doc(`tenants/${tenantId}`).get()).data()))));
+      const hasCard = !!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(tData)));
       if (on && !hasCard) {
         return NextResponse.json({ ok: false, error: r.cardOnFile ? 'Please save your card again first. Autopay needs it saved with this business.' : 'Save a card first. Autopay takes rent from it.' }, { status: 400 });
       }
+      const { autopayAuthorizationText } = await import('@/lib/esign-consent');
+      const { sha256Hex } = await import('@/lib/sha256');
+      let terms = '';
+      if (on) {
+        const ls = (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get()).docs.map((x: any) => x.data() || {})
+          .filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(String(l.status)));
+        const lease: any = ls.find((l: any) => l.status !== 'pending_signature') || ls[0] || null;
+        if (!lease) return NextResponse.json({ ok: false, error: 'Autopay starts with a lease. Your business sends it to you to sign.' }, { status: 400 });
+        const brand = String(r.cardBrand || '').trim();
+        terms = autopayAuthorizationText({ business: String(tData.name || 'the business'), card: `${brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : 'card'} ending ${r.cardLast4 || '····'}`,
+          rentCents: Number(lease.rentAmountCents) || 0, frequency: String(lease.frequency || 'monthly'), dueDay: Number(lease.dueDay) || null });
+      }
+      if (action === 'autopay-terms') return NextResponse.json({ ok: true, text: terms, sha: sha256Hex(terms) });
       const nowIso = new Date().toISOString();
-      await rRef.set({ autopayEnabled: on, autopayChangedAt: nowIso, autopayChangedBy: 'renter' }, { merge: true });
+      let stoppedAuto = 0;
+      if (on) {
+        const signedName = String(body.signedName || '').trim().slice(0, 120);
+        if (signedName.length < 2) return NextResponse.json({ ok: false, error: 'Type your full name to authorize autopay.' }, { status: 400 });
+        if (body.shownSha !== sha256Hex(terms)) return NextResponse.json({ ok: false, error: 'Your rent or card changed while this was open. Open autopay again to read the new words.' }, { status: 409 });
+        const { buildSignedRecord } = await import('@/lib/esign');
+        const sRef = db.collection(`tenants/${tenantId}/signedDocuments`).doc();
+        const renterName = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'Renter';
+        const record: any = buildSignedRecord(sRef.id, { subjectType: 'renter', subjectId: session.renterId, subjectName: renterName, kind: 'autopay_authorization', title: 'Autopay authorization', agreementText: terms, meta: { cardLast4: r.cardLast4 || null } }, signedName);
+        record.userAgent = req.headers.get('user-agent') || null;
+        record.ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null;
+        record.action = 'sign'; record.termsSha256 = sha256Hex(terms); record.signedBy = 'typed name';
+        // Once: a second tap, or autopay already on with their OK in place, changes nothing. The authorization replaces
+        // any earlier one whole (a withdrawn one leaves nothing behind on it).
+        const fresh = await db.runTransaction(async (tx: any) => {
+          const cur: any = ((await tx.get(rRef)).data() as any) || {};
+          if (cur.autopayEnabled === true && cur.autopayAuthorization?.at && !cur.autopayAuthorization?.withdrawnAt) return false;
+          tx.set(sRef, record);
+          tx.update(rRef, { autopayEnabled: true, autopayChangedAt: nowIso, autopayChangedBy: 'renter',
+            autopayAuthorization: { method: 'portal', signedDocumentId: sRef.id, at: nowIso, name: signedName, cardLast4: r.cardLast4 || null, termsSha256: record.termsSha256 } });
+          return true;
+        });
+        if (!fresh) return NextResponse.json({ ok: true, autopayEnabled: true });
+        // Their copy.
+        const email = String(r.email || '').trim();
+        if (email.includes('@')) {
+          try {
+            const { sendNotification } = await import('@/lib/notify');
+            const { brandedEmailHtml } = await import('@/lib/email-template');
+            const biz = String(tData.name || 'The business');
+            await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'signed_copy', recipientType: 'renter', recipientId: session.renterId,
+              subject: `Your autopay authorization with ${biz}`,
+              html: brandedEmailHtml({ studioName: biz, title: 'Autopay is on', bodyLines: ['Here is the authorization you signed, for your records. You can turn autopay off in your portal at any time before a payment is taken.', terms], details: { lines: [`Signed by ${signedName}`, new Date(nowIso).toUTCString(), `Fingerprint ${record.termsSha256}`] } }),
+              text: `Autopay is on.
+
+${terms}
+
+Signed by ${signedName}, ${nowIso}. Fingerprint ${record.termsSha256}.` } as any);
+          } catch { /* the authorization is kept either way */ }
+        }
+      } else {
+        // Off means off: rent the business set to charge automatically on their lease stops too, since their OK for it
+        // is withdrawn. All in one write, so none is left on.
+        const auto = (await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get()).docs.filter((x: any) => (x.data() || {}).autoCollect === true);
+        const b = db.batch();
+        b.set(rRef, { autopayEnabled: false, autopayChangedAt: nowIso, autopayChangedBy: 'renter', ...(r.autopayAuthorization ? { 'autopayAuthorization': { ...r.autopayAuthorization, withdrawnAt: nowIso } } : {}) }, { merge: true });
+        for (const x of auto) b.set(x.ref, { autoCollect: false, autoCollectStoppedAt: nowIso, autoCollectStoppedBy: 'renter', updatedAt: nowIso }, { merge: true });
+        await b.commit();
+        stoppedAuto = auto.length;
+        for (const x of auto) {
+          try { const { logAuditAdmin } = await import('@/lib/audit'); await logAuditAdmin(db, tenantId, { action: 'booth.autocollect_off', targetType: 'lease', targetId: x.id, summary: 'Rent charged automatically turned off: the renter turned autopay off in their portal', actor: { type: 'user', id: session.renterId, name: 'Renter' } }); } catch { /* the change stands */ }
+        }
+      }
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'renter_autopay', read: false, createdAt: nowIso, link: '/rent',
-        message: `${r.firstName || 'A renter'} ${r.lastName || ''} has turned autopay ${on ? 'on' : 'off'} from their portal.`.replace(/\s+/g, ' ') });
+        message: `${r.firstName || 'A renter'} ${r.lastName || ''} has turned autopay ${on ? 'on' : 'off'} from their portal.${stoppedAuto ? ' Rent you set to charge automatically on their lease is off too, since they withdrew their OK.' : ''}`.replace(/\s+/g, ' ') });
       return NextResponse.json({ ok: true, autopayEnabled: on });
     }
 

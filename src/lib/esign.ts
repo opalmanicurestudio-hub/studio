@@ -23,7 +23,8 @@ export type SignedDocumentKind =
   | 'lease'
   | 'day_use'
   | 'house_rules'
-  | 'policy';
+  | 'policy'
+  | 'autopay_authorization';
 
 export interface SignatureInput {
   subjectType: SignerType;
@@ -196,6 +197,7 @@ By typing their name below, the Renter confirms they have read, understood, and 
   },
   consent_form: { title: 'Consent Form', body: `{{body}}` },
   policy: { title: 'Policy Acknowledgement', body: `{{body}}` },
+  autopay_authorization: { title: 'Autopay authorization', body: `{{body}}` },
 };
 
 // Resolve the exact day-use agreement to show a short-term guest. If the

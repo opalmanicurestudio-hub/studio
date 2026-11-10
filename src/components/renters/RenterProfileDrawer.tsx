@@ -17,7 +17,7 @@ import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { auditEntry } from '@/lib/audit';
-import { getDocs, query, where, doc, setDoc, onSnapshot, orderBy } from 'firebase/firestore';
+import { getDocs, query, where, doc, setDoc, updateDoc, onSnapshot, orderBy } from 'firebase/firestore';
 import { Badge } from '@/components/ui/badge';
 import { Coffee, CreditCard, FileText, Paperclip, X } from 'lucide-react';
 import type { Renter, Lease, Booth } from '@/lib/booth-rental-types';
@@ -86,6 +86,12 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
   const worst = items.length === 0 ? 'none' : items.reduce((w, it) => rank[it.state] < rank[w] ? it.state : w, 'ok');
   return { items, worst };
 }
+
+
+/** The renter's OK for autopay is in place: given (in their portal, or on paper and recorded) and not withdrawn. */
+const autopayOk = (r: any) => !!r?.autopayAuthorization?.at && !r.autopayAuthorization.withdrawnAt;
+/** Asked before the business turns on automatic rent for a renter who hasn't given their OK in their portal. */
+const AUTOPAY_PAPER_OK = (first?: string) => `Turn on automatic rent for ${first || 'this renter'}?\n\nThis charges their card on each due date without asking each time, so it needs their written OK. The simplest way is for them to turn on autopay in their portal, which records it and emails them a copy.\n\nTurn it on here only if they’ve signed an authorization on paper. Choosing OK records that they did.`;
 
 export function RenterProfileDrawer({
   renter, lease, booth, reservations, amenityRequests, w9, tenantId, firestore,
@@ -473,8 +479,13 @@ export function RenterProfileDrawer({
                     if (!hasCard) return <p className="text-xs text-white/60">To charge rent automatically, they need to save a card in their portal first.</p>;
                     const on = (lease as any).autoCollect === true;
                     const flip = async () => {
-                      if (!on && !window.confirm(`Charge ${r.firstName || 'this renter'}’s card on file for rent on each due date?\n\nOnly do this if they’ve agreed — for example in their lease. They’re told each time.`)) return;
+                      // Charging a card on each due date needs the renter's written OK: they give it in their portal
+                      // (autopay), or on paper, which is recorded here.
+                      const paperNeeded = !on && !autopayOk(r);
+                      if (paperNeeded && !window.confirm(AUTOPAY_PAPER_OK(r.firstName))) return;
                       try {
+                        // Their OK is recorded first, so charging is never on without it.
+                        if (paperNeeded) await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), { autopayAuthorization: { method: 'paper', at: new Date().toISOString(), recordedBy: 'business' } });
                         await setDoc(doc(firestore, 'tenants', tenantId, 'leases', (lease as any).id), { autoCollect: !on, updatedAt: new Date().toISOString() }, { merge: true });
                         writeBoothAudit(firestore, tenantId, { action: 'booth.autocollect_' + (!on ? 'on' : 'off'), targetType: 'lease', targetId: (lease as any).id,
                           summary: `Rent charged automatically turned ${!on ? 'on' : 'off'} for ${`${r.firstName || ''} ${r.lastName || ''}`.trim() || 'a renter'}` });
@@ -736,7 +747,13 @@ export function RenterProfileDrawer({
                 const on = r.autopayEnabled === true;
                 const toggle = async () => {
                   if (!hasCard && !on) { drawerToast({ title: 'No card on file', description: 'Add a card first — autopay needs something to draft from.' }); return; }
+                  // Autopay needs the renter's written OK: given in their portal, or on paper and recorded here.
+                  const paper = !on && !autopayOk(r);
+                  if (paper && !window.confirm(AUTOPAY_PAPER_OK(r.firstName))) return;
                   try {
+                    // A paper OK replaces any earlier authorization whole (a withdrawn one leaves nothing behind on it), and
+                    // is recorded first, so autopay is never on without it.
+                    if (paper) await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), { autopayAuthorization: { method: 'paper', at: new Date().toISOString(), recordedBy: 'business' } });
                     await setDoc(doc(firestore, 'tenants', tenantId, 'renters', r.id), {
                       autopayEnabled: !on,
                       autopayChangedAt: new Date().toISOString(),

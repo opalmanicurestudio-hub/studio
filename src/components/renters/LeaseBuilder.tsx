@@ -84,6 +84,8 @@ export type LeaseBuilderProps = {
   defaultBoothId?: string | null;
   /** Upload a lease already signed on paper (when they don't sign in the portal); returns its link. */
   uploadSigned?: (file: File) => Promise<string>;
+  /** Who's signed in, kept with the business's signature. */
+  signer?: { uid: string; email: string | null } | null;
   onClose: () => void;
   onCreated: (leaseId: string, said: string) => void;
 };
@@ -112,6 +114,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
   const [review, setReview] = React.useState<{ open: boolean; at: string; by: string }>({ open: false, at: todayIso(), by: '' });
   const [showText, setShowText] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [bizSig, setBizSig] = React.useState<string>(typeof saved?.bizSig === 'string' ? saved.bizSig : '');
   const busyRef = React.useRef(false);
   const close = () => { if (!busyRef.current) p.onClose(); };
   const [err, setErr] = React.useState('');
@@ -142,7 +145,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
   const set = <K extends keyof LeaseDraft>(k: K, v: LeaseDraft[K]) => { setErr(''); setD((x) => ({ ...x, [k]: v })); };
 
   // The draft is kept on this device as it changes; a sent lease clears it.
-  React.useEffect(() => { try { localStorage.setItem(draftKey, JSON.stringify({ d, boothId, length, perks, sign, own, policy: pickPolicy(policy), at: Date.now() })); } catch { /* fine */ } }, [d, boothId, length, perks, sign, own, policy, draftKey]);
+  React.useEffect(() => { try { localStorage.setItem(draftKey, JSON.stringify({ d, boothId, length, perks, sign, own, bizSig, policy: pickPolicy(policy), at: Date.now() })); } catch { /* fine */ } }, [d, boothId, length, perks, sign, own, bizSig, policy, draftKey]);
 
   // Choosing a space fills in its details, and its rent (its monthly rate if it has one) and a deposit of one period's
   // rent, all still editable. A draft brought back keeps what it had.
@@ -204,7 +207,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
     !!boothId && !clash && !!d.renterName.trim() && !!d.startDate && (!d.endDate || d.endDate > d.startDate),
     d.rentCents > 0 && (d.frequency !== 'monthly' || (d.dueDay >= 1 && d.dueDay <= 31)),
     true, true, true,
-    !own.on || own.text.trim().length > 40,
+    (!own.on || own.text.trim().length > 40) && (!sign || bizSig.trim().length >= 2),
   ];
   const go = (n: number) => { setStep(n); setErr(''); topRef.current?.scrollIntoView({ block: 'start' }); };
   // A step can be opened once every step before it is filled in.
@@ -286,6 +289,8 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
         prorateFirst: d.frequency === 'monthly' && d.prorateFirst,
         extra: {
           leaseFrom: own.on ? 'own' : 'builder', leaseVersion: own.on ? null : version, termsSha256: sha,
+          // The business signs first, as it sends (the renter signs second, in their portal).
+          ...(sign ? { businessSignature: { name: bizSig.trim(), at: new Date().toISOString(), termsSha256: sha, uid: p.signer?.uid || null, email: p.signer?.email || null } } : {}),
           // A lease in whole months renews by months (cron/nightly), so a year stays a year.
           ...(d.endDate && ['6', '12', '24'].includes(length) ? { termMonths: Number(length) } : {}),
           attorneyReviewAt: !own.on && policy.attorneyReview ? policy.attorneyReview.at : null,
@@ -597,6 +602,14 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
                 <Toggle on={own.on} onChange={(v) => setOwn({ ...own, on: v })} label="Use your attorney’s own lease instead" sub="Paste its words; they’re what gets signed. Perks set here aren’t added, so put any in that lease." />
                 {own.on && perks.length > 0 && <p className="text-[14px] text-[#b45309]">The {perks.length === 1 ? 'perk' : `${perks.length} perks`} you set in Rent and money won’t be added. Put {perks.length === 1 ? 'it' : 'them'} in your attorney’s lease if you want {perks.length === 1 ? 'it' : 'them'}.</p>}
                 {own.on && <textarea aria-label="Your attorney’s lease" rows={8} className="w-full rounded-xl border border-[#ececee] p-3 text-[14px] leading-relaxed" value={own.text} onChange={(e) => setOwn({ ...own, text: e.target.value.slice(0, 60000) })} placeholder="Paste the whole lease here" />}
+                {sign && (
+                  <div className="space-y-2 border-t border-[#ececee] pt-4">
+                    <Field id="lb-bizsig" label={`Sign for ${ctx.businessName || 'the business'}`}>
+                      <input id="lb-bizsig" className={input} value={bizSig} autoComplete="name" placeholder="Type your full name" onChange={(e) => setBizSig(e.target.value.slice(0, 120))} />
+                    </Field>
+                    <p className={hint}>Typing your name and sending it is the business’s signature, recorded with the time and the lease’s exact words. {who === 'them' ? 'They sign' : `${who} signs`} second, in their portal; then you both get a signed copy by email.</p>
+                  </div>
+                )}
               </section>
             </>)}
 
@@ -608,7 +621,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
                 : <button type="button" className={dark} disabled={busy || !valid.every(Boolean)} onClick={() => void create()}>{busy ? 'Saving…' : sign ? `Send to ${who} to sign` : 'Create lease'}</button>}
             </div>
             {!valid[step] && step < 5 && <p className={hint}>{step === 0 ? (clash || 'Choose a space and a start date (and an end date after it).') : 'Enter the rent.'}</p>}
-            {step === 5 && !valid.every(Boolean) && <p className={hint}>{!valid[0] ? 'Something in Space and term still needs filling in.' : !valid[1] ? 'The rent in Rent and money still needs filling in.' : 'Paste your attorney’s lease, or switch that off.'}</p>}
+            {step === 5 && !valid.every(Boolean) && <p className={hint}>{!valid[0] ? 'Something in Space and term still needs filling in.' : !valid[1] ? 'The rent in Rent and money still needs filling in.' : own.on && own.text.trim().length <= 40 ? 'Paste your attorney’s lease, or switch that off.' : 'Type your name to sign for the business.'}</p>}
           </div>
 
           <aside aria-label="What the lease will say" className="min-w-0 flex-[1_1_360px] space-y-3 rounded-[20px] border border-[#ececee] bg-white p-5">

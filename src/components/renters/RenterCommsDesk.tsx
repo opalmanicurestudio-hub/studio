@@ -21,6 +21,7 @@ import { GRIEVANCE_CATEGORY_LABEL, GRIEVANCE_STATUS_LABEL, isOpenGrievance } fro
 import { credentialViews, isProblem, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
 import { RENTER_DOC_TEMPLATES, RENTER_DOC_FIELDS, renterDocVars, renderRenterDoc, unfilledPlaceholders, type RenterDocKind } from '@/lib/renter-documents';
 import { PrintLink } from '@/components/shared/PrintLink';
+import { sha256Hex } from '@/lib/sha256';
 
 const ago = (iso: string) => {
   const ms = Date.now() - new Date(iso || 0).getTime();
@@ -130,6 +131,8 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
         if (docFields.newEndDate) meta.newEndDate = docFields.newEndDate;
         if (docFields.renewalStart) meta.renewalStart = docFields.renewalStart;
       }
+      // The fingerprint of the exact words sent: signing checks the words haven't changed since (lib/esign-consent).
+      meta.termsSha256 = sha256Hex(docBody.trim());
       const ref = doc(collection(firestore, 'tenants', tenantId, 'renterDocuments'));
       await setDoc(ref, {
         id: ref.id, renterId: docRenter, renterName: nameOf(docRenter), leaseId: docLease?.id || null,

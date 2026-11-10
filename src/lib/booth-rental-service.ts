@@ -343,7 +343,11 @@ export async function createLease(
       id: signDocRef.id, renterId: input.renterId, renterName: input.renterName || null, leaseId: leaseRef.id,
       kind: 'lease', title: 'Your lease', body: terms, action: 'sign', status: 'sent',
       sentAt: now, sentBy: input.sentBy || null,
-      meta: input.extra?.termsSha256 ? { termsSha256: input.extra.termsSha256, leaseVersion: input.extra.leaseVersion ?? null } : {},
+      meta: {
+        ...(input.extra?.termsSha256 ? { termsSha256: input.extra.termsSha256, leaseVersion: input.extra.leaseVersion ?? null } : {}),
+        // By name and time only: who on the team signed stays on the lease, with the business.
+        ...(input.extra?.businessSignature ? { businessSignature: { name: input.extra.businessSignature.name || null, at: input.extra.businessSignature.at || null, termsSha256: input.extra.businessSignature.termsSha256 || null } } : {}),
+      },
     });
   }
 
