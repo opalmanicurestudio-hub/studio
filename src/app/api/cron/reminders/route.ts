@@ -75,6 +75,8 @@ export async function GET(req: NextRequest) {
     // Gift cards set to send on a chosen day (a birthday) go out on the hour they're due.
     try { const { giftGroupSweep } = await import('@/lib/gift-groups'); await giftGroupSweep(db, tid); } catch (e) { console.error('[cron] gift groups', e); }
     try { const { giftSendSweep } = await import('@/lib/gift-cards'); await giftSendSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] gift cards', tid, e); }
+    // A lounge order charged to a guest's card whose order was never written: the money goes back (lib/lounge-card).
+    try { const { loungeCardSweep } = await import('@/lib/lounge-card'); await loungeCardSweep(db, tid); } catch (e) { console.error('[cron] lounge card orders', tid, e); }
     // Pay questions nobody has answered for 2+ days nudge the managers again (lib/pay-questions).
     try { const { payQuestionNudges } = await import('@/lib/pay-questions'); await payQuestionNudges(db, tid); } catch (e) { console.error('[cron] pay questions', tid, e); }
     // SOPs with a sign-by date: a reminder the day before, managers told once it's passed (lib/sop-reminders).

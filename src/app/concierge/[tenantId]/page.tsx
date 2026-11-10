@@ -1,1344 +1,546 @@
 'use client';
+// src/app/concierge/[tenantId]/page.tsx — ORDER FROM YOUR SEAT: the lounge menu on a station tablet, or on a guest's
+// own phone from the station's QR code (/concierge/{tenant}?booth={id}&k={signature}, or ?seat=…). Nothing here needs a
+// sign-in: the menu, the guest's perks and card, and the order all go through the server (api/concierge/requests and
+// api/booths/kiosk), which decides what's included, what's charged and to whom.
+//   Menu → how many → where to bring it → how to pay → placed, with its status as it's made.
+//   Covered on its own when it can be: a club perk with enough left, the host's complimentary allowance, or a renter's
+//   station card. Otherwise: the guest's card on file, adding it to their visit, their day stay's card, or paying when
+//   it arrives. Anything that uses someone's account needs the code texted to their phone first.
+//   One order keeps one name (orderKey) until it's placed or turned down, so a retry is never a second order or a second
+//   charge; a card payment still being checked is only ever tried on the card again.
+//   A shared tablet forgets the guest, and what they typed, after a few quiet minutes or when they tap Sign out.
 
-import { guestLogo } from '@/lib/brand';
-import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import {
-    Coffee,
-    Sparkles,
-    ArrowRight,
-    ArrowLeft,
-    CheckCircle2,
-    Loader,
-    Search,
-    Star,
-    Zap,
-    Smartphone,
-    Headphones,
-    Moon,
-    VolumeX,
-    Ear,
-    SunDim,
-    Gamepad2,
-    Users,
-    Award,
-    MapPin,
-    Clock,
-    XCircle,
-    Heart,
-    HandHeart,
-    Utensils,
-    Wine,
-    ArrowDown,
-    PlusCircle,
-    ShieldCheck,
-    CreditCard,
-    Lock,
-    Info,
-    Check,
-    User,
-    Delete,
-    Minus,
-    Plus,
-    MessageSquare,
-    Target,
-    Wallet,
-    Receipt,
-    AlertTriangle
-} from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
-import { collection, query, where, doc, getDocs } from 'firebase/firestore';
-import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { useToast } from '@/hooks/use-toast';
-import Image from 'next/image';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { Separator } from '@/components/ui/separator';
-import { type Client, type InventoryItem, type Membership, type Tenant } from '@/lib/data';
-import { Textarea } from '@/components/ui/textarea';
 
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') {
-        try {
-            return new Date(val);
-        } catch {
-            return new Date();
-        }
-    }
-    return new Date(val);
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+const QUIET_MS = 8 * 60000;          // a shared tablet forgets the guest after this long untouched
+const WATCH_MS = 45 * 60000;         // how long the done screen keeps checking an order's status
+
+type Item = { id: string; name: string; price: number; section: string; words: string | null; imageUrl: string | null; membersOnly: boolean; available: boolean };
+type Biz = { name: string; accent: string | null; logoUrl: string | null };
+type Guest = { firstName: string; member: boolean; membershipName: string | null; card: { brand: string; last4: string } | null };
+type Stay = { payerType: 'renter' | 'reservation'; reservationId?: string; boothName: string; cardOnFile: boolean; amenityPayer: 'renter' | 'client'; compAllowance: number };
+type Step = 'menu' | 'details' | 'pay' | 'phone' | 'code' | 'done';
+type Settle = 'card_on_file' | 'balance' | 'desk' | 'stay';
+
+const money = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+const STATUS: Record<string, { label: string; note: string; step: number }> = {
+  pending: { label: 'Sent', note: 'We’ve got your order.', step: 1 },
+  in_progress: { label: 'Being made', note: 'It’s being made for you now.', step: 2 },
+  ready: { label: 'Ready', note: 'It’s ready, and someone will bring it over.', step: 3 },
+  on_its_way: { label: 'On its way', note: 'Someone is bringing it to you now.', step: 3 },
+  delivered: { label: 'Delivered', note: 'Enjoy.', step: 4 },
+  cancelled: { label: 'Canceled', note: 'This order was canceled. If that’s a surprise, ask anyone on the team.', step: 0 },
 };
-
-const FloatingContainer = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className={cn("w-full max-w-4xl mx-auto px-6 z-10", className)}
-    >
-        {children}
-    </motion.div>
-);
-
-const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying }: any) => {
-    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
-
-    const formattedDisplay = useMemo(() => {
-        const cleaned = value.replace(/\D/g, '');
-        if (!cleaned) return '';
-        if (cleaned.length <= 3) return `( ${cleaned} )`;
-        if (cleaned.length <= 6) return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3)}`;
-        return `( ${cleaned.slice(0, 3)} )  ${cleaned.slice(3, 6)} - ${cleaned.slice(6)}`;
-    }, [value]);
-
-    return (
-        <FloatingContainer className="max-w-md text-center space-y-10 py-12">
-            <div className="space-y-3 text-center">
-                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                    <ShieldCheck className="w-10 h-10 text-primary" />
-                </div>
-                <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Recognize Perks</h2>
-                <p className="text-sm md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Enter your mobile signature to unlock club benefits.</p>
-            </div>
-
-            <div className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
-                <p className="text-2xl md:text-4xl font-black font-mono tracking-widest text-primary leading-none min-h-[1.2em]">
-                    {formattedDisplay || ' '}
-                </p>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4 max-w-[320px] mx-auto">
-                {digits.map((d, i) => {
-                    if (d === '') return <div key={i} />;
-                    if (d === 'delete') {
-                        return (
-                            <motion.button
-                                key={i}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={onDelete}
-                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all"
-                            >
-                                <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
-                            </motion.button>
-                        );
-                    }
-                    return (
-                        <motion.button
-                            key={i}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => onDigit(d)}
-                            className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
-                        >
-                            {d}
-                        </motion.button>
-                    );
-                })}
-            </div>
-
-            <div className="space-y-4 pt-4 text-center">
-                <Button
-                    size="lg"
-                    onClick={onConfirm}
-                    disabled={value.length < 10 || isVerifying}
-                    className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
-                >
-                    {isVerifying ? <Loader className="animate-spin" /> : <>Verify Identity <ArrowRight className="ml-2 w-6 h-6 transition-transform group-hover:translate-x-1" /></>}
-                </Button>
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">Continue as Guest</Button>
-            </div>
-        </FloatingContainer>
-    );
+const showPhone = (p: string) => (!p ? '' : p.length <= 3 ? `(${p}` : p.length <= 6 ? `(${p.slice(0, 3)}) ${p.slice(3)}` : `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}`);
+const initials = (s: string) => s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'M';
+const lum = (hex: string) => {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return 0;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
+const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+/** Text that reads on the business's color: whichever of white or ink stands out more against it. */
+const onColor = (hex: string) => (contrast(lum(hex), 1) >= contrast(lum(hex), lum(INK)) ? '#fff' : INK);
 
-// The 6-digit code texted to the guest's phone: proof it's them before anything goes on their account or card.
-const CodePadView = ({ value, sentTo, error, onDigit, onDelete, onConfirm, onResend, onBack, isVerifying }: any) => {
-    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
-    return (
-        <FloatingContainer className="max-w-md text-center space-y-8 py-12">
-            <div className="space-y-3 text-center">
-                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                    <Lock className="w-10 h-10 text-primary" />
-                </div>
-                <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Confirm It’s You</h2>
-                <p className="text-sm md:text-base font-bold text-muted-foreground text-center">We texted a 6-digit code to {sentTo}. Enter it to continue.</p>
-            </div>
+const btn = 'min-h-[52px] rounded-2xl px-5 text-[16px] font-semibold disabled:opacity-50 transition-opacity';
+const field = 'w-full mt-1.5 min-h-[48px] rounded-2xl px-4 text-[16px] bg-white border border-[#ececee] outline-none focus:border-[#16171a]';
+const linkBtn = 'min-h-[44px] px-2 text-[15px] font-semibold underline underline-offset-4';
 
-            <div className="p-6 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
-                <p className="text-3xl md:text-5xl font-black font-mono tracking-[0.4em] text-primary leading-none min-h-[1.2em]">{value.padEnd(6, '·')}</p>
-            </div>
-            {error && <p className="text-sm font-bold text-destructive text-center">{error}</p>}
+function StationMenu() {
+  const { tenantId } = useParams() as { tenantId: string };
+  const sp = useSearchParams();
+  const seatParam = (sp.get('seat') || '').slice(0, 20);
+  const boothParam = sp.get('booth') || '';
+  const stationToken = sp.get('k') || '';
+  const startWhere = seatParam ? `Seat ${seatParam}` : '';
 
-            <div className="grid grid-cols-3 gap-4 max-w-[320px] mx-auto">
-                {digits.map((d, i) => {
-                    if (d === '') return <div key={i} />;
-                    if (d === 'delete') {
-                        return (
-                            <motion.button key={i} whileTap={{ scale: 0.9 }} onClick={onDelete} aria-label="Delete a digit"
-                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all">
-                                <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
-                            </motion.button>
-                        );
-                    }
-                    return (
-                        <motion.button key={i} whileTap={{ scale: 0.95 }} onClick={() => onDigit(d)}
-                            className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center">
-                            {d}
-                        </motion.button>
-                    );
-                })}
-            </div>
+  const [biz, setBiz] = useState<Biz | null>(null);
+  const [menu, setMenu] = useState<Item[] | null>(null);
+  const [menuErr, setMenuErr] = useState('');
+  const [section, setSection] = useState('');
+  const [step, setStep] = useState<Step>('menu');
+  const [pick, setPick] = useState<{ item: Item; qty: number } | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [name, setName] = useState('');
+  const [where, setWhere] = useState(startWhere);
+  const [stationWhere, setStationWhere] = useState('');
+  const [lookFor, setLookFor] = useState('');
+  const [note, setNote] = useState('');
+  const [settle, setSettle] = useState<Settle>('desk');
+  const [notice, setNotice] = useState('');
+  const [good, setGood] = useState('');
+  const [busy, setBusy] = useState(false);
+  // The guest, once the texted code proves it's them: their pass, first name, perks and card.
+  const [phone, setPhone] = useState('');
+  const [pass, setPass] = useState('');
+  const [guest, setGuest] = useState<Guest | null>(null);
+  const [perks, setPerks] = useState<Record<string, number>>({});
+  const [perksUsed, setPerksUsed] = useState<Record<string, number>>({});
+  const [codeAsk, setCodeAsk] = useState<{ codeId: string; sentTo: string; back: Step; thenOrder: boolean } | null>(null);
+  const [resumeOrder, setResumeOrder] = useState(false);
+  const [resumeWith, setResumeWith] = useState<{ pass: string; perkBefore: boolean } | null>(null);
+  const [code, setCode] = useState('');
+  // Who pays at this station: its renter, a day guest checked in at it, or (after the code) the guest's own day stay.
+  const [stationStay, setStationStay] = useState<Stay | null>(null);
+  const [ownStay, setOwnStay] = useState<Stay | null>(null);
+  const [stationFailed, setStationFailed] = useState(false);   // this order only: the station or stay card said no
+  const [cardLocked, setCardLocked] = useState(false);         // this order only: a card payment is still being checked
+  const [linkOld, setLinkOld] = useState(false);
+  const [compUsed, setCompUsed] = useState(0);
+  const [done, setDone] = useState<{ requestId: string; summary: string; item: string; at: number } | null>(null);
+  const [status, setStatus] = useState('pending');
+  const orderKey = useRef('');
+  const sending = useRef(false);
+  const lastTouch = useRef(Date.now());
+  const doneRef = useRef<any>(null); const statusRef = useRef('pending');
+  const heading = useRef<HTMLHeadingElement | null>(null);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const pageRef = useRef<HTMLDivElement | null>(null);
 
-            <div className="space-y-3 pt-2 text-center">
-                <Button size="lg" onClick={onConfirm} disabled={value.length < 6 || isVerifying}
-                    className="w-full h-16 md:h-20 rounded-[2.5rem] text-lg md:text-xl font-black uppercase shadow-3xl shadow-primary/30 mx-auto">
-                    {isVerifying ? <Loader className="animate-spin" /> : 'Confirm'}
-                </Button>
-                <Button variant="ghost" onClick={onResend} disabled={isVerifying} className="w-full text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">Send a New Code</Button>
-                <Button variant="ghost" onClick={onBack} disabled={isVerifying} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">Back</Button>
-            </div>
-        </FloatingContainer>
-    );
-};
+  doneRef.current = step === 'done' ? done : null; statusRef.current = status;
+  const stay = stationStay || ownStay;
+  const accent = biz?.accent || INK;
+  const onAccent = onColor(accent);
+  const post = (url: string, body: any) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, d: await r.json().catch(() => ({})) as any }), () => ({ status: 0, d: {} as any }));
+  const api = (body: any) => post('/api/concierge/requests', { tenantId, ...body });
 
-const FloatingMenuCard = ({
-    item,
-    onSelect,
-    isMember,
-    activeMembership,
-    remainingPerks
-}: {
-    item: any,
-    onSelect: (qty: number) => void,
-    isMember: boolean,
-    activeMembership: any,
-    remainingPerks: number
-}) => {
-    const [qty, setQty] = useState(1);
-    // A club perk only covers what the member actually has left this cycle.
-    // Three coffees against a one-a-day allowance is a paid order, and the card
-    // has to say so BEFORE the guest commits — otherwise the kiosk promises
-    // "included" and the register asks for money, which is the one thing a
-    // hospitality touch point must never do.
-    const isIncludedProduct = !!activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
-    const isPerk = isIncludedProduct && remainingPerks >= qty;
-    const allowanceSpent = isIncludedProduct && remainingPerks <= 0;
-    const perkShortfall = isIncludedProduct && remainingPerks > 0 && remainingPerks < qty;
+  // The menu, from the server: no sign-in, and nothing about cost or stock counts.
+  useEffect(() => {
+    fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&menu=1`).then((r) => r.json()).then((d) => {
+      if (!d?.ok) { setMenuErr(d?.error || 'The menu couldn’t load. Please ask anyone on the team.'); return; }
+      setBiz(d.business); setMenu(d.menu || []);
+    }).catch(() => setMenuErr('The menu couldn’t load. Check the connection and try again.'));
+  }, [tenantId]);
 
-    const getIcon = (name: string) => {
-        const n = name.toLowerCase();
-        if (n.includes('charger') || n.includes('power')) return Smartphone;
-        if (n.includes('coffee') || n.includes('espresso') || n.includes('latte')) return Coffee;
-        if (n.includes('wine') || n.includes('bubbly') || n.includes('champagne')) return Wine;
-        if (n.includes('snack') || n.includes('treat')) return Utensils;
-        if (n.includes('headphone')) return Headphones;
-        return Coffee;
-    };
+  const toStay = (d: any, payerType: Stay['payerType']): Stay => ({ payerType, reservationId: d.reservationId, boothName: String(d.boothName || 'your station'),
+    cardOnFile: !!d.cardOnFile, amenityPayer: d.amenityPayer === 'client' ? 'client' : 'renter', compAllowance: Math.max(0, Number(d.amenityCompAllowance) || 0) });
 
-    const Icon = getIcon(item.name);
+  // A station's own link: who pays for orders here.
+  useEffect(() => {
+    if (!boothParam) return;
+    post('/api/booths/kiosk', { action: 'active-stay', tenantId, boothId: boothParam, stationToken: stationToken || undefined }).then(({ d }) => {
+      setLinkOld(!!(d?.ok && d.linkNeedsUpdate));
+      if (d?.ok && d.found) setStationStay(toStay(d, d.payerType === 'reservation' ? 'reservation' : 'renter'));
+      if (d?.ok && d.boothName && !seatParam) { setStationWhere(String(d.boothName)); setWhere((w) => w || String(d.boothName)); }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, boothParam, stationToken, seatParam]);
 
-    return (
-        <motion.div
-            whileTap={{ scale: 0.98 }}
-            className="group relative shrink-0 w-[200px] md:w-72"
-        >
-            <div className={cn(
-                "rounded-[2.5rem] md:rounded-[3rem] p-4 md:p-6 flex flex-col gap-4 md:gap-6 transition-all duration-700 h-full",
-                isPerk ? "bg-indigo-600/10 border-2 border-indigo-500/20 shadow-[0_20px_50px_rgba(79,70,229,0.15)]" : "bg-white/40 backdrop-blur-2xl border-2 border-white/50 shadow-2xl hover:bg-white/60 hover:border-primary/20"
-            )}>
-                <div className="relative aspect-square w-full rounded-[2rem] md:rounded-[2.5rem] overflow-hidden bg-muted/20 flex items-center justify-center group-hover:shadow-2xl transition-all duration-700">
-                    {item.imageUrl ? (
-                        <div className="relative w-full h-full">
-                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-1000 group-hover:scale-110" />
-                        </div>
-                    ) : (
-                        <Icon className="w-10 h-10 md:w-16 md:h-16 text-primary opacity-20" />
-                    )}
+  /** A new order: its own name, and nothing carried over from the last one's payment. */
+  const freshOrder = () => { orderKey.current = ''; setStationFailed(false); setCardLocked(false); };
+  const signOut = useCallback(() => {
+    setGuest(null); setPass(''); setPhone(''); setPerks({}); setPerksUsed({}); setOwnStay(null); setName(''); setCodeAsk(null); setCode('');
+    setResumeOrder(false); setResumeWith(null); setLookFor(''); setNote(''); setSettle('desk'); setGood('');
+    setWhere(startWhere || stationWhere); orderKey.current = ''; setStationFailed(false); setCardLocked(false);
+  }, [startWhere, stationWhere]);
+  // A shared tablet: forget the guest, what they typed and the last order after a few quiet minutes.
+  useEffect(() => {
+    const touch = () => { lastTouch.current = Date.now(); };
+    window.addEventListener('pointerdown', touch, { passive: true }); window.addEventListener('keydown', touch);
+    const i = setInterval(() => {
+      if (Date.now() - lastTouch.current <= QUIET_MS) return;
+      lastTouch.current = Date.now(); signOut(); setPick(null); setSheet(false); setNotice('');
+      // An order still on its way keeps its status on screen (a guest on their own phone is waiting for it), with
+      // nothing about how it was paid; one that's arrived goes, and the menu is back.
+      const open = !!doneRef.current && !['delivered', 'cancelled'].includes(statusRef.current) && Date.now() - Number(doneRef.current.at || 0) < WATCH_MS;
+      if (open) setDone((x) => (x ? { ...x, summary: 'We’ll bring it over.' } : x)); else { setDone(null); setStep('menu'); }
+    }, 30000);
+    return () => { window.removeEventListener('pointerdown', touch); window.removeEventListener('keydown', touch); clearInterval(i); };
+  }, [signOut]);
 
-                    <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-                        {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Club Only</Badge>}
-                        {isPerk && <Badge className="bg-primary text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl animate-pulse"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1 fill-current"/> Perk</Badge>}
-                        {allowanceSpent && <Badge className="bg-amber-500 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Allowance Used</Badge>}
-                        {perkShortfall && <Badge className="bg-amber-500 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">{remainingPerks} Included</Badge>}
-                    </div>
+  // Each new step starts at the top, with its heading read out.
+  useEffect(() => { window.scrollTo({ top: 0 }); if (step !== 'menu') heading.current?.focus({ preventScroll: true }); }, [step]);
 
-                    <div className="absolute bottom-3 right-3">
-                        <div className="bg-white/90 backdrop-blur-md rounded-xl md:rounded-2xl p-1.5 px-3 md:p-2 md:px-4 shadow-xl border border-white/50">
-                            <p className="text-[10px] md:text-sm font-black text-slate-900 font-mono tracking-tighter">
-                                {isPerk ? 'INCLUDED' : safeNumber(item.price) > 0 ? `$${safeNumber(item.price).toFixed(2)}` : 'COMP'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
+  const perkLeft = (id: string) => Math.max(0, (Number(perks[id]) || 0) - (Number(perksUsed[id]) || 0));
+  const sections = useMemo(() => Array.from(new Set((menu || []).map((i) => i.section))), [menu]);
+  useEffect(() => { if (!section && sections.length) setSection(sections[0]); }, [sections, section]);
+  const shown = (menu || []).filter((i) => !section || i.section === section);
 
-                <div className="space-y-3 md:space-y-4 px-1 md:px-2 flex-1 flex flex-col justify-between">
-                    <div className="space-y-1 text-left">
-                        <h4 className="font-black text-xs md:text-xl uppercase tracking-tighter text-slate-900 leading-tight truncate">{item.name}</h4>
-                        {item.description && <p className="text-[10px] md:text-xs font-medium text-slate-500 italic leading-relaxed opacity-80 line-clamp-2">"{item.description}"</p>}
-                        {isIncludedProduct && (
-                            <p className={cn(
-                                "text-[9px] md:text-[10px] font-black uppercase tracking-widest pt-0.5",
-                                remainingPerks > 0 ? "text-primary/70" : "text-amber-600/80"
-                            )}>
-                                {remainingPerks > 0
-                                    ? `${remainingPerks} included left this cycle`
-                                    : 'Club allowance used for this cycle'}
-                            </p>
-                        )}
-                    </div>
+  // What covers an order on its own (no choice to make): a perk with enough left, the host's allowance, the renter's card.
+  const total = pick ? Math.round(pick.item.price * pick.qty * 100) / 100 : 0;
+  const isPerk = !!pick && perkLeft(pick.item.id) >= pick.qty;
+  const hostComp = !!stationStay && stationStay.payerType === 'renter' && stationStay.compAllowance > 0 && compUsed < stationStay.compAllowance;
+  const stationPays = !!stationStay && stationStay.payerType === 'renter' && stationStay.amenityPayer === 'renter' && stationStay.cardOnFile && !stationFailed;
+  const covered = !pick || total <= 0 || isPerk || (hostComp && !cardLocked) || (stationPays && !cardLocked);
+  const canStay = !!stay && stay.payerType === 'reservation' && stay.cardOnFile && !stationFailed;
+  const cardOk = !!guest?.card && total >= 0.5;
 
-                    <div className="pt-3 md:pt-4 border-t border-dashed border-slate-900/10 flex items-center justify-between mt-auto">
-                        <div className="flex items-center gap-1.5 md:gap-2 bg-white/40 backdrop-blur-xl rounded-lg md:rounded-xl p-1 px-2 border border-white/50 shadow-sm h-8 md:h-10">
-                            <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1 hover:text-primary transition-all active:scale-75"><Minus className="w-3 h-3 md:w-4 md:h-4" /></button>
-                            <span className="font-black font-mono text-xs md:text-base w-4 md:w-6 text-center">{qty}</span>
-                            <button onClick={() => setQty(qty + 1)} className="p-1 hover:text-primary transition-all active:scale-75"><Plus className="w-3 h-3 md:w-4 md:h-4" /></button>
-                        </div>
-                        <Button
-                            onClick={() => onSelect(qty)}
-                            className="h-8 md:h-12 px-4 md:px-8 rounded-lg md:rounded-2xl font-black uppercase text-[8px] md:text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all"
-                        >
-                            Request
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        </motion.div>
-    );
-};
+  const askForCode = async (ph: string, back: Step, thenOrder: boolean) => {
+    setNotice(''); setCode(''); setBusy(true);
+    const { d } = await api({ action: 'send-code', phone: ph });
+    setBusy(false);
+    if (!d?.ok || !d.codeId) { setNotice(d?.error || 'We couldn’t send a code. You can pay when it arrives.'); return; }
+    setCodeAsk({ codeId: String(d.codeId), sentTo: String(d.sentTo || 'your phone'), back, thenOrder }); setStep('code');
+  };
 
-function ConciergeKioskContent() {
-    const { tenantId } = useParams() as { tenantId: string };
-    const searchParams = useSearchParams();
-    const seatParam = searchParams.get('seat');
-    // v90 — renter station link: /concierge/{tenant}?booth={boothId} scopes the
-    // menu to a specific booth so a renter (or their client sitting there) can
-    // order to that station.
-    const boothParam = searchParams.get('booth');
-    // The station link's signature (&k=…): proof the order comes from that station. A link made before signatures
-    // existed still opens the menu, but can't charge the station.
-    const stationToken = searchParams.get('k') || '';
+  const confirmCode = async () => {
+    if (!codeAsk || code.length !== 6 || busy) return;
+    setBusy(true); setNotice('');
+    const { d } = await api({ action: 'check-code', phone, codeId: codeAsk.codeId, code });
+    if (!d?.ok || !d.pass) { setBusy(false); setNotice(d?.error || 'That code doesn’t match. Check it and try again.'); return; }
+    const p = String(d.pass); setPass(p);
+    const [g, s] = await Promise.all([
+      api({ action: 'guest', phone, pass: p }),
+      boothParam ? Promise.resolve(null) : post('/api/booths/kiosk', { action: 'active-stay', tenantId, phone: `+1${phone}`, guestPass: p }),
+    ]);
+    if (g.d?.ok) { setPerks(g.d.perkRemaining || {}); setPerksUsed({}); if (g.d.guest) { setGuest(g.d.guest); setName((n) => n || g.d.guest.firstName); } }
+    if (s?.d?.ok && s.d.found) { setOwnStay(toStay(s.d, 'reservation')); setStationFailed(false); }
+    setBusy(false);
+    const ask = codeAsk; setCodeAsk(null); setCode(''); setResumeOrder(false); setStep(ask.back);
+    // The order that asked for the code goes on once what the code unlocked is on screen (the effect below).
+    if (ask.thenOrder) setResumeWith({ pass: p, perkBefore: isPerk });
+  };
 
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
+  const choose = (item: Item, el: HTMLElement) => { if (!item.available) return; opener.current = el; setPick({ item, qty: 1 }); setSheet(true); setNotice(''); setGood(''); };
+  const closeSheet = () => { setSheet(false); setTimeout(() => opener.current?.focus(), 0); };
+  const toDetails = () => { setSheet(false); freshOrder(); setStep('details'); };
 
-    const [entered, setEntered] = useState(false);
-    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'delivery_detail' | 'payment' | 'verify_code' | 'success'>('onboarding');
-    const [linkNeedsUpdate, setLinkNeedsUpdate] = useState(false);
-    // Proof it's the guest's phone, for anything on their account or card: the pass from a code texted to that number
-    // (good for this visit), and the code being asked for now.
-    const [guestPass, setGuestPass] = useState<{ phone: string; pass: string } | null>(null);
-    const [codeAsk, setCodeAsk] = useState<{ phone: string; codeId: string; sentTo: string; back: string } | null>(null);
-    const [codeValue, setCodeValue] = useState('');
-    const [codeError, setCodeError] = useState('');
-    // This order's name. Kept when the same order is sent again (after no answer, or after a code), so it's charged and
-    // made once; a new item starts a new one.
-    const orderKeyRef = useRef('');
-    const [guestName, setGuestName] = useState('');
-    const [phonePadValue, setPhonePadValue] = useState('');
-    const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
-    // v75 — booth-stay integration: a checked-in renter with a card on
-    // file can charge concierge orders to their station, hotel-style.
-    // v90 — payer can also be a booth's resident RENTER (their clients order to
-    // the station); amenityPayer + compAllowance come from the renter's settings.
-    const [activeStay, setActiveStay] = useState<{
-        payerType: 'reservation' | 'renter';
-        reservationId?: string;
-        renterId?: string;
-        boothName: string;
-        cardOnFile: boolean;
-        amenityPayer: 'renter' | 'client';
-        compAllowance: number;
-    } | null>(null);
-    const [sessionCompUsed, setSessionCompUsed] = useState(0);   // renter comp allowance used this session
-    // Club perks consumed on THIS kiosk session, keyed by item id. The Firestore
-    // listener catches up a moment later, so without this a member could tap the
-    // same complimentary latte twice inside five seconds and both would come
-    // through as "included".
-    const [sessionPerkUsed, setSessionPerkUsed] = useState<Record<string, number>>({});
-    // How the guest chose to settle a paid order. Nothing is ever recorded as
-    // collected revenue unless money actually moved.
-    const [settleChoice, setSettleChoice] = useState<'card_on_file' | 'balance' | 'desk'>('desk');
-    // What the success screen tells the guest about their money.
-    const [settledSummary, setSettledSummary] = useState('');
-    const [stationCharging, setStationCharging] = useState(false);
-    const [isVerifying, setIsVerifying] = useState(false);
-    const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
-    const isSubmittingRef = useRef(false);
+  const toPay = () => {
+    if (!name.trim() && !guest) { setNotice('Add your name so we know who it’s for.'); return; }
+    if (!where.trim()) { setNotice('Tell us where you are, so we can bring it over.'); return; }
+    setNotice(''); setGood('');
+    if (covered) { void placeOrder(); return; }
+    setSettle(cardOk ? 'card_on_file' : canStay ? 'stay' : guest ? 'balance' : 'desk');
+    setStep('pay');
+  };
 
-    // Delivery Details
-    const [seatNumber, setSeatNumber] = useState(seatParam || '');
-    const [guestDescription, setGuestDescription] = useState('');
-    const [orderNotes, setOrderNotes] = useState('');
+  /** Needs the texted code before it can go on: ask for their number (or send the code to the one we have). */
+  const needCode = async (msg: string) => {
+    if (phone.length === 10) { await askForCode(phone, 'pay', true); return; }
+    setResumeOrder(true); setNotice(msg); setStep('phone');
+  };
 
-    const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-    const { data: tenant } = useDoc<Tenant>(tenantRef);
-
-    const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
-    const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
-
-    const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
-    const { data: memberships } = useCollection<Membership>(membershipsQuery);
-
-    const refreshments = useMemo(() =>
-        (inventory || []).filter(i =>
-            i.type === 'refreshment' &&
-            i.showInConcierge !== false &&
-            i.totalStock > 0 &&
-            (!i.isMembersOnly || !!identifiedClient?.activeMembershipId)
-        )
-    , [inventory, identifiedClient]);
-
-    const refreshmentsByCategory = useMemo(() => {
-        const grouped: Record<string, InventoryItem[]> = {};
-        refreshments.forEach(item => {
-            const cat = item.category || 'Curated Selection';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push(item);
-        });
-        return grouped;
-    }, [refreshments]);
-
-    const activeMembership = useMemo(() => {
-        if (!identifiedClient?.activeMembershipId || !memberships) return null;
-        return memberships.find(m => m.id === identifiedClient.activeMembershipId);
-    }, [identifiedClient, memberships]);
-
-    // ── The club allowance, for real ────────────────────────────────────────
-    // This screen used to hand every recognised guest a flat ten perks and never
-    // look at what they had already taken, so a member could drink the menu for
-    // free all month. The billing cycle, the per-item allotment and the usage
-    // count below are the SAME arithmetic the client portal shows the member, so
-    // the kiosk and their app can never disagree about what is left.
-    // What the club allowance has left this cycle comes from the server (the order list itself is team-only).
-    // Re-asked after every order; until the answer lands, this session's own perks are held locally so a member
-    // can't tap the same complimentary item twice inside a few seconds and have both come through as included.
-    const [serverPerks, setServerPerks] = useState<Record<string, number>>({});
-    const [perkNonce, setPerkNonce] = useState(0);
-    const identifiedPhone = String((identifiedClient as any)?.phone || '');
-    // The counts are told only to the front desk's screen or with the guest's pass from a texted code.
-    const perkPass = guestPass && guestPass.phone === identifiedPhone.replace(/\D/g, '').slice(-10) ? guestPass.pass : '';
-    useEffect(() => {
-        if (!tenantId || !identifiedClient?.id || !identifiedPhone) { setServerPerks({}); return; }
-        let stop = false;
-        fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&phone=${encodeURIComponent(identifiedPhone)}${perkPass ? `&pass=${encodeURIComponent(perkPass)}` : ''}`, { cache: 'no-store' })
-            .then((r) => r.json())
-            .then((d) => {
-                if (stop || !d?.ok) return;
-                setServerPerks((d.perkRemaining && typeof d.perkRemaining === 'object') ? d.perkRemaining : {});
-                setSessionPerkUsed({});
-            })
-            .catch(() => { /* keep the last answer */ });
-        return () => { stop = true; };
-    }, [tenantId, identifiedClient?.id, identifiedPhone, perkNonce, perkPass]);
-
-    // itemId -> how many of that product the membership still covers this cycle.
-    const perkRemainingByItem = useMemo(() => {
-        const out: Record<string, number> = {};
-        Object.keys(serverPerks).forEach((id) => {
-            const left = Math.max(0, Math.floor(safeNumber(serverPerks[id])) || 0);
-            const usedThisSession = Math.max(0, Math.floor(safeNumber(sessionPerkUsed[id])) || 0);
-            out[id] = Math.max(0, left - usedThisSession);
-        });
-        return out;
-    }, [serverPerks, sessionPerkUsed]);
-
-    const perkRemainingFor = (itemId: string): number => safeNumber(perkRemainingByItem[itemId]);
-
-    // A card is only usable if it is actually there AND not expired — an expired
-    // card on file is worse than none, because the guest is told they are settled
-    // and the charge fails silently later.
-    const usableCard = useMemo(() => {
-        const card: any = (identifiedClient as any)?.cardOnFile;
-        const id = card?.paymentMethodId || card?.token;
-        if (!id) return null;
-        if (card?.expMonth && card?.expYear) {
-            const expEnd = new Date(Number(card.expYear), Number(card.expMonth), 0);
-            if (!isNaN(expEnd.getTime()) && expEnd < new Date()) return null;
+  // The order, written by the server. A station or stay charge is made first and the order names it; anything that uses
+  // the guest's account asks for the texted code, then this same order goes on (the same order name, so never twice).
+  const placeOrder = async (freshPass?: string) => {
+    if (!pick || sending.current) return;
+    const p = freshPass || pass;
+    const { item, qty } = pick;
+    const viaStation = total > 0 && !isPerk && !hostComp && stationPays && !cardLocked;
+    const viaStay = total > 0 && !isPerk && !hostComp && !viaStation && settle === 'stay' && canStay;
+    if (viaStay && !p) { await needCode('Enter your mobile number, and we’ll text you a code to use the card on your booking.'); return; }
+    sending.current = true; setBusy(true); setNotice(''); setGood('');
+    if (!orderKey.current) orderKey.current = `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      let stationOrderId: string | undefined;
+      let s: string;
+      if (isPerk) s = 'perk';
+      else if (total > 0 && hostComp && !cardLocked) s = 'renter_comp';
+      else if (viaStation || viaStay) {
+        const { status: st, d } = await post('/api/booths/kiosk', {
+          action: 'charge', tenantId, payer: viaStation ? 'station' : 'stay', boothId: boothParam || undefined, stationToken: stationToken || undefined,
+          ...(viaStay ? { reservationId: stay?.reservationId, phone: `+1${phone}`, guestPass: p || undefined } : {}),
+          itemId: item.id, quantity: qty, amountCents: Math.round(total * 100), orderKey: orderKey.current });
+        if (!d?.ok) {
+          if (d?.needsCode) { sending.current = false; setBusy(false); await needCode(d.error || 'Enter the code we text to your phone.'); return; }
+          // Still going through, or no answer: the same order, tried again, is the same charge.
+          if (!st || st >= 500 || d?.busy) { setNotice(d?.error || 'We couldn’t confirm the charge. Nothing was ordered yet; try again in a moment.'); if (step !== 'pay' && !viaStation) setStep('pay'); return; }
+          // Said no (declined, no card, too many charges for now, the price just changed): that card is off the table for
+          // this order; choose another way.
+          orderKey.current = ''; setStationFailed(true); setSettle(cardOk ? 'card_on_file' : guest ? 'balance' : 'desk');
+          setNotice(d?.error || 'That card didn’t go through. Choose another way to pay.'); setStep('pay'); return;
         }
-        return { brand: String(card?.brand || 'Card'), last4: String(card?.last4 || '••••') };
-    }, [identifiedClient]);
-
-    useEffect(() => {
-        const isFirstTime = !localStorage.getItem('clarity_concierge_onboarded');
-        if (!isFirstTime) {
-            setStep('identity');
+        stationOrderId = d.orderId; s = 'station';
+      } else s = total > 0 ? settle : 'desk';
+      const { status: st, d } = await api({ itemId: item.id, quantity: qty, clientName: (name || guest?.firstName || 'Guest').slice(0, 60),
+        phone: guest && phone ? `+1${phone}` : undefined, boothId: boothParam || undefined,
+        reservationId: stay?.payerType === 'reservation' ? stay.reservationId : undefined,
+        stationName: (where || stay?.boothName || 'Lounge').slice(0, 60), guestDescription: lookFor, notes: note,
+        settle: s, orderKey: orderKey.current, stationOrderId, stationToken: stationToken || undefined, guestPass: p || undefined });
+      if (!d?.ok) {
+        if (d?.needsCode) { sending.current = false; setBusy(false); await needCode(d.error || 'Enter the code we text to your phone.'); return; }
+        if (d?.restart) { freshOrder(); setNotice(d.error); if (!covered) setStep('pay'); return; }
+        if (d?.sameWay) { setCardLocked(true); setSettle('card_on_file'); setNotice(d.error); setStep('pay'); return; }
+        if (d?.declined) { orderKey.current = ''; setSettle(guest ? 'balance' : 'desk'); setStep('pay'); setNotice(d.error); return; }
+        if (d?.compUsedUp) {
+          orderKey.current = ''; setCompUsed(stationStay?.compAllowance || 99);
+          // The renter pays for orders here: it goes on the station instead, and they're told.
+          if (stationPays) { setGood('Today’s complimentary orders are used, so this one goes on the station.'); setResumeWith({ pass: p, perkBefore: isPerk }); return; }
+          setNotice(`${d.error} Choose how you’d like to pay.`); setStep('pay'); return;
         }
-    }, []);
+        setNotice(d?.error || (!st || st >= 500 ? 'We couldn’t confirm it. Nothing was ordered yet; try again in a moment.' : 'That didn’t go through. Please ask anyone on the team.'));
+        return;
+      }
+      orderKey.current = ''; setCardLocked(false); setStationFailed(false);
+      if (s === 'perk') setPerksUsed((u) => ({ ...u, [item.id]: (Number(u[item.id]) || 0) + qty }));
+      if (s === 'renter_comp') setCompUsed((n) => n + 1);
+      const summary = s === 'station' ? (viaStay ? `${money(total)} charged to the card on your booking.` : `Charged to ${stay?.boothName || 'the station'}.`)
+        : s === 'renter_comp' ? `On the house, courtesy of ${stay?.boothName || 'your host'}.`
+        : s === 'perk' ? `Included with your ${guest?.membershipName || 'membership'}.`
+        : d.settledBy === 'card_on_file' ? `${money(total)} charged to your ${guest?.card?.brand || 'card'}${guest?.card?.last4 ? ` ending ${guest.card.last4}` : ''}.`
+        : d.settledBy === 'balance' ? `${money(total)} added to your visit. Settle it when you check out.`
+        : total > 0 ? `${money(total)} to pay when we bring it over.` : 'On us.';
+      setDone({ requestId: String(d.requestId || ''), summary, item: `${item.name}${qty > 1 ? ` × ${qty}` : ''}`, at: Date.now() }); setStatus('pending'); setStep('done');
+      setNote(''); setLookFor('');
+    } finally { sending.current = false; setBusy(false); }
+  };
 
-    // v90 — station lookup for a renter's booth link. Resolves who pays for this
-    // station (the resident renter's card, or a checked-in day guest) and the
-    // renter's amenity settings (who-pays + complimentary allowance). Non-blocking:
-    // the menu still works even if this finds nothing.
-    useEffect(() => {
-        if (!boothParam || !firestore || !tenantId) return;
-        fetch('/api/booths/kiosk', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'active-stay', tenantId, boothId: boothParam, stationToken: stationToken || undefined }),
-        }).then(r => r.json()).then(d => {
-            setLinkNeedsUpdate(!!(d.ok && d.linkNeedsUpdate));
-            if (d.ok && d.found) {
-                setActiveStay({
-                    payerType: d.payerType || 'renter',
-                    reservationId: d.reservationId,
-                    renterId: d.renterId,
-                    boothName: d.boothName || 'the station',
-                    cardOnFile: !!d.cardOnFile,
-                    amenityPayer: d.amenityPayer === 'client' ? 'client' : 'renter',
-                    compAllowance: Math.max(0, Number(d.amenityCompAllowance) || 0),
-                });
-            }
-        }).catch(() => {});
-    }, [boothParam, firestore, tenantId, stationToken]);
+  // After the code: the waiting order goes on, now that the guest's perks and card are on screen. If the code turned up
+  // a membership that covers it, they're told and place it themselves (it's no longer what they chose to pay with).
+  useEffect(() => {
+    if (!resumeWith || busy) return;
+    const r = resumeWith; setResumeWith(null);
+    if (isPerk && !r.perkBefore) { setStep('details'); setGood('Good news: this one is included with your membership. Place the order when you’re ready.'); return; }
+    void placeOrder(r.pass);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeWith, busy, isPerk]);
 
-    const handleOnboardingComplete = () => {
-        localStorage.setItem('clarity_concierge_onboarded', 'true');
-        setStep('identity');
-    };
-
-    const handleIdentitySubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!guestName.trim()) return;
-        setStep('menu');
-    };
-
-    const handlePhonePadDigit = (digit: string) => {
-        if (phonePadValue.length < 10) setPhonePadValue(prev => prev + digit);
-    };
-
-    const handlePhonePadDelete = () => {
-        setPhonePadValue(prev => prev.slice(0, -1));
-    };
-
-    const handlePhonePadConfirm = async () => {
-        if (phonePadValue.length < 10) return;
-        setIsVerifying(true);
-        try {
-            const clientsRef = collection(firestore, `tenants/${tenantId}/clients`);
-            const q = query(clientsRef, where("phone", "==", `+1${phonePadValue}`));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-                const c = snap.docs[0].data() as Client;
-                setIdentifiedClient({ ...c, id: snap.docs[0].id });
-                setGuestName(c.name);
-                toast({ title: `Identity Verified`, description: `Welcome, ${c.name.split(' ')[0]}. perks unlocked.` });
-                setStep('menu');
-                // Booth-stay check (non-blocking — concierge works fine without it).
-                // Skipped when opened from a booth link (station is already known).
-                if (!boothParam) {
-                    fetch('/api/booths/kiosk', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'active-stay', tenantId, phone: `+1${phonePadValue}` }),
-                    }).then(res => res.json()).then(d => {
-                        if (d.ok && d.found) {
-                            setActiveStay({ payerType: 'reservation', reservationId: d.reservationId, boothName: d.boothName, cardOnFile: d.cardOnFile, amenityPayer: 'renter', compAllowance: 0 });
-                            if (d.cardOnFile) toast({ title: `Checked in at ${d.boothName}`, description: 'Orders can be charged to your card on file.' });
-                        }
-                    }).catch(() => {});
-                }
-            } else {
-                toast({ variant: 'destructive', title: 'Profile Not Found', description: "No record found with that mobile signature." });
-            }
-        } catch (err) {
-            console.error(err);
-            toast({ variant: 'destructive', title: 'Connection Error' });
-        } finally {
-            setIsVerifying(false);
+  // The placed order's status, until it's delivered (or for 45 minutes): often at first, then less often.
+  useEffect(() => {
+    if (step !== 'done' || !done?.requestId) return;
+    let stop = false; let timer: any = null;
+    const tick = async () => {
+      if (stop || Date.now() - done.at > WATCH_MS) return;
+      try {
+        const d = await fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&order=${encodeURIComponent(done.requestId)}`, { cache: 'no-store' }).then((r) => r.json());
+        if (!stop && d?.ok && d.status) {
+          const s = d.status === 'ready' && d.onItsWay ? 'on_its_way' : String(d.status);
+          setStatus(s); if (s === 'delivered' || s === 'cancelled') return;
         }
+      } catch { /* the next try */ }
+      if (!stop) timer = setTimeout(tick, Date.now() - done.at < 5 * 60000 ? 8000 : 20000);
     };
+    void tick();
+    return () => { stop = true; clearTimeout(timer); };
+  }, [step, done, tenantId]);
 
-    // The guest's mobile number (10 digits), as they typed it or as their profile has it.
-    const myPhone = String((identifiedClient as any)?.phone || '').replace(/\D/g, '').slice(-10) || phonePadValue;
-
-    // Text a code to the number the business has for this guest, and ask for it. `back` is the screen to return to.
-    const askForCode = async (phone: string, back: string) => {
-        setCodeError(''); setCodeValue('');
-        const res = await fetch('/api/concierge/requests', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send-code', tenantId, phone }),
-        }).catch(() => null);
-        const d: any = res ? await res.json().catch(() => ({})) : {};
-        if (!d?.ok || !d.codeId) {
-            toast({ variant: 'destructive', title: 'We couldn’t send a code', description: d?.error || 'You can pay when your order arrives, or ask the front desk.' });
-            return;
-        }
-        setCodeAsk({ phone, codeId: String(d.codeId), sentTo: String(d.sentTo || 'your phone'), back });
-        setStep('verify_code');
+  // The quantity sheet: focus inside it, Escape closes it, Tab stays in it, and the page behind can't be reached.
+  useEffect(() => {
+    const page = pageRef.current; if (!sheet) { page?.removeAttribute('inert'); return; }
+    page?.setAttribute('inert', '');
+    const box = sheetRef.current; const first = box?.querySelector<HTMLElement>('[data-autofocus]') || box?.querySelector<HTMLElement>('button');
+    first?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+      if (e.key !== 'Tab' || !box) return;
+      const els = Array.from(box.querySelectorAll<HTMLElement>('button:not([disabled]), input, [href]')); if (!els.length) return;
+      const a = els[0], z = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); page?.removeAttribute('inert'); };
+  }, [sheet]);
 
-    // The right code gives a pass for this visit; the order that asked for it then goes through.
-    const confirmCode = async () => {
-        if (!codeAsk || codeValue.length !== 6 || isSubmittingRef.current) return;
-        setIsVerifying(true); setCodeError('');
-        let pass = '';
-        try {
-            const res = await fetch('/api/concierge/requests', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'check-code', tenantId, phone: codeAsk.phone, codeId: codeAsk.codeId, code: codeValue }),
-            }).catch(() => null);
-            const d: any = res ? await res.json().catch(() => ({})) : {};
-            if (!d?.ok || !d.pass) { setCodeError(d?.error || 'That code doesn’t match. Please check it and try again.'); return; }
-            pass = String(d.pass);
-        } finally { setIsVerifying(false); }
-        const proof = { phone: codeAsk.phone, pass };
-        setGuestPass(proof);
-        setStep(codeAsk.back as any);
-        setCodeAsk(null); setCodeValue('');
-        if (pendingItem) await finalizeRequest(pendingItem.item, pendingItem.qty, proof);
-    };
+  // ─── Pieces ──────────────────────────────────────────────────────────────────────────────────────────────────────
+  const primary = (label: React.ReactNode, onClick: () => void, disabled = false) => (
+    <button type="button" onClick={onClick} disabled={disabled || busy} className={`${btn} w-full`} style={{ background: accent, color: onAccent }}>{label}</button>
+  );
+  const back = (to: Step) => <button type="button" onClick={() => { setNotice(''); setGood(''); setResumeOrder(false); setStep(to); }} className={linkBtn} style={{ color: INK }}>Back</button>;
+  const noticeBox = <div role="alert" aria-live="assertive">{notice && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{notice}</p>}</div>;
+  const goodBox = good && <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}>{good}</p>;
+  const panel = 'rounded-3xl bg-white p-5 sm:p-6 space-y-4 border border-[#ececee]';
+  const h2 = (text: React.ReactNode, extra?: React.ReactNode) => (
+    <div className="flex items-baseline justify-between gap-3"><h2 ref={heading} tabIndex={-1} className="text-[21px] font-semibold leading-tight outline-none" style={{ color: INK }}>{text}</h2>{extra}</div>
+  );
+  const signedIn = !!guest || !!pass;
+  const headerWhere = where || stay?.boothName || '';
 
-    const handleRequest = async (item: InventoryItem, qty: number) => {
-        orderKeyRef.current = '';
-        setPendingItem({ item, qty });
-        // A fresh order must not inherit the last one's settlement wording, or a
-        // free perk shows the previous order's dollar figure on the success card.
-        setSettledSummary('');
-        setStep('delivery_detail');
-    };
+  const header = (
+    <header className="bg-white px-4 sm:px-6 py-3.5 flex items-center gap-3 border-b border-[#ececee] sticky top-0 z-30">
+      {biz?.logoUrl
+        ? <img src={biz.logoUrl} alt="" className="h-11 w-11 rounded-2xl object-cover" />
+        : <span className="h-11 w-11 rounded-2xl flex items-center justify-center text-[15px] font-semibold" style={{ background: accent, color: onAccent }} aria-hidden>{initials(biz?.name || '')}</span>}
+      <div className="min-w-0 flex-1">
+        <p className="text-[17px] font-semibold leading-tight truncate" style={{ color: INK }}>{biz?.name || 'Menu'}</p>
+        <p className="text-[13.5px] truncate" style={{ color: MUTED }}>{headerWhere ? `Ordering to ${headerWhere}` : 'Order from your seat'}</p>
+      </div>
+      {signedIn
+        ? <div className="flex items-center gap-1">
+            <span className="rounded-full px-3 py-1.5 text-[13.5px] font-semibold max-w-[120px] truncate" style={{ background: GREEN_TINT, color: GREEN }}>{guest ? `Hi, ${guest.firstName}` : 'Signed in'}</span>
+            <button type="button" onClick={() => { signOut(); setNotice(''); if (step === 'phone' || step === 'code' || step === 'pay') setStep(pick ? 'details' : 'menu'); }} className={linkBtn} style={{ color: MUTED }}>Sign out</button>
+          </div>
+        : step !== 'phone' && step !== 'code' && step !== 'done' && <button type="button" onClick={() => { setNotice(''); setResumeOrder(false); setStep('phone'); }} className="min-h-[44px] rounded-full px-4 text-[14px] font-semibold border border-[#ececee] bg-white" style={{ color: INK }}>Sign in</button>}
+    </header>
+  );
 
-    const handleDeliveryDetailSubmit = () => {
-        if (!pendingItem) return;
+  let body: React.ReactNode = null;
 
-        // Allowance-aware — see perkRemainingByItem. Asking only "does the
-        // membership include this?" is how a member ended up drinking the whole
-        // menu for free all month.
-        const isPerk = perkRemainingFor(pendingItem.item.id) >= pendingItem.qty;
-        const price = safeNumber(pendingItem.item.price);
+  if (step === 'menu') body = (
+    <div className="space-y-4">
+      <h1 className="sr-only">{biz?.name ? `${biz.name} menu` : 'Menu'}</h1>
+      {noticeBox}{goodBox}
+      {linkOld && <p className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>This station’s link is out of date, so nothing can go on the station from it. You can still order and pay when it arrives. Ask the front desk for the new link.</p>}
+      {guest?.member && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}>Your {guest.membershipName || 'membership'} is on. Anything it covers says Included.</p>}
+      {!guest?.member && hostComp && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}>Your host at {stationStay?.boothName} is treating you. Your next order is on the house.</p>}
+      {menuErr ? <p className="rounded-3xl px-5 py-10 text-center text-[15px] bg-white border border-[#ececee]" style={{ color: MUTED }}>{menuErr}</p>
+        : !menu ? <div className="flex justify-center py-20"><span className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the menu" /></div>
+        : menu.length === 0 ? <p className="rounded-3xl px-5 py-10 text-center text-[15px] bg-white border border-[#ececee]" style={{ color: MUTED }}>Nothing on the menu right now. Please ask anyone on the team.</p>
+        : <>
+          {sections.length > 1 && <nav className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0" aria-label="Menu sections">{sections.map((s) => (
+            <button key={s} type="button" onClick={() => setSection(s)} aria-pressed={section === s} className="shrink-0 min-h-[44px] rounded-full px-5 text-[15px] font-medium"
+              style={section === s ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{s}</button>))}</nav>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{shown.map((i) => {
+            const left = perkLeft(i.id); const locked = i.membersOnly && !guest?.member;
+            return (
+              <button key={i.id} type="button" onClick={(e) => choose(i, e.currentTarget)} disabled={!i.available} className="text-left rounded-3xl bg-white overflow-hidden flex border border-[#ececee] disabled:opacity-55 active:scale-[0.99] transition-transform">
+                <span className="p-4 flex flex-col gap-1 flex-1 min-w-0">
+                  <span className="text-[17px] font-semibold leading-snug" style={{ color: INK }}>{i.name}</span>
+                  {i.words && <span className="text-[14px] leading-snug line-clamp-2" style={{ color: MUTED }}>{i.words}</span>}
+                  <span className="mt-auto pt-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-[15px] font-semibold" style={{ color: left > 0 ? GREEN : INK }}>{!i.available ? 'Sold out' : left > 0 ? 'Included' : i.price > 0 ? money(i.price) : 'Free'}</span>
+                    {locked && i.available && <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Members</span>}
+                    {left > 0 && <span className="text-[13px]" style={{ color: GREEN }}>{left} left this cycle</span>}
+                  </span>
+                </span>
+                {i.imageUrl && <img src={i.imageUrl} alt="" className="w-28 sm:w-32 object-cover shrink-0" />}
+              </button>);
+          })}</div>
+        </>}
+    </div>
+  );
 
-        // v90 — a paid item only routes to the client pay screen when nothing
-        // else covers it: not a perk, not within the renter's comp allowance,
-        // and not charged to a station card (renter card, or a day-guest's).
-        const withinRenterComp = !!activeStay && activeStay.payerType === 'renter'
-            && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
-        const coveredByStation =
-            (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile)
-            || (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile);
+  if (step === 'details' && pick) body = (
+    <div className="space-y-4">
+      <div className={panel}>
+        {h2(`${pick.item.name}${pick.qty > 1 ? ` × ${pick.qty}` : ''}`,
+          <span className="text-[17px] font-semibold shrink-0" style={{ color: isPerk || (hostComp && total > 0) ? GREEN : INK }}>{isPerk ? 'Included' : total <= 0 ? 'Free' : hostComp ? 'On the house' : money(total)}</span>)}
+        {!guest && <label className="block"><span className="text-[14.5px] font-medium" style={{ color: INK }}>Your name</span>
+          <input value={name} onChange={(e) => setName(e.target.value.slice(0, 60))} autoComplete="off" className={field} placeholder="First name" /></label>}
+        <label className="block"><span className="text-[14.5px] font-medium" style={{ color: INK }}>Where are you?</span>
+          <input value={where} onChange={(e) => setWhere(e.target.value.slice(0, 60))} autoComplete="off" className={field} placeholder="Seat, room or station" /></label>
+        <label className="block"><span className="text-[14.5px] font-medium" style={{ color: INK }}>What should we look for? <span className="font-normal" style={{ color: MUTED }}>Optional</span></span>
+          <input value={lookFor} onChange={(e) => setLookFor(e.target.value.slice(0, 120))} autoComplete="off" className={field} placeholder="Green coat, by the window" /></label>
+        <label className="block"><span className="text-[14.5px] font-medium" style={{ color: INK }}>Anything we should know? <span className="font-normal" style={{ color: MUTED }}>Optional</span></span>
+          <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 240))} rows={2} className={`${field} py-3`} placeholder="Oat milk, no ice, an allergy" /></label>
+      </div>
+      {goodBox}{noticeBox}
+      {primary(busy ? 'Placing your order…' : covered ? 'Place order' : 'Next: how to pay', toPay)}
+      <div className="text-center">{back('menu')}</div>
+    </div>
+  );
 
-        if (price > 0 && !isPerk && !withinRenterComp && !coveredByStation) {
-            // Preselect the honest default, in descending order of how little it
-            // asks of the guest: their own saved card, then their visit balance
-            // (which the front desk settles at checkout anyway), and only then
-            // paying the runner on delivery. A walk-in we have no record for gets
-            // the last one, because there is no account to put it against.
-            setSettleChoice(usableCard ? 'card_on_file' : identifiedClient?.id ? 'balance' : 'desk');
-            setStep('payment');
-            return;
-        }
-
-        finalizeRequest(pendingItem.item, pendingItem.qty);
-    };
-
-    const finalizeRequest = async (item: InventoryItem, qty: number, proof?: { phone: string; pass: string }) => {
-        if (isSubmittingRef.current || !firestore || !tenant) return;
-        isSubmittingRef.current = true;
-        setIsVerifying(true);
-        if (!orderKeyRef.current) orderKeyRef.current = `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-        const orderKey = orderKeyRef.current;
-        const passFor = (phone: string) => (proof && proof.phone === phone ? proof.pass : guestPass && guestPass.phone === phone ? guestPass.pass : undefined);
-        // The screen to come back to if a code is needed (when this runs right after a code, the one before it).
-        const here = step === 'verify_code' ? (codeAsk?.back || 'payment') : step;
-        try {
-            // v75/v90 — "charge to station": run the card first; only dispatch
-            // the order if the charge succeeds. The server prices the order from
-            // the menu, charges it once and writes the ledger entry, so the local
-            // txn is skipped for station charges.
-            let chargedToStation = false;
-            let stationOrderId: string | undefined;
-            const orderTotal = safeNumber(item.price) * qty;
-            // A club perk is only a perk while the allowance covers the quantity.
-            // This used to ask only "does the membership include this product?",
-            // which handed a member unlimited free items for the life of their
-            // subscription.
-            const isComped = perkRemainingFor(item.id) >= qty;
-            // Renter comp allowance: the first N paid items on a renter's station
-            // are complimentary (the host covers them — no charge at all).
-            const withinRenterComp = !!activeStay && activeStay.payerType === 'renter'
-                && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
-
-            // (1) Renter station → charge the RENTER's card for paid items past the allowance.
-            if (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile
-                && orderTotal > 0 && !isComped && !withinRenterComp) {
-                const chargeRes = await fetch('/api/booths/kiosk', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'charge', tenantId, payer: 'station',
-                        boothId: boothParam, stationToken: stationToken || undefined,
-                        itemId: item.id, quantity: qty,
-                        amountCents: Math.round(orderTotal * 100),
-                        orderKey,
-                    }),
-                }).catch(() => null);
-                const chargeData: any = chargeRes ? await chargeRes.json().catch(() => ({})) : {};
-                if (!chargeData?.ok) {
-                    // The card said no: trying again is a new order. No answer: the same order, so it can't charge twice.
-                    if (chargeRes?.status === 402) orderKeyRef.current = '';
-                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData?.error || 'Please ask your host.' });
-                    return;
-                }
-                chargedToStation = true; stationOrderId = chargeData.orderId;
-            }
-            // (2) Day-guest station → charge the checked-in guest's own card, once they've confirmed the code we text them.
-            else if (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && orderTotal > 0 && !isComped) {
-                const chargeRes = await fetch('/api/booths/kiosk', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'charge', tenantId, payer: 'stay',
-                        reservationId: activeStay.reservationId,
-                        phone: `+1${phonePadValue}`, guestPass: passFor(phonePadValue),
-                        boothId: boothParam || undefined,
-                        itemId: item.id, quantity: qty,
-                        amountCents: Math.round(orderTotal * 100),
-                        orderKey,
-                    }),
-                }).catch(() => null);
-                const chargeData: any = chargeRes ? await chargeRes.json().catch(() => ({})) : {};
-                if (!chargeData?.ok) {
-                    if (chargeData?.needsCode && phonePadValue.length === 10) { isSubmittingRef.current = false; await askForCode(phonePadValue, here); return; }
-                    if (chargeRes?.status === 402) orderKeyRef.current = '';
-                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData?.error || 'Please pay at the desk.' });
-                    return;
-                }
-                chargedToStation = true; stationOrderId = chargeData.orderId;
-            }
-
-            const compedByRenter = withinRenterComp && orderTotal > 0 && !isComped;
-
-            // ── How this order actually settles ────────────────────────────
-            // The kiosk used to book a 'Kiosk Terminal' income transaction the
-            // instant the guest tapped Authorize, behind a card form whose three
-            // inputs had no value, no onChange and no tokenization. No money
-            // moved, so every lounge order inflated revenue — and the tax
-            // numbers that come off it. There are only three honest outcomes:
-            //
-            //   card_on_file — a real Stripe charge against the client's saved
-            //                  card. Income is booked ONLY when the charge comes
-            //                  back ok, carrying the real payment intent id.
-            //   balance      — recorded as OWED (outstandingBalance + unpaidFees),
-            //                  never as collected revenue. The desk collects it
-            //                  at checkout and books the income at that point.
-            //   desk         — the guest settles when the order is brought over.
-            //                  priceAtRequest stays above zero so the runner's
-            //                  station badge shows what to collect.
-            //
-            // Raw card entry is deliberately absent: taking a card number
-            // outside Stripe's tokenized flow is a real PCI problem, and this is
-            // the same call the client portal already made for the same reason.
-            const owesAtKiosk = orderTotal > 0 && !isComped && !chargedToStation && !compedByRenter;
-            let settledBy: 'card_on_file' | 'balance' | 'desk' | null = owesAtKiosk ? settleChoice : null;
-            let stripePaymentIntentId: string | null = null;
-
-            if (owesAtKiosk && settledBy === 'card_on_file') {
-                if (!identifiedClient?.id || !usableCard) {
-                    settledBy = 'desk';
-                } else {
-                    const chargeRes = await fetch('/api/stripe/charge-card', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            tenantId,
-                            clientId: identifiedClient.id,
-                            amountCents: Math.round(orderTotal * 100),
-                            description: `Lounge order — ${item.name} (x${qty})`,
-                            category: 'Hospitality Revenue',
-                            appointmentId: null,
-                            reason: 'Concierge kiosk order (card on file)',
-                            mode: 'pos',
-                            // The same order sent again is the same charge, never a second one.
-                            idempotencyKey: `lounge-${orderKey}`,
-                            onLost: 'refund',   // no order is placed on a lost answer
-                        }),
-                    }).catch(() => null);
-                    const chargeData = chargeRes ? await chargeRes.json().catch(() => ({ ok: false })) : { ok: false, unknown: true };
-                    // No answer: the card may have been charged, so it isn't added to their balance as well. The order
-                    // waits; sending it again in a moment is the same charge (it keeps its order key).
-                    if (chargeData?.unknown === true || !chargeRes || [502, 503, 504].includes(chargeRes.status)) {
-                        toast({ variant: 'destructive', title: 'We couldn’t confirm the payment', description: 'Nothing was ordered yet. Please try again in a moment. You won’t be charged twice.' });
-                        return;
-                    }
-                    if (chargeData?.ok && chargeData?.paymentIntentId) {
-                        stripePaymentIntentId = String(chargeData.paymentIntentId);
-                    } else {
-                        // A declined card is not a failed order. The guest still
-                        // gets their drink; the studio still gets a record of
-                        // what is owed — just not a record of revenue.
-                        settledBy = identifiedClient?.id ? 'balance' : 'desk';
-                        toast({
-                            variant: 'destructive',
-                            title: chargeData?.requiresAction ? 'Card needs verification' : 'Card was declined',
-                            description: chargeData?.reason || (settledBy === 'balance'
-                                ? 'Added to your balance — the front desk will settle it at checkout.'
-                                : 'Please settle at the desk.'),
-                        });
-                    }
-                }
-            }
-            // "Add to my balance" only means something for a client the studio
-            // can invoice later. A walk-in with no record settles at the desk.
-            if (owesAtKiosk && settledBy === 'balance' && !identifiedClient?.id) settledBy = 'desk';
-
-            const stationName = boothParam
-                ? (activeStay?.boothName || 'Station')
-                : (seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'));
-
-            // The order is written by the server, which checks the item against the menu, the perk and host
-            // allowances, the station charge and the card payment before anything is recorded as settled.
-            const settle = isComped ? 'perk'
-                : chargedToStation ? 'station'
-                : compedByRenter ? 'renter_comp'
-                : (settledBy || 'desk');
-            const orderRes = await fetch('/api/concierge/requests', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId,
-                    itemId: item.id,
-                    quantity: qty,
-                    clientName: (guestName || 'Guest').slice(0, 60),
-                    phone: identifiedClient?.id ? ((identifiedClient as any).phone || undefined) : undefined,
-                    boothId: boothParam || undefined,
-                    reservationId: activeStay?.payerType === 'reservation' ? activeStay.reservationId : undefined,
-                    stationName,
-                    guestDescription,
-                    notes: orderNotes,
-                    settle,
-                    orderKey,
-                    stationOrderId,
-                    stationToken: stationToken || undefined,
-                    guestPass: passFor(myPhone),
-                    stripePaymentIntentId: stripePaymentIntentId || undefined,
-                }),
-            }).catch(() => null);
-            const orderData: any = orderRes ? await orderRes.json().catch(() => ({})) : {};
-            if (!orderRes || !orderRes.ok || !orderData?.ok) {
-                // Adding it to their visit, or a club perk, needs the code we text them first; then this same order goes on.
-                if (orderData?.needsCode && myPhone.length === 10) { isSubmittingRef.current = false; await askForCode(myPhone, here); return; }
-                toast({ variant: 'destructive', title: 'Request Failed', description: orderData?.error || 'Please ask the team.' });
-                return;
-            }
-            orderKeyRef.current = '';
-            setPerkNonce(n => n + 1);
-            if (compedByRenter) setSessionCompUsed(n => n + 1);
-            // Hold the perk locally too. The Firestore listener needs a moment to
-            // catch up, and without this a member could tap the same
-            // complimentary item twice inside five seconds and have both come
-            // through as included.
-            if (isComped) setSessionPerkUsed(prev => ({ ...prev, [item.id]: safeNumber(prev[item.id]) + qty }));
-
-            // The guest reads this on the success screen, so it has to say what
-            // actually happened to their money — not just "dispatched".
-            const summary =
-                chargedToStation ? `Charged to ${activeStay?.boothName || 'your station'}.`
-                : compedByRenter ? `Complimentary, courtesy of ${activeStay?.boothName || 'your host'}.`
-                : isComped ? 'Included with your membership.'
-                : settledBy === 'card_on_file' ? `$${orderTotal.toFixed(2)} charged to your ${usableCard?.brand || 'card'} ····${usableCard?.last4 || '••••'}.`
-                : settledBy === 'balance' ? `$${orderTotal.toFixed(2)} added to your balance — the front desk will settle it at checkout.`
-                : settledBy === 'desk' ? `$${orderTotal.toFixed(2)} due — settle with us when we bring it over.`
-                : '';
-            setSettledSummary(summary);
-            toast({ title: "Order Dispatched", description: summary || "Our concierge will be with you shortly." });
-            setStep('success');
-            // Reset delivery fields for next potential order, but keep seatNumber if pre-filled
-            if (!seatParam) setSeatNumber('');
-            setGuestDescription('');
-            setOrderNotes('');
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Request Failed" });
-        } finally {
-            isSubmittingRef.current = false;
-            setIsVerifying(false);
-        }
-    };
-
-    const customPrimaryColor = tenant?.kioskSettings?.primaryColor;
-    const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#')
-      ? hexToHSLComponents(customPrimaryColor)
-      : customPrimaryColor;
-
-    // v90 — helper flags for the delivery screen's station banners.
-    const pendingPrice = pendingItem ? safeNumber(pendingItem.item.price) : 0;
-    // Allowance-aware: a product the membership *includes* is only actually a
-    // perk while the member still has enough of it left this cycle to cover the
-    // quantity in front of them.
-    const pendingIsPerk = !!(pendingItem && perkRemainingFor(pendingItem.item.id) >= pendingItem.qty);
-    const renterWithinComp = !!activeStay && activeStay.payerType === 'renter'
-        && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
-
-    return (
-        <div
-            className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative"
-            style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
-        >
-            <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
-            </div>
-
-            <AnimatePresence mode="wait">
-                {!entered ? (
-                    <motion.div
-                        key="entry"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0, scale: 1.1 }}
-                        className="text-center cursor-pointer p-4 group z-10"
-                        onClick={() => setEntered(true)}
-                    >
-                        <div className="relative w-48 h-48 md:w-64 md:h-64 rounded-[3rem] md:rounded-[4rem] overflow-hidden mb-12 transition-all duration-1000 mx-auto shadow-2xl border-4 border-white bg-white/40 backdrop-blur-3xl p-8 flex items-center justify-center group-hover:shadow-primary/20 group-hover:border-primary/20">
-                            {tenant && guestLogo(tenant) ? (
-                                <Image src={guestLogo(tenant) as string} alt={tenant.name} fill className="object-cover" />
-                            ) : (
-                                <ClarityFlowLogo className="w-24 h-24 md:w-32 md:h-32" />
-                            )}
-                        </div>
-                        <div className="space-y-4">
-                            <h1 className="text-4xl md:text-7xl font-black tracking-tighter uppercase text-slate-900 leading-none text-center">{tenant?.name || 'Studio'}</h1>
-                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.5em] uppercase animate-pulse opacity-60 text-center">{boothParam && activeStay ? `${activeStay.boothName} · Concierge` : 'Concierge Active'}</p>
-                        </div>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 flex flex-col items-center gap-4 text-center">
-                            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Tap to Browse Menu</span>
-                            <ArrowDown className="w-6 h-6 animate-bounce text-slate-300" />
-                        </motion.div>
-                    </motion.div>
-                ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center min-h-[80vh] z-10 text-center">
-                        <AnimatePresence mode="wait">
-                            {step === 'onboarding' && (
-                                <FloatingContainer key="onboarding" className="text-center space-y-12">
-                                    <div className="space-y-4 text-center">
-                                        <div className="w-20 h-20 md:w-24 md:h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
-                                            <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" />
-                                        </div>
-                                        <h2 className="text-3xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none text-center">Your Boutique Experience</h2>
-                                        <p className="text-[10px] md:text-xl font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60 text-center">How the protocol works</p>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center max-w-3xl mx-auto">
-                                        {[
-                                            { icon: User, label: "Identify", desc: "Share your name so we can recognize you." },
-                                            { icon: Coffee, label: "Select", desc: "Browse our curated artisanal menu." },
-                                            { icon: HandHeart, label: "Relax", desc: "We deliver directly to your lounge seat." },
-                                        ].map((item, idx) => (
-                                            <div key={idx} className="p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white shadow-xl flex flex-col items-center gap-4 text-center">
-                                                <div className="p-3 md:p-4 bg-primary/5 rounded-2xl text-primary"><item.icon className="w-6 h-6 md:w-8 md:h-8" /></div>
-                                                <div className="space-y-1 text-center">
-                                                    <p className="font-black uppercase text-[10px] md:text-sm tracking-tight text-center">{item.label}</p>
-                                                    <p className="text-[8px] md:text-[10px] font-medium text-slate-500 uppercase leading-relaxed text-center">{item.desc}</p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <Button
-                                        size="lg"
-                                        onClick={handleOnboardingComplete}
-                                        className="h-16 md:h-20 px-8 md:px-20 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
-                                    >
-                                        Begin Experience <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2" />
-                                    </Button>
-                                </FloatingContainer>
-                            )}
-
-                            {step === 'identity' && (
-                                <FloatingContainer key="identity" className="text-center space-y-12">
-                                    <div className="space-y-3 text-center">
-                                        <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-[1.5rem] md:rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                                            <HandHeart className="w-8 h-8 md:w-10 md:h-10 text-primary" />
-                                        </div>
-                                        <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Welcome</h2>
-                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">{boothParam && activeStay ? `Ordering to ${activeStay.boothName}. Please identify yourself.` : 'Please identify yourself to begin.'}</p>
-                                    </div>
-
-                                    <form onSubmit={handleIdentitySubmit} className="max-w-md mx-auto space-y-8 text-center">
-                                        <div className="space-y-2 text-left">
-                                            <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
-                                            <Input
-                                                autoFocus
-                                                value={guestName}
-                                                onChange={e => setGuestName(e.target.value)}
-                                                placeholder="ENTER NAME"
-                                                className="h-14 md:h-16 rounded-2xl border-2 md:border-4 font-black uppercase text-lg md:text-2xl tracking-tight shadow-inner focus-visible:ring-primary/20 text-center bg-white/80"
-                                            />
-                                        </div>
-                                        <div className="flex flex-col gap-4">
-                                            <Button
-                                                type="submit"
-                                                disabled={!guestName.trim() || isVerifying}
-                                                className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
-                                            >
-                                                Explore Menu <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => setStep('phone_pad')}
-                                                className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary hover:underline"
-                                            >
-                                                Recognize My Perks (Member)
-                                            </Button>
-                                        </div>
-                                    </form>
-                                </FloatingContainer>
-                            )}
-
-                            {step === 'phone_pad' && (
-                                <PhonePadView
-                                    key="phone_pad"
-                                    value={phonePadValue}
-                                    onDigit={handlePhonePadDigit}
-                                    onDelete={handlePhonePadDelete}
-                                    onConfirm={handlePhonePadConfirm}
-                                    onBack={() => setStep('identity')}
-                                    isVerifying={isVerifying}
-                                />
-                            )}
-
-                            {step === 'verify_code' && codeAsk && (
-                                <CodePadView
-                                    key="verify_code"
-                                    value={codeValue}
-                                    sentTo={codeAsk.sentTo}
-                                    error={codeError}
-                                    onDigit={(d: string) => setCodeValue(v => (v.length < 6 ? v + d : v))}
-                                    onDelete={() => setCodeValue(v => v.slice(0, -1))}
-                                    onConfirm={confirmCode}
-                                    onResend={() => askForCode(codeAsk.phone, codeAsk.back)}
-                                    onBack={() => { const back = codeAsk.back; setCodeAsk(null); setCodeValue(''); setCodeError(''); setStep(back as any); }}
-                                    isVerifying={isVerifying}
-                                />
-                            )}
-
-                            {step === 'menu' && (
-                                <motion.div
-                                    key="menu"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    className="w-full max-w-6xl mx-auto flex flex-col gap-8 md:gap-12"
-                                >
-                                    <div className="flex flex-row items-center justify-between gap-4 px-6 md:px-12">
-                                        <div className="flex items-center gap-4 text-left">
-                                            <div className="relative">
-                                                <Avatar className="h-14 w-14 md:h-24 md:w-24 border-2 md:border-4 border-white shadow-xl rounded-[1.5rem] md:rounded-[3rem]">
-                                                    <AvatarFallback className="font-black text-lg md:text-3xl bg-primary/10 text-primary">{(guestName || 'G')[0]}</AvatarFallback>
-                                                </Avatar>
-                                                {identifiedClient && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-1 rounded-xl shadow-lg border-2 border-white"><Award className="w-3 h-3 md:w-5 md:h-5" /></div>}
-                                            </div>
-                                            <div className="space-y-0.5">
-                                                <h3 className="text-xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Boutique Menu</h3>
-                                                <p className="text-[8px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60 text-left">{boothParam && activeStay ? `Delivered to ${activeStay.boothName}` : `Curated for ${guestName.split(' ')[0]}`}</p>
-                                            </div>
-                                        </div>
-                                        <Button variant="ghost" onClick={() => setStep('identity')} className="h-10 md:h-12 rounded-xl font-black uppercase text-[8px] md:text-[10px] tracking-widest text-slate-400 hover:text-primary">Change Guest</Button>
-                                    </div>
-
-                                    <div className="space-y-12 md:space-y-20 pb-20">
-                                        {Object.entries(refreshmentsByCategory).map(([category, items]) => (
-                                            <section key={category} className="space-y-4 md:space-y-8">
-                                                <div className="px-6 md:px-12">
-                                                    <h4 className="text-[10px] md:text-sm font-black uppercase tracking-[0.4em] text-primary/60 text-left">{category}</h4>
-                                                </div>
-                                                <ScrollArea className="w-full">
-                                                    <div className="flex gap-4 md:gap-8 px-6 md:px-12 pb-6">
-                                                        {items.map(item => (
-                                                            <FloatingMenuCard
-                                                                key={item.id}
-                                                                item={item}
-                                                                onSelect={(qty) => handleRequest(item, qty)}
-                                                                isMember={!!identifiedClient}
-                                                                activeMembership={activeMembership}
-                                                                remainingPerks={perkRemainingFor(item.id)}
-                                                            />
-                                                        ))}
-                                                    </div>
-                                                    <ScrollBar orientation="horizontal" className="hidden" />
-                                                </ScrollArea>
-                                            </section>
-                                        ))}
-                                        {refreshments.length === 0 && (
-                                            <div className="py-32 text-center border-4 border-dashed border-slate-900/10 rounded-[4rem] opacity-30 flex flex-col items-center gap-4 mx-6">
-                                                <Coffee className="w-16 h-16" />
-                                                <p className="text-xl font-black uppercase tracking-widest">Menu is currently offline</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </motion.div>
-                            )}
-
-                            {step === 'delivery_detail' && pendingItem && (
-                                <FloatingContainer key="delivery_detail" className="max-w-md text-center space-y-10 py-12">
-                                    <div className="space-y-3 text-center">
-                                        <div className="w-16 h-16 md:w-20 md:h-20 bg-primary/10 rounded-[1.5rem] md:rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                                            <MapPin className="w-8 h-8 md:w-10 md:h-10 text-primary" />
-                                        </div>
-                                        <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Delivery Protocol</h2>
-                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">{boothParam && activeStay ? `We'll bring it to ${activeStay.boothName}.` : 'Help us find you in the lounge.'}</p>
-                                    </div>
-
-                                    <div className="space-y-6 text-left">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="seat-number" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
-                                                {boothParam ? 'Station' : 'Table or Seat #'}
-                                                {(seatParam || boothParam) && <Lock className="w-3 h-3" />}
-                                            </Label>
-                                            <Input
-                                                id="seat-number"
-                                                value={boothParam && activeStay ? activeStay.boothName : seatNumber}
-                                                onChange={e => setSeatNumber(e.target.value)}
-                                                placeholder="e.g., 4"
-                                                disabled={!!seatParam || !!boothParam}
-                                                className={cn(
-                                                    "h-14 rounded-2xl border-2 font-black text-xl shadow-inner text-center",
-                                                    (seatParam || boothParam) ? "bg-muted/50 border-primary/20" : "bg-white/80"
-                                                )}
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Visual Identifier</Label>
-                                            <Input
-                                                value={guestDescription}
-                                                onChange={e => setGuestDescription(e.target.value)}
-                                                placeholder="e.g., Wearing a green hoodie"
-                                                className="h-14 rounded-2xl border-2 font-bold bg-white/80"
-                                            />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">General Notes</Label>
-                                            <Textarea
-                                                value={orderNotes}
-                                                onChange={e => setOrderNotes(e.target.value)}
-                                                placeholder="Any special requests? (e.g., Extra ice)"
-                                                className="rounded-2xl border-2 bg-white/80 min-h-[100px] font-medium"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {boothParam && linkNeedsUpdate && (
-                                        <div className="w-full rounded-[2rem] border-2 border-amber-200 bg-amber-50 p-4 flex items-center gap-4 text-left">
-                                            <Info className="w-6 h-6 text-amber-600 shrink-0" />
-                                            <span className="block text-[11px] md:text-xs font-medium text-amber-800 leading-snug">
-                                                This station’s link is out of date, so orders can’t be charged to the station from it. You can still order and pay when it arrives, or ask the front desk for the current link.
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && pendingPrice > 0 && !pendingIsPerk && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setStationCharging(v => !v)}
-                                            className={cn(
-                                                "w-full rounded-[2rem] border-2 p-4 flex items-center gap-4 text-left transition-colors",
-                                                stationCharging ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
-                                            )}
-                                        >
-                                            <span className={cn(
-                                                "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
-                                                stationCharging ? "border-primary bg-primary text-white" : "border-slate-300"
-                                            )}>{stationCharging ? '✓' : ''}</span>
-                                            <span className="min-w-0">
-                                                <span className="block text-sm font-black uppercase tracking-tight">Charge to my station</span>
-                                                <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                                                    {activeStay.boothName} · card on file · ${(pendingPrice * pendingItem.qty).toFixed(2)}
-                                                </span>
-                                            </span>
-                                        </button>
-                                    )}
-
-                                    {activeStay?.payerType === 'renter' && renterWithinComp && pendingPrice > 0 && !pendingIsPerk && (
-                                        <div className="w-full rounded-[2rem] border-2 border-green-200 bg-green-50 p-4 flex items-center gap-4 text-left">
-                                            <HandHeart className="w-6 h-6 text-green-600 shrink-0" />
-                                            <span className="min-w-0">
-                                                <span className="block text-sm font-black uppercase tracking-tight text-green-700">Complimentary</span>
-                                                <span className="block text-[10px] font-bold text-green-700/70 uppercase tracking-widest">Courtesy of {activeStay.boothName} · {activeStay.compAllowance - sessionCompUsed} left</span>
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    {activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile && pendingPrice > 0 && !pendingIsPerk && !renterWithinComp && (
-                                        <div className="w-full rounded-[2rem] border-2 border-primary/30 bg-primary/5 p-4 flex items-center gap-4 text-left">
-                                            <CreditCard className="w-6 h-6 text-primary shrink-0" />
-                                            <span className="min-w-0">
-                                                <span className="block text-sm font-black uppercase tracking-tight">Charged to {activeStay.boothName}</span>
-                                                <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Billed to the host · ${(pendingPrice * pendingItem.qty).toFixed(2)}</span>
-                                            </span>
-                                        </div>
-                                    )}
-
-                                    <div className="flex flex-col gap-4">
-                                        <Button
-                                            size="lg"
-                                            onClick={handleDeliveryDetailSubmit}
-                                            className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
-                                        >
-                                            {(stationCharging && activeStay) || (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile && pendingPrice > 0 && !renterWithinComp) ? 'Charge & Dispatch' : 'Confirm Details'} <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
-                                        </Button>
-                                        <Button variant="ghost" onClick={() => setStep('menu')} className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Change Item</Button>
-                                    </div>
-                                </FloatingContainer>
-                            )}
-
-                            {step === 'payment' && pendingItem && (
-                                <FloatingContainer key="payment" className="max-w-md text-center">
-                                    <div className="rounded-[3rem] border-4 border-white bg-white/60 backdrop-blur-3xl shadow-3xl overflow-hidden text-center">
-                                        <div className="p-8 md:p-10 border-b border-slate-900/5 bg-muted/5 text-center space-y-4">
-                                            <div className="p-3 md:p-4 bg-primary/10 rounded-full w-fit mx-auto">
-                                                <CreditCard className="w-6 h-6 md:w-8 md:h-8 text-primary" />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter leading-none">Secure Settlement</h2>
-                                                <p className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60">Authorize: {pendingItem.item.name} (x{pendingItem.qty})</p>
-                                            </div>
-                                        </div>
-                                        <div className="p-8 md:p-10 space-y-10">
-                                            <div className="p-6 md:p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-inner">
-                                                <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Transaction Total</p>
-                                                <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
-                                            </div>
-
-                                            <div className="space-y-3 text-left">
-                                                <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 ml-1">Settlement Method</Label>
-
-                                                {identifiedClient && usableCard && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSettleChoice('card_on_file')}
-                                                        className={cn(
-                                                            "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
-                                                            settleChoice === 'card_on_file' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
-                                                        )}
-                                                    >
-                                                        <span className={cn(
-                                                            "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
-                                                            settleChoice === 'card_on_file' ? "border-primary bg-primary text-white" : "border-slate-300"
-                                                        )}>{settleChoice === 'card_on_file' ? '✓' : ''}</span>
-                                                        <CreditCard className="w-5 h-5 text-primary shrink-0" />
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block text-sm font-black uppercase tracking-tight">Card on file</span>
-                                                            <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{usableCard.brand} ····{usableCard.last4} · charged now</span>
-                                                        </span>
-                                                    </button>
-                                                )}
-
-                                                {identifiedClient && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSettleChoice('balance')}
-                                                        className={cn(
-                                                            "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
-                                                            settleChoice === 'balance' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
-                                                        )}
-                                                    >
-                                                        <span className={cn(
-                                                            "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
-                                                            settleChoice === 'balance' ? "border-primary bg-primary text-white" : "border-slate-300"
-                                                        )}>{settleChoice === 'balance' ? '✓' : ''}</span>
-                                                        <Wallet className="w-5 h-5 text-primary shrink-0" />
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block text-sm font-black uppercase tracking-tight">Add to my visit</span>
-                                                            <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Settled with the front desk at checkout</span>
-                                                        </span>
-                                                    </button>
-                                                )}
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSettleChoice('desk')}
-                                                    className={cn(
-                                                        "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
-                                                        settleChoice === 'desk' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
-                                                    )}
-                                                >
-                                                    <span className={cn(
-                                                        "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
-                                                        settleChoice === 'desk' ? "border-primary bg-primary text-white" : "border-slate-300"
-                                                    )}>{settleChoice === 'desk' ? '✓' : ''}</span>
-                                                    <Receipt className="w-5 h-5 text-primary shrink-0" />
-                                                    <span className="min-w-0 flex-1">
-                                                        <span className="block text-sm font-black uppercase tracking-tight">Pay on delivery</span>
-                                                        <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">We'll take payment when we bring it over</span>
-                                                    </span>
-                                                </button>
-
-                                                {!identifiedClient && (
-                                                    <div className="flex items-start gap-2 pt-1 px-1">
-                                                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                                        <p className="text-[11px] md:text-xs font-medium text-amber-700/90 leading-snug text-left">
-                                                            We don't have you on file yet, so this order settles when we bring it over. Ask the front desk to add you and your next one can go straight to your visit.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="flex items-center justify-center gap-3 opacity-40 pt-2">
-                                                <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-center">Card details stay with Stripe</span>
-                                            </div>
-                                        </div>
-                                        <div className="p-8 md:p-10 pt-0 flex flex-col gap-3">
-                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
-                                                {isVerifying ? <Loader className="animate-spin h-6 w-6" />
-                                                    : settleChoice === 'card_on_file' ? `Charge $${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)} & Dispatch`
-                                                    : settleChoice === 'balance' ? 'Add To My Visit & Dispatch'
-                                                    : 'Confirm & Dispatch'}
-                                            </Button>
-                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Protocol</Button>
-                                        </div>
-                                    </div>
-                                </FloatingContainer>
-                            )}
-
-                            {step === 'success' && (
-                                <FloatingContainer key="success" className="p-8 md:p-24 text-center space-y-12 mx-auto">
-                                    <div className="w-24 h-24 md:w-48 md:h-48 bg-green-500/10 rounded-[3rem] md:rounded-[4rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
-                                        <CheckCircle2 className="w-12 h-12 md:w-24 md:h-24 text-green-500 -rotate-6" />
-                                    </div>
-                                    <div className="space-y-4 text-center">
-                                        <h2 className="text-3xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Request Dispatched</h2>
-                                        <p className="text-xs md:text-2xl font-medium text-slate-500 leading-relaxed uppercase tracking-tight opacity-80 px-6 md:px-10">
-                                            Preparing your selection now. Please relax, we will be with you shortly.
-                                        </p>
-                                    </div>
-                                    {settledSummary && (
-                                        <div className="rounded-[2rem] border-2 border-primary/20 bg-primary/5 px-6 py-5 max-w-md mx-auto">
-                                            <p className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 mb-2">Your Order</p>
-                                            <p className="text-sm md:text-base font-bold text-slate-700 leading-snug">{settledSummary}</p>
-                                        </div>
-                                    )}
-                                    <Button
-                                        size="lg"
-                                        onClick={() => setStep('menu')}
-                                        className="h-16 md:h-20 px-8 md:px-24 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
-                                    >
-                                        Complete Experience
-                                    </Button>
-                                </FloatingContainer>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {entered && step !== 'onboarding' && (
-                <footer className="fixed bottom-6 md:bottom-8 left-0 right-0 z-20 px-6 flex justify-center pointer-events-none">
-                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-6 md:px-8 py-3 md:py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center gap-4 md:gap-8 pointer-events-auto ring-1 ring-white/20">
-                        <div className="flex items-center gap-2 md:gap-3">
-                            <MapPin className="w-3 h-3 md:w-4 md:h-4 text-primary opacity-40" />
-                            <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
-                        </div>
-                        <Separator orientation="vertical" className="h-4 md:h-5 bg-slate-900/10" />
-                        <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">{boothParam && activeStay ? activeStay.boothName : 'Boutique Terminal'}</p>
-                    </div>
-                </footer>
-            )}
+  if (step === 'pay' && pick) {
+    const options: { id: Settle; title: string; sub: string; show: boolean }[] = [
+      { id: 'card_on_file', title: guest?.card ? `${guest.card.brand} ending ${guest.card.last4}` : 'Card on file', sub: 'Charged now', show: cardOk },
+      { id: 'stay', title: 'The card on my booking', sub: `Charged to your stay at ${stay?.boothName || 'your station'}`, show: canStay && !cardLocked },
+      { id: 'balance', title: 'Add it to my visit', sub: 'Settle it when you check out', show: !!guest && !cardLocked },
+      { id: 'desk', title: 'Pay when it arrives', sub: 'Card or cash, when we bring it over', show: !cardLocked },
+    ];
+    body = (
+      <div className="space-y-4">
+        <div className={panel}>
+          {h2('How would you like to pay?', <span className="text-[18px] font-semibold tabular-nums shrink-0" style={{ color: INK }}>{money(total)}</span>)}
+          <fieldset className="space-y-2">
+            <legend className="sr-only">How to pay</legend>
+            {options.filter((o) => o.show).map((o) => {
+              const on = settle === o.id;
+              return (
+                <label key={o.id} className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3 bg-white cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[#16171a]"
+                  style={{ border: on ? `2px solid ${INK}` : `1px solid ${LINE}`, margin: on ? 0 : 1 }}>
+                  <input type="radio" name="pay" value={o.id} checked={on} onChange={() => { setSettle(o.id); setNotice(''); }} className="sr-only" />
+                  <span className="h-5 w-5 rounded-full shrink-0 box-border" style={{ border: on ? `6px solid ${INK}` : '2px solid #c9cbcf' }} aria-hidden />
+                  <span className="min-w-0"><span className="block text-[16px] font-semibold" style={{ color: INK }}>{o.title}</span><span className="block text-[14px]" style={{ color: MUTED }}>{o.sub}</span></span>
+                </label>);
+            })}
+          </fieldset>
+          {!signedIn && <p className="text-[14.5px]" style={{ color: MUTED }}>A client here? <button type="button" onClick={() => { setNotice(''); setStep('phone'); }} className="font-semibold underline underline-offset-4 min-h-[44px]" style={{ color: INK }}>Sign in with your phone</button> to use your card or add it to your visit.</p>}
         </div>
+        {noticeBox}
+        {primary(busy ? 'Placing your order…' : cardLocked ? `Try my card again, ${money(total)}` : `Place order, ${money(total)}`, () => { void placeOrder(); })}
+        <div className="text-center">{back('details')}</div>
+      </div>
     );
+  }
+
+  if (step === 'phone') {
+    // Where the code brings them back to: the payment choice when an order is waiting on it, else where they were.
+    const after: Step = pick ? (resumeOrder || !covered ? 'pay' : 'details') : 'menu';
+    body = (
+      <div className="space-y-4">
+        <div className={panel}>
+          {h2('Your mobile number')}
+          <p className="text-[15px]" style={{ color: MUTED }}>We’ll text you a code, so only you can use your membership, card or visit.</p>
+          <p className="text-center text-[30px] font-semibold tabular-nums min-h-[48px] pt-1" style={{ color: phone ? INK : '#c9cbcf' }} aria-label={phone ? `Number entered: ${phone.split('').join(' ')}` : 'No number yet'}>{phone ? showPhone(phone) : '(555) 555-5555'}</p>
+          <div className="grid grid-cols-3 gap-2 max-w-[320px] mx-auto">{['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((k, i) => k === '' ? <span key={i} /> : (
+            <button key={i} type="button" onClick={() => setPhone((p) => (k === 'del' ? p.slice(0, -1) : (p + k).slice(0, 10)))} aria-label={k === 'del' ? 'Delete' : k}
+              className="h-16 rounded-2xl text-[22px] font-semibold active:scale-[0.97] transition-transform" style={{ background: SOFT, color: INK }}>{k === 'del' ? '⌫' : k}</button>))}</div>
+        </div>
+        {noticeBox}
+        {primary(busy ? 'Sending…' : 'Text me a code', () => { void askForCode(phone, after, resumeOrder); }, phone.length !== 10)}
+        <div className="text-center">{back(after)}</div>
+      </div>
+    );
+  }
+
+  if (step === 'code' && codeAsk) body = (
+    <div className="space-y-4">
+      <div className={panel}>
+        {h2('Enter the code')}
+        <p className="text-[15px]" style={{ color: MUTED }}>We texted a 6-digit code to {codeAsk.sentTo}.</p>
+        <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={(e) => { if (e.key === 'Enter') void confirmCode(); }}
+          inputMode="numeric" autoComplete="one-time-code" aria-label="The 6-digit code"
+          className="w-full min-h-[68px] rounded-2xl text-center text-[32px] font-semibold tracking-[0.35em] bg-white border border-[#ececee] outline-none focus:border-[#16171a]" style={{ color: INK }} placeholder="000000" />
+      </div>
+      {noticeBox}
+      {primary(busy ? 'Checking…' : codeAsk.thenOrder ? 'Continue and place order' : 'Continue', () => { void confirmCode(); }, code.length !== 6)}
+      <div className="flex justify-center gap-4"><button type="button" disabled={busy} onClick={() => askForCode(phone, codeAsk.back, codeAsk.thenOrder)} className={linkBtn} style={{ color: INK }}>Send a new code</button>{back(codeAsk.back)}</div>
+    </div>
+  );
+
+  if (step === 'done' && done) {
+    const s = STATUS[status] || STATUS.pending;
+    body = (
+      <div className="space-y-4">
+        <div className="rounded-3xl p-6 space-y-2" style={{ background: accent, color: onAccent }}>
+          <p className="text-[14.5px] font-medium">Order placed</p>
+          <h2 ref={heading} tabIndex={-1} className="text-[28px] font-semibold leading-tight outline-none">{done.item}</h2>
+          <p className="text-[15.5px]">{done.summary}</p>
+        </div>
+        <div className={panel} aria-live="polite">
+          <div className="flex items-baseline justify-between gap-3"><p className="text-[19px] font-semibold" style={{ color: status === 'cancelled' ? AMBER : INK }}>{s.label}</p>{where && <span className="text-[14.5px] truncate" style={{ color: MUTED }}>To {where}</span>}</div>
+          {s.step > 0 && <div className="grid grid-cols-4 gap-1.5" aria-hidden>{[1, 2, 3, 4].map((n) => <span key={n} className="h-2 rounded-full transition-colors" style={{ background: n <= s.step ? (s.step === 4 ? GREEN : INK) : LINE }} />)}</div>}
+          {s.step > 0 && <div className="grid grid-cols-4 gap-1.5 text-[12.5px]" style={{ color: MUTED }} aria-hidden><span>Sent</span><span>Making</span><span>Ready</span><span className="text-right">Delivered</span></div>}
+          <p className="text-[15.5px]" style={{ color: status === 'cancelled' ? AMBER : MUTED }}>{s.note}</p>
+        </div>
+        <button type="button" onClick={() => { setPick(null); setDone(null); setStep('menu'); }} className={`${btn} w-full bg-white border border-[#ececee]`} style={{ color: INK }}>Order something else</button>
+      </div>
+    );
+  }
+
+  const locked = !!pick && pick.item.membersOnly && !guest?.member;
+  return (
+    <div className="min-h-dvh" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <div ref={pageRef} className="min-h-dvh flex flex-col">
+        {header}
+        <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-5 sm:p-6">{body}</main>
+      </div>
+      {sheet && pick && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) closeSheet(); }}>
+          <div ref={sheetRef} role="dialog" aria-modal="true" aria-labelledby="sheet-title" className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-white overflow-hidden">
+            {pick.item.imageUrl && <img src={pick.item.imageUrl} alt="" className="w-full h-48 object-cover" />}
+            <div className="p-6 space-y-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0"><h2 id="sheet-title" className="text-[22px] font-semibold leading-tight" style={{ color: INK }}>{pick.item.name}</h2>{pick.item.words && <p className="text-[15px] mt-1.5" style={{ color: MUTED }}>{pick.item.words}</p>}</div>
+                <button type="button" onClick={closeSheet} aria-label="Close" className="h-11 w-11 rounded-full text-[22px] shrink-0 border border-[#ececee]" style={{ color: INK }}>×</button>
+              </div>
+              {locked ? <>
+                <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>This one is for members. Sign in with your phone to use your membership.</p>
+                <button type="button" data-autofocus onClick={() => { setSheet(false); setNotice(''); setPick(null); setStep('phone'); }} className={`${btn} w-full`} style={{ background: accent, color: onAccent }}>Sign in with my phone</button>
+              </> : (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center rounded-full border border-[#ececee] shrink-0">
+                    <button type="button" aria-label="One fewer" disabled={pick.qty <= 1} onClick={() => setPick((p) => p && { ...p, qty: Math.max(1, p.qty - 1) })} className="h-12 w-12 text-[22px] disabled:opacity-35" style={{ color: INK }}>−</button>
+                    <span className="min-w-[28px] text-center text-[18px] font-semibold tabular-nums" aria-live="polite" aria-label={`Quantity ${pick.qty}`}>{pick.qty}</span>
+                    <button type="button" aria-label="One more" disabled={pick.qty >= 10} onClick={() => setPick((p) => p && { ...p, qty: Math.min(10, p.qty + 1) })} className="h-12 w-12 text-[22px] disabled:opacity-35" style={{ color: INK }}>+</button>
+                  </div>
+                  <button type="button" data-autofocus onClick={toDetails} className={`${btn} flex-1`} style={{ background: accent, color: onAccent }}>
+                    {perkLeft(pick.item.id) >= pick.qty ? 'Add, included' : pick.item.price > 0 ? `Add, ${money(pick.item.price * pick.qty)}` : 'Add'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default function ConciergeKioskPage() {
-    return (
-        <Suspense fallback={<div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>}>
-            <ConciergeKioskContent />
-        </Suspense>
-    );
+export default function ConciergePage() {
+  return <Suspense fallback={<div className="min-h-dvh" style={{ background: SOFT }} />}><StationMenu /></Suspense>;
 }

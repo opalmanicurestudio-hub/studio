@@ -488,7 +488,7 @@ export async function POST(req: NextRequest) {
         return { cents: amountCents, pm: payer.pm, customer: payer.customer, account: payer.account || null };
       });
       if (claim.already) return done(claim.already);
-      if (claim.busy) return NextResponse.json({ ok: false, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
+      if (claim.busy) return NextResponse.json({ ok: false, busy: true, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
       const cents = Number(claim.cents) || 0;
 
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
