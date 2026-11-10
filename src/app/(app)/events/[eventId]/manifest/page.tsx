@@ -812,6 +812,9 @@ export default function EventManifestPage() {
     }));
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventGuests`), where('eventId', '==', eventId)),
       snap => setGuests(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
+    // The waitlist when the event is full (lib/event-places): who's waiting, in the order they joined.
+    unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventWaitlist`), where('eventId', '==', eventId)),
+      snap => setWaitlist(snap.docs.map(d => ({ ...d.data(), id: d.id } as any)).filter((w: any) => w.status !== 'moved').sort((a: any, b: any) => String(a.joinedAt).localeCompare(String(b.joinedAt))))));
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/eventMenuItems`), where('eventId', '==', eventId)),
       snap => setMenuItems(snap.docs.map(d => ({ ...d.data(), id: d.id })))));
     unsubs.push(onSnapshot(query(collection(firestore, `tenants/${tenantId}/courseFires`), where('eventId', '==', eventId)),
@@ -823,6 +826,8 @@ export default function EventManifestPage() {
   }, [firestore, tenantId, eventId]);
 
   // ── UI state ───────────────────────────────────────────────────────────────
+  const [waitlist,       setWaitlist]       = useState<any[]>([]);
+  const [removingWait,   setRemovingWait]   = useState<string | null>(null);
   const [search,         setSearch]         = useState('');
   const [filterMeal,     setFilterMeal]     = useState('all');
   const [filterFlag,     setFilterFlag]     = useState('all');
@@ -1755,6 +1760,32 @@ export default function EventManifestPage() {
                   </table>
                 </div>
               </div>
+            )}
+            {waitlist.length > 0 && (
+              <section aria-label="Waitlist" className="rounded-[20px] border border-[#ececee] bg-white p-5 space-y-3" style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: '#16171a' }}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-[17px] font-semibold">Waitlist</h3>
+                  <span className="text-[14px] text-[#6d7075]">{waitlist.length === 1 ? '1 person' : `${waitlist.length} people`}, {waitlist.reduce((n: number, w: any) => n + (Number(w.places) || 1), 0)} places</span>
+                </div>
+                <p className="text-[14px] text-[#6d7075]">When a place opens up, the first person whose party fits is added to the guest list and emailed. A guest who cancels frees their place at once; places freed here are filled within the hour.</p>
+                <ol className="divide-y divide-[#ececee]">
+                  {waitlist.map((w: any, i: number) => (
+                    <li key={w.id} className="flex items-center gap-3 py-2.5">
+                      <span className="w-6 text-[14px] font-semibold tabular-nums text-[#6d7075]">{i + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[15px] font-medium truncate">{w.name}{Number(w.places) > 1 ? `, ${w.places} places` : ''}</span>
+                        <span className="block text-[13px] text-[#6d7075] truncate">{[w.email, w.phone].filter(Boolean).join(' · ')}</span>
+                      </span>
+                      {removingWait === w.id
+                        ? <span className="flex items-center gap-1">
+                            <button type="button" onClick={async () => { setRemovingWait(null); await deleteDoc(doc(firestore, `tenants/${tenantId}/eventWaitlist`, w.id)); }} className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold text-white bg-[#b42318]">Remove</button>
+                            <button type="button" onClick={() => setRemovingWait(null)} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium text-[#16171a] hover:bg-[#f5f5f7]">Keep</button>
+                          </span>
+                        : <button type="button" onClick={() => setRemovingWait(w.id)} aria-label={`Take ${w.name} off the waitlist`} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium text-[#6d7075] hover:bg-[#f5f5f7]">Remove</button>}
+                    </li>
+                  ))}
+                </ol>
+              </section>
             )}
           </TabsContent>
 

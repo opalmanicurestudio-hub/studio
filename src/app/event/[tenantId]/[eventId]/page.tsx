@@ -72,10 +72,17 @@ export default function EventGuestPage() {
     {cal && <a href={cal} download="event.ics" className="flex h-11 items-center justify-center text-[15px] underline underline-offset-2">Add to calendar</a>}
   </Shell>;
 
+  if (done?.waitlisted) return <Shell>{head}
+    <div className="space-y-2 p-5" style={CARD}>
+      <p className="text-[20px] font-semibold">You’re on the waitlist</p>
+      <p className="text-[15.5px] leading-relaxed">If a place opens up, it’s yours straight away: we’ll put you on the guest list and email you. There’s nothing else to do. We’ve emailed you a link in case you change your mind.</p>
+    </div>
+  </Shell>;
+
   if (done) return <Shell>{head}
     <div className="space-y-2 p-5" style={CARD}>
       <p className="text-[20px] font-semibold">You’re on the list</p>
-      <p className="text-[15.5px] leading-relaxed">{done.places > 1 ? `We’ve saved ${done.places} places under ${name}.` : `We’ve saved your place, ${name.split(' ')[0]}.`} The business will see you on their guest list.</p>
+      <p className="text-[15.5px] leading-relaxed">{done.places > 1 ? `We’ve saved ${done.places} places under ${name}.` : `We’ve saved your place, ${name.split(' ')[0]}.`} Your confirmation is on its way by email, with a link to cancel or give your place to a friend if your plans change.</p>
     </div>
     {orderOpen && <a href={mealLink} className="flex h-[54px] w-full items-center justify-center rounded-full text-[16px] font-medium text-white" style={{ background: color }}>Choose your meal</a>}
     {cal && <a href={cal} download="event.ics" className="flex h-11 items-center justify-center text-[15px] underline underline-offset-2">Add to calendar</a>}
@@ -123,24 +130,27 @@ export default function EventGuestPage() {
 
   const left: number | null = d.reserve?.placesLeft ?? null;
   if (d.reserve?.block) return <Shell>{head}<Note>{d.reserve.block}</Note></Shell>;
-  if (left === 0) return <Shell>{head}<Note tone="warn">This event is full.</Note></Shell>;
-  const maxPlaces = Math.max(1, Math.min(4, left ?? 4));
+  const full = left === 0;
+  if (full && !d.reserve?.waitlist) return <Shell>{head}<Note tone="warn">This event is full.</Note></Shell>;
+  const maxPlaces = full ? 4 : Math.max(1, Math.min(4, left ?? 4));
 
   const submit = async () => {
     setMsg('');
     if (!name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setMsg('Add your name and email.'); return; }
     setBusy(true);
-    const r = await askEvent({ action: 'reserve', tenantId, eventId, pin: pin || undefined, name, email, phone, places, ev_ref: trap });
+    const r = await askEvent({ action: full ? 'waitlist' : 'reserve', tenantId, eventId, pin: pin || undefined, name, email, phone, places, ev_ref: trap });
     setBusy(false);
     if (r.needsPin) { await load(''); return; }
-    if (!r.ok) { setMsg(r.error || 'That didn’t go through.'); if (typeof r.left === 'number') load(pin); return; }
+    // Full a moment ago, a place just opened (or the other way round): the page shows what's true now.
+    if (!r.ok) { setMsg(r.error || 'That didn’t go through.'); if (typeof r.left === 'number' || r.full || r.notFull) load(pin); return; }
     setDone(r);
   };
 
   return <Shell>{head}
-    {left !== null && <p className="text-[14.5px]" style={{ color: MUTED }}>{left === 1 ? '1 place left' : `${left} places left`}</p>}
+    {full ? <Note tone="warn">This event is full. Join the waitlist: if a place opens up, it’s yours straight away and we’ll email you.</Note>
+      : left !== null && <p className="text-[14.5px]" style={{ color: MUTED }}>{left === 1 ? '1 place left' : `${left} places left`}</p>}
     <form className="space-y-4 p-5" style={CARD} onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
-      <p className="text-[18px] font-semibold">Reserve your place</p>
+      <p className="text-[18px] font-semibold">{full ? 'Join the waitlist' : 'Reserve your place'}</p>
       <label className={LABEL}>Name<input value={name} onChange={(x) => setName(x.target.value)} autoComplete="name" className={INPUT} style={{ borderColor: LINE }} /></label>
       <label className={LABEL}>Email<input type="email" value={email} onChange={(x) => setEmail(x.target.value)} autoComplete="email" inputMode="email" className={INPUT} style={{ borderColor: LINE }} /></label>
       <label className={LABEL}>Phone <span style={{ color: MUTED }}>(optional)</span><input type="tel" value={phone} onChange={(x) => setPhone(x.target.value)} autoComplete="tel" className={INPUT} style={{ borderColor: LINE }} /></label>
@@ -150,7 +160,7 @@ export default function EventGuestPage() {
             style={places === n ? { background: '#16171a', color: '#fff', borderColor: '#16171a' } : { background: '#fff', borderColor: LINE }}>{n}</button>)}</div></div>}
       <input value={trap} onChange={(x) => setTrap(x.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-px w-px opacity-0" name="ev_ref" />
       {msg && <p className="text-[14px] font-medium" style={{ color: AMBER }} role="alert">{msg}</p>}
-      <Button type="submit" color={color} disabled={busy}>{busy ? 'Saving…' : places > 1 ? `Reserve ${places} places` : 'Reserve my place'}</Button>
+      <Button type="submit" color={color} disabled={busy}>{busy ? 'Saving…' : full ? (places > 1 ? `Join the waitlist for ${places}` : 'Join the waitlist') : places > 1 ? `Reserve ${places} places` : 'Reserve my place'}</Button>
     </form>
     {orderOpen && <p className="text-center text-[14px]" style={{ color: MUTED }}>Already on the guest list? <a href={mealLink} className="underline underline-offset-2" style={{ color: '#16171a' }}>Choose your meal</a></p>}
   </Shell>;

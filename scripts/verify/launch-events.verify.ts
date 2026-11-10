@@ -95,9 +95,10 @@ const list = async (c: string, k: string, v: any) => (await db.collection(c).whe
   const ok1 = await call({ action: 'reserve', tenantId: 't1', eventId: 'ev1', name: 'Ana Ruiz', email: 'Ana@Example.com', phone: '555-0101' });
   const ana = (await list(`${T}/eventGuests`, 'eventId', 'ev1')).find((g: any) => g.email === 'ana@example.com');
   check('the place lands on the event’s guest list, the one the manifest reads', ok1.ok && ana && ana.name === 'Ana Ruiz' && ana.source === 'event link' && ana.checkedIn === false, { ok1, ana });
-  check('the event’s count goes up and the owner is told', (await get(`${T}/studioEvents/ev1`)).rsvpCount === 1 && (await list(`${T}/notifications`, 'userId', 'owner1')).some((n: any) => /Ana Ruiz reserved a place at Harvest dinner/.test(n.message)));
+  check('the event’s count is the real number on the list, and the owner is told', (await get(`${T}/studioEvents/ev1`)).rsvpCount === (await list(`${T}/eventGuests`, 'eventId', 'ev1')).length && (await list(`${T}/notifications`, 'userId', 'owner1')).some((n: any) => /Ana Ruiz reserved a place at Harvest dinner/.test(n.message)));
   const again = await call({ action: 'reserve', tenantId: 't1', eventId: 'ev1', name: 'Ana R', email: 'ana@example.com' });
-  check('the same email again is answered the same, and nothing is added', again.ok && (await list(`${T}/eventGuests`, 'eventId', 'ev1')).length === 3, again);
+  const stranger = await call({ action: 'reserve', tenantId: 't1', eventId: 'ev1', name: 'Kim Ode', email: 'kim.new@example.com' });
+  check('the same email again is answered exactly as anyone else would be (here: full), and nothing is added', JSON.stringify(again) === JSON.stringify(stranger) && (await list(`${T}/eventGuests`, 'eventId', 'ev1')).length === 3, { again, stranger });
   const full = await call({ action: 'reserve', tenantId: 't1', eventId: 'ev1', name: 'Kim Ode', email: 'kim@example.com' });
   check('a full event says so', full.status === 409 && full.error === 'This event is full.', full);
   const paid = await call({ action: 'reserve', tenantId: 't1', eventId: 'ev3', name: 'Kim Ode', email: 'kim@example.com' });

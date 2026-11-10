@@ -7,7 +7,13 @@
 //   reserve  a place on the guest list (the event page)
 //   order    a meal order (the meal order page): onto the guest's entry on the list, or a new one
 //   request  a seat asks the floor team for something (onto the floor board)
+// A guest's own place at a free event (lib/event-places), from the private link in their confirmation:
+//   place    what their place page shows: the event, how many places, and whether it can still be changed
+//   cancel   one place, or all of them; a place freed goes to the first person waiting whose party fits
+//   give     a place to a friend (their own link by email; the place's meal and allergy answers are cleared)
+//   waitlist join it when the event is full;  waitspot / leave  their waitlist link: where they are, or leave
 import { NextRequest, NextResponse } from 'next/server';
+import * as nextServer from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -19,6 +25,7 @@ import { brandColor, eventCapacity, eventToday } from '@/lib/studio-page';
 import { addDays } from '@/lib/tenant-time';
 import Stripe from 'stripe';
 import { MAX_TICKETS, isPaidEvent, placesLeft, saleBlock, startTicketOrder, finishTicketOrder, releaseTicketOrder, ticketCents } from '@/lib/event-tickets';
+import { WAITLIST_MAX, firstOf, heldForWaiting, newPartyId, newWaitId, onListEmail, partyOf, placeChangeBlock, placeKey, placeKeyOk, promoteFromWaitlist, tellOwner, tellPromoted, waitKeyOk, waitingFor, waitlistEmail, waitlistOpen } from '@/lib/event-places';
 import { ALLERGY_CHOICES, allergyList, chartTables, findSeat, matchGuest, mealChoices, menuCourses, orderBlock, requestOpen, requestTypesFor, reserveBlock, seatFromCode } from '@/lib/event-guest-link';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +42,13 @@ const LIMITS: Record<string, { perHour: number; perDay: number }> = {
   buy: { perHour: 12, perDay: 1000 },
   paid: { perHour: 120, perDay: 3000 },
   left: { perHour: 60, perDay: 3000 },
+  // A guest's own place and the waitlist (lib/event-places).
+  place: { perHour: 300, perDay: 5000 },
+  cancel: { perHour: 30, perDay: 1000 },
+  give: { perHour: 20, perDay: 500 },
+  waitlist: { perHour: 20, perDay: 1000 },
+  waitspot: { perHour: 300, perDay: 5000 },
+  leave: { perHour: 30, perDay: 1000 },
 };
 const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' as any });
 const SEAT_PAUSE_MS = 30000;
@@ -42,6 +56,14 @@ const out = (body: any, status = 200) => NextResponse.json(body, { status, heade
 const clean = (v: any, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32);
 const firstName = (n: any) => clean(n, 80).split(' ')[0] || null;
+const lower = (e: any) => String(e || '').trim().toLowerCase();
+/** Emails go out after the answer (Next's after()), so a reply takes the same time whether or not one is sent. */
+async function later(fn: () => Promise<any>) {
+  const after = (nextServer as any).after;
+  if (typeof after === 'function') { try { after(() => fn().catch((e: any) => console.error('[public-event] later', e?.message || e))); return; } catch { /* outside a request: now */ } }
+  await fn().catch((e: any) => console.error('[public-event] later', e?.message || e));
+}
+const mealOpenFor = async (db: any, T: string, eventId: string, ev: any, today: string) => !orderBlock(ev, today) && !(await db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).limit(1).get()).empty;
 
 /** A private event's PIN, checked here only. Every try is counted first, in one step on the database (so a burst of
  *  guesses at once can't all slip past the count), and only then compared: at most 12 an hour from one visitor and 500
@@ -83,13 +105,15 @@ export async function POST(req: NextRequest) {
   const limited = await limitPublic(req, `event-${action}`, tenantId, LIMITS[action]); if (limited) return limited;
 
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
+  const origin = req.nextUrl?.origin || null;   // links in guests' emails (lib/app-origin prefers the business's own)
   const evRef = db.doc(`${T}/studioEvents/${eventId}`); const guests = db.collection(`${T}/eventGuests`);
   const [tSnap, eSnap] = await Promise.all([db.doc(T).get(), evRef.get()]);
   const tenant: any = tSnap.data(); const ev: any = eSnap.data();
   if (!tenant || !ev) return out({ ok: false, error: 'We couldn’t find this event. The link may be out of date.', missing: true }, 404);
   const today = eventToday(tenant); const title = clean(ev.title || ev.name, 120) || 'the event';
-  // A paused or locked business takes nothing new. Coming back from a payment already made still finishes it.
-  if (!['load', 'paid', 'left'].includes(action)) { const closed = closedReply(tenant); if (closed) return closed; }
+  // A paused or locked business takes nothing new. Coming back from a payment already made still finishes it, and a
+  // guest can still see, cancel or leave what they already have.
+  if (!['load', 'paid', 'left', 'place', 'cancel', 'waitspot', 'leave'].includes(action)) { const closed = closedReply(tenant); if (closed) return closed; }
 
   try {
     // ── What a page shows ──
@@ -111,9 +135,14 @@ export async function POST(req: NextRequest) {
       const [gs, ms, os] = await Promise.all([guests.where('eventId', '==', eventId).get(), db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).get(),
         paidEvent ? db.collection(`${T}/eventTicketOrders`).where('eventId', '==', eventId).get() : Promise.resolve({ docs: [] as any[] })]);
       const cap = eventCapacity(ev);
+      // Places someone waiting would take come off what's shown as left (they're next in line).
+      const waiting = cap > 0 && waitlistOpen(ev, today) ? (await db.collection(`${T}/eventWaitlist`).where('eventId', '==', eventId).get()).docs.map((d: any) => d.data() || {}).filter((w: any) => w.status !== 'moved') : [];
+      const held = cap > 0 ? heldForWaiting(waiting, cap - gs.size, new Set(gs.docs.map((d: any) => lower(d.data()?.email)).filter(Boolean))) : 0;
+      const free = cap > 0 ? Math.max(0, cap - gs.size - held) : null;
+      const full = free === 0;
       return out({ ok: true, business, needsPin: false,
         event: { ...base, venue: clean(ev.venue, 120) || null, menuNote: clean(ev.menuNote, 280) || null, orderingDeadline: typeof ev.orderingDeadline === 'string' ? ev.orderingDeadline : null },
-        reserve: { block: reserveBlock(ev, today), placesLeft: cap > 0 ? Math.max(0, cap - gs.size) : null },
+        reserve: { block: reserveBlock(ev, today), placesLeft: free, waitlist: full && waitlistOpen(ev, today) },
         // A paid event: its price, tickets left (less the places held by open checkouts) and whether they're on sale.
         ...(paidEvent ? { tickets: { cents: ticketCents(ev), left: placesLeft(ev, gs.size, os.docs.map((d: any) => d.data() || {})), block: saleBlock(ev, tenant, today), max: MAX_TICKETS } } : {}),
         order: { block: orderBlock(ev, today), courses: menuCourses(ms.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))), tables: chartTables(ev).map((t) => ({ name: t.name, seats: t.seats.map((s) => s.label) })) },
@@ -157,10 +186,100 @@ export async function POST(req: NextRequest) {
       return out({ ok: true });
     }
 
+    const name = clean(b.name, 120); const email = String(b.email || '').trim().toLowerCase().slice(0, 160); const phone = clean(b.phone, 40);
+
+    // ── A guest's own place, from the signed link in their email (no PIN: the link is the proof) ──
+    if (action === 'place' || action === 'cancel' || action === 'give') {
+      const partyId = String(b.p || '');
+      if (!placeKeyOk(tenantId, eventId, partyId, b.k)) return out({ ok: false, error: 'This link isn’t right. Use the newest email we sent you.', gone: true }, 404);
+      const business = { name: clean(tenant.name || tenant.businessName, 80), logoUrl: guestLogo(tenant) || null, color: brandColor(tenant) };
+      const base = { title, date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || '')) ? String(ev.date) : null, time: clean(ev.time, 5) || null, endTime: clean(ev.endTime, 5) || null, venue: clean(ev.venue, 120) || null };
+      if (action === 'place') {
+        const party = partyOf((await guests.where('partyId', '==', partyId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((g: any) => g.eventId === eventId), partyId);
+        if (!party.length) return out({ ok: true, business, event: base, gone: true });
+        const meal = await mealOpenFor(db, T, eventId, ev, today);
+        return out({ ok: true, business, event: base, party: { firstName: firstOf(party[0].name), places: party.length }, block: placeChangeBlock(ev, today), mealOpen: meal });
+      }
+      const block = placeChangeBlock(ev, today); if (block) return out({ ok: false, error: block }, 409);
+      if (action === 'cancel') {
+        const all = b.all === true;
+        // A paused business still lets a guest cancel; the waitlist waits until it's open again (the sweep).
+        const paused = accessLockOf(tenant).locked;
+        const r: any = await db.runTransaction(async (tx: any) => {
+          const evNow: any = (await tx.get(evRef)).data() || {};
+          const docs = (await tx.get(guests.where('eventId', '==', eventId))).docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() || {}) }));
+          const party = partyOf(docs, partyId); if (!party.length) return { ok: true, cancelled: 0, remaining: 0, already: true };
+          // One place: a guest's own place goes first, theirs last (so the link keeps working while they have any).
+          const drop = all || party.length === 1 ? party : [party[party.length - 1]];
+          const gone = new Set(drop.map((g: any) => g.id));
+          const stay = docs.filter((g: any) => !gone.has(g.id));
+          const p = paused ? { promoted: [], added: 0, writes: [] as (() => void)[] } : await promoteFromWaitlist(tx, db, tenantId, eventId, evNow, stay.length, today, new Set(stay.map((g: any) => lower(g.email)).filter(Boolean)));
+          drop.forEach((g: any) => tx.delete(g.ref));
+          tx.set(evRef, { rsvpCount: stay.length }, { merge: true });
+          p.writes.forEach((w) => w());   // last, so the count it sets (who's left plus who came in) is the one kept
+          return { ok: true, cancelled: drop.length, remaining: party.length - drop.length, name: String(party[0].name || ''), promoted: p.promoted, ev: evNow };
+        });
+        if (r.cancelled) await later(async () => {
+          await tellOwner(db, tenantId, tenant, eventId, `${clean(r.name, 80) || 'A guest'} canceled ${r.remaining === 0 ? (r.cancelled === 1 ? 'their place' : `all ${r.cancelled} places`) : 'one of their places'} at ${title}.`);
+          await tellPromoted(db, tenantId, tenant, r.ev, eventId, origin, r.promoted || []);
+        });
+        return out({ ok: true, cancelled: r.cancelled, remaining: r.remaining });
+      }
+      // ── Giving a place to a friend ──
+      if (!name || !EMAIL.test(email)) return out({ ok: false, error: 'Add your friend’s name and email.' }, 400);
+      if (!(await bump(`event-give_${hash(`${tenantId}|${eventId}|${partyId}`)}_${Math.floor(Date.now() / 86400000)}`, 6, 2 * 86400000))) return out({ ok: false, error: 'That’s a lot of changes for one day. Please try again tomorrow.' }, 429);
+      const friendParty = newPartyId();
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const docs = (await tx.get(guests.where('eventId', '==', eventId))).docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() || {}) }));
+        const waiting = await waitingFor(tx, db, tenantId, eventId);
+        const party = partyOf(docs, partyId); if (!party.length) return { ok: false, error: 'This place has already been canceled or given away.', status: 409 };
+        // Already going: not given a second place (said the same way as any address we can't use, so it tells nobody
+        // who's coming).
+        if (docs.some((g: any) => lower(g.email) === email)) return { ok: false, error: 'We couldn’t give the place to that email. Check it, or give it to someone else.', status: 409 };
+        const g = party[party.length - 1];
+        // The place becomes theirs: their name, their own link, and none of the last person's answers, check-in or the
+        // host's notes about them. The host's seat for the place stays.
+        tx.set(g.ref, { name, email, phone, partyId: friendParty, partyLead: true, clientId: null, notes: '', checkedIn: false, checkedInAt: null,
+          mealChoiceId: null, mealChoiceName: null, courseSelections: null, mealOverriddenAt: null, mealOverriddenBy: null, allergies: [], allergyNote: null,
+          guestNote: null, dietaryRestrictions: [], orderedAt: null, reminderSentAt: null, reminderClaimAt: null, givenBy: clean(party[0].name, 120) || null, givenAt: new Date().toISOString(), source: 'given' }, { merge: true });
+        // Waiting for this event too: not anymore.
+        waiting.filter((w: any) => lower(w.email) === email).forEach((w: any) => tx.delete(w.ref));
+        return { ok: true, from: String(party[0].name || ''), remaining: party.length - 1 };
+      });
+      if (!r.ok) return out({ ok: false, error: r.error }, r.status || 409);
+      const meal = await mealOpenFor(db, T, eventId, ev, today);
+      await later(async () => {
+        await onListEmail(db, tenantId, tenant, ev, eventId, origin, { name, email, places: 1, partyId: friendParty, how: 'given', from: r.from }, meal);
+        await tellOwner(db, tenantId, tenant, eventId, `${clean(r.from, 80) || 'A guest'} gave a place at ${title} to ${name}.`);
+      });
+      return out({ ok: true, friend: firstOf(name), remaining: r.remaining });
+    }
+
+    // ── Their waitlist link: where they are in line, or leave it ──
+    if (action === 'waitspot' || action === 'leave') {
+      const id = String(b.w || '');
+      if (!waitKeyOk(tenantId, eventId, id, b.k)) return out({ ok: false, error: 'This link isn’t right. Use the newest email we sent you.', gone: true }, 404);
+      const ref = db.doc(`${T}/eventWaitlist/${id}`); const w: any = (await ref.get()).data();
+      const business = { name: clean(tenant.name || tenant.businessName, 80), logoUrl: guestLogo(tenant) || null, color: brandColor(tenant) };
+      const base = { title, date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || '')) ? String(ev.date) : null, time: clean(ev.time, 5) || null, endTime: clean(ev.endTime, 5) || null, venue: clean(ev.venue, 120) || null };
+      // Moved onto the guest list: their place's own link instead.
+      if (w?.status === 'moved' && w.partyId) { const k = placeKey(tenantId, eventId, String(w.partyId)); return out({ ok: true, business, event: base, moved: k ? { p: String(w.partyId), k } : null }); }
+      if (!w || w.eventId !== eventId) return out({ ok: true, business, event: base, gone: true });
+      if (action === 'leave') {
+        // In one step: if their place came through meanwhile, they're told so (and it's theirs to cancel from there).
+        const gone: any = await db.runTransaction(async (tx: any) => { const cur: any = (await tx.get(ref)).data(); if (!cur) return 'gone'; if (cur.status === 'moved') return { moved: cur.partyId }; tx.delete(ref); return 'left'; });
+        if (gone?.moved) { const k2 = placeKey(tenantId, eventId, String(gone.moved)); return out({ ok: true, business, event: base, moved: k2 ? { p: String(gone.moved), k: k2 } : null }); }
+        if (gone === 'left') await later(() => tellOwner(db, tenantId, tenant, eventId, `${clean(w.name, 80) || 'A guest'} left the waitlist for ${title}.`));
+        return out({ ok: true, left: true });
+      }
+      const ahead = (await db.collection(`${T}/eventWaitlist`).where('eventId', '==', eventId).get()).docs.map((d: any) => d.data() || {})
+        .filter((x: any) => x.status !== 'moved' && String(x.joinedAt) < String(w.joinedAt)).length;
+      return out({ ok: true, business, event: base, waiting: { firstName: firstOf(w.name), places: Math.max(1, Number(w.places) || 1), position: ahead + 1 }, block: reserveBlock(ev, today) });
+    }
+
     // Reserving, ordering and buying all need a private event's PIN.
     const pin = await pinCheck(db, req, tenantId, eventId, ev, b.pin);
     if (pin === 'needed' || pin === 'wrong' || pin === 'locked') return out({ ok: false, error: PIN_REPLY[pin].error, needsPin: true }, PIN_REPLY[pin].status);
-    const name = clean(b.name, 120); const email = String(b.email || '').trim().toLowerCase().slice(0, 160); const phone = clean(b.phone, 40);
 
     // ── Tickets: the places are held and a checkout opens on the business's account (lib/event-tickets) ──
     if (action === 'buy') {
@@ -178,29 +297,84 @@ export async function POST(req: NextRequest) {
       const places = Math.max(1, Math.min(4, Math.floor(Number(b.places) || 1)));
       // From any one visitor, at most three reservations for the same event a day, so no one can fill it alone.
       const capRef = db.collection('rateLimits').doc(`event-link-rsv_${hash(`${tenantId}|${eventId}|${visitorIp(req)}`)}_${Math.floor(Date.now() / 86400000)}`);
-      const r = await db.runTransaction(async (tx: any) => {
+      const r: any = await db.runTransaction(async (tx: any) => {
         const evNow: any = (await tx.get(evRef)).data(); const made = Number(((await tx.get(capRef)).data() as any)?.count) || 0;
         const blockNow = evNow ? reserveBlock(evNow, today) : 'This event isn’t taking reservations.'; if (blockNow) return { ok: false, error: blockNow };
-        const list = (await tx.get(guests.where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {});
-        // Already on the list: told the same as a new reservation (nobody can test who's coming), nothing added.
-        if (list.some((g: any) => String(g.email || '').trim().toLowerCase() === email)) return { ok: true, already: true, title, places };
-        const cap = eventCapacity(evNow); const left = cap > 0 ? cap - list.length : Infinity;
-        if (left <= 0) return { ok: false, error: 'This event is full.', full: true };
-        if (places > left) return { ok: false, error: `Only ${left} ${left === 1 ? 'place is' : 'places are'} left.`, left };
-        if (made >= 3) return { ok: false, error: 'Too many reservations for this event from here today. To add more people, ask the business.', capped: true };
-        const now = new Date().toISOString();
+        const docs = (await tx.get(guests.where('eventId', '==', eventId))).docs;
+        const list = docs.map((d: any) => d.data() || {});
+        const emails = new Set<string>(list.map((g: any) => lower(g.email)).filter(Boolean));
+        // Whoever is waiting goes first: places freed since are theirs before anyone new (and they're emailed).
+        const pre = await promoteFromWaitlist(tx, db, tenantId, eventId, evNow, list.length, today, emails);
+        pre.writes.forEach((w) => w());
+        const onList = list.length + pre.added;
+        if (made >= 3) return { ok: false, error: 'Too many reservations for this event from here today. To add more people, ask the business.', capped: true, promoted: pre.promoted, ev: evNow };
+        const cap = eventCapacity(evNow); const left = cap > 0 ? cap - onList : Infinity;
+        // Already on the list: answered exactly as anyone else would be (nobody can test who's coming), nothing added.
+        // Their confirmation goes again to that email (theirs, not whoever typed it), with their link; an entry from
+        // before places had links gets one now.
+        const mine = docs.find((d: any) => lower(d.data()?.email) === email);
+        // Just moved in from the waitlist in this very step: that's their place (they're emailed about it), nothing more.
+        const justIn = pre.promoted.find((p) => p.email === email);
+        let resend: any = null;
+        if (mine) {
+          const g: any = mine.data() || {}; const pid = g.partyId || newPartyId();
+          if (!g.partyId) tx.set(mine.ref, { partyId: pid, partyLead: true }, { merge: true });
+          resend = { name: String(g.name || name), email, places: g.partyId ? list.filter((x: any) => x.partyId === g.partyId).length : 1, partyId: pid };
+        }
+        if (justIn) return { ok: true, title, places, promoted: pre.promoted, ev: evNow };
+        if (left <= 0) return { ok: false, error: 'This event is full.', full: true, resend, promoted: pre.promoted, ev: evNow };
+        if (places > left) return { ok: false, error: `Only ${left} ${left === 1 ? 'place is' : 'places are'} left.`, left, resend, promoted: pre.promoted, ev: evNow };
+        if (resend) return { ok: true, title, places, resend, promoted: pre.promoted, ev: evNow };
+        const now = new Date().toISOString(); const partyId = newPartyId();
         for (let i = 0; i < places; i++) {
           const g = guests.doc();
           tx.set(g, { id: g.id, eventId, tenantId, name: i === 0 ? name : `${name} (guest ${i})`, email: i === 0 ? email : '', phone: i === 0 ? phone : '', tableId: null, tableNumber: null, seatNumber: null,
-            notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'event link', submittedAt: now });
+            notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'event link', submittedAt: now, partyId, partyLead: i === 0 });
         }
-        tx.set(evRef, { rsvpCount: (Number(evNow.rsvpCount) || 0) + places }, { merge: true });
+        tx.set(evRef, { rsvpCount: onList + places }, { merge: true });
         tx.set(capRef, { count: made + 1, expiresAt: new Date(Date.now() + 2 * 86400000) }, { merge: true });
-        return { ok: true, title, places };
+        // Waiting for this event too (and not just moved in): not anymore.
+        (pre.waiting || []).filter((w: any) => lower(w.email) === email && !pre.promoted.some((p) => p.email === email)).forEach((w: any) => tx.delete(w.ref));
+        return { ok: true, title, places, sent: { name, email, places, partyId }, promoted: pre.promoted, ev: evNow };
       });
-      if (r.ok && !(r as any).already && tenant.userId) await db.collection(`${T}/notifications`).add({ userId: String(tenant.userId), type: 'event_reservation', message: `${name} reserved ${places === 1 ? 'a place' : `${places} places`} at ${title} from the event’s link.`, link: `/events/${eventId}/manifest`, read: false, createdAt: new Date().toISOString() }).catch(() => undefined);
-      const { already, capped, ...body } = r as any; void already;
+      // After the answer: the confirmation with the link to their place (sent again at most twice an hour to one
+      // email), anyone who just came off the waitlist, and the owner told.
+      const conf = r.sent || r.resend;
+      await later(async () => {
+        if (conf && (!r.resend || await bump(`event-resend_${hash(`${tenantId}|${eventId}|${email}`)}_${Math.floor(Date.now() / 3600000)}`, 2, 2 * 3600000)))
+          await onListEmail(db, tenantId, tenant, ev, eventId, origin, { ...conf, how: 'reserved' }, await mealOpenFor(db, T, eventId, ev, today));
+        if (r.promoted?.length) await tellPromoted(db, tenantId, tenant, r.ev || ev, eventId, origin, r.promoted);
+        if (r.sent) await tellOwner(db, tenantId, tenant, eventId, `${name} reserved ${places === 1 ? 'a place' : `${places} places`} at ${title} from the event’s link.`);
+      });
+      const { capped, sent, resend, promoted, ev: _ev, ...body } = r; void sent; void resend; void promoted; void _ev;
       return out(body, r.ok ? 200 : capped ? 429 : 409);
+    }
+
+    // ── The waitlist, when a free event is full ──
+    if (action === 'waitlist') {
+      if (!waitlistOpen(ev, today)) return out({ ok: false, error: reserveBlock(ev, today) || 'This event doesn’t have a waitlist.' }, 409);
+      if (!name || !EMAIL.test(email)) return out({ ok: false, error: 'Add your name and email.' }, 400);
+      const places = Math.max(1, Math.min(4, Math.floor(Number(b.places) || 1)));
+      if (places > eventCapacity(ev)) return out({ ok: false, error: `This event has ${eventCapacity(ev)} ${eventCapacity(ev) === 1 ? 'place' : 'places'} in all.` }, 400);
+      const wl = db.collection(`${T}/eventWaitlist`); const id = newWaitId();
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const evNow: any = (await tx.get(evRef)).data() || {};
+        const list = (await tx.get(guests.where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {});
+        const waiting = (await tx.get(wl.where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {}).filter((x: any) => x.status !== 'moved');
+        const cap = eventCapacity(evNow);
+        const free = cap - list.length - heldForWaiting(waiting, cap - list.length, new Set(list.map((g: any) => lower(g.email)).filter(Boolean)));
+        if (cap > 0 && free > 0) return { ok: false, notFull: true, error: 'A place just opened up. You can reserve it now.', left: free };
+        // Already waiting, or already going: told the same as joining, nothing added.
+        if (list.some((g: any) => lower(g.email) === email) || waiting.some((x: any) => lower(x.email) === email)) return { ok: true, already: true };
+        if (waiting.length >= WAITLIST_MAX) return { ok: false, error: 'The waitlist is full too. Please check back later.' };
+        tx.set(wl.doc(id), { id, eventId, tenantId, name, email, phone, places, joinedAt: new Date().toISOString(), status: 'waiting' });
+        return { ok: true, position: waiting.length + 1, ev: evNow };
+      });
+      if (r.ok && !r.already) await later(async () => {
+        await waitlistEmail(db, tenantId, tenant, r.ev, eventId, origin, { id, name, email, places, position: r.position });
+        await tellOwner(db, tenantId, tenant, eventId, `${name} joined the waitlist for ${title}${places > 1 ? ` (${places} places)` : ''}.`);
+      });
+      return out(r.ok ? { ok: true, waitlisted: true } : { ok: false, error: r.error, ...(r.notFull ? { notFull: true, left: r.left } : {}) }, r.ok ? 200 : 409);
     }
 
     // ── A meal order ──
@@ -225,6 +399,7 @@ export async function POST(req: NextRequest) {
       const evNow: any = (await tx.get(evRef)).data(); const added = Number(((await tx.get(newRef)).data() as any)?.count) || 0;
       const blockNow = evNow ? orderBlock(evNow, today) : 'This event isn’t taking orders.'; if (blockNow) return { ok: false, error: blockNow };
       const docs = (await tx.get(guests.where('eventId', '==', eventId))).docs; const list = docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      const waitingNow = waitlistOpen(evNow, today) ? await waitingFor(tx, db, tenantId, eventId) : [];
       const m = matchGuest(list, name, email);
       if (m.kind === 'already') return { ok: false, already: true, error: 'We already have a meal order for you. To change it, let your host know.' };
       if (m.kind === 'needEmail') return { ok: false, needEmail: true, error: 'Add the email you reserved with, so your order goes with your place.' };
@@ -243,12 +418,15 @@ export async function POST(req: NextRequest) {
         return { ok: true, title, ...(seatTaken && !g.tableNumber ? { seatTaken: true } : {}) };
       }
       if (!email) return { ok: false, needEmail: true, error: 'Add your email so your host can reach you.' };
-      const cap = eventCapacity(evNow); if (cap > 0 && list.length >= cap) return { ok: false, error: 'This event is full. If you’re on the guest list, use the name or email your host has for you.', full: true };
+      // Full, counting the places the people waiting are next in line for.
+      const cap = eventCapacity(evNow);
+      const heldNow = cap > 0 ? heldForWaiting(waitingNow, cap - list.length, new Set(list.map((g: any) => lower(g.email)).filter(Boolean))) : 0;
+      if (cap > 0 && list.length + heldNow >= cap) return { ok: false, error: 'This event is full. If you’re on the guest list, use the name or email your host has for you.', full: true };
       if (added >= 6) return { ok: false, error: 'Too many new guests from here today. Ask your host to add the rest.' };
       const ref = guests.doc();
       tx.set(ref, { id: ref.id, eventId, tenantId, name, email, phone, tableId: null, tableNumber: table || null, seatNumber: seatNow || null, notes: '', dietaryRestrictions: [], checkedIn: false,
         source: 'meal order link', submittedAt: now, ...fields });
-      tx.set(evRef, { rsvpCount: (Number(evNow.rsvpCount) || 0) + 1 }, { merge: true });
+      tx.set(evRef, { rsvpCount: list.length + 1 }, { merge: true });
       tx.set(newRef, { count: added + 1, expiresAt: new Date(Date.now() + 2 * 86400000) }, { merge: true });
       return { ok: true, title, ...(seatTaken ? { seatTaken: true } : {}) };
     });
