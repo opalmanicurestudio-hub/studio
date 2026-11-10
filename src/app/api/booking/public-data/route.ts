@@ -34,6 +34,7 @@ import { addDays as addDaysStr } from '@/lib/tenant-time';
 import { limitPublic, visitorIp } from '@/lib/rate-limit';
 import { publicEvent, listedEvent, listedTicketPrice, eventCapacity, eventToday } from '@/lib/studio-page';
 import { heldPlaces } from '@/lib/event-tickets';
+import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +69,10 @@ export async function POST(req: NextRequest) {
   // A renter's packages and memberships for their personal booking link (public product info).
   if (b.action === 'renter-products') {
     const providerId = String(b.providerId || ''); if (!providerId) return NextResponse.json({ ok: true, packages: [], memberships: [] });
+    // Not theirs to sell here right now (off, or an add-on they don't have: lib/renter-offers): nothing listed.
+    { const st: any = (await db.doc(`${T}/staff/${providerId.slice(0, 120)}`).get().catch(() => null))?.data?.() || null;
+      const r: any = st?.renterId ? (await db.doc(`${T}/renters/${String(st.renterId)}`).get().catch(() => null))?.data?.() || null : null;
+      if (st?.renterId && !offerAllows(resolveOffers((await db.doc(T).get()).data()), 'packages', r)) return NextResponse.json({ ok: true, packages: [], memberships: [] }, { headers: { 'Cache-Control': 'no-store' } }); }
     const [ps, ms] = await Promise.all([db.collection(`${T}/renterPackages`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] })), db.collection(`${T}/renterMemberships`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] }))]);
     return NextResponse.json({ ok: true, packages: rows(ps, (x) => drop(x, GENERAL_DROP)), memberships: rows(ms, (x) => drop(x, GENERAL_DROP)) }, { headers: { 'Cache-Control': 'no-store' } });
   }

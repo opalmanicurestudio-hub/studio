@@ -58,7 +58,20 @@ export async function GET(req: NextRequest) {
         .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
         .filter((c: any) => c.status === 'sending' || String(c.scheduledFor || '') <= nowIso);
     } catch { continue; }
+    const { resolveOffers, offerAllows } = await import('@/lib/renter-offers');
+    const offersHere = resolveOffers(t.data());
     for (const c of due) {
+      // A renter's campaign goes only while campaigns are theirs here (off, or an add-on that lapsed: lib/renter-offers).
+      // It waits, scheduled, and goes if they're theirs again.
+      if (c.ownerRenterId) {
+        const r = (await db.doc(`tenants/${t.id}/renters/${String(c.ownerRenterId)}`).get().catch(() => null))?.data?.() || null;
+        if (!offerAllows(offersHere, 'campaigns', r)) {
+          if (!c.heldWhy) await db.doc(`tenants/${t.id}/campaigns/${c.id}`).set({ heldWhy: 'Win-back campaigns aren’t on for you right now, so this is waiting.', heldAt: nowIso }, { merge: true }).catch(() => {});
+          results.push({ tenantId: t.id, campaignId: c.id, held: 'campaigns not on for this renter' });
+          continue;
+        }
+        if (c.heldWhy) await db.doc(`tenants/${t.id}/campaigns/${c.id}`).set({ heldWhy: null, heldAt: null }, { merge: true }).catch(() => {});
+      }
       let last: any = null;
       while (Date.now() - started < 50000) {
         // A renter's scheduled campaign stays within what was paid for / allowed

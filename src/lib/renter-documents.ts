@@ -22,6 +22,7 @@
 //     agreement. Nothing changes a lease on send.
 
 import { fillTemplate } from './esign';
+import { resolveOffers, offersForLease } from './renter-offers';
 
 export type RenterDocKind = 'agreement_summary' | 'move_in_checklist' | 'violation_notice' | 'renewal_offer';
 export type RenterDocStatus = 'sent' | 'signed' | 'declined' | 'withdrawn';
@@ -60,6 +61,9 @@ Started {{startDate}}. {{endLine}}
 
 WHAT IS INCLUDED
 {{amenitiesLine}}
+
+TOOLS IN YOUR PORTAL
+{{toolsLine}}
 
 TIME AWAY
 If you need leave — parental, medical, family — ask from your portal. Rent is handled the way the studio's leave policy says, only once the studio has approved it.
@@ -220,6 +224,8 @@ export function renterDocVars(ctx: { tenant: any; renter: any; lease: any; booth
     endLine: lease?.endDate ? `Runs to ${lease.endDate}.` : 'Open-ended — continues until either side gives notice.',
     currentEndLine: lease?.endDate ? `, ending ${lease.endDate}.` : ', open-ended.',
     amenitiesLine: am.length ? am.join(', ') : 'As listed in the lease.',
+    // What comes with the space and what can be added, as set in What renters get (lib/renter-offers).
+    toolsLine: offersForLease(resolveOffers(tenant), String(tenant?.name || tenant?.businessName || '')),
   };
 }
 

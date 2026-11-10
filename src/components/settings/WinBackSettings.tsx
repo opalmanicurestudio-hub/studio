@@ -71,16 +71,8 @@ export function WinBackSettings({ tenantId, tenant, canEdit }: { tenantId: strin
       <section className={box}>
         <p className="font-semibold">Renter campaigns</p>
         <p className="text-sm text-muted-foreground">Can renters send their own campaigns, and who pays for the texts. They send to their own clients only, in their own name, with the same consent, monthly limit and quiet-hour rules as yours. Emails are always free.</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {([['off', 'Off', 'Renters can’t send campaigns'], ['business_covers', 'We cover some', 'A monthly allowance of texts per renter; they pay beyond it'], ['renter_pays', 'Renters pay', 'Every text is charged to the renter']] as const).map(([k, l, d]) => {
-            const on = (rc.mode || 'off') === k;
-            return <button key={k} type="button" disabled={!canEdit} aria-pressed={on} onClick={() => save('renterCampaigns.mode', k)} className={`rounded-2xl border p-3 text-left text-sm disabled:opacity-60 ${on ? 'bg-foreground text-background' : 'bg-card'}`}><b>{l}</b><span className="mt-1 block opacity-80">{d}</span></button>;
-          })}
-        </div>
-        {rc.mode && rc.mode !== 'off' && <div className="flex flex-wrap gap-4 text-sm">
-          {rc.mode === 'business_covers' && <label className="flex items-center gap-2"><input type="number" min={0} max={5000} className={num} disabled={!canEdit} value={v('renterCampaigns.monthlyTexts', rc.monthlyTexts ?? 100)} onChange={(e) => typed('renterCampaigns.monthlyTexts', Math.max(0, Math.min(5000, Number(e.target.value) || 0)))} /> free texts per renter a month</label>}
-          <label className="flex items-center gap-2"><input type="number" min={1} max={50} className={num} disabled={!canEdit} value={v('renterCampaigns.priceCentsPerText', rc.priceCentsPerText ?? 2)} onChange={(e) => typed('renterCampaigns.priceCentsPerText', Math.max(1, Math.min(50, Number(e.target.value) || 1)))} /> ¢ per paid text</label>
-        </div>}
+        <p className="text-sm">{rc.mode === 'business_covers' ? `On. You cover ${rc.monthlyTexts ?? 100} texts per renter a month, then each one is ${rc.priceCentsPerText ?? 2}¢ to them.` : rc.mode === 'renter_pays' ? `On. Each text is ${rc.priceCentsPerText ?? 2}¢ to the renter.` : 'Off.'} Set with everything else renters get, where you can also make campaigns a paid add-on.</p>
+        <a href="/rent#what-renters-get" className="inline-flex h-11 items-center rounded-full border px-4 text-sm font-medium">Open What renters get</a>
         <label className="flex items-center gap-2 text-sm"><input type="number" step="0.1" min={0.5} max={10} className={num} disabled={!canEdit} value={v('smsCostCentsPerSegment', tenant?.smsCostCentsPerSegment ?? 1.3)} onChange={(e) => typed('smsCostCentsPerSegment', Math.max(0.5, Math.min(10, parseFloat(e.target.value) || 1.3)))} /> ¢ — what a text costs you (for estimates)</label>
       </section>
     </div>

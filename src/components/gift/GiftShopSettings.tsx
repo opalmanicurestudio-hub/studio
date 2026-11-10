@@ -88,13 +88,12 @@ export function GiftShopSettings({ tenantId, brand, onClose, services = [] }: { 
             <Toggle on={s.balanceReminders !== false} onChange={(v) => set('balanceReminders', v)} label="Remind people about money left on their card" hint="A gentle note after 60 days unused — at most every 90 days, 3 times in all, never to anyone who turned messages off." />
             <Toggle on={s.buyerThanks !== false} onChange={(v) => set('buyerThanks', v)} label="Tell the buyer when their gift is used" hint="One short email the first time — a thank-you that brings them back too." />
           </section>
-          <section className="space-y-1 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
+          <section className="space-y-2 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Renters</p>
-            <p className="text-[13px]" style={{ color: MUTED }}>For booth renters who run their own business here.</p>
-            <Toggle on={s.renters?.salonCards !== false} onChange={(v) => set('renters', { ...(s.renters || {}), salonCards: v })} label="Renters take your gift cards"
-              hint="A client can pay a renter with your gift card. You hold the money, so it’s credited against the renter’s next rent automatically." />
-            <Toggle on={s.renters?.ownCards === true} onChange={(v) => set('renters', { ...(s.renters || {}), ownCards: v })} label="Renters sell their own gift cards"
-              hint="Paid to the renter’s own account and used only with them — it’s their money, not yours. They can sell in person and on their booking page." />
+            <p className="text-[14px]" style={{ color: MUTED }}>
+              Renters taking your gift cards: {s.renters?.salonCards !== false ? 'on' : 'off'}. Renters selling their own: {s.renters?.ownCards === true ? 'on' : 'off'}. Both are set with everything else renters get, where you can also make either one a paid add-on.
+            </p>
+            <a href="/rent#what-renters-get" className="inline-flex h-11 items-center rounded-full px-4 text-[15px] font-medium" style={{ border: `1px solid ${LINE}`, color: INK }}>Open What renters get</a>
           </section>
           <section className="space-y-3 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
             <p className="text-[15px] font-semibold">Your gift card rules</p>

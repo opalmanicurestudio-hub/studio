@@ -59,6 +59,23 @@ export const localDay = (d: Date | string): string => {
 // Inside a screen opened from a row, the header already names it, so a section's own title stays for screen readers
 // only (the page wraps each screen in ScreenContext).
 export const ScreenContext = React.createContext(false);
+/** Opens another screen or place of the portal from inside a screen (the page provides it), e.g. a screen pointing the
+ *  renter at What comes with your space. Null outside the portal page. */
+export type OpenScreen = (to: { view?: string | null; tab?: 'today' | 'calendar' | 'clients' | 'money' | 'space' }) => void;
+export const OpenScreenContext = React.createContext<OpenScreen | null>(null);
+
+/** A tool the business makes an add-on (lib/renter-offers) that this renter doesn't have: why, and the way to add it. */
+export function AddOnNote({ text, canAdd }: { text: string; canAdd?: boolean }) {
+  const openScreen = React.useContext(OpenScreenContext);
+  return (
+    <div className="space-y-3 rounded-2xl border border-[#ececee] bg-white p-4">
+      <p className="text-[14px] leading-relaxed text-[#6d7075]">{text}</p>
+      {canAdd && openScreen && (
+        <button type="button" onClick={() => openScreen({ view: 'tools' })} className="h-11 w-full rounded-full border border-[#ececee] bg-white text-[15px] font-medium text-[#16171a] hover:bg-[#f5f5f7]">See add-ons</button>
+      )}
+    </div>
+  );
+}
 export const SectionTitle = ({ children }: { icon?: any; children: React.ReactNode }) => {
   const inScreen = React.useContext(ScreenContext);
   return <h2 className={inScreen ? 'sr-only' : 'px-1 text-[14px] font-semibold text-[#6d7075]'}>{children}</h2>;

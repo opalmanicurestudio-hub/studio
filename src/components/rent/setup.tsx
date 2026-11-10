@@ -30,7 +30,7 @@ import {
   CloudLightning,
   FileSignature,
 } from 'lucide-react';
-import { SectionTitle, fmtDate } from '@/components/rent/shared';
+import { SectionTitle, AddOnNote, fmtDate } from '@/components/rent/shared';
 import { api, hrs, storageDiagnostic, uploadRenterPhoto } from '@/components/rent/studio';
 
 // ─── My Hours: the renter's own weekly availability ──────────────────────────
@@ -716,7 +716,7 @@ export const RENTER_FONT_STACK: Record<string, string> = {
 
 // ─── My Packages: prepaid bundles, on their own Stripe ───────────────────────
 export function MyPackages({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
-  const [st, setSt] = useState<{ packages: any[]; purchases: any[]; soldCents: number } | null>(null);
+  const [st, setSt] = useState<{ packages: any[]; purchases: any[]; soldCents: number; blocked: string | null; addable: boolean } | null>(null);
   const [draft, setDraft] = useState<any | null>(null);
   const [sell, setSell] = useState<{ packageId: string; clientId: string; note: string } | null>(null);
   const [clients, setClients] = useState<any[]>([]);
@@ -724,7 +724,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
   const [err, setErr] = useState('');
   const services: any[] = data?.myServices || [];
   const canCharge = data?.provider?.chargesEnabled === true;
-  const load = useCallback(async () => { const d = await api({ action: 'packages-list', tenantId, token }); if (d?.ok) setSt({ packages: d.packages || [], purchases: d.purchases || [], soldCents: d.soldCents || 0 }); }, [tenantId, token]);
+  const load = useCallback(async () => { const d = await api({ action: 'packages-list', tenantId, token }); if (d?.ok) setSt({ packages: d.packages || [], purchases: d.purchases || [], soldCents: d.soldCents || 0, blocked: d.blocked || null, addable: d.addPriceCents != null }); }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (sell && clients.length === 0) api({ action: 'clients-list', tenantId, token }).then((d) => { if (d?.ok) setClients((d.clients || []).filter((c: any) => !c.archived)); }); }, [sell, clients.length, tenantId, token]);
   const save = async () => {
@@ -743,10 +743,11 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
   return (
     <div className="space-y-3">
       <p className="text-[13px] font-medium text-[#6d7075]">Prepaid bundles of your services — “5 gel fills for $300”. Sold on your booking page through your Stripe, or at the chair. A credit comes off each time you mark a visit done. Your money, your Stripe; {biz()} sees none of it.</p>
+      {st.blocked && <AddOnNote text={st.blocked} canAdd={st.addable} />}
       {!canCharge && <p className="rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] px-3 py-2 text-[14px] font-medium text-[#b45309]">Connect your Stripe (Payouts) to sell packages online. Until then you can still record packages sold at the chair.</p>}
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-semibold text-[#6d7075]">{st.packages.length} package{st.packages.length === 1 ? '' : 's'} · ${(st.soldCents / 100).toFixed(0)} sold · {active.length} active</p>
-        <button type="button" onClick={() => setDraft({ name: '', credits: 5, price: '', validDays: 365, serviceId: services[0]?.id || '', description: '', isActive: true })} className="h-11 rounded-xl bg-[#16171a] px-3 text-[13px] font-semibold text-white">New</button>
+        {!st.blocked && <button type="button" onClick={() => setDraft({ name: '', credits: 5, price: '', validDays: 365, serviceId: services[0]?.id || '', description: '', isActive: true })} className="h-11 rounded-xl bg-[#16171a] px-3 text-[13px] font-semibold text-white">New</button>}
       </div>
       {draft && (
         <div className="rounded-2xl border border-[#16171a] p-3 space-y-2">
@@ -783,7 +784,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0"><p className="text-[13px] font-semibold text-[#16171a]">{p.name}</p><p className="text-[13px] font-medium text-[#6d7075]">{p.credits} visit{p.credits === 1 ? '' : 's'} · ${(p.priceCents / 100).toFixed(0)}{p.serviceName ? ` · ${p.serviceName}` : ' · any service'} · valid {p.validDays} days{p.isActive === false ? ' · hidden' : ''}</p></div>
             <div className="flex shrink-0 gap-1.5">
-              <button type="button" onClick={() => setSell({ packageId: p.id, clientId: '', note: '' })} className="h-11 rounded-lg bg-[#16171a] px-2.5 text-[12px] font-semibold text-white">Sell at chair</button>
+              {!st.blocked && <button type="button" onClick={() => setSell({ packageId: p.id, clientId: '', note: '' })} className="h-11 rounded-lg bg-[#16171a] px-2.5 text-[12px] font-semibold text-white">Sell at chair</button>}
               <button type="button" onClick={() => setDraft({ ...p, price: p.priceCents / 100 })} className="h-11 rounded-lg border px-2.5 text-[12px] font-semibold">Edit</button>
             </div>
           </div>
@@ -817,7 +818,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
 
 // ─── My Memberships: recurring plans with perks, on their Stripe ─────────────
 export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: string; token: string }) {
-  const [st, setSt] = useState<{ memberships: any[]; members: any[]; mrrCents: number } | null>(null);
+  const [st, setSt] = useState<{ memberships: any[]; members: any[]; mrrCents: number; blocked?: string | null; addable?: boolean } | null>(null);
   const [draft, setDraft] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -828,7 +829,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
   const [winSaved, setWinSaved] = useState(false);
   const [winSentence, setWinSentence] = useState<{ everyone: string; members: string | null } | null>(null);
   const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`;
-  const load = useCallback(async () => { const d = await api({ action: 'memberships-list', tenantId, token }); if (d?.ok) setSt({ memberships: d.memberships || [], members: d.members || [], mrrCents: d.mrrCents || 0 }); }, [tenantId, token]);
+  const load = useCallback(async () => { const d = await api({ action: 'memberships-list', tenantId, token }); if (d?.ok) setSt({ memberships: d.memberships || [], members: d.members || [], blocked: d.blocked || null, addable: d.addPriceCents != null, mrrCents: d.mrrCents || 0 }); }, [tenantId, token]);
   useEffect(() => { void load(); }, [load]);
   const save = async () => {
     setBusy(true); setErr('');
@@ -840,6 +841,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
   return (
     <div className="space-y-3">
       <p className="text-[13px] font-medium text-[#6d7075]">A monthly plan: visits included, a discount on everything else, and the perks you promise. Billed by Stripe on your account every month.</p>
+      {st.blocked && <AddOnNote text={st.blocked} canAdd={st.addable} />}
       <div className="rounded-2xl border border-[#ececee] p-3 space-y-2">
         <p className="text-[12px] font-semibold text-[#6d7075]">Booking release — how far ahead people can book you</p>
         <div className="grid grid-cols-3 gap-1.5">
@@ -882,7 +884,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
       {!canCharge && <p className="rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] px-3 py-2 text-[14px] font-medium text-[#b45309]">Memberships bill through Stripe — connect yours under Payouts to offer them.</p>}
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-semibold text-[#6d7075]">{active.length} member{active.length === 1 ? '' : 's'} · ${(st.mrrCents / 100).toFixed(0)}/mo</p>
-        <button type="button" onClick={() => setDraft({ name: '', price: '', includedVisits: 1, discountPct: 10, perksText: 'Priority booking\nFree nail art on one nail', description: '', isActive: true })} className="h-11 rounded-xl bg-[#16171a] px-3 text-[13px] font-semibold text-white">New</button>
+        {!st.blocked && <button type="button" onClick={() => setDraft({ name: '', price: '', includedVisits: 1, discountPct: 10, perksText: 'Priority booking\nFree nail art on one nail', description: '', isActive: true })} className="h-11 rounded-xl bg-[#16171a] px-3 text-[13px] font-semibold text-white">New</button>}
       </div>
       {draft && (
         <div className="rounded-2xl border border-[#16171a] p-3 space-y-2">
@@ -1008,7 +1010,14 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   };
   useEffect(() => { void load(); }, [load]);
   if (!st) return <p className="py-2 text-center text-[14px] font-medium text-[#6d7075]">Loading…</p>;
-  if (st.policy.mode === 'off') return <p className="text-[14px] font-medium text-[#6d7075]">{st.policy.tenantName} hasn’t turned on campaigns for renters yet. Reconnect (above) still nudges quiet clients for you.</p>;
+  if (st.policy.mode === 'off') {
+    // Scheduled ones wait, and go once campaigns are theirs again (api/cron/campaigns).
+    const waiting = (st.campaigns || []).filter((c: any) => c.status === 'scheduled' || c.status === 'sending').length;
+    const wait = waiting ? ` Your ${waiting === 1 ? 'scheduled campaign waits' : `${waiting} scheduled campaigns wait`} until then.` : '';
+    return st.policy.blocked && st.policy.addPriceCents != null
+      ? <AddOnNote text={`${st.policy.blocked}${wait}`} canAdd />
+      : <p className="text-[14px] font-medium text-[#6d7075]">{st.policy.tenantName} hasn’t turned on campaigns for renters yet.{wait} Win back still nudges quiet clients for you.</p>;
+  }
   const AUD: [string, string][] = [['all', 'All my clients'], ['inactive_90', 'Not in for 90+ days'], ['one_and_done', 'Came once, never returned'], ['new', 'First visit in the last 30 days'], ['loyal', '5+ visits this year'], ['birthday', 'Birthday this month'], ['service', 'Last had a service…'], ['spent_over', 'Spent over $…'], ['cancelled_recent', 'Canceled or missed lately']];
   const save = async () => {
     setBusy(true); setErr(''); setQuote(null);

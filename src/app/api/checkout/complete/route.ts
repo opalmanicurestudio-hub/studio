@@ -36,6 +36,7 @@ import { accountOf, addShareToTicket, checkDeskPayment, clearExtraOnReceipt, cle
 import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
+import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 
 export const dynamic = 'force-dynamic';
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -718,7 +719,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // that amount, credited against their rent. A card a renter sold pays only for that renter's visits (they already have
   // the money). So: first the bill without gift cards, then what each card may pay for, then the bill with them.
   const calcArgs: any = { tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: null as any, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true };
-  const renterSettings = (tenant as any)?.giftCardSettings?.renters || {}; const salonForRenters = renterSettings.salonCards !== false;
+  const salonOffers = resolveOffers(tenant);   // studio cards for renters' visits: off, on for every renter, or an add-on each renter has or hasn't (lib/renter-offers)
   const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean; owner: string | null; forRenters: Record<string, number> }[] = [];
   const giftTopUps: Record<string, number> = {};
   const promoCards = new Set<string>();   // bonus cards from an offer (lib/gift-offers): what they pay is a discount, not money in   // service cards whose service now costs more than was paid
@@ -751,7 +752,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         if (lim.error) return lim.error; if (lim.cap != null) want = Math.min(want, lim.cap); }
       cardsIn.push({ id: String(g.id), code: d.code, wantCents: want, holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, ownerName: d.ownerName || null }); }
     const { planGiftUse } = await import('@/lib/gift-cards');
-    const plan = planGiftUse({ cards: cardsIn, byRenter, studioLeft, salonForRenters }); if (plan.error) return plan.error;
+    const salonOk: Record<string, boolean> = {};
+    for (const rid of Object.keys(byRenter)) salonOk[rid] = salonOffers.modes.salonGiftCards === 'addon' ? offerAllows(salonOffers, 'salonGiftCards', (await db.doc(`${T}/renters/${rid}`).get()).data()) : salonOffers.modes.salonGiftCards === 'included';
+    const plan = planGiftUse({ cards: cardsIn, byRenter, studioLeft, salonForRenters: (rid) => salonOk[rid] === true }); if (plan.error) return plan.error;
     giftUse.push(...plan.uses);
     return null;
   };

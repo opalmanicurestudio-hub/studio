@@ -82,6 +82,8 @@ import { mintRenterLink, renterFromLink } from '@/lib/renter-link';
 import { saveServiceCost, serviceCosts } from '@/lib/renter-service-costs';
 import { linkOrigin } from '@/lib/app-origin';
 import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
+import { resolveOffers, offerAllows, offerBlocked, renterOfferLines, isOfferKey, offerDef, runningAddOn, activeAddOn, hasRunningAddOn, money as perMonth } from '@/lib/renter-offers';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -538,7 +540,7 @@ function swapGiverRemainder(ctx: SwapCtx, dateKey: string, win: SwapSeg): SwapSe
  * studio. Appointment spans are kept as wall-clock minutes and NEVER returned
  * to another renter: they decide eligibility server-side and stop there.
  */
-async function loadSwapProviders(db: any, tenantId: string, today: string): Promise<SwapCtx[]> {
+async function loadSwapProviders(db: any, tenantId: string, today: string, ok?: (renter: any) => boolean): Promise<SwapCtx[]> {
   const horizonEnd = swapAddDays(today, SWAP_HORIZON_DAYS);
   const [staffSnap, renterSnap, leaseSnap, svcSnap] = await Promise.all([
     db.collection(`tenants/${tenantId}/staff`).get(),
@@ -622,6 +624,8 @@ async function loadSwapProviders(db: any, tenantId: string, today: string): Prom
     .forEach((m: any) => {
       const r = renterById.get(m.renterId);
       if (!r) return;
+      // Swap days aren't theirs here (off, or an add-on they don't have: lib/renter-offers).
+      if (ok && !ok(r)) return;
       // Someone running their own booking system has no chair here to trade.
       if (r.bookingMode === 'own') return;
       const lease = leaseByRenter.get(m.renterId) || null;
@@ -1232,6 +1236,8 @@ export async function POST(req: NextRequest) {
       // self-clearing: the moment they move their own client, Accept lights up
       // on its own — nothing has to re-send and no sweep has to notice.
       let swaps: any = null;
+      const offersHere = resolveOffers(tenant);
+      const swapsFor = (r: any) => offerAllows(offersHere, 'swaps', r);
       try {
         if (provider && renter) {
           const swSnap = await db.collection(`tenants/${tenantId}/renterSwaps`).get();
@@ -1241,7 +1247,7 @@ export async function POST(req: NextRequest) {
 
           let liveConflict: (x: any) => number = () => 0;
           if (rows.some((x: any) => x.status === 'pending' && x.toRenterId === renter.id)) {
-            const all = await loadSwapProviders(db, tenantId, today);
+            const all = await loadSwapProviders(db, tenantId, today, swapsFor);
             const meCtx = all.find((c) => c.renterId === renter.id);
             if (meCtx) {
               liveConflict = (x: any) => {
@@ -1284,7 +1290,7 @@ export async function POST(req: NextRequest) {
               && x.fromRenterId !== renter.id);
           let openOffers: any[] = [];
           if (openRows.length > 0) {
-            const all2 = await loadSwapProviders(db, tenantId, today);
+            const all2 = await loadSwapProviders(db, tenantId, today, swapsFor);
             const meCtx2 = all2.find((c) => c.renterId === renter.id);
             if (meCtx2) {
               openOffers = openRows.filter((x: any) => swapTakeBlock(
@@ -1302,7 +1308,7 @@ export async function POST(req: NextRequest) {
           }
 
           swaps = {
-            enabled: tenant.renterSwapsEnabled !== false,
+            enabled: swapsFor(renter),
             incoming: rows.filter((x: any) => x.status === 'pending' && x.toRenterId === renter.id).map(shape).sort(bySoonest),
             outgoing: rows.filter((x: any) => x.status === 'pending' && x.fromRenterId === renter.id).map(shape).sort(bySoonest),
             confirmed: rows.filter((x: any) => x.status === 'accepted' || x.status === 'taken').map(shape).sort(bySoonest),
@@ -1366,7 +1372,7 @@ export async function POST(req: NextRequest) {
           id: renter.id,
           firstName: renter.firstName || '', lastName: renter.lastName || '',
           businessName: renter.businessName || null,
-          cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null,
+          cardOnFile: !!renter.cardOnFile, cardBrand: renter.cardBrand || null, cardLast4: renter.cardLast4 || null, hasAddOns: hasRunningAddOn(renter),
           // A card this business can actually charge (saved on its own account, lib/space-stripe). One saved before the
           // business's payments moved is on file but has to be saved again.
           cardUsable: !!(renter.cardOnFile && renterBusinessCard(renter, spacePayAccount(tenant))),
@@ -1723,6 +1729,79 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // ═══ tools-get / addon-add / addon-stop ═══════════════════════════════
+    // What comes with their space (lib/renter-offers): what's included, what they can add for a monthly price, what
+    // isn't offered. An add-on is charged to their saved card each month from the day they add it (lib/renter-addon-
+    // billing), at the price they saw: if the business changed it in between, they're shown the new one first. Stopping
+    // one stops the charges; time already paid for keeps working until it runs out.
+    if (action === 'tools-get' || action === 'addon-add' || action === 'addon-stop') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn’t linked to a renter record yet.' }, { status: 403 });
+      const tRef = db.doc(`tenants/${tenantId}`); const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
+      const booksHere = stSnap.docs.some((d: any) => { const m: any = d.data() || {}; return m.isRenter && m.isActive !== false; });
+      const view = (t: any, r: any) => {
+        const today = todayIn(tenantTimeZone(t));
+        const card = r?.cardOnFile && renterBusinessCard(r, spacePayAccount(t)) ? { brand: r.cardBrand || null, last4: r.cardLast4 || null } : null;
+        return { ok: true, lines: renterOfferLines(resolveOffers(t), r, { businessName: t.name, booksHere, today }), card, businessTakesCards: !!spacePayAccount(t), booksHere };
+      };
+      if (action === 'tools-get') {
+        const [t, r] = await Promise.all([tRef.get(), rRef.get()]);
+        return NextResponse.json(view(t.data() || {}, r.data() || {}));
+      }
+      const key = body.key;
+      if (!isOfferKey(key)) return NextResponse.json({ ok: false, error: 'Which one?' }, { status: 400 });
+      // Adding one is for someone who books here, with a lease now; stopping one always works.
+      if (action === 'addon-add') {
+        if (!booksHere) return NextResponse.json({ ok: false, error: 'These are for renters who take bookings here.' }, { status: 403 });
+        const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+        if (!ls.docs.some((d: any) => ['active', 'on_leave', 'pending_signature'].includes(String((d.data() as any)?.status)))) return NextResponse.json({ ok: false, error: 'Add-ons come with a lease here, and yours isn’t current.' }, { status: 403 });
+      }
+      if (!(await tries(req, 'renter-addon', `${tenantId}|${session.renterId}`, 20))) {
+        return NextResponse.json({ ok: false, error: 'That’s a lot of changes in an hour. Try again later.' }, { status: 429 });
+      }
+      const at = new Date().toISOString();
+      let out: { t: any; r: any; title: string; cents: number } | null = null;
+      try {
+        out = await db.runTransaction(async (tx: any) => {
+          const t: any = (await tx.get(tRef)).data() || {}; const r: any = (await tx.get(rRef)).data() || {};
+          const o = resolveOffers(t); const today = todayIn(tenantTimeZone(t)); const title = offerDef(key).renterTitle(String(t.name || 'the business'));
+          const prev: any = r.addOns?.[key] || null;
+          if (action === 'addon-stop') {
+            if (!runningAddOn(r, key)) throw Object.assign(new Error('You don’t have that add-on.'), { code: 409 });
+            const paid = typeof prev?.paidThrough === 'string' && prev.paidThrough > today ? prev.paidThrough : null;
+            tx.set(rRef, { addOns: { [key]: { status: 'stopped', stoppedAt: at, stoppedWhy: 'renter', nextBillOn: null } } }, { merge: true });
+            const next = { ...r, addOns: { ...(r.addOns || {}), [key]: { ...prev, status: 'stopped', stoppedAt: at, stoppedWhy: 'renter', nextBillOn: null, paidThrough: paid } } };
+            return { t, r: next, title, cents: Number(prev?.priceCents) || 0 };
+          }
+          if (o.modes[key] === 'off') throw Object.assign(new Error(offerBlocked(o, key, r, t.name) || 'That isn’t offered here.'), { code: 409 });
+          if (o.modes[key] === 'included') throw Object.assign(new Error('That already comes with your space.'), { code: 409 });
+          if (runningAddOn(r, key)) throw Object.assign(new Error('You already have it.'), { code: 409 });
+          if (Math.round(Number(body.priceCents)) !== o.prices[key]) throw Object.assign(new Error(`The price is now ${perMonth(o.prices[key])} a month. Check it and add it again.`), { code: 409 });
+          if (!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(t)))) throw Object.assign(new Error('Save a card first. Add-ons are charged to your saved card each month.'), { code: 400 });
+          // Time already paid for (stopped, not yet run out) carries on: the next charge is when it runs out.
+          const paid = activeAddOn(r, key, today) && typeof prev?.paidThrough === 'string' ? prev.paidThrough : null;
+          const addOn = { status: 'active', priceCents: o.prices[key], startedAt: paid ? (prev.startedAt || at) : at, version: o.version, nextBillOn: paid || today, paidThrough: paid, stoppedAt: null, stoppedWhy: null };
+          tx.set(rRef, { addOns: { [key]: addOn } }, { merge: true });
+          return { t, r: { ...r, addOns: { ...(r.addOns || {}), [key]: addOn } }, title, cents: o.prices[key] };
+        });
+      } catch (e: any) {
+        if (e?.code === 400 || e?.code === 409) {
+          const [t, r] = await Promise.all([tRef.get(), rRef.get()]);
+          return NextResponse.json({ ...view(t.data() || {}, r.data() || {}), ok: false, error: String(e.message) }, { status: e.code });
+        }
+        console.error('[renter-addon] change failed');
+        return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again.' }, { status: 500 });
+      }
+      const { t, r, title, cents } = out!;
+      const who = session.name || `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'A renter';
+      const price = `${perMonth(cents)} a month`;
+      const said = action === 'addon-add' ? `${who} added ${title} (${price}).` : `${who} stopped ${title} (${price}).`;
+      await logAuditAdmin(db, tenantId, { action: action === 'addon-add' ? 'renters.addon_add' : 'renters.addon_stop', targetType: 'renter', targetId: session.renterId, summary: said, amount: cents / 100, actor: { type: 'user', id: session.renterId, name: who, role: 'renter', via: 'renter-portal' } } as any).catch(() => {});
+      try { const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rent#what-renters-get', message: said }); } catch { /* the record above stands */ }
+      return NextResponse.json(view(t, r));
+    }
+
     // ═══ w9-status / w9-save ══════════════════════════════════════════════
     // Their W-9, for year-end tax forms (lib/w9-record, the same checks and sealing as /api/booths/w9). The number is
     // encrypted at once and only its last four digits ever come back. Nothing here logs the request.
@@ -1767,10 +1846,12 @@ export async function POST(req: NextRequest) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const today = safeToday(body.today);
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      if (tenant.renterSwapsEnabled === false) {
+      const offersS = resolveOffers(tenant);
+      const meR = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+      if (!offerAllows(offersS, 'swaps', meR)) {
         return NextResponse.json({ ok: true, enabled: false, myDates: [], partners: [] });
       }
-      const all = await loadSwapProviders(db, tenantId, today);
+      const all = await loadSwapProviders(db, tenantId, today, (r) => offerAllows(offersS, 'swaps', r));
       const me = all.find((x) => x.renterId === session.renterId);
       if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
       const others = all.filter((x) => x.renterId !== me.renterId);
@@ -1810,16 +1891,17 @@ export async function POST(req: NextRequest) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const today = safeToday(body.today);
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      if (tenant.renterSwapsEnabled === false) {
-        return NextResponse.json({ ok: false, error: 'Day swaps are turned off here.' }, { status: 403 });
-      }
+      const offersS = resolveOffers(tenant);
+      { const meR = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const why = offerBlocked(offersS, 'swaps', meR, tenant.name);
+        if (why) return NextResponse.json({ ok: false, error: why }, { status: 403 }); }
       const toStaffId = String(body.toStaffId || '');
       const giveDate = String(body.giveDate || '');
       const note = String(body.note || '').trim().slice(0, 240);
       const askAnyway = body.askAnyway === true;
       if (!isDateKey(giveDate)) return NextResponse.json({ ok: false, error: 'Pick a date to offer.' }, { status: 400 });
 
-      const all = await loadSwapProviders(db, tenantId, today);
+      const all = await loadSwapProviders(db, tenantId, today, (r) => offerAllows(offersS, 'swaps', r));
       const me = all.find((x) => x.renterId === session.renterId);
       const other = all.find((x) => x.staffId === toStaffId);
       if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
@@ -1910,6 +1992,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'That request has already been answered.' }, { status: 409 });
       }
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (decision === 'accept') {
+        const o = resolveOffers(tenant);
+        const meR = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const why = offerBlocked(o, 'swaps', meR, tenant.name);
+        if (why) return NextResponse.json({ ok: false, error: why }, { status: 403 });
+        const fromR = ((await db.doc(`tenants/${tenantId}/renters/${String(sw.fromRenterId || '')}`).get()).data() as any) || {};
+        if (!offerAllows(o, 'swaps', fromR)) return NextResponse.json({ ok: false, error: `${sw.fromName || 'They'} can’t swap days right now, so this can’t go ahead. You can decline it.` }, { status: 409 });
+      }
       const all = await loadSwapProviders(db, tenantId, today);
       const from = all.find((x) => x.renterId === sw.fromRenterId);
       const to = all.find((x) => x.renterId === sw.toRenterId);
@@ -2010,14 +2100,15 @@ export async function POST(req: NextRequest) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const today = safeToday(body.today);
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-      if (tenant.renterSwapsEnabled === false) {
-        return NextResponse.json({ ok: false, error: 'Day swaps are turned off here.' }, { status: 403 });
-      }
+      const offersS = resolveOffers(tenant);
+      { const meR = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const why = offerBlocked(offersS, 'swaps', meR, tenant.name);
+        if (why) return NextResponse.json({ ok: false, error: why }, { status: 403 }); }
       const giveDate = String(body.giveDate || '');
       const note = String(body.note || '').trim().slice(0, 240);
       if (!isDateKey(giveDate)) return NextResponse.json({ ok: false, error: 'Pick a date to offer.' }, { status: 400 });
 
-      const all = await loadSwapProviders(db, tenantId, today);
+      const all = await loadSwapProviders(db, tenantId, today, (r) => offerAllows(offersS, 'swaps', r));
       const me = all.find((x) => x.renterId === session.renterId);
       if (!me) return NextResponse.json({ ok: false, error: 'Bookings are not enabled for you yet' }, { status: 403 });
       const held = swapHeld(me, giveDate);
@@ -2094,6 +2185,12 @@ export async function POST(req: NextRequest) {
       }
 
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      { const o = resolveOffers(tenant);
+        const meR = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
+        const why = offerBlocked(o, 'swaps', meR, tenant.name);
+        if (why) return NextResponse.json({ ok: false, error: why }, { status: 403 });
+        const fromR = ((await db.doc(`tenants/${tenantId}/renters/${String(sw0.fromRenterId || '')}`).get()).data() as any) || {};
+        if (!offerAllows(o, 'swaps', fromR)) return NextResponse.json({ ok: false, error: 'Whoever offered this day can’t swap days right now, so it can’t be taken.' }, { status: 409 }); }
       const all = await loadSwapProviders(db, tenantId, today);
       const from = all.find((x) => x.renterId === sw0.fromRenterId);
       const to = all.find((x) => x.renterId === session.renterId);
@@ -2318,6 +2415,13 @@ export async function POST(req: NextRequest) {
     // reschedules go through the public booking route with source
     // 'renter_portal' (same engine, same conflicts, same client scoping) —
     // the portal page calls it directly; nothing here duplicates the engine.
+    // Whether this renter can use one of the tools the business decides on (lib/renter-offers): null when they can, else why.
+    const offerWhy = async (key: Parameters<typeof offerAllows>[1]): Promise<{ why: string | null; addPriceCents: number | null }> => {
+      const [tS, rS] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), session.renterId ? db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get() : Promise.resolve(null)]);
+      const t: any = tS.data() || {}; const r: any = rS?.data?.() || {}; const o = resolveOffers(t);
+      const why = offerBlocked(o, key, r, t.name);
+      return { why, addPriceCents: why && o.modes[key] === 'addon' ? o.prices[key] : null };
+    };
     const myProvider = async () => {
       if (!session.renterId) return null;
       const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
@@ -2865,10 +2969,12 @@ export async function POST(req: NextRequest) {
         ...p, remaining: Math.max(0, (Number(p.creditsTotal) || 0) - (Number(p.creditsUsed) || 0)),
         status: p.status === 'refunded' ? 'refunded' : (p.expiresAt && p.expiresAt < nowIso) ? 'expired' : ((Number(p.creditsTotal) || 0) - (Number(p.creditsUsed) || 0)) <= 0 ? 'used' : 'active',
       })).sort((a: any, b: any) => String(b.purchasedAt).localeCompare(String(a.purchasedAt)));
-      return NextResponse.json({ ok: true, packages: pk.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)), purchases,
+      const po = await offerWhy('packages');
+      return NextResponse.json({ ok: true, blocked: po.why, addPriceCents: po.addPriceCents, packages: pk.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)), purchases,
         soldCents: purchases.filter((p: any) => p.status !== 'refunded').reduce((n: number, p: any) => n + (Number(p.amountCents) || 0), 0) });
     }
     if (action === 'package-save') {
+      if (!body.packageId) { const o = await offerWhy('packages'); if (o.why) return NextResponse.json({ ok: false, error: o.why }, { status: 403 }); }
       const st = await myProvider();
       if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
       const name = String(body.name || '').trim().slice(0, 80);
@@ -2901,19 +3007,21 @@ export async function POST(req: NextRequest) {
     if (action.startsWith('gift-')) {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'Sign in again.' }, { status: 401 });
       const gc = await import('@/lib/gift-cards');
-      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const rs = t.giftCardSettings?.renters || {};
-      const salonCards = rs.salonCards !== false, ownCards = rs.ownCards === true;
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const giftOffers = resolveOffers(t);
       const renterRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`); const renter: any = (await renterRef.get()).data() || {};
+      // Taking the business's cards, and selling their own: each off, included, or an add-on they have (lib/renter-offers).
+      const salonCards = offerAllows(giftOffers, 'salonGiftCards', renter), ownCards = offerAllows(giftOffers, 'ownGiftCards', renter);
+      const ownWhy = offerBlocked(giftOffers, 'ownGiftCards', renter, t.name);
       const by = session.name || renter.name || 'Renter';
       if (action === 'gift-info') {
         const mine = (await db.collection(`tenants/${tenantId}/giftCards`).where('ownerRenterId', '==', session.renterId).get()).docs.map((d: any) => ({ ...gc.pub({ id: d.id, ...d.data() }), sendVia: d.data().sendVia || null, sentAt: d.data().sentAt || null, sendAt: d.data().sendAt || null }))
           .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
         const st = await myProvider();
-        return NextResponse.json({ ok: true, salonCards, ownCards, cards: mine, online: renter.giftCardsOnline === true, canTakeCards: !!renter.stripeAccountId && renter.stripeChargesEnabled === true,
+        return NextResponse.json({ ok: true, salonCards, ownCards, addable: (['salonGiftCards', 'ownGiftCards'] as const).filter((k) => giftOffers.modes[k] === 'addon' && !offerAllows(giftOffers, k, renter)).map((k) => ({ key: k, title: offerDef(k).renterTitle(String(t.name || 'the business')), priceCents: giftOffers.prices[k] })), cards: mine, online: renter.giftCardsOnline === true, canTakeCards: !!renter.stripeAccountId && renter.stripeChargesEnabled === true,
           link: st ? `/gift/${encodeURIComponent(tenantId)}?provider=${encodeURIComponent(st.id)}` : null, brand: { name: renter.businessName || renter.name || by, accent: (st as any)?.brand?.accent || null } });
       }
       const usable = (g: any) => !g ? 'That gift card code wasn’t found.' : g.status === 'void' ? 'That gift card was cancelled.' : g.ownerRenterId ? (g.ownerRenterId === session.renterId ? null : 'That card belongs to another provider — it can only be used with them.')
-        : salonCards ? null : 'This business doesn’t take its gift cards for renters’ services. Send them to the front desk.';
+        : salonCards ? null : giftOffers.modes.salonGiftCards === 'addon' ? offerBlocked(giftOffers, 'salonGiftCards', renter, t.name) : 'This business doesn’t take its gift cards for renters’ services. Send them to the front desk.';
       if (action === 'gift-check') { const g = await gc.findByCode(db, tenantId, String(body.code || '')); const why = usable(g);
         return NextResponse.json(why ? { ok: false, error: why } : { ok: true, card: { ...gc.pub(g), studio: !g!.ownerRenterId } }, { status: why ? 400 : 200 }); }
       if (action === 'gift-accept') {
@@ -2929,7 +3037,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, cents, balanceAfter: r.balanceAfter, studio: !g!.ownerRenterId });
       }
       if (action === 'gift-sell') {
-        if (!ownCards) return NextResponse.json({ ok: false, error: 'The business hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        if (!ownCards) return NextResponse.json({ ok: false, error: ownWhy }, { status: 403 });
         const via = ['text', 'email', 'print', 'code'].includes(body.sendVia) ? body.sendVia : 'code';
         const r: any = await gc.issueGiftCard(db, tenantId, { amountCents: Math.round(Number(body.amountCents) || 0), by, source: 'renter' as any, ownerRenterId: session.renterId, ownerName: renter.businessName || renter.name || by,
           recipient: { name: body.recipientName ? String(body.recipientName).slice(0, 80) : null, phone: via === 'text' ? String(body.phone || '').slice(0, 30) : null, email: via === 'email' ? String(body.email || '').slice(0, 120) : null },
@@ -2940,13 +3048,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, card: gc.pub(r.card) });
       }
       if (action === 'gift-online') {
-        if (body.on === true && !ownCards) return NextResponse.json({ ok: false, error: 'The business hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        if (body.on === true && !ownCards) return NextResponse.json({ ok: false, error: ownWhy }, { status: 403 });
         if (body.on === true && !(renter.stripeAccountId && renter.stripeChargesEnabled === true)) return NextResponse.json({ ok: false, error: 'Connect your card payments first (Business setup, then Card payments).' }, { status: 400 });
         await renterRef.set({ giftCardsOnline: body.on === true }, { merge: true }); return NextResponse.json({ ok: true });
       }
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
     if (action === 'package-sell') {
+      { const o = await offerWhy('packages'); if (o.why) return NextResponse.json({ ok: false, error: o.why }, { status: 403 }); }
       // Sold at the chair, paid in person (cash, their own reader, Venmo —
       // whatever). Records the credits; records no money for the studio.
       const st = await myProvider();
@@ -3060,10 +3169,12 @@ export async function POST(req: NextRequest) {
         db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', st.id).get(),
       ]);
       const members = subs.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => String(b.startedAt).localeCompare(String(a.startedAt)));
-      return NextResponse.json({ ok: true, memberships: ms.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)), members,
+      const mo = await offerWhy('packages');
+      return NextResponse.json({ ok: true, blocked: mo.why, addPriceCents: mo.addPriceCents, memberships: ms.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a: any, b: any) => (a.priceCents || 0) - (b.priceCents || 0)), members,
         mrrCents: members.filter((m: any) => m.status === 'active').reduce((n: number, m: any) => n + (Number(m.priceCents) || 0), 0) });
     }
     if (action === 'membership-save') {
+      if (!body.membershipId) { const o = await offerWhy('packages'); if (o.why) return NextResponse.json({ ok: false, error: o.why }, { status: 403 }); }
       const st = await myProvider();
       if (!st) return NextResponse.json({ ok: false, error: 'Your booking profile is not set up yet.' }, { status: 400 });
       const name = String(body.name || '').trim().slice(0, 80);
@@ -3291,7 +3402,11 @@ export async function POST(req: NextRequest) {
     const rcPolicy = async () => {
       const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       const p = t.renterCampaigns || {};
-      return { mode: (['off', 'business_covers', 'renter_pays'].includes(p.mode) ? p.mode : 'off') as 'off' | 'business_covers' | 'renter_pays',
+      // Off, included, or an add-on this renter has or hasn't (lib/renter-offers): not theirs reads as off, with why.
+      const me = session.renterId ? (((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {}) : {};
+      const o = resolveOffers(t); const blocked = offerBlocked(o, 'campaigns', me, t.name);
+      return { blocked, addPriceCents: blocked && o.modes.campaigns === 'addon' ? o.prices.campaigns : null,
+        mode: (blocked ? 'off' : ['off', 'business_covers', 'renter_pays'].includes(p.mode) ? p.mode : 'off') as 'off' | 'business_covers' | 'renter_pays',
         monthlyTexts: Math.max(0, Math.round(Number(p.monthlyTexts ?? 100))), priceCents: Math.max(1, Math.round(Number(p.priceCentsPerText ?? 2))), tenantName: t.name || 'the business' };
     };
     const rcUsedThisMonth = async () => {
@@ -3311,7 +3426,7 @@ export async function POST(req: NextRequest) {
     if (action === 'rc-save') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const policy = await rcPolicy();
-      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
+      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: policy.blocked || `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
       const allowed = ['all', 'new', 'loyal', 'inactive_90', 'birthday', 'service', 'spent_over', 'one_and_done', 'cancelled_recent'];
       const name = String(body.name || '').trim().slice(0, 80);
       const text = String(body.body || '').trim().slice(0, 1200);
@@ -3334,7 +3449,7 @@ export async function POST(req: NextRequest) {
     if (action === 'rc-preview' || action === 'rc-send') {
       if (!session.renterId) return NextResponse.json({ ok: false, error: 'No renter on this session' }, { status: 403 });
       const policy = await rcPolicy();
-      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
+      if (policy.mode === 'off') return NextResponse.json({ ok: false, error: policy.blocked || `${policy.tenantName} hasn’t turned on campaigns for renters.` }, { status: 403 });
       const cRef = db.doc(`tenants/${tenantId}/campaigns/${String(body.campaignId || '')}`);
       const c = ((await cRef.get()).data() as any) || null;
       if (!c || c.ownerRenterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not your campaign.' }, { status: 403 });

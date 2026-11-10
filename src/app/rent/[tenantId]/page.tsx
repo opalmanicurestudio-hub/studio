@@ -20,11 +20,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Armchair, ChevronLeft, ChevronRight, Loader, Settings } from 'lucide-react';
 import { biz, setBusinessName } from '@/components/rent/biz';
 import { TAB_LABEL, VIEW_BACK, VIEW_PARENT, VIEW_TITLES, backMove, markSpot, needsTarget, placeRows, placesFor, pushSpot, setupRows, shownPlace, shownView, spotFromState, tabFor, type PortalTab, type RowGroupSpec, type Who } from '@/components/rent/portal-map';
-import { ScreenContext, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
+import { ScreenContext, OpenScreenContext, type OpenScreen, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { RenterInbox } from '@/components/rent/RenterInbox';
 import { RenterW9 } from '@/components/rent/RenterW9';
+import { RenterTools } from '@/components/rent/RenterTools';
 import { LoginFlow, MySwaps, RenterConcerns, RenterDocuments, RenterInterruptions, RenterLeave, RenterMaintenance, RenterThread, ResCard, STORE, TodayQuick, api } from '@/components/rent/studio';
 import { RenterCard } from '@/components/rent/RenterCard';
 
@@ -166,7 +167,7 @@ export default function RenterPortalPage() {
   // back, and Business setup sits behind the gear. The bottom bar lights up
   // the place that has something waiting.
   // `linked`: signed in as their renter record, not only matched by phone or email (their W-9 needs it).
-  const who: Who = { booksHere, hasRenter: !!data?.renter?.id, hasLease: !!data?.lease, swapsOn: booksHere && data?.swaps?.enabled !== false, linked: data?.renter?.linked !== false };
+  const who: Who = { booksHere, hasRenter: !!data?.renter?.id, hasLease: !!data?.lease, swapsOn: booksHere && data?.swaps?.enabled !== false, linked: data?.renter?.linked !== false, addOns: data?.renter?.hasAddOns === true };
   const [tabAsked, setTabRaw] = useState<PortalTab>('today');
   // A screen opened from a place or from "Needs you": the exact thing, with a way back (null is the place itself).
   const [viewAsked, setView] = useState<string | null>(null);
@@ -202,6 +203,8 @@ export default function RenterPortalPage() {
   };
   const setTab = (t: string) => go(tabFor(t), null, 'here', true);   // a tap on the bar keeps the focus on the bar
   const open = (v: string) => go(tab, v, 'step');
+  // From inside a screen: another screen (in its own place), or a place itself.
+  const openScreen: OpenScreen = (to) => go(to.tab || (to.view && VIEW_PARENT[to.view]) || tab, to.view || null, 'step');
   const back = () => {
     let move: 'history' | 'here' | 'wait' = 'here';
     try { move = backMove(window.history.state, backing.current); } catch { /* fine */ }
@@ -380,6 +383,7 @@ export default function RenterPortalPage() {
       case 'rules': return <BuildingRules tenantId={tenantId} token={token} name={data?.renter?.name || null} />;
       case 'insurance': return renderCreds();
       case 'w9': return <RenterW9 tenantId={tenantId} token={token} renterId={String(data?.renter?.id || '')} onSaved={() => refresh()} />;
+      case 'tools': return <RenterTools tenantId={tenantId} token={token} />;
       case 'away': return <RenterLeave tenantId={tenantId} token={token} />;
       case 'closures': return <RenterInterruptions tenantId={tenantId} token={token} />;
       case 'swaps': return <MySwaps data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
@@ -511,6 +515,7 @@ export default function RenterPortalPage() {
       case 'rules': return { title: 'House rules', sub: waiting('rules') ? 'Something to sign' : `What ${business || 'the business'} asks of everyone`, warn: !!waiting('rules'), badge: waiting('rules') };
       case 'insurance': return { title: 'Insurance and license', sub: credLine, warn: credWarn };
       case 'w9': return { title: 'Tax form (W-9)', sub: data?.renter?.w9OnFile ? 'On file' : 'For year-end tax forms' };
+      case 'tools': return { title: 'What comes with your space', sub: 'What’s included, and what you can add' };
       case 'away': return { title: 'Time away', sub: 'Ask for time off, and see what happens to rent' };
       case 'swaps': return { title: 'Swap days', sub: 'Trade time with another renter' };
       case 'closures': return { title: 'Closures', sub: 'When the space couldn’t be used, and what you were credited' };
@@ -617,7 +622,7 @@ export default function RenterPortalPage() {
             {token && <div className={!view && tab === 'today' ? 'mb-8' : ''}><TodayQuick data={data} booksHere={booksHere} onGo={goFromToday} tenantId={tenantId} token={token} onBadges={setBadges} visible={!view && tab === 'today'} refreshKey={freshen} /></div>}
 
             {view ? (
-              <ScreenContext.Provider value><div className="space-y-8">{screen(view)}</div></ScreenContext.Provider>
+              <OpenScreenContext.Provider value={openScreen}><ScreenContext.Provider value><div className="space-y-8">{screen(view)}</div></ScreenContext.Provider></OpenScreenContext.Provider>
             ) : tab === 'today' ? (
               <div className="space-y-8">
                 {todays.length > 0 && (

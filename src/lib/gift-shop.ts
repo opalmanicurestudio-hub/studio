@@ -10,6 +10,7 @@ import Stripe from 'stripe';
 import { issueGiftCard, deliverGiftCard, giftPath } from '@/lib/gift-cards';
 import { shopSettings, offered, okDesign, designsSync } from '@/lib/gift-designs';
 import { publicLook } from '@/lib/public-look';
+import { resolveOffers, offerAllows } from './renter-offers';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -29,7 +30,7 @@ async function renterSeller(db: any, tenantId: string, t: any, providerId?: stri
   if (!providerId) return null;
   const st: any = (await db.doc(`${T(tenantId)}/staff/${String(providerId).slice(0, 80)}`).get()).data(); if (!st?.isRenter || !st.renterId) return { error: 'This provider wasn’t found.' } as any;
   const r: any = (await db.doc(`${T(tenantId)}/renters/${st.renterId}`).get()).data() || {};
-  const ok = t?.giftCardSettings?.renters?.ownCards === true && r.giftCardsOnline === true && !!r.stripeAccountId && r.stripeChargesEnabled === true;
+  const ok = offerAllows(resolveOffers(t), 'ownGiftCards', r) && r.giftCardsOnline === true && !!r.stripeAccountId && r.stripeChargesEnabled === true;   // allowed here (lib/renter-offers), switched on, takes cards
   return { ok, renterId: st.renterId, staffId: providerId, name: r.businessName || st.name || r.name || 'Provider', accent: st.brand?.accent || null, stripeAccountId: r.stripeAccountId || null };
 }
 

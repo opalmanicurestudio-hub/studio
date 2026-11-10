@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { closedReplyFor } from '@/lib/tenant-open-server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,8 @@ export async function POST(req: NextRequest) {
   if (!m || m.isActive === false) return NextResponse.json({ ok: false, error: 'That membership is not available.' }, { status: 404 });
   const rSnap = await db.doc(`tenants/${tenantId}/renters/${String(m.renterId)}`).get();
   const r = (rSnap.data() as any) || null;
+  // Packages and memberships aren't the renter's to sell here right now (off, or an add-on they don't have: lib/renter-offers).
+  if (!offerAllows(resolveOffers((await db.doc(`tenants/${tenantId}`).get()).data()), 'packages', r)) return NextResponse.json({ ok: false, error: 'That membership is not available.' }, { status: 404 });
   if (!r?.stripeAccountId || r?.stripeChargesEnabled !== true) {
     return NextResponse.json({ ok: false, error: 'This provider is not taking online payments yet.' }, { status: 409 });
   }

@@ -6,7 +6,8 @@ import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 import { Gift } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SectionTitle } from '@/components/rent/shared';
+import { SectionTitle, AddOnNote } from '@/components/rent/shared';
+import { money as perMonth } from '@/lib/renter-offers';
 import { api } from '@/components/rent/studio';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { designsSync, inSeason } from '@/lib/gift-designs';
@@ -47,7 +48,11 @@ export function MyGiftCards({ tenantId, token }: { tenantId: string; token: stri
   const [amt, setAmt] = React.useState('50'); const [to, setTo] = React.useState(''); const [buyer, setBuyer] = React.useState(''); const [note, setNote] = React.useState(''); const [design, setDesign] = React.useState('frost');
   const [via, setVia] = React.useState<'text' | 'email' | 'code'>('text'); const [phone, setPhone] = React.useState(''); const [email, setEmail] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState<{ ok: boolean; t: string } | null>(null); const [copied, setCopied] = React.useState(false);
-  if (!d || (!d.salonCards && !d.ownCards)) return null;
+  if (!d) return null;
+  // Gift cards the business makes an add-on that this renter doesn't have (lib/renter-offers).
+  const addable: { key: string; title: string; priceCents: number }[] = Array.isArray(d.addable) ? d.addable : [];
+  const addNote = addable.length ? <AddOnNote text={`Add-ons here: ${addable.map((a) => `${a.key === 'ownGiftCards' ? 'selling your own gift cards' : `taking ${a.title}`}, ${perMonth(a.priceCents)} a month`).join('; ')}.`} canAdd /> : null;
+  if (!d.salonCards && !d.ownCards) return addNote || <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] text-[#6d7075]">Gift cards aren’t offered to renters here right now.</p>;
   const brand = { name: d.brand?.name || 'Gift card', accent: d.brand?.accent || null };
   const sell = async () => { setBusy(true); setMsg(null);
     const r = await api({ action: 'gift-sell', tenantId, token, amountCents: Math.round(Number(amt) * 100), recipientName: to, buyerName: buyer, message: note, design, sendVia: via, phone, email }); setBusy(false);
@@ -57,6 +62,7 @@ export function MyGiftCards({ tenantId, token }: { tenantId: string; token: stri
   return (
     <section className="space-y-3">
       <SectionTitle icon={Gift}>Gift cards</SectionTitle>
+      {addNote}
       <div className="space-y-3 rounded-2xl border border-[#ececee] bg-white p-4">
         <p className="text-[14px] font-medium text-[#6d7075]">{d.salonCards ? `Clients can pay you with a ${biz()} gift card — ${biz()} credits it against your next rent. ` : ''}{d.ownCards ? 'You can sell your own gift cards too — paid to you, used only with you.' : ''}</p>
         <div className="flex gap-2">
