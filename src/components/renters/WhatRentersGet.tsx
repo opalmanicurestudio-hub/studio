@@ -159,7 +159,7 @@ export function WhatRentersGet({ tenantId }: { tenantId: string }) {
       </ul>
 
       {!data.paymentsReady && <p className="text-[13px] leading-relaxed text-[#6d7075]">Add-ons are charged to renters’ saved cards, so they need card payments set up for {biz} first.</p>}
-      <p className="text-[13px] leading-relaxed text-[#6d7075]">An add-on is charged to the renter’s saved card each month, with a receipt, and they can stop it any time. A new price applies to renters who add it after you change it.</p>
+      <p className="text-[13px] leading-relaxed text-[#6d7075]">An add-on is charged to the renter’s saved card from the day they add it, then monthly, with a receipt each time, and they can stop it any time. A declined card pauses it, and you’re both told. A new price applies to renters who add it after you change it.</p>
 
       {changes.length > 0 && !priceMissing.length && (
         <div className="space-y-2 rounded-2xl bg-[#f5f5f7] p-4">

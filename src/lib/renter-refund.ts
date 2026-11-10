@@ -37,12 +37,16 @@ export interface RenterCardPayment {
   invoiceId: string | null; dueDate: string | null; card: { brand: string | null; last4: string | null } | null;
 }
 
+/** An agreed charge taken from a renter's card on file: an incidental, or a month of an add-on they chose (lib/renter-
+ *  addon-billing). Both are written under renterinc_ and refunded the same way. */
+const agreedCategory = (c: any) => c === 'Renter Incidental' || c === 'Renter Add-on';
+
 /** Which kind of renter card payment a line in the books is: rent paid online or by autopay (a bill of theirs), or an
  *  agreed charge taken from the card on file (lib/renter-incidentals names those renterinc_). Anything else (a cash
  *  payment, a day booking or its extras) isn't refunded here. */
 export function renterPaymentKind(t: any, invoiceIds: Set<string>, id: string = String(t?.id || '')): RenterPaymentKind | null {
   if (!t || t.type !== 'income' || !t.stripePaymentIntentId || t.voided || t.voidedAt) return null;
-  if (t.category === 'Renter Incidental') return id.startsWith('renterinc_') ? 'agreed' : null;
+  if (agreedCategory(t.category)) return id.startsWith('renterinc_') ? 'agreed' : null;
   if (t.source === 'booth_rent' && t.category === 'Booth Rent' && invoiceIds.has(String(t.sourceId || ''))) return /autopay/i.test(String(t.paymentMethod || '')) ? 'autopay' : 'online';
   return null;
 }
@@ -51,7 +55,7 @@ export function renterPaymentKind(t: any, invoiceIds: Set<string>, id: string = 
  *  that must send its refund here, so the renter's account and notice follow, e.g. lib/money-refund). */
 export function isRenterAccountPayment(id: string, t: any): boolean {
   if (!t || t.type !== 'income' || !t.stripePaymentIntentId) return false;
-  return String(id).startsWith('rentpay_') || (String(id).startsWith('renterinc_') && t.category === 'Renter Incidental')
+  return String(id).startsWith('rentpay_') || (String(id).startsWith('renterinc_') && agreedCategory(t.category))
     || (t.source === 'booth_rent' && t.category === 'Booth Rent' && /autopay/i.test(String(t.paymentMethod || '')));
 }
 
@@ -81,7 +85,7 @@ function openAt(claims: Record<string, any>): string | null {
 }
 
 const shortDay = (iso: string) => { const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`); return isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); };
-const kindOf = (t: any): RenterPaymentKind => (t?.category === 'Renter Incidental' ? 'agreed' : /autopay/i.test(String(t?.paymentMethod || '')) ? 'autopay' : 'online');
+const kindOf = (t: any): RenterPaymentKind => (agreedCategory(t?.category) ? 'agreed' : /autopay/i.test(String(t?.paymentMethod || '')) ? 'autopay' : 'online');
 
 /** What the payment was, in a few words, as the screen and the renter's account say it. */
 export function paymentLabel(t: any, kind: RenterPaymentKind, dueDate: string | null): string {
@@ -101,7 +105,7 @@ const cardText = (card: { brand?: string | null; last4?: string | null } | null 
 
 /** Whose payment a line is: its renter, or (older lines written before they carried one) the renter on its bill. */
 function ownerOf(t: any, inv: any): string | null {
-  return String(t?.renterId || (t?.category === 'Renter Incidental' ? t?.sourceId : inv?.renterId) || '') || null;
+  return String(t?.renterId || (agreedCategory(t?.category) ? t?.sourceId : inv?.renterId) || '') || null;
 }
 
 /** The card payments on a renter's account, newest first, with what can still go back from each. */
@@ -337,7 +341,7 @@ export async function refundRenterPayment(db: any, stripe: any, tenantId: string
   const claim: any = await db.runTransaction(async (tx: any) => {
     const ts = await tx.get(txRef); if (!ts.exists) return { missing: true };
     const t: any = ts.data() || {};
-    const isAgreed = t.category === 'Renter Incidental';
+    const isAgreed = agreedCategory(t.category);
     const inv: any = !isAgreed && t.sourceId ? ((await tx.get(db.doc(`${T}/rentInvoices/${safe(t.sourceId)}`))).data() || null) : null;
     if (ownerOf(t, inv) !== o.renterId) return { missing: true };
     const kind = renterPaymentKind(t, new Set(inv && String(inv.renterId || '') === o.renterId ? [String(t.sourceId)] : []), txId);
@@ -431,7 +435,7 @@ export async function noticeRenterRefund(db: any, tenantId: string, tenant: any,
   }
   const t: any = txId ? ((await db.doc(`${T}/transactions/${txId}`).get()).data() || null) : null;
   // Money a bill didn't need, sent back when it was paid, has no line in the books of its own: the bill says whose it is.
-  const invId = safe((t && t.category !== 'Renter Incidental' ? t.sourceId : '') || md.invoiceId || meta?.invoiceId || '');
+  const invId = safe((t && !agreedCategory(t.category) ? t.sourceId : '') || md.invoiceId || meta?.invoiceId || '');
   const inv: any = invId ? ((await db.doc(`${T}/rentInvoices/${invId}`).get()).data() || null) : null;
   const renterId = String((t ? ownerOf(t, inv) : null) || md.renterId || meta?.renterId || inv?.renterId || '') || null;
   if (!renterId) return null;

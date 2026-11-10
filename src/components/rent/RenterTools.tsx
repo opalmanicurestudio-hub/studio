@@ -47,7 +47,7 @@ export function RenterTools({ tenantId, token }: { tenantId: string; token: stri
     if (r?.lines) setD(r);
     if (!r?.ok) { setErr({ key: l.key, t: r?.error || 'That didn’t go through. Try again.' }); setAsking(null); return; }
     setAsking(null);
-    setDone({ key: l.key, t: what === 'add' ? 'Added. Your receipt comes by email.' : 'Stopped. It won’t be charged again.' });
+    setDone({ key: l.key, t: r.message || (what === 'add' ? 'Added.' : 'Stopped. It won’t be charged again.') });
   };
 
   const included = d.lines.filter((l) => l.state === 'included');
@@ -98,14 +98,15 @@ export function RenterTools({ tenantId, token }: { tenantId: string; token: stri
                       <p className="text-[15px] font-medium text-[#16171a]">{l.title}</p>
                       <p className="text-[13px] leading-snug text-[#6d7075]">{l.sub}</p>
                       {mine && !l.stopped && <p className="text-[13px] text-[#1f7a4d]">Added {when(l.startedAt)}</p>}
-                      {mine && l.stopped && <p className="text-[13px] text-[#6d7075]">Stopped. You can use it until {fmtDate(l.endsOn)}.</p>}
+                      {mine && l.stopped && <p className="text-[13px] text-[#6d7075]">{l.paused ? 'Paused, as a charge didn’t go through' : 'Stopped'}. You can use it until {fmtDate(l.endsOn)}.</p>}
+                      {!mine && l.paused && <p className="text-[13px] text-[#b45309]">Paused, as a charge didn’t go through. Add it again to start it.</p>}
                     </div>
                     <p className="shrink-0 text-[15px] font-medium tabular-nums text-[#16171a]">{money(l.priceCents)}<span className="text-[13px] font-normal text-[#6d7075]"> a month</span></p>
                   </div>
 
                   {!ask && (
                     <div className="flex flex-wrap gap-2">
-                      {(!mine || l.stopped) && <button type="button" onClick={() => { setAsking({ key: l.key, what: 'add' }); setErr(null); setDone(null); }} className={dark}>{mine ? 'Add it again' : 'Add'}</button>}
+                      {(!mine || l.stopped) && <button type="button" onClick={() => { setAsking({ key: l.key, what: 'add' }); setErr(null); setDone(null); }} className={dark}>{mine || l.paused ? 'Add it again' : 'Add'}</button>}
                       {mine && openBtn(l)}
                       {mine && !l.stopped && <button type="button" onClick={() => { setAsking({ key: l.key, what: 'stop' }); setErr(null); setDone(null); }} className="h-11 rounded-full border border-[#f1c7c2] bg-white px-4 text-[15px] font-medium text-[#b42318]">Stop</button>}
                     </div>
@@ -118,7 +119,7 @@ export function RenterTools({ tenantId, token }: { tenantId: string; token: stri
                           <p className="text-[14px] leading-relaxed text-[#16171a]">
                             {l.stopped && l.endsOn
                               ? `It carries on from ${fmtDate(l.endsOn)}, when ${money(l.priceCents)} is charged to your ${card}, then on the same day each month.`
-                              : `${money(l.priceCents)} is charged to your ${card} today, then on the same day each month.`} A receipt comes by email each time, and you can stop it here any time.
+                              : `${money(l.priceCents)} is charged to your ${card} today, then on the same day each month.`} You get a receipt each time, and you can stop it here any time.
                           </p>
                           <div className="flex gap-2">
                             <button type="button" disabled={busy} onClick={() => void act(l, 'add')} className={`${dark} flex-1`}>{busy ? 'Adding…' : `Add for ${money(l.priceCents)} a month`}</button>

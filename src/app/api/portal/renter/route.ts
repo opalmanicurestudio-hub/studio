@@ -1780,7 +1780,9 @@ export async function POST(req: NextRequest) {
           if (!(r.cardOnFile && renterBusinessCard(r, spacePayAccount(t)))) throw Object.assign(new Error('Save a card first. Add-ons are charged to your saved card each month.'), { code: 400 });
           // Time already paid for (stopped, not yet run out) carries on: the next charge is when it runs out.
           const paid = activeAddOn(r, key, today) && typeof prev?.paidThrough === 'string' ? prev.paidThrough : null;
-          const addOn = { status: 'active', priceCents: o.prices[key], startedAt: paid ? (prev.startedAt || at) : at, version: o.version, nextBillOn: paid || today, paidThrough: paid, stoppedAt: null, stoppedWhy: null };
+          // Charged on the day of the month it's added (lib/renter-addon-billing); carried on, on the day it was first.
+          const addOn = { status: 'active', priceCents: o.prices[key], startedAt: paid ? (prev.startedAt || at) : at, version: o.version, nextBillOn: paid || today, paidThrough: paid,
+            billDay: paid ? (Number(prev.billDay) || Number(String(paid).slice(8))) : Number(today.slice(8)), stoppedAt: null, stoppedWhy: null, pausedAt: null, pausedWhy: null };
           tx.set(rRef, { addOns: { [key]: addOn } }, { merge: true });
           return { t, r: { ...r, addOns: { ...(r.addOns || {}), [key]: addOn } }, title, cents: o.prices[key] };
         });
@@ -1792,14 +1794,28 @@ export async function POST(req: NextRequest) {
         console.error('[renter-addon] change failed');
         return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again.' }, { status: 500 });
       }
-      const { t, r, title, cents } = out!;
+      const { t, title, cents } = out!; let r = out!.r;
       const who = session.name || `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'A renter';
       const price = `${perMonth(cents)} a month`;
+      // Added: its first month is charged now (lib/renter-addon-billing), unless time already paid for carries it on.
+      let message = '';
+      if (action === 'addon-add') {
+        const { chargeAddOn } = await import('@/lib/renter-addon-billing');
+        const ch = await chargeAddOn(db, tenantId, t, session.renterId, key, { first: true }).catch(() => ({ result: 'lost' } as any));
+        r = ((await rRef.get()).data() as any) || r;
+        if (ch.result === 'declined' || ch.result === 'no_card') {
+          return NextResponse.json({ ...view(t, r), ok: false, error: ch.result === 'declined' ? `Your card was declined, so it wasn’t added. ${ch.error || ''}`.trim() : 'Save a card first. Add-ons are charged to your saved card each month.' }, { status: 402 });
+        }
+        const next = r.addOns?.[key]?.nextBillOn;
+        message = ch.result === 'charged' || ch.result === 'already' ? `Added. ${perMonth(ch.cents ?? cents)} was charged to your ${ch.card || 'card'}, and your receipt is on its way.`
+          : ch.result === 'skipped' && next && next > todayIn(tenantTimeZone(t)) ? `Added. It carries on, and is next charged on ${new Date(`${next}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}.`
+          : 'Added. The charge is still going through, and your receipt comes once it has.';
+      } else message = 'Stopped. It won’t be charged again.';
       const said = action === 'addon-add' ? `${who} added ${title} (${price}).` : `${who} stopped ${title} (${price}).`;
       await logAuditAdmin(db, tenantId, { action: action === 'addon-add' ? 'renters.addon_add' : 'renters.addon_stop', targetType: 'renter', targetId: session.renterId, summary: said, amount: cents / 100, actor: { type: 'user', id: session.renterId, name: who, role: 'renter', via: 'renter-portal' } } as any).catch(() => {});
       try { const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: at, type: 'renter_addon', link: '/rent#what-renters-get', message: said }); } catch { /* the record above stands */ }
-      return NextResponse.json(view(t, r));
+      return NextResponse.json({ ...view(t, r), message });
     }
 
     // ═══ w9-status / w9-save ══════════════════════════════════════════════

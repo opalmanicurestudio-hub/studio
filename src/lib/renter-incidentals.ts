@@ -89,7 +89,7 @@ async function feeOf(stripe: any, intent: any, account?: string | null): Promise
  *  'charged' (and no longer open), once. False when it was recorded already. `extra` is written on the attempt with it,
  *  and `note` (named after what it's about) beside it. */
 export async function recordRenterIncidental(db: any, tenantId: string, renterId: string, key: string, intent: any, cents: number, description: string, renterName: string,
-  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note; account?: string | null } = {}): Promise<boolean> {
+  o: { stripe?: any; at?: string; extra?: Record<string, any>; note?: Note; account?: string | null; category?: string } = {}): Promise<boolean> {
   const renterRef = db.doc(`tenants/${tenantId}/renters/${renterId}`);
   const attemptRef = db.doc(incidentalAttemptPath(tenantId, renterId, key));
   const fee0 = await feeOf(o.stripe, intent, o.account);
@@ -106,7 +106,7 @@ export async function recordRenterIncidental(db: any, tenantId: string, renterId
     if (a.status === 'charged') return false;
     tx.set(txnRef, {
       id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
-      amount: cents / 100, category: 'Renter Incidental',
+      amount: cents / 100, category: o.category || 'Renter Incidental',   // an add-on a renter chose is 'Renter Add-on' (lib/renter-addon-billing)
       description: `${description} — ${renterName} (card on file)`,
       clientOrVendor: renterName, date: at, paymentMethod: 'Card on file (Stripe)',
       hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId, renterId, sourceId: renterId, tenantId, createdAt: at,
@@ -116,7 +116,7 @@ export async function recordRenterIncidental(db: any, tenantId: string, renterId
     if (feeCents > 0) tx.set(feeRef, {
       id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
       amount: feeCents / 100, category: 'Processing Fees',
-      description: `Stripe fee — incidental charge (${renterName})`,
+      description: `Stripe fee — ${o.category === 'Renter Add-on' ? 'add-on' : 'incidental'} charge (${renterName})`,
       clientOrVendor: 'Stripe', date: at, paymentMethod: 'Deducted from payout',
       hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
       renterId, relatedTxnId: txnRef.id, tenantId, createdAt: at,
@@ -320,13 +320,13 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
   if (found.state === 'pending') return 'waiting';
   const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
   const description = String(a.description || a.category || 'Incidental');
-  const what = `The ${money(cents)} incidental charge to ${renterName}’s card on file (${description})`;
+  const what = `The ${money(cents)} ${a.addon?.key ? 'add-on' : 'incidental'} charge to ${renterName}’s card on file (${description})`;
   const settled = { settlingAt: null, settledAt: iso(now), settledBy: 'check' };
   const noteId = `renterinc_${safeKey(renterId)}_${key}`;
 
   if (found.state === 'paid') {
     const at = Number(found.pi.created) > 0 ? iso(Number(found.pi.created) * 1000) : iso(now);
-    const wrote = await recordRenterIncidental(db, tenantId, renterId, key, found.pi, cents, description, renterName, { stripe, at, extra: settled, account: a.account || null, note: {
+    const wrote = await recordRenterIncidental(db, tenantId, renterId, key, found.pi, cents, description, renterName, { stripe, at, extra: settled, account: a.account || null, category: a.ledgerCategory || undefined, note: {
       id: noteId, link: '/booths',
       message: `${what} went through, though the screen never heard back. It’s recorded in Money, and the renter has their receipt. If it was also collected another way, refund it with Refund on the Rent page.`,
     } });
@@ -339,6 +339,8 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
         amount: cents / 100, actor: { type: 'system', name: 'Automatic check' },
       } as any).catch(() => {});
     } else await ref.set({ settlingAt: null }, { merge: true }).catch(() => {});
+    // A renter's add-on (lib/renter-addon-billing): paid for this month, so it runs on to the next.
+    if (a.addon?.key) { const { addOnPaid } = await import('@/lib/renter-addon-billing'); await addOnPaid(db, tenantId, renterId, a.addon).catch(() => {}); }
     return 'recorded';
   }
 
@@ -349,10 +351,18 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
     : found.pi?.status === 'canceled' ? 'the payment was stopped before it went through' : 'the card was declined';
   const error = found.state === 'declined' && found.pi?.status !== 'canceled' ? String(found.pi?.last_payment_error?.message || 'The card was declined.') : `${reason[0].toUpperCase()}${reason.slice(1)}.`;
   const same = (x: any) => x.settlingAt === iso(now) && String(x.claimAt || '') === String(a.claimAt || '');
-  const freed = await releaseRenterIncidental(db, tenantId, renterId, key, error, { at: iso(now), still: same, extra: settled, note: {
+  const freed = await releaseRenterIncidental(db, tenantId, renterId, key, error, { at: iso(now), still: same, extra: settled, ...(a.addon?.key ? {} : { note: {
     id: noteId, link: '/booths',
     message: `${what} didn’t go through (${reason}), so nothing was charged. Collect it another way, or charge it again.`,
-  } });
+  } }) });
+  // A renter's add-on (lib/renter-addon-billing): a month's charge that never reached Stripe is simply tried again by the
+  // daily run (up to three times); one declined, or needing approval, pauses it (the first month: it isn't added), and
+  // the renter and the business are told there.
+  if (freed && a.addon?.key) {
+    const retry = found.state === 'none' && !a.addon.first && (Number(a.tries) || 1) < 3;
+    if (!retry) { const { addOnFailed } = await import('@/lib/renter-addon-billing'); const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      await addOnFailed(db, tenantId, tenant, renterId, a.addon, found.state === 'declined' && found.pi?.status !== 'canceled' ? 'declined' : 'not_through', error).catch(() => {}); }
+  }
   return freed ? 'released' : 'waiting';
 }
 

@@ -22,6 +22,8 @@ import { stripeRefused } from '@/lib/stripe-said-no';
 // ONCE PER BILL: the bill is claimed (autopayTriedAt) in one step before it's charged, and the charge is keyed to the
 // bill, so a second run, a retried trigger or a failed save never charges it twice.
 //
+// Then renters' add-ons (lib/renter-addon-billing): each month that's due is charged the same way, once.
+//
 // FAILURE HANDLING: a declined card isn't tried again on its own. The bill stays open (the late sweep and reminders take
 // it from there) and the ledger keeps a 'failed' line as history, not as a second amount owed. A late fee on a bill is
 // never taken by autopay; it stays on the bill.
@@ -449,7 +451,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ processed: results.length, results });
+  // Renters' add-ons (lib/renter-addon-billing): each month that's due is charged to their saved card, once.
+  const addOns: any[] = [];
+  for (const tenantDoc of tenantsSnap.docs) {
+    try {
+      const { billRenterAddOns } = await import('@/lib/renter-addon-billing');
+      const r = await billRenterAddOns(db, tenantDoc.id, tenantDoc.data(), { stripe });
+      if (r.charged || r.declined || r.stopped || r.waiting) addOns.push({ tenantId: tenantDoc.id, ...r });
+    } catch (e: any) { console.error('[autopay-leases] add-ons', tenantDoc.id, String(e?.message || e).slice(0, 160)); }
+  }
+
+  return NextResponse.json({ processed: results.length, results, addOns });
 }
 
 // Vercel Cron invokes scheduled paths with GET — same auth, same run.

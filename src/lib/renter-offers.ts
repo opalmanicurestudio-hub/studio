@@ -101,11 +101,13 @@ export function resolveOffers(tenant: any): Offers {
 export type AddOn = {
   status: 'active' | 'stopped' | 'paused';
   priceCents: number; startedAt: string; version: number;
-  /** The next day it's charged (the day it was added, then a month on each time). */
-  nextBillOn?: string | null;
-  /** Paid through this day (exclusive): a stopped add-on keeps working until then. */
+  /** The next day it's charged (the day it was added, then a month on each time), and the day of the month it falls on. */
+  nextBillOn?: string | null; billDay?: number;
+  /** Paid through this day (exclusive): a stopped or paused add-on keeps working until then. */
   paidThrough?: string | null;
-  stoppedAt?: string | null; stoppedWhy?: 'renter' | 'included' | 'off' | null;
+  stoppedAt?: string | null; stoppedWhy?: 'renter' | 'included' | 'off' | 'lease_ended' | 'declined' | 'no_card' | 'not_through' | null;
+  /** A month's charge didn't go through (lib/renter-addon-billing). */
+  pausedAt?: string | null; pausedWhy?: 'declined' | 'no_card' | 'not_through' | null;
 };
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
@@ -147,6 +149,8 @@ export type RenterOfferLine = {
   priceCents: number;
   /** Theirs: added on, and (stopped) working until. */
   startedAt?: string | null; endsOn?: string | null; stopped?: boolean;
+  /** Paused: a month's charge didn't go through (lib/renter-addon-billing); adding it again starts it. */
+  paused?: boolean;
 };
 
 /** The list a renter sees. Every one of these needs bookings, so someone who doesn't book here sees only add-ons they
@@ -163,6 +167,7 @@ export function renterOfferLines(offers: Offers, renter: any, o: { businessName?
       // Theirs while it runs; stopped (still working until it runs out), adding it again is at today's price.
       priceCents: mine && !stopped ? Number(mine.priceCents) || 0 : offers.prices[d.key],
       startedAt: mine?.startedAt || null, endsOn: stopped ? mine?.paidThrough || null : null, stopped,
+      paused: renter?.addOns?.[d.key]?.status === 'paused',
     };
   });
   return o.booksHere ? all : all.filter((l) => l.state === 'added' && !l.stopped);
