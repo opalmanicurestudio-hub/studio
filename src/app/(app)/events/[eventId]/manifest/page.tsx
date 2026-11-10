@@ -1141,7 +1141,7 @@ export default function EventManifestPage() {
       const now    = new Date().toISOString();
       const labels: Record<number, string> = { 1: 'Starters', 2: 'Mains', 3: 'Desserts' };
       batch.set(doc(firestore, `tenants/${tenantId}/courseFires`, fireId), { id: fireId, eventId, tenantId, courseNumber, courseName: labels[courseNumber] || `Course ${courseNumber}`, firedAt: now, firedBy: 'host_delta', guestCount: deltaGuests.length, status: 'fired', isDelta: true });
-      deltaGuests.forEach(g => { const menuItemId = g.courseSelections?.[courseNumber] || g.mealChoiceId; const menuItem = menuItems.find(m => m.id === menuItemId); const kdsId = nanoid(); batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), { id: kdsId, source: 'event', eventId, eventTitle: event?.title || '', courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name, seatNumber: g.seatNumber || null, tableNumber: g.tableNumber || null, menuItemId, menuItemName: menuItem?.name || 'Item', allergies: g.allergies || [], hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'), status: 'pending', createdAt: now, tenantId, isDelta: true }); });
+      deltaGuests.forEach(g => { const menuItemId = g.courseSelections?.[courseNumber] || g.mealChoiceId; const menuItem = menuItems.find(m => m.id === menuItemId); const kdsId = nanoid(); batch.set(doc(firestore, `tenants/${tenantId}/kdsTickets`, kdsId), { id: kdsId, source: 'event', eventId, eventTitle: event?.title || '', courseFireId: fireId, courseNumber, guestId: g.id, guestName: g.name, seatNumber: g.seatNumber || null, tableNumber: g.tableNumber || null, menuItemId, menuItemName: menuItem?.name || 'Item', allergies: g.allergies || [], allergyNote: g.allergyNote || null, hasCriticalAllergy: (g.allergies || []).some((a: any) => a.severity === 'critical'), notes: g.guestNote || null, status: 'pending', createdAt: now, tenantId, isDelta: true }); });
       const deductionMap: Record<string, number> = {};
       deltaGuests.forEach(g => { const item = menuItems.find(m => m.id === (g.courseSelections?.[courseNumber] || g.mealChoiceId)); if (!item?.supplies) return; item.supplies.forEach((s: any) => { deductionMap[s.inventoryId] = (deductionMap[s.inventoryId] || 0) + safeNum(s.qty); }); });
       Object.entries(deductionMap).forEach(([invId, qty]) => { const inv = (inventory || []).find((i: any) => i.id === invId); if (!inv) return; batch.update(doc(firestore, `tenants/${tenantId}/inventory`, invId), { totalStock: increment(-qty) }); });
@@ -1518,7 +1518,10 @@ export default function EventManifestPage() {
 
         {courseNumbers.length > 0 && (
           <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
-            <div className="p-5 border-b border-border"><h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2></div>
+            <div className="p-5 border-b border-border flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2>
+              <a href={`/kds/${tenantId}?event=${encodeURIComponent(String(eventId))}`} target="_blank" rel="noopener" className="inline-flex items-center min-h-[44px] px-4 rounded-xl text-[13px] font-semibold" style={{ border: '1px solid #ececee', color: '#16171a', background: '#fff' }}>Open the kitchen screen for this event</a>
+            </div>
             <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               {courseNumbers.map(n => {
                 const fired     = firedCourses.has(n);

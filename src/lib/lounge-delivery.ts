@@ -9,6 +9,7 @@ import { moveStock } from '@/lib/usage';
 import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { safeNumber } from '@/lib/utils';
+import { collectAtHandover } from '@/lib/kitchen';
 
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -77,9 +78,11 @@ export async function deliverRefreshment(firestore: any, tenantId: string, reque
               }))
           }
       }, { merge: true });
-  } else if (request.isGuestKiosk && safeNumber(request.priceAtRequest) > 0) {
-      // It's a guest kiosk order with a price. Create a transaction now since there's no appointment to bill later.
-      const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+  } else if (collectAtHandover(request) > 0) {
+      // A kiosk order paid at the station (lib/kitchen collectAtHandover: not one already paid by card, on a balance or
+      // charged to the station, which were booked when ordered). Named after the order, so the kitchen screen handing
+      // it over too books it once.
+      const txnRef = doc(firestore, `tenants/${tenantId}/transactions/kiosk_${request.id}`);
       batch.set(txnRef, sanitizeForFirestore({
           id: txnRef.id,
           date: now,
@@ -88,7 +91,7 @@ export async function deliverRefreshment(firestore: any, tenantId: string, reque
           type: 'income',
           context: 'Business',
           category: 'Hospitality Revenue',
-          amount: safeNumber(request.priceAtRequest) * qty,
+          amount: collectAtHandover(request),
           paymentMethod: 'Guest Kiosk Entry',
           hasReceipt: false,
           tenantId

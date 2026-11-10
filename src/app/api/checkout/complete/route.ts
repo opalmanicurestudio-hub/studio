@@ -959,6 +959,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // it's created (never overwritten): two saves of the same sale at once (the desk and a manager, or "Save again") can't
   // both record it — the second finds it already there.
   const receiptRef = pendingRef ? db.doc(`${T}/receipts/tk_${pendingRef.id}`) : db.collection(`${T}/receipts`).doc();
+  // What a table's tab already sent to the kitchen when it was ordered (lib/table-tab): paying for it doesn't send it again.
+  const sentFromTab: Record<string, number> = {}; const kitchenLines: Record<string, number> = {};
+  for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + Math.max(1, Number(l.quantity) || 1);
   for (const it of items) {
     const value = it.price * it.quantity;
     const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
@@ -966,8 +969,20 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.listingId ? { listingId: it.listingId } : {}), ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
       // The batches move too (soonest-expiring first, lib/retail-orders), so lots and expiry stay true for in-store sales.
-      let batchPatch: any = {};
-      try { const inv: any = (await db.doc(`${T}/inventory/${it.id}`).get()).data(); if (Array.isArray(inv?.batches) && inv.batches.length) batchPatch = { batches: JSON.parse(JSON.stringify(depleteBatchesFIFO(inv.batches, it.quantity).batches)) }; } catch { /* the total still moves */ }
+      let batchPatch: any = {}; let inv: any = null;
+      try { inv = (await db.doc(`${T}/inventory/${it.id}`).get()).data(); if (Array.isArray(inv?.batches) && inv.batches.length) batchPatch = { batches: JSON.parse(JSON.stringify(depleteBatchesFIFO(inv.batches, it.quantity).batches)) }; } catch { /* the total still moves */ }
+      // Food and drink sold at the desk (a café or lounge item) go to the kitchen screen to be made (app/kds), in the
+      // same write as the sale (a sale saved twice is refused whole, ticket and all). Its stock is taken here, so the
+      // kitchen doesn't take it again.
+      const toMake = it.quantity - Math.min(it.quantity, sentFromTab[String(it.id)] || 0);
+      if (sentFromTab[String(it.id)]) sentFromTab[String(it.id)] -= it.quantity - toMake;
+      if (inv?.type === 'refreshment' && inv?.sendToKitchen !== false && toMake > 0) {
+        const kKey = `${String(checkoutSessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}_${String(it.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}`;
+        kitchenLines[kKey] = (kitchenLines[kKey] || 0) + 1;   // the same item on two lines: two tickets
+        const kRef = db.doc(`${T}/kdsTickets/pos_${kKey}${kitchenLines[kKey] > 1 ? `_${kitchenLines[kKey]}` : ''}`);
+        batch.set(kRef, clean({ id: kRef.id, source: 'pos', menuItemId: it.id, menuItemName: it.name, quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
+          status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId }), { merge: true });
+      }
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
       batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: Math.max(0, num(it.stock) - it.quantity), refKind: 'checkout', refId: checkoutSessionId }));

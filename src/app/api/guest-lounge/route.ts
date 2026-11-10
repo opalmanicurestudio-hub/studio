@@ -402,37 +402,35 @@ export async function POST(req: NextRequest) {
       const requestId = str(body?.requestId, 120);
       if (!requestId) return NextResponse.json({ ok: false, error: 'Missing request.' }, { status: 400 });
       const ref = db.doc(`tenants/${tenantId}/refreshmentRequests/${requestId}`);
-      const snap = await ref.get();
-      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
-      const r = snap.data() as any;
-      if (clientId && r.clientId !== clientId) {
-        return NextResponse.json({ ok: false, error: 'Not yours to recall.' }, { status: 403 });
-      }
-      if (stageOf(r) !== 'new') {
-        // Already picked up by the back of house — recalling now would be a lie.
-        // (The guest page hides the Recall button once an order leaves `new`, so
-        // this is the belt to that braces.)
-        return NextResponse.json({ ok: false, error: 'Already being prepared. Please ask your provider.' }, { status: 409 });
-      }
-      await ref.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest' }, { merge: true });
-      try {
-        const back = Math.max(1, Math.floor(num(r.quantity) || 1));
-        const itemRef = db.doc(`tenants/${tenantId}/inventory/${str(r.itemId, 120)}`);
-        const batch = db.batch();
-        batch.set(itemRef, { totalStock: FieldValue.increment(back) }, { merge: true });
-        batch.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
-          productId: str(r.itemId, 120),
-          type: 'returned',
-          delta: back,
-          reason: `Lounge order recalled by ${str(r.clientName, 60) || 'guest'}`,
-          actorId: 'system',
-          actorName: 'Guest lounge',
-          ref: { kind: 'appointment', id: str(r.appointmentId, 120) },
-        }));
-        await batch.commit();
-      } catch (e: any) {
-        console.error('[guest-lounge] recall stock give-back failed', e?.message);
-      }
+      // In one step with the kitchen screen (api/kitchen): if the kitchen starts, cancels or hands it over at the same
+      // moment, only one of them counts. What ordering took off the shelf is put back once, and only if it was taken.
+      const out: any = await db.runTransaction(async (tx: any) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return { status: 404, error: 'Not found.' };
+        const r = snap.data() as any;
+        if (clientId && r.clientId !== clientId) return { status: 403, error: 'Not yours to recall.' };
+        // Already picked up by the back of house — recalling now would be a lie. (The guest page hides the Recall
+        // button once an order leaves `new`, so this is the belt to that braces.)
+        if (stageOf(r) !== 'new') return { status: 409, error: 'Already being prepared. Please ask your provider.' };
+        const itemId = str(r.itemId, 120);
+        const giveBack = r.stockMoved === true && !r.stockReturned && /^[A-Za-z0-9_-]{1,120}$/.test(itemId);
+        tx.set(ref, { status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest', ...(giveBack ? { stockReturned: true } : {}) }, { merge: true });
+        if (giveBack) {
+          const back = Math.max(1, Math.floor(num(r.quantity) || 1));
+          tx.set(db.doc(`tenants/${tenantId}/inventory/${itemId}`), { totalStock: FieldValue.increment(back) }, { merge: true });
+          tx.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
+            productId: itemId,
+            type: 'returned',
+            delta: back,
+            reason: `Lounge order recalled by ${str(r.clientName, 60) || 'guest'}`,
+            actorId: 'system',
+            actorName: 'Guest lounge',
+            ref: { kind: 'appointment', id: str(r.appointmentId, 120) },
+          }));
+        }
+        return { ok: true };
+      });
+      if (out.error) return NextResponse.json({ ok: false, error: out.error }, { status: out.status });
       return NextResponse.json({ ok: true });
     }
 

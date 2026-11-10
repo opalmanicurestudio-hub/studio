@@ -17,11 +17,13 @@ function apply(base: Doc, patch: Doc, deep = false) {
     const last = path[path.length - 1]; const s = v && typeof v === 'object' ? (v as any)[SENT] : undefined;
     if (s === 'inc') o[last] = (Number(o[last]) || 0) + v.n; else if (s === 'del') delete o[last]; else if (s === 'union') o[last] = [...new Set([...(o[last] || []), ...v.v])]; else if (s === 'ts') o[last] = new Date().toISOString();
     else if (deep && isPlain(v) && isPlain(o[last])) o[last] = apply(o[last], v, true);   // Firestore merges nested maps on set(…, { merge: true })
+    else if (isPlain(v) && hasSentinel(v)) o[last] = apply({}, v, true);   // a new map with an increment or arrayUnion inside it
     else o[last] = v;
   }
   return out;
 }
 const isPlain = (x: any) => !!x && typeof x === 'object' && !Array.isArray(x) && (x as any)[SENT] === undefined;
+const hasSentinel = (x: any): boolean => !!x && typeof x === 'object' && !Array.isArray(x) && ((x as any)[SENT] !== undefined || Object.values(x).some(hasSentinel));
 export function makeDb() {
   const store = new Map<string, Doc>(); let n = 0;
   // When each document was made and last changed (in milliseconds, never the same twice), as snapshots carry them.

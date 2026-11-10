@@ -2,8 +2,8 @@
 // src/app/(auth)/login/page.tsx
 //
 // SIGN IN — the same calm world as the landing page. Logic unchanged:
-// email + password through Firebase Auth → /dashboard; "Forgot password?"
-// sends Firebase's reset email, right here on the page.
+// email + password through Firebase Auth → /dashboard (or back to the page that sent them here, ?next=/kds/…, only
+// ever a page of this app); "Forgot password?" sends Firebase's reset email, right here on the page.
 
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -38,7 +38,9 @@ export default function LoginPage() {
     setBusy(true); setErr('');
     try {
       await signInWithEmailAndPassword(getAuth(), data.email, data.password);
-      router.push('/dashboard');
+      let next = '/dashboard';
+      try { const n = new URLSearchParams(window.location.search).get('next') || ''; if (/^\/[A-Za-z0-9]/.test(n) && !n.includes('//') && !n.includes('\\')) next = n; } catch { /* */ }
+      router.push(next);
     } catch {
       setErr('That email and password don’t match. Try again, or reset your password.');
     } finally { setBusy(false); }
