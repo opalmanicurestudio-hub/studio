@@ -91,8 +91,14 @@ export function moduleEnabled(tenant: any, id: ModuleId): boolean {
   return tenant?.modules?.[id] !== false;
 }
 
+/** Pages two tools share, shown when either is on: an event with a meal needs the kitchen screen and the floor board as
+ *  much as a lounge or café does. */
+export const SHARED_PAGES: Record<string, ModuleId[]> = { '/kds': ['hospitality', 'classes_events'], '/floor': ['hospitality', 'classes_events'] };
+
 /** Core pages (unclaimed by any module) are always visible. */
 export function pageVisible(tenant: any, href: string): boolean {
+  const shared = SHARED_PAGES[href];
+  if (shared) return shared.some((m) => moduleEnabled(tenant, m));
   const owner = PAGE_TO_MODULE[href];
   return owner ? moduleEnabled(tenant, owner) : true;
 }

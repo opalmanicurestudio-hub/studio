@@ -22,6 +22,8 @@ import { delaySettings } from '@/lib/delay';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { TakePayment } from '@/components/pos/desk/TakePayment';
 import { AssistQueue, AskForHelp, useAssistQueue } from '@/components/pos/desk/AssistQueue';
+import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
+import { loungeMaker } from '@/lib/kitchen';
 import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
 import { Stations } from '@/components/pos/desk/Stations';
@@ -181,7 +183,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     const first = setTimeout(run, 8000); const every = setInterval(run, 5 * 60000); return () => { clearTimeout(first); clearInterval(every); }; }, [e.tenantId]);
   const hk = useHousekeeping(e.tenantId || null, todaysAppts, e.services || [], e.staff || [], e.selectedTenant, e.appointmentsFromInventory || []);   // the housekeeping queue (badge)
   const kitsToClean = (kits || []).filter((k: any) => k.status === 'dirty' || k.status === 'out' || (k.status === 'cleaning' && Number(e.selectedTenant?.kitCapacity?.[kitKey(k.name)]?.cleanMinutes) > 0 && secondsLeft(k.at, Number(e.selectedTenant.kitCapacity[kitKey(k.name)].cleanMinutes), Date.now()) <= 0)).length;   // to clean, pulled out, or cleaning time is up
-  const assistItems = useAssistQueue(e.firestore, e.tenantId || null);   // Station Assist (O4): station requests + lounge orders + restocks
+  const loungeByDesk = loungeMaker(e.selectedTenant) === 'desk';   // lounge orders are made here, or on the kitchen screen
+  const assistItems = useAssistQueue(e.firestore, e.tenantId || null, loungeByDesk);   // Station Assist (O4): station requests + lounge orders + restocks
+  const readyToRun = useReadyToRun(e.firestore, e.tenantId || null);   // "Order up": what the kitchen has ready to carry out
   const { data: interviews } = useCollection<any>(ivQ); const { data: tours } = useCollection<any>(toursQ);
   const [moreOpen, setMoreOpen] = useState(false); const [moreTab, setMoreTab] = useState<'team' | 'waitlist' | 'spaces'>('waitlist');
   // Maintenance & disruptions — only for businesses with the maintenance tool.
@@ -700,7 +704,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     retailOn && { label: 'Order pickups', icon: 'box', onSelect: () => { setPickupScan(null); setPickupOpen(true); } },
     rentalsOn && { label: 'Collect rent', icon: 'home', onSelect: () => setRentOpen(true) },
     academyOn && { label: 'Tuition', icon: 'school', onSelect: () => setTuitionOpen(true) },
-    { label: 'Assist', icon: 'bell', count: openCount(assistItems), hint: 'Station requests, lounge orders, restocks', onSelect: () => setAssistOpen(true) },
+    { label: 'Assist', icon: 'bell', count: (Number(openCount(assistItems)) || 0) + readyToRun.length, hint: 'Ready to run, station requests, lounge orders, restocks', onSelect: () => setAssistOpen(true) },
     { label: 'Housekeeping', icon: 'broom', count: hk.tasks.length, onSelect: () => setHkOpen(true) },
     (allResources || []).length > 0 && { label: 'Stations', icon: 'station', count: needsAttention(stationRows), onSelect: () => setStationsOpen(true) },
     { label: 'Kits & linens', icon: 'box', count: kitsToClean, onSelect: () => setKitsOpen(true) },
@@ -709,7 +713,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
     { label: 'Till', icon: 'till', onSelect: () => e.setIsTillManagementOpen(true) },
     ...moreTabs.map(([k, l]) => ({ label: l, icon: k === 'team' ? 'users' : k === 'spaces' ? 'home' : 'list', onSelect: () => { setMoreTab(k as any); setMoreOpen(true); } })),
   ];
-  const toolCount = (Number(openCount(assistItems)) || 0) + hk.tasks.length + kitsToClean + ((allResources || []).length ? Number(needsAttention(stationRows)) || 0 : 0);
+  const toolCount = (Number(openCount(assistItems)) || 0) + readyToRun.length + hk.tasks.length + kitsToClean + ((allResources || []).length ? Number(needsAttention(stationRows)) || 0 : 0);
   const readyIds: string[] = Array.from(e.selectedAppointmentIds || []);
   // Phones: the view switch lives in Tools, and Walk-in / Book / Sell / Scan sit in a bar at the bottom, in thumb reach.
   const menuItems = phone && mode === 'desk' ? [...views.filter(([k]) => k !== shown).map(([k, l]) => ({ label: `Show as ${l}`, icon: k === 'day' ? 'list' : k === 'lanes' ? 'columns' : k === 'stations' ? 'users' : k === 'mix' ? 'grid' : 'clock', onSelect: () => pickView(k) })), ...toolItems] : toolItems;
@@ -816,7 +820,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={kitsOpen} onClose={() => setKitsOpen(false)} title="Kits & linens"><div className="space-y-8"><Kits firestore={e.firestore} tenantId={e.tenantId} kits={kits || []} services={e.services || []} manager={isMgr} appts={todaysAppts} inventory={allInventory || []} staff={e.staff || []} resources={allResources || []} /><section><p className="mb-2 text-[15px] font-semibold">Sterilization records</p><Sterilisation tenantId={e.tenantId} tenant={e.selectedTenant} kits={(kits || []) as any} manager={isMgr} /></section><section><p className="mb-2 text-[15px] font-semibold">Disinfection guide</p><Disinfection tenantId={e.tenantId} tenant={e.selectedTenant} manager={isMgr} /></section><section><p className="mb-2 text-[15px] font-semibold">Linens & laundry</p><Linens tenantId={e.tenantId} services={e.services || []} appts={todaysAppts} inventory={allInventory || []} manager={isMgr} staff={e.staff || []} /></section></div></Drawer>
       <ScanSheet open={scanner.open} onClose={scanner.hide} pending={scanner.pending} tenantId={e.tenantId} tenant={e.selectedTenant || tenant} appts={todaysAppts} services={e.services || []} staff={e.staff || []} manager={isMgr} inventory={e.inventory || []} />
       <Drawer accent={accent} open={hkOpen} onClose={() => setHkOpen(false)} title="Housekeeping"><Housekeeping tenantId={e.tenantId} tenant={e.selectedTenant} appts={todaysAppts} services={e.services || []} staff={e.staff || []} manager={isMgr} allAppts={e.appointmentsFromInventory || []} onGo={(w) => { setHkOpen(false); if (w === 'stations') setStationsOpen(true); else if (w === 'assist') setAssistOpen(true); else setKitsOpen(true); }} /></Drawer>
-      <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><AssistQueue firestore={e.firestore} tenantId={e.tenantId} inventory={allInventory || []} user={getAuth().currentUser} /></Drawer>
+      <Drawer accent={accent} open={assistOpen} onClose={() => setAssistOpen(false)} title="Assist"><div className="space-y-5">{readyToRun.length > 0 && <ReadyToRun tenantId={e.tenantId} list={readyToRun} />}<AssistQueue firestore={e.firestore} tenantId={e.tenantId} user={getAuth().currentUser} loungeByDesk={loungeByDesk} /></div></Drawer>
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} preselect={takeFor} onDone={() => { setPayOpen(false); setTakeFor(null); }} />}</Drawer>
       <Drawer accent={accent} open={rentOpen} onClose={() => setRentOpen(false)} title="Collect rent"><CollectRent tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addRentToCart?.({ renterId: x.renterId, name: x.name, amount: x.amount }); setRentOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>

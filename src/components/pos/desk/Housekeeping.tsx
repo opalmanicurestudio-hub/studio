@@ -25,6 +25,7 @@ import { attendantQueue, housekeepingMode, taskLimit, tasksHeldBy, attendantsOnN
 import { dayPrep } from '@/lib/day-prep';
 import { forecastVisits, paceRunway, walkInMode } from '@/lib/demand';
 import { useAssistQueue } from '@/components/pos/desk/AssistQueue';
+import { loungeMaker } from '@/lib/kitchen';
 import { LiveTimer } from '@/components/pos/desk/LiveTimer';
 import { TypeBadge, Initials } from '@/components/pos/desk/hk-ui';
 import { Stations } from '@/components/pos/desk/Stations';
@@ -47,7 +48,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   const ctq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'contactTimers'), where('doneAt', '==', null)) : null), [firestore, tenantId]); const { data: contacts } = useCollection<any>(ctq);
   const hSince = React.useMemo(() => new Date(Date.now() - 16 * 3600000).toISOString(), []);
   const hq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'opsHandovers'), where('at', '>=', hSince)) : null), [firestore, tenantId, hSince]); const { data: handovers } = useCollection<any>(hq);
-  const requests = useAssistQueue(firestore, tenantId || null);   // what providers asked for from their stations, lounge orders, restocks
+  const requests = useAssistQueue(firestore, tenantId || null, loungeMaker(tenant) === 'desk');   // what providers asked for from their stations, lounge orders, restocks
   const { data: resources } = useCollection<any>(rq); const { data: protocols } = useCollection<any>(pq); const { data: kits } = useCollection<any>(kq); const { data: kitTypes } = useCollection<any>(tq); const { data: linens } = useCollection<any>(lq);
   // The production plan: one kit / bundle set aside for each visit ahead, re-planned live.
   // Walk-ins the business expects in the next 90 minutes keep kits and bundles back for them (after booked clients).

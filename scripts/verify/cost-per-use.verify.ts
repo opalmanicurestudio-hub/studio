@@ -131,7 +131,7 @@ import { makeDb, check, failures, strictTransactions } from './fake-db';
   const lz: any = await logUse(db3, 't1', 'z', 1, '', { id: 'k1', name: 'Kai Park' });
   check('…a product with no uses set is refused with the reason, and keeps its shelf', !lz.ok && /no number of uses/.test(lz.error) && (await db3.doc('tenants/t1/inventory/z').get()).data().totalStock === 3, lz);
   const lounge = fs.readFileSync('src/lib/lounge-delivery.ts', 'utf8'); const kds = fs.readFileSync('src/app/api/kitchen/route.ts', 'utf8'); const logDlg = fs.readFileSync('src/components/inventory/LogUseDialog.tsx', 'utf8');
-  check('the lounge, the kitchen screen and Log a use all move stock with the same step as checkout', /moveStock\(product/.test(lounge) && /moveStock\(p\.data/.test(kds) && /logUseOf\(/.test(logDlg) && !/usesPerContainer/.test(lounge + kds + logDlg));
+  check('the lounge, the kitchen screen and Log a use all move stock with the same step as checkout (a lounge order only through the kitchen’s server step)', !/moveStock/.test(lounge) && /moveStock\(p\.data/.test(kds) && /logUseOf\(/.test(logDlg) && !/usesPerContainer/.test(lounge + kds + logDlg));
   const sheet = fs.readFileSync('src/components/products/UseTestSheet.tsx', 'utf8');
   check('ending a uses test offers to use the real number as the product’s own (uses per container, or what a container holds)', /\[field\]: got/.test(sheet) && /field = product\?\.costingMethod === 'uses' \? 'estimatedUses' : 'size'/.test(sheet));
   const fin = fs.readFileSync('src/app/(app)/financials/page.tsx', 'utf8');

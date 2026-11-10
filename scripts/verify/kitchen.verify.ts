@@ -23,6 +23,7 @@ import * as webMock from './web-firestore-mock';
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
 let db: any = strictTransactions(makeDb());
 let manager = true;
+let signedIn = true;
 const actor: any = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
 function StripeMock(this: any) { return { paymentIntents: { retrieve: async () => { throw new Error('no card here'); } } }; }
 const M: any = Module as any;
@@ -36,7 +37,8 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore' || /firebase-admin\/lib\/firestore\/index\.js$/.test(request)) return fake(request, { getFirestore: () => db, FieldValue: FV });
   if (request === '@/lib/staff-auth') return { verifyStaffActor: async () => ({ ok: true, actor, tenant: {} }) };
   if (request === '@/lib/route-guard') return {
-    requireRole: async (_r: any, _t: any, level: string) => (level === 'manager' && !manager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor }),
+    requireRole: async (_r: any, _t: any, level: string) => (!signedIn ? { deny: { status: 401, body: { ok: false, error: 'Please sign in again.' } } }
+      : level === 'manager' && !manager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor }),
     requireCan: async () => ({ actor }),
   };
   if (request === '@/lib/audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async () => {}, auditEntry: () => ({}) });
@@ -99,8 +101,10 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   manager = false;   // the manager signs out: the screen keeps working on its key
   r = await POST(req({ action: 'tickets', tenantId: 't1', key: 'f'.repeat(64) }));
   check('a wrong key is refused', r.status === 401, r.body);
+  signedIn = false;
   r = await POST(req({ action: 'tickets', tenantId: 't1' }));
-  check('…and no key at all', r.status === 401);
+  check('…and no key at all, with nobody signed in', r.status === 401);
+  signedIn = true;
 
   manager = true;
   const k2 = (await POST(req({ action: 'pair', tenantId: 't1', name: 'Bar' }))).body.key;
@@ -199,7 +203,7 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   const paidUp = (await POST(req({ action: 'tickets', tenantId: 't1', key }))).body.tickets.filter((t: any) => /^q[2-6]$/.test(t.id));
   for (const id of ['q2', 'q3', 'q4', 'q5', 'q6']) await POST(req({ action: 'act', tenantId: 't1', key, col: 'refreshmentRequests', id, step: 'deliver' }));
   check('…one already paid by card, on a balance, charged to the station or on a visit shows nothing to collect and books nothing more', paidUp.length === 5 && paidUp.every((t: any) => t.collect === 0) && (await all(`${T}/transactions`)).length === 1, paidUp.map((t: any) => [t.id, t.collect]));
-  check('…the desk’s own delivery follows the same rule, under the same name', /collectAtHandover\(request\) > 0/.test(src('src/lib/lounge-delivery.ts')) && /transactions\/kiosk_\$\{request\.id\}/.test(src('src/lib/lounge-delivery.ts')));
+  check('…the desk and the dashboard hand an order over with this same server step, never one of their own', /kitchenStep\(tenantId, 'refreshmentRequests', q\.id, 'deliver'\)/.test(src('src/components/pos/desk/AssistQueue.tsx')) && /kitchenStep\(tenantId, 'refreshmentRequests', String\(\(request as any\)\.id\), 'deliver'\)/.test(src('src/app/(app)/dashboard/page.tsx')) && !/deliverRefreshment|moveStock|transactions/.test(src('src/lib/lounge-delivery.ts')));
 
   console.log('the guest’s own recall');
   const { POST: LOUNGE } = await import('../../src/app/api/guest-lounge/route');
@@ -224,6 +228,49 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   await order('g4', { stockMoved: true, clientId: 'someone-else' });
   r = await LOUNGE(req({ token: 'tok1', action: 'recall', requestId: 'g4' }));
   check('…and only their own', r.status === 403 && (await get(`${T}/refreshmentRequests/g4`)).status === 'pending');
+
+  console.log('one owner per order, and order up');
+  check('the first kitchen screen took over the lounge’s orders', (await get(T))?.kitchenSettings?.loungeOrdersMadeBy === 'kitchen');
+  manager = false;
+  r = await POST(req({ action: 'maker', tenantId: 't1', maker: 'desk' }));
+  check('only a manager decides who makes them', r.status === 403);
+  manager = true;
+  r = await POST(req({ action: 'maker', tenantId: 't1', maker: 'desk' }));
+  check('…not while a lounge order is being made (it would drop off one screen without landing on the other)', r.status === 409 && /being made right now/.test(r.body.error) && (await get(T)).kitchenSettings.loungeOrdersMadeBy === 'kitchen', r.body);
+  await POST(req({ action: 'act', tenantId: 't1', key, col: 'refreshmentRequests', id: 'g3', step: 'cancel' }));
+  r = await POST(req({ action: 'maker', tenantId: 't1', maker: 'desk' }));
+  await order('m1', { stockMoved: true });
+  let up = (await POST(req({ action: 'tickets', tenantId: 't1', key }))).body.tickets;
+  check('when the desk makes lounge orders, the kitchen screen doesn’t show them (never made twice)', r.body.maker === 'desk' && !up.some((t: any) => t.col === 'refreshmentRequests') && up.some((t: any) => t.col === 'kdsTickets'), up.map((t: any) => t.id));
+  await POST(req({ action: 'maker', tenantId: 't1', maker: 'kitchen' }));
+  up = (await POST(req({ action: 'tickets', tenantId: 't1', key }))).body.tickets;
+  check('…and when the kitchen makes them, it does', up.some((t: any) => t.id === 'm1'));
+  // The front desk, signed in, hands an order over with the very same step (no key, their own name).
+  await POST(req({ action: 'act', tenantId: 't1', key, col: 'refreshmentRequests', id: 'm1', step: 'ready' }));
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'carry' }));
+  let m1 = await get(`${T}/refreshmentRequests/m1`);
+  check('“I’ll take it” from the desk: still ready, with who’s carrying it, and the guest sees it’s on its way', r.body.ok && m1.status === 'ready' && m1.carriedBy === 'Ana Ruiz' && !!m1.bringingOutAt, m1);
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'carry' }));
+  check('…a second “I’ll take it” at the same time changes nothing (one person carries it)', r.body.already === true && (await get(`${T}/refreshmentRequests/m1`)).carriedBy === 'Ana Ruiz');
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'drop' }));
+  check('…“Let someone else” frees it, and the guest no longer reads “on its way”', r.body.ok && (await get(`${T}/refreshmentRequests/m1`)).carriedBy === null && (await get(`${T}/refreshmentRequests/m1`)).bringingOutAt === null);
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'deliver' }));
+  m1 = await get(`${T}/refreshmentRequests/m1`);
+  check('…“Delivered” from the desk is the kitchen’s own step, under the desk’s name', r.body.ok && m1.status === 'delivered' && m1.deliveredBy?.name === 'Ana Ruiz' && m1.deliveredBy?.via === 'Ana Ruiz', m1);
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'deliver' }));
+  check('…and a second screen delivering it changes nothing', r.body.already === true);
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'refreshmentRequests', id: 'm1', step: 'carry' }));
+  check('…nobody carries what’s already been handed over', r.body.already === true);
+  r = await POST(req({ action: 'pin', tenantId: 't1', pin: '4821' }));
+  const r4: any = await POST(req({ action: 'forget', tenantId: 't1' }));
+  check('a signed-in team member can’t take a screen’s PIN pass or stop a screen without its key', r.status === 401 && r4.status === 401);
+  actor.isRenter = true;
+  r = await POST(req({ action: 'act', tenantId: 't1', col: 'kdsTickets', id: 'k4', step: 'claim' }));
+  actor.isRenter = false;
+  await db.doc(`${T}/staff/m1`).set({ name: 'Ana Ruiz', isActive: false }, { merge: true });
+  const r5: any = await POST(req({ action: 'act', tenantId: 't1', col: 'kdsTickets', id: 'k4', step: 'claim' }));
+  await db.doc(`${T}/staff/m1`).set({ isActive: true }, { merge: true });
+  check('a renter, or someone switched off, can’t move the shop’s tickets', r.status === 403 && r5.status === 403 && (await get(`${T}/kdsTickets/k4`)).status === 'pending');
 
   console.log('a whole course at once');
   r = await POST(req({ action: 'bump', tenantId: 't1', key, step: 'ready', tickets: [{ col: 'kdsTickets', id: 'k1' }, { col: 'kdsTickets', id: 'k2' }, { col: 'kdsTickets', id: 'k3' }] }));
@@ -267,6 +314,13 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   check('paying a table’s tab doesn’t send again what the tab already sent (only the one that wasn’t)', r.status === 200 && kt.length === 1 && kt[0].quantity === 1, { status: r.status, body: r.body, kt });
 
   console.log('the screen itself');
+  const M = await import('../../src/lib/modules');
+  check('the kitchen screen and floor board come with Events too (an event with a meal needs them)', M.pageVisible({ modules: { hospitality: false } }, '/kds') && M.pageVisible({ modules: { hospitality: false } }, '/floor')
+    && !M.pageVisible({ modules: { hospitality: false, classes_events: false } }, '/kds') && !M.pageVisible({ modules: { hospitality: false } }, '/host'));
+  check('“Order up” shows on the front desk, the dashboard and the host stand', /<ReadyToRun /.test(src('src/components/pos/desk/DeskPOS.tsx')) && /<ReadyToRun /.test(src('src/app/(app)/dashboard/page.tsx')) && /<ReadyToRun /.test(src('src/app/(app)/host/page.tsx')));
+  check('the desk lists lounge orders only when the desk makes them', /useAssistQueue\(e\.firestore, e\.tenantId \|\| null, loungeByDesk\)/.test(src('src/components/pos/desk/DeskPOS.tsx')) && /loungeByDesk \? query/.test(src('src/components/pos/desk/AssistQueue.tsx')));
+  check('the dashboard cancels with the server step too (what ordering took goes back)', /kitchenStep\(tenantId, 'refreshmentRequests', requestId, 'cancel'\)/.test(src('src/app/(app)/dashboard/page.tsx')));
+  check('the unused leftovers are gone', !['src/components/events/EventModeKiosk.tsx', 'src/components/events/EventModeScreen.tsx', 'src/components/events/EventQuotePanel.ts', 'src/components/events/manifest-tickets-tab.tsx', 'src/components/TableTab.tsx'].some((f) => existsSync(f)));
   const page = src('src/app/kds/[tenantId]/page.tsx');
   check('it reads and moves tickets only through the server, on its own key', /\/api\/kitchen/.test(page) && !/useCollection|firebase\/firestore|writeBatch|updateDoc/.test(page));
   check('…sends a pass for who’s working, never a name; stops on the server before forgetting here', /staffPass: staff\.pass/.test(page) && !/\{ staff \}/.test(page) && /if \(d\.ok \|\| status === 401\) \{ forgetHere/.test(page));

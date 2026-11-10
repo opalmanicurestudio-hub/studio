@@ -45,6 +45,7 @@ export const GUEST_STAGE_COPY: Record<'new' | 'making' | 'ready', { label: strin
   making: { label: 'Being made', note: 'Being made for you now' },
   ready: { label: 'On its way', note: 'Someone is bringing it over' },
 };
+const READY_ON_PASS = { label: 'Ready', note: 'It’s ready, and someone will bring it over' };
 
 // ── "Need a hand?" ──────────────────────────────────────────────────────────
 // Separate from the menu: that one means "bring me something" and lands on the team's request board; this one means
@@ -203,7 +204,9 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
       {live.length > 0 && <section aria-label="On its way">
         <VisitLabel>On its way</VisitLabel>
         <div className="v-grp" aria-live="polite">{live.map((r) => {
-          const st = guestStageOf(r) as 'new' | 'making' | 'ready'; const copy = GUEST_STAGE_COPY[st] || GUEST_STAGE_COPY.new;
+          const st = guestStageOf(r) as 'new' | 'making' | 'ready';
+          // "On its way" once someone has it in hand; ready on the pass but not yet picked up says just that.
+          const copy = (r as any).bringingOutAt ? GUEST_STAGE_COPY.ready : st === 'ready' ? READY_ON_PASS : GUEST_STAGE_COPY[st] || GUEST_STAGE_COPY.new;
           return <div key={r.id} className="v-row">
             <span className="v-ico" aria-hidden>{st === 'ready' ? ico(Bell) : st === 'making' ? ico(Coffee) : <span className="pub-breathe" />}</span>
             <span className="min-w-0 flex-1 py-3"><span className="block truncate font-semibold">{r.itemName}{num(r.quantity) > 1 ? ` ×${num(r.quantity)}` : ''}</span>

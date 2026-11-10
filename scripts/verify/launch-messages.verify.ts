@@ -98,7 +98,7 @@ let sent: Sent[] = [];
   check('a menu a business started from tells what kind it is', guessNiche({ movingIn: { starterMenu: 'tattoo' } }) === 'tattoo' && guessNiche({ movingIn: { starterMenu: 'fitness' } }) === 'fitness' && guessNiche({ movingIn: { starterMenu: 'general' } }) === 'general');
   const dash = read('src/app/(app)/dashboard/page.tsx');
   check('the first screen is in plain words, without salon or lounge jargon', !/Command Hub|Hospitality Priority|Live Studio Pulse|Studio Performance|Asset Safeguard|Arrears Recovery|Technical Sessions|Yield Dossier/.test(dash) && /AppHeader title="Today"/.test(dash));
-  check('the lounge sections show only for a business that uses its lounge', /const usesLounge = moduleEnabled\(selectedTenant, 'hospitality'\) && \(/.test(dash) && (dash.match(/\{usesLounge && \(/g) || []).length === 2);
+  check('the lounge sections show only for a business that uses its lounge', /const usesLounge = moduleEnabled\(selectedTenant, 'hospitality'\) && \(/.test(dash) && (dash.match(/\{usesLounge && (!loungeByKitchen && )?\(/g) || []).length === 2);
   check('what’s owed shows in amber, not the red kept for deleting', !/destructive/.test(dash.slice(dash.indexOf('const owed ='))));
   const side = read('src/components/shared/AppSidebar.tsx'); const add = read('src/components/staff/AddStaffDialog.tsx');
   check('shared screens use plain words, not salon ones', !/area: 'Studio'|label="Studio"|'Your studio'/.test(side) && !/Studio Role|technician|studio credentials/.test(add));

@@ -4,7 +4,13 @@
 // always writes where it lives (a table tab's ticket used to be written to the lounge's, and never moved). Pure.
 
 export type KitchenCol = 'refreshmentRequests' | 'kdsTickets';
-export type KitchenStep = 'claim' | 'release' | 'ready' | 'deliver' | 'cancel';
+export type KitchenStep = 'claim' | 'release' | 'ready' | 'carry' | 'drop' | 'deliver' | 'cancel';
+
+/** Who makes the lounge's drinks and extras: the kitchen screen, or the front desk (its Assist list). One or the other,
+ *  never both, so an order is never made twice. Set in Settings or when a kitchen screen is set up; the desk by default. */
+export function loungeMaker(tenant: any): 'kitchen' | 'desk' {
+  return tenant?.kitchenSettings?.loungeOrdersMadeBy === 'kitchen' ? 'kitchen' : 'desk';
+}
 export const ACTIVE_STATUSES = ['pending', 'in_progress', 'ready'] as const;
 
 /** Which steps a ticket can take from where it is. */
@@ -13,6 +19,7 @@ export function canStep(status: string, step: KitchenStep): boolean {
   if (step === 'claim') return s === 'pending';
   if (step === 'release') return s === 'in_progress';
   if (step === 'ready') return s === 'pending' || s === 'in_progress';
+  if (step === 'carry' || step === 'drop') return s === 'ready';   // taking it out, or letting someone else (once each: see api/kitchen)
   if (step === 'deliver') return s === 'pending' || s === 'in_progress' || s === 'ready';
   if (step === 'cancel') return s === 'pending' || s === 'in_progress' || s === 'ready';
   return false;
@@ -55,6 +62,7 @@ export function ticketFrom(d: any, col: KitchenCol) {
     isRedemption: r.isRedemption === true,
     collect: col === 'refreshmentRequests' ? collectAtHandover(r) : 0,
     readyAt: r.readyAt || null, deliveredAt: r.deliveredAt || null,
+    carriedBy: String(r.carriedBy || r.bringingOutBy || '').trim() || null,
   };
 }
 export type KitchenTicket = ReturnType<typeof ticketFrom>;

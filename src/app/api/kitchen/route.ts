@@ -7,6 +7,9 @@
 //   pair    { tenantId, name }                     (a manager, signed in) → the screen's key, shown once and kept on it
 //   screens { tenantId }                           (a manager) → this business's screens, to stop one that's lost
 //   revoke  { tenantId, id }                       (a manager) → that screen stops working
+//   maker   { tenantId, maker: 'kitchen'|'desk' }   (a manager) → who makes the lounge's orders (lib/kitchen loungeMaker)
+// A team member signed in on their own device can list, move and bump tickets too (no key: their sign-in instead), so
+// the front desk and the dashboard hand a lounge order over with this same step, never one of their own.
 //   tickets { tenantId, key, eventId? }            → the tickets waiting, being made and ready, from both places they
 //                                                    live (lib/kitchen), the items they use, and today's for the numbers
 //   pin     { tenantId, key, pin }                 → who's working, checked here (lib/pin, with its lockout): a pass for
@@ -28,7 +31,7 @@ import { limitPublic } from '@/lib/rate-limit';
 import { findStaffByPin, pinLocked, recordPinAttempt, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
 import { buildEntry } from '@/lib/stock-ledger';
-import { ticketFrom, canStep, collectAtHandover, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
+import { ticketFrom, canStep, collectAtHandover, loungeMaker, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
 
@@ -37,7 +40,7 @@ const bad = (error: string, status = 400) => NextResponse.json({ ok: false, erro
 const hash = (k: string) => createHash('sha256').update(String(k)).digest('hex');
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const COLS: KitchenCol[] = ['refreshmentRequests', 'kdsTickets'];
-const STEPS: KitchenStep[] = ['claim', 'release', 'ready', 'deliver', 'cancel'];
+const STEPS: KitchenStep[] = ['claim', 'release', 'ready', 'carry', 'drop', 'deliver', 'cancel'];
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 const PASS_MS = 12 * 3600000, MAX_PASSES = 40;
@@ -73,6 +76,9 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     if (!snap.exists) return { error: 'That ticket is gone.', status: 404 };
     const r: any = snap.data() || {};
     if (!canStep(r.status, step)) return { already: true, status: r.status };
+    // One person carries it: a second "I'll take it" (two people tapping at once) changes nothing.
+    const carried = !!(r.carriedBy || r.bringingOutBy);   // the desk's older "Bringing it" counts as someone carrying it
+    if ((step === 'carry' && carried) || (step === 'drop' && !carried)) return { already: true, status: r.status };
     const lounge = col === 'refreshmentRequests';
     const qty = Math.max(1, Math.round(num(r.quantity) || 1));
     const itemId = String(r.itemId || r.menuItemId || '');
@@ -101,6 +107,10 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }
       : step === 'ready' ? { status: 'ready', readyAt: now, ...(r.claimedBy ? {} : { claimedBy: by }) }
+      // "I'll take it": still ready, now with someone carrying it (a lounge guest sees it's on its way). "Let someone
+      // else" frees it again.
+      : step === 'carry' ? { carriedBy: by.name, carriedAt: now, ...(lounge ? { bringingOutAt: now, bringingOutBy: by.name } : {}) }
+      : step === 'drop' ? { carriedBy: null, carriedAt: null, ...(lounge ? { bringingOutAt: null, bringingOutBy: null } : {}) }
       : step === 'deliver' ? { status: 'delivered', deliveredAt: now, deliveredBy: by }
       : { status: 'cancelled', cancelledAt: now, cancelledBy: by };
     if (lounge && step === 'deliver' && parts.length) {
@@ -150,10 +160,22 @@ export async function POST(req: NextRequest) {
       const key = randomBytes(32).toString('hex');
       const name = String(b.name || '').trim().slice(0, 40) || 'Kitchen';
       await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
-      return ok({ key, name });
+      // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk.
+      const tRef = db.doc(`tenants/${tenantId}`); const t0: any = (await tRef.get()).data() || {};
+      if (!t0.kitchenSettings?.loungeOrdersMadeBy) await tRef.set({ kitchenSettings: { loungeOrdersMadeBy: 'kitchen' } }, { merge: true });
+      return ok({ key, name, maker: t0.kitchenSettings?.loungeOrdersMadeBy || 'kitchen' });
     }
-    if (action === 'screens' || action === 'revoke') {
+    if (action === 'screens' || action === 'revoke' || action === 'maker') {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
+      if (action === 'maker') {
+        const to = b.maker === 'kitchen' ? 'kitchen' : b.maker === 'desk' ? 'desk' : null; if (!to) return bad('The kitchen or the desk?');
+        // Not while an order is being made: it would drop off the one screen without landing on the other.
+        const making = await db.collection(`tenants/${tenantId}/refreshmentRequests`).where('status', '==', 'in_progress').limit(5).get();
+        const was: any = (await db.doc(`tenants/${tenantId}`).get()).data();
+        if (!making.empty && loungeMaker(was) !== to) return bad(`${making.size === 5 ? 'Some' : making.size} lounge ${making.size === 1 ? 'order is' : 'orders are'} being made right now. Switch once ${making.size === 1 ? 'it’s' : 'they’re'} done.`, 409);
+        await db.doc(`tenants/${tenantId}`).set({ kitchenSettings: { loungeOrdersMadeBy: to } }, { merge: true });
+        return ok({ maker: to });
+      }
       if (action === 'revoke') {
         const id = String(b.id || ''); if (!/^[0-9a-f]{64}$/.test(id)) return bad('Which screen?');
         const ref = db.doc(`kitchenScreens/${id}`); const s: any = (await ref.get()).data();
@@ -164,10 +186,23 @@ export async function POST(req: NextRequest) {
       const snap = await db.collection('kitchenScreens').where('tenantId', '==', tenantId).limit(50).get();
       const screens = snap.docs.map((d: any) => { const x: any = d.data() || {}; return { id: d.id, name: String(x.name || 'Kitchen'), createdAt: x.createdAt || null, createdBy: x.createdBy || null, lastSeenAt: x.lastSeenAt || null }; })
         .filter((_: any, i: number) => !(snap.docs[i].data() || {}).revokedAt).sort((a: any, b2: any) => String(b2.lastSeenAt || '').localeCompare(String(a.lastSeenAt || '')));
-      return ok({ screens });
+      return ok({ screens, maker: loungeMaker((await db.doc(`tenants/${tenantId}`).get()).data()) });
     }
 
-    const screen = await screenOf(db, tenantId, b.key);
+    let screen: any = await screenOf(db, tenantId, b.key);
+    // A team member signed in on their own device (the front desk, the dashboard, the host stand) takes the same steps,
+    // under their own name. Setting up, stopping and PINs stay with a screen.
+    let teamMember: { id: string; name: string } | null = null;
+    if (!screen && !b.key && ['tickets', 'act', 'bump'].includes(action)) {
+      const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
+      // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
+      // someone switched off isn't on the team any more.
+      if (g.actor?.isRenter) return bad('This is for the business’s own team.', 403);
+      const me: any = ID.test(String(g.actor?.uid || '')) ? (await db.doc(`tenants/${tenantId}/staff/${g.actor.uid}`).get()).data() : null;
+      if (me && (me.isActive === false || me.status === 'archived' || me.archived === true)) return bad('This is for the business’s own team.', 403);
+      teamMember = { id: String(g.actor?.uid || ''), name: String(g.actor?.name || 'A team member').slice(0, 60) };
+      screen = { ref: null, name: teamMember.name, passes: {} };
+    }
     if (!screen) {
       // Guessing keys gets nowhere, but it isn't free to answer: a few dozen wrong tries an hour from one place.
       const slow = await limitPublic(req, 'kitchen_key', tenantId, { perHour: 60, perDay: 2000 }); if (slow) return slow;
@@ -191,7 +226,9 @@ export async function POST(req: NextRequest) {
         db.collection(`${T}/kdsTickets`).where('createdAt', '>=', since).orderBy('createdAt').limit(1500).get().catch(() => ({ docs: [] as any[] })),
       ]);
       const eventId = b.eventId && ID.test(String(b.eventId)) ? String(b.eventId) : null;
-      let tickets = [...la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')), ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
+      // Lounge orders show here only when the kitchen makes them (lib/kitchen loungeMaker); otherwise the desk does.
+      const lounge = loungeMaker(tenant) === 'kitchen' ? la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')) : [];
+      let tickets = [...lounge, ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
       if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
       // The items they use: a picture and what each is made of (for the label), nothing about cost.
       const ids = Array.from(new Set(tickets.map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 100);
@@ -213,8 +250,8 @@ export async function POST(req: NextRequest) {
       // This pass added on its own (two people signing in at once each keep theirs), and passes that have run out removed.
       const patch: any = { [`passes.${hash(pass)}`]: { id: hit.id, name: hit.name, exp: nowMs + PASS_MS } };
       // …and, past a few dozen still good, the oldest of those too (the screen's record stays small).
-      const live = Object.entries(screen.passes).filter(([h, x]) => Number(x?.exp) > nowMs && /^[0-9a-f]{64}$/.test(h)).sort((a, b2) => Number(a[1].exp) - Number(b2[1].exp));
-      const drop = [...Object.entries(screen.passes).filter(([h, x]) => !(Number(x?.exp) > nowMs) && /^[0-9a-f]{64}$/.test(h)), ...live.slice(0, Math.max(0, live.length - (MAX_PASSES - 1)))];
+      const live = Object.entries(screen.passes as Record<string, { id: string; name: string; exp: number }>).filter(([h, x]) => Number(x?.exp) > nowMs && /^[0-9a-f]{64}$/.test(h)).sort((a, b2) => Number(a[1].exp) - Number(b2[1].exp));
+      const drop = [...Object.entries(screen.passes as Record<string, { id: string; name: string; exp: number }>).filter(([h, x]) => !(Number(x?.exp) > nowMs) && /^[0-9a-f]{64}$/.test(h)), ...live.slice(0, Math.max(0, live.length - (MAX_PASSES - 1)))];
       for (const [h] of drop) patch[`passes.${h}`] = FieldValue.delete();
       await screen.ref.update(patch);
       return ok({ staff: { id: hit.id, name: hit.name }, pass });
@@ -222,9 +259,9 @@ export async function POST(req: NextRequest) {
 
     // Who's working comes only from a pass this route gave (a PIN checked here), never from a name the screen sends; and
     // only while they're still on the team.
-    let staff = staffOf(screen, b.staffPass);
-    if (staff) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (!st || st.isActive === false || st.status === 'archived') staff = null; }
-    const staffOk = b.staffPass ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
+    let staff = teamMember || staffOf(screen, b.staffPass);
+    if (staff && !teamMember) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (!st || st.isActive === false || st.status === 'archived') staff = null; }
+    const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
 
     if (action === 'act') {
       const col = String(b.col || '') as KitchenCol; const id = String(b.id || ''); const step = String(b.step || '') as KitchenStep;

@@ -21,6 +21,7 @@
 
 import { Drawer } from '@/components/pos/desk/kit';
 import { TableTab } from '@/components/host/TableTab';
+import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc, where,
@@ -49,6 +50,7 @@ export default function HostScreen() {
   const { selectedTenant } = useTenant();
   const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
   const tenantId = selectedTenant?.id ?? null;
+  const readyToRun = useReadyToRun(firestore, tenantId);   // "Order up": food and drink ready to carry to a table
   const { toast } = useToast();
 
   const [session, setSession] = useState<ServiceSession | null>(null);
@@ -421,6 +423,8 @@ export default function HostScreen() {
           Host {session ? `· ${session.businessDay}` : ''}
         </h1>
       </div>
+
+      {firestore && tenantId && readyToRun.length > 0 && <div className="rounded-2xl border bg-card p-4"><ReadyToRun tenantId={tenantId} list={readyToRun} /></div>}
 
       {alerts.length > 0 && (
         <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3 space-y-1">

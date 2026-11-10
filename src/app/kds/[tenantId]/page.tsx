@@ -255,7 +255,9 @@ function Setup({ tenantId, stopped, closed, onPaired }: { tenantId: string; stop
   const [screens, setScreens] = useState<{ id: string; name: string; lastSeenAt: string | null; createdBy: string | null }[] | null>(null);
   const call = async (body: any) => { const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...body }) }); return r.json().catch(() => ({})); };
   // A manager signed in here sees the screens already set up, to stop one that's lost or no longer used.
-  useEffect(() => { if (!user) return; call({ action: 'screens' }).then((d) => setScreens(d.ok ? d.screens || [] : null), () => setScreens(null)); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [maker, setMaker] = useState<'kitchen' | 'desk' | null>(null);
+  useEffect(() => { if (!user) return; call({ action: 'screens' }).then((d) => { setScreens(d.ok ? d.screens || [] : null); if (d.ok) setMaker(d.maker === 'kitchen' ? 'kitchen' : 'desk'); }, () => setScreens(null)); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickMaker = async (to: 'kitchen' | 'desk') => { const was = maker; setMaker(to); const d = await call({ action: 'maker', maker: to }).catch(() => ({})); if (!d.ok) { setMaker(was); setErr(d.error || 'That didn’t save. Try again.'); } };
   const stop = async (id: string) => { const d = await call({ action: 'revoke', id }).catch(() => ({})); if (d.ok) setScreens((l) => (l || []).filter((x) => x.id !== id)); else setErr(d.error || 'That screen couldn’t be stopped. Try again.'); };
   const pair = async () => {
     setBusy(true); setErr('');
@@ -287,6 +289,17 @@ function Setup({ tenantId, stopped, closed, onPaired }: { tenantId: string; stop
             {err && <p className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
             <button type="button" onClick={pair} disabled={busy} className={`${btn} w-full`} style={{ background: INK, color: '#fff' }}>{busy ? 'Setting up…' : 'Set up this screen'}</button>
             <p className="text-[13px]" style={{ color: MUTED }}>Signed in as {user.email || 'you'}. Only an owner or manager can set up a screen.</p>
+            {maker && (
+              <div className="pt-3 space-y-2" style={{ borderTop: `1px solid ${LINE}` }}>
+                <p className="text-[14px] font-medium">Who makes the lounge’s drinks and extras?</p>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Who makes lounge orders">
+                  {([['kitchen', 'The kitchen screen'], ['desk', 'The front desk']] as const).map(([v, label]) => (
+                    <button key={v} type="button" role="radio" aria-checked={maker === v} onClick={() => pickMaker(v)} className="min-h-[44px] px-3 rounded-xl text-[14px]" style={maker === v ? { border: `2px solid ${INK}`, fontWeight: 600, color: INK, background: '#fff' } : { border: `1px solid ${LINE}`, color: INK, background: '#fff' }}>{label}</button>
+                  ))}
+                </div>
+                <p className="text-[13px]" style={{ color: MUTED }}>One or the other, so an order is never made twice. Ready orders show on the desk either way, to carry out.</p>
+              </div>
+            )}
             {screens && screens.length > 0 && (
               <div className="pt-3 space-y-2" style={{ borderTop: `1px solid ${LINE}` }}>
                 <p className="text-[14px] font-medium">Screens already set up</p>
@@ -396,7 +409,7 @@ export default function KitchenScreen() {
 
   const setBusy = (ids: string[], on: boolean) => setBusyIds((prev) => { const n = new Set(prev); for (const i of ids) { if (on) n.add(i); else n.delete(i); } return n; });
   const local = (list: KitchenTicket[], status: string) => setData((d) => d ? { ...d, tickets: d.tickets.map((t) => list.some((x) => x.id === t.id && x.col === t.col) ? { ...t, status, ...(status === 'in_progress' && staff ? { claimedBy: { staffId: staff.id, name: staff.name } } : {}) } : t).filter((t) => ['pending', 'in_progress', 'ready'].includes(t.status)) } : d);
-  const after: Record<KitchenStep, string> = { claim: 'in_progress', release: 'pending', ready: 'ready', deliver: 'delivered', cancel: 'cancelled' };
+  const after: Record<KitchenStep, string> = { claim: 'in_progress', release: 'pending', ready: 'ready', carry: 'ready', drop: 'ready', deliver: 'delivered', cancel: 'cancelled' };
 
   const step = async (t: KitchenTicket, s: KitchenStep) => {
     acted.current++; setBusy([t.id], true);

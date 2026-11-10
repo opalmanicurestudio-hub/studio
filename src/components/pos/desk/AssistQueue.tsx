@@ -2,21 +2,24 @@
 // src/components/pos/desk/AssistQueue.tsx — STATION ASSIST (O4) on the desk: ask for help, and answer it.
 // One queue: station requests (towels, supplies, a hand, a drink for a client…), lounge orders and supply restocks,
 // escalated first. Station requests: I'll get it → Delivered, Suggest a swap (the requester approves), Cancel.
-// Lounge orders: Bringing it (the guest is told) → Delivered (the shared delivery step). Restocks: review in Inventory.
+// Lounge orders, when the desk makes them (lib/kitchen loungeMaker; otherwise the kitchen screen does): Bringing it (the
+// guest is told) → Delivered (the kitchen's own server step, lib/kitchen-client, so it's handed over once). Restocks:
+// review in Inventory.
 import * as React from 'react';
 import { collection, doc, query, updateDoc, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useCollection, useMemoFirebase } from '@/firebase';
 import { assistQueue, ASSIST_PRESETS, URGENCY_LABEL, type AssistKind, type AssistUrgency, type QueueItem } from '@/lib/assist';
-import { deliverRefreshment, bringingRefreshmentPatch } from '@/lib/lounge-delivery';
+import { bringingRefreshmentPatch } from '@/lib/lounge-delivery';
+import { kitchenStep } from '@/lib/kitchen-client';
 
 async function api(body: any) { const tk = await getAuth().currentUser?.getIdToken();
   const r = await fetch('/api/assist', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) });
   return r.json().catch(() => ({ ok: false, error: 'That didn’t work.' })); }
 
-export function useAssistQueue(firestore: any, tenantId: string | null) {
+export function useAssistQueue(firestore: any, tenantId: string | null, loungeByDesk = true) {
   const aQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'assistRequests'), where('status', 'in', ['open', 'accepted'])) : null), [firestore, tenantId]);
-  const lQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), where('status', '==', 'pending')) : null), [firestore, tenantId]);
+  const lQ = useMemoFirebase(() => (firestore && tenantId && loungeByDesk ? query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), where('status', '==', 'pending')) : null), [firestore, tenantId, loungeByDesk]);
   const rQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'staffReplenishmentRequests'), where('status', '==', 'pending')) : null), [firestore, tenantId]);
   const { data: a } = useCollection<any>(aQ); const { data: l } = useCollection<any>(lQ); const { data: r } = useCollection<any>(rQ);
   const [now, setNow] = React.useState(Date.now());
@@ -54,8 +57,8 @@ export function AskForHelp({ tenantId, context, onDone }: { tenantId: string; co
   );
 }
 
-export function AssistQueue({ firestore, tenantId, inventory, user }: { firestore: any; tenantId: string; inventory: any[]; user: any }) {
-  const items = useAssistQueue(firestore, tenantId);
+export function AssistQueue({ firestore, tenantId, user, loungeByDesk = true }: { firestore: any; tenantId: string; inventory?: any[]; user: any; loungeByDesk?: boolean }) {
+  const items = useAssistQueue(firestore, tenantId, loungeByDesk);
   const [busy, setBusy] = React.useState<string | null>(null); const [err, setErr] = React.useState<string | null>(null);
   const [swap, setSwap] = React.useState<{ id: string; text: string } | null>(null); const [asking, setAsking] = React.useState(false);
   const run = async (key: string, fn: () => Promise<any>) => { setBusy(key); setErr(null); try { const r = await fn(); if (r && r.ok === false) setErr(r.error || 'That didn’t work.'); } catch { setErr('That didn’t work — try again.'); } setBusy(null); };
@@ -63,7 +66,7 @@ export function AssistQueue({ firestore, tenantId, inventory, user }: { firestor
   const lounge = {
     bringing: (q: QueueItem) => run(q.id + 'b', async () => { await updateDoc(doc(firestore, 'tenants', tenantId, 'refreshmentRequests', q.id), bringingRefreshmentPatch(user));
       void fetch('/api/retail/lounge-notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, requestId: q.id, moment: 'out' }), keepalive: true }).catch(() => undefined); return { ok: true }; }),
-    delivered: (q: QueueItem) => run(q.id + 'd', async () => ({ ok: await deliverRefreshment(firestore, tenantId, q.raw, inventory, user), error: 'That item isn’t in your inventory any more.' })),
+    delivered: (q: QueueItem) => run(q.id + 'd', () => kitchenStep(tenantId, 'refreshmentRequests', q.id, 'deliver')),
   };
   const time = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
   return (

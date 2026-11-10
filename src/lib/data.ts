@@ -1533,7 +1533,7 @@ export type RefreshmentRequest = {
     status: 'pending' | 'delivered' | 'cancelled';
     requestedAt: string;
     deliveredAt?: string;
-    deliveredBy?: string;
+    deliveredBy?: string | { staffId: string | null; name: string; via?: string };   // who handed it over (api/kitchen writes the object)
     stationName?: string;
     staffName?: string;
     priceAtRequest?: number;

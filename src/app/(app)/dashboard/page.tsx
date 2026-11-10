@@ -3,7 +3,9 @@
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { useClientsOwing } from '@/hooks/use-clients';
-import { deliverRefreshment } from '@/lib/lounge-delivery';
+import { kitchenStep } from '@/lib/kitchen-client';
+import { loungeMaker } from '@/lib/kitchen';
+import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
 import { moduleEnabled } from '@/lib/modules';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -424,20 +426,18 @@ export default function DashboardPage() {
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
+  const readyToRun = useReadyToRun(firestore, tenantId || null);   // "Order up": ready on the kitchen screen, to carry out
   const pendingRequests = useMemo(() => 
     refreshmentRequests?.filter(r => r.status === 'pending' && safeDate(r.requestedAt) >= today) || []
   , [refreshmentRequests, today]);
 
+  // Handed over with the kitchen's own server step (lib/kitchen-client): stock, a member perk and the visit are counted
+  // once, however many screens show the order.
   const handleDeliverRefreshment = async (request: RefreshmentRequest) => {
-      if (!firestore || !tenantId || !inventory) return;
-      
-      try {
-          await deliverRefreshment(firestore, tenantId, request, inventory as any[], user);
-          toast({ title: "Delivery Certified", description: `Stock reconciled and record updated for ${request.clientName}.` });
-      } catch (e) {
-          console.error("Fulfillment failed:", e);
-          toast({ variant: 'destructive', title: "Process Error", description: "Audit synchronization failed." });
-      }
+      if (!tenantId) return;
+      const r = await kitchenStep(tenantId, 'refreshmentRequests', String((request as any).id), 'deliver');
+      if (r.ok) toast({ title: r.already ? 'Already handed over' : 'Delivered', description: r.already ? `${request.clientName}’s order was already handed over.` : `${request.clientName} has their order.` });
+      else toast({ variant: 'destructive', title: 'That didn’t go through', description: r.error || 'Try again.' });
   };
 
   /**
@@ -492,12 +492,12 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingRequests, tenantId]);
 
+  // Cancelled with the same server step: anything ordering took off the shelf goes back, once.
   const handleCancelRefreshment = async (requestId: string) => {
-      if (!firestore || !tenantId) return;
-      updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId), {
-          status: 'cancelled'
-      });
-      toast({ title: "Order Removed", description: "The request has been voided." });
+      if (!tenantId) return;
+      const r = await kitchenStep(tenantId, 'refreshmentRequests', requestId, 'cancel');
+      if (r.ok) toast({ title: 'Order cancelled', description: 'Anything taken off the shelf for it was put back.' });
+      else toast({ variant: 'destructive', title: 'That didn’t go through', description: r.error || 'Try again.' });
   };
 
   const dashboardMetrics = useMemo(() => {
@@ -546,6 +546,7 @@ export default function DashboardPage() {
   // business that has its lounge tool on and has had a request today, so a business without one never sees them.
   const owed = safeNumber(dashboardMetrics.totalArrears);
   const usesLounge = moduleEnabled(selectedTenant, 'hospitality') && ((pendingRequests?.length || 0) > 0 || safeNumber(dashboardMetrics.totalHospitalityRequests) > 0);
+  const loungeByKitchen = loungeMaker(selectedTenant) === 'kitchen';   // then the kitchen screen makes them, not this list
   const bookedToday = safeNumber(appointments?.filter(a => isToday(safeDate(a.startTime))).length);
   const stat = (label: string, value: React.ReactNode, note?: string, tone?: 'warn') => (
     <div className={cn('rounded-2xl border bg-card p-4 md:p-5', tone === 'warn' ? 'border-amber-200 dark:border-amber-900' : 'border-border')}>
@@ -571,7 +572,8 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8 text-left">
-            {usesLounge && (
+            {readyToRun.length > 0 && tenantId && <ReadyToRun tenantId={tenantId} list={readyToRun} />}
+            {usesLounge && !loungeByKitchen && (
               <section className="space-y-4">
                 {heading('Lounge requests', <Badge variant="secondary" className="h-7 rounded-full px-3 text-[13px] font-medium">{pendingRequests?.length || 0} waiting</Badge>)}
                 <RefreshmentQueue
