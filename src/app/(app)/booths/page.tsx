@@ -61,12 +61,14 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 // Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
 // <Suspense> boundary so useSearchParams() doesn't force /booths into a
 // client-only bailout during static prerender.
-function TabQuerySync({ onTab, onLease, onSettings, onAddRenter }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string) => void; onSettings?: () => void; onAddRenter?: () => void }) {
+function TabQuerySync({ onTab, onLease, onSettings, onAddRenter }: { onTab: (t: 'spaces' | 'ops') => void; onLease?: (renterId: string, boothId?: string | null) => void; onSettings?: () => void; onAddRenter?: () => void }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab');
   // ?lease=<renterId> — the Renters page hands off here for the one wizard
   // that still lives on this page. Fires once per id.
   const lease = searchParams.get('lease');
+  // &space=<boothId> — the lease builder opens with that space already picked.
+  const space = searchParams.get('space');
   useEffect(() => {
     // ?tab=money still arrives from old links; the Money tab folded into /rent,
     // so those land on Operations rather than a blank page.
@@ -76,8 +78,8 @@ function TabQuerySync({ onTab, onLease, onSettings, onAddRenter }: { onTab: (t: 
   // Once per id: the handlers are new on every render, so without this the wizard would reopen itself over and over.
   const leaseFired = useRef('');
   useEffect(() => {
-    if (lease && onLease && leaseFired.current !== lease) { leaseFired.current = lease; onLease(lease); }
-  }, [lease, onLease]);
+    if (lease && onLease && leaseFired.current !== lease) { leaseFired.current = lease; onLease(lease, space); }
+  }, [lease, space, onLease]);
   // ?settings=1 — Settings → Your tools → Booth rentals opens the booth settings straight away.
   const wantSettings = searchParams.get('settings') === '1';
   useEffect(() => { if (wantSettings && onSettings) onSettings(); }, [wantSettings, onSettings]);
@@ -103,7 +105,8 @@ import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { RentalsNav } from '@/components/renters/RentalsNav';
+import { RentalsHeader, RENTALS_BTN, RENTALS_BTN_DARK } from '@/components/renters/RentalsNav';
+import { SpacesBoard } from '@/components/renters/SpacesBoard';
 import { occupancy, spaceStates, monthlyCents, askingMonthlyCents, RUNNING, leaseEnding } from '@/lib/rentals-home';
 import { CommsTrail } from '@/components/shared/CommsTrail';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
@@ -1953,7 +1956,11 @@ export default function BoothsPage() {
   const [plannerDay, setPlannerDay] = useState<string>(localISO());
 
   const [kioskCopied, setKioskCopied] = useState(false);
-  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
+  // The list answers who has each space, until when, and what it brings in; the floor is a click away and remembered.
+  // Unknown until this device's choice is read, so neither view flashes up first.
+  const [spaceView, setSpaceViewState] = useState<'floor' | 'list' | null>(null);
+  useEffect(() => { let v: string | null = null; try { v = localStorage.getItem('cf-spaces-view'); } catch { /* not stored */ } setSpaceViewState(v === 'floor' ? 'floor' : 'list'); }, []);
+  const setSpaceView = (v: 'floor' | 'list') => { setSpaceViewState(v); try { localStorage.setItem('cf-spaces-view', v); } catch { /* not stored */ } };
   // ── Floor lenses: the map answers ONE question at a time ────────────
   // now = who's here (live status, timers) · money = what each space earns
   // this month + what vacancies cost · schedule = who's due in next.
@@ -2817,7 +2824,8 @@ export default function BoothsPage() {
         summary: `Converted ${name || 'contact'} to a renter${boothName ? ` · ${boothName}` : ''}`,
         actor: { type: 'user' },
       });
-      toast({ title: 'Converted to renter', description: `${name || 'They'} are now a renter — assign their booth with a lease, then run onboarding.` });
+      toast({ title: 'Now a renter', description: `${name || 'They'} can have a lease now${boothName ? ` for ${boothName}` : ''}.`,
+        ...(rid ? { action: <ToastAction altText="Write the lease" onClick={() => openLeaseWizard(rid, sourceApp?.boothId || null)}>Write the lease</ToastAction> } : {}) });
       setManagingTour(null);
       setProfileContact(null);
     } catch {
@@ -2875,6 +2883,7 @@ export default function BoothsPage() {
   // ── Lease wizard state ──────────────────────────────────────────────────────
   // The lease builder (components/renters/LeaseBuilder): six steps, the lease's words beside the fields.
   const [builderRenterId, setBuilderRenterId] = useState<string | null>(null);
+  const [builderBoothId, setBuilderBoothId] = useState<string | null>(null);
 
   const [statusTarget, setStatusTarget] = useState<Renter | null>(null);
   const [newStatus, setNewStatus] = useState<RenterStatus>('on_leave');
@@ -3609,6 +3618,8 @@ export default function BoothsPage() {
 
   // The numbers at the top, by the same rule as the Rentals home (lib/rentals-home): a space is taken when a lease
   // holds it, open when nothing does; the rent roll is every running lease at a month's rent.
+  // The Spaces list reads again when a space or lease changes here (a save, a new lease, one ended).
+  const spacesKey = useMemo(() => [...(booths.data || []), ...(leases.data || [])].map((x: any) => `${x.id}:${x.status || ''}:${x.updatedAt || ''}`).join('|'), [booths.data, leases.data]);
   const metrics = useMemo(() => {
     const all = (booths.data ?? []) as any[]; const ls = (leases.data ?? []) as any[];
     const o = occupancy(all, ls);
@@ -4602,7 +4613,7 @@ export default function BoothsPage() {
 
   // ── Lease wizard ─────────────────────────────────────────────────────────────
 
-  const openLeaseWizard = (renterId: string) => { setBuilderRenterId(renterId); };
+  const openLeaseWizard = (renterId: string, boothId?: string | null) => { setBuilderBoothId(boothId || null); setBuilderRenterId(renterId); };
 
   const handleEndLease = async () => {
     if (!endLeaseTarget || !tenantId) return;
@@ -4708,50 +4719,14 @@ export default function BoothsPage() {
       <AppHeader title="Spaces" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      <div className="bg-card border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
-        <RentalsNav current="/booths" />
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground flex items-center gap-2.5 leading-none">
-              <span className="h-9 w-9 rounded-2xl bg-foreground flex items-center justify-center shadow-md shadow-slate-900/10 shrink-0">
-                <Armchair className="h-5 w-5 text-white" />
-              </span>
-              Spaces
-            </h1>
-            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mt-1.5 ml-0.5">
-              {metrics.occupancyPct}% occupied · {metrics.activeRenters} active renter{metrics.activeRenters !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex gap-2 items-center flex-wrap">
-            <LocationSwitcher />
-            <Button size="sm" variant="outline" className="relative" onClick={() => setCommandCenterOpen(true)}>
-              <ActivityIcon className="h-4 w-4" />
-              {alertBadgeSeverity && (
-                <span className={`absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full text-[9px] font-black text-white flex items-center justify-center ${alertBadgeSeverity === 'danger' ? 'bg-red-500' : alertBadgeSeverity === 'warning' ? 'bg-amber-500' : 'bg-sky-500'}`}>
-                  {alerts.length}
-                </span>
-              )}
-            </Button>
-            <Button size="sm" onClick={openCreate}>
-              <Plus className="h-4 w-4 mr-1" /> Space
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'Rent roll', value: formatCents(metrics.monthlyRevenue), sub: 'a month', color: 'text-emerald-700' },
-            { label: 'Occupied', value: `${metrics.occupied} of ${metrics.total}`, sub: `${metrics.occupancyPct}%`, color: 'text-foreground' },
-            { label: 'Open', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)} a month not coming in` : 'every space is taken', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-foreground' },
-            { label: 'Potential', value: formatCents(metrics.potentialMonthly), sub: 'if fully leased', color: 'text-muted-foreground' },
-          ].map(k => (
-            <div key={k.label} className="rounded-xl border bg-card px-3.5 py-2.5 space-y-0.5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
-              <p className={`text-xl font-black tracking-tighter ${k.color}`}>{k.value}</p>
-              <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
-            </div>
-          ))}
-        </div>
+      <div className="bg-[#f5f5f7] border-b border-[#ececee] px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
+        <RentalsHeader businessName={selectedTenant?.name || ''} current="/booths" actions={<>
+          <LocationSwitcher />
+          <button type="button" className={RENTALS_BTN} onClick={() => setCommandCenterOpen(true)} aria-label={alerts.length ? `Alerts, ${alerts.length}` : 'Alerts'}>
+            <ActivityIcon className="h-4 w-4" aria-hidden />Alerts{alerts.length > 0 && <span className={alertBadgeSeverity === 'danger' || alertBadgeSeverity === 'warning' ? 'text-[#b45309]' : 'text-[#6d7075]'}>· {alerts.length}</span>}
+          </button>
+          <button type="button" className={RENTALS_BTN_DARK} onClick={openCreate}>Add space</button>
+        </>} />
 
         <Suspense fallback={null}>
           <TabQuerySync onTab={setTab} onLease={openLeaseWizard} onSettings={openBoothSettings} onAddRenter={openCreateRenter} />
@@ -4901,35 +4876,12 @@ export default function BoothsPage() {
               <p className="font-medium text-muted-foreground">No spaces yet</p>
               <Button onClick={openCreate}>Add your first space</Button>
             </div>
-          ) : spaceView === 'list' ? (
-            <div className="space-y-3">
-              {sortedBooths.filter((b) => (b as any).status !== 'inactive').map((booth: Booth) => {
-                const ds = displayStatus(booth);
-                const sc = BOOTH_STATUS_COLORS[ds] ?? BOOTH_STATUS_COLORS.vacant;
-                const lease = activeLeaseByBooth.get(booth.id);
-                const renter = lease ? renterById.get(lease.renterId) : undefined;
-                return (
-                  <button key={booth.id} onClick={() => openEdit(booth)} className="w-full text-left rounded-2xl border-2 bg-card p-4 hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-3">
-                      <div className="self-stretch rounded-full shrink-0" style={{ background: sc.bg, border: `2px solid ${sc.border}`, minHeight: 40, width: 6 }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-black text-sm uppercase">{booth.name}</p>
-                          <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 text-white" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[ds]}</span>
-                          {booth.type && <span className="text-[9px] font-bold text-muted-foreground uppercase">{booth.type}</span>}
-                        </div>
-                        {renter && <p className="text-xs font-bold text-muted-foreground truncate">{renter.firstName} {renter.lastName}{renter.businessName ? ` · ${renter.businessName}` : ''}</p>}
-                        {lease && <p className="text-[10px] font-bold text-muted-foreground">{formatCents(lease.rentAmountCents)}/{lease.frequency} · ends {lease.endDate || '—'}</p>}
-                      </div>
-                      <div className="text-right shrink-0">
-                        {booth.baseRentCents > 0 && <p className="font-black text-sm">{formatCents(booth.baseRentCents)}<span className="font-normal text-muted-foreground text-[10px]">/{booth.baseRentFrequency || 'mo'}</span></p>}
-                        {Array.isArray(booth.amenities) && booth.amenities.length > 0 && <p className="text-[9px] font-bold text-muted-foreground">{booth.amenities.slice(0, 2).join(' · ')}</p>}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+          ) : spaceView === null ? null : spaceView === 'list' ? (
+            tenantId ? (
+              <SpacesBoard tenantId={tenantId} locationId={selectedLocationId} refreshKey={spacesKey}
+                onEdit={(id) => { const b = (booths.data || []).find((x) => x.id === id); if (b) openEdit(b); }}
+                onLease={(renterId, boothId) => openLeaseWizard(renterId, boothId)} />
+            ) : null
           ) : (
             <div className="relative">
               {!locked && (
@@ -6062,11 +6014,11 @@ export default function BoothsPage() {
         <LeaseBuilder
           tenantId={tenantId} tenant={selectedTenant} firestore={firestore}
           signer={currentUser ? { uid: currentUser.uid, email: currentUser.email || null } : null}
-          renter={renterById.get(builderRenterId)}
+          renter={renterById.get(builderRenterId)} defaultBoothId={builderBoothId}
           booths={(booths.data || []) as any[]} locations={(locations || []) as any[]} leases={(leases.data || []) as any[]}
           uploadSigned={storage ? async (file: File) => { const r = storageRef(storage, `tenants/${tenantId}/leases/${Date.now()}-${file.name}`); await uploadBytes(r, file); return getDownloadURL(r); } : undefined}
-          onClose={() => setBuilderRenterId(null)}
-          onCreated={(_id, said) => { setBuilderRenterId(null); toast({ title: 'Lease made', description: said }); }}
+          onClose={() => { setBuilderRenterId(null); setBuilderBoothId(null); }}
+          onCreated={(_id, said) => { setBuilderRenterId(null); setBuilderBoothId(null); toast({ title: 'Lease made', description: said }); }}
         />
       )}
 

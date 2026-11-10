@@ -23,7 +23,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { RentalsNav } from '@/components/renters/RentalsNav';
+import { RentalsHeader, RENTALS_BTN } from '@/components/renters/RentalsNav';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
@@ -34,6 +34,8 @@ import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { nanoid } from 'nanoid';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
+import { ToastAction } from '@/components/ui/toast';
 import {
   Users, CalendarClock, AlertTriangle, CheckCircle2, Loader,
   Phone, Mail, Flame, Search, Star, ChevronDown, ClipboardCheck, MoreHorizontal, ShieldOff, History as HistoryIcon,
@@ -47,7 +49,7 @@ type Row = {
   outcome: any; followUpNeeded: boolean;
   decidedAt: string | null; convertedAt: string | null;
   rentalType: string | null; message: string;
-  specialty: string | null; boothName: string | null; locationId: string | null;
+  specialty: string | null; boothName: string | null; boothId: string | null; locationId: string | null;
 };
 
 const OPEN_STATUSES = ['new', 'in_review'];
@@ -166,6 +168,7 @@ export default function PipelinePage() {
   const { firestore, user } = useFirebase() as any;
   const { selectedLocationId } = useLocation();
   const { toast } = useToast();
+  const router = useRouter();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
 
@@ -200,6 +203,7 @@ export default function PipelinePage() {
             message: a.message || '',
             specialty: a.specialty || null,
             boothName: a.boothName || null,
+            boothId: a.boothId || null,
             locationId: a.locationId || null,
             _locationId: a.locationId || null,
           } as any;
@@ -657,8 +661,8 @@ export default function PipelinePage() {
   // the application's context, the People-directory contact linked, the
   // application stamped converted) — copied, not reinvented, so a lead
   // converted here and one converted in the hub produce identical records.
-  // What stays in the hub: giving the new renter a lease. That is a booth
-  // decision, and this page doesn't know booths.
+  // Once they're a renter, their lease is one tap away: the lease builder on the Spaces page, with the space they
+  // applied for already picked.
   const convert = async (r: Row) => {
     if (!firestore || !tenantId) return;
     if (!r.name.trim() && !r.phone && !r.email) {
@@ -690,7 +694,9 @@ export default function PipelinePage() {
         followUpNeeded: false,
         ...(rid ? { convertedRenterId: rid } : {}),
       });
-      toast({ title: 'Now a renter', description: `${r.name} — give them a lease from the Booth Hub when ready.` });
+      const leaseHref = rid ? `/booths?lease=${encodeURIComponent(rid)}${r.boothId ? `&space=${encodeURIComponent(r.boothId)}` : ''}` : '';
+      toast({ title: 'Now a renter', description: `${r.name} can have a lease now${r.boothName ? ` for ${r.boothName}` : ''}.`,
+        ...(leaseHref ? { action: <ToastAction altText="Write the lease" onClick={() => router.push(leaseHref)}>Write the lease</ToastAction> } : {}) });
     } catch {
       toast({ title: 'Convert failed', description: 'Try again in a moment.' });
     }
@@ -751,21 +757,7 @@ export default function PipelinePage() {
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Pipeline" />
       <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
-      <RentalsNav current="/pipeline" />
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1 min-w-0">
-          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
-            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
-              <Users className="h-4 w-4 text-primary" />
-            </span>
-            Pipeline
-          </h1>
-          <p className="text-xs font-bold text-muted-foreground max-w-prose">
-            Everyone between first enquiry and a signed lease, ordered by who has been waiting longest.
-          </p>
-        </div>
-        <div className="shrink-0"><LocationSwitcher /></div>
-      </header>
+      <RentalsHeader businessName={selectedTenant?.name || ''} current="/pipeline" actions={<LocationSwitcher />} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat icon={AlertTriangle} label="Needs you" value={stats.attention}

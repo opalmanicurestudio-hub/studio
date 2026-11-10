@@ -6,7 +6,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { RentalsNav } from '@/components/renters/RentalsNav';
+import { RentalsHeader } from '@/components/renters/RentalsNav';
 import type { NeedItem } from '@/lib/rentals-home';
 
 type Home = {
@@ -47,19 +47,11 @@ export function RentalsHome({ tenantId, locationId, businessName, locationSwitch
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          {name && <p className={sub}>{name}</p>}
-          <h1 className="text-[28px] font-bold leading-9 text-[#16171a]">Rentals</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {locationSwitcher}
-          <Link href="/booths?addRenter=1" className={light}>Add renter</Link>
-          <button type="button" className={dark} aria-expanded={picking} onClick={() => { setPicking((v) => !v); setPick(''); }}>New lease</button>
-        </div>
-      </div>
-
-      <RentalsNav current="/rentals" />
+      <RentalsHeader businessName={name} current="/rentals" actions={<>
+        {locationSwitcher}
+        <Link href="/booths?addRenter=1" className={light}>Add renter</Link>
+        <button type="button" className={dark} aria-expanded={picking} onClick={() => { setPicking((v) => !v); setPick(''); }}>New lease</button>
+      </>} />
 
       {picking && (
         <section aria-labelledby="new-lease" className="rounded-[20px] border border-[#ececee] bg-white p-5">

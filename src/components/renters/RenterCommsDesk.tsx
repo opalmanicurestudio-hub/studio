@@ -35,7 +35,7 @@ const ago = (iso: string) => {
 export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, leases, studioName, onOpenRenter, initialTab }: {
   tenantId: string; firestore: any; tenant?: any; renters: any[]; booths: any[]; leases: any[]; studioName: string; onOpenRenter: (renterId: string) => void;
   /** Opens on this tab when it's given (a link from the Rentals home). */
-  initialTab?: 'inbox' | 'concerns';
+  initialTab?: 'inbox' | 'concerns' | 'everyone';
 }) {
   const [threads, setThreads] = useState<any[]>([]);
   const [concerns, setConcerns] = useState<any[]>([]);
@@ -169,9 +169,9 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
     setBusy(`ask-${renterId}-${kind}`);
     try {
       const what = CREDENTIAL_LABEL[kind].toLowerCase();
-      const text = state === 'expired' ? `Your ${what} on file has expired. Please upload the renewed one in your portal → Insurance & licence.`
-        : state === 'expiring' ? `Your ${what} on file expires soon. When you have the renewal, upload it in your portal → Insurance & licence.`
-        : `We need a copy of your ${what} on file to rent here. Please add it in your portal → Insurance & licence — expiry date and a photo of the document.`;
+      const text = state === 'expired' ? `Your ${what} on file has expired. Please upload the renewed one in your portal under Insurance and license.`
+        : state === 'expiring' ? `Your ${what} on file expires soon. When you have the renewal, upload it in your portal under Insurance and license.`
+        : `We need a copy of your ${what} on file to rent here. Please add it in your portal under Insurance and license — expiry date and a photo of the document.`;
       await fetch('/api/booths/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'renter-message', tenantId, renterId, byName: studioName, text }) });
       setAskSent((m) => ({ ...m, [`${renterId}-${kind}`]: true }));
@@ -266,7 +266,7 @@ export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, 
       {tab === 'coverage' && (
         <div className="space-y-1.5">
           <p className="text-[10px] font-bold text-muted-foreground">
-            Insurance and licence on file for everyone renting now. Expiring means within 30 days. {(tenant?.bookingPageSettings?.automationRules?.requireInsurance || tenant?.bookingPageSettings?.automationRules?.requireLicense) ? 'Missing counts as a problem because your onboarding rules require it.' : 'Nothing is required by your onboarding rules, so missing is information, not a problem — turn requirements on under the booking page settings if you want the nightly to chase them.'}
+            Insurance and license on file for everyone renting now. Expiring means within 30 days. {(tenant?.bookingPageSettings?.automationRules?.requireInsurance || tenant?.bookingPageSettings?.automationRules?.requireLicense) ? 'Missing counts as a problem because your onboarding rules require it.' : 'Nothing is required by your onboarding rules, so missing is information, not a problem — turn requirements on under the booking page settings if you want the nightly to chase them.'}
           </p>
           {coverage.length === 0 && <p className="text-[11px] font-bold text-muted-foreground">No current renters.</p>}
           {coverage.map(({ renter: r, views }) => (

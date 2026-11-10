@@ -1,7 +1,8 @@
 'use client';
-// components/renters/RentalsNav.tsx — THE RENTALS TABS. One row of tabs shared by every Rentals page (Home, Spaces,
-// Renters, Rent, Pipeline, Policies), so moving between them is one tap from anywhere in the area. On a phone the row
-// scrolls sideways inside itself; the page never does.
+// components/renters/RentalsNav.tsx — THE RENTALS TABS AND HEADER. One header shared by every Rentals page (Home,
+// Spaces, Renters, Rent, Pipeline, Policies): the business's name, Rentals, the page's own buttons, and one row of
+// tabs, so moving between them is one tap from anywhere in the area. On a phone the tabs scroll sideways inside
+// themselves; the page never does.
 import * as React from 'react';
 import Link from 'next/link';
 
@@ -29,5 +30,24 @@ export function RentalsNav({ current, className = '' }: { current: string; class
         })}
       </div>
     </nav>
+  );
+}
+
+/** Buttons in the Rentals header, light and dark. */
+export const RENTALS_BTN = 'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-[#ececee] bg-white px-3.5 text-[14px] font-medium text-[#16171a] hover:bg-[#f5f5f7] disabled:opacity-40';
+export const RENTALS_BTN_DARK = 'inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl bg-[#16171a] px-3.5 text-[14px] font-semibold text-white disabled:opacity-40';
+
+export function RentalsHeader({ businessName, current, actions }: { businessName?: string; current: string; actions?: React.ReactNode }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          {businessName && <p className="text-[13px] leading-snug text-[#6d7075]">{businessName}</p>}
+          <h2 className="text-[28px] font-bold leading-9 text-[#16171a]">Rentals</h2>
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
+      <RentalsNav current={current} />
+    </div>
   );
 }

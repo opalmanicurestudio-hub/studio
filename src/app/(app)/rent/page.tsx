@@ -52,7 +52,7 @@ import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
 import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
 import { resolveLeavePolicy, addDays as addLeaseDays, subletIncome, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { RentalsNav } from '@/components/renters/RentalsNav';
+import { RentalsHeader, RENTALS_BTN } from '@/components/renters/RentalsNav';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
 import {
@@ -1259,28 +1259,10 @@ export default function RentRollPage() {
       <div className="flex-1 w-full max-w-[1100px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6"
         style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
 
-      <RentalsNav current="/rent" />
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1 min-w-0">
-          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
-            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
-              <CircleDollarSign className="h-4 w-4 text-primary" />
-            </span>
-            Rent
-          </h1>
-          <p className="text-xs font-bold text-muted-foreground max-w-prose">
-            Invoices raise themselves on each due day. Who is behind, what is about to draft, and what has moved.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <LocationSwitcher />
-          <Button variant="outline" onClick={runRentCycle} disabled={running}
-            className="h-11 rounded-xl border-2 text-[14px] font-medium">
-            <PlayCircle className="h-4 w-4 mr-1.5" />
-            {running ? 'Working…' : 'Bring rent up to date'}
-          </Button>
-        </div>
-      </header>
+      <RentalsHeader businessName={selectedTenant?.name || ''} current="/rent" actions={<>
+        <LocationSwitcher />
+        <button type="button" onClick={runRentCycle} disabled={running} className={RENTALS_BTN}>{running ? 'Working…' : 'Bring rent up to date'}</button>
+      </>} />
 
       {cycleResult && (
         <p className="text-[11px] font-bold text-muted-foreground">

@@ -15,14 +15,16 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { collection, doc, onSnapshot, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, onSnapshot, updateDoc, setDoc, query, where } from 'firebase/firestore';
 import { endLease, offboardingTodos } from '@/lib/booth-rental-service';
 import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { RentalsNav } from '@/components/renters/RentalsNav';
+import { RentalsHeader, RENTALS_BTN, RENTALS_BTN_DARK } from '@/components/renters/RentalsNav';
+import { RentersRoster } from '@/components/renters/RentersRoster';
+import Link from 'next/link';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { cn } from '@/lib/utils';
 import {
@@ -79,8 +81,6 @@ export default function RentersPage() {
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'active' | 'new' | 'setup' | 'leave' | 'past'>('active');
-  const [inviting, setInviting] = useState<string>('');
   const [renterServices, setRenterServices] = useState<any[]>([]);
 
   useEffect(() => {
@@ -98,7 +98,15 @@ export default function RentersPage() {
 
   // /renters?renter=<id> opens that renter (the Rentals home's "Open" and "Message"); ?desk=inbox|concerns opens the
   // messages desk on that tab. Once per link, after the renters have loaded.
-  const [deskTab, setDeskTab] = useState<'inbox' | 'concerns' | undefined>(undefined);
+  const [deskTab, setDeskTab] = useState<'inbox' | 'concerns' | 'everyone' | undefined>(undefined);
+  // Unread messages from renters, for the Messages button.
+  // Only from renters still on the books (here, at this location), as the messages desk shows them.
+  const [unreadIds, setUnreadIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    return onSnapshot(query(collection(firestore, 'tenants', tenantId, 'renterThreads'), where('unreadForOwner', '==', true)), (s) => setUnreadIds(s.docs.map((d) => String((d.data() as any).renterId || d.id))), () => setUnreadIds([]));
+  }, [firestore, tenantId]);
+  const unreadThreads = useMemo(() => unreadIds.filter((id) => renters.some((r) => r.id === id && r.status !== 'archived' && (!r.locationId || !selectedLocationId || r.locationId === selectedLocationId))).length, [unreadIds, renters, selectedLocationId]);
   const linked = React.useRef(false);
   useEffect(() => {
     if (linked.current || loading || typeof window === 'undefined') return;
@@ -162,204 +170,50 @@ export default function RentersPage() {
       });
   }, [renters, leases, staff, booths, selectedLocationId, renterServices]);
 
-  const myLeasesOf = (renterId: string) => leases.filter((l) => l.renterId === renterId && OCCUPYING.includes(String(l.status))).length;
-  const stats = useMemo(() => ({
-    active: rows.filter((x) => x.r.status === 'active').length,
-    fresh: rows.filter((x) => x.r.status === 'prospective').length,
-    setup: rows.filter((x) => x.needsSetup).length,
-    leave: rows.filter((x) => x.r.status === 'on_leave').length,
-    past: rows.filter((x) => x.r.status === 'past').length,
-  }), [rows]);
-
-  const visible = useMemo(() => {
-    let list = rows;
-    if (filter === 'active') list = rows.filter((x) => ['active', 'on_leave'].includes(String(x.r.status)));
-    if (filter === 'new') list = rows.filter((x) => x.r.status === 'prospective');   // added, no lease yet
-    if (filter === 'setup') list = rows.filter((x) => x.needsSetup);
-    if (filter === 'leave') list = rows.filter((x) => x.r.status === 'on_leave');
-    if (filter === 'past') list = rows.filter((x) => x.r.status === 'past');
-    // Attention first: unfinished setup outranks everything, an unsigned lease
-    // outranks a healthy one, then names — because a sorted-by-name list is
-    // only useful once nothing on it is on fire.
-    return list.slice().sort((a, b) =>
-      Number(b.needsSetup) - Number(a.needsSetup)
-      || Number(b.unsigned) - Number(a.unsigned)
-      || `${a.r.firstName} ${a.r.lastName}`.localeCompare(`${b.r.firstName} ${b.r.lastName}`));
-  }, [rows, filter]);
-
-  const Stat = ({ icon: Icon, label, value, tone }: any) => (
-    <div className={cn('rounded-2xl border-2 p-4', tone)}>
-      <div className="flex items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
-      </div>
-      <p className="text-2xl font-black mt-1 leading-none">{value}</p>
-    </div>
-  );
-
-  const FILTERS: [typeof filter, string][] = [
-    ['active', 'Renting now'], ['new', stats.fresh > 0 ? `New · ${stats.fresh}` : 'New'], ['setup', 'Needs setup'], ['leave', 'On leave'], ['past', 'Past'],
-  ];
+  // Renters who have a lease but can't be booked yet (no hours, or no booking record at all), with the fix.
+  const needsSetup = useMemo(() => rows.filter((x) => x.needsSetup).sort((a, b) => `${a.r.firstName} ${a.r.lastName}`.localeCompare(`${b.r.firstName} ${b.r.lastName}`)), [rows]);
+  // The roster reads again when a renter or lease changes here.
+  const rosterKey = useMemo(() => [...renters, ...leases].map((x: any) => `${x.id}:${x.status || ''}:${x.updatedAt || ''}:${x.portalInviteStatus || ''}`).join('|'), [renters, leases]);
+  // Cleared first, so asking for the same tab again switches back to it.
+  const openDesk = (t: 'inbox' | 'concerns' | 'everyone') => { setDeskTab(undefined); setTimeout(() => { setDeskTab(t); document.getElementById('renter-desk')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 30); };
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Renters" />
-      <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
-      <RentalsNav current="/renters" />
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1 min-w-0">
-          <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
-            <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
-              <Users className="h-4 w-4 text-primary" />
-            </span>
-            Renters
-          </h1>
-          <p className="text-xs font-bold text-muted-foreground max-w-prose">
-            Everyone renting from you — with the ones losing bookable days sorted to the top.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <a href="/booths?addRenter=1" className="inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Add renter</a>
-          <LocationSwitcher />
-        </div>
-      </header>
+      <div className="flex-1 w-full max-w-[1200px] mx-auto min-w-0 px-4 py-6 sm:px-6 space-y-5">
+      <RentalsHeader businessName={selectedTenant?.name || ''} current="/renters" actions={<>
+        <LocationSwitcher />
+        <button type="button" className={RENTALS_BTN} onClick={() => openDesk('inbox')}>Messages{unreadThreads > 0 && <span className="text-[#b45309]">· {unreadThreads}</span>}</button>
+        <button type="button" className={RENTALS_BTN} onClick={() => openDesk('everyone')}>Message everyone</button>
+        <Link href="/booths?addRenter=1" className={RENTALS_BTN_DARK}>Add renter</Link>
+      </>} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat icon={Users} label="Renting now" value={stats.active} tone="border-border" />
-        <Stat icon={AlertTriangle} label="Needs setup" value={stats.setup}
-          tone={stats.setup > 0 ? 'border-rose-300 bg-rose-50 text-rose-900' : 'border-border'} />
-        <Stat icon={Moon} label="On leave" value={stats.leave} tone="border-border" />
-        <Stat icon={CheckCircle2} label="Past" value={stats.past} tone="border-border" />
-      </div>
+      {needsSetup.length > 0 && (
+        <section aria-labelledby="not-bookable" className="rounded-[20px] border border-[#ececee] bg-white px-5 pb-3 pt-4">
+          <h2 id="not-bookable" className="text-[17px] font-bold leading-6 text-[#16171a]">Can’t be booked yet <span className="font-medium text-[#6d7075]">· {needsSetup.length}</span></h2>
+          <p className="text-[13px] leading-snug text-[#6d7075]">They have a lease, but clients can’t book them until this is done.</p>
+          <ul className="mt-1">
+            {needsSetup.map(({ r, book }, i) => (
+              <li key={r.id} className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 ${i ? 'border-t border-[#ececee]' : ''}`}>
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold text-[#16171a]">{r.firstName} {r.lastName}</p>
+                  <p className="text-[13px] leading-snug text-[#b45309]">{book.label}</p>
+                </div>
+                {book.reason === 'no_provider'
+                  ? <button type="button" onClick={() => void enableBookings(r)} disabled={enabling === r.id} className={RENTALS_BTN_DARK}>{enabling === r.id ? 'Turning on…' : 'Turn on bookings'}</button>
+                  : <button type="button" onClick={() => setProfileRenter(r)} className={RENTALS_BTN}>Open</button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {tenantId && <RentersRoster tenantId={tenantId} locationId={selectedLocationId} refreshKey={rosterKey} onOpen={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} />}
 
       {tenantId && (
         <div id="renter-desk" className="scroll-mt-20"><RenterCommsDesk tenantId={tenantId} firestore={firestore} tenant={selectedTenant} renters={renters} booths={booths} leases={leases} initialTab={deskTab}
-          studioName={selectedTenant?.name || 'Studio'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} /></div>
+          studioName={selectedTenant?.name || 'The business'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} /></div>
       )}
-
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map(([k, label]) => (
-          <button key={k} onClick={() => setFilter(k)}
-            className={cn('px-3.5 py-2 rounded-xl text-[11px] font-black border-2 transition-all',
-              filter === k ? 'bg-foreground text-background border-slate-900' : 'bg-card text-foreground/80 border-border')}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 py-10 text-muted-foreground">
-          <Loader className="h-4 w-4 animate-spin" />
-          <span className="text-[11px] font-black uppercase tracking-widest">Loading renters…</span>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed p-8 text-center">
-          <p className="text-[15px] font-semibold">
-            {filter === 'setup' ? 'Everyone is fully set up.' : filter === 'new' ? 'No new renters waiting for a lease.' : 'Nobody here yet.'}
-          </p>
-          <p className="mt-1 text-[13.5px] text-muted-foreground">
-            {filter === 'setup'
-              ? 'Every renter with a lease can be booked, or runs their own booking system on purpose.'
-              : 'Renters show here when you add one or a lead or application becomes a renter. New renters wait under New until their lease is set up.'}
-          </p>
-          {filter !== 'setup' && <a href="/booths?addRenter=1" className="mt-4 inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Add renter</a>}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {visible.map(({ r, unsigned, spaces, rent, freq, ownMode, book, needsSetup, noPortal }) => (
-            <div key={r.id} className={cn('rounded-2xl border-2 p-4 space-y-3',
-              needsSetup ? 'border-rose-300 bg-rose-50' : unsigned ? 'border-amber-300 bg-amber-50' : 'border-border')}>
-              <div className="flex items-start justify-between gap-3 cursor-pointer" onClick={() => setProfileRenter(r)}>
-                <div className="min-w-0">
-                  <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
-                  <p className="text-[11px] font-bold text-muted-foreground mt-0.5 truncate">
-                    {r.specialty || 'Renter'}
-                    {spaces.length > 0 ? <> · <Armchair className="inline h-3 w-3 -mt-0.5" /> {spaces.join(', ')}</> : ' · no space assigned'}
-                    {rent > 0 ? ` · ${money(rent)}/${FREQ_LABEL[freq] || freq}` : ''}
-                  </p>
-                </div>
-                <span className="flex flex-wrap justify-end gap-1 shrink-0">
-                  {r.status === 'prospective' && myLeasesOf(r.id) === 0 && (
-                    <a href={`/booths?lease=${encodeURIComponent(r.id)}`} onClick={(e) => e.stopPropagation()}
-                      className="inline-flex h-11 items-center rounded-xl bg-[#16171a] px-3.5 text-[13.5px] font-medium text-white">Set up lease</a>
-                  )}
-                  {needsSetup && (
-                    <span className="rounded-full bg-rose-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-rose-900">
-                      {book.label}
-                    </span>
-                  )}
-                  {needsSetup && book.reason === 'no_provider' && (
-                    <button type="button" onClick={(e) => { e.stopPropagation(); void enableBookings(r); }} disabled={enabling === r.id}
-                      className="rounded-full bg-foreground px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-background disabled:opacity-40">
-                      {enabling === r.id ? '…' : 'Turn on bookings'}
-                    </button>
-                  )}
-                  {!needsSetup && ownMode && (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-foreground/80">
-                      Own booking system
-                    </span>
-                  )}
-                  {unsigned && (
-                    <span className="rounded-full bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-900">
-                      Lease unsigned
-                    </span>
-                  )}
-                  {r.status !== 'past' && (
-                    r.portalInviteStatus === 'accepted' ? (
-                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-800">
-                        Uses portal
-                      </span>
-                    ) : (
-                      <button type="button" disabled={inviting === r.id}
-                        onClick={async () => {
-                          setInviting(r.id);
-                          try {
-                            const res = await fetch('/api/booths/notify', {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ action: 'portal-invite', tenantId, renterId: r.id }),
-                            });
-                            const d = await res.json();
-                            if (d?.ok) toast({ title: 'Portal link sent', description: `${r.firstName} has their personal link by ${d.status === 'sent' ? 'email' : ''}${d.status === 'sent' && d.sms === 'sent' ? ' and ' : ''}${d.sms === 'sent' ? 'text' : ''}.` });
-                            else toast({ title: 'Not sent', description: d?.error || 'No email or phone on their record.', variant: 'destructive' });
-                          } catch { toast({ title: 'Not sent', description: 'Try again in a moment.', variant: 'destructive' }); }
-                          setInviting('');
-                        }}
-                        className={cn('rounded-full border-2 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest disabled:opacity-50',
-                          r.portalInviteStatus === 'sent' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-border bg-card text-foreground/80')}>
-                        {inviting === r.id ? '…' : r.portalInviteStatus === 'sent' ? 'Resend portal link' : 'Send portal link'}
-                      </button>
-                    )
-                  )}
-                </span>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {r.phone && (
-                  <a href={`tel:${r.phone}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
-                    <Phone className="h-3 w-3" /> Call
-                  </a>
-                )}
-                {r.email && (
-                  <a href={`mailto:${r.email}`} className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
-                    <Mail className="h-3 w-3" /> Email
-                  </a>
-                )}
-                {ownMode && r.externalBookingUrl && (
-                  <a href={r.externalBookingUrl} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 rounded-xl border-2 bg-card px-3 py-2 text-[11px] font-black">
-                    <ExternalLink className="h-3 w-3" /> Their booking page
-                  </a>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <p className="text-[10px] font-bold text-muted-foreground">
-        Tap anyone for their full card — leases, money, documents and activity, right here.
-        Editing details, new leases and offboarding still start in the Booth Hub.
-      </p>
 
       {profileRenter && tenantId && (() => {
         const myLease = leases.find((l) => l.renterId === profileRenter.id

@@ -14,7 +14,7 @@ export default function RentalsPage() {
   const tenantId = selectedTenant?.id ?? null;
   return (
     <div className="flex min-h-screen flex-col bg-[#f5f5f7] text-[#16171a]">
-      <AppHeader title="Rentals" />
+      <AppHeader title="Rentals home" />
       <main className="mx-auto w-full max-w-[1200px] min-w-0 px-4 py-6 sm:px-6">
         {tenantId
           ? <RentalsHome tenantId={tenantId} locationId={selectedLocationId} businessName={selectedTenant?.name || ''} locationSwitcher={<LocationSwitcher />} />

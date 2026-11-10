@@ -162,7 +162,8 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
       isShared: String(b.status) === 'partial', slot: null,
       rentCents: rent, frequency: rent ? (monthly ? 'monthly' : (b.baseRentFrequency || 'monthly')) : 'monthly', depositCents: rent }));
   };
-  React.useEffect(() => { if (boothId && !saved?.d) pickBooth(boothId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // A space picked on the way in (Lease this space) that isn't the draft's: its own rent and details, not the draft's.
+  React.useEffect(() => { if (boothId && (!saved?.d || (p.defaultBoothId && p.defaultBoothId !== saved?.boothId))) pickBooth(boothId); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The end date follows the length chosen (a custom one is typed); not on opening, so a draft keeps its own.
   const firstRun = React.useRef(true);

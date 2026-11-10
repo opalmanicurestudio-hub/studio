@@ -805,9 +805,11 @@ export async function POST(req: NextRequest) {
       if (!entry) return NextResponse.json({ ok: false, error: 'That code isn’t valid. Check it or ask for a new one.' }, { status: 401 });
       const session = await createSession(db, tenantId, key, entry.name || null, entry.renterId || null);
       if (entry.renterId) {
-        await db.doc(`tenants/${tenantId}/renters/${entry.renterId}`)
-          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
-          .catch(() => {});
+        // The first sign-in is kept as the first; every one after is the last time they used it.
+        const rRef = db.doc(`tenants/${tenantId}/renters/${entry.renterId}`);
+        const at = new Date().toISOString();
+        const was: any = ((await rRef.get().catch(() => null))?.data() as any) || {};
+        await rRef.set({ portalInviteStatus: 'accepted', portalLastSeenAt: at, ...(was.portalFirstSeenAt ? {} : { portalFirstSeenAt: at }) }, { merge: true }).catch(() => {});
       }
       await logAuditAdmin(db, tenantId, {
         action: 'portal.renter_login',
@@ -842,9 +844,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'There’s no phone or email on your record yet. Ask the business to add one.' }, { status: 400 });
       }
       const session = await createSession(db, tenantId, key, r.name || null, r.id);
-      if (r.portalInviteStatus !== 'accepted') {
+      {
+        const at = new Date().toISOString();
         await db.doc(`tenants/${tenantId}/renters/${r.id}`)
-          .set({ portalInviteStatus: 'accepted', portalFirstSeenAt: new Date().toISOString() }, { merge: true })
+          .set({ portalInviteStatus: 'accepted', portalLastSeenAt: at, ...(r.portalFirstSeenAt ? {} : { portalFirstSeenAt: at }) }, { merge: true })
           .catch(() => {});
       }
       await logAuditAdmin(db, tenantId, {
@@ -1020,6 +1023,12 @@ export async function POST(req: NextRequest) {
         const renters = await db.collection(`tenants/${tenantId}/renters`).get();
         const hit = renters.docs.find((d: any) => { const r = d.data(); return contactMatches(key, r.phone, r.email); });
         if (hit) renter = { id: hit.id, ...(hit.data() as any) };
+      }
+      // When they last used their portal, for the owner's Renters list: noted at most every few hours (the list shows
+      // the business's day it fell on, lib/renters-roster).
+      const lastSeenMs = Date.parse(String(renter?.portalLastSeenAt || ''));
+      if (renter && (!Number.isFinite(lastSeenMs) || Date.now() - lastSeenMs > 3 * 3600_000)) {
+        await db.doc(`tenants/${tenantId}/renters/${renter.id}`).set({ portalLastSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
       }
 
       // Lease + invoices (leased renters only)

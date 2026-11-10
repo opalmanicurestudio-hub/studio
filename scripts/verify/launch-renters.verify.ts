@@ -197,7 +197,8 @@ const read = (p: string) => readFileSync(p, 'utf8');
 
   console.log('Renters page');
   const rp = read('src/app/(app)/renters/page.tsx');
-  check('new renters have their own filter, an Add renter button and a lease shortcut', /filter === 'new'/.test(rp) && /href="\/booths\?addRenter=1"/.test(rp) && /Set up lease/.test(rp) && /addRenter/.test(wiz));
+  const roster = read('src/lib/renters-roster.ts');
+  check('new renters have their own filter, an Add renter button and a lease shortcut', /\{ key: 'new', label: 'New' \}/.test(roster) && /href="\/booths\?addRenter=1"/.test(rp) && /text: 'No lease yet', warn: true, href: `\/booths\?lease=\$\{encodeURIComponent\(r\.id\)\}`/.test(roster) && /<RentersRoster /.test(rp) && /addRenter/.test(wiz));
   check('the staff portal no longer tries to write a lease from the browser', !/updateDoc\(doc\(firestore, `tenants\/\$\{tenantId\}\/leases`/.test(read('src/components/shared/RenterDocumentsTab.tsx')));
 
   console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILED`);

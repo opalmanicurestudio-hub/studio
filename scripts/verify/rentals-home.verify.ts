@@ -172,7 +172,8 @@ const nowIso = '2026-11-10T15:00:00.000Z';
   const src = (p: string) => readFileSync(p, 'utf8');
   check('the Home page exists', existsSync('src/app/(app)/rentals/page.tsx') && /<RentalsHome tenantId=\{tenantId\}/.test(src('src/app/(app)/rentals/page.tsx')));
   const pages: [string, string][] = [['src/app/(app)/booths/page.tsx', '/booths'], ['src/app/(app)/renters/page.tsx', '/renters'], ['src/app/(app)/rent/page.tsx', '/rent'], ['src/app/(app)/pipeline/page.tsx', '/pipeline'], ['src/app/(app)/rental-policies/page.tsx', '/rental-policies'], ['src/components/renters/RentalsHome.tsx', '/rentals']];
-  check('every Rentals page has the same tabs, marked where you are', pages.every(([p, h]) => src(p).includes(`<RentalsNav current="${h}"`)), pages.filter(([p, h]) => !src(p).includes(`<RentalsNav current="${h}"`)));
+  const tabbed = (p: string, h: string) => new RegExp(`<Rentals(Nav|Header)[^>]*current="${h.replace(/\//g, '\\/')}"`).test(src(p));
+  check('every Rentals page has the same header and tabs, marked where you are', pages.every(([p, h]) => tabbed(p, h)) && /export function RentalsHeader[\s\S]*<RentalsNav current=\{current\} \/>/.test(src('src/components/renters/RentalsNav.tsx')), pages.filter(([p, h]) => !tabbed(p, h)));
   check('…and no page says it’s for one trade in its heading', !/>\s*Booth rental\s*</.test(src('src/app/(app)/renters/page.tsx') + src('src/app/(app)/rent/page.tsx') + src('src/app/(app)/pipeline/page.tsx')) && /AppHeader title="Spaces"/.test(src('src/app/(app)/booths/page.tsx')));
   const sb = src('src/components/shared/AppSidebar.tsx');
   check('a door in the sidebar under Rentals; part of the rental module; a known app route', /\{ href: '\/rentals',\s+icon: HomeIcon,\s+label: 'Rentals home' \}/.test(sb) && /<NavSection label="Rentals" items=\{BOOTH_RENTAL\}/.test(sb)

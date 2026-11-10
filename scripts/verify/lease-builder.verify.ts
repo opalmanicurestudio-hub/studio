@@ -178,7 +178,7 @@ M._load = function (request: string, ...rest: any[]) {
   check('the Renew button says when there’s nothing to renew', /title: 'Nothing to renew', description: 'A lease with no end date runs until either side ends it\.'/.test(booths) && !/if \(!l\.endDate\) return;/.test(booths.slice(booths.indexOf('const renewLease'), booths.indexOf('const renewLease') + 400)));
   check('perks set before switching to an attorney’s lease are said not to be added', /won’t be added\. Put \{perks\.length === 1/.test(src));
   check('steps open only once the ones before are filled in, and say why Send waits', /disabled=\{!reachable\(i\)\}/.test(src) && /<span className="sr-only">, done<\/span>/.test(src) && /step === 5 && !valid\.every\(Boolean\)/.test(src));
-  check('the Spaces page opens the builder for a new lease', /const openLeaseWizard = \(renterId: string\) => \{ setBuilderRenterId\(renterId\); \}/.test(booths) && /<LeaseBuilder/.test(booths) && /leases=\{\(leases\.data/.test(booths) && !/handleCreateLease|leaseDialogOpen/.test(booths));
+  check('the Spaces page opens the builder for a new lease', /const openLeaseWizard = \(renterId: string, boothId\?: string \| null\) => \{ setBuilderBoothId\(boothId \|\| null\); setBuilderRenterId\(renterId\); \}/.test(booths) && /defaultBoothId=\{builderBoothId\}/.test(booths) && /<LeaseBuilder/.test(booths) && /leases=\{\(leases\.data/.test(booths) && !/handleCreateLease|leaseDialogOpen/.test(booths));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
