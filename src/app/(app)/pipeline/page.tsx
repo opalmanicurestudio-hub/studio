@@ -675,14 +675,15 @@ export default function PipelinePage() {
       const res: any = await createRenter(firestore, {
         tenantId,
         locationId: r.locationId || selectedLocationId,
-        firstName: parts[0] || 'New',
-        lastName: parts.slice(1).join(' ') || 'Renter',
+        firstName: parts[0] || '',
+        lastName: parts.slice(1).join(' '),
         email: r.email || '',
         phone: r.phone || undefined,
         specialty: r.specialty || undefined,
         notes: `Converted from ${r.kind === 'tour' ? 'a tour' : 'an application'}${r.boothName ? ` for ${r.boothName}` : ''} (via Pipeline)`,
         sourceApplicationId: r.id,
         appliedAt: r.createdAt || null,
+        requestedBoothId: r.boothId || null,
       } as any);
       const rid: string | null = res?.id || res?.renterId || (typeof res === 'string' ? res : null);
       if (rid) {

@@ -109,6 +109,9 @@ M._load = function (request: string, ...rest: any[]) {
   check('before sending: what’s missing, and how to fix it', checks.some((c: any) => !c.ok && c.fix === 'address') && checks.some((c: any) => !c.ok && c.fix === 'review') && checks.some((c: any) => c.ok && /Pennsylvania law applies/.test(c.text)));
   check('…the District of Columbia reads properly', L.leaseChecks(base, ctx({ ...tenant, leasePolicy: { governingState: 'DC' } }), { houseRulesAvailable: true }).some((c: any) => c.ok && c.text === 'The law of the District of Columbia applies'));
   check('…a recorded review is noted', L.leaseChecks(base, ctx({ ...tenant, leasePolicy: { attorneyReview: { at: '2026-10-20', by: 'Smith Law' } } }), { houseRulesAvailable: true }).some((c: any) => c.ok && /Attorney review recorded Oct 20, 2026/.test(c.text)));
+  const sl = L.leaseChecks(base, ctx(), { houseRulesAvailable: true, staffLike: ['Their booking record pays them a commission on their services. The lease says they run their own business.'] });
+  check('…a booking record that pays them like staff is a check to sort out before sending, with the way to it', sl.some((c: any) => !c.ok && c.fix === 'staff' && /pays them a commission/.test(c.text)) && L.leaseChecks(base, ctx(), { houseRulesAvailable: true }).every((c: any) => c.fix !== 'staff')
+    && /where\('renterId', '==', renter\.id\)/.test(readFileSync('src/components/renters/LeaseBuilder.tsx', 'utf8')) && /c\.fix === 'staff' && staffLike\.providerId/.test(readFileSync('src/components/renters/LeaseBuilder.tsx', 'utf8')));
   check('…a bad date', L.leaseChecks({ ...base, endDate: '2026-01-01' }, ctx(), { houseRulesAvailable: false }).some((c: any) => !c.ok && c.fix === 'amounts'));
 
   // Making the lease.

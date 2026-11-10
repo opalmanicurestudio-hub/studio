@@ -356,7 +356,7 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
                 {result && <p className="text-[13px] font-semibold text-[#1f7a4d]">{result}</p>}
               </div>
             )}
-            {r.losses.length === 0 && <p className="text-[13px] font-medium text-[#6d7075]">Nothing logged yet. A rent credit covers the chair — this is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
+            {r.losses.length === 0 && <p className="text-[13px] font-medium text-[#6d7075]">Nothing logged yet. A rent credit covers the space. This is for the clients you couldn't see, the number your own insurer or accountant will ask for. Log it while it's fresh.</p>}
             {r.losses.map((l: any) => (
               <p key={l.id} className="text-[13px] font-medium text-[#16171a]"><span className="font-semibold">{fmtDate(l.date)}</span> · {l.appointmentsLost} appt{l.appointmentsLost === 1 ? '' : 's'} · ${(l.lostCents / 100).toFixed(2)}{l.note ? ` — ${l.note}` : ''}</p>
             ))}

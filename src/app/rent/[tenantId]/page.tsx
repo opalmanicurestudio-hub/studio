@@ -525,7 +525,7 @@ export default function RenterPortalPage() {
       case 'followups': return { title: 'Follow-ups', sub: 'Who to check in with, and a text ready to send' };
       case 'campaigns': return { title: 'Campaigns', sub: 'One message to a group of your clients' };
       case 'reconnect': return { title: 'Win back', sub: 'Clients you haven’t seen in a while' };
-      case 'giftcards': return { title: 'Gift cards', sub: 'Sell them, and take them at the chair' };
+      case 'giftcards': return { title: 'Gift cards', sub: 'Sell them, and take them in person' };
       case 'clientdocs': return { title: 'Client documents', sub: 'Forms and files for your clients, private to you' };
       case 'setup:page': return { title: 'Your booking page', sub: 'Look, about you, photos, reviews and links' };
       case 'setup:services': return { title: 'Services', sub: 'Your menu, prices and lengths' };

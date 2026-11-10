@@ -211,7 +211,7 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
     /try \{ await batch\.commit\(\); saved = true; \}/.test(nightly) && /if \(!saved\) continue;/.test(nightly) && nightly.indexOf('if (!saved) continue;') < nightly.indexOf('for (const t of tellDue)')
     && /renterPortalLink\(db, tDoc\.id, t\.renterId, rd\)/.test(nightly) && !/your booth rent/.test(nightly));
   check('the portal won’t open a payment page while autopay is taking that bill, or may have taken it', /autopayBusy/.test(read('src/app/api/portal/renter/route.ts')) && /if \(inv\.autopayUnconfirmed === true\)/.test(read('src/app/api/portal/renter/route.ts')));
-  check('the owner sees an unconfirmed autopay, is warned before recording, and can let them pay', /It didn’t go through: let them pay/.test(rp) && /Check your Stripe payments before recording another payment/.test(rp));
+  check('the owner sees an unconfirmed autopay, is warned before recording, and can let them pay', /It didn’t go through: let them pay/.test(read('src/components/renters/RentMoney.tsx')) && /onAutopayNotTaken=\{/.test(rp) && /Check your Stripe payments before recording another payment/.test(rp));
   check('a charge still processing is unconfirmed, not a decline; the nightly skips only a bill that already exists', /unconfirmed = intent\.status === 'processing'/.test(read('src/app/api/cron/autopay-leases/route.ts')) && /Number\(e\?\.code\) === 6/.test(nightly));
   check('the catch-up uses the one rule and approved leave', /dueDatesBetween/.test(read('src/lib/rent-cycle.ts')) && /rentUnderLeave/.test(read('src/lib/rent-cycle.ts')));
   check('autopay no longer has its own due-day rule', !/function isDueToday/.test(read('src/app/api/cron/autopay-leases/route.ts')));

@@ -161,9 +161,9 @@ export const logContactEvent = (firestore: any, tenantId: string, person: Ensure
 // failure must never block the actual call/text from opening.
 export const logContactTouch = (firestore: any, tenantId: string, person: EnsureInput, kind: 'call' | 'text' | 'email') =>
   patchContact(firestore, tenantId, person, {},
-    kind === 'call' ? '📞 Called' : kind === 'text' ? '💬 Texted' : '✉️ Emailed');
+    kind === 'call' ? 'Called' : kind === 'text' ? 'Texted' : 'Emailed');
 
 export const linkContactRenter = (firestore: any, tenantId: string, person: EnsureInput, renterId: string) =>
   patchContact(firestore, tenantId, person, {
     convertedRenterId: renterId, pipelineStage: 'won', lostReason: null, lostAt: null, nextFollowUpAt: null,
-  }, 'Converted to renter 🎉');
+  }, 'Converted to renter');

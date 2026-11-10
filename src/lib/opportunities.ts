@@ -202,16 +202,16 @@ export const PLAYBOOKS: Record<OppKind, Playbook> = {
     next: 'Confirm the date and guest count, then send the quote (Quotes → from this inquiry).',
     branches: COMMON([B('done', 'Quote sent, or they’ve gone elsewhere. Mark it done.')]),
     never: 'Letting a new inquiry wait more than a day without a word.' },
-  booth_lead: { kind: 'booth_lead', label: 'A booth applicant waiting', who: 'owner', marketing: false, priority: 'high', expiresDays: 10, cooldownDays: 21, winBack: false,
+  booth_lead: { kind: 'booth_lead', label: 'A rental applicant waiting', who: 'owner', marketing: false, priority: 'high', expiresDays: 10, cooldownDays: 21, winBack: false,
     versions: [
       'Hi {first}, this is {me} at {business}. Thank you for your interest in renting with us. Would you like to come by to see the space and talk it through?',
-      'Hi {first}, this is {me} from {business}. I wanted to follow up on your booth rental application. Do you have time for a quick chat this week?',
+      'Hi {first}, this is {me} from {business}. I wanted to follow up on your rental application. Do you have time for a quick chat this week?',
     ],
     next: 'Book a tour or a call, or decide on the application.',
     branches: COMMON([B('done', 'Toured, decided, or no longer interested. Mark it done.')]),
     never: 'Leaving an applicant without an answer.' },
-  booth_pass: { kind: 'booth_pass', label: 'Booth days not being used', who: 'owner', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 30, winBack: false,
-    versions: ['Hi {first}, this is {me} at {business}. You still have {left} on your booth pass. Would you like me to hold a day for you?'],
+  booth_pass: { kind: 'booth_pass', label: 'Rental days not being used', who: 'owner', marketing: false, priority: 'medium', expiresDays: 14, cooldownDays: 30, winBack: false,
+    versions: ['Hi {first}, this is {me} at {business}. You still have {left} on your pass. Would you like me to hold a day for you?'],
     next: 'Offer a day or two that are open.',
     branches: COMMON([B('done', 'Booked a day, or not needed. Mark it done.')]),
     never: 'Making them feel they have wasted their money.' },
@@ -563,12 +563,12 @@ export function bizCandidates(b: Biz, S: OppSettings, now: number, tz?: string):
     const st = String(a.status || ''); const d = ago(a.createdAt); const dd = ago(a.decidedAt);
     const waiting = ['new', 'in_review'].includes(st) && d !== null && d >= 2 && d <= 45; const approvedIdle = st === 'approved' && dd !== null && dd >= 5 && dd <= 60 && !keysOf(a).some((k) => booked.has(k));
     if (!waiting && !approvedIdle) continue;
-    push('booth_lead', String(a.id), a, waiting ? `Applied for a ${a.rentalType === 'lease' ? 'booth lease' : 'booth'} ${Math.round(d!)} days ago, no answer yet` : `Approved ${Math.round(dd!)} days ago, hasn’t booked or signed yet`, {}, 0, { applicationId: String(a.id) });
+    push('booth_lead', String(a.id), a, waiting ? `Applied for ${a.rentalType === 'lease' ? 'a lease' : 'a day rental'} ${Math.round(d!)} days ago, no answer yet` : `Approved ${Math.round(dd!)} days ago, hasn’t booked or signed yet`, {}, 0, { applicationId: String(a.id) });
   }
   if (S.finders.booth_pass) for (const p of b.boothPasses || []) {
     const left = (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0); const d = ago(p.purchasedAt); if (p.status !== 'active' || left <= 0 || d === null || d < 30) continue;
     const k = String(p.contactKey || ''); const last = booked.get(k) || 0; if (ahead.has(k) || (last && now - last < 30 * DAY)) continue;
-    push('booth_pass', String(p.id), { name: p.name || p.renterName, phone: p.phone || (/^\d{10}$/.test(k) ? k : ''), email: p.email || (k.includes('@') ? k : '') }, `${left} booth day${left === 1 ? '' : 's'} left on a pass, none booked in 30 days`, { left: `${left} day${left === 1 ? '' : 's'}` }, 0, { passId: String(p.id) });
+    push('booth_pass', String(p.id), { name: p.name || p.renterName, phone: p.phone || (/^\d{10}$/.test(k) ? k : ''), email: p.email || (k.includes('@') ? k : '') }, `${left} rental day${left === 1 ? '' : 's'} left on a pass, none booked in 30 days`, { left: `${left} day${left === 1 ? '' : 's'}` }, 0, { passId: String(p.id) });
   }
   if (S.finders.booth_lapsed) { const seen = new Set<string>();
     for (const r of [...(b.boothBookings || [])].sort((x, y) => ms(y.startDate) - ms(x.startDate))) {

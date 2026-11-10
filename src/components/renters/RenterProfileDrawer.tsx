@@ -31,6 +31,7 @@ import { PrintLink } from '@/components/shared/PrintLink';
 import { RenterPortalAccess } from '@/components/renters/RenterPortalAccess';
 import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
 import { incidentalsForLease } from '@/lib/incidentals';
+import { latestCredential, primaryCredentialIndex, otherCredentials } from '@/lib/compliance';
 
 const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
   { label: 'Cleaning fee', capCents: 7500 },
@@ -72,16 +73,21 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
     return 'ok';
   };
   const items: { label: string; number: string; expiry: string; state: string; fileUrl?: string; fileName?: string }[] = [];
-  if (Array.isArray(r.credentials)) {
-    for (const cr of r.credentials) {
-      if (!cr?.label) continue;
-      items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry), fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' });
-    }
+  const list: any[] = Array.isArray(r.credentials) ? r.credentials.filter((c: any) => c?.label) : [];
+  // Insurance and license by the shared rule (lib/compliance): the newest date on file, their own upload or this list.
+  for (const kind of ['license', 'insurance'] as const) {
+    const on = latestCredential(r, kind);
+    const at = primaryCredentialIndex(list, kind); const listed = at >= 0 ? list[at] : null;
+    const extra = kind === 'license' ? r.licenseNumber : r.insuranceCarrier;
+    if (!on.expiry && !on.docUrl && !listed && !extra) continue;
+    items.push({
+      label: listed?.label || (kind === 'license' ? 'Professional license' : `Liability insurance${r.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`),
+      number: listed?.number || (kind === 'license' ? r.licenseNumber || '' : r.insurancePolicyNumber || ''),
+      expiry: on.expiry || '', state: judge(on.expiry), fileUrl: on.docUrl || '',
+    });
   }
-  // Legacy fields from the first compliance version — still honored
-  if (items.length === 0) {
-    if (r.licenseExpiry || r.licenseNumber) items.push({ label: 'Professional license', number: r.licenseNumber || '', expiry: r.licenseExpiry || '', state: judge(r.licenseExpiry) });
-    if (r.insuranceExpiry || r.insuranceCarrier) items.push({ label: `Liability insurance${r.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`, number: '', expiry: r.insuranceExpiry || '', state: judge(r.insuranceExpiry) });
+  for (const cr of otherCredentials(list)) {
+    items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry), fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' });
   }
   const rank: Record<string, number> = { expired: 0, expiring: 1, missing: 2, ok: 3 };
   const worst = items.length === 0 ? 'none' : items.reduce((w, it) => rank[it.state] < rank[w] ? it.state : w, 'ok');
@@ -232,7 +238,7 @@ export function RenterProfileDrawer({
     try {
       const res = await fetch('/api/booths/notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'renter-message', tenantId, renterId: renter.id, text, byName: (drawerTenant as any)?.name || 'Studio' }),
+        body: JSON.stringify({ action: 'renter-message', tenantId, renterId: renter.id, text, byName: (drawerTenant as any)?.name || 'The business' }),
       });
       const d = await res.json();
       if (d?.ok) { setDraft(''); setRecordTick((n) => n + 1); drawerToast({ title: 'Sent', description: `${d.emailStatus === 'sent' ? 'Emailed' : ''}${d.emailStatus === 'sent' && d.smsStatus === 'sent' ? ' and ' : ''}${d.smsStatus === 'sent' ? 'texted' : ''}${d.emailStatus !== 'sent' && d.smsStatus !== 'sent' ? 'Saved to the thread — no email or phone on file to deliver to.' : '.'}` }); }

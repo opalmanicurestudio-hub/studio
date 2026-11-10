@@ -85,6 +85,7 @@ import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
 import { resolveOffers, offersFor, offerAllows, offerBlocked, renterOfferLines, isOfferKey, offerDef, runningAddOn, activeAddOn, hasRunningAddOn, money as perMonth } from '@/lib/renter-offers';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { nextTermEnd } from '@/lib/lease-builder';
+import { credentialsAfterUpload } from '@/lib/compliance';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -945,10 +946,18 @@ export async function POST(req: NextRequest) {
             ...(carrier ? { insuranceCarrier: carrier } : {}), ...(policyNumber ? { insurancePolicyNumber: policyNumber } : {}),
             insuranceUploadedAt: new Date().toISOString(),
           };
-      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
+      // That kind's entry in the business's own list of their papers moves to the new date and document too, so the
+      // owner's screens and the expiry reminders stop saying the old one has run out (lib/compliance). Read and written
+      // together, so an edit the owner makes to the list at the same moment isn't lost.
+      const rRef = db.doc(`tenants/${tenantId}/renters/${session.renterId}`);
+      await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(rRef)).data() || {};
+        const list = credentialsAfterUpload(cur.credentials, kind, { expiry, fileUrl: String(up.url), ...(kind === 'insurance' && policyNumber ? { number: policyNumber } : {}) });
+        tx.set(rRef, list ? { ...patch, credentials: list } : patch, { merge: true });
+      });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({
-        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/renters',
+        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: `/renters/${encodeURIComponent(String(session.renterId))}`,
         message: `${session.name || 'A renter'} has uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''}. It is now on their profile.`,
       });
       await logAuditAdmin(db, tenantId, {

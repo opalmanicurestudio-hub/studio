@@ -14,6 +14,7 @@
 // booking" additions (Booth day-use fields, Booking, overlap/availability,
 // utilization) previously staged in booth-rental-types.booking-additions.ts.
 // Search "DAY-USE:" comments below for exactly what that merge added.
+import { dayKey } from './tenant-time';
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -950,6 +951,15 @@ export interface RentRollSummary {
   leasesEndingSoonIds: string[];
 }
 
+/** The business's day a stored date or moment falls on: a plain date as it is, a moment (an ISO time) on the business's
+ *  clock when its time zone is known (lib/tenant-time), else its first ten characters. */
+export function bizDayOf(v: any, timeZone?: string | null): string {
+  const s = String(v ?? '');
+  if (!s.includes('T') || !timeZone) return s.slice(0, 10);
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s.slice(0, 10) : dayKey(d, timeZone);
+}
+
 /** Build the exception-driven dashboard summary from raw collections. */
 export function buildRentRollSummary(params: {
   booths: Booth[];
@@ -960,29 +970,38 @@ export function buildRentRollSummary(params: {
   cycleStartIso: string; // start of the current reporting window (e.g. this month)
   /** Rent bills: what's owed lives here (see renterOwedCents). */
   invoices?: any[];
+  /** The business's time zone: a payment's moment counts on the business's day (lib/tenant-time). */
+  timeZone?: string | null;
 }): RentRollSummary {
   const { booths, renters, leases, ledger, todayIso, cycleStartIso } = params;
+  const onDay = (v: any) => bizDayOf(v, params.timeZone);
   const invoices = params.invoices || [];
 
   const activeLeases = leases.filter((l) => l.status === 'active');
   const leaseById = new Map(activeLeases.map((l) => [l.id, l]));
 
   // Collected: payments recorded by hand or at the desk (ledger 'payment' lines), autopay charges (the ledger line autopay
-  // writes, paid), and rent paid online (on the bill itself, which writes no ledger line). Each payment counted once.
+  // writes, paid), and rent paid online (on the bill itself, which writes no ledger line: the last payment that settles
+  // it, and any part paid before that). Each payment counted once.
   const collectedThisCycleCents = ledger
     .filter(
       (e) =>
         ((e.type === 'payment' && e.status === 'paid') || (e.type === 'rent_charge' && e.status === 'paid' && /autopay/i.test(String((e as any).description || '')))) &&
         e.paidAt != null &&
-        e.paidAt >= cycleStartIso
+        onDay(e.paidAt) >= cycleStartIso
     )
     .reduce((sum, e) => sum + Math.abs(e.amountCents), 0)
     + invoices
-      .filter((i: any) => i?.status === 'paid' && i?.paidMethod === 'Card (Stripe)' && String(i?.paidAt || '') >= cycleStartIso)
+      .filter((i: any) => i?.status === 'paid' && i?.paidMethod === 'Card (Stripe)' && onDay(i?.paidAt) >= cycleStartIso)
       .reduce((sum: number, i: any) => sum + (Number(i.paidAmountCents) || Number(i.amountCents) || 0), 0)
+    // Part of a bill paid online, each part on the day it came in (lib/rent-online-pay).
+    + invoices
+      .flatMap((i: any) => Object.values((i?.onlineParts || {}) as Record<string, any>))
+      .filter((p: any) => onDay(p?.at) >= cycleStartIso)
+      .reduce((sum: number, p: any) => sum + (Number(p?.cents) > 0 ? Number(p.cents) : 0), 0)
     // Less money refunded to renters' cards this cycle (lib/renter-refund).
     - ledger
-      .filter((e: any) => e.type === 'card_refund' && String(e.createdAt || '') >= cycleStartIso)
+      .filter((e: any) => e.type === 'card_refund' && onDay(e.createdAt) >= cycleStartIso)
       .reduce((sum, e) => sum + Math.abs(Number(e.amountCents) || 0), 0);
 
   const outstandingCents = invoices.reduce((n, i) => n + invoiceOwedCents(i), 0)

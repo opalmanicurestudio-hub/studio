@@ -70,7 +70,7 @@ const FORMAL = new Set([
 ]);
 const MONEY = new Set([
   'rent_receipt', 'renter_refund', 'renter_charge', 'renter_credit', 'rent_invoiced', 'rent_invoice', 'rent_charge_upcoming',
-  'renter_rent_due', 'rent_failed', 'station_booking_confirmed', 'renter_incidental',
+  'renter_rent_due', 'rent_failed', 'station_booking_confirmed', 'renter_incidental', 'rent_pay_link',
 ]);
 const CONVERSATION = new Set([
   'renter_message', 'renter_broadcast', 'grievance_received', 'renter_ticket_update', 'renter_day_swap', 'leave_ended',
@@ -93,7 +93,7 @@ const LABEL: Record<string, string> = {
   rent_failed: 'Rent payment didn’t go through', station_booking_confirmed: 'Booking confirmed', renter_incidental: 'Charge',
   renter_message: 'Message', renter_broadcast: 'Message to every renter', grievance_received: 'Your concern',
   renter_ticket_update: 'Maintenance', renter_day_swap: 'Day swap', renter_signin_code: 'Sign-in code',
-  renter_portal_invite: 'Portal link',
+  renter_portal_invite: 'Portal link', rent_pay_link: 'What you owe',
 };
 
 export function noticeCategory(kind: string): NoticeCategory {

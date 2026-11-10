@@ -26,6 +26,7 @@
 
 import { linkOrigin } from '@/lib/app-origin';
 import { mintRenterLink } from '@/lib/renter-link';
+import { latestCredential, otherCredentials } from '@/lib/compliance';
 import { logAuditAdmin } from './audit';
 import { brandedEmailHtml } from './email-template';
 
@@ -119,18 +120,17 @@ async function pushNotification(db: Db, tenantId: string, n: { type: string; lin
 const renterName = (r: any): string =>
   `${r?.firstName || ''} ${r?.lastName || ''}`.trim() || r?.name || 'A renter';
 
-// Replicates booths-page complianceOf(): missing / expired / expiring(≤30d) / ok.
+// Insurance and license by the shared rule (lib/compliance: the newest date on file, the renter's own upload or the
+// business's list), then everything else the business keeps on its list (a permit, a certificate, a second license)
+// as it is.
 function credentialsOf(r: any): { label: string; expiry: string }[] {
   const out: { label: string; expiry: string }[] = [];
-  if (Array.isArray(r?.credentials)) {
-    for (const cr of r.credentials) {
-      if (cr?.label && cr?.expiry) out.push({ label: String(cr.label), expiry: dateOnly(cr.expiry) });
-    }
-  }
-  // Legacy single-field credentials — only if no structured credentials exist.
-  if (out.length === 0) {
-    if (r?.licenseExpiry) out.push({ label: 'Professional license', expiry: dateOnly(r.licenseExpiry) });
-    if (r?.insuranceExpiry) out.push({ label: `Liability insurance${r?.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`, expiry: dateOnly(r.insuranceExpiry) });
+  const lic = latestCredential(r, 'license');
+  if (lic.expiry) out.push({ label: 'Professional license', expiry: dateOnly(lic.expiry) });
+  const ins = latestCredential(r, 'insurance');
+  if (ins.expiry) out.push({ label: `Liability insurance${r?.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`, expiry: dateOnly(ins.expiry) });
+  for (const cr of otherCredentials(r?.credentials)) {
+    if (cr?.expiry) out.push({ label: String(cr.label), expiry: dateOnly(cr.expiry) });
   }
   return out;
 }

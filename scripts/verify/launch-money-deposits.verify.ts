@@ -183,7 +183,7 @@ const dep = (body: any) => import('../../src/app/api/rent/deposit/route').then((
   await NT.POST(req({ tenantId: 't1', kind: 'credit_added', id: 'lc2' }));
   check('banked days credited come off their open rent now (the oldest bill first), and they’re told', (await get(`${T}/rentInvoices/i2`)).paidCents === 12000 && /We added \$120\.00 of credit to your account: 4 banked rental days redeemed/.test(String(toMaya()[4]?.html)), { i4: await get(`${T}/rentInvoices/i4`), m: toMaya().map((m) => m.subject) });
   const rent = src('src/app/(app)/rent/page.tsx');
-  check('the Rent page asks for each of these after making the change', rent.includes("{ status: 'waived', waivedAt: new Date().toISOString(), waivedBy: 'owner'") && rent.includes("tellRenter('charge_added', added.id);") && rent.includes("tellRenter(what === 'fee' ? 'fee_waived' : 'bill_waived', inv.id);") && rent.includes("tellRenter('charge_waived', entry.id);") && rent.includes("kind: 'credit_added', id: ref.id"));
+  check('the Rent page asks for each of these after making the change', /tx\.update\(ref, \{ status: 'waived', waivedAt: nowIso, waivedBy: 'owner'/.test(rent) && rent.includes("tellRenter('charge_added', added.id);") && rent.includes("tellRenter(what === 'fee' ? 'fee_waived' : 'bill_waived', invId);") && rent.includes("tellRenter('charge_waived', entry.id);") && rent.includes("kind: 'credit_added', id: ref.id"));
 
   console.log('Where it’s used');
   const drawer = src('src/components/renters/RenterProfileDrawer.tsx'); const booths = src('src/app/(app)/booths/page.tsx');

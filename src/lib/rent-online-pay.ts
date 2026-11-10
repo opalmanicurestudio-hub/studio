@@ -156,13 +156,13 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
       ...(balTxnId ? { stripeBalanceTxnId: balTxnId, ...(account ? { stripeConnectedAccountId: account } : {}) } : {}),
     }); }
     // Less than what's owed now (a late fee came on while they were paying): it counts toward the invoice, which stays
-    // open for the rest.
+    // open for the rest, and is kept as a part with its day, so the Rent page counts it as collected (lib/rent-money).
     // More than was owed: what's over is written on the invoice in the same step, to go back, so it's never lost if this
     // is cut off before the refund is asked for (the five-minute check finds it there).
     const over = Math.max(0, paidNow - take);
     tx.set(invRef, { ...(take >= owed
       ? { status: 'paid', paidAt: nowIso, paidMethod: 'Card (Stripe)', paidAmountCents: take, paidLedgerEntryId: lineRef.id, stripePaymentIntentId: pi, paidSessionId: String(cs.id) }
-      : { paidCents: (Number(cur.paidCents) || 0) + take, lastPaidOnlineAt: nowIso, updatedAt: nowIso }),
+      : { paidCents: (Number(cur.paidCents) || 0) + take, lastPaidOnlineAt: nowIso, updatedAt: nowIso, onlineParts: { [k]: { cents: take, at: nowIso } } }),
       ...(over > 0 ? { extraPayments: { [k]: { sessionId: String(cs.id), paymentIntentId: pi, account, cents: over, why: 'overpaid', state: 'to_refund', firstAt: nowIso } },
         extraRefundOpenAt: cur.extraRefundOpenAt && cur.extraRefundOpenAt < nowIso ? cur.extraRefundOpenAt : nowIso } : {}) }, { merge: true });
     return { take, over, owed };

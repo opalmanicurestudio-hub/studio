@@ -1134,6 +1134,8 @@ export interface CreateRenterInput {
   appliedAt?: string | null;
   consentAccepted?: boolean | null;
   consentAcceptedAt?: string | null;
+  /** The space they asked for, kept so their first lease starts on it. */
+  requestedBoothId?: string | null;
 }
 
 export async function createRenter(
@@ -1168,6 +1170,7 @@ export async function createRenter(
     appliedAt: input.appliedAt || undefined,
     consentAccepted: input.consentAccepted ?? undefined,
     consentAcceptedAt: input.consentAcceptedAt || undefined,
+    requestedBoothId: input.requestedBoothId || undefined,
     status: 'prospective',
     stripeCustomerId: null,
     defaultPaymentMethodId: null,

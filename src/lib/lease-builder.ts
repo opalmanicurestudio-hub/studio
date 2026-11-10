@@ -426,14 +426,17 @@ export function buildLease(d: LeaseDraft, c: LeaseContext): BuiltLease {
 }
 
 /** What to sort out before sending, in plain words. */
-export function leaseChecks(d: LeaseDraft, c: LeaseContext, o: { houseRulesAvailable: boolean }): { ok: boolean; text: string; fix?: 'address' | 'review' | 'rules' | 'amounts' | 'state' }[] {
+export function leaseChecks(d: LeaseDraft, c: LeaseContext, o: { houseRulesAvailable: boolean; staffLike?: string[] }): { ok: boolean; text: string; fix?: 'address' | 'review' | 'rules' | 'amounts' | 'state' | 'staff' }[] {
   const amountsOk = d.rentCents > 0 && !!d.startDate && (!d.endDate || d.endDate > d.startDate) && (d.frequency !== 'monthly' || (d.dueDay >= 1 && d.dueDay <= 31));
-  const out: { ok: boolean; text: string; fix?: 'address' | 'review' | 'rules' | 'amounts' | 'state' }[] = [
+  const out: { ok: boolean; text: string; fix?: 'address' | 'review' | 'rules' | 'amounts' | 'state' | 'staff' }[] = [
     { ok: amountsOk, text: amountsOk ? 'Every amount and date is filled in' : 'An amount or date is missing or doesn’t add up', ...(amountsOk ? {} : { fix: 'amounts' as const }) },
     { ok: !!d.renterNoticeAddress.trim(), text: d.renterNoticeAddress.trim() ? `${d.renterName || 'The renter'}’s address for notices is in` : `${d.renterName || 'The renter'}’s address for notices is missing`, ...(d.renterNoticeAddress.trim() ? {} : { fix: 'address' as const }) },
     { ok: !!c.policy.governingState, text: c.policy.governingState ? (/^the /.test(stateName(c.policy.governingState)) ? `The law of ${stateName(c.policy.governingState)} applies` : `${stateName(c.policy.governingState)} law applies`) : 'Which state’s law applies isn’t set', ...(c.policy.governingState ? {} : { fix: 'state' as const }) },
   ];
   if (o.houseRulesAvailable) out.push({ ok: !!d.houseRules, text: d.houseRules ? 'House rules attached' : 'House rules aren’t attached', ...(d.houseRules ? {} : { fix: 'rules' as const }) });
+  // The lease says they run their own business; settings that pay or treat them like staff say otherwise
+  // (lib/renter-summary workingRelationship).
+  for (const t of o.staffLike || []) out.push({ ok: false, text: t, fix: 'staff' });
   out.push({ ok: !!c.policy.attorneyReview, text: c.policy.attorneyReview ? `Attorney review recorded ${shortDate(c.policy.attorneyReview.at)}` : 'No attorney review recorded for this template', ...(c.policy.attorneyReview ? {} : { fix: 'review' as const }) });
   return out;
 }

@@ -11,6 +11,7 @@ import { collection, doc, getDocs, query, where, updateDoc } from 'firebase/fire
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { createLease } from '@/lib/booth-rental-service';
 import { resolveLeasePolicy, buildLease, leaseChecks, usd, shortDate, type LeaseDraft, type LeaseContext, type LeasePolicy, leaseEndAfter, slotsClash } from '@/lib/lease-builder';
+import { workingRelationship } from '@/lib/renter-summary';
 import { resolveOffers, signedOffersFrom } from '@/lib/renter-offers';
 import { resolveIncidentalPolicy } from '@/lib/incidentals';
 import { responseCommitments } from '@/lib/maintenance';
@@ -103,7 +104,9 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
   // a pasted attorney's lease and any lease settings changed here.
   const saved = React.useMemo(() => { try { return JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { return null; } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [policy, setPolicy] = React.useState<LeasePolicy>(() => (saved?.policy ? { ...basePolicy, ...pickPolicy(saved.policy) } : basePolicy));
-  const [boothId, setBoothId] = React.useState<string>(p.defaultBoothId || saved?.boothId || '');
+  // The space picked from Spaces, else the draft's, else the one they asked for when they applied (if it's still here).
+  const asked = renter?.requestedBoothId && (p.booths || []).some((b) => b.id === renter.requestedBoothId) ? String(renter.requestedBoothId) : '';
+  const [boothId, setBoothId] = React.useState<string>(p.defaultBoothId || saved?.boothId || (saved?.d ? '' : asked));
   const [length, setLength] = React.useState<'open' | '6' | '12' | '24' | 'custom'>(saved?.length || '12');
   const [perks, setPerks] = React.useState<BuilderPerk[]>(Array.isArray(saved?.perks) ? saved.perks : []);
   const [rules, setRules] = React.useState<{ id: string; label: string }[] | null>(null);
@@ -184,12 +187,32 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
     }).catch(() => setRules([]));
   }, [p.firestore, tenantId]);
 
+  // What could make them look like staff on their booking record, against what the lease says they are.
+  const [staffLike, setStaffLike] = React.useState<{ texts: string[]; providerId: string | null }>({ texts: [], providerId: null });
+  // Read again when the owner comes back to this tab (say, from fixing the record in another one). A late answer for a
+  // renter no longer on screen is dropped, and a failed read says so instead of passing quietly.
+  React.useEffect(() => {
+    if (!p.firestore || !tenantId || !renter?.id) return;
+    let live = true;
+    const load = () => getDocs(query(collection(p.firestore, `tenants/${tenantId}/staff`), where('renterId', '==', renter.id))).then((s) => {
+      if (!live) return;
+      const prov: any = s.docs.map((x) => ({ id: x.id, ...(x.data() as any) })).find((x: any) => x.isRenter) || null;
+      const texts = workingRelationship(renter, prov, { leaseFrom: 'builder' }).filter((l) => l.warn).map((l) => String(l.value));
+      if (texts.length) texts[texts.length - 1] += ' The lease says they run their own business.';
+      setStaffLike({ texts, providerId: prov?.id || null });
+    }).catch(() => { if (live) setStaffLike({ texts: ['Their booking record couldn’t be checked just now. Make sure it doesn’t pay them like staff before you send.'], providerId: null }); });
+    void load();
+    const onFocus = () => { void load(); };
+    window.addEventListener('focus', onFocus);
+    return () => { live = false; window.removeEventListener('focus', onFocus); };
+  }, [p.firestore, tenantId, renter?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const ctx: LeaseContext = React.useMemo(() => ({
     businessName: String(tenant?.name || tenant?.businessName || ''), policy,
     repairs: responseCommitments(tenant?.maintenanceRules || null), leave: resolveLeavePolicy(tenant), collections: resolveCollectionsPolicy(tenant), offers,
   }), [tenant, policy, offers]);
   const built = React.useMemo(() => buildLease({ ...d, signedOnPaper: !sign, perks }, ctx), [d, ctx, sign, perks]);
-  const checks = leaseChecks(d, ctx, { houseRulesAvailable: !!rules?.length });
+  const checks = leaseChecks(d, ctx, { houseRulesAvailable: !!rules?.length, staffLike: staffLike.texts });
   const fb = firstBill({ rentAmountCents: d.rentCents, frequency: d.frequency, dueDay: d.dueDay, firstChargeDate: d.startDate, startDate: d.startDate, prorateFirst: d.prorateFirst, autoRenew: true });
   const freeBooths = p.booths.filter((b) => b.id === boothId || ['vacant', 'partial', 'available'].includes(String(b.status || 'vacant')));
   // Who already uses this space (this renter too): a lease on the whole space blocks any other; a shared one blocks
@@ -585,6 +608,7 @@ export function LeaseBuilder(p: LeaseBuilderProps) {
                       {!c.ok && c.fix === 'amounts' && <button type="button" className={btn} onClick={() => go(1)}>Fix it</button>}
                       {!c.ok && c.fix === 'rules' && <button type="button" className={btn} onClick={() => go(3)}>Attach them</button>}
                       {!c.ok && c.fix === 'review' && !review.open && <button type="button" className={btn} onClick={() => setReview({ ...review, open: true })}>Record a review</button>}
+                      {!c.ok && c.fix === 'staff' && staffLike.providerId && <a href={`/staff/${encodeURIComponent(staffLike.providerId)}`} target="_blank" rel="noreferrer" className={btn}>Open their booking record</a>}
                     </li>
                   ))}
                 </ul>

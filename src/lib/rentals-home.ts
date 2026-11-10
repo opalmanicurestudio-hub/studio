@@ -161,7 +161,7 @@ export function rentalsHome(x: RentalsHomeInput) {
   const billing = leases.filter((l) => BILLING.includes(String(l.status)));
   const onTimeAway = running.filter((l) => !BILLING.includes(String(l.status)));
   const rentRollCents = billing.reduce((s, l) => s + monthlyCents(l.rentAmountCents, l.frequency), 0);
-  const roll = buildRentRollSummary({ booths: booths as any, renters: renters as any, leases: leases as any, ledger: ledger as any, todayIso: today, cycleStartIso: monthStart, invoices });
+  const roll = buildRentRollSummary({ booths: booths as any, renters: renters as any, leases: leases as any, ledger: ledger as any, todayIso: today, cycleStartIso: monthStart, invoices, timeZone: x.timeZone });
   // This month's rent: the bills that came due from the 1st to today, and how much of them is paid. Like with like:
   // a payment on last month's late bill shows as less owed, not as this month's rent.
   // A voided or waived bill isn't rent due.

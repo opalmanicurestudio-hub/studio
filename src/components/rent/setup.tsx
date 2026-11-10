@@ -84,7 +84,7 @@ export function MyHours({ data, tenantId, token, onChanged }: { data: any; tenan
           <p className="rounded-2xl bg-[#f5f5f7] p-3 text-[14px] font-medium text-[#6d7075]">
             Your lease covers {data.provider.leasedDays.map((d: string) => d.slice(0, 3)).join(', ')}
             {data.provider.leasedStart ? ' ' + data.provider.leasedStart + '\u2013' + (data.provider.leasedEnd || 'close') : ''}.
-            {' '}Hours outside that save as off — the chair belongs to someone else then.
+            {' '}Hours outside that save as off: the space belongs to someone else then.
           </p>
         )}
         {DAY_ROWS.map(([key, label]) => (
@@ -742,16 +742,16 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
   const active = st.purchases.filter((p) => p.status === 'active');
   return (
     <div className="space-y-3">
-      <p className="text-[13px] font-medium text-[#6d7075]">Prepaid bundles of your services — “5 gel fills for $300”. Sold on your booking page through your Stripe, or at the chair. A credit comes off each time you mark a visit done. Your money, your Stripe; {biz()} sees none of it.</p>
+      <p className="text-[13px] font-medium text-[#6d7075]">Prepaid bundles of your services — “5 sessions for $300”. Sold on your booking page through your Stripe, or in person. A credit comes off each time you mark a visit done. Your money, your Stripe; {biz()} sees none of it.</p>
       {st.blocked && <AddOnNote text={st.blocked} canAdd={st.addable} />}
-      {!canCharge && <p className="rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] px-3 py-2 text-[14px] font-medium text-[#b45309]">Connect your Stripe (Payouts) to sell packages online. Until then you can still record packages sold at the chair.</p>}
+      {!canCharge && <p className="rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] px-3 py-2 text-[14px] font-medium text-[#b45309]">Connect your Stripe (Payouts) to sell packages online. Until then you can still record packages sold in person.</p>}
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-semibold text-[#6d7075]">{st.packages.length} package{st.packages.length === 1 ? '' : 's'} · ${(st.soldCents / 100).toFixed(0)} sold · {active.length} active</p>
         {!st.blocked && <button type="button" onClick={() => setDraft({ name: '', credits: 5, price: '', validDays: 365, serviceId: services[0]?.id || '', description: '', isActive: true })} className="h-11 rounded-xl bg-[#16171a] px-3 text-[13px] font-semibold text-white">New</button>}
       </div>
       {draft && (
         <div className="rounded-2xl border border-[#16171a] p-3 space-y-2">
-          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Package name — “5 Gel Fills”" aria-label="Package name" className="h-11 w-full rounded-xl border border-[#ececee] px-3 text-sm font-medium" />
+          <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value.slice(0, 80) })} placeholder="Package name, like “5 sessions”" aria-label="Package name" className="h-11 w-full rounded-xl border border-[#ececee] px-3 text-sm font-medium" />
           <div className="grid grid-cols-3 gap-2">
             <label className="block"><span className="block text-[12px] font-semibold text-[#6d7075]">Visits</span><input type="number" min={1} max={50} value={draft.credits} onChange={(e) => setDraft({ ...draft, credits: e.target.value })} className="h-11 w-full rounded-xl border border-[#ececee] text-center text-sm font-semibold" /></label>
             <label className="block"><span className="block text-[12px] font-semibold text-[#6d7075]">Price $</span><input type="number" min={0} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} className="h-11 w-full rounded-xl border border-[#ececee] text-center text-sm font-semibold" /></label>
@@ -784,7 +784,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0"><p className="text-[13px] font-semibold text-[#16171a]">{p.name}</p><p className="text-[13px] font-medium text-[#6d7075]">{p.credits} visit{p.credits === 1 ? '' : 's'} · ${(p.priceCents / 100).toFixed(0)}{p.serviceName ? ` · ${p.serviceName}` : ' · any service'} · valid {p.validDays} days{p.isActive === false ? ' · hidden' : ''}</p></div>
             <div className="flex shrink-0 gap-1.5">
-              {!st.blocked && <button type="button" onClick={() => setSell({ packageId: p.id, clientId: '', note: '' })} className="h-11 rounded-lg bg-[#16171a] px-2.5 text-[12px] font-semibold text-white">Sell at chair</button>}
+              {!st.blocked && <button type="button" onClick={() => setSell({ packageId: p.id, clientId: '', note: '' })} className="h-11 rounded-lg bg-[#16171a] px-2.5 text-[12px] font-semibold text-white">Sell in person</button>}
               <button type="button" onClick={() => setDraft({ ...p, price: p.priceCents / 100 })} className="h-11 rounded-lg border px-2.5 text-[12px] font-semibold">Edit</button>
             </div>
           </div>
@@ -808,7 +808,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
         <div className="space-y-1">
           <p className="text-[12px] font-semibold text-[#6d7075]">Who holds credits</p>
           {st.purchases.slice(0, 20).map((p) => (
-            <p key={p.id} className="text-[14px] font-medium text-[#6d7075]"><span className="font-semibold text-[#16171a]">{p.clientName}</span> · {p.packageName} · <span className={cn('font-semibold', p.status === 'active' ? 'text-[#1f7a4d]' : 'text-[#6d7075]')}>{p.remaining} of {p.creditsTotal} left</span>{p.status !== 'active' ? ` · ${p.status}` : ''} · {p.source === 'stripe' ? 'paid online' : 'paid at chair'}</p>
+            <p key={p.id} className="text-[14px] font-medium text-[#6d7075]"><span className="font-semibold text-[#16171a]">{p.clientName}</span> · {p.packageName} · <span className={cn('font-semibold', p.status === 'active' ? 'text-[#1f7a4d]' : 'text-[#6d7075]')}>{p.remaining} of {p.creditsTotal} left</span>{p.status !== 'active' ? ` · ${p.status}` : ''} · {p.source === 'stripe' ? 'paid online' : 'paid in person'}</p>
           ))}
         </div>
       )}
@@ -878,7 +878,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
           </div>
         )}
         {winSentence && <p className="rounded-xl bg-[#f5f5f7] px-3 py-2 text-[14px] font-medium text-[#16171a]">{winSentence.everyone}{winSentence.members ? ` ${winSentence.members}` : ''}</p>}
-        <p className="text-[13px] font-medium text-[#6d7075]">Members identify by email on your page. Everything here is enforced at booking time, not just displayed. Other perks you list are your promise to keep at the chair.</p>
+        <p className="text-[13px] font-medium text-[#6d7075]">Members identify by email on your page. Everything here is enforced at booking time, not just displayed. Other perks you list are your promise to keep at each visit.</p>
         <button type="button" disabled={winBusy} onClick={async () => { setWinBusy(true); const d = await api({ action: 'booking-window-save', tenantId, token, ...win }); setWinBusy(false); if (d?.ok) { setWin({ ...win, ...d.release }); setWinSentence(d.sentence || null); setWinSaved(true); setTimeout(() => setWinSaved(false), 1800); } }} className="h-11 w-full rounded-xl bg-[#16171a] text-[13px] font-semibold text-white disabled:opacity-40">{winSaved ? 'Saved' : winBusy ? 'Saving…' : 'Save booking release'}</button>
       </div>
       {!canCharge && <p className="rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] px-3 py-2 text-[14px] font-medium text-[#b45309]">Memberships bill through Stripe — connect yours under Payouts to offer them.</p>}
@@ -1213,11 +1213,11 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
           </div>
           {kpi && (
             <div className="rounded-2xl border border-[#ececee] p-3 space-y-2">
-              <p className="text-[12px] font-semibold text-[#6d7075]">Timing — from the chair clock</p>
+              <p className="text-[12px] font-semibold text-[#6d7075]">Timing, from the visit clock</p>
               <div className="grid grid-cols-3 gap-2">
                 <div><p className="text-[16px] font-semibold tabular-nums text-[#16171a]">{kpi.noShowRate}%</p><p className="text-[12px] font-semibold text-[#6d7075]">No-show</p></div>
                 <div><p className="text-[16px] font-semibold tabular-nums text-[#16171a]">{kpi.onTimeRate === null ? '—' : `${kpi.onTimeRate}%`}</p><p className="text-[12px] font-semibold text-[#6d7075]">Started on time</p></div>
-                <div><p className="text-[16px] font-semibold tabular-nums text-[#16171a]">{kpi.chairMinutes ? `${Math.round(kpi.chairMinutes / 6) / 10}h` : '—'}</p><p className="text-[12px] font-semibold text-[#6d7075]">In the chair</p></div>
+                <div><p className="text-[16px] font-semibold tabular-nums text-[#16171a]">{kpi.chairMinutes ? `${Math.round(kpi.chairMinutes / 6) / 10}h` : '—'}</p><p className="text-[12px] font-semibold text-[#6d7075]">With clients</p></div>
               </div>
               {kpi.services.length === 0 ? (
                 <p className="text-[13px] font-medium text-[#6d7075]">Tap Start and Finish on your visits and this fills in: booked vs actual, per service, so you can fix the ones that always run over.</p>
@@ -1281,7 +1281,7 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
           <details className="pt-1"><summary className="cursor-pointer text-[12px] font-semibold text-[#6d7075]">Every line this month</summary>
             <div className="mt-1 space-y-0.5">
               {led.visits.map((v: any) => <p key={v.id} className="text-[13px] font-medium text-[#6d7075]"><span className="font-semibold text-[#16171a]">{fmtDate(v.date)}</span> · {v.clientName} · {v.serviceName} · {v.covered ? `covered by ${v.packageName}` : $(v.cents)}</p>)}
-              {led.packages.map((p: any) => <p key={p.id} className="text-[13px] font-medium text-[#1f7a4d]"><span className="font-semibold">{fmtDate(p.date)}</span> · {p.clientName} bought {p.packageName} · {$(p.cents)} · {p.source === 'stripe' ? 'online' : 'at chair'}</p>)}
+              {led.packages.map((p: any) => <p key={p.id} className="text-[13px] font-medium text-[#1f7a4d]"><span className="font-semibold">{fmtDate(p.date)}</span> · {p.clientName} bought {p.packageName} · {$(p.cents)} · {p.source === 'stripe' ? 'online' : 'in person'}</p>)}
               {led.rent.map((r: any) => <p key={r.id} className="text-[13px] font-medium text-[#6d7075]"><span className="font-semibold">{fmtDate(r.date)}</span> · rent {r.method} · {$(-r.cents)}</p>)}
             </div>
           </details>
@@ -1537,7 +1537,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
             {hasGoals ? (
               <>Your hour needs to make <span className="font-semibold text-[#16171a]">${targetHourly.toFixed(2)}</span> — rent, taxes and what you live on, over the hours you book.</>
             ) : (
-              <>Your rent works out to <span className="font-semibold text-[#16171a]">${rentPerHour.toFixed(2)}/hour</span> in the chair.</>
+              <>Your rent works out to <span className="font-semibold text-[#16171a]">${rentPerHour.toFixed(2)}/hour</span> with clients.</>
             )}
           </p>
           <div className="flex items-center gap-2">

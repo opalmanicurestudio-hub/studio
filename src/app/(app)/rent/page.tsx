@@ -11,6 +11,7 @@ import {
   updateDoc,
   setDoc,
   writeBatch,
+  runTransaction,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -45,7 +46,6 @@ import {
   AlertTriangle,
   BadgeCheck,
   Ban,
-  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
@@ -53,6 +53,10 @@ import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collecti
 import { resolveLeavePolicy, addDays as addLeaseDays, subletIncome, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { RentalsHeader, RENTALS_BTN } from '@/components/renters/RentalsNav';
+import { RentMoney } from '@/components/renters/RentMoney';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { nameOf } from '@/lib/rentals-home';
+import { rentMoney } from '@/lib/rent-money';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
 import {
@@ -185,90 +189,6 @@ const RENT_COMMS_DEFAULTS: any = {
 
 // Rent notifications — the per-business comms knobs the crons read
 // (tenants/{t}.rentComms). Late-fee amounts and grace stay per-lease.
-/**
- * What autopay is ABOUT to do. The autopay cron decides at noon UTC on the
- * lease's due day; until this card there was no way to see that coming — only
- * the receipts and declines afterwards. Same rule the cron uses (rent-schedule
- * lifts it out), so what this shows is what will happen, not an estimate.
- */
-function RentScheduleCard({ rows, renterById, boothById, onEnableAutopay }: {
-  rows: ScheduledCharge[];
-  renterById: Map<string, any>;
-  boothById: Map<string, any>;
-  /** Flip autopay on for a renter who has a card but is still paying by hand. */
-  onEnableAutopay?: (renterId: string) => void;
-}) {
-  const money = (c: number) => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const when = (isoDate: string) => {
-    const d = new Date(isoDate + 'T00:00:00');
-    if (isNaN(d.getTime())) return isoDate;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const days = Math.round((d.getTime() - today.getTime()) / 86400000);
-    const label = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    return days === 0 ? `Today · ${label}` : days === 1 ? `Tomorrow · ${label}` : days < 7 ? `In ${days} days · ${label}` : label;
-  };
-  const chip = (r: ScheduledCharge) => {
-    if (r.readiness === 'ready') {
-      if (r.lastAttempt && !r.lastAttempt.ok) return ['Last one declined', 'bg-red-100 text-red-800'];
-      return ['Autopay ready', 'bg-emerald-100 text-emerald-800'];
-    }
-    if (r.readiness === 'no_card') return ['No card on file', 'bg-amber-100 text-amber-900'];
-    if (r.readiness === 'manual') return ['Pays manually', 'bg-muted text-foreground/80'];
-    return ['No schedule', 'bg-muted text-muted-foreground'];
-  };
-  const upcoming = rows.slice(0, 12);
-  const dueSum = rows.reduce((n, r) => n + (r.readiness === 'ready' ? r.amountCents : 0), 0);
-  const trouble = rows.filter((r) => r.readiness === 'no_card' || (r.lastAttempt && !r.lastAttempt.ok)).length;
-
-  return (
-    <Card className="rounded-[2rem] border-2">
-      <CardHeader className="p-5 pb-2">
-        <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
-          <CalendarClockIcon className="h-3.5 w-3.5" /> Scheduled
-        </CardTitle>
-        <p className="text-[11px] font-bold text-muted-foreground">
-          What autopay will draft next, and whether it can.
-          {rows.length > 0 && ` ${money(dueSum)} set to collect automatically`}
-          {trouble > 0 && ` · ${trouble} need${trouble === 1 ? 's' : ''} attention`}.
-        </p>
-      </CardHeader>
-      <CardContent className="p-5 pt-2 space-y-2">
-        {upcoming.length === 0 ? (
-          <p className="text-[11px] font-bold text-muted-foreground">No active leases with a due day yet.</p>
-        ) : upcoming.map((r) => {
-          const renter = renterById.get(r.renterId);
-          const booth = boothById.get(r.boothId);
-          const [label, tone] = chip(r);
-          const name = renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter' : 'Renter';
-          return (
-            <div key={r.leaseId} className="flex items-center gap-3 rounded-2xl border-2 bg-card px-3.5 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black">{name}<span className="font-bold text-muted-foreground"> · {booth?.name || 'Space'}</span></p>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  {when(r.date)} · {money(r.amountCents)} {r.frequency}
-                  {r.lastAttempt ? ` · last ${r.lastAttempt.ok ? 'paid' : `declined (${r.lastAttempt.note})`} ${r.lastAttempt.date}` : ''}
-                </p>
-              </div>
-              {r.readiness === 'manual' && renter?.cardOnFile && onEnableAutopay ? (
-                // Every existing renter starts here — autopay unset, card on
-                // file. One tap moves them to "ready" without opening their
-                // card; the switch there does the same thing.
-                <button type="button" onClick={() => onEnableAutopay(r.renterId)}
-                  className="shrink-0 rounded-full border-2 border-emerald-300 bg-card px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700 hover:bg-emerald-50">
-                  Turn on autopay
-                </button>
-              ) : (
-                <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest', tone)}>{label}</span>
-              )}
-            </div>
-          );
-        })}
-        {rows.length > 12 && <p className="text-[10px] font-bold text-muted-foreground">Showing the next 12 of {rows.length}.</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * Leave — what a renter can ask for when life happens, and the rent treatment
  * the shop is willing to offer. Nothing is offered until the owner ticks it,
@@ -848,11 +768,10 @@ export default function RentRollPage() {
   const [cycleResult, setCycleResult] = useState<string | null>(null);
   const [lastReceipt, setLastReceipt] = useState<{ renterId: string; paymentId: string } | null>(null);
 
-  const todayIso = toIsoDate(new Date());
-  const cycleStartIso = useMemo(() => {
-    const now = new Date();
-    return toIsoDate(new Date(now.getFullYear(), now.getMonth(), 1));
-  }, []);
+  // Today and this month on the business's own clock, like the nightly billing (lib/tenant-time).
+  const bizTimeZone = tenantTimeZone(selectedTenant);
+  const todayIso = todayIn(bizTimeZone);
+  const cycleStartIso = `${todayIso.slice(0, 7)}-01`;
 
   const activeLeases = useMemo(
     () => (leases ?? []).filter((l) => l.status === 'active'),
@@ -890,24 +809,6 @@ export default function RentRollPage() {
     () => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'rentInvoices') : null),
     [firestore, tenantId]);
   const { data: invoices } = useCollection<any>(invoicesRef);
-  const openInvoices = useMemo(() => ((invoices ?? []) as any[])
-    .filter((i) => i.status === 'due' || i.status === 'late')
-    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate))), [invoices]);
-  const owedByRenter = useMemo(() => {
-    const m = new Map<string, { renterId: string; renterName: string; boothName: string; dueCents: number; lateCents: number; feeCents: number; oldest: string; count: number; late: boolean }>();
-    for (const i of openInvoices) {
-      const cur = m.get(i.renterId) || { renterId: i.renterId, renterName: i.renterName || 'Renter', boothName: i.boothName || '', dueCents: 0, lateCents: 0, feeCents: 0, oldest: i.dueDate, count: 0, late: false };
-      const amt = Math.max(0, (Number(i.amountCents) || 0) - (Number(i.paidCents) || 0));
-      if (i.status === 'late') { cur.lateCents += amt; cur.late = true; } else cur.dueCents += amt;
-      cur.feeCents += Number(i.lateFeeCents) || 0;
-      cur.count += 1;
-      if (String(i.dueDate) < cur.oldest) cur.oldest = i.dueDate;
-      m.set(i.renterId, cur);
-    }
-    return Array.from(m.values()).sort((a, b) => (b.late === a.late ? a.oldest.localeCompare(b.oldest) : b.late ? 1 : -1));
-  }, [openInvoices]);
-  const owedTotal = owedByRenter.reduce((n, r) => n + r.dueCents + r.lateCents + r.feeCents, 0);
-
   // Unpaid ledger charges with no invoice — the old cycle's leftovers.
   const uninvoicedCharges = useMemo(() => {
     const invoiced = new Set(((invoices ?? []) as any[]).map((i) => String(i.ledgerEntryId || '')).filter(Boolean));
@@ -966,11 +867,15 @@ export default function RentRollPage() {
         todayIso,
         cycleStartIso,
         invoices: (invoices ?? []) as any[],
+        timeZone: bizTimeZone,
       }),
-    [booths, renters, leases, ledger, todayIso, cycleStartIso, invoices]
+    [booths, renters, leases, ledger, todayIso, cycleStartIso, invoices, bizTimeZone]
   );
   // What each renter owes now: open rent bills plus open one-off charges (lib/booth-rental-types renterOwedCents).
   const owedOf = useCallback((renterId: string) => renterOwedCents(renterId, (invoices ?? []) as any[], (ledger ?? []) as any[]), [invoices, ledger]);
+  // Rent and deposits at the top of the page (lib/rent-money): one rule with the Rentals home and each renter's page.
+  const moneyView = useMemo(() => rentMoney({ todayIso, timeZone: bizTimeZone, renters: (renters ?? []) as any[], leases: (leases ?? []) as any[], booths: (booths ?? []) as any[], invoices: (invoices ?? []) as any[], ledger: (ledger ?? []) as any[], schedule: rentSchedule }),
+    [todayIso, bizTimeZone, renters, leases, booths, invoices, ledger, rentSchedule]);
 
   const openPaymentDialog = (renter: Renter) => {
     const balance = owedOf(renter.id);
@@ -1014,16 +919,7 @@ export default function RentRollPage() {
   // deliberately barred — and looks different from a current renter so the
   // two are never read as the same situation.
   const currentRenters = useMemo(() => rosterRenters.filter((r) => r.status === 'active' || leaseByRenter.has(r.id)), [rosterRenters, leaseByRenter]);
-  const formerOwing = useMemo(() => rosterRenters.filter((r) => {
-    if (r.status === 'active' || leaseByRenter.has(r.id)) return false;
-    const bal = owedOf(r.id);
-    return bal > 0 || (r as any).doNotRent === true;
-  }), [rosterRenters, leaseByRenter, owedOf]);
   const [formerBusy, setFormerBusy] = useState<string>('');
-  const [owedOpen, setOwedOpen] = useState<string>('');
-  const [armed, setArmed] = useState<string>('');
-  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(''), 5000); return () => clearTimeout(t); }, [armed]);
-  const arm = (key: string, run: () => void) => { if (armed === key) { setArmed(''); run(); } else setArmed(key); };
 
   // Bar / unbar. The flag is enforced at the public booking route and shown
   // in the pipeline and on their guest-book row — a wall, not a note.
@@ -1044,49 +940,56 @@ export default function RentRollPage() {
           });
         } catch { /* the bar stands */ }
       }
-      setCycleResult(on ? `${r.firstName} ${r.lastName} can no longer book or apply until this is cleared.` : `${r.firstName} ${r.lastName} can book again.`);
+      setCycleResult(on ? `${nameOf(r)} can no longer book or apply until this is cleared.` : `${nameOf(r)} can book again.`);
     } catch { setCycleResult('Could not save that \u2014 try again.'); }
     setFormerBusy('');
   };
 
   // Write off. The balance becomes a ledger line of its own (so the money is
-  // never quietly forgotten), every open invoice is voided, and the renter
-  // drops out of Owed. Barring is a separate decision — a write-off is not
-  // forgiveness, and forgiveness is not a write-off.
-  const writeOff = async (r: any) => {
-    if (!firestore || !tenantId) return;
-    const bal = owedOf(r.id);
-    if (bal <= 0) return;
+  // never quietly forgotten), every open bill is voided and every open charge
+  // closed, and the renter drops out of Owed. Barring is a separate decision —
+  // a write-off is not forgiveness, and forgiveness is not a write-off.
+  // Read again as it's saved: if what they owe changed while the owner was
+  // deciding (a payment came in), nothing is written and they're told.
+  const writeOff = async (r: any, reasonGiven = '', expectCents?: number): Promise<boolean> => {
+    if (!firestore || !tenantId) return false;
+    const billIds = ((invoices ?? []) as any[]).filter((i) => i.renterId === r.id && invoiceOwedCents(i) > 0).map((i) => String(i.id));
+    const chargeIds = (ledgerByRenter.get(r.id) ?? []).filter((e: any) => isOpenLedgerCharge(e) && !String(e.type || '').startsWith('deposit_')).map((e: any) => String(e.id));
+    if (!billIds.length && !chargeIds.length) return false;
     setFormerBusy(r.id);
+    let ok = false;
     try {
       const nowIso = new Date().toISOString();
-      const batch = writeBatch(firestore);
-      const wRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
-      batch.set(wRef, {
-        leaseId: leaseByRenter.get(r.id)?.id ?? '', renterId: r.id, boothId: null,
-        type: 'payment', status: 'waived', amountCents: -bal,
-        description: 'Balance written off', dueDate: null, paidAt: todayIso, method: 'write_off',
-        stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner',
-        note: 'Written off as uncollectable', createdAt: nowIso, updatedAt: nowIso,
+      const done = await runTransaction(firestore, async (tx) => {
+        const bills = (await Promise.all(billIds.map((id) => tx.get(doc(firestore, 'tenants', tenantId, 'rentInvoices', id)))))
+          .filter((x) => x.exists()).map((x) => ({ id: x.id, ...(x.data() as any) })).filter((i) => invoiceOwedCents(i) > 0);
+        const charges = (await Promise.all(chargeIds.map((id) => tx.get(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), id)))))
+          .filter((x) => x.exists()).map((x) => ({ id: x.id, ...(x.data() as any) })).filter((e) => isOpenLedgerCharge(e));
+        const bal = bills.reduce((n, i) => n + invoiceOwedCents(i), 0) + charges.reduce((n, e) => n + (Number(e.amountCents) || 0), 0);
+        if (bal <= 0 || (typeof expectCents === 'number' && bal !== expectCents)) return 0;
+        tx.set(doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))), {
+          leaseId: leaseByRenter.get(r.id)?.id ?? '', renterId: r.id, boothId: null,
+          type: 'payment', status: 'waived', amountCents: -bal,
+          description: 'Balance written off', dueDate: null, paidAt: todayIso, method: 'write_off',
+          stripePaymentIntentId: null, appliesToEntryIds: [], createdBy: 'owner',
+          note: reasonGiven.trim() || 'Written off as uncollectable', createdAt: nowIso, updatedAt: nowIso,
+        });
+        for (const e of charges) tx.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), e.id), { status: 'waived', updatedAt: nowIso });
+        for (const i of bills) tx.update(doc(firestore, 'tenants', tenantId, 'rentInvoices', i.id), { status: 'void', voidedAt: nowIso, voidReason: 'written_off', updatedAt: nowIso });
+        return bal;
       });
-      for (const e of (ledgerByRenter.get(r.id) ?? [])) {
-        if (isOpenLedgerCharge(e)) {
-          batch.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), e.id), { status: 'waived', updatedAt: nowIso });
-        }
-      }
-      for (const i of ((invoices ?? []) as any[]).filter((i) => i.renterId === r.id && (i.status === 'due' || i.status === 'late'))) {
-        batch.update(doc(firestore, 'tenants', tenantId, 'rentInvoices', i.id), { status: 'void', voidedAt: nowIso, voidReason: 'written_off', updatedAt: nowIso });
-      }
-      await batch.commit();
-      setCycleResult(`Wrote off ${formatCents(bal)} for ${r.firstName} ${r.lastName}.`);
+      if (done > 0) { ok = true; setCycleResult(`Wrote off ${formatCents(done)} for ${nameOf(r)}.`); }
+      else setCycleResult('What they owe changed while you were deciding (a payment came in). Nothing was written off.');
     } catch { setCycleResult('Could not write that off \u2014 try again.'); }
     setFormerBusy('');
+    return ok;
   };
+  const [waiveBusy, setWaiveBusy] = useState<string>('');
 
   if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
-        Loading your studio…
+        Loading…
       </div>
     );
   }
@@ -1183,75 +1086,70 @@ export default function RentRollPage() {
   // invoice is voided with a reason — and a credit line goes to the ledger so
   // the statement's running balance shows the waiver as a line, not a gap.
   // The late sweep will not re-apply a waived fee (feeWaivedAt is the stamp).
-  const [waiveBusy, setWaiveBusy] = useState<string>('');
-  const [waiveReason, setWaiveReason] = useState<Record<string, string>>({});
-  const waiveInvoice = async (inv: any, what: 'fee' | 'invoice') => {
-    if (!firestore || !tenantId) return;
-    const key = `${inv.id}:${what}`;
-    setWaiveBusy(key);
+  // Read again as it's saved: if the bill was paid, waived or voided while the owner was deciding, nothing is written
+  // and they're told, so a credit is never made for money that's already in. True when it's done.
+  const waiveInvoice = async (invId: string, what: 'fee' | 'invoice', reasonGiven: string): Promise<boolean> => {
+    if (!firestore || !tenantId) return false;
+    setWaiveBusy(`${invId}:${what}`);
     try {
       const nowIso = new Date().toISOString();
-      const reason = (waiveReason[inv.id] || '').trim() || (what === 'fee' ? 'Late fee waived' : 'Invoice waived');
-      const batch = writeBatch(firestore);
-      const invRef = doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id);
-      if (what === 'fee') {
-        const fee = Number(inv.lateFeeCents) || 0;
-        if (fee <= 0) { setWaiveBusy(''); return; }
-        batch.update(invRef, { lateFeeCents: 0, feeWaivedCents: fee, feeWaivedAt: nowIso, feeWaivedBy: 'owner', feeWaivedReason: reason, updatedAt: nowIso });
-        const cRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
-        batch.set(cRef, {
+      const reason = reasonGiven.trim() || (what === 'fee' ? 'Late fee waived' : 'Bill waived');
+      const invRef = doc(firestore, 'tenants', tenantId, 'rentInvoices', invId);
+      const done = await runTransaction(firestore, async (tx) => {
+        const snap = await tx.get(invRef);
+        if (!snap.exists()) return null;
+        const inv: any = { id: snap.id, ...(snap.data() as any) };
+        if (!['due', 'late'].includes(String(inv.status))) return null;
+        const credit = (cents: number, description: string) => tx.set(doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))), {
           leaseId: inv.leaseId || '', renterId: inv.renterId, boothId: inv.boothId || null,
-          type: 'credit', status: 'paid', amountCents: -fee,
-          description: `Late fee waived — rent due ${inv.dueDate}`, note: reason,
+          type: 'credit', status: 'paid', amountCents: -cents, description, note: reason,
           dueDate: null, paidAt: todayIso, method: 'waiver', stripePaymentIntentId: null,
           appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
         });
-        setCycleResult(`Waived the ${formatCents(fee)} late fee on rent due ${inv.dueDate}.`);
-      } else {
-        const owed = (Number(inv.amountCents) || 0) + (Number(inv.lateFeeCents) || 0) - (Number(inv.paidCents) || 0);
-        batch.update(invRef, { status: 'void', voidedAt: nowIso, voidedBy: 'owner', voidReason: 'waived', voidNote: reason, updatedAt: nowIso });
-        if (owed > 0) {
-          const cRef = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)));
-          batch.set(cRef, {
-            leaseId: inv.leaseId || '', renterId: inv.renterId, boothId: inv.boothId || null,
-            type: 'credit', status: 'paid', amountCents: -owed,
-            description: `Rent waived — due ${inv.dueDate}`, note: reason,
-            dueDate: null, paidAt: todayIso, method: 'waiver', stripePaymentIntentId: null,
-            appliesToEntryIds: [], createdBy: 'owner', createdAt: nowIso, updatedAt: nowIso,
-          });
+        if (what === 'fee') {
+          const fee = Number(inv.lateFeeCents) || 0;
+          if (fee <= 0) return null;
+          tx.update(invRef, { lateFeeCents: 0, feeWaivedCents: fee, feeWaivedAt: nowIso, feeWaivedBy: 'owner', feeWaivedReason: reason, updatedAt: nowIso });
+          credit(fee, `Late fee waived — rent due ${inv.dueDate}`);
+          return `Waived the ${formatCents(fee)} late fee on rent due ${inv.dueDate}.`;
         }
-        if (inv.ledgerEntryId) {
-          batch.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), inv.ledgerEntryId), { status: 'waived', updatedAt: nowIso });
-        }
-        setCycleResult(`Waived the invoice due ${inv.dueDate}${owed > 0 ? ` (${formatCents(owed)})` : ''}.`);
-      }
-      await batch.commit();
-      tellRenter(what === 'fee' ? 'fee_waived' : 'bill_waived', inv.id);
-      setWaiveReason((m) => ({ ...m, [inv.id]: '' }));
-    } catch { setCycleResult('Could not waive that \u2014 try again.'); }
-    setWaiveBusy('');
+        const owed = invoiceOwedCents(inv);
+        tx.update(invRef, { status: 'void', voidedAt: nowIso, voidedBy: 'owner', voidReason: 'waived', voidNote: reason, updatedAt: nowIso });
+        if (owed > 0) credit(owed, `Rent waived — due ${inv.dueDate}`);
+        if (inv.ledgerEntryId) tx.update(doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), inv.ledgerEntryId), { status: 'waived', updatedAt: nowIso });
+        return `Waived the bill due ${inv.dueDate}${owed > 0 ? ` (${formatCents(owed)})` : ''}.`;
+      });
+      if (!done) { setCycleResult('That bill changed while you were deciding (it’s paid, or already waived). Nothing was waived.'); return false; }
+      setCycleResult(done);
+      tellRenter(what === 'fee' ? 'fee_waived' : 'bill_waived', invId);
+      return true;
+    } catch { setCycleResult('Could not waive that \u2014 try again.'); return false; }
+    finally { setWaiveBusy(''); }
   };
 
-  const handleWaive = async (entry: RentLedgerEntry) => {
-    if (!firestore) return;
-    await updateDoc(
-      doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), entry.id),
-      { status: 'waived', waivedAt: new Date().toISOString(), waivedBy: 'owner', updatedAt: new Date().toISOString() }
-    );
-    tellRenter('charge_waived', entry.id);
+  // A one-off charge (not on a bill), waived with the reason kept on it. Read again as it's saved, like a bill.
+  const handleWaive = async (entry: RentLedgerEntry, reasonGiven = ''): Promise<boolean> => {
+    if (!firestore || !tenantId) return false;
+    const ref = doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), entry.id);
+    try {
+      const nowIso = new Date().toISOString();
+      const ok = await runTransaction(firestore, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists() || !isOpenLedgerCharge(snap.data())) return false;
+        tx.update(ref, { status: 'waived', waivedAt: nowIso, waivedBy: 'owner', ...(reasonGiven.trim() ? { waivedReason: reasonGiven.trim() } : {}), updatedAt: nowIso });
+        return true;
+      });
+      if (!ok) { setCycleResult('That charge changed while you were deciding (it’s paid, or already waived). Nothing was waived.'); return false; }
+      setCycleResult(`Waived ${String(entry.description || 'the charge')}.`);
+      tellRenter('charge_waived', entry.id);
+      return true;
+    } catch { setCycleResult('Could not waive that \u2014 try again.'); return false; }
   };
 
   const historyEntries = historyRenter
     ? ledgerByRenter.get(historyRenter.id) ?? []
     : [];
   const chargeSettlements = settleCharges(historyEntries);
-
-  const kpis: [string, string, string][] = [
-    ['Owed right now', formatCents(owedTotal), owedByRenter.length ? `${owedByRenter.length} renter${owedByRenter.length === 1 ? '' : 's'}` : 'everyone is current'],
-    ['Late', String(owedByRenter.filter((r) => r.late).length), 'past grace'],
-    ['Collected this month', formatCents(summary.collectedThisCycleCents), 'into the ledger'],
-    ['Drafting next', formatCents(rentSchedule.reduce((n, r) => n + (r.readiness === 'ready' ? r.amountCents : 0), 0)), 'on autopay'],
-  ];
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
@@ -1273,110 +1171,28 @@ export default function RentRollPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {kpis.map(([label, value, sub]) => (
-          <div key={label} className="rounded-2xl border-2 bg-card p-3.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
-            <p className="mt-1 text-2xl font-black tabular-nums leading-none">{value}</p>
-            <p className="mt-1 text-[10px] font-bold text-muted-foreground">{sub}</p>
+      {uninvoicedCharges.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[#ececee] bg-white p-5">
+          <div className="min-w-0 flex-1 basis-64">
+            <p className="text-[15px] font-semibold text-[#b45309]">{uninvoicedCharges.length} unpaid charge{uninvoicedCharges.length === 1 ? '' : 's'} from the old rent cycle {uninvoicedCharges.length === 1 ? 'isn’t' : 'aren’t'} on a bill yet</p>
+            <p className="text-[13px] leading-snug text-[#6d7075]">Bring them in, and late notices, reminders and the renter’s portal will see them too.</p>
           </div>
-        ))}
-      </div>
+          <button type="button" onClick={importCharges} disabled={importing} className={RENTALS_BTN}>{importing ? 'Working…' : 'Bring them in'}</button>
+        </div>
+      )}
 
-      <Card className="rounded-[2rem] border-2">
-        <CardHeader className="p-5 pb-2">
-          <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
-            <AlertTriangle className="h-3.5 w-3.5" /> Owed
-          </CardTitle>
-          <p className="text-[11px] font-bold text-muted-foreground">
-            Open invoices, oldest first. Late ones have passed their grace days and carry any fee the lease sets.
-          </p>
-        </CardHeader>
-        <CardContent className="p-5 pt-2 space-y-2">
-          {uninvoicedCharges.length > 0 && (
-            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3.5 py-3 flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-black text-amber-900">
-                  {uninvoicedCharges.length} unpaid charge{uninvoicedCharges.length === 1 ? '' : 's'} from the old rent cycle {uninvoicedCharges.length === 1 ? 'is' : 'are'} not invoiced yet.
-                </p>
-                <p className="text-[10px] font-bold text-amber-800">
-                  Bring them in and the late sweep, the reminders and the renter portal will see them too.
-                </p>
-              </div>
-              <Button size="sm" onClick={importCharges} disabled={importing}
-                className="h-10 shrink-0 rounded-xl bg-amber-700 hover:bg-amber-800 font-black uppercase text-[9px] tracking-widest">
-                {importing ? 'Working…' : 'Bring them in'}
-              </Button>
-            </div>
-          )}
-          {owedByRenter.length === 0 ? (
-            <p className="text-[11px] font-bold text-muted-foreground">Nothing outstanding. Invoices appear here on each lease's due day.</p>
-          ) : owedByRenter.map((r) => (
-            <div key={r.renterId} className={cn('flex items-center gap-3 rounded-2xl border-2 px-3.5 py-2.5', r.late ? 'border-red-200 bg-red-50/60' : 'bg-card')}>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-black"><Link href={`/renters/${encodeURIComponent(r.renterId)}`} className="hover:underline">{r.renterName}</Link><span className="font-bold text-muted-foreground"> · {r.boothName}</span></p>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  {r.count} invoice{r.count === 1 ? '' : 's'} · oldest due {r.oldest}
-                  {r.feeCents > 0 ? ` · ${formatCents(r.feeCents)} in late fees` : ''}
-                </p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={cn('text-base font-black tabular-nums', r.late ? 'text-red-700' : 'text-foreground')}>{formatCents(r.dueCents + r.lateCents + r.feeCents)}</p>
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.late ? 'Late' : 'Due'}</p>
-              </div>
-              <button type="button" onClick={() => setOwedOpen(owedOpen === r.renterId ? '' : r.renterId)}
-                aria-expanded={owedOpen === r.renterId} aria-label="Show invoices"
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 bg-card text-foreground/80">
-                <ChevronDown className={cn('h-4 w-4 transition-transform', owedOpen === r.renterId && 'rotate-180')} />
-              </button>
-            </div>
-          ))}
-          {owedOpen && openInvoices.filter((i) => i.renterId === owedOpen).map((inv) => {
-            const fee = Number(inv.lateFeeCents) || 0;
-            const left = (Number(inv.amountCents) || 0) + fee - (Number(inv.paidCents) || 0);
-            return (
-              <div key={inv.id} className="ml-4 rounded-2xl border-2 border-dashed px-3.5 py-3 space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-black">Rent due {inv.dueDate}<span className="font-bold text-muted-foreground"> · {inv.boothName}</span></p>
-                    {inv.autopayUnconfirmed === true && (
-                      <div className="mt-1.5 space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                        <p className="text-[13px] text-[#b45309]">Autopay tried this on {String(inv.autopayTriedAt || '').slice(0, 10)} but the card company didn’t answer, so it may have gone through. Check your Stripe payments. If it went through, record it with Record payment. If it didn’t, let them pay it.</p>
-                        <Button variant="outline" size="sm" className="h-11 rounded-xl text-[13.5px]"
-                          onClick={() => { void updateDoc(doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id), { autopayUnconfirmed: false, autopayDeclined: 'not taken (checked by the business)', updatedAt: new Date().toISOString() }).then(() => setCycleResult('They can pay that bill now.')).catch(() => setCycleResult('That didn’t save. Try again.')); }}>
-                          It didn’t go through: let them pay
-                        </Button>
-                      </div>
-                    )}
-                    <p className="text-[10px] font-bold text-muted-foreground">
-                      {formatCents(Number(inv.amountCents) || 0)} rent{fee > 0 ? ` + ${formatCents(fee)} late fee` : ''}{(Number(inv.paidCents) || 0) > 0 ? ` − ${formatCents(Number(inv.paidCents))} paid` : ''}
-                      {inv.feeWaivedAt ? ` · fee waived ${String(inv.feeWaivedAt).slice(0, 10)}` : ''}
-                    </p>
-                  </div>
-                  <p className="text-sm font-black tabular-nums shrink-0">{formatCents(Math.max(left, 0))}</p>
-                </div>
-                <input value={waiveReason[inv.id] || ''} onChange={(e) => setWaiveReason((m) => ({ ...m, [inv.id]: e.target.value.slice(0, 160) }))}
-                  placeholder="Reason (goes on their record and the statement)" aria-label="Waiver reason"
-                  className="h-9 w-full rounded-lg border-2 bg-card px-2.5 text-[11px] font-bold outline-none focus:border-foreground/60" />
-                <div className="flex flex-wrap gap-2">
-                  {fee > 0 && (
-                    <Button variant="outline" size="sm" disabled={!!waiveBusy}
-                      onClick={() => arm(`${inv.id}:fee`, () => waiveInvoice(inv, 'fee'))}
-                      className={cn('h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest', armed === `${inv.id}:fee` ? 'bg-amber-600 border-amber-600 text-white' : 'border-amber-300 text-amber-800')}>
-                      {armed === `${inv.id}:fee` ? 'Tap again — waive fee' : `Waive ${formatCents(fee)} fee`}
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm" disabled={!!waiveBusy}
-                    onClick={() => arm(`${inv.id}:invoice`, () => waiveInvoice(inv, 'invoice'))}
-                    className={cn('h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest', armed === `${inv.id}:invoice` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-700')}>
-                    {armed === `${inv.id}:invoice` ? 'Tap again — waive whole invoice' : 'Waive invoice'}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+      {tenantId && (
+        <RentMoney tenantId={tenantId} data={moneyView} busy={waiveBusy || (formerBusy ? `bar:${formerBusy}` : '')}
+          onRecordPayment={(id) => { const r = ((renters ?? []) as any[]).find((x) => x.id === id); if (r) openPaymentDialog(r); }}
+          onWaive={(what, id, why) => what === 'charge' ? handleWaive({ ...(((ledger ?? []) as any[]).find((e) => e.id === id) || { id }) } as any, why) : waiveInvoice(id, what, why)}
+          onPayLink={async (id) => {
+            const r = await fetch('/api/rent/pay-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, renterId: id }) }).then((x) => x.json()).catch(() => null);
+            return r?.ok ? { ok: true, said: `Sent to ${r.sentTo}, for ${formatCents(Number(r.cents) || 0)}.` } : { ok: false, said: String(r?.error || 'That didn’t go out. Try again.') };
+          }}
+          onWriteOff={(id, why, cents) => { const r = ((renters ?? []) as any[]).find((x) => x.id === id); return r ? writeOff(r, why, cents) : Promise.resolve(false); }}
+          onAutopayNotTaken={(inv) => { void updateDoc(doc(firestore, 'tenants', tenantId, 'rentInvoices', inv.id), { autopayUnconfirmed: false, autopayDeclined: 'not taken (checked by the business)', updatedAt: new Date().toISOString() }).then(() => setCycleResult('They can pay that bill now.')).catch(() => setCycleResult('That didn’t save. Try again.')); }}
+          onBar={(id, on) => { const r = ((renters ?? []) as any[]).find((x) => x.id === id); if (r) void setDoNotRent(r, on); }} />
+      )}
 
       {ledgerLoading && (
         <p className="text-sm text-muted-foreground">Loading the ledger…</p>
@@ -1395,65 +1211,6 @@ export default function RentRollPage() {
         </Card>
       )}
 
-      {formerOwing.length > 0 && (
-        <Card className="rounded-[2rem] border-2 border-border">
-          <CardHeader className="p-5 pb-2">
-            <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
-              <AlertTriangle className="h-3.5 w-3.5" /> Former renters who still owe
-            </CardTitle>
-            <p className="text-[11px] font-bold text-muted-foreground">
-              No lease, nothing more coming due. Collect it, write it off, or bar them from booking until it is cleared.
-            </p>
-          </CardHeader>
-          <CardContent className="p-5 pt-2 space-y-2">
-            {formerOwing.map((r) => {
-              const bal = owedOf(r.id);
-              const barred = (r as any).doNotRent === true;
-              const busy = formerBusy === r.id;
-              return (
-                <div key={r.id} className={cn('rounded-2xl border-2 px-4 py-3 space-y-2.5', barred ? 'border-slate-900 bg-muted/60' : 'bg-card')}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-black text-sm truncate">{r.firstName} {r.lastName}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground">
-                        Former renter{(r as any).leaseEndedAt ? ` · left ${String((r as any).leaseEndedAt).slice(0, 10)}` : ''}
-                        {barred ? ' · barred from booking' : ''}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Owes</p>
-                      <p className="text-xl font-black tabular-nums leading-none text-red-700">{formatCents(Math.max(bal, 0))}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button onClick={() => openPaymentDialog(r)} disabled={bal <= 0 || busy}
-                      className="h-11 flex-1 min-w-[9rem] rounded-xl font-black uppercase text-[10px] tracking-widest">
-                      <HandCoins className="h-3.5 w-3.5 mr-1.5" /> Record payment
-                    </Button>
-                    <Button variant="outline" onClick={() => setDoNotRent(r, !barred)} disabled={busy}
-                      className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest', barred ? 'bg-foreground text-background border-slate-900' : '')}>
-                      {barred ? 'Allow booking' : 'Bar from booking'}
-                    </Button>
-                    {bal > 0 && (
-                      <Button variant="outline" onClick={() => arm(`${r.id}:writeoff`, () => writeOff(r))} disabled={busy}
-                        className={cn('h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest',
-                          armed === `${r.id}:writeoff` ? 'bg-red-600 border-red-600 text-white' : 'border-red-200 text-red-700')}>
-                        {armed === `${r.id}:writeoff` ? 'Tap again to write off' : 'Write off'}
-                      </Button>
-                    )}
-                    <Button variant="outline" onClick={() => setHistoryRenter(r)} aria-label="Payment history"
-                      className="h-11 w-11 shrink-0 rounded-xl border-2 p-0"><History className="h-4 w-4" /></Button>
-                    <PrintLink path="/api/booths/account-statement" params={{ tenantId, renterId: r.id }}
-                      className="h-11 inline-flex items-center rounded-xl border-2 bg-card px-3 text-[10px] font-black uppercase tracking-widest text-foreground/80">
-                      <Receipt className="h-3.5 w-3.5 mr-1.5" /> Statement
-                    </PrintLink>
-                  </div>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
 
       <div className="space-y-3">
         {currentRenters.map((renter) => {
@@ -1831,17 +1588,6 @@ export default function RentRollPage() {
           </div>
         </DialogContent>
       </Dialog>
-      {tenantId && (
-        <RentScheduleCard rows={rentSchedule} renterById={scheduleRenterById} boothById={scheduleBoothById}
-          onEnableAutopay={async (renterId) => {
-            if (!firestore) return;
-            const r = scheduleRenterById.get(renterId);
-            if (!r?.cardOnFile) return;
-            await setDoc(doc(firestore, 'tenants', tenantId, 'renters', renterId), {
-              autopayEnabled: true, autopayChangedAt: new Date().toISOString(), autopayChangedBy: 'owner',
-            }, { merge: true });
-          }} />
-      )}
       {tenantId && <DeskOwedCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} />}
       {tenantId && <RenterProvidersCard tenantId={tenantId} firestore={firestore} renters={(renters || []) as any[]} staff={(allStaff || []) as any[]} allAppointments={(allAppointments || []) as any[]} />}
       {tenantId && (

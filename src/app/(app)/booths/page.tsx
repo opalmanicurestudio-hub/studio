@@ -1704,36 +1704,7 @@ function ContactProfileDrawer({
   );
 }
 
-// ─── Compliance status (v80) ─────────────────────────────────────────────────
-// green = valid >30d out · amber = expires ≤30d · red = expired or missing
-function complianceOf(r: any): { items: { label: string; number: string; expiry: string; state: string }[]; worst: string } {
-  const judge = (expiry: any): string => {
-    if (!expiry) return 'missing';
-    const days = Math.floor((new Date(expiry + 'T00:00:00Z').getTime() - Date.now()) / 86400000);
-    if (days < 0) return 'expired';
-    if (days <= 30) return 'expiring';
-    return 'ok';
-  };
-  const items: { label: string; number: string; expiry: string; state: string; fileUrl?: string; fileName?: string }[] = [];
-  if (Array.isArray(r.credentials)) {
-    for (const cr of r.credentials) {
-      if (!cr?.label) continue;
-      items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry), fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' });
-    }
-  }
-  // Legacy fields from the first compliance version — still honored
-  if (items.length === 0) {
-    if (r.licenseExpiry || r.licenseNumber) items.push({ label: 'Professional license', number: r.licenseNumber || '', expiry: r.licenseExpiry || '', state: judge(r.licenseExpiry) });
-    if (r.insuranceExpiry || r.insuranceCarrier) items.push({ label: `Liability insurance${r.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`, number: '', expiry: r.insuranceExpiry || '', state: judge(r.insuranceExpiry) });
-  }
-  const rank: Record<string, number> = { expired: 0, expiring: 1, missing: 2, ok: 3 };
-  const worst = items.length === 0 ? 'none' : items.reduce((w, it) => rank[it.state] < rank[w] ? it.state : w, 'ok');
-  return { items, worst };
-}
-
-// ─── Renter profile drawer (v65) ─────────────────────────────────────────────
-// Tap a renter card → full profile: identity, lease, money, documents,
-// activity. Self-contained: fetches this renter's ledger entries on open.
+// ─── One perk on a lease ─────────────────────────────────────────────────────
 
 function PerkRow({
   perk, onChange, onRemove,
@@ -2749,24 +2720,27 @@ export default function BoothsPage() {
         // v68 — context carry-over: nothing from the application dies at
         // conversion. Attachments, message, timing, and consent all land
         // on the renter record and surface in the profile drawer.
-        await createRenter(firestore, {
+        const rid = await createRenter(firestore, {
           tenantId,
           locationId: app.locationId || selectedLocationId,
-          firstName: parts[0] || 'New',
-          lastName: parts.slice(1).join(' ') || 'Renter',
+          firstName: parts[0] || '',
+          lastName: parts.slice(1).join(' '),
           email: app.email || '',
           phone: app.phone || undefined,
           specialty: app.specialty || undefined,
-          notes: `Applied via website for ${app.boothName || 'a booth'}${app.timing ? ` · ${app.timing}` : ''}${app.message ? ` · "${app.message}"` : ''}`,
+          notes: `Applied online for ${app.boothName || 'a space'}${app.timing ? ` · ${app.timing}` : ''}${app.message ? ` · "${app.message}"` : ''}`,
           sourceApplicationId: app.id,
           applicationAttachments: Array.isArray(app.attachments) ? app.attachments : [],
           applicationMessage: app.message || '',
           appliedAt: app.createdAt || null,
           consentAccepted: app.consentAccepted ?? null,
           consentAcceptedAt: app.consentAcceptedAt ?? null,
+          requestedBoothId: app.boothId || null,
         } as any);
         await setAppStatus(app, 'approved');
-        toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below. An approval email draft just opened.' });
+        // Their lease is the next step, with the space they asked for already picked.
+        toast({ title: 'Approved. They’re a renter now.', description: `An approval email draft just opened.${app.boothName ? ` They asked for ${app.boothName}.` : ''}`,
+          ...(rid ? { action: <ToastAction altText="Write the lease" onClick={() => openLeaseWizard(rid, app.boothId || null)}>Write the lease</ToastAction> } : {}) });
         openDecisionEmail(app, 'approved');
       } else {
         await setAppStatus(app, 'approved');
@@ -2802,8 +2776,8 @@ export default function BoothsPage() {
       const res: any = await createRenter(firestore, {
         tenantId,
         locationId: sourceApp?.locationId || selectedLocationId,
-        firstName: parts[0] || 'New',
-        lastName: parts.slice(1).join(' ') || 'Renter',
+        firstName: parts[0] || '',
+        lastName: parts.slice(1).join(' '),
         email: email || '',
         phone: phone || undefined,
         specialty,
@@ -2812,6 +2786,7 @@ export default function BoothsPage() {
           : 'Converted from a contact',
         sourceApplicationId: sourceApp?.id || null,
         appliedAt: sourceApp?.createdAt || null,
+        requestedBoothId: sourceApp?.boothId || null,
       } as any);
       const rid: string | null = res?.id || res?.renterId || (typeof res === 'string' ? res : null);
       if (rid) await linkContactRenter(firestore, tenantId, { name, phone, email }, rid);
