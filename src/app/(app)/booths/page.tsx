@@ -103,6 +103,8 @@ import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { RentalsNav } from '@/components/renters/RentalsNav';
+import { occupancy, spaceStates, monthlyCents, askingMonthlyCents, RUNNING, leaseEnding } from '@/lib/rentals-home';
 import { CommsTrail } from '@/components/shared/CommsTrail';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
@@ -303,7 +305,6 @@ const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
 
 const WIZARD_STEPS = ['Booth & rent', 'Deposit & fees', 'Perks', 'Review'] as const;
 
-const LEASE_ALERT_WINDOW_DAYS = 14;
 const ACTIVITY_LOG_LIMIT = 40;
 const TOAST_LIFETIME_MS = 6000;
 
@@ -3159,15 +3160,13 @@ export default function BoothsPage() {
       }
     }
     for (const l of (leases.data || [])) {
-      if (!['active', 'ending_soon'].includes(l.status)) continue;
-      if (l.endDate && l.endDate >= today && l.endDate <= in30) {
-        const rt = renterById.get(l.renterId);
-        items.push({
-          kind: 'renewal',
-          text: `${rt ? `${rt.firstName} ${rt.lastName}` : 'A renter'}'s lease ends ${l.endDate}${(l as any).autoRenew ? ' · auto-renews' : ' — no renewal on file'}`,
-          actionLabel: rt ? 'Open' : undefined, run: rt ? () => setProfileRenter(rt) : undefined,
-        });
-      }
+      const e = leaseEnding(l, today); if (!e || e.renews) continue;   // one that renews by itself isn't a to-do
+      const rt = renterById.get(l.renterId);
+      items.push({
+        kind: 'renewal',
+        text: `${rt ? `${rt.firstName} ${rt.lastName}` : 'A renter'}'s lease ends ${e.endDate} · doesn’t renew on its own`,
+        actionLabel: rt ? 'Open' : undefined, run: rt ? () => setProfileRenter(rt) : undefined,
+      });
     }
     for (const rt of (renters.data || [])) {
       if (!['active', 'on_leave'].includes(String((rt as any).status || ''))) continue;
@@ -3566,45 +3565,6 @@ export default function BoothsPage() {
     return m;
   }, [lens, reservations, sortedBooths, activeLeaseByBooth]);
 
-  // ── BUSINESS SCORECARD — the four numbers an owner actually runs on ──
-  // occupancy (leased ÷ rentable), this month's revenue (rent + day
-  // bookings), revenue per station, and what vacancies cost per month.
-  const moneyStats = useMemo(() => {
-    const monthKey = localISO().slice(0, 7);
-    const rentable = sortedBooths.filter(b => (b as any).status !== 'inactive');
-    const occupied = rentable.filter(b => activeLeaseByBooth.get(b.id));
-    let rentCents = 0;
-    for (const l of (leases.data || [])) {
-      if (!['active', 'on_leave'].includes(l.status)) continue;
-      rentCents += Math.round((l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1));
-    }
-    let dayCents = 0;
-    for (const r of reservations) {
-      if (!['confirmed', 'checked_in', 'completed'].includes(r.status)) continue;
-      if (String(r.startDate || '').slice(0, 7) !== monthKey) continue;
-      dayCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
-    }
-    let vacancyMoCents = 0;
-    for (const b of rentable) {
-      if (activeLeaseByBooth.get(b.id)) continue;
-      const opts: any[] = Array.isArray((b as any).pricingOptions) && (b as any).pricingOptions.length
-        ? (b as any).pricingOptions
-        : [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents || 0 }];
-      const mo = opts.find(o => o.frequency === 'monthly' && o.amountCents > 0);
-      const dy = opts.find(o => o.frequency === 'daily' && o.amountCents > 0);
-      const hr = opts.find(o => o.frequency === 'hourly' && o.amountCents > 0);
-      vacancyMoCents += mo ? mo.amountCents : dy ? dy.amountCents * 5 * 4.33 : hr ? hr.amountCents * 8 * 5 * 4.33 : 0;
-    }
-    const totalCents = rentCents + dayCents;
-    return {
-      occupancyPct: rentable.length ? Math.round((occupied.length / rentable.length) * 100) : 0,
-      occupied: occupied.length,
-      rentable: rentable.length,
-      rentCents, dayCents, totalCents,
-      perStationCents: rentable.length ? Math.round(totalCents / rentable.length) : 0,
-      vacancyMoCents: Math.round(vacancyMoCents),
-    };
-  }, [sortedBooths, activeLeaseByBooth, leases.data, reservations]);
 
   // ── TRUE FLOOR STATUS ───────────────────────────────────────────────────────
   // A booth's displayed status is DERIVED from reality — an active lease, a
@@ -3647,46 +3607,18 @@ export default function BoothsPage() {
     return list;
   }, [renters.data]);
 
+  // The numbers at the top, by the same rule as the Rentals home (lib/rentals-home): a space is taken when a lease
+  // holds it, open when nothing does; the rent roll is every running lease at a month's rent.
   const metrics = useMemo(() => {
-    const allBooths = (booths.data ?? []).filter((b) => displayStatus(b) !== 'inactive');
-    const total = allBooths.length;
-    const occupied = allBooths.filter(
-      (b) => displayStatus(b) === 'occupied' || displayStatus(b) === 'partial'
-    ).length;
-    const vacant = allBooths.filter((b) => displayStatus(b) === 'vacant').length;
-
-    let monthlyRevenue = 0;
-    let vacancyCost = 0;
-    let potentialMonthly = 0;
-
-    allBooths.forEach((b) => {
-      const lease = activeLeaseByBooth.get(b.id);
-      const baseMonthly = Math.round(
-        b.baseRentCents * (FREQ_TO_MONTHLY[b.baseRentFrequency] ?? 1)
-      );
-      potentialMonthly += baseMonthly;
-      if (lease) {
-        monthlyRevenue += Math.round(
-          lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
-        );
-      } else if (displayStatus(b) === 'vacant') {
-        vacancyCost += baseMonthly;
-      }
-    });
-
+    const all = (booths.data ?? []) as any[]; const ls = (leases.data ?? []) as any[];
+    const o = occupancy(all, ls);
+    const st = spaceStates(all, ls);
+    const monthlyRevenue = ls.filter((l) => RUNNING.includes(String(l.status))).reduce((n, l) => n + monthlyCents(l.rentAmountCents, l.frequency), 0);
+    const potentialMonthly = all.filter((b) => st.get(b.id)?.state !== 'off')
+      .reduce((n, b) => { const held = st.get(b.id)?.leases || []; return n + (held.length ? held.reduce((m, l) => m + monthlyCents(l.rentAmountCents, l.frequency), 0) : askingMonthlyCents(b)); }, 0);
     const activeRenters = (renters.data ?? []).filter((r) => r.status === 'active').length;
-    const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-    return {
-      total,
-      occupied,
-      vacant,
-      monthlyRevenue,
-      vacancyCost,
-      potentialMonthly,
-      occupancyPct,
-      activeRenters,
-    };
-  }, [booths.data, activeLeaseByBooth, renters.data, boothOccupancy]);
+    return { total: o.total, occupied: o.occupied, vacant: o.open, monthlyRevenue, vacancyCost: o.openMonthlyCents, potentialMonthly, occupancyPct: o.pct, activeRenters };
+  }, [booths.data, leases.data, renters.data]);
 
   // ── LIVE FLOOR STATE — the real-time "what's happening right now" roll-up ────
   // Consolidates the day's activity across every space so the owner sees, at a
@@ -3745,25 +3677,19 @@ export default function BoothsPage() {
 
   const alerts = useMemo<AlertItem[]>(() => {
     const list: AlertItem[] = [];
-    const now = Date.now();
 
+    // Leases ending: one rule with the Rentals home (lib/rentals-home leaseEnding).
+    const todayLocal = localISO();
     (leases.data ?? []).forEach((l) => {
-      if (l.status !== 'active' || !l.endDate) return;
-      const end = new Date(l.endDate).getTime();
-      if (Number.isNaN(end)) return;
-      const days = Math.ceil((end - now) / 86_400_000);
-      if (days < 0 || days > LEASE_ALERT_WINDOW_DAYS) return;
+      const e = leaseEnding(l, todayLocal); if (!e) return;
       const booth = boothById.get(l.boothId);
       const renter = renterById.get(l.renterId);
       const who = renter ? `${renter.firstName} ${renter.lastName}` : 'a renter';
-      const boothName = booth?.name ?? 'a booth';
+      const boothName = booth?.name ?? 'A space';
       list.push({
         id: `lease-exp-${l.id}`,
-        severity: days <= 3 ? 'danger' : 'warning',
-        message:
-          days === 0
-            ? `${boothName}'s lease with ${who} ends today`
-            : `${boothName}'s lease with ${who} ends in ${days} day${days === 1 ? '' : 's'}`,
+        severity: e.renews ? 'info' : e.days <= 3 ? 'danger' : 'warning',
+        message: `${boothName}'s lease with ${who} ${e.days === 0 ? 'ends today' : `ends in ${e.days} day${e.days === 1 ? '' : 's'}`}${e.renews ? ' and renews on its own' : ' and doesn’t renew on its own'}`,
       });
     });
 
@@ -3812,9 +3738,9 @@ export default function BoothsPage() {
       list.push({
         id: 'vacancy-cost',
         severity: 'info',
-        message: `${metrics.vacant} booth${metrics.vacant > 1 ? 's' : ''} vacant — ${formatCents(
+        message: `${metrics.vacant} space${metrics.vacant > 1 ? 's' : ''} open, ${formatCents(
           metrics.vacancyCost
-        )}/mo uncollected`,
+        )} a month not coming in`,
       });
     }
 
@@ -4779,10 +4705,11 @@ export default function BoothsPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background">
-      <AppHeader title="Booths" />
+      <AppHeader title="Spaces" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       <div className="bg-card border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
+        <RentalsNav current="/booths" />
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0">
             <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground flex items-center gap-2.5 leading-none">
@@ -4813,9 +4740,9 @@ export default function BoothsPage() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Monthly revenue', value: formatCents(metrics.monthlyRevenue), sub: `${metrics.occupancyPct}% occupancy`, color: 'text-emerald-700' },
-            { label: 'Occupied', value: `${metrics.occupied} / ${metrics.total}`, sub: 'spaces', color: 'text-foreground' },
-            { label: 'Vacant', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)}/mo uncollected` : 'all leased', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-foreground' },
+            { label: 'Rent roll', value: formatCents(metrics.monthlyRevenue), sub: 'a month', color: 'text-emerald-700' },
+            { label: 'Occupied', value: `${metrics.occupied} of ${metrics.total}`, sub: `${metrics.occupancyPct}%`, color: 'text-foreground' },
+            { label: 'Open', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)} a month not coming in` : 'every space is taken', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-foreground' },
             { label: 'Potential', value: formatCents(metrics.potentialMonthly), sub: 'if fully leased', color: 'text-muted-foreground' },
           ].map(k => (
             <div key={k.label} className="rounded-xl border bg-card px-3.5 py-2.5 space-y-0.5">

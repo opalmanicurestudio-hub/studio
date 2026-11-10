@@ -22,6 +22,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { RentalsNav } from '@/components/renters/RentalsNav';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { cn } from '@/lib/utils';
 import {
@@ -94,6 +95,22 @@ export default function RentersPage() {
       sub('renterServices', setRenterServices)];
     return () => unsubs.forEach((u) => u());
   }, [firestore, tenantId]);
+
+  // /renters?renter=<id> opens that renter (the Rentals home's "Open" and "Message"); ?desk=inbox|concerns opens the
+  // messages desk on that tab. Once per link, after the renters have loaded.
+  const [deskTab, setDeskTab] = useState<'inbox' | 'concerns' | undefined>(undefined);
+  const linked = React.useRef(false);
+  useEffect(() => {
+    if (linked.current || loading || typeof window === 'undefined') return;
+    linked.current = true;
+    const q = new URLSearchParams(window.location.search);
+    const rid = q.get('renter'); const desk = q.get('desk');
+    if (rid) { const r = renters.find((x) => x.id === rid); if (r) setProfileRenter(r); }
+    if (desk === 'inbox' || desk === 'concerns') {
+      setDeskTab(desk);
+      setTimeout(() => document.getElementById('renter-desk')?.scrollIntoView({ block: 'start' }), 50);
+    }
+  }, [loading, renters]);
 
   // ── Turning bookings on ───────────────────────────────────────────────
   // Everything a renter can run from their portal — menu, hours, booking
@@ -188,11 +205,9 @@ export default function RentersPage() {
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Renters" />
       <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
+      <RentalsNav current="/renters" />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1 min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">
-            Booth rental
-          </p>
           <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
             <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
               <Users className="h-4 w-4 text-primary" />
@@ -218,8 +233,8 @@ export default function RentersPage() {
       </div>
 
       {tenantId && (
-        <RenterCommsDesk tenantId={tenantId} firestore={firestore} tenant={selectedTenant} renters={renters} booths={booths} leases={leases}
-          studioName={selectedTenant?.name || 'Studio'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} />
+        <div id="renter-desk" className="scroll-mt-20"><RenterCommsDesk tenantId={tenantId} firestore={firestore} tenant={selectedTenant} renters={renters} booths={booths} leases={leases} initialTab={deskTab}
+          studioName={selectedTenant?.name || 'Studio'} onOpenRenter={(id) => { const r = renters.find((x) => x.id === id); if (r) setProfileRenter(r); }} /></div>
       )}
 
       <div className="flex flex-wrap gap-2">

@@ -32,13 +32,16 @@ const ago = (iso: string) => {
   return d === 1 ? 'yesterday' : `${d}d ago`;
 };
 
-export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, leases, studioName, onOpenRenter }: {
+export function RenterCommsDesk({ tenantId, firestore, tenant, renters, booths, leases, studioName, onOpenRenter, initialTab }: {
   tenantId: string; firestore: any; tenant?: any; renters: any[]; booths: any[]; leases: any[]; studioName: string; onOpenRenter: (renterId: string) => void;
+  /** Opens on this tab when it's given (a link from the Rentals home). */
+  initialTab?: 'inbox' | 'concerns';
 }) {
   const [threads, setThreads] = useState<any[]>([]);
   const [concerns, setConcerns] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
   const [tab, setTab] = useState<'inbox' | 'concerns' | 'everyone' | 'documents' | 'coverage'>('inbox');
+  useEffect(() => { if (initialTab) setTab(initialTab); }, [initialTab]);
   const [askSent, setAskSent] = useState<Record<string, boolean>>({});
   const [docRenter, setDocRenter] = useState('');
   const [docKind, setDocKind] = useState<RenterDocKind | ''>('');

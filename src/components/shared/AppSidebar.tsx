@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText } from 'lucide-react';
+import { HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -130,6 +130,7 @@ const FINANCIAL_SUITE = [
 // swaps — but never got a door: the only way in was a link buried on the
 // hub's Operations tab. Every page the rental module owns is listed here.
 const BOOTH_RENTAL = [
+  { href: '/rentals',  icon: HomeIcon,  label: 'Rentals home' },
   { href: '/booths',   icon: Armchair,  label: 'Spaces'   },
   { href: '/pipeline', icon: Users,     label: 'Pipeline' },
   { href: '/renters',  icon: UserCheck, label: 'Renters'  },
@@ -170,7 +171,7 @@ const PUBLIC_PORTALS = [
 /** Every page in the menu, by area — what the header search looks through. */
 export const NAV_AREAS: { area: string; items: { href: string; label: string }[] }[] = [
   { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Business', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
-  { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Booth rental', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
+  { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Rentals', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
 ] as any;
 
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
@@ -507,7 +508,7 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Booth rental" items={BOOTH_RENTAL} badges={rentalBadges} />
+              <NavSection label="Rentals" items={BOOTH_RENTAL} badges={rentalBadges} />
             </>
           )}
 

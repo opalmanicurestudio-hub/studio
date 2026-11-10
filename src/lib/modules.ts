@@ -40,8 +40,8 @@ export const MODULES: Record<ModuleId, {
   messageKinds: string[];   // outbound comms this module may send
 }> = {
   booth_rental: {
-    label: 'Booth rental',
-    pages: ['/booths', '/pipeline', '/renters', '/rent', '/rental-policies', '/kiosk'],   // /kiosk = the renters' check-in kiosk
+    label: 'Rentals',
+    pages: ['/rentals', '/booths', '/pipeline', '/renters', '/rent', '/rental-policies', '/kiosk'],   // /kiosk = the renters' check-in kiosk
     messageKinds: ['booth_tour', 'tour_reminder', 'tour_followup', 'tour_confirmation',
       'booth_reservation', 'rent_late', 'rent_paid', 'balance_due', 'lease',
       'lease_renewal', 'license_expiry', 'credential', 'booth_no_show', 'booth_review'],

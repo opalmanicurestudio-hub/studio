@@ -2,7 +2,7 @@
 
 import { DeskOwedCard } from '@/components/rent/DeskOwedCard';
 import { RenterRefundDialog } from '@/components/rent/RenterRefundDialog';
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   collection,
@@ -52,6 +52,7 @@ import { buildRentSchedule, type ScheduledCharge } from '@/lib/rent-schedule';
 import { resolveCollectionsPolicy, type CollectionsPolicy } from '@/lib/collections-policy';
 import { resolveLeavePolicy, addDays as addLeaseDays, subletIncome, LEAVE_TREATMENT_LABEL, LEAVE_TREATMENT_NOTE, LEAVE_TYPE_LABEL, bankedAvailable, redeemValueCents, subletWindowFields, SUBLET_CLEAR_FIELDS, type LeavePolicy, type LeaveTreatment } from '@/lib/leave-policy';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { RentalsNav } from '@/components/renters/RentalsNav';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { CalendarClock as CalendarClockIcon } from 'lucide-react';
 import {
@@ -376,7 +377,7 @@ function LeaveCard({ tenantId, firestore, tenant, leaves, leaseById, renterById,
   const redeems = leaves.filter((l) => l.redeem && l.redeem.status === 'requested');
   const todayIso = new Date().toISOString().slice(0, 10);
   return (
-    <Card className="rounded-[2rem] border-2">
+    <Card id="time-away" className="scroll-mt-20 rounded-[2rem] border-2">
       <CardHeader className="p-5 pb-2">
         <CardTitle className="text-[11px] font-black uppercase tracking-widest">Leave</CardTitle>
         <p className="text-[11px] font-bold text-muted-foreground">Maternity, medical, family. Requests from renters, and what rent does while they're away. Every request is yours to decide.</p>
@@ -971,6 +972,30 @@ export default function RentRollPage() {
   // What each renter owes now: open rent bills plus open one-off charges (lib/booth-rental-types renterOwedCents).
   const owedOf = useCallback((renterId: string) => renterOwedCents(renterId, (invoices ?? []) as any[], (ledger ?? []) as any[]), [invoices, ledger]);
 
+  const openPaymentDialog = (renter: Renter) => {
+    const balance = owedOf(renter.id);
+    setPaymentForm({
+      amountDollars: balance > 0 ? (balance / 100).toString() : '',
+      method: 'venmo',
+      date: todayIso,
+      note: '',
+    });
+    setPayRequestId(nanoid(16)); setPayError(null);
+    setPaymentRenter(renter);
+  };
+
+  // Above the page's early return, like every hook here.
+  // /rent?pay=<renterId> opens Record payment for them (the Rentals home's late-rent "Record payment"), once their bills
+  // and ledger have loaded so what they owe is filled in.
+  const payLinked = useRef(false);
+  useEffect(() => {
+    if (payLinked.current || typeof window === 'undefined' || !renters || !invoices || !ledger) return;
+    const rid = new URLSearchParams(window.location.search).get('pay');
+    payLinked.current = true;
+    const r = rid ? renters.find((x) => x.id === rid) : null;
+    if (r) openPaymentDialog(r);
+  }, [renters, invoices, ledger]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const rosterRenters = useMemo(() => {
     const list = (renters ?? []).filter(
       (r) => r.status === 'active' || (ledgerByRenter.get(r.id)?.length ?? 0) > 0
@@ -1081,17 +1106,6 @@ export default function RentRollPage() {
     } finally { setRunning(false); }
   };
 
-  const openPaymentDialog = (renter: Renter) => {
-    const balance = owedOf(renter.id);
-    setPaymentForm({
-      amountDollars: balance > 0 ? (balance / 100).toString() : '',
-      method: 'venmo',
-      date: todayIso,
-      note: '',
-    });
-    setPayRequestId(nanoid(16)); setPayError(null);
-    setPaymentRenter(renter);
-  };
 
   // One path for every recorded payment (api/rent/record-payment): the renter's bills and charges are read and paid in
   // one step on the server (bills first, oldest first, then whole charges, anything over kept as credit), so a bill
@@ -1245,9 +1259,9 @@ export default function RentRollPage() {
       <div className="flex-1 w-full max-w-[1100px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6"
         style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
 
+      <RentalsNav current="/rent" />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1 min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">Booth rental</p>
           <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
             <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
               <CircleDollarSign className="h-4 w-4 text-primary" />

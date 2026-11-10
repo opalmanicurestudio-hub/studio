@@ -23,6 +23,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { RentalsNav } from '@/components/renters/RentalsNav';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { createRenter } from '@/lib/booth-rental-service';
 import { linkContactRenter } from '@/lib/booth-contacts';
@@ -750,11 +751,9 @@ export default function PipelinePage() {
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Pipeline" />
       <div className="flex-1 w-full max-w-[1000px] mx-auto min-w-0 p-4 sm:p-6 md:p-8 space-y-6">
+      <RentalsNav current="/pipeline" />
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1 min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-60">
-            Booth rental
-          </p>
           <h1 className="flex items-center gap-2.5 text-3xl md:text-4xl font-black uppercase tracking-tighter leading-none">
             <span className="grid h-9 w-9 place-items-center rounded-2xl border-2 border-primary/15 bg-primary/5 shrink-0">
               <Users className="h-4 w-4 text-primary" />
