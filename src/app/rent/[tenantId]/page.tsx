@@ -12,29 +12,15 @@ import { getStorage, ref as storageRef } from 'firebase/storage';
 import { getAuth, signInWithCustomToken } from 'firebase/auth';
 import { uploadImage } from '@/lib/upload-image';
 import { firebaseConfig } from '@/firebase/config';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { credentialViews, stateLabel, CREDENTIAL_LABEL } from '@/lib/compliance';
-import { LINK_KINDS, SECTION_KINDS, RENTER_FONTS, onAccent } from '@/lib/renter-identity';
 import { useToast } from '@/hooks/use-toast';
-import {
-  Armchair, CalendarDays, Clock, CreditCard, LogOut, Loader,
-  CheckCircle2, Sparkles, ChevronRight, Receipt, AlertTriangle,
-  Wallet, KeyRound, Phone, RefreshCw, Repeat, X,
-  MessageSquare,
-  CalendarClock,
-  Users,
-  Home,
-  Store,
-  BellRing,
-  ShieldAlert,
-  Wrench,
-  CloudLightning,
-  FileSignature,
-} from 'lucide-react';
-import { Chip, SectionTitle, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
+import { Armchair, ChevronLeft, ChevronRight, Loader, Settings } from 'lucide-react';
+import { biz, setBusinessName } from '@/components/rent/biz';
+import { TAB_LABEL, VIEW_BACK, VIEW_PARENT, VIEW_TITLES, backMove, markSpot, needsTarget, placeRows, placesFor, pushSpot, setupRows, shownPlace, shownView, spotFromState, tabFor, type PortalTab, type RowGroupSpec, type Who } from '@/components/rent/portal-map';
+import { fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { RenterInbox } from '@/components/rent/RenterInbox';
@@ -70,6 +56,9 @@ export default function RenterPortalPage() {
     else localStorage.removeItem(STORE(tenantId));
     setSession(s);
     setData(null);   // a new session (or none) never shows the last one's data
+    // Signing out forgets where they were, the dots, a half-filled form and the business's name, so the next person on
+    // this phone starts clean. Signing in keeps a link's place (applied once their portal loads, below).
+    if (!s) { setTabRaw('today'); setView(null); setBadges({}); setCredOpen(null); setCredForm({ expiry: '', carrier: '', policyNumber: '' }); setBusinessName(''); }
   };
 
   // Magic link (?rt=TOKEN): the owner shared a personal sign-in link from
@@ -81,8 +70,10 @@ export default function RenterPortalPage() {
     if (typeof window === 'undefined') return;
     const rt = new URLSearchParams(window.location.search).get('rt');
     if (!rt) return;
-    const keepTab = new URLSearchParams(window.location.search).get('tab');   // e.g. ?tab=rent from an autopay link
-    window.history.replaceState({}, '', window.location.pathname + (keepTab ? `?tab=${encodeURIComponent(keepTab)}` : ''));
+    // Where the link points (?tab=rent from an autopay link, ?view=lease from a document) stays; the token goes.
+    const keep = new URLSearchParams(window.location.search); keep.delete('rt');
+    const rest = new URLSearchParams(); for (const k of ['tab', 'view']) { const v = keep.get(k); if (v) rest.set(k, v); }
+    window.history.replaceState({}, '', window.location.pathname + (rest.toString() ? `?${rest.toString()}` : ''));
     (async () => {
       const d = await api({ action: 'token-login', tenantId, magicToken: rt });
       if (d.ok && d.token) { saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null }); return; }
@@ -137,7 +128,7 @@ export default function RenterPortalPage() {
     window.history.replaceState({}, '', window.location.pathname);
     (async () => {
       const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
-      if (d.ok) toast({ title: 'Rent paid', description: 'Your receipt is in Payment History below.' });
+      if (d.ok) toast({ title: 'Rent paid', description: 'Your receipt is on its way, and in Money under Payments and past bookings.' });
       else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, let the business know. Nothing is lost.' });
       refresh();
     })();
@@ -168,23 +159,118 @@ export default function RenterPortalPage() {
   // engine enforces the same thing server-side, so this is presentation
   // following truth rather than pretending.
   const booksHere = !!data?.provider && data?.bookingMode !== 'own';
-  // ── Four destinations, not twenty-one sections ─────────────────────────
-  // A renter logs in for one thing: today, their book, their rent, or the
-  // studio. Every section still exists; it now lives under the tab it
-  // belongs to, and the bottom bar lights up the tab that has something
-  // waiting. Hidden tabs stay mounted (CSS), so switching is instant and no
-  // subscription re-fires.
-  const [tab, setTab] = useState<'today' | 'book' | 'rent' | 'studio'>('today');
-  // Opened from a link (e.g. "set up autopay" → ?tab=rent): that tab, once the page has loaded.
-  useEffect(() => { try { const t = new URLSearchParams(window.location.search).get('tab'); if ((['today', 'book', 'rent', 'studio'] as const).includes(t as any)) setTab(t as any); } catch { /* fine */ } }, []);
-  useEffect(() => { if (!booksHere && tab === 'book') setTab('today'); }, [booksHere, tab]);
+  // ── One app: Today, Calendar, Clients, Money, Space (components/rent/portal-map) ──
+  // Five places at the bottom (three when the renter doesn't take bookings
+  // here). Each place is a short list; a row opens one screen with a way
+  // back, and Business setup sits behind the gear. The bottom bar lights up
+  // the place that has something waiting.
+  const who: Who = { booksHere, hasRenter: !!data?.renter?.id, hasLease: !!data?.lease, swapsOn: booksHere && data?.swaps?.enabled !== false };
+  const [tabAsked, setTabRaw] = useState<PortalTab>('today');
+  // A screen opened from a place or from "Needs you": the exact thing, with a way back (null is the place itself).
+  const [viewAsked, setView] = useState<string | null>(null);
+  // What's shown is what was asked for, if this renter has it (a link to Calendar for someone who doesn't book here
+  // lands on Today, never on a screen they can't use, not even for a moment).
+  const tab: PortalTab = data ? shownPlace(tabAsked, who) : tabAsked === 'money' || tabAsked === 'space' ? tabAsked : 'today';
+  const view = data ? shownView(viewAsked, who) : null;
+  // What was asked for follows what's shown, so a screen hidden now can't reappear later on its own.
+  useEffect(() => {
+    if (!data) return;
+    if (tabAsked !== tab) setTabRaw(tab);
+    if (viewAsked !== view) setView(view);
+  }, [data, tab, view, tabAsked, viewAsked]);
+  // Each screen opened is a step in the browser's history (portal-map), so the phone's own back gesture closes it.
+  // `backing` is true while a step back is on its way, so a quick second tap can't walk out of the portal.
+  const backing = useRef(false);
+  // Opening a screen, or going back from one, puts the focus on its heading, for anyone using a screen reader or a
+  // keyboard. A tap on the bottom bar leaves the focus on the bar.
+  const moved = useRef(false);
+  const shownNow = useRef<{ tab: PortalTab; view: string | null }>({ tab, view });
+  shownNow.current = { tab, view };
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const toTop = () => { try { window.scrollTo({ top: 0 }); } catch { /* fine */ } };
+  const go = (t: PortalTab, v: string | null, how: 'step' | 'here', keepFocus = false) => {
+    // Only somewhere this renter has; a screen they can't use isn't a step.
+    const toTab = data ? shownPlace(t, who) : t;
+    const toView = data ? shownView(v, who) : v;
+    const mode = how === 'step' && toView ? 'step' : 'here';
+    try { if (mode === 'step') pushSpot(window.history, { tab, view }, { tab: toTab, view: toView }); else markSpot(window.history, { tab: toTab, view: toView }); } catch { /* fine */ }
+    if (toView !== view && !keepFocus) moved.current = true;
+    setTabRaw(toTab); setView(toView); toTop();
+  };
+  const setTab = (t: string) => go(tabFor(t), null, 'here', true);   // a tap on the bar keeps the focus on the bar
+  const open = (v: string) => go(tab, v, 'step');
+  const back = () => {
+    let move: 'history' | 'here' | 'wait' = 'here';
+    try { move = backMove(window.history.state, backing.current); } catch { /* fine */ }
+    if (move === 'wait') return;
+    if (move === 'history') {
+      backing.current = true;
+      window.setTimeout(() => { backing.current = false; }, 1000);
+      try { window.history.back(); return; } catch { backing.current = false; }
+    }
+    if (view) moved.current = true;
+    setView(view ? VIEW_BACK[view] || null : null); toTop();
+  };
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      backing.current = false;
+      const spot = spotFromState(e.state);
+      if ((spot?.view || null) !== shownNow.current.view) moved.current = true;
+      if (spot) { setTabRaw(spot.tab); setView(spot.view); } else setView(null);
+      toTop();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  useEffect(() => {
+    if (!moved.current) return;
+    moved.current = false;
+    try { headingRef.current?.focus({ preventScroll: true }); } catch { /* fine */ }
+  }, [view]);
+  // Opened from a link (e.g. "set up autopay" → ?tab=rent, or ?view=lease): that place or screen. The link is read
+  // once (taking the screen off the address, so a refresh later doesn't reopen it) and kept until their portal has
+  // loaded, so it still applies after they sign in.
+  const linkTo = useRef<{ tab: PortalTab; view: string | null } | null>(null);
+  const linkRead = useRef(false);
+  useEffect(() => {
+    if (linkRead.current) return;
+    linkRead.current = true;
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const t = q.get('tab'); const v = q.get('view');
+      if (v && VIEW_TITLES[v]) {
+        linkTo.current = { tab: VIEW_PARENT[v] || (t ? tabFor(t) : 'today'), view: v };
+        q.delete('view'); const rest = q.toString();
+        window.history.replaceState({ ...(window.history.state || {}) }, '', window.location.pathname + (rest ? `?${rest}` : ''));
+      } else if (t) linkTo.current = { tab: tabFor(t), view: null };
+    } catch { /* fine */ }
+  }, []);
+  useEffect(() => {
+    if (!data || !linkTo.current) return;
+    const to = linkTo.current; linkTo.current = null;
+    setTabRaw(to.tab); setView(to.view);
+  }, [data]);
+  // "Needs you" opens the thing itself, not just its place.
+  const goFromToday = (t: string, kind?: string) => {
+    const target = needsTarget(kind, t, who);
+    go(target.tab, target.view, target.view ? 'step' : 'here');
+  };
   const [badges, setBadges] = useState<Record<string, number>>({});
-  // Book → Setup: seven configuration panels folded into one list, opened one at a time.
-  const [setupOpen, setSetupOpen] = useState<string>('');
-  // Rent → History: the archive folded away until asked for.
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Coming back from a screen refreshes Today's list and the dots, so what they just did there is gone from them.
+  const [freshen, setFreshen] = useState(0);
+  const lastView = useRef<string | null>(null);
+  // Screens that change what the portal itself shows (a signed lease, a new insurance date, time away, a setup change)
+  // reload it too.
+  // `dirty` remembers a visit to any of them until they're back on a place (setup screens close through Business setup).
+  const dirty = useRef(false);
+  useEffect(() => {
+    const was = lastView.current; lastView.current = view;
+    if (view && (['lease', 'rules', 'insurance', 'away', 'swaps'].includes(view) || view.startsWith('setup'))) dirty.current = true;
+    if (!was || view) return;
+    setFreshen((n) => n + 1);
+    if (dirty.current) { dirty.current = false; void refresh(); }
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   const rentDue = (data?.invoices || []).some((i: any) => i.status === 'due' || i.status === 'late');
-  const rentLate = (data?.invoices || []).some((i: any) => i.status === 'late');
   const openInvoices = useMemo(() => (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late'), [data]);
 
   const doCheckIn = async (reservationId: string) => {
@@ -194,10 +280,10 @@ export default function RenterPortalPage() {
     setActionBusy(false);
     if (d.ok) {
       toast({
-        title: 'You’re checked in ✓',
+        title: 'You’re checked in',
         description: d.needsBalance
           ? `Reminder: ${fmtMoney(d.balanceDueCents)} balance is ${d.balanceMode === 'at_checkin' ? 'due now at the front desk' : 'payable in person'}.`
-          : 'Have a great day at the studio.',
+          : `Have a great day at ${biz()}.`,
       });
       refresh();
     } else if (d.status === 401) { saveSession(null); }
@@ -232,7 +318,7 @@ export default function RenterPortalPage() {
     const d = await api({ action: 'request-reschedule', tenantId, token: session.token, reservationId });
     setActionBusy(false);
     if (d.ok) {
-      toast({ title: 'Request sent ✓', description: 'The studio will reach out to move your booking.' });
+      toast({ title: 'Request sent', description: `${biz(true)} will reach out to move your booking.` });
       refresh();
     } else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Couldn’t send request', description: d.error || 'Try again.' });
@@ -245,649 +331,498 @@ export default function RenterPortalPage() {
     setActionBusy(false);
     if (d.ok) {
       const desc = d.overageDueCents > 0
-        ? `${fmtMoney(d.overageDueCents)} for ${d.overageMinutes} extra minutes will be settled by the studio.`
+        ? `${fmtMoney(d.overageDueCents)} for ${d.overageMinutes} extra minutes will be settled by ${biz()}.`
         : d.potentialCreditCents > 0
-          ? `${fmtMoney(d.potentialCreditCents)} of unused time was sent to the studio for credit review.`
+          ? `${fmtMoney(d.potentialCreditCents)} of unused time was sent to ${biz()} to review for credit.`
           : 'All settled — see you next time.';
-      toast({ title: 'Checked out ✓', description: desc });
+      toast({ title: 'Checked out', description: desc });
       refresh();
     } else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Check-out didn’t go through', description: d.error || 'See the front desk.' });
   };
 
-  if (!session) return <LoginFlow tenantId={tenantId} onSession={s => { saveSession(s); refresh(s.token); }} />;
+  // Before sign-in the business isn't known yet (and a name from another business's portal on this phone mustn't show).
+  if (!session) { setBusinessName(''); return <LoginFlow tenantId={tenantId} onSession={s => { saveSession(s); refresh(s.token); }} />; }
 
   const firstName = (data?.name || session.name || '').split(' ')[0] || 'there';
+  const business = String(data?.studioName || data?.tenant?.name || '').trim();
+  setBusinessName(business);
+  const renterBrand = String(data?.renter?.businessName || '').trim();
+  const hour = new Date().getHours();
+  const hello = `${hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}, ${firstName}`;
+  const headings: Record<PortalTab, [string, string]> = {
+    today: [renterBrand ? `${renterBrand} · at ${business || 'your space'}` : business, hello],
+    calendar: [renterBrand || firstName, 'Your calendar'],
+    clients: [renterBrand || firstName, 'Your clients'],
+    money: [business ? `Your business, and rent with ${business}` : 'Your business, and your rent', 'Money'],
+    space: [data?.lease?.boothName && business ? `${data.lease.boothName} at ${business}` : business, 'Your space'],
+  };
+  const [sub, title] = view ? [VIEW_PARENT[view] ? TAB_LABEL[VIEW_PARENT[view]] : '', view === 'setup' && !booksHere ? 'Settings' : VIEW_TITLES[view] || ''] : headings[tab];
+  const token = session.token;
+  const hasRenter = who.hasRenter;
+  const creds = credentialViews(data?.renter, { bookingPageSettings: { automationRules: data?.compliance || {} } }, new Date().toISOString().slice(0, 10));
+  const credLine = creds.length === 0 ? 'Nothing required' : creds.every((v) => v.state === 'ok') ? 'All current' : creds.some((v) => v.state === 'expired' || (v.state === 'missing' && v.required)) ? 'Something is missing or expired' : creds.some((v) => v.state === 'expiring') ? 'Something expires soon' : 'Add yours';
+  const credWarn = creds.some((v) => v.state === 'expired' || v.state === 'expiring' || (v.state === 'missing' && v.required));
+  const lease: any = data?.lease || null;
+  const leaseLine = !lease ? 'Your lease and documents' : lease.status === 'pending_signature' ? 'Waiting for your signature' : lease.status === 'active' ? 'Signed' : String(lease.status || '').replace(/_/g, ' ');
 
+  // ── The screens a row opens ────────────────────────────────────────────────
+  const screen = (v: string): React.ReactNode => {
+    if (!token) return null;
+    switch (v) {
+      case 'notices': return (<div className="space-y-8"><RenterInbox tenantId={tenantId} token={token} businessName={business || 'the business'} /><RenterThread tenantId={tenantId} token={token} studioName={business || 'the business'} /></div>);
+      case 'repairs': return <RenterMaintenance tenantId={tenantId} token={token} />;
+      case 'concerns': return <RenterConcerns tenantId={tenantId} token={token} />;
+      case 'lease': return (<div className="space-y-8"><RenterDocuments tenantId={tenantId} token={token} />{!booksHere && hasRenter && <MyDocuments tenantId={tenantId} token={token} booksHere={false} />}</div>);
+      case 'rules': return <BuildingRules tenantId={tenantId} token={token} name={data?.renter?.name || null} />;
+      case 'insurance': return renderCreds();
+      case 'away': return <RenterLeave tenantId={tenantId} token={token} />;
+      case 'closures': return <RenterInterruptions tenantId={tenantId} token={token} />;
+      case 'swaps': return <MySwaps data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
+      case 'history': return (<div className="space-y-8">
+        {(data?.payments || []).length > 0 && (
+          <section className="space-y-2">
+            <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Payments</h2>
+            <ul className="divide-y divide-[#ececee] overflow-hidden rounded-2xl border border-[#ececee] bg-white">
+              {(data.payments || []).map((p: any) => (
+                <li key={p.id || p.date + p.description} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[15px] text-[#16171a]">{p.description || p.category}</p>
+                    <p className="text-[13px] text-[#6d7075]">{p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}</p>
+                  </div>
+                  <p className={cn('shrink-0 text-[15px] font-medium tabular-nums', p.type === 'reversal' ? 'text-[#6d7075]' : 'text-[#16171a]')}>
+                    {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {(data?.past || []).length > 0 && (
+          <section className="space-y-2">
+            <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Past space bookings</h2>
+            <ul className="divide-y divide-[#ececee] overflow-hidden rounded-2xl border border-[#ececee] bg-white">
+              {(data.past || []).map((r: any) => (
+                <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[15px] text-[#16171a]">{r.boothName}</p>
+                    <p className="text-[13px] text-[#6d7075]">{fmtDate(r.startDate)}</p>
+                  </div>
+                  <span className="shrink-0 text-[13px] text-[#6d7075]">{(() => { const t = String(r.status || '').replace(/_/g, ' ').replace('cancelled', 'canceled'); return t.charAt(0).toUpperCase() + t.slice(1); })()}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {!(data?.payments || []).length && !(data?.past || []).length && <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] text-[#6d7075]">Nothing yet.</p>}
+      </div>);
+      case 'books': return <MyBooks tenantId={tenantId} token={token} />;
+      case 'payouts': return <MyPayments data={data} tenantId={tenantId} token={token} />;
+      case 'followups': return <RenterFollowUps tenantId={tenantId} token={token} />;
+      case 'campaigns': return <MyCampaigns data={data} tenantId={tenantId} token={token} />;
+      case 'reconnect': return <MyReconnect tenantId={tenantId} token={token} />;
+      case 'giftcards': return <MyGiftCards tenantId={tenantId} token={token} />;
+      case 'clientdocs': return <MyDocuments tenantId={tenantId} token={token} booksHere />;
+      case 'setup': return renderSetup();
+      case 'setup:page': return (<div className="space-y-8"><MyBrand tenantId={tenantId} token={token} renterId={String(data?.renter?.id || '')} /><MyPage tenantId={tenantId} token={token} renterId={String(data?.renter?.id || '')} /><MyReviews tenantId={tenantId} token={token} /></div>);
+      case 'setup:services': return <MyServices data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
+      case 'setup:hours': return <MyHours data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
+      case 'setup:packages': return (<div className="space-y-8"><MyPackages data={data} tenantId={tenantId} token={token} /><MyMemberships data={data} tenantId={tenantId} token={token} /></div>);
+      case 'setup:profile': return <MyProfile data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
+      case 'setup:number': return <MyNumber data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />;
+      case 'setup:messages': return <MyClientMessages tenantId={tenantId} token={token} />;
+      case 'setup:alerts': return <TellMeWhen tenantId={tenantId} token={token} />;
+      case 'setup:payments': return <MyPayments data={data} tenantId={tenantId} token={token} />;
+      default: return null;
+    }
+  };
+
+  // Insurance and license: what's on file, what's needed, and adding a renewed one. Amber for anything to sort out.
+  const renderCreds = () => (
+    <section className="space-y-3">
+      {credentialViews(data?.renter, { bookingPageSettings: { automationRules: data?.compliance || {} } }, new Date().toISOString().slice(0, 10)).map((v) => {
+        const kind = v.kind;
+        const needs = v.state === 'expired' || v.state === 'expiring' || (v.state === 'missing' && v.required);
+        return (
+          <div key={kind} className="space-y-3 rounded-2xl border border-[#ececee] bg-white p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[15px] font-medium text-[#16171a]">{CREDENTIAL_LABEL[kind]}</p>
+              <span className={cn('shrink-0 text-[13px] font-medium', v.state === 'ok' ? 'text-[#1f7a4d]' : needs ? 'text-[#b45309]' : 'text-[#6d7075]')}>{stateLabel(v)}</span>
+            </div>
+            {kind === 'insurance' && (v.carrier || v.policyNumber) && <p className="text-[14px] text-[#6d7075]">{v.carrier}{v.carrier && v.policyNumber ? ' · ' : ''}{v.policyNumber ? `Policy ${v.policyNumber}` : ''}</p>}
+            {v.state === 'missing' && v.required && <p className="text-[14px] text-[#b45309]">{biz(true)} requires this on file to rent here.</p>}
+            {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center text-[14px] font-medium text-[#16171a] underline underline-offset-2">See the copy on file</a>}
+            {credOpen === kind ? (
+              <div className="space-y-2">
+                <label className="block text-[13px] text-[#6d7075]">Expiry date
+                  <input type="date" value={credForm.expiry} onChange={(e) => setCredForm((f) => ({ ...f, expiry: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a]" />
+                </label>
+                {kind === 'insurance' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={credForm.carrier} onChange={(e) => setCredForm((f) => ({ ...f, carrier: e.target.value.slice(0, 120) }))} aria-label="Insurance carrier" placeholder="Carrier" className="h-11 min-w-0 rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a] placeholder:text-[#6d7075]" />
+                    <input value={credForm.policyNumber} onChange={(e) => setCredForm((f) => ({ ...f, policyNumber: e.target.value.slice(0, 80) }))} aria-label="Policy number" placeholder="Policy number" className="h-11 min-w-0 rounded-xl border border-[#ececee] bg-white px-3 text-[15px] text-[#16171a] placeholder:text-[#6d7075]" />
+                  </div>
+                )}
+                <p className="text-[13px] leading-snug text-[#6d7075]">Enter the expiry date exactly as it appears on the document, then attach a photo of it. {biz(true)} is told automatically.</p>
+                <div className="flex gap-2">
+                  <label className={cn('flex h-11 flex-1 cursor-pointer items-center justify-center rounded-full bg-[#16171a] text-[15px] font-medium text-white', (credBusy === kind || !credForm.expiry) && 'pointer-events-none opacity-50')}>
+                    {credBusy === kind ? 'Uploading…' : 'Attach photo and save'}
+                    <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!credBusy || !credForm.expiry}
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0]; e.target.value = '';
+                        if (!f || !session) return;
+                        setCredBusy(kind);
+                        try {
+                          const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
+                          const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl, expiry: credForm.expiry, carrier: credForm.carrier, policyNumber: credForm.policyNumber });
+                          if (d.ok) { setCredDone(kind); setCredOpen(null); setCredForm({ expiry: '', carrier: '', policyNumber: '' }); toast({ title: 'On file', description: `${biz(true)} has been told.` }); void refresh(); }
+                          else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
+                        } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
+                        finally { setCredBusy(null); }
+                      }} />
+                  </label>
+                  <button type="button" onClick={() => setCredOpen(null)} className="h-11 rounded-full border border-[#ececee] bg-white px-4 text-[15px] font-medium text-[#16171a]">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => { setCredOpen(kind); setCredForm({ expiry: v.expiry || '', carrier: v.carrier || '', policyNumber: v.policyNumber || '' }); }}
+                className="h-11 w-full rounded-full border border-[#ececee] bg-white text-[15px] font-medium text-[#16171a] hover:bg-[#f5f5f7]">
+                {credDone === kind ? 'Uploaded · update again' : v.docUrl ? 'Upload a renewed one' : v.state === 'ok' || v.state === 'expiring' ? 'Add a photo of it' : `Add ${kind === 'insurance' ? 'insurance' : 'license'}`}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+
+  // Each row's words. Which rows a renter sees, and in what order, is portal-map's (placeRows, setupRows).
+  const waiting = (...kinds: string[]) => kinds.reduce((n, k) => n + (badges[`k:${k}`] || 0), 0) || undefined;
+  const rowFor = (v: string): { title: string; sub?: string; badge?: number; warn?: boolean } => {
+    switch (v) {
+      case 'notices': return { title: 'Messages and notices', sub: `Everything from ${business || 'the business'}, kept word for word`, badge: waiting('notice', 'message') };
+      case 'repairs': return { title: 'Something broken?', sub: 'Report a repair and follow it' };
+      case 'concerns': return { title: 'Raise a concern', sub: 'Private, with a reference number' };
+      case 'lease': return { title: 'Lease and documents', sub: waiting('document') ? 'Something to read or sign' : leaseLine, warn: lease?.status === 'pending_signature' || !!waiting('document'), badge: waiting('document') };
+      case 'rules': return { title: 'House rules', sub: waiting('rules') ? 'Something to sign' : `What ${business || 'the business'} asks of everyone`, warn: !!waiting('rules'), badge: waiting('rules') };
+      case 'insurance': return { title: 'Insurance and license', sub: credLine, warn: credWarn };
+      case 'away': return { title: 'Time away', sub: 'Ask for time off, and see what happens to rent' };
+      case 'swaps': return { title: 'Swap days', sub: 'Trade time with another renter' };
+      case 'closures': return { title: 'Closures', sub: 'When the space couldn’t be used, and what you were credited' };
+      case 'history': return { title: 'Payments and past bookings', sub: 'Everything you’ve paid, and your past space bookings' };
+      case 'books': return { title: 'Earnings and expenses', sub: 'Earned, rent, expenses and what’s left, by month' };
+      case 'payouts': return { title: 'Payouts', sub: 'Where your money lands' };
+      case 'followups': return { title: 'Follow-ups', sub: 'Who to check in with, and a text ready to send' };
+      case 'campaigns': return { title: 'Campaigns', sub: 'One message to a group of your clients' };
+      case 'reconnect': return { title: 'Win back', sub: 'Clients you haven’t seen in a while' };
+      case 'giftcards': return { title: 'Gift cards', sub: 'Sell them, and take them at the chair' };
+      case 'clientdocs': return { title: 'Client documents', sub: 'Forms and files for your clients, private to you' };
+      case 'setup:page': return { title: 'Your booking page', sub: 'Look, about you, photos, reviews and links' };
+      case 'setup:services': return { title: 'Services', sub: 'Your menu, prices and lengths' };
+      case 'setup:hours': return { title: 'Hours', sub: 'When clients can book you' };
+      case 'setup:profile': return { title: 'Your profile', sub: 'Your name, photo and a line about you' };
+      case 'setup:payments': return { title: 'Card payments', sub: 'Deposits and payments go to your own account' };
+      case 'setup:packages': return { title: 'Packages and memberships', sub: tab === 'clients' ? 'Set them up in Business setup' : 'Prepaid bundles and monthly plans' };
+      case 'setup:messages': return { title: 'Client messages', sub: 'Confirmations, reminders and thank-yous in your name' };
+      case 'setup:number': return { title: 'Your number', sub: 'The number clients text' };
+      case 'setup:alerts': return { title: 'Your own alerts', sub: 'How you hear about new bookings and changes' };
+      default: return { title: VIEW_TITLES[v] || v };
+    }
+  };
+  const groupsOf = (groups: RowGroupSpec[]) => groups.map((g) => (
+    <RowGroup key={g.id} title={g.id === 'with' ? (business ? `With ${business}` : 'Your rent') : g.title || undefined}>
+      {g.views.map((v) => { const r = rowFor(v); return <Row key={v} title={r.title} sub={r.sub} badge={r.badge} warn={r.warn} onClick={() => open(v)} />; })}
+    </RowGroup>
+  ));
+  // The space booked by the day or hour: on Calendar for those who book here, on Space for everyone else.
+  const spaceBookings = (
+    <section className="space-y-2">
+      <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Your space bookings</h2>
+      {later.length === 0
+        ? <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] text-[#6d7075]">Nothing booked ahead.</p>
+        : <div className="space-y-3">{later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} onRequestReschedule={requestReschedule} busy={actionBusy} />)}</div>}
+      {data?.rebookUrl && (
+        <a href={data.rebookUrl} className="flex h-11 w-full items-center justify-center gap-1 rounded-full border border-[#ececee] bg-white text-[15px] font-medium text-[#16171a] hover:bg-[#f5f5f7]">
+          Book the space again <ChevronRight className="h-4 w-4" />
+        </a>
+      )}
+    </section>
+  );
+
+  // Business setup (from the header): how clients find and book them, getting paid, keeping in touch. Sign out sits
+  // at the end for everyone.
+  const renderSetup = () => (
+    <div className="space-y-6">
+      {groupsOf(setupRows(who))}
+      <RowGroup title="This device">
+        <Row title={loading ? 'Refreshing…' : 'Refresh'} sub="Load the latest" onClick={() => refresh()} />
+        <Row title="Sign out" sub="You’ll need a new code to come back" onClick={() => saveSession(null)} />
+      </RowGroup>
+    </div>
+  );
+
+  const card = 'overflow-hidden rounded-2xl border border-[#ececee] bg-white';
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-lg mx-auto px-4 pb-16">
-
-        <header className="flex items-center justify-between pt-8 pb-6">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{data?.studioName || 'Studio'}</p>
-            <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Hi, {firstName}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => refresh()} disabled={loading}
-              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 active:scale-95 transition-all">
-              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+    <div className="min-h-screen bg-[#f5f5f7] text-[#16171a]">
+      <header className="sticky top-0 z-30 border-b border-[#ececee] bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
+          {view && (
+            <button type="button" onClick={back} aria-label="Back"
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[#16171a] hover:bg-[#f5f5f7]">
+              <ChevronLeft className="h-5 w-5" />
             </button>
-            <button onClick={() => saveSession(null)}
-              className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-500 active:scale-95 transition-all">
-              <LogOut className="w-4 h-4" />
-            </button>
+          )}
+          <div className="min-w-0 flex-1">
+            {sub && <p className="truncate text-[13px] text-[#6d7075]">{sub}</p>}
+            <h1 ref={headingRef} tabIndex={-1} className={cn('font-semibold tracking-tight outline-none', view ? 'text-[20px] leading-tight' : 'truncate text-[22px]')}>{title}</h1>
           </div>
-        </header>
+          {view !== 'setup' && (
+            <button type="button" onClick={() => open('setup')} aria-label={booksHere ? 'Business setup' : 'Settings'}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f5f5f7] text-[#16171a] hover:bg-[#ececee]">
+              <Settings className="h-5 w-5" />
+            </button>
+          )}
+        </div>
+      </header>
 
+      <main className="mx-auto max-w-lg px-4 pb-32 pt-4">
         <StaleCopyBanner />
         {loading && !data ? (
-          <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
-            <Loader className="w-8 h-8 animate-spin" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
+          <div className="flex flex-col items-center gap-3 py-24 text-[#6d7075]">
+            <Loader className="h-6 w-6 animate-spin" />
+            <p className="text-[14px]">Loading…</p>
           </div>
         ) : !data && loadError ? (
-          // A failed load says so — with the real reason — instead of spinning.
-          <div className="mx-auto max-w-sm space-y-3 rounded-3xl border-2 border-red-200 bg-red-50 p-5 text-center">
-            <p className="text-sm font-black text-red-900">Your portal didn’t load</p>
-            <p className="text-xs font-bold text-red-800 break-words">{loadError}</p>
+          // A failed load says so, with the real reason, instead of spinning.
+          <div className="mx-auto max-w-sm space-y-3 rounded-2xl border border-[#ececee] bg-white p-5 text-center">
+            <p className="text-[15px] font-semibold">Your portal didn’t load</p>
+            <p className="break-words text-[13px] text-[#b45309]">{loadError}</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => refresh()} className="h-11 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white">Try again</button>
-              <button type="button" onClick={() => saveSession(null)} className="h-11 flex-1 rounded-xl border-2 border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600">Sign in again</button>
+              <button type="button" onClick={() => refresh()} className="h-11 flex-1 rounded-full bg-[#16171a] text-[14px] font-medium text-white">Try again</button>
+              <button type="button" onClick={() => saveSession(null)} className="h-11 flex-1 rounded-full border border-[#ececee] bg-white text-[14px] font-medium">Sign in again</button>
             </div>
           </div>
         ) : !data ? (
-          <div className="flex flex-col items-center py-24 gap-3 text-slate-400">
-            <Loader className="w-8 h-8 animate-spin" />
-            <p className="text-[10px] font-black uppercase tracking-widest">Loading your studio life…</p>
+          <div className="flex flex-col items-center gap-3 py-24 text-[#6d7075]">
+            <Loader className="h-6 w-6 animate-spin" />
+            <p className="text-[14px]">Loading…</p>
           </div>
         ) : (
-          <div className="space-y-8 pb-24">
-            {session?.token && <TodayQuick data={data} booksHere={booksHere} onGo={setTab} tenantId={tenantId} token={session.token} onBadges={setBadges} visible={tab === 'today'} />}
-            <div className={tab === 'today' ? 'space-y-8' : 'hidden'}>
-            {session?.token && data?.renter?.id && <RenterMessages tenantId={tenantId} token={session.token} always={booksHere} />}
-            {todays.length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={Clock}>Today</SectionTitle>
-                {todays.map((r: any) => (
-                  <ResCard key={r.id} r={r} isToday onCheckIn={doCheckIn} onCheckOut={doCheckOut} busy={actionBusy} />
-                ))}
-              </section>
-            )}
+          <div>
+            {token && <div className={!view && tab === 'today' ? 'mb-8' : ''}><TodayQuick data={data} booksHere={booksHere} onGo={goFromToday} tenantId={tenantId} token={token} onBadges={setBadges} visible={!view && tab === 'today'} refreshKey={freshen} /></div>}
 
-            {session?.token && (
-              <GettingSetUp data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-
-            {session?.token && data?.renter?.id && !booksHere && (
-              <section className="space-y-3">
-                <SectionTitle icon={CalendarDays}>Bookings</SectionTitle>
-                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
-                  {data?.bookingMode === 'own' ? (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">You take your own bookings.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
-                        If you ever want to run bookings from here instead, ask the studio to switch it on.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-[12px] font-bold text-slate-800">Bookings aren&apos;t switched on for you here yet.</p>
-                      <p className="mt-1 text-[11px] font-medium text-slate-500">
-                        Once the studio enables it, this portal gains your service menu, your hours, a booking link of your own,
-                        your appointment book, your client list and your payouts. Ask them to turn it on — it takes them one tap.
-                      </p>
-                    </>
-                  )}
-                </div>
-              </section>
-            )}
-
-            </div>
-            <div className={tab === 'book' ? 'space-y-8' : 'hidden'}>
-            {booksHere && session?.token && <MyBook data={data} tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && data?.renter?.id && <RenterFollowUps tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyClients tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && <MyGiftCards tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && data?.renter?.id && <RenterPrep tenantId={tenantId} token={session.token} />}
-            {booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere />}
-
-            {booksHere && (
-              <section className="space-y-3">
-                <SectionTitle icon={Sparkles}>Setup</SectionTitle>
-                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y-2 divide-slate-100 overflow-hidden">
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'brand' ? '' : 'brand')} aria-expanded={setupOpen === 'brand'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My brand</span><span className="block text-[10px] font-bold text-slate-500">Colour, cover, typeface — what your link looks like</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'brand' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'brand' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyBrand tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'page' ? '' : 'page')} aria-expanded={setupOpen === 'page'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">My page</span><span className="block text-[10px] font-bold text-slate-500">Gallery, about, questions, policies — on your booking link</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'page' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'page' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyPage tenantId={tenantId} token={session.token} renterId={String(data?.renter?.id || '')} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'reviews' ? '' : 'reviews')} aria-expanded={setupOpen === 'reviews'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Reviews</span><span className="block text-[10px] font-bold text-slate-500">What clients said — you choose what shows</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'reviews' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'reviews' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyReviews tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'services' ? '' : 'services')} aria-expanded={setupOpen === 'services'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Services</span><span className="block text-[10px] font-bold text-slate-500">Your menu and prices</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'services' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'services' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyServices data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'packages' ? '' : 'packages')} aria-expanded={setupOpen === 'packages'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Packages</span><span className="block text-[10px] font-bold text-slate-500">Prepaid bundles of your services, on your Stripe</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'packages' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'packages' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyPackages data={data} tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'memberships' ? '' : 'memberships')} aria-expanded={setupOpen === 'memberships'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Memberships</span><span className="block text-[10px] font-bold text-slate-500">Monthly plans with included visits and perks</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'memberships' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'memberships' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyMemberships data={data} tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'hours' ? '' : 'hours')} aria-expanded={setupOpen === 'hours'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Hours</span><span className="block text-[10px] font-bold text-slate-500">When clients can book you</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'hours' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'hours' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyHours data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'profile' ? '' : 'profile')} aria-expanded={setupOpen === 'profile'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Profile</span><span className="block text-[10px] font-bold text-slate-500">Photo, name, bio, Instagram</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'profile' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'profile' && (
-                        <div className="px-3 pb-4">
-            {data?.provider && session?.token && (
-              <MyProfile data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'number' ? '' : 'number')} aria-expanded={setupOpen === 'number'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Booking number</span><span className="block text-[10px] font-bold text-slate-500">The number on your link</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'number' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'number' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyNumber data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'messages' ? '' : 'messages')} aria-expanded={setupOpen === 'messages'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Client messages</span><span className="block text-[10px] font-bold text-slate-500">Reminders and thank-yous, in your name</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'messages' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'messages' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && <MyClientMessages tenantId={tenantId} token={session.token} />}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {booksHere && (
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'campaigns' ? '' : 'campaigns')} aria-expanded={setupOpen === 'campaigns'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Campaigns</span><span className="block text-[10px] font-bold text-slate-500">An email or text to your clients</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'campaigns' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'campaigns' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyCampaigns data={data} tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {booksHere && (
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'reconnect' ? '' : 'reconnect')} aria-expanded={setupOpen === 'reconnect'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Reconnect</span><span className="block text-[10px] font-bold text-slate-500">Nudge clients who've gone quiet</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'reconnect' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'reconnect' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyReconnect tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {booksHere && (
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'alerts' ? '' : 'alerts')} aria-expanded={setupOpen === 'alerts'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Tell me when…</span><span className="block text-[10px] font-bold text-slate-500">Bookings, requests, cancels — to your phone</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'alerts' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'alerts' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <TellMeWhen tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {data?.swaps?.enabled !== false && (
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'swaps' ? '' : 'swaps')} aria-expanded={setupOpen === 'swaps'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Swaps</span><span className="block text-[10px] font-bold text-slate-500">Shared-space day swaps</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'swaps' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'swaps' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && data?.swaps?.enabled !== false && (
-              <MySwaps data={data} tenantId={tenantId} token={session.token} onChanged={() => refresh()} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'books' ? '' : 'books')} aria-expanded={setupOpen === 'books'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Books</span><span className="block text-[10px] font-bold text-slate-500">Earned, rent, expenses, net — by month</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'books' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'books' && session?.token && (
-                        <div className="px-3 pb-4">
-                          <MyBooks tenantId={tenantId} token={session.token} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(
-                    <div>
-                      <button type="button" onClick={() => setSetupOpen(setupOpen === 'payouts' ? '' : 'payouts')} aria-expanded={setupOpen === 'payouts'}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left">
-                        <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Payouts</span><span className="block text-[10px] font-bold text-slate-500">Where your money lands</span></span>
-                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', setupOpen === 'payouts' && 'rotate-90')} />
-                      </button>
-                      {setupOpen === 'payouts' && (
-                        <div className="px-3 pb-4">
-            {booksHere && session?.token && (
-              <MyPayments data={data} tenantId={tenantId} token={session.token} />
-            )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-            </div>
-            <div className={tab === 'rent' ? 'space-y-8' : 'hidden'}>
-            {data?.lease && (
-              <section className="space-y-3">
-                <SectionTitle icon={Wallet}>Your Rent</SectionTitle>
-                <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-black text-slate-900 text-sm">{data.lease.boothName || 'Your space'}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
-                        {fmtMoney(data.lease.rentAmountCents)} / {({ daily: 'day', weekly: 'week', biweekly: '2 weeks', monthly: 'month' } as Record<string, string>)[String(data.lease.frequency || 'monthly')] || 'month'}
-                      </p>
-                    </div>
-                    {data.lease.status === 'pending_signature'
-                      ? <button type="button" onClick={() => setTab('studio')} className="flex min-h-[44px] items-center"><Chip tone="amber">Sign to start</Chip></button>
-                      : openInvoices.some((i: any) => i.status === 'late')
-                      ? <Chip tone="red">Late</Chip>
-                      : openInvoices.length > 0 ? <Chip tone="amber">Due</Chip> : <Chip tone="green">Current</Chip>}
-                  </div>
-                  {(() => { const o: any = data.rentOutlook; if (!o || (o.creditCents <= 0 && !o.nextDue)) return null; const first = o.nextDue ? fmtDate(o.nextDue) : null; return (
-                    <div className="space-y-1 rounded-xl bg-emerald-50 p-3 text-emerald-900">
-                      {o.creditCents > 0 && <p className="text-[12px] font-bold">{fmtMoney(o.creditCents)} credit on your account{o.credits?.length > 1 ? ` (${o.credits.map((c: any) => `${c.label} ${fmtMoney(c.cents)}`).join(' · ')})` : o.credits?.[0] ? ` — ${o.credits[0].label.toLowerCase()}` : ''}</p>}
-                      {o.nextDue && <p className="text-[12px]">{o.nextAfterCreditsCents <= 0 ? `Your ${first} rent is covered${o.creditLeftAfterCents > 0 ? ` — ${fmtMoney(o.creditLeftAfterCents)} credit left after it` : ''}.`
-                        : `Your ${first} rent will be ${fmtMoney(o.nextAfterCreditsCents)}${o.nextAfterCreditsCents < o.nextRentCents ? ` (${fmtMoney(o.nextRentCents)} less ${fmtMoney(o.nextRentCents - o.nextAfterCreditsCents)} credit)` : ''}.`}
-                        {o.autopayOn ? (o.nextAfterCreditsCents > 0 ? ` Autopay will take it on ${first}.` : ' Autopay has nothing to take.') : ''}</p>}
-                      {o.owedNowCents > 0 && o.creditCents > 0 && <p className="text-[11px] opacity-80">Credit comes off your next rent, not what’s owed now.</p>}
-                    </div>); })()}
-                  {openInvoices.map((i: any) => (
-                    <div key={i.id} className={cn('flex items-center justify-between p-3 rounded-xl',
-                      i.status === 'late' ? 'bg-red-50' : 'bg-amber-50')}>
-                      <div>
-                        <p className={cn('text-[11px] font-black', i.status === 'late' ? 'text-red-700' : 'text-amber-700')}>
-                          {fmtMoney(Math.max(0, i.amountCents + i.lateFeeCents - (i.paidCents || 0)))}
-                          {i.lateFeeCents > 0 && <span className="font-bold opacity-70"> (incl. {fmtMoney(i.lateFeeCents)} late fee)</span>}
-                          {(i.paidCents || 0) > 0 && <span className="font-bold opacity-70"> ({fmtMoney(i.paidCents)} already paid)</span>}
-                          {i.creditAppliedCents > 0 && <span className="block text-[10px] font-black uppercase tracking-widest text-emerald-700">{fmtMoney(i.creditAppliedCents)} credit applied{i.grossCents ? ` · was ${fmtMoney(i.grossCents)}` : ''}{i.creditNote ? ` · ${i.creditNote}` : ''}</span>}
-                        </p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due {fmtDate(i.dueDate)}</p>
-                      </div>
-                      <button onClick={() => payInvoice(i.id)} disabled={actionBusy}
-                        className={cn('h-9 px-4 rounded-xl font-black uppercase tracking-widest text-[10px] text-white active:scale-95 transition-all disabled:opacity-50 shrink-0',
-                          i.status === 'late' ? 'bg-red-600' : 'bg-slate-900')}>
-                        {actionBusy ? '…' : 'Pay Now'}
-                      </button>
-                    </div>
-                  ))}
-                  {data.lease.deposit && (() => {
-                    const d: any = data.lease.deposit;
-                    // What they'd get back is "held for you"; a deduction is money kept, said as kept.
-                    const kept = (d.deductions || []).reduce((n: number, x: any) => n + (Number(x.cents) || 0), 0);
-                    const line = d.status === 'not_collected' ? `${fmtMoney(d.agreedCents)} due`
-                      : [d.returnableCents > 0 ? `${fmtMoney(d.returnableCents)} held for you` : '', d.refundedCents > 0 ? `${fmtMoney(d.refundedCents)} returned` : '', d.refundingCents > 0 ? `${fmtMoney(d.refundingCents)} on its way to your card` : '',
-                        d.appliedCents > 0 ? `${fmtMoney(d.appliedCents)} applied to what you owed` : '', kept > 0 ? `${fmtMoney(kept)} kept` : ''].filter(Boolean).join(' · ') || 'Settled';
-                    const stillOpen = d.status === 'not_collected' || d.returnableCents > 0;
-                    return (
-                      <div className="rounded-xl border border-[#ececee] bg-white p-3 text-[#16171a]">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-[14px] font-medium">Security deposit</p>
-                            <p className="text-[13px] text-[#6d7075]">{line}</p>
-                          </div>
-                          {d.canPayOnline && (
-                            <button type="button" onClick={() => payDeposit(data.lease.id)} disabled={actionBusy}
-                              className="h-11 shrink-0 rounded-xl bg-[#16171a] px-4 text-[13px] font-medium text-white disabled:opacity-50">
-                              {actionBusy ? 'Opening…' : 'Pay deposit'}
-                            </button>
-                          )}
-                        </div>
-                        {d.deductions?.length > 0 && (
-                          <ul className="mt-2 space-y-1 border-t border-[#ececee] pt-2">
-                            {d.deductions.map((x: any, i: number) => (
-                              <li key={i} className="flex justify-between gap-3 text-[12px]"><span className="min-w-0 text-[#6d7075]">{x.reason} · {fmtDate(x.at)}</span><span className="shrink-0 tabular-nums">−{fmtMoney(x.cents)}</span></li>
-                            ))}
-                          </ul>
-                        )}
-                        {stillOpen && (
-                          <p className="mt-2 text-[12px] text-[#6d7075]">
-                            {d.status === 'not_collected' && !d.canPayOnline ? 'Pay it at the front desk. ' : ''}
-                            {d.refundable ? `Held for you, not spent, and returned as your rental agreement sets out.${d.conditions ? ` ${String(d.conditions).replace(/\.?$/, '.')}` : ''}` : 'Your rental agreement says this deposit isn’t refundable.'}
+            {view ? (
+              <div className="space-y-8">{screen(view)}</div>
+            ) : tab === 'today' ? (
+              <div className="space-y-8">
+                {todays.length > 0 && (
+                  <section className="space-y-3">
+                    <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Your space today</h2>
+                    {todays.map((r: any) => (
+                      <ResCard key={r.id} r={r} isToday onCheckIn={doCheckIn} onCheckOut={doCheckOut} busy={actionBusy} />
+                    ))}
+                  </section>
+                )}
+                {token && <GettingSetUp data={data} tenantId={tenantId} token={token} onChanged={() => refresh()} />}
+                {token && hasRenter && !booksHere && <RenterMessages tenantId={tenantId} token={token} always={false} />}
+                {session?.token && data?.renter?.id && !booksHere && (
+                  <section className="space-y-2">
+                    <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Bookings</h2>
+                    <div className="rounded-2xl border border-[#ececee] bg-white p-4">
+                      {data?.bookingMode === 'own' ? (
+                        <>
+                          <p className="text-[15px] font-medium">You take your own bookings</p>
+                          <p className="mt-1 text-[14px] leading-relaxed text-[#6d7075]">
+                            Your menu, calendar and clients live in your own system, so this portal keeps to rent, documents and messages.
+                            If you ever want to run bookings from here instead, ask {biz()} to switch it on.
                           </p>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
-                </div>
-              </section>
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterCard tenantId={tenantId} token={session.token} renter={data.renter} autopayOn={data?.rentOutlook?.autopayOn === true}
-                hasLease={!!data?.lease} waitingSignature={data?.rentOutlook?.waitingSignature === true} onChanged={refresh}
-                onToast={(t) => toast({ title: t.title, description: t.description, ...(t.bad ? { variant: 'destructive' as const } : {}) })} />
-            )}
-
-            {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
-              <section className="space-y-3">
-                <SectionTitle icon={Sparkles}>Studio Credit</SectionTitle>
-                <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-xl shadow-emerald-200">
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Available balance</p>
-                  <p className="text-4xl font-black tracking-tighter font-mono mt-1">{fmtMoney(data?.availableCreditCents || 0)}</p>
-                  <p className="text-[10px] font-bold opacity-80 mt-2">Applies automatically to your next booking.</p>
-                </div>
-              </section>
-            )}
-
-            {session?.token && data?.lease && (
-              <RenterLeave tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterInterruptions tenantId={tenantId} token={session.token} />
-            )}
-
-
-            <section className="space-y-3">
-              <button type="button" onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}
-                className="flex w-full items-center justify-between gap-3 rounded-3xl border-2 border-slate-100 bg-white px-4 py-3.5 text-left">
-                <span className="min-w-0"><span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">History</span><span className="block text-[10px] font-bold text-slate-500">Payments made, day bookings, past visits</span></span>
-                <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-400 transition-transform', historyOpen && 'rotate-90')} />
-              </button>
-              {historyOpen && (
-                <div className="space-y-8">
-            {(data?.payments || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={Receipt}>Payment History</SectionTitle>
-                <div className="rounded-3xl bg-white border-2 border-slate-100 divide-y divide-slate-50 overflow-hidden">
-                  {(data.payments || []).map((p: any) => (
-                    <div key={p.id || p.date + p.description} className="flex items-center justify-between p-3.5">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{p.description || p.category}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
-                          {p.date ? fmtDate(String(p.date).slice(0, 10)) : ''}
-                        </p>
-                      </div>
-                      <p className={cn('text-xs font-black font-mono shrink-0',
-                        p.type === 'reversal' ? 'text-slate-400' : 'text-slate-900')}>
-                        {p.type === 'reversal' ? '−' : ''}${Number(p.amount || 0).toFixed(2)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            <section className="space-y-3">
-              <SectionTitle icon={CalendarDays}>Upcoming Bookings</SectionTitle>
-              {later.length === 0 && todays.length === 0 ? (
-                <div className="p-6 rounded-3xl bg-white border-2 border-dashed border-slate-200 text-center space-y-2">
-                  <Armchair className="w-8 h-8 text-slate-200 mx-auto" />
-                  <p className="text-[11px] font-bold text-slate-400">No upcoming bookings</p>
-                </div>
-              ) : (
-                later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} onRequestReschedule={requestReschedule} busy={actionBusy} />)
-              )}
-              {data?.rebookUrl && (
-                <a href={data.rebookUrl}
-                  className="w-full h-12 rounded-2xl border-2 border-violet-200 bg-violet-50 text-violet-700 font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-                  Book Another Visit <ChevronRight className="w-4 h-4" />
-                </a>
-              )}
-            </section>
-
-            {(data?.past || []).length > 0 && (
-              <section className="space-y-3">
-                <SectionTitle icon={CreditCard}>Past Visits</SectionTitle>
-                <div className="space-y-2">
-                  {(data.past || []).map((r: any) => (
-                    <div key={r.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white border border-slate-100">
-                      <div className="min-w-0 pr-3">
-                        <p className="text-[11px] font-bold text-slate-800 truncate">{r.boothName}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{fmtDate(r.startDate)}</p>
-                      </div>
-                      <Chip tone={r.status === 'refunded' ? 'slate' : 'slate'}>
-                        {String(r.status || '').replace(/_/g, ' ')}
-                      </Chip>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-                </div>
-              )}
-            </section>
-            </div>
-            <div className={tab === 'studio' ? 'space-y-8' : 'hidden'}>
-            {session?.token && data?.renter?.id && (
-              <BuildingRules tenantId={tenantId} token={session.token} name={data?.renter?.name || null} />
-            )}
-            {!booksHere && session?.token && data?.renter?.id && <MyDocuments tenantId={tenantId} token={session.token} booksHere={false} />}
-
-            {session?.token && data?.renter?.id && (
-              <RenterInbox tenantId={tenantId} token={session.token} businessName={data?.studioName || data?.tenant?.name || 'the business'} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterThread tenantId={tenantId} token={session.token} studioName={data?.studioName || data?.tenant?.name || 'the studio'} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterMaintenance tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterConcerns tenantId={tenantId} token={session.token} />
-            )}
-
-            {session?.token && data?.renter?.id && (
-              <RenterDocuments tenantId={tenantId} token={session.token} />
-            )}
-
-            <section className="space-y-3">
-              <SectionTitle icon={Receipt}>Insurance &amp; licence</SectionTitle>
-              <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
-                {credentialViews(data?.renter, { bookingPageSettings: { automationRules: data?.compliance || {} } }, new Date().toISOString().slice(0, 10)).map((v) => {
-                  const kind = v.kind;
-                  const tone = v.state === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : v.state === 'expiring' ? 'border-amber-200 bg-amber-50 text-amber-900' : (v.state === 'expired' || (v.state === 'missing' && v.required)) ? 'border-red-200 bg-red-50 text-red-900' : 'border-slate-200 bg-slate-50 text-slate-700';
-                  return (
-                    <div key={kind} className={cn('rounded-2xl border-2 px-3.5 py-3 space-y-2', tone)}>
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] font-black uppercase tracking-widest">{CREDENTIAL_LABEL[kind]}</p>
-                        <span className="text-[10px] font-black">{stateLabel(v)}</span>
-                      </div>
-                      {kind === 'insurance' && (v.carrier || v.policyNumber) && <p className="text-[11px] font-bold">{v.carrier}{v.carrier && v.policyNumber ? ' · ' : ''}{v.policyNumber ? `policy ${v.policyNumber}` : ''}</p>}
-                      {v.state === 'missing' && v.required && <p className="text-[10px] font-bold">The studio requires this on file to rent here.</p>}
-                      {v.docUrl && <a href={v.docUrl} target="_blank" rel="noopener" className="text-[10px] font-black uppercase tracking-widest underline">See the copy on file</a>}
-                      {credOpen === kind ? (
-                        <div className="space-y-2 pt-1">
-                          <input type="date" value={credForm.expiry} onChange={(e) => setCredForm((f) => ({ ...f, expiry: e.target.value }))} aria-label="Expiry date on the document" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                          {kind === 'insurance' && (
-                            <div className="grid grid-cols-2 gap-2">
-                              <input value={credForm.carrier} onChange={(e) => setCredForm((f) => ({ ...f, carrier: e.target.value.slice(0, 120) }))} aria-label="Insurance carrier" placeholder="Carrier" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                              <input value={credForm.policyNumber} onChange={(e) => setCredForm((f) => ({ ...f, policyNumber: e.target.value.slice(0, 80) }))} aria-label="Policy number" placeholder="Policy number" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-                            </div>
-                          )}
-                          <p className="text-[9px] font-bold opacity-80">Enter the expiry date exactly as it appears on the document, then attach a photo of it. The studio is notified automatically.</p>
-                          <div className="flex gap-2">
-                            <label className={cn('h-11 flex-1 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer', (credBusy === kind || !credForm.expiry) && 'opacity-50 pointer-events-none')}>
-                              {credBusy === kind ? 'Uploading…' : 'Attach photo & save'}
-                              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!credBusy || !credForm.expiry}
-                                onChange={async (e) => {
-                                  const f = e.target.files?.[0]; e.target.value = '';
-                                  if (!f || !session) return;
-                                  setCredBusy(kind);
-                                  try {
-                                    const dataUrl: string = await downscaleImageToDataUrl(f, { maxDim: 1600 });
-                                    const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl, expiry: credForm.expiry, carrier: credForm.carrier, policyNumber: credForm.policyNumber });
-                                    if (d.ok) { setCredDone(kind); setCredOpen(null); setCredForm({ expiry: '', carrier: '', policyNumber: '' }); toast({ title: 'On file ✓', description: 'The studio has been notified.' }); void refresh(); }
-                                    else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
-                                  } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
-                                  finally { setCredBusy(null); }
-                                }} />
-                            </label>
-                            <button type="button" onClick={() => setCredOpen(null)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
-                          </div>
-                        </div>
+                        </>
                       ) : (
-                        <button type="button" onClick={() => { setCredOpen(kind); setCredForm({ expiry: v.expiry || '', carrier: v.carrier || '', policyNumber: v.policyNumber || '' }); }}
-                          className="h-10 w-full rounded-2xl border-2 border-current/20 bg-white text-[10px] font-black uppercase tracking-widest text-slate-700">
-                          {credDone === kind ? 'Uploaded ✓ · update again' : v.docUrl ? 'Upload a renewed one' : `Add ${kind === 'insurance' ? 'insurance' : 'licence'}`}
-                        </button>
+                        <>
+                          <p className="text-[15px] font-medium">Bookings aren’t on for you here yet</p>
+                          <p className="mt-1 text-[14px] leading-relaxed text-[#6d7075]">
+                            Once {biz()} turns them on, this portal adds your service menu, your hours, a booking link of your own,
+                            your calendar, your client list and your payouts. Ask them to turn it on.
+                          </p>
+                        </>
                       )}
                     </div>
-                  );
-                })}
+                  </section>
+                )}
               </div>
-            </section>
-
-            </div>
+            ) : tab === 'calendar' ? (
+              <div className="space-y-8">
+                {booksHere && token && <MyBook data={data} tenantId={tenantId} token={token} />}
+                {booksHere && token && hasRenter && <RenterPrep tenantId={tenantId} token={token} />}
+                {todays.length > 0 && (
+                  <section className="space-y-3">
+                    <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Your space today</h2>
+                    {todays.map((r: any) => (
+                      <ResCard key={r.id} r={r} isToday onCheckIn={doCheckIn} onCheckOut={doCheckOut} busy={actionBusy} />
+                    ))}
+                  </section>
+                )}
+                {spaceBookings}
+              </div>
+            ) : tab === 'clients' ? (
+              <div className="space-y-8">
+                {booksHere && token && hasRenter && <RenterMessages tenantId={tenantId} token={token} always />}
+                {booksHere && token && <MyClients tenantId={tenantId} token={token} />}
+                {groupsOf(placeRows('clients', who))}
+              </div>
+            ) : tab === 'money' ? (
+              <div className="space-y-8">
+                {data?.lease && (
+                  <section className="space-y-2">
+                    <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">Your rent</h2>
+                    <div className="space-y-3 rounded-2xl border border-[#ececee] bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-medium">{data.lease.boothName || 'Your space'}</p>
+                          <p className="text-[13px] text-[#6d7075]">
+                            {fmtMoney(data.lease.rentAmountCents)} a {({ daily: 'day', weekly: 'week', biweekly: 'two weeks', monthly: 'month' } as Record<string, string>)[String(data.lease.frequency || 'monthly')] || 'month'}
+                          </p>
+                        </div>
+                        {data.lease.status === 'pending_signature'
+                          ? <button type="button" onClick={() => go('space', 'lease', 'step')} className="inline-flex h-11 shrink-0 items-center rounded-full border border-[#ececee] px-4 text-[14px] font-medium text-[#b45309]">Sign to start</button>
+                          : <span className={cn('shrink-0 text-[13px] font-medium', openInvoices.length ? 'text-[#b45309]' : 'text-[#1f7a4d]')}>{openInvoices.some((i: any) => i.status === 'late') ? 'Late' : openInvoices.length > 0 ? 'Due' : 'All paid'}</span>}
+                      </div>
+                      {(() => { const o: any = data.rentOutlook; if (!o || (o.creditCents <= 0 && !o.nextDue)) return null; const first = o.nextDue ? fmtDate(o.nextDue) : null; return (
+                        <div className="space-y-1 rounded-xl bg-[#f5f5f7] p-3 text-[13px] leading-snug">
+                          {o.creditCents > 0 && <p className="text-[#1f7a4d]">{fmtMoney(o.creditCents)} credit on your account{o.credits?.length > 1 ? ` (${o.credits.map((c: any) => `${c.label} ${fmtMoney(c.cents)}`).join(' · ')})` : o.credits?.[0] ? `, ${o.credits[0].label.toLowerCase()}` : ''}</p>}
+                          {o.nextDue && <p>{o.nextAfterCreditsCents <= 0 ? `Your ${first} rent is covered${o.creditLeftAfterCents > 0 ? `, with ${fmtMoney(o.creditLeftAfterCents)} credit left after it` : ''}.`
+                            : `Your ${first} rent will be ${fmtMoney(o.nextAfterCreditsCents)}${o.nextAfterCreditsCents < o.nextRentCents ? ` (${fmtMoney(o.nextRentCents)} less ${fmtMoney(o.nextRentCents - o.nextAfterCreditsCents)} credit)` : ''}.`}
+                            {o.autopayOn ? (o.nextAfterCreditsCents > 0 ? ` Autopay will take it on ${first}.` : ' Autopay has nothing to take.') : ''}</p>}
+                          {o.owedNowCents > 0 && o.creditCents > 0 && <p className="text-[#6d7075]">Credit comes off your next rent, not what’s owed now.</p>}
+                        </div>); })()}
+                      {openInvoices.map((i: any) => (
+                        <div key={i.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#f3d9bd] bg-[#fdf6ee] p-3">
+                          <div className="min-w-0">
+                            <p className="text-[15px] font-medium text-[#16171a]">
+                              {fmtMoney(Math.max(0, i.amountCents + i.lateFeeCents - (i.paidCents || 0)))}
+                              {i.lateFeeCents > 0 && <span className="text-[13px] font-normal text-[#6d7075]"> (with a {fmtMoney(i.lateFeeCents)} late fee)</span>}
+                              {(i.paidCents || 0) > 0 && <span className="text-[13px] font-normal text-[#6d7075]"> ({fmtMoney(i.paidCents)} already paid)</span>}
+                            </p>
+                            <p className="text-[13px] text-[#b45309]">{i.status === 'late' ? 'Was due' : 'Due'} {fmtDate(i.dueDate)}</p>
+                            {i.creditAppliedCents > 0 && <p className="text-[12px] text-[#1f7a4d]">{fmtMoney(i.creditAppliedCents)} credit applied{i.grossCents ? `, was ${fmtMoney(i.grossCents)}` : ''}{i.creditNote ? ` · ${i.creditNote}` : ''}</p>}
+                          </div>
+                          <button onClick={() => payInvoice(i.id)} disabled={actionBusy}
+                            className="h-11 shrink-0 rounded-full bg-[#16171a] px-5 text-[14px] font-medium text-white disabled:opacity-50">
+                            {actionBusy ? 'Opening…' : 'Pay now'}
+                          </button>
+                        </div>
+                      ))}
+                      {data.lease.deposit && (() => {
+                        const d: any = data.lease.deposit;
+                        // What they'd get back is "held for you"; a deduction is money kept, said as kept.
+                        const kept = (d.deductions || []).reduce((n: number, x: any) => n + (Number(x.cents) || 0), 0);
+                        const line = d.status === 'not_collected' ? `${fmtMoney(d.agreedCents)} due`
+                          : [d.returnableCents > 0 ? `${fmtMoney(d.returnableCents)} held for you` : '', d.refundedCents > 0 ? `${fmtMoney(d.refundedCents)} returned` : '', d.refundingCents > 0 ? `${fmtMoney(d.refundingCents)} on its way to your card` : '',
+                            d.appliedCents > 0 ? `${fmtMoney(d.appliedCents)} applied to what you owed` : '', kept > 0 ? `${fmtMoney(kept)} kept` : ''].filter(Boolean).join(' · ') || 'Settled';
+                        const stillOpen = d.status === 'not_collected' || d.returnableCents > 0;
+                        return (
+                          <div className="rounded-xl border border-[#ececee] bg-white p-3 text-[#16171a]">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[14px] font-medium">Security deposit</p>
+                                <p className="text-[13px] text-[#6d7075]">{line}</p>
+                              </div>
+                              {d.canPayOnline && (
+                                <button type="button" onClick={() => payDeposit(data.lease.id)} disabled={actionBusy}
+                                  className="h-11 shrink-0 rounded-xl bg-[#16171a] px-4 text-[13px] font-medium text-white disabled:opacity-50">
+                                  {actionBusy ? 'Opening…' : 'Pay deposit'}
+                                </button>
+                              )}
+                            </div>
+                            {d.deductions?.length > 0 && (
+                              <ul className="mt-2 space-y-1 border-t border-[#ececee] pt-2">
+                                {d.deductions.map((x: any, i: number) => (
+                                  <li key={i} className="flex justify-between gap-3 text-[12px]"><span className="min-w-0 text-[#6d7075]">{x.reason} · {fmtDate(x.at)}</span><span className="shrink-0 tabular-nums">−{fmtMoney(x.cents)}</span></li>
+                                ))}
+                              </ul>
+                            )}
+                            {stillOpen && (
+                              <p className="mt-2 text-[12px] text-[#6d7075]">
+                                {d.status === 'not_collected' && !d.canPayOnline ? 'Pay it at the front desk. ' : ''}
+                                {d.refundable ? `Held for you, not spent, and returned as your rental agreement sets out.${d.conditions ? ` ${String(d.conditions).replace(/\.?$/, '.')}` : ''}` : 'Your rental agreement says this deposit isn’t refundable.'}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <p className="text-[12px] text-[#6d7075]">Paying by cash or check at the front desk? It shows here too.</p>
+                    </div>
+                  </section>
+                )}
+                {session?.token && data?.renter?.id && (
+                  <RenterCard tenantId={tenantId} token={session.token} renter={data.renter} autopayOn={data?.rentOutlook?.autopayOn === true}
+                    hasLease={!!data?.lease} waitingSignature={data?.rentOutlook?.waitingSignature === true} onChanged={refresh}
+                    onToast={(t) => toast({ title: t.title, description: t.description, ...(t.bad ? { variant: 'destructive' as const } : {}) })} />
+                )}
+                {(data?.availableCreditCents > 0 || (data?.credits || []).length > 0) && (
+                  <section className="space-y-2">
+                    <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">{`Credit with ${biz()}`}</h2>
+                    <div className="rounded-2xl border border-[#ececee] bg-white p-4">
+                      <p className="text-[24px] font-semibold tabular-nums text-[#1f7a4d]">{fmtMoney(data?.availableCreditCents || 0)}</p>
+                      <p className="text-[13px] text-[#6d7075]">Comes off your next space booking automatically.</p>
+                    </div>
+                  </section>
+                )}
+                {groupsOf(placeRows('money', who))}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {!booksHere && (later.length > 0 || !!data?.rebookUrl) && spaceBookings}
+                {groupsOf(placeRows('space', who))}
+                {!hasRenter && <p className="rounded-2xl border border-[#ececee] bg-white px-4 py-4 text-[14px] leading-relaxed text-[#6d7075]">Your lease, papers and messages show here once {biz()} links your account to your renter record.</p>}
+              </div>
+            )}
           </div>
         )}
-      </div>
-      {session && !loading && (
-        <nav aria-label="Portal sections"
-          className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-slate-200 bg-white/95 backdrop-blur pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto grid max-w-md gap-1 px-2 pt-2" style={{ gridTemplateColumns: `repeat(${booksHere ? 4 : 3}, minmax(0, 1fr))` }}>
-            {([
-              ['today', 'Today', Home, false],
-              ...(booksHere ? [['book', 'Book', CalendarDays, (badges.book || 0) > 0]] : []),
-              ['rent', 'Rent', Wallet, rentDue || (badges.rent || 0) > 0],
-              ['studio', 'Studio', Store, (badges.studio || 0) > 0],
-            ] as [typeof tab, string, any, boolean][]).map(([k, label, Icon, dot]) => (
-              <button key={k} type="button" onClick={() => { setTab(k); window.scrollTo({ top: 0 }); }} aria-pressed={tab === k} aria-label={label}
-                className={cn('relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-black uppercase tracking-widest', tab === k ? 'bg-slate-900 text-white' : 'text-slate-500')}>
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {label}
-                {dot && <span className={cn('absolute right-3 top-1.5 h-2 w-2 rounded-full', rentLate ? 'bg-red-500' : 'bg-amber-400', tab === k && 'ring-2 ring-slate-900')} />}
-              </button>
-            ))}
+      </main>
+      {(!loading || !!data) && (
+        <nav aria-label="Portal sections" className="fixed inset-x-0 bottom-0 z-40 border-t border-[#ececee] bg-white/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur">
+          <div className="mx-auto grid max-w-lg gap-1 px-2 pt-2" style={{ gridTemplateColumns: `repeat(${placesFor(who).length}, minmax(0, 1fr))` }}>
+            {placesFor(who).map((k) => {
+              const dot = k === 'calendar' ? (badges.book || 0) > 0 : k === 'money' ? rentDue || (badges.rent || 0) > 0 : k === 'space' ? (badges.studio || 0) > 0 : false;
+              return (
+                <button key={k} type="button" onClick={() => setTab(k)} aria-current={tab === k ? 'page' : undefined}
+                  className={cn('relative flex h-12 items-center justify-center rounded-2xl text-[14px] font-medium transition-colors',
+                    tab === k ? 'bg-[#16171a] text-white' : 'text-[#6d7075] hover:text-[#16171a]')}>
+                  {TAB_LABEL[k]}
+                  {dot && <><span aria-hidden className={cn('absolute right-2 top-2 h-2 w-2 rounded-full bg-[#b45309]', tab === k && 'ring-2 ring-[#16171a]')} /><span className="sr-only">, something waiting</span></>}
+                </button>
+              );
+            })}
           </div>
         </nav>
       )}
     </div>
   );
 }
+
+function RowGroup({ title, children }: { title?: string; children: React.ReactNode }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (!items.length) return null;
+  return (
+    <section className="space-y-2">
+      {title && <h2 className="px-1 text-[14px] font-semibold text-[#6d7075]">{title}</h2>}
+      <ul className="divide-y divide-[#ececee] overflow-hidden rounded-2xl border border-[#ececee] bg-white">
+        {items.map((c, i) => <li key={i}>{c}</li>)}
+      </ul>
+    </section>
+  );
+}
+function Row({ title, sub, onClick, badge, warn }: { title: string; sub?: string; onClick: () => void; badge?: number; warn?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} className="flex min-h-[44px] w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-[#fafafa]">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-medium text-[#16171a]">{title}</span>
+        {sub && <span className={cn('block text-[13px] leading-snug', warn ? 'text-[#b45309]' : 'text-[#6d7075]')}>{sub}</span>}
+      </span>
+      {!!badge && <span className="flex h-6 min-w-[24px] items-center justify-center rounded-full bg-[#16171a] px-2 text-[12px] font-medium text-white">{badge}</span>}
+      <ChevronRight className="h-4 w-4 shrink-0 text-[#6d7075]" />
+    </button>
+  );
+}
+

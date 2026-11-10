@@ -460,11 +460,11 @@ async function handleDocument(db: any, tenantId: string, documentId: string) {
             `<p style="margin:4px 0 0;color:#64748b;font-size:13px;">Version ${version}</p>`,
           ])}
           <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155;">${renter
-            ? `Please open your renter portal, tap <strong>Studio</strong>, read ${isUpdate ? 'what has changed' : 'the document'} and sign.${after.signBy ? ` Please sign by ${esc(String(after.signBy))}.` : ''}`
+            ? `Please open your renter portal, tap <strong>Space</strong>, then <strong>House rules</strong>, read ${isUpdate ? 'what has changed' : 'the document'} and sign.${after.signBy ? ` Please sign by ${esc(String(after.signBy))}.` : ''}`
             : isUpdate
             ? 'This document has been updated since you last confirmed it. Please open your staff portal, tap <strong>Documents</strong>, read the new version and tap “I’ve read and understood this.”'
             : 'Please open your staff portal, tap <strong>Documents</strong>, read the document and tap “I’ve read and understood this” when you have finished.'}</p>`,
-        cta: { label: 'Open my portal', url: renter ? `${appBase()}/rent/${tenantId}?tab=studio` : portalUrl },
+        cta: { label: 'Open my portal', url: renter ? `${appBase()}/rent/${tenantId}?view=rules` : portalUrl },
         footerNote: renter ? `Sent by ${businessName}.` : `Sent by ${businessName} through its team documents system.`,
       }),
     });

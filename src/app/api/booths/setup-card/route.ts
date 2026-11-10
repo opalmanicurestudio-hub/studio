@@ -343,7 +343,7 @@ export async function PUT(req: NextRequest) {
     const renter = snap.data() as any;
 
     if (!renter.cardOnFile || !renter.stripeCustomerId || !renter.stripePaymentMethodId) {
-      return NextResponse.json({ ok: false, error: 'No card on file. It’s saved when the renter first pays rent online, or they can save one in their portal’s Rent tab.' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: 'No card on file. It’s saved when the renter first pays rent online, or they can save one in their portal, under Money.' }, { status: 400 });
     }
     const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     // Charged on the business's own account, to a card saved there (lib/space-stripe); one saved before the move is

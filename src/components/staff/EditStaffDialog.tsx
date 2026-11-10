@@ -801,11 +801,11 @@ const EditStaffFormInternal = ({
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5 text-left">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence number</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License number</Label>
                 <Input placeholder="STATE-ID-XXXX" {...register('compliance.licenseNumber')} className="h-11 rounded-xl border-2 font-mono font-black text-xs bg-card shadow-inner" />
               </div>
               <div className="space-y-1.5 text-left">
-                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Licence expires</Label>
+                <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">License expires</Label>
                 <Controller name="compliance.licenseExpiry" control={control} render={({ field }) => (
                   <Popover>
                     <PopoverTrigger asChild>

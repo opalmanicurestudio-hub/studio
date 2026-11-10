@@ -3,6 +3,7 @@
 // own clients, when the business allows it). Off until the renter switches it on. Their first-visit check-ins, no next
 // visit booked, cancellations, missed visits, clients due and clients they haven't seen in a while become a short list
 // of ready messages from them, at the hour they choose. /api/portal/renter-followups.
+import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 import { FiveMinuteList } from '@/components/opportunities/FiveMinuteList';
 
@@ -31,6 +32,6 @@ export function RenterFollowUps({ tenantId, token }: { tenantId: string; token: 
         {err && <p className="text-[13px] font-semibold" style={{ color: RED }}>{err}</p>}
       </div>
       {S.on && <FiveMinuteList tenantId={tenantId} items={d.items || []} hour={S.hour} reload={() => { void load(); }}
-        post={(body) => call({ tenantId, token, ...body })} note="Texts go from the studio’s number, signed with your name and business name. Replies come to your Messages, and you get an alert." />}
+        post={(body) => call({ tenantId, token, ...body })} note={`Texts go from ${bizs()} number, signed with your name and business name. Replies come to your Messages, and you get an alert.`} />}
     </section>);
 }

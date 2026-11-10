@@ -141,7 +141,7 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
     if (hit) { who = hit.data() as any; renterId = renterId || hit.id; }
     if (isPhone && who?.email && /@/.test(who.email)) fallbackEmail = who.email;
   } catch { /* fallback is a bonus */ }
-  let studioName = 'The studio';
+  let studioName = 'The business';
   try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
   if (isPhone && smsConfigured()) {
     // Through message settings like every other text (lib/renter-text): any hour, as they just asked for it, and on their
@@ -664,7 +664,7 @@ async function swapNotify(
   emailOnly = false,
 ) {
   const comms = (tenant?.rentComms || {}) as any;
-  const studioName = tenant?.name || 'The studio';
+  const studioName = tenant?.name || 'The business';
   const origin = linkOrigin(tenant);
   // A fresh personal link for this notice; without a renter record, the portal's own sign-in page.
   const portalUrl = !origin ? '' : (target.renterId ? await mintRenterLink(db, tenantId, target.renterId, origin).catch(() => null) : null) || `${origin}/rent/${tenantId}`;
@@ -916,7 +916,7 @@ export async function POST(req: NextRequest) {
     // record updates, the expiry-nag stamp clears, and the owner gets a
     // "Maya uploaded her renewed license" notification instead of a chore.
     if (action === 'upload-credential') {
-      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn\'t linked to a renter record — ask the studio to update it.' }, { status: 403 });
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn\'t linked to a renter record — ask the business to update it.' }, { status: 403 });
       const kind = body.kind === 'insurance' ? 'insurance' : 'license';
       if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) {
         return NextResponse.json({ ok: false, error: 'Attach a photo of the document.' }, { status: 400 });
@@ -1381,7 +1381,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         rentOutlook,
         name: session.name,
-        studioName: tenant.name || 'Studio',
+        studioName: tenant.name || '',
         rebookUrl: tenant.boothListingUrl || tenant.publicBookingUrl || null,
         renter: renter ? {
           id: renter.id,
@@ -1725,7 +1725,7 @@ export async function POST(req: NextRequest) {
 
       await logAuditAdmin(db, tenantId, {
         action: 'renter.booking_mode', targetType: 'renter', targetId: session.renterId,
-        summary: `${session.name || 'A renter'} set booking to ${mode === 'own' ? 'their own system' : 'the studio system'}`,
+        summary: `${session.name || 'A renter'} chose ${mode === 'own' ? 'to take bookings in their own system' : 'to take bookings here'}`,
         actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
       });
       return NextResponse.json({ ok: true, mode });
@@ -1793,7 +1793,7 @@ export async function POST(req: NextRequest) {
       const today = safeToday(body.today);
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       if (tenant.renterSwapsEnabled === false) {
-        return NextResponse.json({ ok: false, error: 'Day swaps are turned off for this studio.' }, { status: 403 });
+        return NextResponse.json({ ok: false, error: 'Day swaps are turned off here.' }, { status: 403 });
       }
       const toStaffId = String(body.toStaffId || '');
       const giveDate = String(body.giveDate || '');
@@ -1993,7 +1993,7 @@ export async function POST(req: NextRequest) {
       const today = safeToday(body.today);
       const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       if (tenant.renterSwapsEnabled === false) {
-        return NextResponse.json({ ok: false, error: 'Day swaps are turned off for this studio.' }, { status: 403 });
+        return NextResponse.json({ ok: false, error: 'Day swaps are turned off here.' }, { status: 403 });
       }
       const giveDate = String(body.giveDate || '');
       const note = String(body.note || '').trim().slice(0, 240);
@@ -2436,7 +2436,7 @@ export async function POST(req: NextRequest) {
       const rSnap = await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get();
       const r = (rSnap.data() as any) || {};
       const from = `${r.firstName || ''} ${r.lastName || ''}`.trim() || st.name || 'Your provider';
-      const studio = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || 'the studio';
+      const studio = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || 'the business';
       try {
         const { brandedEmailHtml } = await import('@/lib/email-template');
         const { sendNotification } = await import('@/lib/notify');
@@ -2895,7 +2895,7 @@ export async function POST(req: NextRequest) {
           link: st ? `/gift/${encodeURIComponent(tenantId)}?provider=${encodeURIComponent(st.id)}` : null, brand: { name: renter.businessName || renter.name || by, accent: (st as any)?.brand?.accent || null } });
       }
       const usable = (g: any) => !g ? 'That gift card code wasn’t found.' : g.status === 'void' ? 'That gift card was cancelled.' : g.ownerRenterId ? (g.ownerRenterId === session.renterId ? null : 'That card belongs to another provider — it can only be used with them.')
-        : salonCards ? null : 'The studio doesn’t take its gift cards for renters’ services — send them to the front desk.';
+        : salonCards ? null : 'This business doesn’t take its gift cards for renters’ services. Send them to the front desk.';
       if (action === 'gift-check') { const g = await gc.findByCode(db, tenantId, String(body.code || '')); const why = usable(g);
         return NextResponse.json(why ? { ok: false, error: why } : { ok: true, card: { ...gc.pub(g), studio: !g!.ownerRenterId } }, { status: why ? 400 : 200 }); }
       if (action === 'gift-accept') {
@@ -2905,13 +2905,13 @@ export async function POST(req: NextRequest) {
         const r: any = await gc.spendGiftCard(db, tenantId, { id: g!.id, cents, by, appointmentId: apptId, transactionRef: apptId ? `renter:${apptId}` : 'renter' }); if (!r.ok) return NextResponse.json(r, { status: 400 });
         const now2 = new Date().toISOString();
         if (!g!.ownerRenterId) { const ref = db.collection(`tenants/${tenantId}/rentLedger`).doc();
-          await ref.set({ id: ref.id, renterId: session.renterId, type: 'gift_card_credit', status: 'paid', amountCents: -cents, appliedCents: 0, appointmentId: apptId, giftCardIds: [g!.id], note: `Studio gift card ${g!.code} taken for your service — $${(cents / 100).toFixed(2)} credited to your rent`, date: now2, createdAt: now2, createdBy: by }); }
+          await ref.set({ id: ref.id, renterId: session.renterId, type: 'gift_card_credit', status: 'paid', amountCents: -cents, appliedCents: 0, appointmentId: apptId, giftCardIds: [g!.id], note: `Gift card ${g!.code} from the business taken for your service — $${(cents / 100).toFixed(2)} credited to your rent`, date: now2, createdAt: now2, createdBy: by }); }
         if (apptId) await db.doc(`tenants/${tenantId}/appointments/${apptId}`).set({ giftCardsTaken: (await import('firebase-admin/firestore')).FieldValue.arrayUnion({ code: g!.code, cents, studio: !g!.ownerRenterId, at: now2 }) }, { merge: true });
         void gc.notifyGiftUse(db, tenantId, g!.id, cents, req.nextUrl.origin).catch(() => {});
         return NextResponse.json({ ok: true, cents, balanceAfter: r.balanceAfter, studio: !g!.ownerRenterId });
       }
       if (action === 'gift-sell') {
-        if (!ownCards) return NextResponse.json({ ok: false, error: 'The studio hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        if (!ownCards) return NextResponse.json({ ok: false, error: 'The business hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
         const via = ['text', 'email', 'print', 'code'].includes(body.sendVia) ? body.sendVia : 'code';
         const r: any = await gc.issueGiftCard(db, tenantId, { amountCents: Math.round(Number(body.amountCents) || 0), by, source: 'renter' as any, ownerRenterId: session.renterId, ownerName: renter.businessName || renter.name || by,
           recipient: { name: body.recipientName ? String(body.recipientName).slice(0, 80) : null, phone: via === 'text' ? String(body.phone || '').slice(0, 30) : null, email: via === 'email' ? String(body.email || '').slice(0, 120) : null },
@@ -2922,8 +2922,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, card: gc.pub(r.card) });
       }
       if (action === 'gift-online') {
-        if (body.on === true && !ownCards) return NextResponse.json({ ok: false, error: 'The studio hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
-        if (body.on === true && !(renter.stripeAccountId && renter.stripeChargesEnabled === true)) return NextResponse.json({ ok: false, error: 'Connect your card payments first (Setup → Payments).' }, { status: 400 });
+        if (body.on === true && !ownCards) return NextResponse.json({ ok: false, error: 'The business hasn’t turned on renters selling their own gift cards.' }, { status: 403 });
+        if (body.on === true && !(renter.stripeAccountId && renter.stripeChargesEnabled === true)) return NextResponse.json({ ok: false, error: 'Connect your card payments first (Business setup, then Card payments).' }, { status: 400 });
         await renterRef.set({ giftCardsOnline: body.on === true }, { merge: true }); return NextResponse.json({ ok: true });
       }
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
@@ -3497,7 +3497,7 @@ export async function POST(req: NextRequest) {
       type Item = { kind: string; tab: 'book' | 'rent' | 'studio'; title: string; body: string; at: string; tone?: 'red' | 'amber' | 'green' | 'slate' };
       const items: Item[] = [];
       const t = (thread.data() as any) || {};
-      if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'The studio replied', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
+      if (t.unreadForRenter === true) items.push({ kind: 'message', tab: 'studio', title: 'You have a reply', body: String(t.lastText || '').slice(0, 90), at: t.lastAt || since(0), tone: 'amber' });
       // A formal notice from the last 30 days they haven't opened in the portal yet (lib/notice-record).
       try {
         const { loadRenterNotices } = await import('@/lib/notice-record-server');
@@ -3509,7 +3509,7 @@ export async function POST(req: NextRequest) {
       for (const d of docs.docs) { const x = d.data() as any; items.push({ kind: 'document', tab: 'studio', title: x.kind === 'lease' ? 'Your lease is ready to sign' : x.action === 'acknowledge' ? 'A document to read' : 'A document to sign', body: x.kind === 'lease' ? 'Rent starts once you sign.' : x.title, at: x.sentAt, tone: 'amber' }); }
       // Building rules from the studio (lib/renter-rules) — new ones to sign, or a new version to sign again.
       try { const { rulesFor } = await import('@/lib/renter-rules'); const br = await rulesFor(db, tenantId, rid);
-        for (const x of br.rules) if (x.state !== 'signed') items.push({ kind: 'document', tab: 'studio', title: x.state === 'resign' ? 'The building rules changed — sign again' : 'Building rules to sign', body: `${x.title}${x.signBy ? ` · by ${x.signBy}` : ''}`, at: new Date(now).toISOString(), tone: 'amber' });
+        for (const x of br.rules) if (x.state !== 'signed') items.push({ kind: 'rules', tab: 'studio', title: x.state === 'resign' ? 'The building rules changed — sign again' : 'Building rules to sign', body: `${x.title}${x.signBy ? ` · by ${x.signBy}` : ''}`, at: new Date(now).toISOString(), tone: 'amber' });
       } catch { /* the rest of Today still shows */ }
       // Before the visit (their own checks): a client's answers that need their decision.
       try { const ids: string[] = prov ? await myStaffIds() : [];
@@ -3533,8 +3533,8 @@ export async function POST(req: NextRequest) {
       }
       for (const d of leaves.docs) {
         const x = d.data() as any;
-        if (x.decidedAt && x.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.status === 'approved' ? 'Time away approved' : x.status === 'declined' ? 'Time away not approved' : 'Leave updated', body: `${x.startDate} → ${x.endDate}`, at: x.decidedAt, tone: x.status === 'approved' ? 'green' : 'amber' });
-        if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'rent', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
+        if (x.decidedAt && x.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'studio', title: x.status === 'approved' ? 'Time away approved' : x.status === 'declined' ? 'Time away not approved' : 'Leave updated', body: `${x.startDate} → ${x.endDate}`, at: x.decidedAt, tone: x.status === 'approved' ? 'green' : 'amber' });
+        if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'studio', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
       }
 
       // Money and members: what the webhook wrote for them (14 days).
@@ -3879,7 +3879,7 @@ export async function POST(req: NextRequest) {
             patch.cancellationAudit = { actorType: 'studio', actorId: st.id, actorName: st.name || renterName, reason: 'closure', note: rec.title, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' };
             cancelled++;
             await tellClient(a, st, `Your appointment on ${fmtWhen(a.startTime)} has been canceled`,
-              [`Unfortunately, the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I sincerely apologize for the inconvenience.`, 'Nothing has been charged. As soon as we reopen, I would be glad to see you. Please reply to this message or book again at any time.'],
+              [`Unfortunately, the space I work from is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I sincerely apologize for the inconvenience.`, 'Nothing has been charged. As soon as it reopens, I would be glad to see you. Please reply to this message or book again at any time.'],
               'renter_client_cancelled');
           }
           await ref.set(patch, { merge: true });
@@ -3974,7 +3974,7 @@ export async function POST(req: NextRequest) {
       const to = String(r.email || '').trim();
       if (to.includes('@')) {
         try {
-          let studioName = 'The studio';
+          let studioName = 'The business';
           try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
           const { brandedEmailHtml } = await import('@/lib/email-template');
           const { sendNotification } = await import('@/lib/notify');
@@ -4017,7 +4017,7 @@ export async function POST(req: NextRequest) {
       const { resolveLeavePolicy, leaveDays } = await import('@/lib/leave-policy');
       const tenantDoc = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       const policy = resolveLeavePolicy(tenantDoc);
-      if (policy.offered.length === 0) return NextResponse.json({ ok: false, error: 'Leave is not offered here yet \u2014 message the studio.' }, { status: 400 });
+      if (policy.offered.length === 0) return NextResponse.json({ ok: false, error: 'Leave is not offered here yet. Send the business a message.' }, { status: 400 });
       const type = ['maternity', 'medical', 'family', 'personal', 'other'].includes(body.type) ? body.type : 'other';
       const startDate = String(body.startDate || '').slice(0, 10), endDate = String(body.endDate || '').slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
@@ -4050,7 +4050,7 @@ export async function POST(req: NextRequest) {
       const lSnap = await lRef.get();
       const leave = (lSnap.data() as any) || null;
       if (!lSnap.exists || leave.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'That leave is not yours.' }, { status: 403 });
-      if (leave.redeem && leave.redeem.status === 'requested') return NextResponse.json({ ok: false, error: 'You already have a request waiting on the studio.' }, { status: 400 });
+      if (leave.redeem && leave.redeem.status === 'requested') return NextResponse.json({ ok: false, error: 'You already have a request waiting on the business.' }, { status: 400 });
       const available = bankedAvailable(leave);
       const days = Math.max(1, Math.min(available, Math.floor(Number(body.days) || 0)));
       if (available <= 0) return NextResponse.json({ ok: false, error: 'No banked days left to use.' }, { status: 400 });

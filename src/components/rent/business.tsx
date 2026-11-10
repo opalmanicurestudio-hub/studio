@@ -1,4 +1,5 @@
 'use client';
+import { biz, bizs } from '@/components/rent/biz';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
@@ -56,7 +57,7 @@ export function SlotPicker({ tenantId, token, serviceId, date, onDate, value, on
         <input type="date" value={date} onChange={(e) => onDate(e.target.value)} aria-label="Day" className="h-10 flex-1 rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
         <button type="button" onClick={() => step(1)} aria-label="Next day" className="h-10 w-10 rounded-xl border-2 border-slate-200 text-[12px] font-black text-slate-600">›</button>
       </div>
-      {err && <p className="text-[11px] font-bold text-red-600">{err}</p>}
+      {err && <p className="text-[11px] font-bold text-[#b45309]">{err}</p>}
       {slots === null && !err && <p className="text-[11px] font-bold text-slate-400">Finding open times…</p>}
       {slots && slots.length === 0 && <p className="text-[11px] font-bold text-slate-500">Nothing open on {new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} — try the next day.</p>}
       {slots && slots.length > 0 && (
@@ -235,7 +236,7 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-200" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{a.viaStudio ? 'Studio booking on your chair' : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Cancelled' : `Completed${a.renterActualMinutes ? ` · ${a.renterActualMinutes} min in the chair` : ''}`) : a.status === 'servicing' ? `In the chair${a.renterStartedAt ? ` since ${new Date(a.renterStartedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}` : a.status === 'checked_in' ? 'Arrived — checked in' : 'Booked'}</p>
+            <p className="text-[12px] font-semibold text-slate-500">{a.viaStudio ? `Booked by ${biz()} for you` : req ? 'Request — needs your answer' : done ? (a.status === 'cancelled' ? 'Canceled' : `Completed${a.renterActualMinutes ? ` · ${a.renterActualMinutes} min in the chair` : ''}`) : a.status === 'servicing' ? `In the chair${a.renterStartedAt ? ` since ${new Date(a.renterStartedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}` : a.status === 'checked_in' ? 'Arrived — checked in' : 'Booked'}</p>
             <p className="text-lg font-black text-slate-900">{a.clientName}</p>
             <p className="text-[12px] font-bold text-slate-600">{a.serviceName}{a.price ? ` · $${Number(a.price).toFixed(0)}` : ''}{a.duration ? ` · ${a.duration} min` : ''}</p>
             <p className="text-[12px] font-bold text-slate-900">{fmt(a.startTime)}</p>
@@ -327,7 +328,7 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 {cnote !== (client.notes || '') && <Btn k="cnote" label="Save client notes" onClick={() => run('cnote', () => api({ action: 'client-save', tenantId, token, clientId: client.id, name: client.name, phone: client.phone || '', email: client.email || '', notes: cnote }), 'Client notes saved')} />}
               </>
             ) : (
-              <p className="text-[10px] font-bold text-slate-500">This client is in the studio&apos;s book, not yours — their notes live there.</p>
+              <p className="text-[10px] font-bold text-slate-500">This client is in {bizs()} book, not yours — their notes live there.</p>
             )}
             {client.history.length > 1 && (
               <div className="pt-1">
@@ -435,15 +436,15 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 <p className="text-[10px] font-black uppercase tracking-widest text-red-800">Cancel this visit?</p>
                 <button type="button" aria-pressed={tell} onClick={() => setTell((v) => !v)} className={cn('h-10 w-full rounded-xl border-2 px-3 text-left text-[10px] font-bold', tell ? 'border-slate-900 bg-white text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>{tell ? 'Will tell the client, as you' : 'Cancel quietly — no message'}</button>
                 <div className="flex gap-2">
-                  <Btn k="cx" label="Yes, cancel" tone="bg-red-700 text-white flex-1" onClick={() => run('cx', () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: tell }), 'Cancelled')} />
+                  <Btn k="cx" label="Yes, cancel" tone="bg-red-700 text-white flex-1" onClick={() => run('cx', () => api({ action: 'book-cancel', tenantId, token, appointmentId: a.id, tellClient: tell }), 'Canceled')} />
                   <Btn k="back" label="Keep it" onClick={() => setMode('view')} />
                 </div>
               </div>
             )}
           </div>
         )}
-        {a.viaStudio && <p className="mt-3 rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. Ask the studio to change it.</p>}
-        {err && <p className="mt-2 text-xs font-bold text-red-600">{err}</p>}
+        {a.viaStudio && <p className="mt-3 rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by {biz()} for you — {biz()} manages and is paid for this one. Ask {biz()} to change it.</p>}
+        {err && <p className="mt-2 text-xs font-bold text-[#b45309]">{err}</p>}
         {ok && <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-emerald-700">{ok}</p>}
       </div>
     </div>
@@ -570,7 +571,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
               <input value={blk.reason} onChange={(ev) => setBlk((f) => ({ ...f, reason: ev.target.value.slice(0, 120) }))} aria-label="Reason" placeholder="Lunch, errand, class…" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
               <button type="button" aria-pressed={blk.showStudio} onClick={() => setBlk((f) => ({ ...f, showStudio: !f.showStudio }))}
                 className={cn('h-11 rounded-2xl border-2 px-3 text-left text-[10px] font-bold', blk.showStudio ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 bg-white text-slate-500')}>
-                {blk.showStudio ? 'Shown on the studio\'s calendar — they\'ll see you\'re out' : 'Kept off the studio\'s calendar — clients still can\'t book it'}
+                {blk.showStudio ? `Shown on ${bizs()} calendar — they’ll see you’re out` : `Kept off ${bizs()} calendar — clients still can’t book it`}
               </button>
             </div>
             <button type="button" disabled={busy === 'block' || !blk.when} onClick={() => run('block', async () => { const r = await api({ action: 'book-block', tenantId, token, startTime: localToIso(blk.when), duration: Math.round(Number(blk.hours) * 60), reason: blk.reason, showOnStudioCalendar: blk.showStudio }); if (r?.ok) { setBlockOpen(false); setBlk({ when: '', hours: '1', reason: '', showStudio: true }); if (view !== 'day' && view !== 'week') setView('blocks'); } return r; })}
@@ -578,7 +579,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
             <p className="text-[9px] font-bold text-slate-400">Clients can't book you during a block. Your rent doesn't change.</p>
           </div>
         )}
-        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+        {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
 
         <div className="flex gap-1.5">
           {([['day', 'Day'], ['week', 'Week'], ['upcoming', `Upcoming · ${(book?.upcoming || []).length}`], ['past', 'Past'], ['blocks', `Blocks · ${blocks.length}`]] as const).map(([k, l]) => (
@@ -652,7 +653,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
                   <p className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[11px] font-bold text-slate-400">Nothing on this day.</p>
                 )}
               </div>
-              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, green ring is arrived, green is in the chair, amber is waiting on you, outlined is a studio booking, dashed is time you blocked.</p>
+              <p className="text-[9px] font-bold text-slate-400">Tap a booking to open it. Solid is confirmed, green ring is arrived, green is in the chair, amber is waiting on you, outlined was booked by {biz()}, dashed is time you blocked.</p>
             </div>
           );
         })()}
@@ -774,7 +775,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
           : rows.map((a) => {
             const isOpen = openId === a.id;
             const done = a.status === 'completed' || a.status === 'cancelled';
-            const chip = a.viaStudio ? 'Studio booking' : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Cancelled') : a.status === 'completed' ? 'Done' : a.status === 'servicing' ? 'In chair' : a.status === 'checked_in' ? 'Arrived' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
+            const chip = a.viaStudio ? `Booked by ${biz()}` : a.status === 'cancelled' ? (a.outcome === 'no_show' ? 'No-show' : 'Canceled') : a.status === 'completed' ? 'Done' : a.status === 'servicing' ? 'In chair' : a.status === 'checked_in' ? 'Arrived' : a.status === 'requested' ? 'Requested' : a.status === 'pending_payment' || a.status === 'deposit_pending' ? 'Awaiting deposit' : 'Booked';
             return (
               <div key={a.id} className={cn('rounded-2xl border-2 p-3 space-y-2', a.status === 'cancelled' && 'opacity-60')}>
                 <button type="button" onClick={() => setSheetId(a.id)} className="w-full text-left">
@@ -792,7 +793,7 @@ export function MyBook({ data, tenantId, token }: { data: any; tenantId: string;
                 {isOpen && a.viaStudio && (
                   <div className="space-y-2 pt-1">
                     {(a.clientPhone || a.clientEmail) && <p className="text-[10px] font-bold text-slate-500">{[a.clientPhone, a.clientEmail].filter(Boolean).join(' · ')}</p>}
-                    <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by the studio on your chair — the studio manages and is paid for this one. It&apos;s here so your day reads true; ask the studio to change it.</p>
+                    <p className="rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">Booked by {biz()} for you — {biz()} manages and is paid for this one. It&apos;s here so your day reads true; ask {biz()} to change it.</p>
                   </div>
                 )}
                 {isOpen && !a.viaStudio && (
@@ -892,7 +893,7 @@ export function MyClients({ tenantId, token }: { tenantId: string; token: string
               <input value={edit.email} onChange={(ev) => setEdit({ ...edit, email: ev.target.value.slice(0, 160) })} inputMode="email" aria-label="Email" placeholder="Email" className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
             </div>
             <textarea value={edit.notes} onChange={(ev) => setEdit({ ...edit, notes: ev.target.value.slice(0, 2000) })} rows={3} aria-label="Notes" placeholder="Formulas, allergies, how they take their coffee. Only you see this." className="w-full rounded-2xl border-2 border-slate-200 bg-white px-3.5 py-2.5 text-sm" />
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
               <button type="button" onClick={save} disabled={busy === 'save' || edit.name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save'}</button>
               <button type="button" onClick={() => { setEdit(null); setAdding(false); }} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -1016,7 +1017,7 @@ export function MyClientMessages({ tenantId, token }: { tenantId: string; token:
     <section className="space-y-3">
       <SectionTitle icon={BellRing}>My client messages</SectionTitle>
       <div className="p-4 rounded-3xl bg-white border-2 space-y-3">
-        <p className="text-[10px] font-bold text-slate-500">Sent in your name to your clients, automatically. These are your messages — the studio's message settings don't touch them.</p>
+        <p className="text-[10px] font-bold text-slate-500">Sent in your name to your clients, automatically. These are your messages — {bizs()} message settings don't touch them.</p>
         <Row k="remindersEnabled" title="Reminder the day before" body="“Reminder — your Gel Fill with Ana is Tue, Sep 8 at 2:00 PM.” Text first, email if there's no phone." />
         <Row k="thankYouEnabled" title="Thank-you the day after" body="A thanks and your booking link, the morning after a visit. No review link — that's yours to ask for." />
         <div>
@@ -1035,7 +1036,7 @@ export function MyClientMessages({ tenantId, token }: { tenantId: string; token:
             ))}
           </div>
         )}
-        <p className="text-[9px] font-bold text-slate-400">Reminders go out at the studio's reminder hour, the day before. Cancellations you make in My Book are always sent when you choose “cancel & tell them”.</p>
+        <p className="text-[9px] font-bold text-slate-400">Reminders go out at {bizs()} reminder hour, the day before. Cancellations you make in My Book are always sent when you choose “cancel & tell them”.</p>
       </div>
     </section>
   );

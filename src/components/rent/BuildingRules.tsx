@@ -2,6 +2,7 @@
 // src/components/rent/BuildingRules.tsx — PART 6, the renter's side (design canvas row 26, "sign the building rules").
 // The studio's rules for everyone in the building: what's new or changed comes first; open one to read it, answer the
 // quick check if there is one, and sign (or confirm). Signed ones stay here to look back at. /api/portal/renter-rules.
+import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 import { DocBlocks, Ico, IC } from '@/components/documents/DocBlocks';
 import { SignaturePad } from '@/components/documents/SignFlow';
@@ -22,7 +23,7 @@ export function BuildingRules({ tenantId, token, name }: { tenantId: string; tok
   const chip = (r: any) => r.state === 'signed' ? { t: `Signed v${r.version}`, bg: '#e9f3ed', fg: GREEN } : r.state === 'resign' ? { t: `Sign v${r.version}`, bg: '#fdf3e6', fg: AMBER } : { t: 'To sign', bg: '#fdecec', fg: RED };
   return (
     <section className="space-y-3" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} aria-label="Building rules">
-      <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>from the studio</p><h2 className="text-[24px] font-light tracking-[-0.02em]">Building rules{todo ? ` · ${todo} to sign` : ''}</h2></div>
+      <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>from {biz()}</p><h2 className="text-[24px] font-light tracking-[-0.02em]">Building rules{todo ? ` · ${todo} to sign` : ''}</h2></div>
       <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
         {rules.map((r, i) => { const c = chip(r); return (
           <button key={r.id} type="button" onClick={() => setOpen(r)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>
@@ -43,7 +44,7 @@ function RuleView({ tenantId, token, rule, name, onBack, onSigned }: { tenantId:
   return (
     <section className="space-y-4" style={{ color: INK, fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} aria-label={rule.title}>
       <button type="button" onClick={onBack} className="flex items-center gap-1 text-[14px]" style={{ color: MUTED }}><Ico d={IC.back} s={16} />Building rules</button>
-      <div><p className="text-[13px]" style={{ color: MUTED }}>From the studio · version {rule.version}{rule.state === 'signed' ? ` · you signed ${day(rule.signedAt)}` : rule.signBy ? ` · sign by ${day(rule.signBy)}` : ''}</p>
+      <div><p className="text-[13px]" style={{ color: MUTED }}>From {biz()} · version {rule.version}{rule.state === 'signed' ? ` · you signed ${day(rule.signedAt)}` : rule.signBy ? ` · sign by ${day(rule.signBy)}` : ''}</p>
         <h2 className="text-[26px] font-light leading-tight tracking-[-0.03em]">{rule.title}</h2></div>
       {rule.state === 'resign' && rule.changeNote && <div className="rounded-[16px] px-4 py-3 text-[14px]" style={{ background: '#fdf3e6', color: '#7a3e05' }}><b>What changed in v{rule.version}:</b> {rule.changeNote}</div>}
       <div className="rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}><DocBlocks sections={rule.sections} /></div>

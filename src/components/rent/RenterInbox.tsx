@@ -45,10 +45,8 @@ export function RenterInbox({ tenantId, token, businessName }: { tenantId: strin
 
   return (
     <section className="space-y-3" aria-labelledby="renter-inbox-title">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 id="renter-inbox-title" className="text-[17px] font-semibold tracking-tight text-[#16171a]">Messages and notices</h2>
-        {unseen > 0 && <span className="text-[13px] font-medium text-[#b45309]">{unseen === 1 ? '1 notice to read' : `${unseen} notices to read`}</span>}
-      </div>
+      <h2 id="renter-inbox-title" className="sr-only">Messages and notices</h2>
+      {unseen > 0 && <p className="px-1 text-[14px] font-medium text-[#b45309]">{unseen === 1 ? '1 notice to read' : `${unseen} notices to read`}</p>}
       <div className="flex gap-2" role="tablist" aria-label="Show">
         {([['all', 'All'], ['notices', 'Notices'], ['receipts', 'Receipts']] as const).map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={filter === id} onClick={() => setFilter(id)}

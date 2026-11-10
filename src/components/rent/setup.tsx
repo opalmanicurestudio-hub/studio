@@ -1,4 +1,5 @@
 'use client';
+import { biz, bizs } from '@/components/rent/biz';
 import { CAMPAIGN_TEMPLATES, TOKENS, fillTokens } from '@/lib/campaign-templates';
 import { AudienceList } from '@/components/campaigns/AudienceList';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
@@ -77,7 +78,7 @@ export function MyHours({ data, tenantId, token, onChanged }: { data: any; tenan
       <SectionTitle icon={Clock}>My Hours</SectionTitle>
       <div className="p-4 rounded-3xl bg-white border-2 space-y-2">
         <p className="text-[11px] font-bold text-slate-500">
-          When clients can book you. These are your hours — they don&apos;t have to match the studio&apos;s.
+          When clients can book you. These are your hours — they don&apos;t have to match {bizs()}.
         </p>
         {Array.isArray(data?.provider?.leasedDays) && data.provider.leasedDays.length > 0 && (
           <p className="rounded-2xl bg-slate-50 p-3 text-[11px] font-bold text-slate-600">
@@ -111,13 +112,13 @@ export function MyHours({ data, tenantId, token, onChanged }: { data: any; tenan
             Every day is off right now, so nobody can book you. Turn on at least one day.
           </p>
         )}
-        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+        {err && <p className="text-[11px] font-black text-[#b45309]">{err}</p>}
         <button onClick={save} disabled={busy}
                 className="h-11 w-full rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
           {busy ? 'Saving…' : saved ? 'Saved ✓' : 'Save my hours'}
         </button>
         <p className="text-[10px] font-bold text-slate-400">
-          Time off for a single day? Ask the studio to block it — that keeps the calendar honest for everyone.
+          Time off for a single day? Ask {biz()} to block it — that keeps the calendar honest for everyone.
         </p>
       </div>
     </section>
@@ -164,7 +165,7 @@ export function MyPayments({ data, tenantId, token }: { data: any; tenantId: str
           <div className="rounded-2xl bg-emerald-50 p-4">
             <p className="text-[13px] font-black text-emerald-900">You can take cards.</p>
             <p className="mt-1 text-[11px] font-bold text-emerald-800">
-              Payments go straight to your own Stripe account and pay out to your bank. {data?.studioName || 'The studio'} never touches them.
+              Payments go straight to your own Stripe account and pay out to your bank. {biz(true)} never touches them.
             </p>
           </div>
         ) : connected && submitted ? (
@@ -183,7 +184,7 @@ export function MyPayments({ data, tenantId, token }: { data: any; tenantId: str
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="text-[13px] font-black text-slate-900">Want to take cards and deposits?</p>
             <p className="mt-1 text-[11px] font-bold text-slate-500">
-              Connect your own Stripe account — you keep 100%, minus Stripe&apos;s normal processing fee. It pays out to your bank, not the studio&apos;s.
+              Connect your own Stripe account — you keep 100%, minus Stripe&apos;s normal processing fee. It pays out to your bank, not {bizs()}.
             </p>
           </div>
         )}
@@ -264,7 +265,7 @@ export function MyNumber({ data, tenantId, token, onChanged }: { data: any; tena
         {open && (
           <div className="space-y-2">
             <p className="rounded-2xl bg-emerald-50 p-3 text-[11px] font-bold text-emerald-900">
-              🔒 Only you can see these numbers. {data?.studioName || 'The studio'} sees that you&apos;ve set a goal, never what&apos;s in it.
+              Only you can see these numbers. {biz(true)} sees that you&apos;ve set a goal, never what&apos;s in it.
             </p>
             <label className="block">
               <span className="block text-[9px] font-black uppercase tracking-widest text-slate-400">What you need to live on, a month</span>
@@ -287,13 +288,13 @@ export function MyNumber({ data, tenantId, token, onChanged }: { data: any; tena
             <button type="button" onClick={() => setShare(v => !v)}
                     className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-3 text-left">
               <span>
-                <span className="block text-[12px] font-black text-slate-900">Share just my hourly target with {data?.studioName || 'the studio'}</span>
+                <span className="block text-[12px] font-black text-slate-900">Share just my hourly target with {biz()}</span>
                 <span className="block text-[10px] font-bold text-slate-500">One number, so they can help you price. Never your costs.</span>
               </span>
               <span className={cn('shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest',
                 share ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{share ? 'On' : 'Off'}</span>
             </button>
-            {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+            {err && <p className="text-[11px] font-black text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
               <button onClick={save} disabled={busy}
                       className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50">
@@ -453,7 +454,7 @@ export function MyProfile({ data, tenantId, token, onChanged }: { data: any; ten
             <button onClick={() => setListed(!listed)}
               className="w-full flex items-center justify-between gap-3 p-3 rounded-2xl border-2 text-left">
               <span className="min-w-0">
-                <span className="block text-[12px] font-black text-slate-900">Show me on the studio&apos;s booking page</span>
+                <span className="block text-[12px] font-black text-slate-900">Show me on {bizs()} booking page</span>
                 <span className="block text-[11px] font-bold text-slate-500">
                   Clients looking for you there get sent to your link instead of finding nothing.
                 </span>
@@ -510,7 +511,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
     setBusy(''); setSwitching(false);
     if (!d.ok) { setErr(d.error || 'Could not save that.'); return; }
     toast({
-      title: mode === 'own' ? 'Set to your own system' : 'Set to the studio system',
+      title: mode === 'own' ? 'Set to your own system' : `Set to ${bizs()} booking system`,
       description: mode === 'own'
         ? 'Your booking sections are switched off. Your rent, documents and credits are unaffected.'
         : 'Set your hours and add a service and clients can start booking you.',
@@ -538,7 +539,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
           </div>
           <button onClick={() => setMode('studio')} disabled={!!busy}
             className="w-full p-4 rounded-2xl border-2 text-left active:scale-[0.99] transition-all disabled:opacity-50">
-            <p className="text-[12px] font-black text-slate-900">I&apos;ll book through the studio</p>
+            <p className="text-[12px] font-black text-slate-900">I&apos;ll book through {biz()}</p>
             <p className="text-[11px] font-bold text-slate-500 mt-0.5">
               You get your own menu at your own prices, your own hours, a personal booking link, and you keep what you charge.
             </p>
@@ -570,7 +571,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
       <section className="space-y-3">
         <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
           <p className="text-[11px] font-bold text-slate-500">
-            You&apos;re running your own booking system. If you ever want to try the studio&apos;s — your own menu, your own prices, your own link —{' '}
+            You&apos;re running your own booking system. If you ever want to try {bizs()} — your own menu, your own prices, your own link —{' '}
             <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">switch it on here</button>.
           </p>
         </div>
@@ -583,7 +584,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
       <section className="space-y-3">
         <div className="p-4 rounded-3xl bg-white border-2 border-slate-100">
           <p className="text-[11px] font-bold text-slate-500">
-            Booking through the studio.{' '}
+            Booking through {biz()}.{' '}
             <button onClick={() => setSwitching(true)} className="font-black text-slate-900 underline">Use my own system instead</button>
           </p>
         </div>
@@ -632,7 +633,7 @@ export function GettingSetUp({ data, tenantId, token, onChanged }: { data: any; 
   );
 }
 
-// ─── My Brand: colour, tone, cover, type — theirs ────────────────────────────
+// ─── My Brand: color, tone, cover, type — theirs ────────────────────────────
 export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token: string; renterId: string }) {
   const storageNote = useMemo(() => storageDiagnostic(), []);
   const [brand, setBrand] = useState<any | null>(null);
@@ -661,7 +662,7 @@ export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token
   const SWATCHES = ['#1c1917', '#7c2d12', '#9f1239', '#6d28d9', '#1e3a8a', '#065f46', '#b45309', '#a16207', '#0f766e', '#831843'];
   return (
     <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">Your page is your brand, not the studio&apos;s. Pick a colour, light or dark, a cover, a typeface. Clients see it the moment they open your link.</p>
+      <p className="text-[10px] font-bold text-slate-500">Your page is your brand, not {bizs()}. Pick a color, light or dark, a cover, a typeface. Clients see it the moment they open your link.</p>
       <div className="relative overflow-hidden rounded-2xl border-2" style={{ background: dark ? '#0c0a09' : '#faf9f7', aspectRatio: '4 / 3' }}>
         {cover && <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover opacity-80" />}
         <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 40%, ${dark ? '#0c0a09' : '#faf9f7'} 100%)` }} />
@@ -680,13 +681,13 @@ export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token
         {cover && <button type="button" onClick={() => setCoverData(null)} className="h-10 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Remove</button>}
       </div>
       <div>
-        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Accent colour</p>
+        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-slate-400">Accent color</p>
         <div className="flex flex-wrap items-center gap-2">
           {SWATCHES.map((c) => (
             <button key={c} type="button" aria-label={`Use ${c}`} aria-pressed={brand.accent === c} onClick={() => setBrand({ ...brand, accent: c })}
               className={cn('h-9 w-9 rounded-full border-2', brand.accent === c ? 'border-slate-900 ring-2 ring-slate-900 ring-offset-2' : 'border-white')} style={{ background: c }} />
           ))}
-          <input type="color" value={brand.accent} onChange={(e) => setBrand({ ...brand, accent: e.target.value })} aria-label="Custom accent colour" className="h-9 w-12 rounded-lg border-2 bg-white p-0.5" />
+          <input type="color" value={brand.accent} onChange={(e) => setBrand({ ...brand, accent: e.target.value })} aria-label="Custom accent color" className="h-9 w-12 rounded-lg border-2 bg-white p-0.5" />
         </div>
       </div>
       <div className="flex gap-2">
@@ -709,7 +710,7 @@ export function MyBrand({ tenantId, token, renterId }: { tenantId: string; token
       </div>
       <input value={brand.tagline || ''} onChange={(e) => setBrand({ ...brand, tagline: e.target.value.slice(0, 80) })} aria-label="Tagline" placeholder="One line under your name — “Gel & structure, by appointment”"
         className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold" />
-      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+      {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
       {storageNote && <p className="text-[13px] text-slate-500">{storageNote}</p>}
       <div className="flex items-center justify-end gap-2">
         {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
@@ -751,7 +752,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
   const active = st.purchases.filter((p) => p.status === 'active');
   return (
     <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">Prepaid bundles of your services — “5 gel fills for $300”. Sold on your booking page through your Stripe, or at the chair. A credit comes off each time you mark a visit done. Your money, your Stripe; the studio sees none of it.</p>
+      <p className="text-[10px] font-bold text-slate-500">Prepaid bundles of your services — “5 gel fills for $300”. Sold on your booking page through your Stripe, or at the chair. A credit comes off each time you mark a visit done. Your money, your Stripe; {biz()} sees none of it.</p>
       {!canCharge && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-900">Connect your Stripe (Payouts) to sell packages online. Until then you can still record packages sold at the chair.</p>}
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{st.packages.length} package{st.packages.length === 1 ? '' : 's'} · ${(st.soldCents / 100).toFixed(0)} sold · {active.length} active</p>
@@ -780,7 +781,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
             <p className="text-[9px] font-bold text-slate-400">If you cancel, decline or move a visit, the client never loses a credit — and one already used comes back.</p>
           </div>
           {draft.name && Number(draft.price) > 0 && Number(draft.credits) > 0 && <p className="text-[10px] font-bold text-slate-500">${(Number(draft.price) / Number(draft.credits)).toFixed(2)} per visit{draft.serviceId && services.find((x: any) => x.id === draft.serviceId) ? ` vs $${Number(services.find((x: any) => x.id === draft.serviceId).price).toFixed(2)} single` : ''}</p>}
-          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save package'}</button>
             <button type="button" onClick={() => setDraft(null)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -803,7 +804,7 @@ export function MyPackages({ data, tenantId, token }: { data: any; tenantId: str
                 {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <input value={sell?.note || ''} onChange={(e) => setSell((x) => (x ? { ...x, note: e.target.value.slice(0, 200) } : x))} placeholder="How they paid (cash, Venmo…) — for your records" aria-label="Note" className="h-10 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
-              {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+              {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
               <div className="flex gap-2">
                 <button type="button" onClick={doSell} disabled={busy} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Record sale</button>
                 <button type="button" onClick={() => setSell(null)} className="h-10 rounded-xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -881,7 +882,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
                 <span className="text-[10px] font-bold text-violet-700">(same day = no head start)</span>
               </div>
             </div>
-            <p className="text-[10px] font-bold text-slate-500">Until the release moment, clients can book through the end of the current month; after it, through the end of next month. The page and the booking engine both follow this clock, in the studio&apos;s time zone.</p>
+            <p className="text-[10px] font-bold text-slate-500">Until the release moment, clients can book through the end of the current month; after it, through the end of next month. The page and the booking engine both follow this clock, in {bizs()} time zone.</p>
           </div>
         )}
         {winSentence && <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700">{winSentence.everyone}{winSentence.members ? ` ${winSentence.members}` : ''}</p>}
@@ -912,7 +913,7 @@ export function MyMemberships({ data, tenantId, token }: { data: any; tenantId: 
               {draft.lateCancelForfeits !== false && <label className="flex items-center gap-1 text-[10px] font-bold text-slate-600">under <input type="number" min={0} max={168} value={draft.lateCancelHours ?? 24} onChange={(e) => setDraft({ ...draft, lateCancelHours: e.target.value })} className="h-9 w-14 rounded-lg border-2 border-slate-200 text-center text-[11px] font-black" /> h</label>}
             </div>
           </div>
-          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save plan'}</button>
             <button type="button" onClick={() => setDraft(null)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -1071,7 +1072,7 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
         );
       })()}
       <p className="text-[10px] font-bold text-slate-500">An email or text to your own clients, in your name. Emails are free. {allowance} Texts only go to clients who said yes to offers by text, 9am–8pm, up to 4 a month each.</p>
-      {!st.cardOnFile && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">No card on file — paid texts can’t be sent. Save one under Rent, or send emails.</p>}
+      {!st.cardOnFile && <p className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-900">No card on file, so paid texts can’t be sent. Save one under Money, or send emails.</p>}
       {msg && <p className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-900">{msg}</p>}
       {!draft && (
         <div className="space-y-1.5">
@@ -1144,7 +1145,7 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
             </div>
           )}
           {quote?.recipients && <AudienceList recipients={quote.recipients} skipped={quote.skipped} channel={draft.type} total={quote.summary.willReceive} compact />}
-          {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+          {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
           <div className="flex gap-2">
             {!quote
               ? <button type="button" disabled={busy} onClick={getQuote} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : 'Check who it reaches'}</button>
@@ -1242,7 +1243,7 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
                 <p className="text-[12px] font-bold text-amber-900">Collected for you at the front desk</p>
                 <p className="text-[12px] font-bold text-amber-900">{$(led.totals.deskCollectedCents || 0)}</p>
               </div>
-              <p className="text-[11px] text-amber-800">{(led.totals.deskOwedCents || 0) > 0 ? `${$(led.totals.deskOwedCents)} is owed to you — the studio pays it out or takes it off your rent.` : 'All settled.'}</p>
+              <p className="text-[11px] text-amber-800">{(led.totals.deskOwedCents || 0) > 0 ? `${$(led.totals.deskOwedCents)} is owed to you — ${biz()} pays it out or takes it off your rent.` : 'All settled.'}</p>
               {led.desk.map((r: any) => (
                 <div key={r.id} className="flex items-baseline justify-between gap-2 text-[11px] text-amber-900">
                   <span className="min-w-0 truncate">{r.date} · {r.note}</span>
@@ -1264,7 +1265,7 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
                 {['Supplies', 'Products', 'Equipment', 'Education', 'Marketing', 'Insurance', 'Licence & fees', 'Software', 'Travel', 'Other'].map((c) => <option key={c}>{c}</option>)}
               </select>
               <input value={exp.note} onChange={(e) => setExp({ ...exp, note: e.target.value.slice(0, 200) })} placeholder="What it was" aria-label="Note" className="h-10 w-full rounded-xl border-2 border-slate-200 px-3 text-sm font-bold" />
-              {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+              {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
               <div className="flex gap-2">
                 <button type="button" onClick={saveExp} disabled={busy} className="h-10 flex-1 rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">Save</button>
                 <button type="button" onClick={() => setExp(null)} className="h-10 rounded-xl border-2 border-slate-200 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -1360,7 +1361,7 @@ export function MyPage({ tenantId, token, renterId }: { tenantId: string; token:
   };
   return (
     <div className="space-y-3">
-      <p className="text-[10px] font-bold text-slate-500">What shows on your booking page, under your links and above your menu. Switch a section on, fill it, save. Styling matches the studio so it all feels like one place.</p>
+      <p className="text-[10px] font-bold text-slate-500">What shows on your booking page, under your links and above your menu. Switch a section on, fill it, save. Styling matches {biz()} so it all feels like one place.</p>
       {page.sections.map((sec: any, i: number) => {
         const def = SECTION_KINDS.find((k) => k.kind === sec.kind);
         const isOpen = open === sec.kind;
@@ -1422,7 +1423,7 @@ export function MyPage({ tenantId, token, renterId }: { tenantId: string; token:
           </div>
         );
       })}
-      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+      {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
       <div className="flex items-center justify-end gap-2">
         {saved && <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Saved — it&apos;s live</span>}
         <button type="button" onClick={save} disabled={busy === 'save'} className="h-11 rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save my page'}</button>
@@ -1552,7 +1553,7 @@ export function MyServices({ data, tenantId, token, onChanged }: { data: any; te
         {floor > 0 && (
           <p className="text-[11px] font-bold text-slate-500">Your lease sets a ${floor.toFixed(2)} minimum per service.</p>
         )}
-        {err && <p className="text-[11px] font-black text-red-600">{err}</p>}
+        {err && <p className="text-[11px] font-black text-[#b45309]">{err}</p>}
 
         {services.map((sv: any) => {
           const c = coach(sv.price, sv.duration, sv.productCost);

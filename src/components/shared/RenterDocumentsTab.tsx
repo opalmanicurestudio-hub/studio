@@ -163,7 +163,7 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
             ${((pendingLease.rentAmountCents || 0) / 100).toFixed(2)} per {({ daily: 'day', weekly: 'week', biweekly: 'two weeks', monthly: 'month' } as Record<string, string>)[String(pendingLease.frequency || 'monthly')] || 'month'}
             {pendingLease.startDate ? `, from ${pendingLease.startDate}` : ''}. Read it and sign it in your renter portal; rent starts once you sign.
           </p>
-          <a href={`/rent/${encodeURIComponent(tenantId)}?tab=studio`} className="mt-3 inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Open my renter portal</a>
+          <a href={`/rent/${encodeURIComponent(tenantId)}?view=lease`} className="mt-3 inline-flex h-11 items-center rounded-xl bg-[#16171a] px-4 text-[14px] font-medium text-white">Open my renter portal</a>
         </div>
       )}
 

@@ -18,7 +18,7 @@ export type CredentialKind = 'insurance' | 'license';
 
 export const EXPIRING_WITHIN_DAYS = 30;
 
-export const CREDENTIAL_LABEL: Record<CredentialKind, string> = { insurance: 'Liability insurance', license: 'Licence' };
+export const CREDENTIAL_LABEL: Record<CredentialKind, string> = { insurance: 'Liability insurance', license: 'License' };
 
 export interface CredentialView {
   kind: CredentialKind;
@@ -64,9 +64,14 @@ export function isProblem(v: CredentialView): boolean {
   return v.state === 'missing' && v.required;
 }
 
+/** 2027-10-01 → Oct 1, 2027 (left as it is when it isn't a date). */
+function longDate(iso: string): string {
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 export function stateLabel(v: CredentialView): string {
   switch (v.state) {
-    case 'ok': return v.expiry ? `On file · to ${v.expiry}` : 'On file';
+    case 'ok': return v.expiry ? `On file · to ${longDate(v.expiry)}` : 'On file';
     case 'expiring': return `Expires in ${v.daysLeft} day${v.daysLeft === 1 ? '' : 's'}`;
     case 'expired': return `Expired ${Math.abs(v.daysLeft || 0)} day${Math.abs(v.daysLeft || 0) === 1 ? '' : 's'} ago`;
     default: return v.required ? 'Missing · required' : 'Not on file';

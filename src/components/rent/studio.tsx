@@ -1,4 +1,5 @@
 'use client';
+import { biz, bizs } from '@/components/rent/biz';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
 import { getStorage, ref as storageRef } from 'firebase/storage';
@@ -35,78 +36,117 @@ import { Chip, SectionTitle, fmtDate, fmtMoney, fmtTime, localISO } from '@/comp
 // shown, and a request changes nothing until it is approved. Banked days work
 // the same way: asking to spend them is not spending them.
 // ─── Today: the reasons they logged in, one tap each ─────────────────────────
-export function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, visible }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio') => void; tenantId: string; token: string; onBadges: (b: Record<string, number>) => void; visible: boolean }) {
+// "Needs you": rent due, things to sign or read, booking requests, repairs, answers. Each row opens the exact thing
+// (the page maps a row's kind to where it lives). Then today's appointments. Setup steps follow on the page.
+const NEEDS_ACTION: Record<string, string> = {
+  rent: 'Pay', document: 'Open', rules: 'Sign', notice: 'Read', message: 'Read', request: 'Review', prep: 'Open', ticket: 'See', concern: 'See', leave: 'See',
+};
+// refreshKey changes when they come back from a screen, so what they just did (read a notice, signed a document) leaves
+// the list. onBadges gets the server's dots by place, plus `k:<kind>` counts so a row can say what's waiting in it.
+export function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, visible, refreshKey = 0 }: { data: any; booksHere: boolean; onGo: (t: 'today' | 'book' | 'rent' | 'studio', kind?: string) => void; tenantId: string; token: string; onBadges: (b: Record<string, number>) => void; visible: boolean; refreshKey?: number }) {
   const [inbox, setInbox] = useState<{ items: any[]; todayAppts: any[] } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let alive = true;
     api({ action: 'today', tenantId, token }).then((d) => {
-      if (!alive || !d?.ok) return;
-      setInbox({ items: d.items || [], todayAppts: d.todayAppts || [] });
-      onBadges(d.badges || {});
+      if (!alive) return;
+      if (!d?.ok) { setFailed(true); return; }
+      setFailed(false);
+      const items = d.items || [];
+      setInbox({ items, todayAppts: d.todayAppts || [] });
+      const byKind: Record<string, number> = {};
+      for (const it of items) if (it?.kind && it.tone !== 'green') byKind[`k:${it.kind}`] = (byKind[`k:${it.kind}`] || 0) + 1;
+      onBadges({ ...(d.badges || {}), ...byKind });
     });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId, token, data?.invoices?.length]);
+  }, [tenantId, token, data?.invoices?.length, refreshKey, retry]);
   const due = (data?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late');
   const dueCents = due.reduce((n: number, i: any) => n + Math.max(0, (Number(i.amountCents) || 0) + (Number(i.lateFeeCents) || 0) - (Number(i.paidCents) || 0)), 0);
   const late = due.some((i: any) => i.status === 'late');
+  const firstDue = due.map((i: any) => String(i.dueDate || '')).sort()[0] || '';
   const nextAppt = (data?.myBookings || []).filter((b: any) => b.status !== 'cancelled').sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null;
   const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }); };
-  const clock = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
-  const ago = (iso: string) => { const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000); return h < 1 ? 'just now' : h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`; };
-  const tone: Record<string, string> = { red: 'border-red-300 bg-red-50', amber: 'border-amber-300 bg-amber-50', green: 'border-emerald-200 bg-emerald-50', slate: 'border-slate-200 bg-white' };
-  const quiet = inbox && inbox.items.length === 0 && due.length === 0 && (!booksHere || inbox.todayAppts.length === 0);
-  const Action = ({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) => (
-    <button type="button" onClick={onClick} className="rounded-2xl border-2 bg-white px-3 py-3 text-left">
-      <span className="block text-[11px] font-black uppercase tracking-widest">{label}</span>
-      {sub && <span className="block text-[10px] font-bold text-slate-500 truncate">{sub}</span>}
-    </button>
-  );
+  const clock = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/, ''); };
+  const length = (a: any) => { const m = Math.round((Date.parse(a.endTime) - Date.parse(a.startTime)) / 60000); return m > 0 ? (m >= 60 ? `${Math.floor(m / 60)} hr${m >= 120 ? 's' : ''}${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`) : ''; };
+  const ago = (iso: string) => { const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000); return h < 1 ? 'Just now' : h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`; };
+  const needs = [
+    ...(due.length ? [{ kind: 'rent', tab: 'rent' as const, title: late ? 'Rent is late' : 'Rent is due', body: `$${(dueCents / 100).toFixed(2)}${firstDue ? `, due ${new Date(`${firstDue}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}`, tone: late ? 'amber' : 'slate', at: '' }] : []),
+    ...(inbox?.items || []),
+  ];
+  const quiet = inbox && needs.length === 0;
+  const card = 'overflow-hidden rounded-2xl border border-[#ececee] bg-white';
   return (
-    <section className={visible ? 'space-y-2' : 'hidden'}>
-      {due.length > 0 && (
-        <button type="button" onClick={() => onGo('rent')} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', late ? 'border-red-300 bg-red-50' : 'border-amber-300 bg-amber-50')}>
-          <span className={cn('block text-[11px] font-black uppercase tracking-widest', late ? 'text-red-800' : 'text-amber-800')}>{late ? 'Rent is late' : 'Rent due'} · ${(dueCents / 100).toFixed(2)}</span>
-          <span className="block text-[10px] font-bold text-slate-600">Tap to see and pay.</span>
-        </button>
+    <div className={visible ? 'space-y-6' : 'hidden'}>
+      <section aria-labelledby="needs-you" className="space-y-2">
+        <h2 id="needs-you" className="px-1 text-[14px] font-semibold text-[#6d7075]">{quiet ? 'Nothing needs you' : `Needs you${needs.length ? ` · ${needs.length}` : ''}`}</h2>
+        {inbox === null && failed && needs.length === 0 ? (
+          <div className={cn(card, 'flex items-center justify-between gap-3 px-4 py-3')}>
+            <p className="text-[14px] text-[#b45309]">Couldn’t check what needs you.</p>
+            <button type="button" onClick={() => setRetry((n) => n + 1)} className="h-11 shrink-0 rounded-full border border-[#ececee] px-4 text-[14px] font-medium text-[#16171a]">Try again</button>
+          </div>
+        ) : inbox === null && needs.length === 0 ? <div className={cn(card, 'px-4 py-4 text-[14px] text-[#6d7075]')}>Checking…</div>
+          : quiet ? (
+            <div className={cn(card, 'px-4 py-4')}>
+              <p className="text-[14px] text-[#16171a]">Rent is settled and nothing is waiting.</p>
+              {booksHere && data?.provider?.bookingUrl && <p className="mt-0.5 text-[13px] text-[#6d7075]">Share your booking link to fill your calendar.</p>}
+            </div>
+          ) : (
+            <ul className={cn(card, 'divide-y divide-[#ececee]')}>
+              {needs.map((it: any, i: number) => {
+                const label = NEEDS_ACTION[it.kind] || 'Open';
+                const primary = it.kind === 'rent';
+                return (
+                  <li key={`${it.kind}-${i}`}>
+                    <button type="button" onClick={() => onGo(it.tab, it.kind)} className="flex min-h-[44px] w-full items-center gap-3 px-4 py-3 text-left hover:bg-[#fafafa]">
+                      <span className="min-w-0 flex-1">
+                        <span className={cn('block text-[15px] font-medium', it.tone === 'amber' || it.tone === 'red' ? 'text-[#b45309]' : 'text-[#16171a]')}>{it.title}</span>
+                        {(it.body || it.at) && <span className="block truncate text-[13px] text-[#6d7075]">{it.body}{it.body && it.at ? ' · ' : ''}{it.at ? ago(it.at) : ''}</span>}
+                      </span>
+                      <span className={cn('inline-flex h-11 shrink-0 items-center rounded-full px-4 text-[14px] font-medium', primary ? 'bg-[#16171a] text-white' : 'border border-[#ececee] text-[#16171a]')}>{label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        {failed && !(inbox === null && needs.length === 0) && (
+          <div className="flex items-center justify-between gap-3 px-1">
+            <p className="text-[13px] text-[#b45309]">Couldn’t check everything just now.</p>
+            <button type="button" onClick={() => setRetry((n) => n + 1)} className="h-11 shrink-0 rounded-full border border-[#ececee] bg-white px-4 text-[14px] font-medium text-[#16171a]">Try again</button>
+          </div>
+        )}
+      </section>
+
+      {booksHere && inbox && (inbox.todayAppts.length > 0 || nextAppt) && (
+        <section aria-labelledby="today-appts" className="space-y-2">
+          <h2 id="today-appts" className="px-1 text-[14px] font-semibold text-[#6d7075]">
+            {inbox.todayAppts.length ? `Today · ${inbox.todayAppts.length} appointment${inbox.todayAppts.length === 1 ? '' : 's'}` : 'Nothing booked today'}
+          </h2>
+          <ul className={cn(card, 'divide-y divide-[#ececee]')}>
+            {inbox.todayAppts.length ? inbox.todayAppts.map((a: any) => (
+              <li key={a.id}>
+                <button type="button" onClick={() => onGo('book', 'appointment')} className="flex min-h-[44px] w-full gap-4 px-4 py-3 text-left hover:bg-[#fafafa]">
+                  <span className="w-12 shrink-0 text-[15px] font-semibold tabular-nums text-[#16171a]">{clock(a.startTime)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[15px] font-medium text-[#16171a]">{a.serviceName || 'Appointment'}</span>
+                    <span className="block truncate text-[13px] text-[#6d7075]">{a.clientName || 'Client'}{length(a) ? ` · ${length(a)}` : ''}</span>
+                  </span>
+                </button>
+              </li>
+            )) : nextAppt && (
+              <li>
+                <button type="button" onClick={() => onGo('book', 'appointment')} className="flex min-h-[44px] w-full flex-col px-4 py-3 text-left hover:bg-[#fafafa]">
+                  <span className="text-[15px] font-medium text-[#16171a]">Next: {when(nextAppt.startTime)}</span>
+                  <span className="truncate text-[13px] text-[#6d7075]">{nextAppt.clientName || 'Client'}{nextAppt.serviceName ? ` · ${nextAppt.serviceName}` : ''}</span>
+                </button>
+              </li>
+            )}
+          </ul>
+        </section>
       )}
-      {booksHere && inbox && inbox.todayAppts.length > 0 && (
-        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left space-y-1">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Today · {inbox.todayAppts.length} appointment{inbox.todayAppts.length === 1 ? '' : 's'}</span>
-          {inbox.todayAppts.slice(0, 4).map((a) => (
-            <span key={a.id} className="block text-[11px] font-bold text-slate-700 truncate"><span className="font-black">{clock(a.startTime)}</span> · {a.clientName}{a.serviceName ? ` · ${a.serviceName}` : ''}</span>
-          ))}
-          {inbox.todayAppts.length > 4 && <span className="block text-[10px] font-bold text-slate-500">and {inbox.todayAppts.length - 4} more</span>}
-        </button>
-      )}
-      {booksHere && inbox && inbox.todayAppts.length === 0 && nextAppt && (
-        <button type="button" onClick={() => onGo('book')} className="w-full rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 text-left">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing today · next {when(nextAppt.startTime)}</span>
-          <span className="block text-[10px] font-bold text-slate-500 truncate">{nextAppt.clientName || 'Client'}{nextAppt.serviceName ? ` · ${nextAppt.serviceName}` : ''}</span>
-        </button>
-      )}
-      {inbox && inbox.items.map((it, i) => (
-        <button key={i} type="button" onClick={() => onGo(it.tab)} className={cn('w-full rounded-2xl border-2 px-4 py-3 text-left', tone[it.tone || 'slate'])}>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-black uppercase tracking-widest text-slate-800">{it.title}</span>
-            <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-slate-400">{ago(it.at)}</span>
-          </span>
-          {it.body && <span className="block text-[10px] font-bold text-slate-600 truncate">{it.body}</span>}
-        </button>
-      ))}
-      {quiet && (
-        <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-3">
-          <p className="text-[11px] font-black uppercase tracking-widest text-slate-800">Nothing needs you</p>
-          <p className="text-[10px] font-bold text-slate-500">Rent is settled and nothing is waiting.{booksHere && data?.provider?.bookingUrl ? ' Share your booking link to fill the book.' : ''}</p>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        {booksHere && <Action label="Add walk-in" sub="Book someone now" onClick={() => onGo('book')} />}
-        <Action label="Pay rent" sub={due.length ? 'Something is due' : 'Nothing due right now'} onClick={() => onGo('rent')} />
-        <Action label="Report a problem" sub="Something broken?" onClick={() => onGo('studio')} />
-        <Action label="Message the studio" sub="Or raise a concern" onClick={() => onGo('studio')} />
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -115,7 +155,7 @@ export function TodayQuick({ data, booksHere, onGo, tenantId, token, onBadges, v
 // full name — the same way the lease was signed — and the record lands beside
 // it, with the exact text, the time, and the device. Declining is allowed and
 // is a message to the studio, not a silent no.
-export const DOC_STATUS: Record<string, string> = { sent: 'Waiting for you', signed: 'Signed', declined: 'Declined', withdrawn: 'Withdrawn by the studio' };
+export const DOC_STATUS: Record<string, string> = { sent: 'Waiting for you', signed: 'Signed', declined: 'Declined', withdrawn: 'Withdrawn' };
 export function RenterDocuments({ tenantId, token }: { tenantId: string; token: string }) {
   const [state, setState] = useState<{ documents: any[]; signed: any[] } | null>(null);
   const [openId, setOpenId] = useState('');
@@ -168,7 +208,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
                   <div className="max-h-80 overflow-y-auto overscroll-contain rounded-2xl bg-white border-2 border-slate-200 px-3.5 py-3 text-[12px] leading-relaxed font-medium text-slate-800 whitespace-pre-wrap">{d.body}</div>
                   {declining === d.id ? (
                     <div className="space-y-2">
-                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder="Tell the studio why (optional). This goes to them as a message." className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm bg-white" />
+                      <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value.slice(0, 600))} rows={2} aria-label="Why you are declining" placeholder={`Tell ${biz()} why (optional). This goes to them as a message.`} className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm bg-white" />
                       <div className="flex gap-2">
                         <button type="button" onClick={() => decline(d.id)} disabled={busy} className="h-11 flex-1 rounded-2xl border-2 border-red-300 bg-white text-[10px] font-black uppercase tracking-widest text-red-700 disabled:opacity-40">{busy ? '…' : 'Decline this document'}</button>
                         <button type="button" onClick={() => setDeclining('')} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Back</button>
@@ -178,7 +218,7 @@ export function RenterDocuments({ tenantId, token }: { tenantId: string; token: 
                     <div className="space-y-2">
                       <input value={name} onChange={(e) => setName(e.target.value.slice(0, 120))} aria-label="Type your full name to sign" placeholder="Type your full name to sign" autoComplete="name" className="h-11 w-full rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-bold" />
                       <p className="text-[9px] font-bold text-slate-500">Typing your name and tapping {verb} is your signature. The exact text above, the time and this device are recorded with it.</p>
-                      {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+                      {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
                       <div className="flex gap-2">
                         <button type="button" onClick={() => sign(d.id)} disabled={busy || name.trim().length < 2} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : verb === 'sign' ? 'Sign' : 'Acknowledge'}</button>
                         <button type="button" onClick={() => setDeclining(d.id)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">Decline</button>
@@ -312,7 +352,7 @@ export function RenterInterruptions({ tenantId, token }: { tenantId: string; tok
                   <input inputMode="decimal" value={form.lost} onChange={(e) => setForm((f) => ({ ...f, lost: e.target.value.replace(/[^0-9.]/g, '') }))} aria-label="Income lost, dollars" placeholder="$ lost (your estimate)" className="h-11 rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white" />
                 </div>
                 <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 500) }))} aria-label="Note" placeholder="Who you rescheduled, what you refunded (optional)" className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm bg-white" />
-                {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+                {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
                 <div className="flex gap-2">
                   <button type="button" onClick={() => submit(r.id)} disabled={busy || !form.date} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save this day'}</button>
                   <button type="button" onClick={() => setLogFor('')} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
@@ -344,7 +384,7 @@ export const TICKET_CATS: [string, string][] = [
   ['equipment', 'Equipment'], ['plumbing', 'Plumbing / water'], ['electrical', 'Electrical / power'], ['cleaning', 'Cleaning'],
   ['safety', 'Safety'], ['request', 'A request'], ['other', 'Something else'],
 ];
-export const TSTATUS: Record<string, string> = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', cancelled: 'Cancelled' };
+export const TSTATUS: Record<string, string> = { open: 'Open', in_progress: 'In progress', resolved: 'Resolved', cancelled: 'Canceled' };
 export const hrs = (h: number) => (h < 24 ? `${h} hr${h === 1 ? '' : 's'}` : h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${Math.round(h / 24)} days`);
 export const clock = (iso: string | null, done: boolean) => {
   if (!iso || done) return null;
@@ -396,12 +436,12 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
       <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
         {promise.length > 0 && (
           <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 px-3.5 py-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">The studio's promise</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1.5">{bizs(true)} promise</p>
             <div className="space-y-1">
               {promise.map((c) => (
                 <p key={c.priority} className="text-[11px] font-bold text-slate-700"><span className="capitalize font-black">{c.label}</span> · answered within {hrs(c.respondHours)}, fixed within {hrs(c.fixHours)}</p>
               ))}
-              {urgent && <p className="text-[10px] font-bold text-slate-500">Safety or no-water issues the studio judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
+              {urgent && <p className="text-[10px] font-bold text-slate-500">Safety or no-water issues {biz()} judges urgent: answered within {hrs(urgent.respondHours)}, fixed within {hrs(urgent.fixHours)}.</p>}
             </div>
           </div>
         )}
@@ -420,7 +460,7 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
                 </div>
                 <p className="text-[10px] font-bold text-slate-500">
                   {t.priority} · reported {fmtDate(String(t.createdAt).slice(0, 10))}
-                  {t.assigneeName ? ` · ${t.assigneeName} has it` : t.acknowledged ? ' · seen by the studio' : ans ? ` · answer due: ${ans}` : ''}
+                  {t.assigneeName ? ` · ${t.assigneeName} has it` : t.acknowledged ? ` · seen by ${biz()}` : ans ? ` · answer due: ${ans}` : ''}
                   {fix ? ` · fix due: ${fix}` : ''}
                 </p>
               </button>
@@ -470,14 +510,14 @@ export function RenterMaintenance({ tenantId, token }: { tenantId: string; token
               {form.photoData ? 'Photo attached · tap to change' : 'Add a photo'}
               <input type="file" accept="image/*" capture="environment" className="sr-only" aria-label="Photo of the problem" onChange={(e) => readPhoto(e.target.files?.[0], (d) => setForm((f) => ({ ...f, photoData: d })))} />
             </label>
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
               <button type="button" onClick={submit} disabled={busy || !form.title.trim()} className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Send it'}</button>
               <button type="button" onClick={() => setOpen(false)} className="h-11 rounded-2xl border-2 border-slate-200 px-4 text-[10px] font-black uppercase tracking-widest text-slate-600">Cancel</button>
             </div>
           </div>
         )}
-        {err && !open && <p className="text-xs font-bold text-red-600">{err}</p>}
+        {err && !open && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
         {doneT.length > 0 && (
           <div className="space-y-1">
             {doneT.map((t) => <p key={t.id} className="text-[10px] font-bold text-slate-500">{t.title} · {TSTATUS[t.status] || t.status}{t.resolvedAt ? ` ${fmtDate(String(t.resolvedAt).slice(0, 10))}` : ''}</p>)}
@@ -579,9 +619,9 @@ export function RenterConcerns({ tenantId, token }: { tenantId: string; token: s
             </div>
             <button type="button" aria-pressed={form.confidential || sensitive} onClick={() => setForm((f) => ({ ...f, confidential: !f.confidential }))} disabled={sensitive}
               className={cn('h-10 w-full rounded-2xl border-2 px-3 text-left text-[10px] font-bold', (form.confidential || sensitive) ? 'border-slate-900 bg-slate-50 text-slate-900' : 'border-slate-200 text-slate-600')}>
-              {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? 'Confidential — for the studio owner only' : 'Mark confidential'}
+              {sensitive ? 'Treated as confidential — concerns about people always are' : form.confidential ? `Confidential — for ${bizs()} owner only` : 'Mark confidential'}
             </button>
-            {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+            {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
             <div className="flex gap-2">
               <button type="button" onClick={submit} disabled={busy || form.what.trim().length < 10}
                 className="h-11 flex-1 rounded-2xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? 'Sending…' : 'Put it on record'}</button>
@@ -649,7 +689,7 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
         {pending && (
           <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-3.5 py-3">
             <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">Requested · {fmtDate(pending.startDate)} – {fmtDate(pending.endDate)}</p>
-            <p className="text-[11px] font-bold text-amber-900">Waiting on the studio. Rent continues as normal until it is approved.</p>
+            <p className="text-[11px] font-bold text-amber-900">Waiting on {biz()}. Rent continues as normal until it is approved.</p>
           </div>
         )}
 
@@ -657,7 +697,7 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
           <div key={`bank-${l.id}`} className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-3.5 py-3 space-y-2">
             <p className="text-[11px] font-black uppercase tracking-widest text-slate-700">{l.left} banked rental day{l.left === 1 ? '' : 's'}</p>
             {l.redeem && l.redeem.status === 'requested' ? (
-              <p className="text-[11px] font-bold text-amber-800">You asked to use {l.redeem.days} — waiting on the studio.</p>
+              <p className="text-[11px] font-bold text-amber-800">You asked to use {l.redeem.days} — waiting on {biz()}.</p>
             ) : redeemFor === l.id ? (
               <div className="flex gap-2">
                 <input inputMode="numeric" aria-label="Days to use" value={redeemDays}
@@ -682,7 +722,7 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
         ) : (
           <div className="space-y-2">
             <p className="text-[10px] font-bold text-slate-500">
-              {state.policy.noticeDays > 0 ? `The studio asks for ${state.policy.noticeDays} days' notice where possible. ` : ''}Up to {state.policy.maxWeeks} weeks.
+              {state.policy.noticeDays > 0 ? `${biz(true)} asks for ${state.policy.noticeDays} days' notice where possible. ` : ''}Up to {state.policy.maxWeeks} weeks.
             </p>
             <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} aria-label="Type of leave"
               className="h-11 w-full rounded-2xl border-2 border-slate-200 px-3 text-sm font-bold bg-white">
@@ -702,9 +742,9 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
                   </button>
                 ))}
               </div>
-              <p className="text-[9px] font-bold text-slate-400 mt-1">A preference, not a promise — the studio decides.</p>
+              <p className="text-[9px] font-bold text-slate-400 mt-1">A preference, not a promise — {biz()} decides.</p>
             </div>
-            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 600) }))} rows={2} placeholder="Anything the studio should know (optional)" aria-label="Note"
+            <textarea value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value.slice(0, 600) }))} rows={2} placeholder={`Anything ${biz()} should know (optional)`} aria-label="Note"
               className="w-full rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm" />
             <div className="flex gap-2">
               <button type="button" onClick={submit} disabled={busy || !form.startDate || !form.endDate}
@@ -713,7 +753,7 @@ export function RenterLeave({ tenantId, token }: { tenantId: string; token: stri
             </div>
           </div>
         )}
-        {err && <p className="text-xs font-bold text-red-600">{err}</p>}
+        {err && <p className="text-xs font-bold text-[#b45309]">{err}</p>}
       </div>
     </section>
   );
@@ -739,16 +779,16 @@ export function RenterThread({ tenantId, token, studioName }: { tenantId: string
     if (d?.ok) { setDraft(''); void load(); }
   };
   return (
-    <section className="space-y-3">
-      <SectionTitle icon={MessageSquare}>Messages with {studioName}</SectionTitle>
-      <div className="p-4 rounded-3xl bg-white border-2 border-slate-100 space-y-3">
-        <div className="space-y-2 max-h-72 overflow-y-auto">
-          {msgs === null ? <p className="text-[11px] text-slate-500">Loading…</p>
-            : msgs.length === 0 ? <p className="text-[11px] text-slate-500">Nothing yet. Ask a question, report something, or just say hi — it's all kept on your account.</p>
+    <section className="space-y-3" aria-labelledby="renter-thread-title">
+      <h2 id="renter-thread-title" className="px-1 text-[14px] font-semibold text-[#6d7075]">Your conversation with {studioName}</h2>
+      <div className="space-y-3 rounded-2xl border border-[#ececee] bg-white p-4">
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {msgs === null ? <p className="text-[14px] text-[#6d7075]">Loading…</p>
+            : msgs.length === 0 ? <p className="text-[14px] leading-relaxed text-[#6d7075]">Nothing yet. Ask a question, report something, or just say hi. It’s all kept on your account.</p>
             : msgs.map((m) => (
-              <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'ml-auto bg-slate-900 text-white' : 'mr-auto bg-slate-100')}>
-                <p className="text-xs font-medium whitespace-pre-wrap leading-snug">{m.text}</p>
-                <p className={cn('mt-1 text-[9px] font-bold', m.direction === 'inbound' ? 'text-white/60' : 'text-slate-500')}>
+              <div key={m.id} className={cn('max-w-[88%] rounded-2xl px-3.5 py-2.5', m.direction === 'inbound' ? 'ml-auto bg-[#16171a] text-white' : 'mr-auto bg-[#f5f5f7] text-[#16171a]')}>
+                <p className="whitespace-pre-wrap text-[15px] leading-snug">{m.text}</p>
+                <p className={cn('mt-1 text-[12px]', m.direction === 'inbound' ? 'text-white/70' : 'text-[#6d7075]')}>
                   {m.direction === 'inbound' ? 'You' : (m.byName || studioName)} · {fmtDate(m.createdAt)}
                 </p>
               </div>
@@ -756,11 +796,11 @@ export function RenterThread({ tenantId, token, studioName }: { tenantId: string
         </div>
         <div className="flex gap-2">
           <textarea value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 2000))} rows={2}
-            placeholder="Write to the studio…" aria-label="Message to the studio"
-            className="flex-1 rounded-2xl border-2 border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-slate-900" />
+            placeholder={`Write to ${biz()}…`} aria-label={`Message to ${biz()}`}
+            className="min-w-0 flex-1 rounded-xl border border-[#ececee] bg-white px-3.5 py-2.5 text-[15px] text-[#16171a] outline-none placeholder:text-[#6d7075] focus:border-[#16171a]" />
           <button type="button" onClick={send} disabled={busy || !draft.trim()}
-            className="h-11 self-end rounded-2xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">
-            {busy ? '…' : 'Send'}
+            className="h-11 self-end rounded-full bg-[#16171a] px-5 text-[15px] font-medium text-white disabled:opacity-40">
+            {busy ? 'Sending…' : 'Send'}
           </button>
         </div>
       </div>
@@ -1055,9 +1095,9 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
 
           {s2.conflictCount > 0 ? (
             <div className="space-y-2">
-              <div className="flex items-start gap-2 p-3 rounded-2xl bg-red-50">
-                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                <p className="text-[11px] font-bold text-red-700">
+              <div className="flex items-start gap-2 p-3 rounded-2xl bg-[#fdf6ee]">
+                <AlertTriangle className="w-4 h-4 text-[#b45309] mt-0.5 shrink-0" />
+                <p className="text-[11px] font-bold text-[#b45309]">
                   You have {s2.conflictCount === 1 ? 'a client' : `${s2.conflictCount} clients`} booked in that window,
                   so you can&apos;t accept this yet. Move or cancel that booking yourself and this turns green on its own.
                 </p>
@@ -1240,7 +1280,7 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
               )}
 
               {err && (
-                <div className="flex items-start gap-2 text-red-600">
+                <div className="flex items-start gap-2 text-[#b45309]">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                   <p className="text-[11px] font-bold">{err}</p>
                 </div>
@@ -1279,7 +1319,7 @@ export function MySwaps({ data, tenantId, token, onChanged }: { data: any; tenan
       )}
 
       {err && !open && (
-        <div className="flex items-start gap-2 text-red-600 px-1">
+        <div className="flex items-start gap-2 text-[#b45309] px-1">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <p className="text-[11px] font-bold">{err}</p>
         </div>
@@ -1337,7 +1377,7 @@ export const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule
         <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100">
           <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
           <p className="text-[10px] font-bold text-emerald-700">
-            {fmtMoney(r.potentialCreditCents)} credit for unused time — pending studio review
+            {fmtMoney(r.potentialCreditCents)} credit for unused time, waiting on {biz()} to review
           </p>
         </div>
       )}
@@ -1357,7 +1397,7 @@ export const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule
       {!isToday && r.status === 'confirmed' && onRequestReschedule && (
         r.rescheduleRequestedAt ? (
           <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 text-center py-1.5">
-            ⏱ Reschedule requested — the studio will reach out
+            Reschedule requested — {biz()} will reach out
           </p>
         ) : (
           <button onClick={() => onRequestReschedule(r.id)} disabled={busy}
@@ -1452,14 +1492,14 @@ export const LoginFlow = ({ tenantId, onSession }: {
               Get Access Code
             </button>
             <p className="text-[10px] font-medium text-slate-400 text-center leading-relaxed px-4">
-              We’ll verify it’s really you. The studio front desk can share your one-time code.
+              We’ll verify it’s really you. {bizs(true)} front desk can share your one-time code.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
             <div className="p-4 rounded-2xl bg-violet-50 border border-violet-100 text-center">
               <p className="text-[10px] font-bold text-violet-700 leading-relaxed">
-                A 6-digit code was sent to the studio for <strong>{contact.trim()}</strong>.
+                A 6-digit code was sent to {biz()} for <strong>{contact.trim()}</strong>.
                 Ask the front desk to read it to you.
               </p>
             </div>

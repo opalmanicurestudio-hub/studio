@@ -3,6 +3,7 @@
 // Their SOPs and their clients' aftercare — private to them (the studio can't see these). Write them from a starter or
 // from scratch with simple blocks (text, step, checklist, tip, warning); link aftercare to their services or make it the
 // one for every other service; choose when it's sent and when to check in. /api/portal/renter-docs.
+import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 import { DocBlocks, Ico, IC } from '@/components/documents/DocBlocks';
 
@@ -27,7 +28,7 @@ export function MyDocuments({ tenantId, token, booksHere }: { tenantId: string; 
   return (
     <section className="space-y-3" style={font} aria-label="My documents">
       <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>my business</p><h2 className="text-[24px] font-light tracking-[-0.02em]">My documents</h2></div>
-      <p className="flex items-start gap-2.5 rounded-[14px] px-3.5 py-3 text-[13px] leading-[1.45]" style={{ background: '#efe6f3', color: '#4d2d5a' }}><Ico d={LOCK} s={16} c={PURPLE} />These are yours. The studio can’t see them — only the building rules you sign.</p>
+      <p className="flex items-start gap-2.5 rounded-[14px] px-3.5 py-3 text-[13px] leading-[1.45]" style={{ background: '#efe6f3', color: '#4d2d5a' }}><Ico d={LOCK} s={16} c={PURPLE} />These are yours. {biz(true)} can’t see them — only the building rules you sign.</p>
       <div className="flex flex-wrap gap-1.5">{chip('all', 'All')}{chip('aftercare', 'Aftercare')}{chip('sop', 'My SOPs')}</div>
       {docs.length > 0 && <div className="overflow-hidden rounded-[18px] border bg-white" style={{ borderColor: LINE }}>
         {docs.map((d, i) => <button key={d.id} type="button" onClick={() => setEdit(d.draft ? { ...d, ...d.draft } : d)} className="flex w-full items-center gap-3 px-4 py-3 text-left" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>

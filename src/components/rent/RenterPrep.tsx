@@ -16,7 +16,7 @@ export function RenterPrep({ tenantId, token }: { tenantId: string; token: strin
   const [d, setD] = React.useState<any>(null); const [open, setOpen] = React.useState('');
   const load = React.useCallback(() => post({ tenantId, token, action: 'get' }).then(setD), [tenantId, token]);
   React.useEffect(() => { void load(); }, [load]);
-  if (!d) return null; if (!d.ok) return <p className="text-[13.5px]" style={{ color: RED }}>{d.error}</p>;
+  if (!d) return null; if (!d.ok) return <p className="text-[13.5px]" style={{ color: AMBER }}>{d.error}</p>;
   const S = d.settings; const visits: any[] = d.visits || [];
   const need = visits.filter((v) => v.prep && NEEDS.includes(v.prep.status) && (v.prep.quote?.changed || ['question', 'safety'].includes(v.prep.status)));
   const waiting = visits.filter((v) => !v.prep?.answeredAt && v.prepSentAt);
@@ -56,7 +56,7 @@ export function RenterPrep({ tenantId, token }: { tenantId: string; token: strin
 function VisitCard({ v, tenantId, token, word, onDone }: { v: any; tenantId: string; token: string; word: string; onDone: () => void }) {
   const [busy, setBusy] = React.useState(''); const [msg, setMsg] = React.useState(''); const [sure, setSure] = React.useState(false);
   const p = v.prep || {}; const q = p.quote;
-  const go = async (decision: string) => { setBusy(decision); setMsg(''); const r = await post({ tenantId, token, action: 'decide', appointmentId: v.id, decision }); setBusy(''); if (r.ok) { setMsg(decision === 'cancel' && r.depositToRefund ? `Cancelled — refund their ${money(r.depositToRefund / 100)} deposit.` : 'Done — they’ve been told.'); setTimeout(onDone, 900); } else setMsg(r.error || 'That didn’t work.'); };
+  const go = async (decision: string) => { setBusy(decision); setMsg(''); const r = await post({ tenantId, token, action: 'decide', appointmentId: v.id, decision }); setBusy(''); if (r.ok) { setMsg(decision === 'cancel' && r.depositToRefund ? `Canceled. Refund their ${money(r.depositToRefund / 100)} deposit.` : 'Done — they’ve been told.'); setTimeout(onDone, 900); } else setMsg(r.error || 'That didn’t work.'); };
   const btn = (label: string, decision: string, solid = false) => <button type="button" disabled={!!busy} onClick={() => go(decision)} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold disabled:opacity-40" style={solid ? { background: INK, color: '#fff' } : { background: SOFT }}>{busy === decision ? '…' : label}</button>;
   const when = new Date(v.startTime).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   return (<div className="space-y-2 rounded-[18px] border bg-white p-3.5" style={{ borderColor: p.status === 'safety' ? '#f4c7c3' : LINE }}>
@@ -70,9 +70,9 @@ function VisitCard({ v, tenantId, token, word, onDone }: { v: any; tenantId: str
       {q?.changed && p.fits && p.status !== 'safety' && btn('Approve', 'approve', true)}
       {p.status !== 'safety' && q?.changed && btn('Ask them to pick a new time', 'move', !p.fits)}
       {btn('Keep as booked', 'keep')}
-      {!sure ? <button type="button" disabled={!!busy} onClick={() => setSure(true)} className="h-10 rounded-full px-3.5 text-[13.5px]" style={{ background: SOFT, color: RED }}>Cancel — no fee</button>
-        : <button type="button" disabled={!!busy} onClick={() => go('cancel')} className="h-10 rounded-full px-3.5 text-[13.5px] font-semibold text-white" style={{ background: RED }}>{busy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it'}</button>}
+      {!sure ? <button type="button" disabled={!!busy} onClick={() => setSure(true)} className="h-11 rounded-full px-3.5 text-[13.5px]" style={{ background: SOFT, color: RED }}>Cancel — no fee</button>
+        : <button type="button" disabled={!!busy} onClick={() => go('cancel')} className="h-11 rounded-full px-3.5 text-[13.5px] font-semibold text-white" style={{ background: RED }}>{busy === 'cancel' ? 'Canceling…' : 'Yes, cancel it'}</button>}
     </div>
-    {msg && <p className="text-[13px]" style={{ color: msg.startsWith('Done') || msg.startsWith('Cancelled') ? GREEN : RED }}>{msg}</p>}
+    {msg && <p className="text-[13px]" style={{ color: msg.startsWith('Done') || msg.startsWith('Canceled') ? GREEN : AMBER }}>{msg}</p>}
   </div>);
 }

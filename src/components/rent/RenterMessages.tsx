@@ -2,6 +2,7 @@
 // src/components/rent/RenterMessages.tsx — A RENTER'S MESSAGES (design canvas RF5). When a client answers one of the
 // renter's texts, it lands here (lib/renter-inbox), not with the studio. Conversations newest first; open one to read
 // and reply. /api/portal/renter-messages.
+import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', RED = '#b42318';
@@ -31,17 +32,17 @@ export function RenterMessages({ tenantId, token, always = false }: { tenantId: 
           return <button key={x.key} type="button" onClick={() => openThread(x.key)} className="block w-full rounded-[16px] border bg-white p-3.5 text-left" style={{ borderColor: LINE }}>
             <span className="flex items-center justify-between gap-2"><span className="text-[14.5px] font-semibold">{x.clientName || pretty(x.phone)}</span>{x.unread > 0 ? <span className="rounded-full px-2 py-0.5 text-[11.5px] font-bold text-white" style={{ background: INK }}>New</span> : <span className="text-[12px]" style={{ color: MUTED }}>{when(x.lastAt)}</span>}</span>
             <span className="mt-0.5 block truncate text-[13px]" style={{ color: MUTED }}>“{lastIn?.body || 'A photo'}”</span></button>; })}
-        {!threads.length && <p className="rounded-[16px] p-3.5 text-[13px]" style={{ background: SOFT, color: MUTED }}>When a client replies to one of your texts, it comes here and you get an alert. The studio can’t read your messages.</p>}
+        {!threads.length && <p className="rounded-[16px] p-3.5 text-[13px]" style={{ background: SOFT, color: MUTED }}>When a client replies to one of your texts, it comes here and you get an alert. {biz(true)} can’t read your messages.</p>}
       </div> : <div className="space-y-3 rounded-[18px] border bg-white p-4" style={{ borderColor: LINE }}>
         <div className="flex items-center justify-between gap-2"><span className="text-[15px] font-semibold">{th.clientName || pretty(th.phone)}</span>
           <span className="flex gap-2"><a href={`tel:+1${th.key}`} className="rounded-full border px-3 py-1.5 text-[12.5px] font-semibold" style={{ borderColor: LINE }}>Call</a>
             <button type="button" onClick={() => setOpen(null)} className="rounded-full border px-3 py-1.5 text-[12.5px]" style={{ borderColor: LINE }}>All messages</button></span></div>
         <div className="max-h-[420px] space-y-2 overflow-y-auto">{th.messages.map((m: any) => <div key={m.id} className={`flex flex-col ${m.direction === 'out' ? 'items-end' : 'items-start'} gap-0.5`}>
-          <div className="max-w-[85%] whitespace-pre-line rounded-[16px] px-3 py-2 text-[13.5px] leading-[1.45]" style={{ background: m.direction === 'out' ? INK : SOFT, color: m.direction === 'out' ? '#fff' : INK }}>{m.body || 'A photo (open it in the studio’s messages)'}</div>
+          <div className="max-w-[85%] whitespace-pre-line rounded-[16px] px-3 py-2 text-[13.5px] leading-[1.45]" style={{ background: m.direction === 'out' ? INK : SOFT, color: m.direction === 'out' ? '#fff' : INK }}>{m.body || 'A photo'}</div>
           <span className="text-[11px]" style={{ color: MUTED }}>{when(m.at)}{m.kind === 'opportunity' ? ' · from your follow-ups' : ''}</span></div>)}</div>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={600} placeholder="Write a reply…" aria-label="Reply" className="w-full rounded-[12px] border px-3 py-2 text-[14px]" style={{ borderColor: LINE }} />
         <div className="flex items-center gap-2"><button type="button" onClick={send} disabled={busy || !text.trim()} className="h-10 rounded-full px-5 text-[14px] font-semibold text-white disabled:opacity-50" style={{ background: INK }}>{busy ? 'Sending…' : 'Send'}</button>
-          <span className="text-[12px]" style={{ color: MUTED }}>Goes from the studio’s number, signed with your business name.</span></div>
+          <span className="text-[12px]" style={{ color: MUTED }}>Goes from {bizs()} number, signed with your business name.</span></div>
         {err && <p className="text-[13px] font-semibold" style={{ color: RED }}>{err}</p>}
       </div>}
     </section>);

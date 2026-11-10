@@ -2,6 +2,7 @@
 // src/components/rent/MyGiftCards.tsx — GIFT CARDS IN THE RENTER PORTAL (portal action gift-*; the studio decides in
 // Gift cards → Renters). Take a gift card for a service (a studio card is credited against your next rent; your own
 // card is money you already have), sell your own (paid to you, used only with you) and sell them on your booking page.
+import { biz, bizs } from '@/components/rent/biz';
 import * as React from 'react';
 import { Gift } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -28,7 +29,7 @@ export function TakeGiftCard({ tenantId, token, appointmentId, defaultCents, onD
       <div className="flex gap-2"><input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setCard(null); }} placeholder="Gift card code" aria-label="Gift card code" autoCapitalize="characters" className={cn(inp, 'font-mono tracking-widest')} />
         <button type="button" disabled={busy || code.replace(/[^A-Z0-9]/gi, '').length < 4} onClick={check} className="h-11 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy && !card ? '…' : 'Check'}</button></div>
       {card && <div className="space-y-2 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
-        <p className="text-[12px] font-bold text-emerald-900">{money(card.availableCents)} on this card{card.studio ? ' · a studio card — the studio credits it against your rent' : ' · your own card'}</p>
+        <p className="text-[12px] font-bold text-emerald-900">{money(card.availableCents)} on this card{card.studio ? ` · a ${biz()} gift card — ${biz()} credits it against your rent` : ' · your own card'}</p>
         <div className="flex gap-2"><input value={amt} onChange={(e) => setAmt(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="$ amount" aria-label="Amount to take" className={inp} />
           <button type="button" disabled={busy || !(Number(amt) > 0) || Number(amt) * 100 > card.availableCents} onClick={take} className="h-11 shrink-0 rounded-xl bg-emerald-600 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : `Take $${amt || '0'}`}</button></div>
       </div>}
@@ -57,7 +58,7 @@ export function MyGiftCards({ tenantId, token }: { tenantId: string; token: stri
     <section className="space-y-3">
       <SectionTitle icon={Gift}>Gift cards</SectionTitle>
       <div className="space-y-3 rounded-3xl border-2 border-slate-100 bg-white p-4">
-        <p className="text-[11px] font-medium text-slate-600">{d.salonCards ? 'Clients can pay you with a studio gift card — the studio credits it against your next rent. ' : ''}{d.ownCards ? 'You can sell your own gift cards too — paid to you, used only with you.' : ''}</p>
+        <p className="text-[11px] font-medium text-slate-600">{d.salonCards ? `Clients can pay you with a ${biz()} gift card — ${biz()} credits it against your next rent. ` : ''}{d.ownCards ? 'You can sell your own gift cards too — paid to you, used only with you.' : ''}</p>
         <div className="flex gap-2">
           <button type="button" aria-pressed={open === 'take'} onClick={() => setOpen(open === 'take' ? '' : 'take')} className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest', open === 'take' ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-700')}>Take a gift card</button>
           {d.ownCards && <button type="button" aria-pressed={open === 'sell'} onClick={() => setOpen(open === 'sell' ? '' : 'sell')} className={cn('h-10 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest', open === 'sell' ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-700')}>Sell one</button>}
@@ -74,7 +75,7 @@ export function MyGiftCards({ tenantId, token }: { tenantId: string; token: stri
           <div className="flex gap-1.5">{([['text', 'Text it'], ['email', 'Email it'], ['code', 'Just the code']] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setVia(k)} className={cn('h-9 flex-1 rounded-xl text-[10px] font-black uppercase tracking-widest', via === k ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-700')}>{l}</button>)}</div>
           {via === 'text' && <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Their mobile number" aria-label="Their mobile number" className={inp} />}
           {via === 'email' && <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="Their email" aria-label="Their email" className={inp} />}
-          <p className={lab}>Take the money yourself (cash, your reader) — this records the card; the studio isn’t paid.</p>
+          <p className={lab}>Take the money yourself (cash, your reader) — this records the card; {biz()} isn’t paid.</p>
           <button type="button" disabled={busy || !(Number(amt) >= 1) || (via === 'text' && phone.replace(/\D/g, '').length < 10) || (via === 'email' && !/\S+@\S+\.\S+/.test(email))} onClick={sell} className="h-11 w-full rounded-xl bg-slate-900 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40">{busy ? '…' : `Make a $${amt || '0'} gift card`}</button>
         </div>}
         {d.ownCards && <div className="space-y-2 rounded-2xl bg-slate-50 p-3">
