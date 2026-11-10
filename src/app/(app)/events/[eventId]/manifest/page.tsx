@@ -7,8 +7,10 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import {
   doc, collection, query, where, writeBatch, onSnapshot,
-  updateDoc, deleteDoc, addDoc, getDoc, increment, getDocs,
+  updateDoc, deleteDoc, addDoc, getDoc, increment, getDocs, setDoc,
 } from 'firebase/firestore';
+import { eventBlockFor, eventBlockId, readTime, blockTimes } from '@/lib/event-block';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { nanoid } from 'nanoid';
 import { format, parseISO, formatDistanceToNowStrict } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -365,7 +367,7 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
     });
 
     const checkedIn = guests.filter(g => g.checkedIn).length;
-    const when = [event?.date ? format(new Date(event.date), 'EEEE, MMMM d, yyyy') : '', event?.time || '', event?.venue || ''].filter(Boolean).map(esc).join(' · ');
+    const when = [dayText(event?.date, 'EEEE, MMMM d, yyyy'), event?.time || '', event?.venue || ''].filter(Boolean).map(esc).join(' · ');
 
     const body = `
       <h2>Course summary</h2>
@@ -1153,17 +1155,35 @@ export default function EventManifestPage() {
     }
   };
 
+  // The team on the event: each one told in the app when they're added or taken off, and the event's hold on the
+  // calendar (lib/event-block) moved to them, so their usual bookings stay clear while they're at it.
+  const staffChanged = async (ids: string[], told: { userId: string; message: string; type: string }) => {
+    // (An event that's over keeps its hold as it was; a change moves only the times and team, so anything kept on the
+    // hold in the planner stays.)
+    if (!['completed', 'cancelled'].includes(String(event?.status || ''))) {
+      try {
+        const b = eventBlockFor({ ...event, id: eventId, assignedStaffIds: ids }, tenantTimeZone(selectedTenant));
+        if (b) { const ref = doc(firestore!, `tenants/${tenantId}/events`, eventBlockId(eventId)); const there = (await getDoc(ref)).exists(); await (there ? setDoc(ref, blockTimes(b), { merge: true }) : setDoc(ref, b)); }
+      } catch { /* the change stands without its hold */ }
+    }
+    try { const nRef = doc(collection(firestore!, `tenants/${tenantId}/notifications`)); await setDoc(nRef, { id: nRef.id, userId: told.userId, type: told.type, message: told.message, link: `/events/${eventId}/manifest`, eventId, createdAt: new Date().toISOString(), read: false }); } catch { /* the change stands */ }
+  };
+  const whenText = () => { const d = String(event?.date || '').slice(0, 10); const x = /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00`) : null; return x && !isNaN(x.getTime()) ? `${format(x, 'EEE, MMM d')}${event?.time ? `, ${timeText(event.time)}` : ''}` : ''; };
   const handleAddStaff = async () => {
     if (!staffToAdd || !firestore || !tenantId) return;
     const current = event?.assignedStaffIds || [];
     if (current.includes(staffToAdd)) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: [...current, staffToAdd] });
-    setStaffToAdd(''); toast({ title: 'Staff assigned' });
+    const next = [...current, staffToAdd];
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: next });
+    await staffChanged(next, { userId: staffToAdd, type: 'event_assigned', message: `You’re on ${event?.title || event?.name || 'an event'}${whenText() ? `, ${whenText()}` : ''}.` });
+    setStaffToAdd(''); toast({ title: 'Added to the event', description: 'They’re told in the app, and their time is held on the calendar.' });
   };
   const handleRemoveStaff = async (staffId: string) => {
     if (!firestore || !tenantId) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: (event?.assignedStaffIds || []).filter((id: string) => id !== staffId) });
-    toast({ title: 'Staff removed' });
+    const next = (event?.assignedStaffIds || []).filter((id: string) => id !== staffId);
+    await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, eventId), { assignedStaffIds: next });
+    await staffChanged(next, { userId: staffId, type: 'event_unassigned', message: `You’re no longer on ${event?.title || event?.name || 'an event'}${whenText() ? `, ${whenText()}` : ''}.` });
+    toast({ title: 'Taken off the event', description: next.length ? undefined : 'Nobody’s on it now, so it holds everyone’s calendar for its time.' });
   };
   const handleSaveStaffZone = async (staffId: string) => {
     if (!firestore || !tenantId) return;
@@ -1310,8 +1330,16 @@ export default function EventManifestPage() {
               />
               <div>
                 <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground leading-none">{eventDisplayName}</h1>
-                {event.date  && <p className="text-sm text-muted-foreground mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
+                {dayText(event.date, 'EEEE, MMMM d, yyyy') && <p className="text-sm text-muted-foreground mt-1">{dayText(event.date, 'EEEE, MMMM d, yyyy')}</p>}
                 {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">{event.venue}</p>}
+                {(event.time || event.clientName || (Array.isArray(event.quoteLines) && event.quoteLines.length > 0) || Number(event.deposit?.amount) > 0) && (
+                  <div className="mt-3 rounded-xl px-3 py-2.5 space-y-1 text-[13px] max-w-xl" style={{ background: '#f5f5f7', color: '#16171a' }}>
+                    {event.time && <p>Starts at {timeText(event.time)}{Number(event.durationHours) > 0 ? `, for ${event.durationHours} hour${Number(event.durationHours) === 1 ? '' : 's'}` : ''}</p>}
+                    {event.clientName && <p>Client: {[event.clientName, event.clientPhone, event.clientEmail].filter(Boolean).join(', ')}</p>}
+                    {Array.isArray(event.quoteLines) && event.quoteLines.length > 0 && <p>Quoted: {event.quoteLines.map((l: any) => `${l.name}${Number(l.quantity) > 1 ? ` × ${l.quantity}` : ''}`).join(', ')}{Number(event.quoteTotal) > 0 ? ` ($${Number(event.quoteTotal).toFixed(2)})` : ''}</p>}
+                    {Number(event.deposit?.amount) > 0 && <p style={{ color: event.deposit.paid ? '#1f7a4d' : '#b45309' }}>Deposit ${Number(event.deposit.amount).toFixed(2)}, {event.deposit.paid ? 'paid' : 'not paid yet'}</p>}
+                  </div>
+                )}
                 {event.capacity && (
                   <div className="flex items-center gap-2 mt-2">
                     <div className="w-32 h-1.5 rounded-full bg-border overflow-hidden">
@@ -1372,7 +1400,7 @@ export default function EventManifestPage() {
               <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
               <div className="min-w-0">
                 <h1 className="text-2xl font-black uppercase tracking-tighter text-foreground leading-tight">{eventDisplayName}</h1>
-                {event.date  && <p className="text-xs text-muted-foreground mt-0.5">{format(new Date(event.date), 'EEE, MMM d')}</p>}
+                {dayText(event.date, 'EEE, MMM d') && <p className="text-xs text-muted-foreground mt-0.5">{dayText(event.date, 'EEE, MMM d')}</p>}
                 {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{event.venue}</p>}
               </div>
             </div>
@@ -2119,6 +2147,20 @@ export default function EventManifestPage() {
 }
 
 // Small helper used by ordering deadline banner
+/** An event's day as written ("Saturday, December 5"): a day kept as YYYY-MM-DD is read at noon, so it's never shown as
+ *  the day before; one that can't be read shows nothing rather than breaking the page. */
+/** "2pm", "7:30pm" from however the event keeps its time ("14:00", "7:30 PM"). */
+function timeText(t: any): string {
+  const hm = readTime(t); if (!hm) return String(t || '');
+  return `${hm[0] % 12 || 12}${hm[1] ? `:${String(hm[1]).padStart(2, '0')}` : ''}${hm[0] < 12 ? 'am' : 'pm'}`;
+}
+
+function dayText(v: any, fmt: string): string {
+  const s = String(v || '').trim(); if (!s) return '';
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date(s);
+  return isNaN(d.getTime()) ? '' : format(d, fmt);
+}
+
 function isPast(date: Date) {
   return date.getTime() < Date.now();
 }

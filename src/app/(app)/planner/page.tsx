@@ -781,7 +781,8 @@ function PlannerPageContent() {
         const targetStaffIds = e.staffIds || [];
         const isGlobal = targetStaffIds.length === 0 || targetStaffIds.includes('all');
         if (isGlobal) {
-            if (map.has('business')) map.get('business')!.push({ ...e, itemType: 'event' } as any);
+            // An event's own hold (lib/event-block) isn't drawn again in the business column: the event's card is there.
+            if (map.has('business') && !(e as any).isStudioEventBlock) map.get('business')!.push({ ...e, itemType: 'event' } as any);
             if (e.type === 'blocked' && activeView === 'staff') {
                 columns.forEach(col => {
                     if (col.id !== 'business' && map.has(col.id)) map.get(col.id)!.push({ ...e, itemType: 'event', isSecondary: true } as any);

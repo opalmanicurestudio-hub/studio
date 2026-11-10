@@ -250,6 +250,7 @@ function QuoteGeneratorPageInner() {
     const [isAddingClient, setIsAddingClient] = useState(false);
     const [eventName, setEventName] = useState('');
     const [eventStartDate, setEventStartDate] = useState<Date | undefined>(new Date());
+    const [eventStartTime, setEventStartTime] = useState('');
     const [totalHours, setTotalHours] = useState(0);
     const [eventLocation, setEventLocation] = useState({ street: '', city: '', state: '', zip: '', country: '' });
 
@@ -298,6 +299,7 @@ function QuoteGeneratorPageInner() {
         setRoundTripDistance,
         setDepositAmountValue,
         setDepositType,
+        setEventStartTime,
     });
 
     // ── Derived calculations ───────────────────────────────────────────────────
@@ -324,18 +326,24 @@ function QuoteGeneratorPageInner() {
         return depositAmountValue;
     }, [totalQuotePrice, depositType, depositAmountValue]);
 
-    const handleCalculateTravel = () => {
+    // The round trip by road, measured on the map (api/quote/distance): from your business to the event's address and
+    // back. Never guessed: when it can't be measured, the miles are typed by hand.
+    const handleCalculateTravel = async () => {
+        if (!tenantId) return;
         setIsCalculatingTravel(true);
-        setTimeout(() => {
-            setRoundTripDistance(124);
-            setIsCalculatingTravel(false);
-            toast({ title: "Logistics Calculated", description: "Mileage overhead estimated based on current route." });
-        }, 1200);
+        try {
+            const r = await fetch('/api/quote/distance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, to: eventLocation }) });
+            const d = await r.json().catch(() => ({ ok: false }));
+            if (d.ok) { setRoundTripDistance(d.roundTripMiles); toast({ title: `${d.roundTripMiles} miles there and back`, description: d.oneWayMinutes ? `About ${d.oneWayMinutes} minutes each way by road.` : 'Measured by road.' }); }
+            else toast({ variant: 'destructive', title: 'Not measured', description: d.error || 'Type the miles.' });
+        } catch {
+            toast({ variant: 'destructive', title: 'Not measured', description: 'No connection. Type the miles.' });
+        } finally { setIsCalculatingTravel(false); }
     };
 
     const handleSaveQuote = async () => {
         if (!clientId || !eventName || !firestore || !user || !tenantId) {
-            toast({ variant: 'destructive', title: 'Missing Identity', description: 'Please select a client and provide a project label.' });
+            toast({ variant: 'destructive', title: 'A little more first', description: 'Choose a client and give the quote a name.' });
             return;
         }
 
@@ -343,7 +351,9 @@ function QuoteGeneratorPageInner() {
             id: nanoid(),
             clientId,
             eventName,
-            eventDate: eventStartDate?.toISOString(),
+            // The day itself (YYYY-MM-DD), so it's the same day wherever it's read (lib/quote-public), and its start time.
+            eventDate: eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : null,
+            startTime: /^\d{2}:\d{2}$/.test(eventStartTime) ? eventStartTime : null,
             eventLocation: eventLocation,
             lineItems: lineItems,
             travelExpenses: travelAndExpenses,
@@ -363,11 +373,11 @@ function QuoteGeneratorPageInner() {
 
         try {
             await addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'quotes'), quoteData);
-            toast({ title: 'Protocol Saved', description: 'Your quote has been cached as a draft.' });
+            toast({ title: 'Quote saved', description: 'It’s a draft until you send it.' });
             router.push('/quotes');
         } catch (error) {
             console.error("Error saving quote: ", error);
-            toast({ variant: 'destructive', title: 'Critical Error', description: 'There was a problem finalizing the proposal.' });
+            toast({ variant: 'destructive', title: 'Not saved', description: 'Your quote couldn’t be saved. Try again.' });
         }
     };
     
@@ -519,11 +529,11 @@ function QuoteGeneratorPageInner() {
                                 </Card>
                             )}
                             <div className="space-y-3">
-                                <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Project Label</Label>
-                                <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g., THE ANDERSON WEDDING" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
+                                <Label htmlFor="event-name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Name</Label>
+                                <Input id="event-name" value={eventName} onChange={e => setEventName(e.target.value)} placeholder="For example: Spring team day" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                             </div>
                             <div className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Deployment Zone</Label>
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Where</Label>
                                 <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
                                     <Input value={eventLocation.street} onChange={(e) => setEventLocation(prev => ({ ...prev, street: e.target.value }))} placeholder="STREET ADDRESS" className="h-12 rounded-xl border-2 font-bold uppercase text-xs" />
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -535,16 +545,20 @@ function QuoteGeneratorPageInner() {
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Event Timestamp</Label>
-                                    <Input
-                                        type="date"
-                                        value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
-                                        onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
-                                        className="h-14 rounded-2xl border-2 font-black text-lg"
-                                    />
+                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Day and start time</Label>
+                                    <div className="grid grid-cols-[1fr_8rem] gap-2">
+                                        <Input
+                                            type="date"
+                                            value={eventStartDate ? format(eventStartDate, 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => setEventStartDate(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined)}
+                                            className="h-14 rounded-2xl border-2 font-black text-lg"
+                                            aria-label="Day"
+                                        />
+                                        <Input type="time" value={eventStartTime} onChange={(e) => setEventStartTime(e.target.value)} className="h-14 rounded-2xl border-2 font-black text-lg" aria-label="Start time (optional)" />
+                                    </div>
                                 </div>
                                 <div className="space-y-3">
-                                    <Label htmlFor="total-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Total Resource Allocation (Hours)</Label>
+                                    <Label htmlFor="total-hours" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Hours</Label>
                                     <div className="relative">
                                         <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                         <Input id="total-hours" type="number" value={totalHours || ''} onChange={e => setTotalHours(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner" />
@@ -622,7 +636,7 @@ function QuoteGeneratorPageInner() {
                                 <div className="p-8 rounded-[2.5rem] bg-muted/10 border-2 border-border/50 space-y-8 shadow-inner">
                                     <div className="flex flex-col sm:flex-row items-center gap-6">
                                         <div className="flex-1 w-full space-y-3">
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Strategic Round Trip (Miles)</Label>
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Miles there and back</Label>
                                             <div className="relative">
                                                 <Car className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
                                                 <Input type="number" value={roundTripDistance || ''} onChange={e => setRoundTripDistance(Number(e.target.value))} placeholder="0" className="h-14 pl-12 rounded-2xl border-2 font-black text-xl font-mono shadow-inner bg-card" />
@@ -630,19 +644,19 @@ function QuoteGeneratorPageInner() {
                                         </div>
                                         <Button onClick={handleCalculateTravel} disabled={isCalculatingTravel} className="h-14 px-8 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg w-full sm:w-auto">
                                             {isCalculatingTravel ? <Loader className="animate-spin mr-2 h-4 w-4"/> : <Activity className="mr-2 h-4 w-4"/>}
-                                            ANALYZE ROUTE
+                                            Measure by road
                                         </Button>
                                     </div>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                         <div className="space-y-3">
-                                            <Label htmlFor="cost-per-mile" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Landed Rate / Mile</Label>
+                                            <Label htmlFor="cost-per-mile" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cost per mile</Label>
                                             <div className="relative">
                                                 <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
                                                 <Input id="cost-per-mile" type="number" value={costPerMile} onChange={e => setCostPerMile(Number(e.target.value))} className="h-12 pl-10 rounded-xl border-2 font-black font-mono bg-card" />
                                             </div>
                                         </div>
                                         <div className="p-4 rounded-xl bg-card border flex justify-between items-center shadow-sm">
-                                            <span className="text-[9px] font-black uppercase text-muted-foreground">Est. Mileage Cost</span>
+                                            <span className="text-[9px] font-black uppercase text-muted-foreground">Mileage</span>
                                             <span className="text-lg font-black font-mono text-foreground">${(roundTripDistance * costPerMile).toFixed(2)}</span>
                                         </div>
                                     </div>

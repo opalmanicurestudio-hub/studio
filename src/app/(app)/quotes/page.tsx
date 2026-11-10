@@ -24,6 +24,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { quoteDay } from '@/lib/quote-public';
+import { ConvertToEventDialog } from '@/components/quotes/ConvertToEventDialog';
 
 /** The quote's day as the business writes it ("Nov 20, 2026"). Quotes keep either the day or the moment it starts
  *  (lib/quote-public): never parsed by gluing a time onto it, which made an invalid date and broke the page. */
@@ -205,7 +206,7 @@ const QuoteCard = ({
                 )}
                 {quote.status === 'accepted' && !isConverted && (
                   <DropdownMenuItem onClick={() => onConvert(quote)} className="rounded-xl font-bold uppercase text-[10px] tracking-widest h-10 text-emerald-700">
-                    <CalendarCheck className="w-3.5 h-3.5 mr-2" /> Convert to Event
+                    <CalendarCheck className="w-3.5 h-3.5 mr-2" /> Make it an event
                   </DropdownMenuItem>
                 )}
                 {quote.status === 'declined' && (
@@ -587,7 +588,7 @@ const QuoteDetailSheet = ({
               onClick={() => { onConvert(quote); onOpenChange(false); }}
               className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-200 gap-2"
             >
-              <CalendarCheck className="h-4 w-4" /> Convert to Event →
+              <CalendarCheck className="h-4 w-4" /> Make it an event
             </Button>
           )}
           {quote.convertedToEventId && (
@@ -660,96 +661,6 @@ const SendQuoteDialog = ({ open, onOpenChange, quote, onConfirm }: {
 };
 
 // ─── CONVERT TO EVENT DIALOG ──────────────────────────────────────────────────
-const ConvertToEventDialog = ({ open, onOpenChange, quote, clients, tenantId, firestore }: {
-  open: boolean; onOpenChange: (v: boolean) => void;
-  quote: any; clients: any[]; tenantId: string; firestore: any;
-}) => {
-  const router    = useRouter();
-  const { toast } = useToast();
-  const [converting, setConverting] = useState(false);
-  const client = clients.find(c => c.id === quote?.clientId);
-
-  const handleConvert = async () => {
-    if (!firestore || !tenantId || !quote) return;
-    setConverting(true);
-    try {
-      const lineItemSummary = (quote.lineItems || []).map((l: any) => `${l.name} (×${l.quantity})`).join(', ');
-      const eventRef = await addDoc(collection(firestore, `tenants/${tenantId}/studioEvents`), {
-        title: quote.eventName || 'Untitled Event', name: quote.eventName || 'Untitled Event',
-        date: quote.eventDate || '', time: '19:00', venue: quote.venue || '',
-        capacity: quote.partySize ? parseInt(quote.partySize) : null,
-        description: lineItemSummary || null, status: 'upcoming', quoteId: quote.id,
-        eventType: 'other', tenantId, courses: [], menuItems: [], createdAt: new Date().toISOString(),
-      });
-      if (client) {
-        await addDoc(collection(firestore, `tenants/${tenantId}/eventGuests`), {
-          id: nanoid(), eventId: eventRef.id, tenantId,
-          name: client.name, email: client.email || '', phone: client.phone || '',
-          tableNumber: '', seatNumber: '', mealChoiceId: null, mealChoiceName: null,
-          allergies: [], dietaryRestrictions: [], checkedIn: false,
-          source: 'quote_conversion', clientId: client.id, submittedAt: new Date().toISOString(),
-        });
-      }
-      await updateDoc(doc(firestore, `tenants/${tenantId}/quotes`, quote.id), {
-        convertedToEventId: eventRef.id, convertedAt: new Date().toISOString(),
-      });
-      toast({ title: 'Event created!', description: 'Redirecting to manifest…' });
-      onOpenChange(false);
-      router.push(`/events/${eventRef.id}/manifest`);
-    } catch (e) {
-      console.error(e);
-      toast({ variant: 'destructive', title: 'Conversion failed — please try again' });
-    } finally {
-      setConverting(false);
-    }
-  };
-
-  if (!quote) return null;
-  const total = calcTotal(quote);
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-[3rem] border-4 shadow-2xl max-w-md">
-        <DialogHeader className="p-8 pb-4 text-left">
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter flex items-center gap-2">
-            <CalendarCheck className="w-6 h-6 text-emerald-600" /> Convert to Event
-          </DialogTitle>
-          <DialogDescription className="font-bold text-sm text-foreground/80 uppercase tracking-widest opacity-60">
-            Creates a new event pre-filled from this accepted quote.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="px-8 pb-4 space-y-4">
-          <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-200 space-y-3">
-            <div className="space-y-1.5">
-              {[
-                { label: 'Event Title', value: quote.eventName || 'Untitled' },
-                quoteDayText(quote) && { label: 'Date', value: quoteDayText(quote) },
-                quote.venue && { label: 'Venue', value: quote.venue },
-                client && { label: 'First Guest', value: client.name },
-              ].filter(Boolean).map((row: any) => (
-                <div key={row.label} className="flex justify-between items-center">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">{row.label}</p>
-                  <p className="font-bold text-sm text-emerald-800">{row.value}</p>
-                </div>
-              ))}
-              <div className="flex justify-between items-center border-t border-emerald-200 pt-2 mt-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 opacity-70">Quoted Value</p>
-                <p className="font-black font-mono text-emerald-700">{formatCurrency(total)}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <DialogFooter className="px-8 pb-8 flex gap-3">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 font-black uppercase text-[10px] tracking-widest">Cancel</Button>
-          <Button onClick={handleConvert} disabled={converting}
-            className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-200 gap-2">
-            {converting ? <Loader className="w-4 h-4 animate-spin" /> : <><CalendarCheck className="w-4 h-4" /> Create Event →</>}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
 // ─── TEMPLATE EDITOR ──────────────────────────────────────────────────────────
 // Inline editor for a single template's line items + fees.
 // Used in both the "create new" and "edit existing" flows.
@@ -1580,6 +1491,7 @@ export default function QuotesPage() {
       <ConvertToEventDialog
         open={!!convertDialogQuote} onOpenChange={open => !open && setConvertDialogQuote(null)}
         quote={convertDialogQuote} clients={clients || []} tenantId={tenantId || ''} firestore={firestore}
+        total={convertDialogQuote ? calcTotal(convertDialogQuote) : 0} dayText={convertDialogQuote ? quoteDayText(convertDialogQuote) : ''}
       />
 
       <QuoteTemplatesSheet

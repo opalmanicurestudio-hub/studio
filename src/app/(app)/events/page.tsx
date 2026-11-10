@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, setDoc, getDoc } from 'firebase/firestore';
+import { eventBlockFor, eventBlockId, eventDay, blockTimes } from '@/lib/event-block';
+import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useRouter } from 'next/navigation';
@@ -87,6 +89,22 @@ export default function EventsPage() {
     return unsub;
   }, [firestore, tenantId]);
 
+  // Events made before they held their day on the calendar: their holds are written once while this page is open
+  // (lib/event-block), for the ones still to come.
+  const holdsWritten = useRef(false);
+  useEffect(() => {
+    if (holdsWritten.current || loading || !firestore || !tenantId || !selectedTenant) return;
+    holdsWritten.current = true;
+    const tz = tenantTimeZone(selectedTenant);
+    const today = todayIn(tz);
+    // Only where there's no hold yet: one there already (maybe changed in the planner) is left as it is.
+    events.filter((e: any) => !['completed', 'cancelled'].includes(String(e.status || '')) && (eventDay(e, tz) || '') >= today).forEach((e: any) => {
+      const b = eventBlockFor(e, tz); if (!b) return;
+      const ref = doc(firestore, `tenants/${tenantId}/events`, eventBlockId(e.id));
+      void getDoc(ref).then((snap) => (snap.exists() ? undefined : setDoc(ref, b))).catch(() => undefined);
+    });
+  }, [loading, events, firestore, tenantId, selectedTenant]);
+
   const openCreate = () => {
     setEditingEvent(null);
     setForm(BLANK_FORM);
@@ -150,15 +168,31 @@ export default function EventsPage() {
       tenantId,
     };
 
+    // The event held on the calendar for the team on it (lib/event-block), kept in step with its day and time. A block
+    // that can't be written never stops the event being saved.
+    // A hold that isn't there yet is written whole; one that is changes only in its times, team and name, so anything
+    // kept on it in the planner stays.
+    const hold = async (ev: any, isNew: boolean) => {
+      try {
+        const b = eventBlockFor(ev, tenantTimeZone(selectedTenant)); if (!b) return;
+        const ref = doc(firestore, `tenants/${tenantId}/events`, eventBlockId(ev.id));
+        const there = !isNew && (await getDoc(ref)).exists();
+        await (there ? setDoc(ref, blockTimes(b), { merge: true }) : setDoc(ref, b));
+      } catch { /* saved without its hold */ }
+    };
+    // A start time set here is what the event runs to (not the whole day an event made from a quote held).
+    const timeSet = !!editingEvent && String(form.time || '') !== String(editingEvent.time || '');
     try {
       if (editingEvent) {
-        await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, editingEvent.id), data);
+        await updateDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, editingEvent.id), { ...data, ...(timeSet ? { holdAllDay: false } : {}) });
+        await hold({ ...editingEvent, ...data, ...(timeSet ? { holdAllDay: false } : {}), id: editingEvent.id }, false);
         toast({ title: 'Event updated' });
       } else {
         const ref = await addDoc(
           collection(firestore, `tenants/${tenantId}/studioEvents`),
           { ...data, createdAt: new Date().toISOString(), status: 'upcoming', courses: [], menuItems: [] }
         );
+        await hold({ ...data, id: ref.id }, true);
         toast({ title: 'Event created' });
         setIsDialogOpen(false);
         setSaving(false);
@@ -179,6 +213,7 @@ export default function EventsPage() {
     const ok = window.confirm(`Delete "${event.title || event.name}"? This cannot be undone.`);
     if (!ok) return;
     await deleteDoc(doc(firestore, `tenants/${tenantId}/studioEvents`, event.id));
+    try { await deleteDoc(doc(firestore, `tenants/${tenantId}/events`, eventBlockId(event.id))); } catch { /* no hold to let go */ }
     toast({ title: 'Event deleted' });
   };
 
@@ -245,7 +280,7 @@ export default function EventsPage() {
                       {event.date && (
                         <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {format(new Date(event.date), 'MMM d, yyyy')}
+                          {(() => { const v = String(event.date || ''); const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00`) : new Date(v); return isNaN(d.getTime()) ? v : format(d, 'MMM d, yyyy'); })()}
                           {event.time && ` · ${event.time}`}
                         </span>
                       )}
