@@ -151,6 +151,18 @@ const fresh = async (tenant: any = { stripeAccountId: 'acct_biz', stripeChargesE
   await NS.sweepNoShows(db, 't1', new Date());
   const ns = callsOf('pi.create')[0];
   check('a no-show fee is charged on the booking’s account', !!ns && acctOf(ns.opts) === 'acct_biz' && ns.params?.metadata?.kind === 'booth_no_show_fee', { calls: calls.map((c) => c.what) });
+  // Paused: the no-show is flagged, but nothing is charged.
+  await fresh({ stripeAccountId: 'acct_biz', boothNoShowPolicy: { enabled: true, feeCents: 2500 }, accessLocked: true, accessLockedAt: '2026-01-01T00:00:00Z' });
+  await db.doc(`${T}/boothReservations/n2`).set({ id: 'n2', status: 'confirmed', name: 'Lena Cho', boothName: 'Chair 2', startDate: '2026-01-02', endDate: '2026-01-02', stripeCustomerId: 'cus_1', stripePaymentMethodId: 'pm_1', stripeAccountId: 'acct_biz' });
+  await NS.sweepNoShows(db, 't1', new Date());
+  const n2: any = (await db.doc(`${T}/boothReservations/n2`).get()).data();
+  check('a paused business: the no-show is flagged, and no fee is charged', callsOf('pi.create').length === 0 && n2?.status === 'no_show', { calls: calls.map((c) => c.what), status: n2?.status });
+  // Judged on the business's day: a booking that ends "yesterday" in UTC but today in Los Angeles isn't a no-show yet.
+  await fresh({ stripeAccountId: 'acct_biz', boothNoShowPolicy: { enabled: true, feeCents: 2500 }, timezone: 'America/Los_Angeles' });
+  await db.doc(`${T}/boothReservations/n3`).set({ id: 'n3', status: 'confirmed', name: 'Lena Cho', boothName: 'Chair 2', startDate: '2026-03-10', endDate: '2026-03-10', stripeCustomerId: 'cus_1', stripePaymentMethodId: 'pm_1', stripeAccountId: 'acct_biz' });
+  await NS.sweepNoShows(db, 't1', new Date('2026-03-11T04:00:00Z'));
+  const n3: any = (await db.doc(`${T}/boothReservations/n3`).get()).data();
+  check('no-shows are judged on the business’s day (9pm on the day in Los Angeles is still that day)', n3?.status === 'confirmed' && callsOf('pi.create').length === 0, n3?.status);
 
   console.log('A kiosk order on a stay’s card');
   const ks = src('src/app/api/booths/kiosk/route.ts'); const kc = src('src/lib/kiosk-charges.ts');

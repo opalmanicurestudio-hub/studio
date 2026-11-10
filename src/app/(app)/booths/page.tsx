@@ -246,6 +246,7 @@ import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSett
 import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { PrintLink } from '@/components/shared/PrintLink';
+import { settleStay, stayClock, deskZone } from '@/lib/stay-settle';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -2280,38 +2281,9 @@ export default function BoothsPage() {
     }
   };
   const checkOutRes = async (r: any) => {
-    const now = new Date();
-    const updates: any = {
-      status: 'completed',
-      completedAt: now.toISOString(),
-      actualCheckOut: now.toISOString(),
-    };
-    // Settlement only makes sense for hourly stays with a booked window.
-    if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
-      const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
-      // v73 — settle at the rate snapshotted at check-in (falls back to
-      // the current rate only for stays that predate the snapshot).
-      const rate = (r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId));
-      const rules = (boothById.get(r.boothId) as any)?.rental || {}; const GRACE_MS = (Number(rules.graceMinutes) >= 0 ? Number(rules.graceMinutes) : 10) * 60 * 1000; const BLOCK = Math.max(5, Number(rules.blockMinutes) || 15);
-      const diffMs = now.getTime() - bookedEnd.getTime();
-      if (diffMs > GRACE_MS && rate > 0) {
-        const overQuarters = Math.ceil((diffMs - GRACE_MS) / (BLOCK * 60 * 1000));
-        updates.overageMinutes = overQuarters * BLOCK;
-        updates.overageDueCents = Math.round(rate * (overQuarters * BLOCK) / 60);
-        updates.overageStatus = 'due';
-      } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
-        // Left 30+ min early: unused time is recorded as a POTENTIAL
-        // credit — issuing it is the owner's call (v70: discretionary,
-        // per business decision), via the Issue Credit button on the card.
-        const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
-        const creditCents = Math.round(rate * (underQuarters * 15) / 60);
-        if (creditCents >= 100) {
-          updates.unusedMinutes = underQuarters * 15;
-          updates.potentialCreditCents = creditCents;
-          updates.creditDecision = 'pending';
-        }
-      }
-    }
+    // What the stay comes to, on the business's clock and the space's overtime rules (lib/stay-settle). Settled at the
+    // rate snapshotted at check-in (the current rate only for stays that predate the snapshot).
+    const updates: any = settleStay(r, { now: new Date(), timeZone: stayClock(selectedTenant, deskZone()), hourlyCents: r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId), space: boothById.get(r.boothId) });
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates);
     } catch {

@@ -17,6 +17,7 @@ import { contactKey as boothContactKey } from '@/lib/booth-contacts';
 import { buildGuestBook } from '@/lib/guest-book';
 import { PRINT, esc, printPage } from '@/lib/print-style';
 import { PrintLink, openPrint } from '@/components/shared/PrintLink';
+import { settleStay, stayClock, deskZone } from '@/lib/stay-settle';
 
 type OverflowItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
 
@@ -164,39 +165,9 @@ const checkInRes = async (r: any) => {
   };
 
 const checkOutRes = async (r: any) => {
-    const now = new Date();
-    const updates: any = {
-      status: 'completed',
-      completedAt: now.toISOString(),
-      actualCheckOut: now.toISOString(),
-    };
-    // Settlement only makes sense for hourly stays with a booked window.
-    if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
-      const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
-      // v73 — settle at the rate snapshotted at check-in (falls back to
-      // the current rate only for stays that predate the snapshot).
-      const rate = (r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId));
-      // Grace and block size per space (a rented room / sauna sets its own; booths keep 10 min grace, 15 min blocks).
-      const rules = (boothById.get(r.boothId) as any)?.rental || {}; const GRACE_MS = (Number(rules.graceMinutes) >= 0 ? Number(rules.graceMinutes) : 10) * 60 * 1000; const BLOCK = Math.max(5, Number(rules.blockMinutes) || 15);
-      const diffMs = now.getTime() - bookedEnd.getTime();
-      if (diffMs > GRACE_MS && rate > 0) {
-        const overQuarters = Math.ceil((diffMs - GRACE_MS) / (BLOCK * 60 * 1000));
-        updates.overageMinutes = overQuarters * BLOCK;
-        updates.overageDueCents = Math.round(rate * (overQuarters * BLOCK) / 60);
-        updates.overageStatus = 'due';
-      } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
-        // Left 30+ min early: unused time is recorded as a POTENTIAL
-        // credit — issuing it is the owner's call (v70: discretionary,
-        // per business decision), via the Issue Credit button on the card.
-        const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
-        const creditCents = Math.round(rate * (underQuarters * 15) / 60);
-        if (creditCents >= 100) {
-          updates.unusedMinutes = underQuarters * 15;
-          updates.potentialCreditCents = creditCents;
-          updates.creditDecision = 'pending';
-        }
-      }
-    }
+    // What the stay comes to, on the business's clock and the space's overtime rules (lib/stay-settle). Settled at the
+    // rate snapshotted at check-in (the current rate only for stays that predate the snapshot).
+    const updates: any = settleStay(r, { now: new Date(), timeZone: stayClock(tenant, deskZone()), hourlyCents: r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId), space: boothById.get(r.boothId) });
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates);
     } catch {
@@ -474,6 +445,9 @@ const openReschedule = (r: any) => {
                         In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                         {r.bookingType === 'hourly' && r.endTime ? ` · booked until ${r.endTime}` : ''}
                       </p>
+                    )}
+                    {r.overtimeUnchecked && (
+                      <p className="text-[12px] font-medium normal-case text-[#b45309]">Extra time wasn’t checked at check-out, because there was no clock to go by. Set your time zone in Settings, and check this stay by hand.</p>
                     )}
                     {r.overageStatus === 'due' && (
                       <p className="text-[10px] font-black uppercase text-red-600">Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>

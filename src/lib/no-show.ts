@@ -3,12 +3,14 @@
 // Nightly no-show sweep for day/hourly booth reservations.
 //
 // Trigger (deliberately conservative): a reservation that was CONFIRMED (paid)
-// but never checked in, whose booked end date is strictly in the past (UTC), is
-// swept to 'no_show'. Because the nightly cron runs in the small hours, "endDate
-// < today (UTC)" means the whole booked day is over everywhere in the US before
-// anyone is flagged — so a late arrival or an hourly wall-clock/timezone quirk
-// can never trip it. A booking is only ever a no-show once its window is fully,
-// unambiguously gone.
+// but never checked in, whose booked end date is strictly before the business's
+// own today (lib/tenant-time), is swept to 'no_show'. The whole booked day is
+// over on the business's clock before anyone is flagged, so a late arrival can
+// never trip it, wherever the server is. A booking is only ever a no-show once
+// its window is fully, unambiguously gone.
+//
+// A paused or cancelled business (lib/tenant-access) collects nothing: its
+// no-shows are flagged for follow-up, and no fee is charged.
 //
 // Fee (owner-controlled, default OFF): tenants/{id}.boothNoShowPolicy = { enabled,
 // feeCents }. When enabled with a fee AND a card is on file, the fee is charged
@@ -38,6 +40,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from './audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { boothNoShowPolicyOf } from '@/lib/booth-no-show';
+import { accessLockOf } from '@/lib/tenant-access';
+import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 type Db = any;
 
@@ -243,18 +247,19 @@ async function settleOne(db: Db, tenantId: string, ref: any, o: { todayStr: stri
  */
 export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Date()): Promise<NoShowCounts> {
   const counts: NoShowCounts = { swept: 0, feesCharged: 0, feesDeclined: 0, feesNoCard: 0, feeCentsCharged: 0, feesPending: 0 };
-  const todayStr = now.toISOString().slice(0, 10);
+  let todayStr = now.toISOString().slice(0, 10);
   const nowIso = now.toISOString();
 
-  // Owner policy — default OFF (flag only), fee 0.
+  // Owner policy — default OFF (flag only), fee 0. Never a fee while the business is paused or cancelled.
   let policyEnabled = false;
   let feeCents = 0;
   try {
     const t = (await db.doc(`tenants/${tenantId}`).get()).data() as any;
     const p = boothNoShowPolicyOf(t);   // its own field (lib/booth-no-show), not the booking policy's words
-    policyEnabled = p.enabled;
+    policyEnabled = p.enabled && !accessLockOf(t, now.getTime()).locked;
     feeCents = p.feeCents;
-  } catch { /* no tenant doc → treat as flag-only */ }
+    todayStr = todayIn(tenantTimeZone(t), now);
+  } catch { /* no tenant doc → treat as flag-only, on the server's day */ }
 
   // Confirmed-but-not-checked-in reservations only. (checked_in / completed /
   // cancelled / refunded / pending_payment / conflict are all excluded by the
@@ -273,7 +278,7 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
   for (const doc of snap.docs) {
     try {
       const r = doc.data() as any;
-      // Elapsed only when the booked end date is strictly before today (UTC).
+      // Elapsed only when the booked end date is strictly before the business's today.
       const endDate = String(r.endDate || r.startDate || '').slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) continue;
       if (!(endDate < todayStr)) continue;

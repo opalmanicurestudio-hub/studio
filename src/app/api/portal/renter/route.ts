@@ -86,6 +86,7 @@ import { resolveOffers, offersFor, offerAllows, offerBlocked, renterOfferLines, 
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { nextTermEnd } from '@/lib/lease-builder';
 import { credentialsAfterUpload } from '@/lib/compliance';
+import { settleStay, stayClock } from '@/lib/stay-settle';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -2380,42 +2381,20 @@ export async function POST(req: NextRequest) {
       if (r.status !== 'checked_in') {
         return NextResponse.json({ ok: false, error: 'This booking isn’t checked in.' }, { status: 409 });
       }
-      // Settlement math — mirrors owner-side checkOutRes exactly.
+      // What the stay comes to, by the same sum as the desk's Check out (lib/stay-settle): the business's clock, and the
+      // space's own grace and overtime block. The possible credit is the owner's to give, never automatic. A read that
+      // fails never stops the check-out: with no space, the usual rules; with no business clock, nothing is billed.
       const now = new Date();
-      const updates: any = {
-        status: 'completed',
-        completedAt: now.toISOString(),
-        actualCheckOut: now.toISOString(),
-        selfCheckOut: true,
-      };
-      if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
-        const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
-        let rate = r.settleHourlyCents > 0 ? r.settleHourlyCents : 0;
-        if (!rate && r.boothId) {
-          const b = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
-          rate = b.exists ? hourlyCentsOf(b.data()) : 0;
-        }
-        const GRACE_MS = 10 * 60 * 1000;
-        const diffMs = now.getTime() - bookedEnd.getTime();
-        if (diffMs > GRACE_MS && rate > 0) {
-          const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
-          updates.overageMinutes = overQuarters * 15;
-          updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
-          updates.overageStatus = 'due';
-        } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
-          const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
-          const creditCents = Math.round(rate * (underQuarters * 15) / 60);
-          if (creditCents >= 100) {
-            updates.unusedMinutes = underQuarters * 15;
-            updates.potentialCreditCents = creditCents;
-            updates.creditDecision = 'pending'; // owner approves — never auto-issued
-          }
-        }
-      }
+      const [space, tSnapTz] = await Promise.all([
+        r.boothId ? db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get().then((s: any) => s.data() || null).catch(() => null) : Promise.resolve(null),
+        db.doc(`tenants/${tenantId}`).get().then((s: any) => s.data() || null).catch(() => null),
+      ]) as [any, any];
+      const updates: any = { ...settleStay(r, { now, timeZone: stayClock(tSnapTz), hourlyCents: r.settleHourlyCents > 0 ? r.settleHourlyCents : (space ? hourlyCentsOf(space) : 0), space }), selfCheckOut: true };
       await ref.set(updates, { merge: true });
       const bits: string[] = [];
       if (updates.overageDueCents) bits.push(`$${(updates.overageDueCents / 100).toFixed(2)} overage due (${updates.overageMinutes} min)`);
       if (updates.potentialCreditCents) bits.push(`$${(updates.potentialCreditCents / 100).toFixed(2)} potential credit pending review`);
+      if (updates.overtimeUnchecked) bits.push('any extra time wasn’t checked, because the business’s time zone isn’t set (Settings) or couldn’t be read');
       await logAuditAdmin(db, tenantId, {
         action: 'booth.renter_checked_out',
         targetType: 'boothReservation', targetId: reservationId,
@@ -2423,7 +2402,7 @@ export async function POST(req: NextRequest) {
         amount: updates.overageDueCents ? updates.overageDueCents / 100 : undefined,
         actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
       });
-      if (updates.overageDueCents || updates.potentialCreditCents) {
+      if (updates.overageDueCents || updates.potentialCreditCents || updates.overtimeUnchecked) {
         const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await notifRef.set({
           id: notifRef.id, userId: null, read: false, createdAt: now.toISOString(),

@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { printLinkValid, printLinkExpired } from '@/lib/print-link';
 import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
+import { stayReceipt } from '@/lib/stay-receipt';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -45,8 +46,10 @@ function buildReceiptHtml(data: {
   paymentMethod: string;
   paymentRef:    string;
   notes:         string;
+  paidState?:    'paid' | 'due' | 'unpaid' | 'unrecorded';
+  depositOnly?:  boolean;
 }): string {
-  const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmt = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const rows = data.lineItems.map(li => `
     <tr>
       <td>${esc(li.description)}</td>
@@ -107,7 +110,7 @@ function buildReceiptHtml(data: {
     </div>
     <div class="r">
       <p class="lbl">Status</p>
-      <span class="pill ok">Paid</span>
+      ${data.paidState === 'due' ? '<span class="pill warn">Balance due</span>' : data.paidState === 'unpaid' ? '<span class="pill warn">Payment due</span>' : data.paidState === 'unrecorded' ? `<span class="pill">${data.depositOnly ? 'Deposit paid' : 'Not recorded'}</span>` : '<span class="pill ok">Paid</span>'}
     </div>
   </div>
 
@@ -161,7 +164,7 @@ export async function GET(req: NextRequest) {
     if (!tenantSnap.exists) return new NextResponse('Not found.', { status: 404 });
     const tenant = tenantSnap.data() as any;
 
-    const studioName    = tenant.name || tenant.businessName || 'Studio';
+    const studioName    = tenant.name || tenant.businessName || 'Business';
     const studioAddress = [
       tenant.address?.street || tenant.address?.line1,
       tenant.address?.city,
@@ -182,9 +185,9 @@ export async function GET(req: NextRequest) {
         return new NextResponse('Receipt only available for confirmed reservations.', { status: 400 });
       }
 
-      const amountDollars = (r.amountCents || 0) / 100;
-      const numDays       = r.numDays || 1;
-      const dayRate       = amountDollars / numDays;
+      // What was booked in its own terms (hours, a slot or days), the discount and credit, the deposit and balance, and
+      // the extra time and charges taken afterwards; the total is what's actually been paid (lib/stay-receipt).
+      const rc = stayReceipt(r);
 
       receiptData = {
         receiptNumber:  `RES-${id.slice(-8).toUpperCase()}`,
@@ -196,15 +199,14 @@ export async function GET(req: NextRequest) {
         renterName:     r.name || 'Guest',
         renterBusiness: '',
         spaceName:      r.boothName || 'Space',
-        periodLabel:    r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`,
-        lineItems: [{
-          description:   `Space rental — ${r.boothName || 'Space'} (${numDays} day${numDays === 1 ? '' : 's'} × ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(dayRate)}/day)`,
-          amountDollars,
-        }],
-        totalDollars:   amountDollars,
-        paymentMethod:  'Card (Stripe)',
+        periodLabel:    rc.periodLabel,
+        lineItems:      rc.lines.map((l) => ({ description: l.description, amountDollars: l.amountCents / 100 })),
+        totalDollars:   rc.paidCents / 100,
+        paymentMethod:  rc.method,
         paymentRef:     r.stripePaymentIntentId || '',
-        notes:          '',
+        notes:          rc.note,
+        paidState:      rc.state,
+        depositOnly:    rc.depositOnly,
       };
 
     } else if (type === 'ledger') {
@@ -237,7 +239,7 @@ export async function GET(req: NextRequest) {
         renterBusiness,
         spaceName:      t.boothName || t.description?.split('—')[1]?.trim() || 'Space',
         periodLabel:    t.periodStart && t.periodEnd ? `${t.periodStart} – ${t.periodEnd}` : (t.date || '').slice(0, 10),
-        lineItems:      (t.lineItems || [{ description: t.description || t.category || 'Booth rent', amountDollars }])
+        lineItems:      (t.lineItems || [{ description: t.description || t.category || 'Rent', amountDollars }])
           .map((li: any) => ({ description: li.description, amountDollars: li.amountDollars ?? (li.amountCents || 0) / 100 })),
         totalDollars:   amountDollars,
         paymentMethod:  t.paymentMethod || 'On file',
