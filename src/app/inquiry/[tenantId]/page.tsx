@@ -1,981 +1,405 @@
 'use client';
+// src/app/inquiry/[tenantId]/page.tsx — ASK FOR A QUOTE: the public form someone planning an event fills in, in six
+// short steps (about you, the event, what you'd like, where and when, budget and timing, anything else). Saved through
+// the server (api/inquiry), which checks and tidies every answer and names and prices services from the business's
+// own list. Inspiration pictures go up through api/inquiry/upload-image. No sign-in.
 
-/**
- * Public Quote Inquiry Form
- * Route: src/app/inquiry/[tenantId]/page.tsx
- *
- * Standalone Firebase — no auth required.
- * Writes to: tenants/{tenantId}/quoteRequests/{id}
- */
-
-import { guestLogo } from '@/lib/brand';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { initializeApp, getApps } from 'firebase/app';
-import {
-    getFirestore, doc, getDoc, collection, getDocs,
-    query, where,
-} from 'firebase/firestore';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-    ChevronRight, ChevronLeft, Check, Loader, AlertTriangle,
-    User, Mail, Phone, Calendar, MapPin, Users, DollarSign,
-    Scissors, Sparkles, Heart, Clock, MessageSquare, Star,
-    CheckCircle2, ArrowRight, Building, Car, Plane, Upload,
-    Camera, Music, Palette, Coffee, X, Gift, Image as ImageIcon,
-    Home, ExternalLink,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React, { useEffect, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { guestLogo } from '@/lib/brand';
+import { brandColor } from '@/lib/studio-page';
 import { INQUIRY_EVENT_TYPES, INQUIRY_BUDGETS, INQUIRY_TIMELINES, INQUIRY_HEARD_FROM } from '@/lib/inquiry-intake';
 
-// ─── Firebase ─────────────────────────────────────────────────────────────────
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+
 const getDb = () => {
-    if (getApps().length === 0) {
-        initializeApp({
-            apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-            authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-            projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-            storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-            messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-            appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-        });
-    }
-    return getFirestore();
+  if (getApps().length === 0) {
+    initializeApp({
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY, authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET, messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID, appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    });
+  }
+  return getFirestore();
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 type Step = 'contact' | 'event' | 'services' | 'logistics' | 'budget' | 'final' | 'done';
 const STEPS: Step[] = ['contact', 'event', 'services', 'logistics', 'budget', 'final'];
+const STEP_LABEL: Record<Step, string> = { contact: 'About you', event: 'The event', services: 'What you’d like', logistics: 'Where and when', budget: 'Budget and timing', final: 'Anything else', done: '' };
 
-const STEP_META: Record<Step, { title: string; subtitle: string }> = {
-    contact:   { title: 'About You',         subtitle: 'How we reach you' },
-    event:     { title: 'Your Event',         subtitle: 'Tell us what you\'re planning' },
-    services:  { title: 'What You Need',      subtitle: 'Services of interest' },
-    logistics: { title: 'Location & Travel',  subtitle: 'Where and how' },
-    budget:    { title: 'Investment',         subtitle: 'Budget & timeline' },
-    final:     { title: 'Final Details',      subtitle: 'Anything else we should know' },
-    done:      { title: 'Submitted!',         subtitle: '' },
-};
-
-// Options in words that fit any business (lib/inquiry-intake keeps the list the server checks against).
-const EVENT_ICON: Record<string, any> = { celebration: Star, wedding: Heart, corporate: Building, shoot: Camera, class: Users, other: Palette };
-const EVENT_TYPES = INQUIRY_EVENT_TYPES.map((e) => ({ ...e, icon: EVENT_ICON[e.id] || Palette }));
-const BUDGET_RANGES = INQUIRY_BUDGETS;
-const TIMELINE_OPTIONS = INQUIRY_TIMELINES;
-const REFERRAL_SOURCES = INQUIRY_HEARD_FROM;
-
-const CONTACT_METHODS = [
-    { id: 'email', label: 'Email' },
-    { id: 'phone', label: 'A call' },
-    { id: 'text',  label: 'A text' },
+const CONTACT_METHODS = [{ id: 'email', label: 'Email' }, { id: 'phone', label: 'A call' }, { id: 'text', label: 'A text' }];
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const TIME_SLOTS = ['Morning (9am–12pm)', 'Afternoon (12pm–5pm)', 'Evening (5pm–8pm)', 'Anytime'];
+const PLACES = (business: string) => [
+  { id: 'at_business', label: `At ${business}` }, { id: 'on_site', label: 'At my place or venue' },
+  { id: 'destination', label: 'Somewhere farther away' }, { id: 'unsure', label: 'Not sure yet' },
 ];
 
-// FIX: Pre-filled day/time options for "best time to reach"
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const TIME_SLOTS = ['Morning (9am–12pm)', 'Afternoon (12pm–5pm)', 'Evening (5pm–8pm)', 'Anytime'];
+const input = 'mt-1.5 h-[52px] w-full min-w-0 rounded-2xl border border-[#ececee] bg-white px-4 text-[16px] text-[#16171a] outline-none focus:border-[#16171a] focus:ring-2 focus:ring-[#16171a]/20 aria-[invalid=true]:focus:ring-[#b45309]/50 placeholder:text-[#6d7075] scroll-mt-28 scroll-mb-28';
+const ring = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
-const ProgressBar = ({ current, total }: { current: number; total: number }) => (
-    <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden">
-        <motion.div
-            className="h-full bg-white rounded-full"
-            initial={{ width: 0 }}
-            animate={{ width: `${((current + 1) / total) * 100}%` }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-        />
+/** A labeled field, with its problem (if any) read out with it. */
+function Field({ label, hint, error, id, children }: { label: string; hint?: string; error?: string; id: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-[14.5px] font-medium" style={{ color: INK }}>{label}</label>
+      {children}
+      {hint && !error && <p className="mt-1.5 text-[13.5px]" style={{ color: MUTED }}>{hint}</p>}
+      {error && <p id={`${id}-err`} role="alert" className="mt-1.5 text-[13.5px] font-medium" style={{ color: AMBER }}>{error}</p>}
     </div>
-);
+  );
+}
 
-// ─── Choice pill ──────────────────────────────────────────────────────────────
-const Pill = ({ selected, onClick, children, className }: {
-    selected: boolean; onClick: () => void; children: React.ReactNode; className?: string;
-}) => (
-    <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={onClick}
-        type="button"
-        className={cn(
-            'relative px-4 py-3 rounded-2xl border-2 text-left transition-all duration-150 font-bold text-sm',
-            selected
-                ? 'border-slate-900 bg-slate-900 text-white shadow-lg'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300',
-            className
-        )}
-    >
-        {selected && (
-            <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-white flex items-center justify-center shrink-0">
-                <Check className="w-2.5 h-2.5 text-slate-900" />
-            </span>
-        )}
-        {children}
-    </motion.button>
-);
+/** A choice to tap: one of a group (radio) or one of many (checkbox). */
+function Choice({ on, onClick, children, multi, className = '', label }: { on: boolean; onClick: () => void; children: React.ReactNode; multi?: boolean; className?: string; label?: string }) {
+  return (
+    <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={on} aria-label={label} onClick={onClick}
+      className={`min-h-[48px] rounded-2xl px-4 py-2.5 text-left text-[15px] font-medium transition-colors ${ring} ${className}`}
+      style={on ? { background: INK, color: '#fff', border: `1px solid ${INK}` } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>
+      {children}
+    </button>
+  );
+}
 
-// ─── Field wrapper ────────────────────────────────────────────────────────────
-const Field = ({ label, error, hint, children }: {
-    label: string; error?: string; hint?: string; children: React.ReactNode;
-}) => (
-    <div className="space-y-2">
-        <label className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{label}</label>
-        {children}
-        {hint && !error && <p className="text-[9px] font-bold text-slate-400">{hint}</p>}
-        {error && <p className="text-[9px] font-bold text-red-500">{error}</p>}
+const MAX_PHOTOS = 8;   // what the server keeps (lib/inquiry-intake)
+function Uploader({ tenantId, value, onChange, onBusy }: { tenantId: string; value: string[]; onChange: React.Dispatch<React.SetStateAction<string[]>>; onBusy: (b: boolean) => void }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const ref = useRef<HTMLInputElement>(null);
+  const add = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true); onBusy(true); setErr(''); const got: string[] = [];
+    for (const f of Array.from(files)) {
+      if (value.length + got.length >= MAX_PHOTOS) { setErr(`Up to ${MAX_PHOTOS} pictures.`); break; }
+      if (!f.type.startsWith('image/')) continue;
+      if (f.size > 10 * 1024 * 1024) { setErr(`${f.name} is larger than 10 MB.`); continue; }
+      const fd = new FormData(); fd.append('file', f); fd.append('tenantId', tenantId);
+      try {
+        const r = await fetch('/api/inquiry/upload-image', { method: 'POST', body: fd }); const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.url) { setErr(d.error || 'That picture didn’t upload. Please try again.'); continue; }
+        got.push(d.url);
+      } catch { setErr('No connection. Check your signal and try again.'); }
+    }
+    if (got.length) onChange((prev) => [...prev, ...got]);
+    setBusy(false); onBusy(false); if (ref.current) ref.current.value = '';
+  };
+  return (
+    <div className="mt-1.5 space-y-3">
+      <input ref={ref} id="inq-photos" type="file" multiple accept="image/*" tabIndex={-1} className="sr-only" onChange={(e) => add(e.target.files)} />
+      {value.length < MAX_PHOTOS && <button type="button" disabled={busy} onClick={() => ref.current?.click()} onDrop={(e) => { e.preventDefault(); add(e.dataTransfer.files); }} onDragOver={(e) => e.preventDefault()}
+        className={`flex w-full flex-col items-center justify-center gap-1 rounded-2xl border border-dashed bg-white px-4 py-6 text-center ${ring}`} style={{ borderColor: '#c9cbcf' }}>
+        <span className="text-[15px] font-medium" style={{ color: INK }}>{busy ? 'Uploading…' : 'Add pictures'}</span>
+        <span className="text-[13px]" style={{ color: MUTED }}>Up to {MAX_PHOTOS} photos, 10 MB each</span>
+      </button>}
+      {err && <p role="alert" className="text-[13.5px] font-medium" style={{ color: AMBER }}>{err}</p>}
+      {value.length > 0 && <ul className="grid grid-cols-3 gap-2">{value.map((u, i) => (
+        <li key={u} className="relative overflow-hidden rounded-xl border" style={{ borderColor: LINE }}>
+          <img src={u} alt={`Picture ${i + 1}`} className="aspect-square w-full object-cover" />
+          <button type="button" onClick={() => onChange((prev) => prev.filter((x) => x !== u))} aria-label={`Remove picture ${i + 1}`} className={`absolute bottom-1 right-1 min-h-[44px] rounded-full bg-white/95 px-3 text-[13px] font-medium ${ring}`} style={{ color: INK }}>Remove</button>
+        </li>))}</ul>}
     </div>
-);
+  );
+}
 
-const FieldInput = ({ error, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { error?: string }) => (
-    <input
-        {...props}
-        className={cn(
-            'w-full rounded-2xl border-2 px-4 py-3.5 text-sm font-bold text-slate-800 bg-white outline-none transition-all',
-            'placeholder:text-slate-300 focus:border-slate-400',
-            error ? 'border-red-300 bg-red-50' : 'border-slate-200',
-            props.className
-        )}
-    />
-);
-
-const FieldTextarea = ({ error, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { error?: string }) => (
-    <textarea
-        {...props}
-        className={cn(
-            'w-full rounded-2xl border-2 px-4 py-3.5 text-sm font-bold text-slate-800 bg-white outline-none transition-all resize-none',
-            'placeholder:text-slate-300 focus:border-slate-400',
-            error ? 'border-red-300 bg-red-50' : 'border-slate-200',
-            props.className
-        )}
-    />
-);
-
-// ─── Image uploader ───────────────────────────────────────────────────────────
-// FIX: Uses /api/inquiry/upload-image server route instead of direct Storage
-// so unauthenticated clients can upload without hitting Storage security rules.
-const ImageUploader = ({ tenantId, onUploaded }: { tenantId: string; onUploaded: (urls: string[]) => void }) => {
-    const [uploading,   setUploading]   = useState(false);
-    const [uploaded,    setUploaded]    = useState<string[]>([]);
-    const [uploadError, setUploadError] = useState('');
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const handleFiles = async (files: FileList | null) => {
-        if (!files || files.length === 0) return;
-        setUploading(true);
-        setUploadError('');
-        const urls: string[] = [];
-        try {
-            for (const file of Array.from(files)) {
-                if (!file.type.startsWith('image/')) continue;
-                if (file.size > 10 * 1024 * 1024) {
-                    setUploadError(`${file.name} is too large (max 10MB)`);
-                    continue;
-                }
-                const fd = new FormData();
-                fd.append('file', file);
-                fd.append('tenantId', tenantId);
-                const res = await fetch('/api/inquiry/upload-image', { method: 'POST', body: fd });
-                if (!res.ok) {
-                    const err = await res.json().catch(() => ({}));
-                    setUploadError(err.error || 'Upload failed — please try again');
-                    continue;
-                }
-                const { url } = await res.json();
-                if (url) urls.push(url);
-            }
-            if (urls.length > 0) {
-                const newUploaded = [...uploaded, ...urls];
-                setUploaded(newUploaded);
-                onUploaded(newUploaded);
-            }
-        } catch (e) {
-            console.error('Upload error:', e);
-            setUploadError('Upload failed — please try again');
-        } finally {
-            setUploading(false);
-        }
-    };
-
-    const removeImage = (url: string) => {
-        const updated = uploaded.filter(u => u !== url);
-        setUploaded(updated);
-        onUploaded(updated);
-    };
-
-    return (
-        <div className="space-y-3">
-            <div
-                onClick={() => fileInputRef.current?.click()}
-                onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-                onDragOver={e => e.preventDefault()}
-                className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-all"
-            >
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    className="hidden"
-                    onChange={e => handleFiles(e.target.files)}
-                />
-                {uploading ? (
-                    <div className="flex flex-col items-center gap-2">
-                        <Loader className="w-6 h-6 animate-spin text-slate-400" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Uploading...</p>
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center gap-2">
-                        <Upload className="w-6 h-6 text-slate-300" />
-                        <p className="text-xs font-bold text-slate-500">Tap to upload or drag & drop</p>
-                        <p className="text-[9px] font-bold text-slate-300 uppercase">PNG, JPG, WEBP up to 10MB — multiple allowed</p>
-                    </div>
-                )}
-                {uploadError && (
-                    <p className="text-[10px] font-bold text-red-500 mt-2">{uploadError}</p>
-                )}
-            </div>
-            {uploaded.length > 0 && (
-                <div className="grid grid-cols-3 gap-2">
-                    {uploaded.map((url, i) => (
-                        <div key={i} className="relative aspect-square rounded-xl overflow-hidden border-2 border-slate-200 group">
-                            <img src={url} alt="" className="w-full h-full object-cover" />
-                            <button
-                                type="button"
-                                onClick={() => removeImage(url)}
-                                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// ─── Main page ────────────────────────────────────────────────────────────────
 export default function QuoteInquiryPage() {
-    const params   = useParams();
-    const router   = useRouter();
-    const tenantId = params.tenantId as string;
+  const { tenantId } = useParams() as { tenantId: string };
+  const [tenant, setTenant] = useState<any>(null);
+  const [services, setServices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState<Step>('contact');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const heading = useRef<HTMLHeadingElement | null>(null);
 
-    const [tenant,      setTenant]      = useState<any>(null);
-    const [services,    setServices]    = useState<any[]>([]);
-    const [dataLoading, setDataLoading] = useState(true);
-    const [step,        setStep]        = useState<Step>('contact');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitError, setSubmitError] = useState('');
-    const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const [firstName, setFirstName] = useState(''); const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState(''); const [phone, setPhone] = useState('');
+  const [preferredContact, setPreferredContact] = useState('email');
+  const [bestDays, setBestDays] = useState<string[]>([]); const [bestTimeSlot, setBestTimeSlot] = useState('');
+  const [eventType, setEventType] = useState(''); const [eventName, setEventName] = useState('');
+  const [eventDate, setEventDate] = useState(''); const [eventDate2, setEventDate2] = useState('');
+  const [guestCount, setGuestCount] = useState(''); const [partySize, setPartySize] = useState('');
+  const [picked, setPicked] = useState<string[]>([]); const [customServiceNote, setCustomServiceNote] = useState('');
+  const [venueType, setVenueType] = useState(''); const [venueName, setVenueName] = useState(''); const [venueStreet, setVenueStreet] = useState('');
+  const [venueCity, setVenueCity] = useState(''); const [venueState, setVenueState] = useState(''); const [venueZip, setVenueZip] = useState('');
+  const [startTime, setStartTime] = useState(''); const [endTime, setEndTime] = useState('');
+  const [budgetRange, setBudgetRange] = useState(''); const [timeline, setTimeline] = useState(''); const [hasDeposit, setHasDeposit] = useState<boolean | null>(null);
+  const [referralSource, setReferralSource] = useState(''); const [referralCode, setReferralCode] = useState('');
+  const [specialRequests, setSpecialRequests] = useState(''); const [photos, setPhotos] = useState<string[]>([]); const [uploading, setUploading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [cfHp, setCfHp] = useState('');   // a field only robots fill in (api/inquiry drops those)
+  const startedAt = useRef(Date.now());
 
-    // ── Contact ────────────────────────────────────────────────────────────────
-    const [firstName,        setFirstName]        = useState('');
-    const [lastName,         setLastName]         = useState('');
-    const [email,            setEmail]            = useState('');
-    const [phone,            setPhone]            = useState('');
-    const [preferredContact, setPreferredContact] = useState('email');
-    // FIX: structured best-time selection
-    const [bestDays,         setBestDays]         = useState<string[]>([]);
-    const [bestTimeSlot,     setBestTimeSlot]     = useState('');
+  useEffect(() => {
+    if (!tenantId) return;
+    (async () => {
+      try {
+        const db = getDb();
+        const t = await getDoc(doc(db, `tenants/${tenantId}`)); if (t.exists()) setTenant(t.data());
+        const s = await getDocs(collection(db, `tenants/${tenantId}/services`));
+        setServices(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.type !== 'addon' && x.status !== 'archived')
+          .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))));
+      } catch (e) { console.error(e); } finally { setLoading(false); }
+    })();
+  }, [tenantId]);
+  useEffect(() => { window.scrollTo({ top: 0 }); heading.current?.focus({ preventScroll: true }); }, [step]);
+  /** A problem goes away as soon as that answer is being fixed (it's all checked again on Continue). */
+  const fix = (k: string) => { setSendError(''); setErrors((e) => { if (!e[k]) return e; const n = { ...e }; delete n[k]; return n; }); };
+  /** What an answer's input carries: whether it has a problem, and where that problem is said. */
+  const err = (k: string, id: string) => ({ 'aria-invalid': !!errors[k], 'aria-describedby': errors[k] ? `${id}-err` : undefined, style: errors[k] ? { borderColor: AMBER } : undefined });
+  const todayLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
 
-    // ── Event ──────────────────────────────────────────────────────────────────
-    const [eventType,  setEventType]  = useState('');
-    const [eventDate,  setEventDate]  = useState('');
-    const [eventDate2, setEventDate2] = useState('');
-    const [eventName,  setEventName]  = useState('');
-    const [guestCount, setGuestCount] = useState('');
-    const [partySize,  setPartySize]  = useState('');
+  const accent = brandColor(tenant);
+  const logo = guestLogo(tenant);
+  const business = tenant?.name || tenant?.businessName || 'the business';
+  const at = STEPS.indexOf(step);
 
-    // ── Services ───────────────────────────────────────────────────────────────
-    const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-    const [customServiceNote,  setCustomServiceNote]  = useState('');
+  const check = (): boolean => {
+    const e: Record<string, string> = {};
+    if (step === 'contact') {
+      if (!firstName.trim()) e.firstName = 'Add your first name.';
+      if (!lastName.trim()) e.lastName = 'Add your last name.';
+      if (!/^\S+@\S+\.\S+$/.test(email.trim())) e.email = email.trim() ? 'Check your email address.' : 'Add your email.';
+      if (!phone.trim()) e.phone = 'Add your phone number.';
+    }
+    if (step === 'event') {
+      if (!eventType) e.eventType = 'Choose what kind of event it is.';
+      if (!eventDate) e.eventDate = 'Add the date you have in mind.';
+      else if (eventDate < todayLocal) e.eventDate = 'Choose a date that hasn’t passed.';
+      if (eventDate2 && eventDate2 < todayLocal) e.eventDate2 = 'Choose a date that hasn’t passed.';
+      if (!guestCount) e.guestCount = 'Add roughly how many people.';
+    }
+    if (step === 'services' && !picked.length && !customServiceNote.trim()) e.services = 'Choose something, or describe what you’d like.';
+    if (step === 'budget') {
+      if (!budgetRange) e.budgetRange = 'Choose a budget, or “Not sure yet”.';
+      if (!timeline) e.timeline = 'Choose when you need it.';
+    }
+    if (step === 'final' && !agreed) e.terms = `Agree to hear from ${business} about this, so they can send your quote.`;
+    setErrors(e);
+    // The first answer with a problem gets the focus, so it's clear where to look.
+    if (Object.keys(e).length) setTimeout(() => (document.querySelector('[aria-invalid="true"]') as HTMLElement | null)?.focus(), 0);
+    return !Object.keys(e).length;
+  };
+  const next = () => { if (check()) setStep(STEPS[at + 1]); };
+  const back = () => { setErrors({}); if (at > 0) setStep(STEPS[at - 1]); };
 
-    // ── Logistics ─────────────────────────────────────────────────────────────
-    const [venueType,    setVenueType]    = useState('');
-    const [venueName,    setVenueName]    = useState('');
-    const [venueStreet,  setVenueStreet]  = useState('');
-    const [venueCity,    setVenueCity]    = useState('');
-    const [venueState,   setVenueState]   = useState('');
-    const [venueZip,     setVenueZip]     = useState('');
-    const [startTime,    setStartTime]    = useState('');
-    const [endTime,      setEndTime]      = useState('');
-    const [cfHp,         setCfHp]         = useState('');   // a field only robots fill in (api/inquiry drops those)
-    const startedAt = React.useRef(Date.now());
+  const send = async () => {
+    if (uploading) { setSendError('Your pictures are still uploading. One moment.'); return; }
+    if (!check()) return;
+    setSending(true); setSendError('');
+    try {
+      // Saved on the server (api/inquiry): checked, tidied and priced from the business's own list there.
+      const res = await fetch('/api/inquiry', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, cf_hp: cfHp, tookMs: Date.now() - startedAt.current,
+          firstName, lastName, email, phone, preferredContact, bestDays, bestTimeSlot,
+          eventType, eventName, eventDate, alternateDateA: eventDate2, guestCount, partySize,
+          interestedServiceIds: picked, customServiceNote,
+          venueType, venueName, venueStreet, venueCity, venueState, venueZip, startTime, endTime,
+          budgetRange, timeline, readyToDeposit: hasDeposit,
+          referralSource, referralCode, specialRequests, inspirationImages: photos,
+          agreedToContact: agreed,
+        }),
+      });
+      const d = await res.json().catch(() => ({ ok: false }));
+      if (d.ok) setStep('done'); else setSendError(d.error || 'Your request didn’t go through. Please try again in a moment.');
+    } catch { setSendError('No connection. Check your signal and try again.'); } finally { setSending(false); }
+  };
 
-    // ── Budget ─────────────────────────────────────────────────────────────────
-    const [budgetRange, setBudgetRange] = useState('');
-    const [timeline,    setTimeline]    = useState('');
-    const [hasDeposit,  setHasDeposit]  = useState<boolean | null>(null);
+  if (loading) return <div className="min-h-dvh" style={{ background: SOFT }} aria-busy="true" />;
 
-    // ── Final ──────────────────────────────────────────────────────────────────
-    const [referralSource,  setReferralSource]  = useState('');
-    const [referralCode,    setReferralCode]    = useState('');
-    const [showReferralCode, setShowReferralCode] = useState(false);
-    const [specialRequests, setSpecialRequests] = useState('');
-    const [inspoImageUrls,  setInspoImageUrls]  = useState<string[]>([]);
-    const [agreedToTerms,   setAgreedToTerms]   = useState(false);
+  const h1 = (title: string, sub: string) => (
+    <div className="space-y-1.5">
+      <h1 ref={heading} tabIndex={-1} className="text-[28px] font-semibold leading-tight tracking-[-0.02em] outline-none" style={{ color: INK }}>{title}</h1>
+      <p className="text-[16px]" style={{ color: MUTED }}>{sub}</p>
+    </div>
+  );
+  const card = 'rounded-3xl border bg-white p-5 space-y-5';
 
-    // ── Load tenant + services ─────────────────────────────────────────────────
-    useEffect(() => {
-        if (!tenantId) return;
-        const load = async () => {
-            try {
-                const db = getDb();
-                const tenantSnap = await getDoc(doc(db, `tenants/${tenantId}`));
-                if (tenantSnap.exists()) {
-                    const t = tenantSnap.data();
-                    setTenant(t);
-                }
-                // FIX: Load services from the proper subcollection
-                const servicesSnap = await getDocs(collection(db, `tenants/${tenantId}/services`));
-                const svcList = servicesSnap.docs
-                    .map(d => ({ id: d.id, ...d.data() }))
-                    .filter((s: any) => s.type !== 'addon' && s.status !== 'archived')
-                    .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
-                setServices(svcList);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                setDataLoading(false);
-            }
-        };
-        load();
-    }, [tenantId]);
-
-    const currentStepIndex = STEPS.indexOf(step);
-    const primaryColor = tenant?.kioskSettings?.primaryColor || '#0f172a';
-    const logoUrl      = guestLogo(tenant);
-    const studioName   = tenant?.name || tenant?.businessName || 'the business';
-
-    // ── Validation ─────────────────────────────────────────────────────────────
-    const validateStep = (): boolean => {
-        const e: Record<string, string> = {};
-        if (step === 'contact') {
-            if (!firstName.trim()) e.firstName = 'Required';
-            if (!lastName.trim())  e.lastName  = 'Required';
-            if (!email.trim())     e.email     = 'Required';
-            if (email && !/^\S+@\S+\.\S+$/.test(email)) e.email = 'Invalid email';
-            if (!phone.trim())     e.phone     = 'Required';
-        }
-        if (step === 'event') {
-            if (!eventType)   e.eventType  = 'Please select an event type';
-            if (!eventDate)   e.eventDate  = 'Required';
-            if (!guestCount)  e.guestCount = 'Required';
-        }
-        if (step === 'services') {
-            if (selectedServiceIds.length === 0 && !customServiceNote.trim())
-                e.services = 'Please select at least one service or describe what you need';
-        }
-        if (step === 'budget') {
-            if (!budgetRange) e.budgetRange = 'Please select a budget range';
-            if (!timeline)    e.timeline   = 'Please select a timeline';
-        }
-        if (step === 'final') {
-            if (!agreedToTerms) e.terms = 'Please agree to be contacted';
-        }
-        setErrors(e);
-        return Object.keys(e).length === 0;
-    };
-
-    const handleNext = () => {
-        if (!validateStep()) return;
-        const idx = STEPS.indexOf(step);
-        if (idx < STEPS.length - 1) setStep(STEPS[idx + 1]);
-    };
-
-    const handleBack = () => {
-        const idx = STEPS.indexOf(step);
-        if (idx > 0) setStep(STEPS[idx - 1]);
-    };
-
-    // ── Submit ─────────────────────────────────────────────────────────────────
-    const handleSubmit = async () => {
-        if (!validateStep()) return;
-        setIsSubmitting(true);
-        setSubmitError('');
-        try {
-            // Saved on the server (api/inquiry): checked, tidied and priced from the business's own list there.
-            const res = await fetch('/api/inquiry', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId, cf_hp: cfHp, tookMs: Date.now() - startedAt.current,
-                    firstName, lastName, email, phone, preferredContact, bestDays, bestTimeSlot,
-                    eventType, eventName, eventDate, alternateDateA: eventDate2, guestCount, partySize,
-                    interestedServiceIds: selectedServiceIds, customServiceNote,
-                    venueType, venueName, venueStreet, venueCity, venueState, venueZip, startTime, endTime,
-                    budgetRange, timeline, readyToDeposit: hasDeposit,
-                    referralSource, referralCode, specialRequests, inspirationImages: inspoImageUrls,
-                    agreedToContact: agreedToTerms,
-                }),
-            });
-            const d = await res.json().catch(() => ({ ok: false }));
-            if (d.ok) setStep('done');
-            else setSubmitError(d.error || 'Your inquiry didn’t go through. Please try again in a moment.');
-        } catch {
-            setSubmitError('No connection. Check your signal and try again.');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    if (dataLoading) return (
-        <div className="min-h-screen flex items-center justify-center" style={{ background: primaryColor }}>
-            <Loader className="w-8 h-8 animate-spin text-white/40" />
-        </div>
-    );
-
-    const isLastStep = step === 'final';
-
-    return (
-        <div className="min-h-screen" style={{ background: '#f8fafc' }}>
-            <div className="sticky top-0 z-20" style={{ background: primaryColor }}>
-                <div className="max-w-xl mx-auto px-6 py-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                        {logoUrl ? (
-                            <img
-                                src={logoUrl}
-                                alt={studioName}
-                                className="h-8 w-auto object-contain"
-                                style={{ filter: 'brightness(0) invert(1)' }}
-                            />
-                        ) : (
-                            <p className="text-white font-black uppercase tracking-widest text-sm">{studioName}</p>
-                        )}
-                        {step !== 'done' && (
-                            <p className="text-white/50 text-[10px] font-black uppercase tracking-widest">
-                                Step {currentStepIndex + 1} of {STEPS.length}
-                            </p>
-                        )}
-                    </div>
-                    {step !== 'done' && <ProgressBar current={currentStepIndex} total={STEPS.length} />}
-                </div>
+  return (
+    <div className="min-h-dvh" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <header className="sticky top-0 z-20 border-b bg-white" style={{ borderColor: LINE }}>
+        <div className="mx-auto max-w-xl px-4 py-3.5 space-y-3">
+          <div className="flex items-center gap-3">
+            {logo ? <img src={logo} alt="" className="h-10 w-10 rounded-xl object-cover" />
+              : <span className="flex h-10 w-10 items-center justify-center rounded-xl text-[15px] font-semibold text-white" style={{ background: accent }} aria-hidden>{String(business).slice(0, 1)}</span>}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[16px] font-semibold">{business}</p>
+              <p className="text-[13.5px]" style={{ color: MUTED }}>{step === 'done' ? 'Request sent' : `Ask for a quote · Step ${at + 1} of ${STEPS.length}: ${STEP_LABEL[step]}`}</p>
             </div>
-
-            <div className="max-w-xl mx-auto px-6 py-8 pb-32">
-                <AnimatePresence mode="wait">
-
-                    {step === 'contact' && (
-                        <motion.div key="contact" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Let's get acquainted.</h1>
-                                <p className="text-slate-500 font-medium">We'll use this to send your personalized quote.</p>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <Field label="First Name" error={errors.firstName}>
-                                    <FieldInput value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jessica" error={errors.firstName} />
-                                </Field>
-                                <Field label="Last Name" error={errors.lastName}>
-                                    <FieldInput value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Williams" error={errors.lastName} />
-                                </Field>
-                            </div>
-
-                            <Field label="Email Address" error={errors.email}>
-                                <FieldInput type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jessica@email.com" error={errors.email} />
-                            </Field>
-
-                            <Field label="Phone Number" error={errors.phone}>
-                                <FieldInput type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 000-0000" error={errors.phone} />
-                            </Field>
-
-                            <Field label="Preferred Contact Method">
-                                <div className="flex gap-2">
-                                    {CONTACT_METHODS.map(m => (
-                                        <Pill key={m.id} selected={preferredContact === m.id} onClick={() => setPreferredContact(m.id)} className="flex-1 text-center text-xs py-3">
-                                            {m.label}
-                                        </Pill>
-                                    ))}
-                                </div>
-                            </Field>
-
-                            <Field label="Best Days to Reach You (optional)">
-                                <div className="flex flex-wrap gap-2">
-                                    {DAYS_OF_WEEK.map(d => (
-                                        <Pill
-                                            key={d}
-                                            selected={bestDays.includes(d)}
-                                            onClick={() => setBestDays(prev =>
-                                                prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]
-                                            )}
-                                            className="text-xs py-2 px-3"
-                                        >
-                                            {d.slice(0, 3)}
-                                        </Pill>
-                                    ))}
-                                </div>
-                            </Field>
-
-                            <Field label="Best Time of Day">
-                                <div className="grid grid-cols-2 gap-2">
-                                    {TIME_SLOTS.map(t => (
-                                        <Pill key={t} selected={bestTimeSlot === t} onClick={() => setBestTimeSlot(t)} className="text-xs py-3 text-center">
-                                            {t}
-                                        </Pill>
-                                    ))}
-                                </div>
-                            </Field>
-                        </motion.div>
-                    )}
-
-                    {step === 'event' && (
-                        <motion.div key="event" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Tell us about your event.</h1>
-                                <p className="text-slate-500 font-medium">The more detail, the more accurate your quote.</p>
-                            </div>
-
-                            <Field label="Event Type" error={errors.eventType}>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {EVENT_TYPES.map(e => {
-                                        const Icon = e.icon;
-                                        return (
-                                            <Pill key={e.id} selected={eventType === e.id} onClick={() => setEventType(e.id)} className="flex flex-col items-center gap-1.5 py-4 text-center text-[11px]">
-                                                <Icon className="w-5 h-5" />
-                                                {e.label}
-                                            </Pill>
-                                        );
-                                    })}
-                                </div>
-                                {errors.eventType && <p className="text-[9px] font-bold text-red-500">{errors.eventType}</p>}
-                            </Field>
-
-                            <Field label="Event Name / Title (optional)">
-                                <FieldInput value={eventName} onChange={e => setEventName(e.target.value)} placeholder="For example: Sam’s 30th, or the spring team day" />
-                            </Field>
-
-                            <div className="space-y-3">
-                                <Field label="Preferred Date" error={errors.eventDate}>
-                                    <FieldInput type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} error={errors.eventDate} className="w-full" />
-                                </Field>
-                                <Field label="Alternate Date (optional)" hint="If your first choice isn't available">
-                                    <FieldInput type="date" value={eventDate2} onChange={e => setEventDate2(e.target.value)} className="w-full" />
-                                </Field>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <Field label="How many people" error={errors.guestCount}>
-                                    <FieldInput type="number" value={guestCount} onChange={e => setGuestCount(e.target.value)} placeholder="For example: 40" error={errors.guestCount} />
-                                </Field>
-                                <Field label="How many it’s for" hint="If it’s only some of them">
-                                    <FieldInput type="number" value={partySize} onChange={e => setPartySize(e.target.value)} placeholder="For example: 6" />
-                                </Field>
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {step === 'services' && (
-                        <motion.div key="services" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">What services do you need?</h1>
-                                <p className="text-slate-500 font-medium">Select everything that applies — we'll build from here.</p>
-                            </div>
-
-                            {services.length > 0 ? (
-                                <Field label={`Services (${services.length} available)`} error={errors.services}>
-                                    {(() => {
-                                        const byCategory: Record<string, any[]> = {};
-                                        services.forEach(s => {
-                                            const cat = s.category || 'Other';
-                                            if (!byCategory[cat]) byCategory[cat] = [];
-                                            byCategory[cat].push(s);
-                                        });
-                                        return Object.entries(byCategory).map(([cat, svcs]) => (
-                                            <div key={cat} className="space-y-2 mb-4">
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 px-1">{cat}</p>
-                                                <div className="space-y-2">
-                                                    {svcs.map((svc: any) => {
-                                                        const selected = selectedServiceIds.includes(svc.id);
-                                                        return (
-                                                            <motion.button
-                                                                key={svc.id}
-                                                                type="button"
-                                                                whileTap={{ scale: 0.99 }}
-                                                                onClick={() => setSelectedServiceIds(prev =>
-                                                                    prev.includes(svc.id)
-                                                                        ? prev.filter(id => id !== svc.id)
-                                                                        : [...prev, svc.id]
-                                                                )}
-                                                                className={cn(
-                                                                    'w-full text-left p-4 rounded-2xl border-2 transition-all flex items-center justify-between gap-3',
-                                                                    selected
-                                                                        ? 'border-slate-900 bg-slate-900 text-white'
-                                                                        : 'border-slate-200 bg-white hover:border-slate-300'
-                                                                )}
-                                                            >
-                                                                <div className="min-w-0 flex-1">
-                                                                    <p className={cn('font-black text-sm uppercase tracking-tight', selected ? 'text-white' : 'text-slate-900')}>
-                                                                        {svc.name}
-                                                                    </p>
-                                                                    <div className="flex items-center gap-3 mt-0.5">
-                                                                        {svc.duration && (
-                                                                            <span className={cn('text-[10px] font-bold', selected ? 'text-white/60' : 'text-slate-400')}>
-                                                                                {svc.duration}m
-                                                                            </span>
-                                                                        )}
-                                                                        {svc.description && (
-                                                                            <span className={cn('text-[10px] font-medium truncate', selected ? 'text-white/60' : 'text-slate-400')}>
-                                                                                {svc.description}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 shrink-0">
-                                                                    {svc.price > 0 && (
-                                                                        <span className={cn('font-black font-mono text-sm', selected ? 'text-white/80' : 'text-slate-500')}>
-                                                                            ${svc.price}
-                                                                        </span>
-                                                                    )}
-                                                                    <div className={cn(
-                                                                        'w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0',
-                                                                        selected ? 'border-white bg-white' : 'border-slate-300'
-                                                                    )}>
-                                                                        {selected && <Check className="w-3 h-3 text-slate-900" />}
-                                                                    </div>
-                                                                </div>
-                                                            </motion.button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        ));
-                                    })()}
-                                </Field>
-                            ) : (
-                                <div className="p-6 rounded-2xl bg-slate-50 border-2 border-slate-200 text-center text-slate-400 text-sm font-bold">
-                                    No services found — describe what you need below.
-                                </div>
-                            )}
-
-                            <Field label="Don't see what you need? Describe it." error={errors.services}>
-                                <FieldTextarea
-                                    value={customServiceNote}
-                                    onChange={e => setCustomServiceNote(e.target.value)}
-                                    placeholder="Tell them what you have in mind"
-                                    rows={3}
-                                />
-                            </Field>
-
-                            {selectedServiceIds.length > 0 && (
-                                <div className="p-4 rounded-2xl bg-slate-900 text-white text-center">
-                                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Selected</p>
-                                    <p className="text-2xl font-black">{selectedServiceIds.length} service{selectedServiceIds.length !== 1 ? 's' : ''}</p>
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'logistics' && (
-                        <motion.div key="logistics" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Where and when?</h1>
-                                <p className="text-slate-500 font-medium">So they can plan the place and the time.</p>
-                            </div>
-
-                            <Field label="Where would it be?">
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        { id: 'at_business', label: `At ${studioName}`, icon: Building },
-                                        { id: 'on_site',     label: 'At my place or venue', icon: MapPin },
-                                        { id: 'destination', label: 'Somewhere farther away', icon: Plane },
-                                        { id: 'unsure',      label: 'Not sure yet', icon: Clock },
-                                    ].map(opt => {
-                                        const Icon = opt.icon;
-                                        return (
-                                            <Pill key={opt.id} selected={venueType === opt.id} onClick={() => setVenueType(opt.id)} className="flex flex-col items-center gap-1.5 py-4 text-center text-[11px]">
-                                                <Icon className="w-4 h-4" />
-                                                {opt.label}
-                                            </Pill>
-                                        );
-                                    })}
-                                </div>
-                            </Field>
-
-                            {(venueType === 'on_site' || venueType === 'destination') && (
-                                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                                    <Field label="Place name (optional)">
-                                        <FieldInput value={venueName} onChange={e => setVenueName(e.target.value)} placeholder="For example: Riverside Hall" />
-                                    </Field>
-                                    <Field label="Street Address">
-                                        <FieldInput value={venueStreet} onChange={e => setVenueStreet(e.target.value)} placeholder="123 Main Street" />
-                                    </Field>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <Field label="City">
-                                            <FieldInput value={venueCity} onChange={e => setVenueCity(e.target.value)} placeholder="City" />
-                                        </Field>
-                                        <Field label="State">
-                                            <FieldInput value={venueState} onChange={e => setVenueState(e.target.value)} placeholder="State" />
-                                        </Field>
-                                    </div>
-                                    <Field label="ZIP Code">
-                                        <FieldInput value={venueZip} onChange={e => setVenueZip(e.target.value)} placeholder="ZIP" />
-                                    </Field>
-
-                                </motion.div>
-                            )}
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <Field label="Starting at">
-                                    <FieldInput type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
-                                </Field>
-                                <Field label="Finished by">
-                                    <FieldInput type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
-                                </Field>
-                            </div>
-                        </motion.div>
-                    )}
-
-                    {step === 'budget' && (
-                        <motion.div key="budget" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Budget and timing.</h1>
-                                <p className="text-slate-500 font-medium">So the quote fits what you have in mind.</p>
-                            </div>
-
-                            <Field label="Budget Range" error={errors.budgetRange}>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {BUDGET_RANGES.map(b => (
-                                        <Pill key={b.id} selected={budgetRange === b.id} onClick={() => setBudgetRange(b.id)} className="text-sm py-3.5">
-                                            {b.label}
-                                        </Pill>
-                                    ))}
-                                </div>
-                                {errors.budgetRange && <p className="text-[9px] font-bold text-red-500">{errors.budgetRange}</p>}
-                            </Field>
-
-                            <Field label="How soon do you need this?" error={errors.timeline}>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {TIMELINE_OPTIONS.map(t => (
-                                        <Pill key={t.id} selected={timeline === t.id} onClick={() => setTimeline(t.id)} className="text-sm py-3.5">
-                                            {t.label}
-                                        </Pill>
-                                    ))}
-                                </div>
-                                {errors.timeline && <p className="text-[9px] font-bold text-red-500">{errors.timeline}</p>}
-                            </Field>
-
-                            <Field label="Ready to make a deposit to secure your date?">
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Pill selected={hasDeposit === true}  onClick={() => setHasDeposit(true)}  className="text-center py-4">Yes, I'm ready</Pill>
-                                    <Pill selected={hasDeposit === false} onClick={() => setHasDeposit(false)} className="text-center py-4">Need more info</Pill>
-                                </div>
-                            </Field>
-                        </motion.div>
-                    )}
-
-                    {step === 'final' && (
-                        <motion.div key="final" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className="space-y-1.5">
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">Almost done!</h1>
-                                <p className="text-slate-500 font-medium">A few last things to make your quote perfect.</p>
-                            </div>
-
-                            <Field label="How did you hear about us?">
-                                <div className="grid grid-cols-2 gap-2">
-                                    {REFERRAL_SOURCES.map(src => (
-                                        <Pill key={src} selected={referralSource === src} onClick={() => {
-                                            setReferralSource(src);
-                                            setShowReferralCode(src === 'A friend');
-                                        }} className="text-xs py-3">
-                                            {src}
-                                        </Pill>
-                                    ))}
-                                </div>
-                            </Field>
-
-                            <AnimatePresence>
-                                {(showReferralCode || referralSource === 'Referral from a friend') && (
-                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                                        <Field label="Referral Code" hint="Your friend's referral code — they'll receive their perk when you book">
-                                            <div className="relative">
-                                                <Gift className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                                                <FieldInput
-                                                    value={referralCode}
-                                                    onChange={e => setReferralCode(e.target.value.toUpperCase())}
-                                                    placeholder="For example: SAM20"
-                                                    className="pl-12 font-mono tracking-widest"
-                                                />
-                                            </div>
-                                        </Field>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-
-                            <Field label="Special Requests or Notes">
-                                <FieldTextarea
-                                    value={specialRequests}
-                                    onChange={e => setSpecialRequests(e.target.value)}
-                                    placeholder="Allergies, access needs, must-haves..."
-                                    rows={3}
-                                />
-                            </Field>
-
-                            <Field label="Inspiration Photos (optional)" hint="Pictures of what you have in mind">
-                                <ImageUploader tenantId={tenantId} onUploaded={setInspoImageUrls} />
-                            </Field>
-
-                            <input type="text" name="cf_hp" value={cfHp} onChange={e => setCfHp(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-px w-px opacity-0" />
-
-                            <label className="flex items-start gap-3 cursor-pointer">
-                                <motion.button
-                                    type="button"
-                                    onClick={() => setAgreedToTerms(!agreedToTerms)}
-                                    className={cn(
-                                        'w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all mt-0.5 shrink-0',
-                                        agreedToTerms ? 'border-slate-900 bg-slate-900' : 'border-slate-300',
-                                        errors.terms && 'border-red-400'
-                                    )}
-                                >
-                                    {agreedToTerms && <Check className="w-3.5 h-3.5 text-white" />}
-                                </motion.button>
-                                <span className="text-[12px] text-slate-500 font-bold leading-relaxed">
-                                    I agree to be contacted by {studioName} regarding my inquiry.
-                                </span>
-                            </label>
-                            {errors.terms && <p className="text-[9px] font-bold text-red-500">{errors.terms}</p>}
-
-                            {submitError && (
-                                <div className="flex items-center gap-2 p-4 rounded-2xl bg-red-50 border-2 border-red-100">
-                                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                                    <p className="text-[11px] font-bold text-red-600">{submitError}</p>
-                                </div>
-                            )}
-                        </motion.div>
-                    )}
-
-                    {step === 'done' && (
-                        <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="py-8 text-center space-y-8">
-                            <motion.div
-                                initial={{ scale: 0, opacity: 0 }}
-                                animate={{ scale: 1, opacity: 1 }}
-                                transition={{ type: 'spring', damping: 12, stiffness: 140, delay: 0.1 }}
-                                className="w-24 h-24 rounded-[2rem] mx-auto flex items-center justify-center shadow-2xl"
-                                style={{ background: primaryColor }}
-                            >
-                                <CheckCircle2 className="w-12 h-12 text-white" />
-                            </motion.div>
-
-                            <div className="space-y-3">
-                                <h2 className="text-3xl font-black text-slate-900 tracking-tight">
-                                    Inquiry submitted!
-                                </h2>
-                                <p className="text-slate-500 font-medium leading-relaxed max-w-sm mx-auto">
-                                    Thank you, {firstName}! We'll review your details and reach out with a custom quote within 24–48 hours.
-                                </p>
-                            </div>
-
-                            <div className="p-6 rounded-3xl bg-white border-2 border-slate-100 shadow-sm text-left space-y-3">
-                                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Your Request Summary</p>
-                                <div className="space-y-2 text-sm font-bold text-slate-700">
-                                    {eventName || eventType ? (
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="w-4 h-4 text-slate-300 shrink-0" />
-                                            <span>{eventName || EVENT_TYPES.find(e => e.id === eventType)?.label}
-                                                {eventDate && ` · ${new Date(eventDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`}
-                                            </span>
-                                        </div>
-                                    ) : null}
-                                    {selectedServiceIds.length > 0 && (
-                                        <div className="flex items-start gap-2">
-                                            <Sparkles className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                                            <span>{selectedServiceIds.length} service{selectedServiceIds.length !== 1 ? 's' : ''} requested</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-2">
-                                        <Mail className="w-4 h-4 text-slate-300 shrink-0" />
-                                        {email}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Phone className="w-4 h-4 text-slate-300 shrink-0" />
-                                        {phone}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {(tenant?.phone || tenant?.email || tenant?.address) && (
-                                <div className="p-5 rounded-2xl bg-slate-50 border-2 border-slate-200 text-left space-y-3">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">{studioName}</p>
-                                    <div className="space-y-2 text-sm font-bold text-slate-700">
-                                        {tenant?.phone && (
-                                            <a href={`tel:${tenant.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
-                                                <Phone className="w-4 h-4 text-slate-300 shrink-0" />
-                                                {tenant.phone}
-                                            </a>
-                                        )}
-                                        {tenant?.email && (
-                                            <a href={`mailto:${tenant.email}`} className="flex items-center gap-2 hover:text-primary transition-colors">
-                                                <Mail className="w-4 h-4 text-slate-300 shrink-0" />
-                                                {tenant.email}
-                                            </a>
-                                        )}
-                                        {tenant?.studioAddress && (
-                                            <div className="flex items-start gap-2">
-                                                <MapPin className="w-4 h-4 text-slate-300 shrink-0 mt-0.5" />
-                                                <span>{tenant.studioAddress}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col gap-3">
-                                <Link
-                                    href={`/book/${tenantId}`}
-                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 text-white"
-                                    style={{ background: primaryColor }}
-                                >
-                                    <Home className="w-4 h-4" />
-                                    Back to Booking Page
-                                </Link>
-                                <p className="text-[9px] font-bold text-slate-400 text-center">
-                                    Browse services or book an appointment while you wait
-                                </p>
-                            </div>
-                        </motion.div>
-                    )}
-
-                </AnimatePresence>
-
-                {step !== 'done' && (
-                    <div className="fixed bottom-0 left-0 right-0 px-6 pb-8 pt-4 bg-gradient-to-t from-[#f8fafc] via-[#f8fafc] to-transparent">
-                        <div className="max-w-xl mx-auto flex gap-3">
-                            {currentStepIndex > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={handleBack}
-                                    className="h-14 px-5 rounded-2xl border-2 border-slate-200 font-black text-slate-500 flex items-center gap-1 hover:border-slate-300 transition-all bg-white"
-                                >
-                                    <ChevronLeft className="w-4 h-4" />
-                                </button>
-                            )}
-                            <motion.button
-                                type="button"
-                                whileTap={{ scale: 0.98 }}
-                                onClick={isLastStep ? handleSubmit : handleNext}
-                                disabled={isSubmitting}
-                                className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-sm flex items-center justify-center gap-2 text-white disabled:opacity-50 shadow-lg"
-                                style={{ background: primaryColor }}
-                            >
-                                {isSubmitting ? (
-                                    <Loader className="w-5 h-5 animate-spin" />
-                                ) : isLastStep ? (
-                                    <>Submit Inquiry <ArrowRight className="w-4 h-4" /></>
-                                ) : (
-                                    <>Continue <ChevronRight className="w-4 h-4" /></>
-                                )}
-                            </motion.button>
-                        </div>
-                    </div>
-                )}
-
-                {step !== 'done' && (
-                    <div className="mt-6 text-center space-y-0.5 pb-24">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-400">
-                            {STEP_META[step].title}
-                        </p>
-                        <p className="text-[10px] font-bold text-slate-300">
-                            {STEP_META[step].subtitle}
-                        </p>
-                    </div>
-                )}
-            </div>
+          </div>
+          {step !== 'done' && <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))` }} aria-hidden>
+            {STEPS.map((s, i) => <span key={s} className="h-1.5 rounded-full transition-colors" style={{ background: i <= at ? accent : LINE }} />)}
+          </div>}
         </div>
-    );
+      </header>
+
+      <form noValidate onSubmit={(e) => { e.preventDefault(); if (step === 'final') void send(); else if (step !== 'done') next(); }}>
+      <main className="mx-auto max-w-xl px-4 pb-36 pt-6 space-y-6">
+        {step === 'contact' && <>
+          {h1('Let’s get to know you', `${business} will use this to send your quote.`)}
+          <div className={card} style={{ borderColor: LINE }}>
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="inq-first" label="First name" error={errors.firstName}><input id="inq-first" value={firstName} onChange={(e) => { setFirstName(e.target.value); fix('firstName'); }} autoComplete="given-name" className={input} {...err('firstName', 'inq-first')} /></Field>
+              <Field id="inq-last" label="Last name" error={errors.lastName}><input id="inq-last" value={lastName} onChange={(e) => { setLastName(e.target.value); fix('lastName'); }} autoComplete="family-name" className={input} {...err('lastName', 'inq-last')} /></Field>
+            </div>
+            <Field id="inq-email" label="Email" error={errors.email}><input id="inq-email" type="email" inputMode="email" value={email} onChange={(e) => { setEmail(e.target.value); fix('email'); }} autoComplete="email" className={input} {...err('email', 'inq-email')} /></Field>
+            <Field id="inq-phone" label="Phone" error={errors.phone}><input id="inq-phone" type="tel" value={phone} onChange={(e) => { setPhone(e.target.value); fix('phone'); }} autoComplete="tel" className={input} {...err('phone', 'inq-phone')} placeholder="(555) 000-0000" /></Field>
+          </div>
+          <div className={card} style={{ borderColor: LINE }}>
+            <div><p className="text-[14.5px] font-medium">How should they reach you?</p>
+              <div role="radiogroup" aria-label="How should they reach you?" className="mt-2 grid grid-cols-3 gap-2">{CONTACT_METHODS.map((m) => <Choice key={m.id} on={preferredContact === m.id} onClick={() => setPreferredContact(m.id)} className="text-center">{m.label}</Choice>)}</div></div>
+            <div><p className="text-[14.5px] font-medium">Best days <span className="font-normal" style={{ color: MUTED }}>Optional</span></p>
+              <div role="group" aria-label="Best days" className="mt-2 flex flex-wrap gap-2">{DAYS.map((d) => <Choice key={d} multi label={d} on={bestDays.includes(d)} onClick={() => setBestDays((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d]))}>{d.slice(0, 3)}</Choice>)}</div></div>
+            <div><p className="text-[14.5px] font-medium">Best time of day <span className="font-normal" style={{ color: MUTED }}>Optional</span></p>
+              <div role="radiogroup" aria-label="Best time of day" className="mt-2 grid grid-cols-2 gap-2">{TIME_SLOTS.map((t) => <Choice key={t} on={bestTimeSlot === t} onClick={() => setBestTimeSlot(bestTimeSlot === t ? '' : t)}>{t}</Choice>)}</div></div>
+          </div>
+        </>}
+
+        {step === 'event' && <>
+          {h1('Tell them about the event', 'The more they know, the closer the quote.')}
+          <div className={card} style={{ borderColor: LINE }}>
+            <div><p className="text-[14.5px] font-medium">What kind of event?</p>
+              <div role="radiogroup" aria-label="What kind of event?" tabIndex={-1} aria-invalid={!!errors.eventType} aria-describedby={errors.eventType ? 'inq-type-err' : undefined} className="mt-2 grid grid-cols-2 gap-2 outline-none">{INQUIRY_EVENT_TYPES.map((t) => <Choice key={t.id} on={eventType === t.id} onClick={() => { setEventType(t.id); fix('eventType'); }}>{t.label}</Choice>)}</div>
+              {errors.eventType && <p id="inq-type-err" role="alert" className="mt-1.5 text-[13.5px] font-medium" style={{ color: AMBER }}>{errors.eventType}</p>}</div>
+            <Field id="inq-name" label="What should they call it?" hint="Optional. For example: Sam’s 30th, or the spring team day"><input id="inq-name" value={eventName} onChange={(e) => setEventName(e.target.value)} className={input} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="inq-date" label="Date" error={errors.eventDate}><input id="inq-date" type="date" min={todayLocal} value={eventDate} onChange={(e) => { setEventDate(e.target.value); fix('eventDate'); }} className={input} {...err('eventDate', 'inq-date')} /></Field>
+              <Field id="inq-date2" label="Or this date" hint="Optional" error={errors.eventDate2}><input id="inq-date2" type="date" min={todayLocal} value={eventDate2} onChange={(e) => { setEventDate2(e.target.value); fix('eventDate2'); }} className={input} {...err('eventDate2', 'inq-date2')} /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="inq-guests" label="How many people?" error={errors.guestCount}><input id="inq-guests" type="number" inputMode="numeric" min={1} value={guestCount} onChange={(e) => { setGuestCount(e.target.value); fix('guestCount'); }} className={input} {...err('guestCount', 'inq-guests')} placeholder="40" /></Field>
+              <Field id="inq-party" label="How many it’s for" hint="If only some of them"><input id="inq-party" type="number" inputMode="numeric" min={1} value={partySize} onChange={(e) => setPartySize(e.target.value)} className={input} placeholder="6" /></Field>
+            </div>
+          </div>
+        </>}
+
+        {step === 'services' && <>
+          {h1('What would you like?', 'Choose everything that fits. They’ll build the quote from here.')}
+          {services.length > 0 && (() => {
+            const groups = new Map<string, any[]>();
+            for (const s of services) { const c = s.category || 'More'; groups.set(c, [...(groups.get(c) || []), s]); }
+            return Array.from(groups).map(([cat, list]) => (
+              <section key={cat} aria-label={cat} className="space-y-2">
+                {groups.size > 1 && <h2 className="px-1 text-[14px] font-semibold" style={{ color: MUTED }}>{cat}</h2>}
+                {list.map((s: any) => {
+                  const on = picked.includes(s.id);
+                  return (
+                    <button key={s.id} type="button" role="checkbox" aria-checked={on} onClick={() => { setPicked((p) => (p.includes(s.id) ? p.filter((x) => x !== s.id) : [...p, s.id])); fix('services'); }}
+                      className={`flex w-full items-start justify-between gap-3 rounded-2xl bg-white p-4 text-left ${ring}`} style={{ border: on ? `2px solid ${INK}` : `1px solid ${LINE}`, margin: on ? 0 : 1 }}>
+                      <span className="min-w-0">
+                        <span className="block text-[16px] font-semibold">{s.name}</span>
+                        <span className="mt-0.5 block text-[14px]" style={{ color: MUTED }}>{[s.duration ? `${s.duration} min` : '', s.description || ''].filter(Boolean).join(' · ')}</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-3">
+                        {Number(s.price) > 0 && <span className="text-[15px] font-medium tabular-nums">${s.price}</span>}
+                        <span className="h-5 w-5 rounded-md box-border" style={{ border: on ? `6px solid ${INK}` : '2px solid #c9cbcf' }} aria-hidden />
+                      </span>
+                    </button>);
+                })}
+              </section>));
+          })()}
+          <div className={card} style={{ borderColor: LINE }}>
+            <Field id="inq-custom" label={services.length ? 'Something else, or more detail?' : 'What would you like?'} error={errors.services}>
+              <textarea id="inq-custom" value={customServiceNote} onChange={(e) => { setCustomServiceNote(e.target.value); fix('services'); }} rows={3} className={`${input} h-auto py-3`} {...err('services', 'inq-custom')} placeholder="Tell them what you have in mind" />
+            </Field>
+          </div>
+          {picked.length > 0 && <p className="text-[14.5px]" style={{ color: MUTED }} aria-live="polite">{picked.length === 1 ? '1 chosen' : `${picked.length} chosen`}</p>}
+        </>}
+
+        {step === 'logistics' && <>
+          {h1('Where and when?', 'So they can plan the place and the time.')}
+          <div className={card} style={{ borderColor: LINE }}>
+            <div><p className="text-[14.5px] font-medium">Where would it be?</p>
+              <div role="radiogroup" aria-label="Where would it be?" className="mt-2 grid grid-cols-2 gap-2">{PLACES(business).map((p) => <Choice key={p.id} on={venueType === p.id} onClick={() => setVenueType(p.id)}>{p.label}</Choice>)}</div></div>
+            {(venueType === 'on_site' || venueType === 'destination') && <div className="space-y-4">
+              <Field id="inq-vname" label="Name of the place" hint="Optional. For example: Riverside Hall"><input id="inq-vname" value={venueName} onChange={(e) => setVenueName(e.target.value)} className={input} /></Field>
+              <Field id="inq-street" label="Street address"><input id="inq-street" value={venueStreet} onChange={(e) => setVenueStreet(e.target.value)} autoComplete="street-address" className={input} /></Field>
+              <Field id="inq-city" label="City"><input id="inq-city" value={venueCity} onChange={(e) => setVenueCity(e.target.value)} autoComplete="address-level2" className={input} /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field id="inq-state" label="State"><input id="inq-state" value={venueState} onChange={(e) => setVenueState(e.target.value)} autoComplete="address-level1" className={input} /></Field>
+                <Field id="inq-zip" label="ZIP"><input id="inq-zip" value={venueZip} onChange={(e) => setVenueZip(e.target.value)} autoComplete="postal-code" inputMode="numeric" className={input} /></Field>
+              </div>
+            </div>}
+            <div className="grid grid-cols-2 gap-3">
+              <Field id="inq-start" label="Starting at" hint="Optional"><input id="inq-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={input} /></Field>
+              <Field id="inq-end" label="Finished by" hint="Optional"><input id="inq-end" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className={input} /></Field>
+            </div>
+          </div>
+        </>}
+
+        {step === 'budget' && <>
+          {h1('Budget and timing', 'So the quote fits what you have in mind.')}
+          <div className={card} style={{ borderColor: LINE }}>
+            <div><p className="text-[14.5px] font-medium">Roughly what would you spend?</p>
+              <div role="radiogroup" aria-label="Roughly what would you spend?" tabIndex={-1} aria-invalid={!!errors.budgetRange} aria-describedby={errors.budgetRange ? 'inq-budget-err' : undefined} className="mt-2 grid grid-cols-2 gap-2 outline-none">{INQUIRY_BUDGETS.map((b) => <Choice key={b.id} on={budgetRange === b.id} onClick={() => { setBudgetRange(b.id); fix('budgetRange'); }}>{b.label}</Choice>)}</div>
+              {errors.budgetRange && <p id="inq-budget-err" role="alert" className="mt-1.5 text-[13.5px] font-medium" style={{ color: AMBER }}>{errors.budgetRange}</p>}</div>
+            <div><p className="text-[14.5px] font-medium">How soon do you need it?</p>
+              <div role="radiogroup" aria-label="How soon do you need it?" tabIndex={-1} aria-invalid={!!errors.timeline} aria-describedby={errors.timeline ? 'inq-when-err' : undefined} className="mt-2 grid grid-cols-2 gap-2 outline-none">{INQUIRY_TIMELINES.map((t) => <Choice key={t.id} on={timeline === t.id} onClick={() => { setTimeline(t.id); fix('timeline'); }}>{t.label}</Choice>)}</div>
+              {errors.timeline && <p id="inq-when-err" role="alert" className="mt-1.5 text-[13.5px] font-medium" style={{ color: AMBER }}>{errors.timeline}</p>}</div>
+            <div><p className="text-[14.5px] font-medium">Ready to pay a deposit to hold the date? <span className="font-normal" style={{ color: MUTED }}>Optional</span></p>
+              <div role="radiogroup" aria-label="Ready to pay a deposit to hold the date?" className="mt-2 grid grid-cols-2 gap-2">
+                <Choice on={hasDeposit === true} onClick={() => setHasDeposit(hasDeposit === true ? null : true)} className="text-center">Yes, I’m ready</Choice>
+                <Choice on={hasDeposit === false} onClick={() => setHasDeposit(hasDeposit === false ? null : false)} className="text-center">I’d like to know more</Choice>
+              </div></div>
+          </div>
+        </>}
+
+        {step === 'final' && <>
+          {h1('Anything else?', 'Last few things, then it’s on its way.')}
+          <div className={card} style={{ borderColor: LINE }}>
+            <div><p className="text-[14.5px] font-medium">How did you hear about {business}? <span className="font-normal" style={{ color: MUTED }}>Optional</span></p>
+              <div role="radiogroup" aria-label="How did you hear about them?" className="mt-2 grid grid-cols-2 gap-2">{INQUIRY_HEARD_FROM.map((s) => <Choice key={s} on={referralSource === s} onClick={() => { const next = referralSource === s ? '' : s; setReferralSource(next); if (!/friend/i.test(next)) setReferralCode(''); }}>{s}</Choice>)}</div></div>
+            {/friend/i.test(referralSource) && <Field id="inq-ref" label="Their referral code" hint="Optional. Your friend gets their thank-you when you book."><input id="inq-ref" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())} className={`${input} tracking-[0.12em]`} placeholder="SAM20" /></Field>}
+            <Field id="inq-notes" label="Requests or notes" hint="Optional. Allergies, access needs, must-haves"><textarea id="inq-notes" value={specialRequests} onChange={(e) => setSpecialRequests(e.target.value)} rows={3} className={`${input} h-auto py-3`} /></Field>
+            <div><label htmlFor="inq-photos" className="block text-[14.5px] font-medium">Pictures of what you have in mind <span className="font-normal" style={{ color: MUTED }}>Optional</span></label><Uploader tenantId={tenantId} value={photos} onChange={setPhotos} onBusy={setUploading} /></div>
+            <input type="text" name="cf_hp" value={cfHp} onChange={(e) => setCfHp(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-px w-px opacity-0" />
+          </div>
+          <div>
+            <button type="button" role="switch" aria-checked={agreed} aria-invalid={!!errors.terms} aria-describedby={errors.terms ? 'inq-terms-err' : undefined} onClick={() => { setAgreed(!agreed); fix('terms'); }} className={`flex w-full items-center gap-3 rounded-2xl border bg-white p-4 text-left ${ring}`} style={{ borderColor: errors.terms ? AMBER : LINE }}>
+              <span className="relative h-7 w-12 shrink-0 rounded-full transition-colors" style={{ background: agreed ? INK : '#d5d7db' }} aria-hidden>
+                <span className="absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all" style={{ left: agreed ? 22 : 2 }} />
+              </span>
+              <span className="text-[15px]">I’m happy for {business} to get in touch about this.</span>
+            </button>
+            {errors.terms && <p id="inq-terms-err" role="alert" className="mt-1.5 text-[13.5px] font-medium" style={{ color: AMBER }}>{errors.terms}</p>}
+          </div>
+          {sendError && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{sendError}</p>}
+        </>}
+
+        {step === 'done' && <>
+          <div className="rounded-3xl p-6 space-y-2 text-white" style={{ background: accent }}>
+            <p className="text-[14.5px] font-medium">Request sent</p>
+            <h1 ref={heading} tabIndex={-1} className="text-[28px] font-semibold leading-tight outline-none">Thank you, {firstName.trim() || 'friend'}.</h1>
+            <p className="text-[15.5px]">{business} has your request and will send your quote to {email.trim()}.</p>
+          </div>
+          <div className={card} style={{ borderColor: LINE }}>
+            <h2 className="text-[17px] font-semibold">What you asked for</h2>
+            <dl className="space-y-2 text-[15px]">
+              <div className="flex justify-between gap-4"><dt style={{ color: MUTED }}>Event</dt><dd className="text-right">{eventName || INQUIRY_EVENT_TYPES.find((t) => t.id === eventType)?.label}</dd></div>
+              {eventDate && <div className="flex justify-between gap-4"><dt style={{ color: MUTED }}>Date</dt><dd className="text-right">{new Date(`${eventDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</dd></div>}
+              {guestCount && <div className="flex justify-between gap-4"><dt style={{ color: MUTED }}>People</dt><dd className="text-right">{guestCount}</dd></div>}
+              {picked.length > 0 && <div className="flex justify-between gap-4"><dt style={{ color: MUTED }}>Services</dt><dd className="text-right">{services.filter((s) => picked.includes(s.id)).map((s) => s.name).join(', ')}</dd></div>}
+            </dl>
+            <p className="text-[14.5px]" style={{ color: MUTED }}>Need to change something? Reply to the email they send you.</p>
+          </div>
+          <Link href={`/book/${tenantId}`} className={`flex h-[54px] w-full items-center justify-center rounded-2xl border bg-white text-[16px] font-semibold ${ring}`} style={{ borderColor: LINE }}>See {business}’s booking page</Link>
+        </>}
+      </main>
+
+      {step !== 'done' && (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur" style={{ borderColor: LINE }}>
+          <div className="mx-auto flex max-w-xl gap-3 px-4 py-3">
+            {at > 0 && <button type="button" onClick={back} className={`h-[52px] rounded-2xl border bg-white px-5 text-[16px] font-semibold ${ring}`} style={{ borderColor: LINE }}>Back</button>}
+            <button type="submit" disabled={sending || uploading} className={`h-[52px] flex-1 rounded-2xl text-[16px] font-semibold text-white disabled:opacity-50 ${ring}`} style={{ background: accent }}>
+              {sending ? 'Sending…' : uploading ? 'Uploading pictures…' : step === 'final' ? 'Send my request' : 'Continue'}
+            </button>
+          </div>
+        </div>
+      )}
+      </form>
+    </div>
+  );
 }
