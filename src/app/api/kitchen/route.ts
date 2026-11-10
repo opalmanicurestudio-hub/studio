@@ -23,7 +23,7 @@
 //   bump    { tenantId, key, tickets: [{col,id}], step, staffPass? } → a whole course or dish moved along at once
 //   forget  { tenantId, key }                      → this screen stops working (set it up again to use it)
 import { NextRequest, NextResponse } from 'next/server';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -34,10 +34,11 @@ import { buildEntry } from '@/lib/stock-ledger';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
+import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
-const hash = (k: string) => createHash('sha256').update(String(k)).digest('hex');
+const hash = screenHash;
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const COLS: KitchenCol[] = ['refreshmentRequests', 'kdsTickets'];
 const STEPS: KitchenStep[] = ['claim', 'release', 'ready', 'carry', 'drop', 'deliver', 'cancel'];
@@ -45,24 +46,6 @@ const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 const PASS_MS = 12 * 3600000, MAX_PASSES = 40;
 export const maxDuration = 60;   // a whole course or a run of lounge orders moved at once
-
-/** The screen this key belongs to (for this business only), or null. Seen-at is kept, at most every few minutes. */
-async function screenOf(db: any, tenantId: string, key: unknown) {
-  const k = String(key || '');
-  if (k.length < 32 || k.length > 200) return null;
-  const ref = db.doc(`kitchenScreens/${hash(k)}`);
-  const s: any = (await ref.get()).data();
-  if (!s || s.revokedAt || s.tenantId !== tenantId) return null;
-  if (!s.lastSeenAt || Date.now() - Date.parse(s.lastSeenAt) > 5 * 60000) await ref.set({ lastSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-  return { ref, name: String(s.name || 'Kitchen'), passes: (s.passes && typeof s.passes === 'object' ? s.passes : {}) as Record<string, { id: string; name: string; exp: number }> };
-}
-
-/** Who a pass (from 'pin') says is working, while it's good; otherwise nobody (the screen's own name is used). */
-function staffOf(screen: { passes: Record<string, { id: string; name: string; exp: number }> }, pass: unknown) {
-  const p = String(pass || ''); if (p.length < 32 || p.length > 200) return null;
-  const x = screen.passes[hash(p)];
-  return x && Number(x.exp) > Date.now() ? { id: String(x.id), name: String(x.name) } : null;
-}
 
 /** One ticket moved along, in one step and once. */
 async function act(db: any, tenantId: string, screen: { name: string }, col: KitchenCol, id: string, step: KitchenStep, staff: { id: string | null; name: string } | null) {
@@ -158,12 +141,15 @@ export async function POST(req: NextRequest) {
     if (action === 'pair') {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
       const key = randomBytes(32).toString('hex');
-      const name = String(b.name || '').trim().slice(0, 40) || 'Kitchen';
-      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
-      // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk.
+      // A floor board's tablet (app/floor) is set up the same way; a team tablet opens both screens.
+      const kind = b.kind === 'floor' ? 'floor' : 'kitchen';
+      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : 'Kitchen');
+      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
+      // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
+      // tablet doesn't: nobody would be making them.
       const tRef = db.doc(`tenants/${tenantId}`); const t0: any = (await tRef.get()).data() || {};
-      if (!t0.kitchenSettings?.loungeOrdersMadeBy) await tRef.set({ kitchenSettings: { loungeOrdersMadeBy: 'kitchen' } }, { merge: true });
-      return ok({ key, name, maker: t0.kitchenSettings?.loungeOrdersMadeBy || 'kitchen' });
+      if (kind === 'kitchen' && !t0.kitchenSettings?.loungeOrdersMadeBy) await tRef.set({ kitchenSettings: { loungeOrdersMadeBy: 'kitchen' } }, { merge: true });
+      return ok({ key, name, maker: t0.kitchenSettings?.loungeOrdersMadeBy || (kind === 'kitchen' ? 'kitchen' : 'desk') });
     }
     if (action === 'screens' || action === 'revoke' || action === 'maker') {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
@@ -260,7 +246,7 @@ export async function POST(req: NextRequest) {
     // Who's working comes only from a pass this route gave (a PIN checked here), never from a name the screen sends; and
     // only while they're still on the team.
     let staff = teamMember || staffOf(screen, b.staffPass);
-    if (staff && !teamMember) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (!st || st.isActive === false || st.status === 'archived') staff = null; }
+    if (staff && !teamMember) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (offTeam(st)) staff = null; }
     const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
 
     if (action === 'act') {
