@@ -836,7 +836,9 @@ service cloud.firestore {
     // Everything else under a business: its team. The collections listed are kept by their own rules above, or are
     // server only. Server only among them: visitFormAnswers, visitPhotoMarks and clientPhotoRecords (lib/private-records:
     // a form's answers kept beside a visit, health answers among them; the team's marks and private notes on a client's
-    // photo; a photo's record), read only through the server, by its own rules.
+    // photo; a photo's record), read only through the server, by its own rules; and the drive-thru's cars, quick-service
+    // orders, their day's numbering and the kitchen's holding batches (api/counter, api/kitchen: prices, payments and
+    // stock are only ever changed by the server).
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -892,7 +894,8 @@ service cloud.firestore {
           'clientVerifications', 'clientDevices', 'healthViewLog',
           'feeCharges', 'feePayments', 'cardAttempts', 'membershipRenewals', 'stationSlots', 'tuitionCardUpdates',
           'collectionAttempts', 'checkoutKeys', 'refundNotices', 'chargeFlags',
-          'visitFormAnswers', 'visitPhotoMarks', 'clientPhotoRecords'
+          'visitFormAnswers', 'visitPhotoMarks', 'clientPhotoRecords',
+          'driveThruCars', 'counterOrders', 'orderCounters', 'holdingBins'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

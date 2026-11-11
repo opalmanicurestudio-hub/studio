@@ -78,7 +78,7 @@ export const MODULES: Record<ModuleId, {
   memberships: { label: 'Memberships & packages', pages: ['/memberships', '/memberships/ledger'], messageKinds: [] },
   team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
-  hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/settings/hosting'], messageKinds: [] },
+  hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/drive-thru', '/settings/hosting'], messageKinds: [] },
   academy: { label: 'Online academy', pages: ['/academy'], messageKinds: [] },
 };
 

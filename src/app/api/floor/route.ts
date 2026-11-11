@@ -90,6 +90,8 @@ export async function POST(req: NextRequest) {
       const slow = await limitPublic(req, 'kitchen_key', tenantId, { perHour: 60, perDay: 2000 }); if (slow) return slow;
       return bad('This screen isn’t set up, or was stopped. A manager can set it up again here.', 401);
     }
+    // A drive-thru screen's key (the lane, or its outdoor order board) never opens the floor board.
+    if (screen.ref && (screen.kind === 'drive-thru' || screen.kind === 'drive-thru-board')) return bad('This screen isn’t set up for the floor. A manager can set it up here.', 401);
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The floor board is closed for now. The business owner can tell you more.' }, { status: 403 });
     // …and while neither tool it comes with (Lounge & hospitality, Classes & events) is part of the plan (lib/tool-lock).

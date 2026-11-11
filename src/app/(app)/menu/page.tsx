@@ -1,8 +1,11 @@
 'use client';
 // src/app/(app)/menu/page.tsx — THE MENU: what guests see of each drink and dish on the station tablets and their own
-// phones (and later the counter, kiosk and drive-thru), by section. Each item's price, words, choices (size, milk,
+// phones and at the drive-thru (and later the counter and kiosk), by section. Each item's price, words, choices (size, milk,
 // extras, each with its own price) and whether it's on the menu; and "Sold out" in one tap, for the item or one of its
 // choices. Reads and saves through api/menu. Items themselves (stock, cost, recipe) are made in Inventory.
+//   Kitchen timing: how long each item takes to make (a drive-thru order is due no sooner than its slowest item), and
+//   whether it's cooked ahead in batches and held (the kitchen screen's holding timers). Managers also set the time each
+//   kind of order aims to be handed over in (the drive-thru's 3:30 unless they change it).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
@@ -14,6 +17,12 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GR
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`;
 const field = 'mt-1.5 w-full min-h-[44px] rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
+const pickField = 'min-h-[44px] w-36 shrink-0 rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const MAKE_TIMES = [30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900];
+const HOLD_TIMES = [5, 7, 10, 15, 20, 30, 45, 60, 90, 120];
+const TARGET_TIMES = [90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 600, 900, 1200];
+const TARGET_ROWS: [string, string, string][] = [['drive-thru', 'Drive-thru', 'From arriving at the speaker to driving away'], ['counter', 'Counter', 'From ordering to handed over'], ['ahead', 'Ordered ahead', 'From the order coming in to ready for pickup']];
 
 function Switch({ on, label, onClick, busy }: { on: boolean; label: string; onClick: () => void; busy?: boolean }) {
   return (
@@ -35,6 +44,8 @@ export default function MenuPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<MenuItem | null>(null);
+  const [targets, setTargets] = useState<Record<string, number> | null>(null);
+  const [timesOpen, setTimesOpen] = useState(false);
 
   const call = useCallback(async (body: any) => {
     try {
@@ -42,7 +53,12 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  const setTarget = async (channel: string, seconds: number) => {
+    const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
+    const d = await call({ action: 'targets', targets: { [channel]: seconds } });
+    setBusy(null); if (d.ok) setTargets(d.targets); else { setTargets(was); setErr(d.error || 'That didn’t save.'); }
+  };
 
   const put = (item: MenuItem) => setMenu((m) => (m ? m.map((x) => (x.id === item.id ? item : x)) : m));
   const soldOut = async (item: MenuItem, out: boolean, groupId?: string, optionId?: string): Promise<MenuItem | null> => {
@@ -64,10 +80,29 @@ export default function MenuPage() {
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight">Menu</h1>
-            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet or their own phone. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.</p>
+            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.</p>
           </div>
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>
+        {canEdit && targets && (
+          <section aria-labelledby="times-title" className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
+            <button type="button" onClick={() => setTimesOpen((v) => !v)} aria-expanded={timesOpen} className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-3xl px-5 text-left ${RING}`}>
+              <span><span id="times-title" className="block text-[16px] font-semibold">Service times</span>
+                <span className="block text-[13.5px]" style={{ color: MUTED }}>Drive-thru {mmss(targets['drive-thru'])}, counter {mmss(targets.counter)}, ordered ahead {mmss(targets.ahead)}</span></span>
+              <span className="text-[14px] font-semibold" style={{ color: MUTED }}>{timesOpen ? 'Close' : 'Change'}</span>
+            </button>
+            {timesOpen && <div className="space-y-3 border-t px-5 pb-5 pt-4" style={{ borderColor: LINE }}>
+              <p className="text-[14px]" style={{ color: MUTED }}>The time each order aims to be handed over in. The kitchen screen counts every ticket down to it and works the drive-thru first.</p>
+              {TARGET_ROWS.map(([c, label, hint]) => (
+                <label key={c} className="flex flex-wrap items-center justify-between gap-3">
+                  <span><span className="block text-[15px] font-medium">{label}</span><span className="block text-[13px]" style={{ color: MUTED }}>{hint}</span></span>
+                  <select value={targets[c]} disabled={busy === `t-${c}`} onChange={(e) => setTarget(c, Number(e.target.value))} className={pickField} style={{ borderColor: LINE }}>
+                    {Array.from(new Set([...TARGET_TIMES, targets[c]])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{mmss(t)}</option>)}
+                  </select>
+                </label>))}
+            </div>}
+          </section>
+        )}
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className={`${field} mt-0`} style={{ borderColor: LINE }} />
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {!menu ? <div className="h-40 rounded-3xl bg-[#fff]" aria-busy="true" />
@@ -114,6 +149,8 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
   const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
   const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
+  const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
+  const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
   const box = useRef<HTMLDivElement | null>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -129,8 +166,12 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
     if (String(price).trim() === '' || !Number.isFinite(Number(price))) { setErr('What does it cost? Type a price, like 4.50.'); return; }
     const bad = groups.flatMap((g) => g.options).find((o) => Number.isNaN(money2(o.price)));
     if (bad) { setErr(`What does ${bad.name || 'that option'} add? Type an amount, like 0.75, or leave it at 0.`); return; }
+    const batch = Math.floor(Number(batchSize));
+    if (held && !(batch >= 1 && batch <= 200)) { setErr('How many in a batch? Between 1 and 200.'); return; }
     setSaving(true); setErr('');
-    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })) });
+    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
+      // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
+      ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}) });
     setSaving(false); if (e) setErr(e);
   };
   return (
@@ -153,6 +194,25 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">Choices</h3>
             <ChoicesEditor groups={groups} onChange={setGroups} />
+          </div>
+          <div className="space-y-3">
+            <h3 className="text-[16px] font-semibold">Kitchen timing</h3>
+            <label className="flex flex-wrap items-center justify-between gap-3">
+              <span><span className="block text-[15px] font-medium">Takes to make</span><span className="block text-[13px]" style={{ color: MUTED }}>An order is never due sooner than its slowest item.</span></span>
+              <select value={makeSeconds} onChange={(e) => { setMakeSeconds(Number(e.target.value)); setMakeTouched(true); }} className={pickField} style={{ borderColor: LINE }}>
+                {Array.from(new Set([...MAKE_TIMES, makeSeconds])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{t < 60 ? `${t} seconds` : mmss(t)}</option>)}
+              </select>
+            </label>
+            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={held} onChange={(e) => setHeld(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Cooked ahead in batches and held</label>
+            {held && <div className="grid gap-3 rounded-2xl p-4 sm:grid-cols-2" style={{ background: SOFT }}>
+              <label><span className="text-[14px] font-medium">Hold for</span>
+                <select value={holdMinutes} onChange={(e) => setHoldMinutes(Number(e.target.value))} className={field} style={{ borderColor: LINE }}>
+                  {Array.from(new Set([...HOLD_TIMES, holdMinutes])).sort((a, b) => a - b).map((m) => <option key={m} value={m}>{m} minutes</option>)}
+                </select></label>
+              <label><span className="text-[14px] font-medium">A batch is</span>
+                <input inputMode="numeric" value={batchSize} onChange={(e) => setBatchSize(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} className={field} style={{ borderColor: LINE }} /></label>
+              <p className="text-[13px] sm:col-span-2" style={{ color: MUTED }}>The kitchen screen starts a batch in one tap, counts it down, and says when it has to be thrown out.</p>
+            </div>}
           </div>
           <div className="space-y-2">
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={onMenu} onChange={(e) => setOnMenu(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />On the menu guests see</label>

@@ -74,7 +74,23 @@ export function ticketFrom(d: any, col: KitchenCol) {
     collect: col === 'refreshmentRequests' ? collectAtHandover(r) : 0,
     readyAt: r.readyAt || null, deliveredAt: r.deliveredAt || null,
     carriedBy: String(r.carriedBy || r.bringingOutBy || '').trim() || null,
+    // A quick-service order (lib/counter-orders): where it came from, its number ("B16"), and when it has to be ready.
+    channel: ['drive-thru', 'counter', 'kiosk', 'ahead'].includes(String(r.channel)) ? String(r.channel) : null,
+    orderId: typeof r.orderId === 'string' ? r.orderId : null,
+    orderNumber: typeof r.orderNumber === 'string' ? r.orderNumber.slice(0, 12) : null,
+    dueAt: typeof r.dueAt === 'string' && Number.isFinite(Date.parse(r.dueAt)) ? r.dueAt : null,
+    line: Number.isFinite(Number(r.line)) && r.line ? Number(r.line) : null, lines: Number.isFinite(Number(r.lines)) && r.lines ? Number(r.lines) : null,
   };
+}
+
+/** When a ticket should be out: its own time (a drive-thru or counter order has one), or five minutes after it came in. */
+export const ticketDue = (t: { dueAt?: string | null; at: string }) => { const d = Date.parse(String(t.dueAt || '')); if (Number.isFinite(d)) return d; const a = Date.parse(t.at); return Number.isFinite(a) ? a + 300000 : Infinity; };
+
+/** The kitchen's order of work: drive-thru first (a car waiting holds up every car behind it), then whatever is due soonest. */
+export function kitchenOrder(a: { channel?: string | null; dueAt?: string | null; at: string }, b: { channel?: string | null; dueAt?: string | null; at: string }): number {
+  const dt = (x: typeof a) => Number(x.channel === 'drive-thru');
+  if (dt(a) !== dt(b)) return dt(b) - dt(a);
+  return ticketDue(a) - ticketDue(b) || String(a.at).localeCompare(String(b.at));
 }
 export type KitchenTicket = ReturnType<typeof ticketFrom>;
 
@@ -97,18 +113,23 @@ export function allergyFlags(t: Pick<KitchenTicket, 'allergies' | 'allergyNote' 
 
 /** Tickets in groups for a busy service: by event course ("Spring dinner, course 2"), or by dish across everyone
  *  ("Risotto × 14"). Oldest group first. */
-export function groupTickets(tickets: KitchenTicket[], by: 'course' | 'dish') {
+export function groupTickets(tickets: KitchenTicket[], by: 'course' | 'dish' | 'order') {
   const groups = new Map<string, { key: string; label: string; tickets: KitchenTicket[]; count: number; at: string }>();
   for (const t of tickets) {
     const key = by === 'course'
       ? (t.eventId ? `${t.eventId}|${t.courseNumber ?? '-'}` : `other|${t.source}`)
+      : by === 'order' ? (t.orderId ? `order|${t.orderId}` : `${t.col}|${t.id}`)
       : `${t.item.trim().toLowerCase()}`;
     const label = by === 'course'
       ? (t.eventId ? `${t.eventTitle || 'Event'}${t.courseNumber !== null ? `, course ${t.courseNumber}` : ''}` : t.source === 'lounge' ? 'Lounge orders' : t.source === 'tab' ? 'Table orders' : t.source === 'pos' ? 'Desk orders' : 'Other orders')
+      : by === 'order' ? (t.orderId || t.station.startsWith(t.name) ? t.station : `${t.name}, ${t.station}`)
       : t.item;
     const g = groups.get(key) || { key, label, tickets: [], count: 0, at: t.at };
     g.tickets.push(t); g.count += t.quantity; if (t.at && (!g.at || t.at < g.at)) g.at = t.at;
     groups.set(key, g);
   }
-  return Array.from(groups.values()).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const list = Array.from(groups.values());
+  // By order: the one the kitchen should finish first on top (drive-thru, then due soonest). Otherwise oldest first.
+  if (by === 'order') return list.sort((a, b) => kitchenOrder(a.tickets.slice().sort(kitchenOrder)[0], b.tickets.slice().sort(kitchenOrder)[0]));
+  return list.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }

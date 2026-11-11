@@ -2,6 +2,8 @@
 // screen's one-tap "Sold out"). A menu item is an inventory item of the refreshment kind; what guests see of it is its
 // name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier.
 import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
+import { makeSecondsOf, holdMinutesOf } from '@/lib/counter-orders';
+import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -9,7 +11,9 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
-  soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean };
+  soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
+  /** Kitchen timing (lib/counter-orders, lib/holding): how long it takes to make, and how long a batch may be held (0: not held). */
+  makeSeconds: number; holdMinutes: number; batchSize: number };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -21,6 +25,7 @@ export function menuItemOf(id: string, i: any): MenuItem {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: typeof i.imageUrl === 'string' && /^https:\/\//.test(i.imageUrl) ? i.imageUrl : null,
     choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: i.showInConcierge !== false, membersOnly: i.isMembersOnly === true, inStock: num(i.totalStock) > 0,
+    makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
   };
 }
 

@@ -2,7 +2,10 @@
 // choices, and "Sold out" in one tap. Items themselves (stock, cost, recipe) are made in Inventory; this is the menu side.
 //   list    { tenantId }                                   → every menu item (anyone on the team)
 //   soldout { tenantId, itemId, groupId?, optionId?, out } → the item, or one of its choices, sold out or back (anyone on the team)
-//   save    { tenantId, itemId, item: { name, section, words, price, choices, onMenu, membersOnly } } → managers
+//   save    { tenantId, itemId, item: { name, section, words, price, choices, onMenu, membersOnly, makeSeconds?,
+//             holdMinutes?, batchSize? } } → managers (the kitchen timing: lib/counter-orders, lib/holding)
+//   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
+//             aims to be handed over in (list returns them)
 // Nothing about cost or suppliers is read or written here.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -10,6 +13,7 @@ import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf } from '@/lib/menu-server';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
+import { targetsOf, CHANNELS } from '@/lib/counter-orders';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -22,12 +26,29 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, action === 'save' ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'targets'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, action === 'save' || action === 'targets' ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
-    if (action === 'list') return ok({ menu: await readMenu(db, tenantId), canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner) });
+    if (action === 'list') {
+      const [menu, t] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get()]);
+      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(t.data() || {}) });
+    }
+
+    if (action === 'targets') {
+      const given = b.targets && typeof b.targets === 'object' ? b.targets : {};
+      const next: Record<string, number> = {};
+      for (const c of CHANNELS) {
+        if (given[c] === undefined) continue;
+        const n = Math.floor(Number(given[c]));
+        if (!Number.isFinite(n) || n < 60 || n > 3600) return bad('A time between 1 and 60 minutes.');
+        next[c] = n;
+      }
+      if (!Object.keys(next).length) return bad('Which time?');
+      await db.doc(`tenants/${tenantId}`).set({ kitchenSettings: { targets: next } }, { merge: true });
+      return ok({ targets: targetsOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}) });
+    }
 
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, String(g.actor?.name || 'The team'));
@@ -54,6 +75,11 @@ export async function POST(req: NextRequest) {
     if (given.length !== choices.length) return bad('Each choice needs a name and at least one option with a name.');
     const lowest = price + choices.filter((cg) => cg.required && cg.pick === 'one').reduce((s, cg) => s + Math.min(...cg.options.map((o) => o.price)), 0);
     if (lowest < 0) return bad('A choice takes off more than the item costs. Check the prices.');
+    // Kitchen timing, when given: how long it takes to make, and whether a batch is cooked ahead and held (and for how long).
+    const timing: Record<string, number> = {};
+    if (x.makeSeconds !== undefined && x.makeSeconds !== null) { const n = Math.floor(Number(x.makeSeconds)); if (!Number.isFinite(n) || n < 10 || n > 3600) return bad('How long it takes to make: between 10 seconds and an hour.'); timing.makeSeconds = n; }
+    if (x.holdMinutes !== undefined && x.holdMinutes !== null) { const n = Math.floor(Number(x.holdMinutes)); if (!Number.isFinite(n) || n < 0 || n > 240) return bad('How long it can be held: up to 4 hours.'); timing.holdMinutes = n; }
+    if (x.batchSize !== undefined && x.batchSize !== null) { const n = Math.floor(Number(x.batchSize)); if (!Number.isFinite(n) || n < 1 || n > 200) return bad('A batch is between 1 and 200.'); timing.batchSize = n; }
     const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
     const r: any = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data();
@@ -64,7 +90,7 @@ export async function POST(req: NextRequest) {
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }) };
     });

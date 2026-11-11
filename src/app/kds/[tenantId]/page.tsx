@@ -7,12 +7,19 @@
 //   Allergies are shown big on every ticket, including ones only typed into a note (lib/kitchen allergyFlags).
 //   A sound plays for every new ticket, the first one too, once the screen has been tapped (browsers need a tap).
 //   ?event=<id> shows one event's tickets (linked from the event screen).
+//   Drive-thru and counter orders carry a time they must be ready by: they're worked first (drive-thru on top), each
+//   ticket counts down to its time, and "By order" keeps an order's items together for bagging.
+//   Holding (lib/holding): batches cooked ahead show along the top with how long each has left; a ticket for something
+//   held is made from the batch in one tap, and a batch past its time says to throw it out.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
-import { allergyFlags, groupTickets, type KitchenTicket, type KitchenStep } from '@/lib/kitchen';
+import { allergyFlags, groupTickets, kitchenOrder, type KitchenTicket, type KitchenStep } from '@/lib/kitchen';
+import { binFor, binState, type HoldBin } from '@/lib/holding';
+import { timeLeft } from '@/lib/counter-orders';
+import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import type { MenuItem } from '@/lib/menu-server';
 
@@ -21,10 +28,11 @@ const AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
 const POLL_MS = 4000;
 const WARM_S = 5 * 60, LATE_S = 8 * 60;
 
-type View = 'lanes' | 'course' | 'dish';
+type View = 'lanes' | 'order' | 'course' | 'dish';
+type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; items: Record<string, Item>; today: Today[] };
+type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number };
 type Staff = { id: string; name: string; pass: string };
 
 const keyName = (t: string) => `cf.kitchen.${t}`;
@@ -36,7 +44,8 @@ const waited = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 6
 const clock = (iso: string, tz: string | null) => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; try { return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) }).replace(' AM', 'am').replace(' PM', 'pm'); } catch { return ''; } };
 const amount = (n: number) => String(Math.round(n * 10) / 10);
 const where = (t: KitchenTicket) => t.source === 'event' ? `${t.eventTitle || 'Event'}${t.courseNumber !== null ? `, course ${t.courseNumber}` : ''}${t.tableNumber ? `, table ${t.tableNumber}` : ''}${t.seatNumber ? `, seat ${t.seatNumber}` : ''}` : t.station;
-const sourceWord = (t: KitchenTicket) => t.source === 'lounge' ? 'Lounge' : t.source === 'tab' ? 'Table' : t.source === 'pos' ? 'Desk' : t.source === 'event' ? 'Event' : 'Order';
+const CHANNEL_WORD: Record<string, string> = { 'drive-thru': 'Drive-thru', counter: 'Counter', kiosk: 'Kiosk', ahead: 'Ordered ahead' };
+const sourceWord = (t: KitchenTicket) => t.channel ? CHANNEL_WORD[t.channel] : t.source === 'lounge' ? 'Lounge' : t.source === 'tab' ? 'Table' : t.source === 'pos' ? 'Desk' : t.source === 'event' ? 'Event' : 'Order';
 
 // ─── Printing: the ticket as a label, through the tablet's own print dialog (a receipt printer set up on it works) ──
 function printTicket(t: KitchenTicket, item: Item | undefined, staff: Staff | null, tz: string | null) {
@@ -106,35 +115,43 @@ function AllergyBanner({ t, compact = false }: { t: KitchenTicket; compact?: boo
 }
 
 // ─── One ticket, in a lane ───────────────────────────────────────────────────────────────────────────────────────────
-function TicketCard({ t, item, now, tz, busy, onStep, onCancel, onPrint }: {
-  t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean;
-  onStep: (t: KitchenTicket, s: KitchenStep) => void; onCancel: (t: KitchenTicket) => void; onPrint: (t: KitchenTicket) => void;
+function TicketCard({ t, item, now, tz, busy, bin, onStep, onCancel, onPrint, onFromHold }: {
+  t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean; bin: HoldBin | null;
+  onStep: (t: KitchenTicket, s: KitchenStep) => void; onCancel: (t: KitchenTicket) => void; onPrint: (t: KitchenTicket) => void; onFromHold: (t: KitchenTicket, b: HoldBin) => void;
 }) {
   const s = secondsSince(t.at, now);
-  const late = s >= LATE_S, warm = !late && s >= WARM_S;
+  // A quick-service ticket counts down to the time it has to be ready by; anything else counts up from when it came in.
+  const due = t.dueAt && t.status !== 'ready' ? timeLeft(Date.parse(t.dueAt), now) : null;
+  const late = due ? due.over : s >= LATE_S, warm = !late && (due ? due.left < 60 : s >= WARM_S);
   const flags = allergyFlags(t);
   const plainNote = t.note && !flags.mentions.includes(t.note) ? t.note : null;
+  const quick = !!t.channel;
   return (
-    <article className="rounded-2xl bg-white p-4 space-y-3" style={{ border: `1px solid ${late ? AMBER : LINE}` }}>
+    <article className="rounded-2xl bg-[#fff] p-4 space-y-3" style={{ border: `${late ? 2 : 1}px solid ${late ? AMBER : LINE}`, padding: late ? 15 : 16 }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[13px] font-medium" style={{ color: MUTED }}>{sourceWord(t)} · {clock(t.at, tz)}{t.isRedemption ? ' · Member perk' : ''}</p>
-          <h3 className="text-[22px] font-semibold leading-tight mt-0.5" style={{ color: INK }}>
+          <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium" style={{ color: MUTED }}>
+            {t.orderNumber && <span className="rounded-lg px-2 py-0.5 text-[17px] font-semibold tabular-nums" style={t.channel === 'drive-thru' ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{t.orderNumber}</span>}
+            <span>{sourceWord(t)} · {clock(t.at, tz)}{t.lines && t.lines > 1 ? ` · ${t.line} of ${t.lines}` : ''}{t.isRedemption ? ' · Member perk' : ''}</span>
+          </p>
+          <h3 className="text-[22px] font-semibold leading-tight mt-1" style={{ color: INK }}>
             {t.item}{t.quantity > 1 && <span style={{ color: MUTED }}> × {t.quantity}</span>}
           </h3>
           {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
         </div>
-        <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Waiting ${waited(s)}`}>{waited(s)}</span>
+        {due
+          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={due.text}>{due.text}</span>
+          : <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Waiting ${waited(s)}`}>{waited(s)}</span>}
       </div>
       <AllergyBanner t={t} />
       {t.collect > 0 && <p className="rounded-xl px-3 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>Collect ${t.collect.toFixed(2)} when it’s handed over</p>}
-      <div className="text-[15px] leading-snug" style={{ color: INK }}>
-        <p className="font-medium">{t.name}</p>
-        <p style={{ color: MUTED }}>{where(t)}</p>
+      {(!quick || t.lookFor || plainNote) && <div className="text-[15px] leading-snug" style={{ color: INK }}>
+        {!quick && <p className="font-medium">{t.name}</p>}
+        {!quick && <p style={{ color: MUTED }}>{where(t)}</p>}
         {t.lookFor && <p className="mt-1">Look for: {t.lookFor}</p>}
         {t.accessNote && !flags.mentions.includes(t.accessNote) && <p className="mt-1">How to reach them: {t.accessNote}</p>}
         {plainNote && <p className="mt-1" style={{ color: MUTED }}>{plainNote}</p>}
-      </div>
+      </div>}
       {item?.formula?.length ? (
         <div className="flex flex-wrap gap-1.5">
           {item.formula.slice(0, 6).map((f, i) => (
@@ -143,6 +160,11 @@ function TicketCard({ t, item, now, tz, busy, onStep, onCancel, onPrint }: {
         </div>
       ) : null}
       {t.claimedBy && t.status !== 'pending' && <p className="text-[13px]" style={{ color: MUTED }}>Started by {t.claimedBy.name}</p>}
+      {bin && (t.status === 'pending' || t.status === 'in_progress') && (
+        <button type="button" disabled={busy} onClick={() => onFromHold(t, bin)} className={`${btn} w-full`} style={{ background: GREEN_TINT, color: GREEN, border: `1px solid #cfe8da` }}>
+          Take from holding, {bin.quantity} held
+        </button>
+      )}
       <div className="flex flex-wrap gap-2 pt-1">
         {t.status === 'pending' && <>
           <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Start</button>
@@ -156,7 +178,7 @@ function TicketCard({ t, item, now, tz, busy, onStep, onCancel, onPrint }: {
           <button type="button" disabled={busy} onClick={() => onStep(t, 'deliver')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Served</button>
         )}
         <button type="button" onClick={() => onPrint(t)} className={btn} style={quiet}>Print</button>
-        <button type="button" disabled={busy} onClick={() => onCancel(t)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: RED }}>Cancel</button>
+        {!quick && <button type="button" disabled={busy} onClick={() => onCancel(t)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: RED }}>Cancel</button>}
       </div>
     </article>
   );
@@ -164,29 +186,33 @@ function TicketCard({ t, item, now, tz, busy, onStep, onCancel, onPrint }: {
 
 // ─── A course or a dish: its tickets in rows, moved along together or one by one ─────────────────────────────────────
 function GroupPanel({ g, by, now, busyIds, onStep, onBump }: {
-  g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish'; now: number; busyIds: Set<string>;
+  g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void;
 }) {
   const toReady = g.tickets.filter((t) => t.status === 'pending' || t.status === 'in_progress');
   const toServe = g.tickets.filter((t) => t.status === 'ready');
   const withAllergy = g.tickets.filter((t) => allergyFlags(t).any).length;
   const s = secondsSince(g.at, now);
+  // An order with a time (drive-thru, counter) counts down to it, the whole order together.
+  const dueIso = by === 'order' ? g.tickets.map((t) => t.dueAt).filter(Boolean).sort()[0] : null;
+  const due = dueIso && toReady.length ? timeLeft(Date.parse(dueIso), now) : null;
+  const late = due ? due.over : s >= LATE_S;
   const anyBusy = g.tickets.some((t) => busyIds.has(t.id));
   // Guests with an allergy first, so they're never at the bottom of a long list.
   const rows = [...g.tickets].sort((a, b) => Number(allergyFlags(b).any) - Number(allergyFlags(a).any));
   return (
-    <section className="rounded-2xl bg-white overflow-hidden" style={{ border: `1px solid ${s >= LATE_S ? AMBER : LINE}` }}>
+    <section className="rounded-2xl bg-[#fff] overflow-hidden" style={{ border: `1px solid ${late ? AMBER : LINE}` }}>
       <div className="p-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="min-w-0">
           <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{g.label}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
           <p className="text-[14px] mt-0.5" style={{ color: MUTED }}>
-            {g.tickets.length} {g.tickets.length === 1 ? 'ticket' : 'tickets'} · oldest {waited(s)}
+            {by === 'order' ? `${g.count} ${g.count === 1 ? 'item' : 'items'}` : `${g.tickets.length} ${g.tickets.length === 1 ? 'ticket' : 'tickets'}`} · {due ? <b className="font-semibold tabular-nums" style={{ color: due.over ? AMBER : INK }}>{due.text}</b> : `oldest ${waited(s)}`}
             {withAllergy > 0 && <span style={{ color: AMBER }} className="font-semibold"> · {withAllergy} with {withAllergy === 1 ? 'an allergy' : 'allergies'}</span>}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {toReady.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toReady, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>All {toReady.length} ready</button>}
-          {toServe.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toServe, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>Serve the {toServe.length} ready</button>}
+          {toReady.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toReady, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>{toReady.length === 1 ? 'Ready' : `All ${toReady.length} ready`}</button>}
+          {toServe.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toServe, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>{by === 'order' && !toReady.length && g.tickets.some((t) => t.channel) ? 'Bagged and out' : toServe.length === 1 ? 'Served' : `Serve the ${toServe.length} ready`}</button>}
         </div>
       </div>
       <ul>
@@ -197,10 +223,10 @@ function GroupPanel({ g, by, now, busyIds, onStep, onBump }: {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-[16px] font-medium leading-snug" style={{ color: INK }}>
-                    {by === 'course' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}<span style={{ color: MUTED }}> · {t.name}</span></> : <>{t.name}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</>}
+                    {by === 'order' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</> : by === 'course' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}<span style={{ color: MUTED }}> · {t.name}</span></> : <>{t.name}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</>}
                   </p>
                   {t.choices && <p className="text-[15px] font-semibold" style={{ color: INK }}>{t.choices}</p>}
-                  <p className="text-[13.5px]" style={{ color: MUTED }}>{where(t)} · {t.status === 'pending' ? 'Waiting' : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
+                  <p className="text-[13.5px]" style={{ color: MUTED }}>{by === 'order' ? '' : `${where(t)} · `}{t.status === 'pending' ? 'Waiting' : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
                 </div>
                 <div className="flex gap-2">
                   {t.status === 'pending' && <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={btn} style={quiet}>Start</button>}
@@ -279,38 +305,46 @@ function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status
   );
 }
 
-// ─── "Who's working?": a PIN puts a name on what's done (never needed to use the screen) ────────────────────────────
-function PinPad({ check, onDone, onClose }: { check: (pin: string) => Promise<{ ok: true; staff: Staff } | { ok: false; error: string }>; onDone: (s: Staff) => void; onClose: () => void }) {
-  const [pin, setPin] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
-  const press = async (k: string) => {
-    if (busy) return;
-    if (k === 'back') { setPin((p) => p.slice(0, -1)); setErr(''); return; }
-    const next = (pin + k).slice(0, 4); setPin(next); setErr('');
-    if (next.length < 4) return;
-    setBusy(true);
-    const r = await check(next);
-    setBusy(false);
-    if (r.ok) onDone(r.staff); else { setErr(r.error); setPin(''); }
-  };
+// ─── Holding: batches cooked ahead, each with the time it has left (lib/holding) ─────────────────────────────────────
+function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, onToss }: {
+  holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; now: number; busy: string | null;
+  onHold: (h: Holdable) => void; onUse: (b: HoldBin) => void; onToss: (b: HoldBin) => void;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Who’s working">
-      <div className="w-full max-w-xs rounded-3xl bg-[#fff] p-5 space-y-4">
-        <div>
-          <h2 className="text-[20px] font-semibold" style={{ color: INK }}>Who’s working?</h2>
-          <p className="text-[14px] mt-1" style={{ color: MUTED }}>Your PIN puts your name on the tickets you move. The screen works without it.</p>
-        </div>
-        <div className="flex justify-center gap-3" aria-label={`${pin.length} of 4 digits`}>
-          {[0, 1, 2, 3].map((i) => <span key={i} className="h-3.5 w-3.5 rounded-full" style={{ background: i < pin.length ? INK : LINE }} />)}
-        </div>
-        {err && <p className="text-[14px] text-center" style={{ color: AMBER }}>{err}</p>}
-        <div className="grid grid-cols-3 gap-2">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'].map((k, i) => k === ''
-            ? <span key={i} />
-            : <button key={i} type="button" disabled={busy} onClick={() => press(k)} className="h-14 rounded-2xl text-[20px] font-semibold disabled:opacity-50" style={{ background: SOFT, color: INK }} aria-label={k === 'back' ? 'Delete' : k}>{k === 'back' ? '⌫' : k}</button>)}
-        </div>
-        <button type="button" onClick={onClose} className={`${btn} w-full`} style={quiet}>Close</button>
+    <section aria-label="Holding" className="space-y-2.5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
+        <h2 className="text-[16px] font-semibold" style={{ color: INK }}>Holding</h2>
+        <p className="text-[13.5px]" style={{ color: MUTED }}>{tossedToday > 0 ? `${tossedToday} thrown out today` : 'Nothing thrown out today'}</p>
       </div>
-    </div>
+      <div className="flex gap-3 overflow-x-auto pb-1">
+        {holds.map((b) => {
+          const st = binState(b, now); const expired = st.state === 'expired'; const soon = st.state === 'soon';
+          return (
+            <article key={b.id} className="w-[236px] shrink-0 space-y-2.5 rounded-2xl p-3.5" style={{ background: expired ? AMBER : '#fff', color: expired ? '#fff' : INK, border: `1px solid ${expired ? AMBER : soon ? '#f3d9b8' : LINE}` }} aria-label={`${b.name}: ${b.quantity} held, ${st.text}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="truncate text-[16px] font-semibold">{b.name}</p>
+                <p className="text-[26px] font-semibold leading-none tabular-nums">{b.quantity}</p>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full" style={{ background: expired ? 'rgba(255,255,255,0.3)' : SOFT }} aria-hidden>
+                <div className="h-full rounded-full" style={{ width: `${Math.round(st.share * 100)}%`, background: soon ? AMBER : GREEN, transition: 'width 1s linear' }} />
+              </div>
+              <p className="text-[14px] font-semibold tabular-nums" style={{ color: expired ? '#fff' : soon ? AMBER : MUTED }}>{expired ? 'Past its time. Throw it out.' : st.text}</p>
+              <div className="flex gap-2">
+                {!expired && <button type="button" disabled={busy === b.id} onClick={() => onUse(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={quiet}>Use 1</button>}
+                <button type="button" disabled={busy === b.id} onClick={() => onToss(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={expired ? { background: '#fff', color: AMBER } : { background: '#fff', border: `1px solid ${LINE}`, color: RED }}>Throw out</button>
+              </div>
+            </article>
+          );
+        })}
+        {holdable.map((h) => (
+          <button key={h.id} type="button" disabled={busy === `hold-${h.id}`} onClick={() => onHold(h)} className="flex min-h-[44px] w-[160px] shrink-0 flex-col items-start justify-center gap-1 rounded-2xl px-3.5 py-3 text-left disabled:opacity-50" style={{ border: '1px dashed #c9cbd0', background: 'transparent', color: INK }}
+            aria-label={`Start a batch of ${h.batchSize} ${h.name}, held ${h.holdMinutes} minutes`}>
+            <span className="text-[15px] font-semibold">+ {h.name}</span>
+            <span className="text-[13px]" style={{ color: MUTED }}>Batch of {h.batchSize}, {h.holdMinutes} min</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -409,6 +443,7 @@ export default function KitchenScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [soldOpen, setSoldOpen] = useState(false);
   const [justPaired, setJustPaired] = useState(false);
+  const [holdBusy, setHoldBusy] = useState<string | null>(null);
   const audio = useRef<AudioContext | null>(null);
   const seen = useRef<Set<string> | null>(null);
   const inFlight = useRef(false);
@@ -417,13 +452,14 @@ export default function KitchenScreen() {
   // What this tablet remembers: its key, the view, sound, and who's working (this browser tab only).
   useEffect(() => {
     setKey(read(keyName(tenantId)));
-    const v = read('cf.kitchen.view'); if (v === 'course' || v === 'dish' || v === 'lanes') setView(v);
+    const v = read('cf.kitchen.view'); if (v === 'course' || v === 'dish' || v === 'lanes' || v === 'order') setView(v);
     if (read('cf.kitchen.sound') === 'off') setSoundOn(false);
     try { const s = JSON.parse(sessionStorage.getItem('cf.kitchen.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     try { const e = new URLSearchParams(window.location.search).get('event'); if (e && /^[A-Za-z0-9_-]{1,160}$/.test(e)) setEventId(e); } catch { /* */ }
     setReady(true);
   }, [tenantId]);
-  useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, []);
+  const [skew, setSkew] = useState(0);
+  useEffect(() => { const i = setInterval(() => setNow(Date.now() + skew), 1000); return () => clearInterval(i); }, [skew]);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
 
   // Sound needs one tap on the screen before a browser lets it play.
@@ -460,7 +496,9 @@ export default function KitchenScreen() {
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], items: d.items || {}, today: d.today || [] };
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0 };
+      // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
+      if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
       // A sound for every ticket not seen before (the first one after a quiet spell too), never for what was already up.
       const ids = next.tickets.map((t) => `${t.col}/${t.id}`);
       if (seen.current) {
@@ -538,12 +576,33 @@ export default function KitchenScreen() {
 
   const tickets = data?.tickets || [];
   const byTime = (a: KitchenTicket, b: KitchenTicket) => String(a.at).localeCompare(String(b.at));
+  // What to make next: drive-thru first, then whatever is due soonest (lib/kitchen kitchenOrder).
   const lanes = useMemo(() => ({
-    waiting: tickets.filter((t) => t.status === 'pending').sort(byTime),
-    making: tickets.filter((t) => t.status === 'in_progress').sort(byTime),
+    waiting: tickets.filter((t) => t.status === 'pending').sort(kitchenOrder),
+    making: tickets.filter((t) => t.status === 'in_progress').sort(kitchenOrder),
     ready: tickets.filter((t) => t.status === 'ready').sort(byTime),
   }), [tickets]);
   const groups = useMemo(() => view === 'lanes' ? [] : groupTickets(tickets, view), [tickets, view]);
+  const lateCount = tickets.filter((t) => t.status !== 'ready' && t.dueAt && Date.parse(t.dueAt) < now).length;
+  const holdCall = async (k: string, body: any) => {
+    acted.current++; setHoldBusy(k);
+    try {
+      const { status, d } = await post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) });
+      if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return null; }
+      if (d.staffOk === false) staffGone();
+      if (!d.ok) setNotice(d.error || 'That didn’t go through. Try again.');
+      return d;
+    } catch { setNotice('No connection. Try again.'); return null; }
+    finally { acted.current++; setHoldBusy(null); load(); }
+  };
+  const startHold = (h: Holdable) => { void holdCall(`hold-${h.id}`, { action: 'hold', itemId: h.id }); };
+  const holdStep = (b: HoldBin, action: 'holdUse' | 'holdToss') => { void holdCall(b.id, { action, binId: b.id, quantity: 1 }); };
+  const fromHold = async (t: KitchenTicket, b: HoldBin) => {
+    setBusy([t.id], true);
+    const d = await holdCall(b.id, { action: 'fromHold', col: t.col, id: t.id, binId: b.id });
+    setBusy([t.id], false);
+    if (d?.ok && !d.already) local([t], 'ready');
+  };
   const stats = useMemo(() => {
     const day = (data?.today || []).filter((x) => x.status !== 'cancelled');
     const served = day.filter((x) => x.status === 'delivered' && x.deliveredAt);
@@ -568,7 +627,7 @@ export default function KitchenScreen() {
       </div>
       {list.length === 0
         ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{empty}</p>
-        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} onStep={step} onCancel={setCancelFor} onPrint={print} />)}
+        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} bin={binFor(data?.holds || [], t.itemId ? String(t.itemId) : null, t.quantity, now)} onStep={step} onCancel={setCancelFor} onPrint={print} onFromHold={fromHold} />)}
     </section>
   );
 
@@ -582,8 +641,8 @@ export default function KitchenScreen() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl p-1" style={{ background: SOFT }} role="tablist" aria-label="How tickets are shown">
-              {([['lanes', 'Lanes'], ['course', 'By course'], ['dish', 'By dish']] as [View, string][]).map(([v, label]) => (
-                <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[40px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{label}</button>
+              {([['lanes', 'Lanes'], ['order', 'By order'], ['course', 'By course'], ['dish', 'By dish']] as [View, string][]).map(([v, label]) => (
+                <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[44px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{label}</button>
               ))}
             </div>
             {staff
@@ -607,6 +666,7 @@ export default function KitchenScreen() {
           <span>Served <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served}</b></span>
           <span>Waiting <b className="font-semibold tabular-nums" style={{ color: INK }}>{lanes.waiting.length}</b></span>
           <span>Average wait <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : 'none yet'}</b></span>
+          {lateCount > 0 && <span style={{ color: AMBER }}>Past their time <b className="font-semibold tabular-nums">{lateCount}</b></span>}
           {stats.top && <span>Most ordered <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
         </div>
       </header>
@@ -636,16 +696,19 @@ export default function KitchenScreen() {
         {!data ? (
           <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading tickets" /></div>
         ) : view === 'lanes' ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-            {lane('Waiting', lanes.waiting, 'Nothing waiting.')}
-            {lane('Being made', lanes.making, 'Nothing being made.')}
-            {lane('Ready to go out', lanes.ready, 'Nothing ready yet.')}
+          <div className="space-y-4">
+            {(data.holds.length > 0 || data.holdable.length > 0) && <HoldingStrip holds={data.holds} holdable={data.holdable} tossedToday={data.tossedToday} now={now} busy={holdBusy} onHold={startHold} onUse={(b) => holdStep(b, 'holdUse')} onToss={(b) => holdStep(b, 'holdToss')} />}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+              {lane('Waiting', lanes.waiting, 'Nothing waiting.')}
+              {lane('Being made', lanes.making, 'Nothing being made.')}
+              {lane('Ready to go out', lanes.ready, 'Nothing ready yet.')}
+            </div>
           </div>
         ) : groups.length === 0 ? (
           <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No tickets up.</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish'} now={now} busyIds={busyIds} onStep={step} onBump={bump} />)}
+            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} onStep={step} onBump={bump} />)}
           </div>
         )}
       </main>
@@ -654,7 +717,7 @@ export default function KitchenScreen() {
         // Floats over the screen, so it going away after the first tap never moves a button under someone's finger.
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">Tap anywhere to turn on the sound for new tickets</div>
       )}
-      {pinOpen && <PinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} />}
+      {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the tickets you move. The screen works without it." />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">

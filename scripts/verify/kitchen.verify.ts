@@ -327,7 +327,7 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   check('…a tap’s buttons never stay stuck, and a refresh from before a tap is dropped', /finally \{ acted\.current\+\+; setBusy/.test(page) && /if \(at !== acted\.current\) return;/.test(page));
   check('no forced PIN and no lock after 30 minutes; a PIN only names who did it', !/INACTIVITY|useInactivityLogout|PinLogin/.test(page) && /Who’s working\?/.test(page));
   check('a sound for every new ticket, the first one too (it used to wait for a second)', /seen\.current/.test(page) && !/lastCount !== 0/.test(page) && /chime\(/.test(page));
-  check('grouped by course or dish, with a whole group moved at once', /By course/.test(page) && /By dish/.test(page) && /action: 'bump'/.test(page) && /All \{toReady\.length\} ready/.test(page));
+  check('grouped by course or dish, with a whole group moved at once', /By course/.test(page) && /By dish/.test(page) && /action: 'bump'/.test(page) && /All \$\{toReady\.length\} ready/.test(page));
   check('allergies shown big, from the list and from typed notes', /AllergyBanner/.test(page) && /allergyFlags\(/.test(page) && /Allergy in their note/.test(page));
   check('one event’s tickets from ?event=, and back to all', /get\('event'\)/.test(page) && /Show every ticket/.test(page));
   check('the screen never names a kind of business', !/\b(studio|salon|stylist|booth|chair)\b/i.test(page.replace(/^\s*\/\/.*$/gm, '')));

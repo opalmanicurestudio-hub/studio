@@ -4,7 +4,8 @@
 // working when the manager signs out. Nobody's PIN is needed to see the screen; a PIN only puts a name on what's done.
 // A screen's key is kept only as its fingerprint, in kitchenScreens/{sha256(key)} at the top of the database, where no
 // browser can read or write (the security rules allow nothing there): only this route makes, checks and stops them.
-//   pair    { tenantId, name }                     (a manager, signed in) → the screen's key, shown once and kept on it
+//   pair    { tenantId, name, kind? }              (a manager, signed in) → the screen's key, shown once and kept on it
+//                                                    (kind: kitchen, floor, or drive-thru)
 //   screens { tenantId }                           (a manager) → this business's screens, to stop one that's lost
 //   revoke  { tenantId, id }                       (a manager) → that screen stops working
 //   maker   { tenantId, maker: 'kitchen'|'desk' }   (a manager) → who makes the lounge's orders (lib/kitchen loungeMaker)
@@ -25,6 +26,12 @@
 //   menu    { tenantId, key }                      → the menu, for "Sold out" (lib/menu-server)
 //   soldout { tenantId, key, itemId, groupId?, optionId?, out, staffPass? } → an item, or one of its choices, sold out
 //                                                    or back, in one tap, under the name of whoever's working
+// Holding (lib/holding): a batch cooked ahead and kept for the menu's set time. 'tickets' also returns what's held and
+// what can be. Nothing past its time is ever taken from.
+//   hold     { tenantId, key, itemId, quantity? }  → a batch started now (the menu's batch size unless given)
+//   holdUse  { tenantId, key, binId, quantity }    → some taken from a batch by hand
+//   holdToss { tenantId, key, binId }              → a batch thrown out (kept, for the day's waste)
+//   fromHold { tenantId, key, col, id, binId }     → a ticket made from a held batch: taken from it and marked ready
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -39,7 +46,9 @@ import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
 import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
 import { toolLocked } from '@/lib/tool-lock';
-import { readMenu, setSoldOut } from '@/lib/menu-server';
+import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
+import { binState, batchSizeOf } from '@/lib/holding';
+import { holdMinutesOf } from '@/lib/counter-orders';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -64,6 +73,9 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     if (!snap.exists) return { error: 'That ticket is gone.', status: 404 };
     const r: any = snap.data() || {};
     if (!canStep(r.status, step)) return { already: true, status: r.status };
+    // A drive-thru or counter order is paid for as a whole: it's voided on its own screen (lib/counter-server), which
+    // gives back what wasn't made, never by cancelling one ticket here.
+    if (step === 'cancel' && col === 'kdsTickets' && r.channel) return { error: `That’s part of ${String(r.channel) === 'drive-thru' ? 'a drive-thru' : 'a counter'} order. Void it on the ${String(r.channel) === 'drive-thru' ? 'drive-thru' : 'counter'} screen instead.`, status: 409 };
     // One person carries it: a second "I'll take it" (two people tapping at once) changes nothing.
     const carried = !!(r.carriedBy || r.bringingOutBy);   // the desk's older "Bringing it" counts as someone carrying it
     if ((step === 'carry' && carried) || (step === 'drop' && !carried)) return { already: true, status: r.status };
@@ -147,9 +159,12 @@ export async function POST(req: NextRequest) {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
       { const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['hospitality', 'classes_events']); if (locked) return locked; }
       const key = randomBytes(32).toString('hex');
-      // A floor board's tablet (app/floor) is set up the same way; a team tablet opens both screens.
-      const kind = b.kind === 'floor' ? 'floor' : 'kitchen';
-      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : 'Kitchen');
+      // A floor board's tablet (app/floor) and a drive-thru lane's (app/drive-thru) are set up the same way; a team
+      // tablet opens any of them.
+      // The drive-thru's outdoor order board gets a key of its own kind, good for nothing but showing the order at the
+      // speaker (api/counter 'board'): a screen guests can reach never holds a key that can take a payment.
+      const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : 'kitchen';
+      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : 'Kitchen');
       await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
       // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
       // tablet doesn't: nobody would be making them.
@@ -185,7 +200,7 @@ export async function POST(req: NextRequest) {
     // A team member signed in on their own device (the front desk, the dashboard, the host stand) takes the same steps,
     // under their own name. Setting up, stopping and PINs stay with a screen.
     let teamMember: { id: string; name: string } | null = null;
-    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout'].includes(action)) {
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -202,6 +217,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'forget') { await screen.ref.set({ revokedAt: new Date().toISOString() }, { merge: true }); return ok(); }
+    // A drive-thru screen's key is for the lane (api/counter): here it can only check a PIN (the lane's "Who's working?").
+    // The order board's can do nothing here at all.
+    if (screen.kind === 'drive-thru-board' || (screen.kind === 'drive-thru' && action !== 'pin')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
 
     // A paused or closed business has its kitchen screen closed too (as the page itself is, app/kds layout).
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
@@ -233,7 +251,17 @@ export async function POST(req: NextRequest) {
       const items: Record<string, any> = {};
       for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => ({ id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
       const today = [...lt.docs, ...kt.docs].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
-      return ok({ screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, items, today });
+      // What's held right now, what the menu says can be, and today's waste from it.
+      const [heldSnap, holdItems, tossedSnap] = await Promise.all([
+        db.collection(`${T}/holdingBins`).where('status', '==', 'held').limit(200).get(),
+        db.collection(`${T}/inventory`).where('type', '==', 'refreshment').limit(400).get(),
+        db.collection(`${T}/holdingBins`).where('tossedAt', '>=', since).limit(400).get().catch(() => ({ docs: [] as any[] })),
+      ]);
+      const holds = heldSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).sort((a: any, c: any) => String(a.startedAt).localeCompare(String(c.startedAt)));
+      const holdable = holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x) && holdMinutesOf(r.x) > 0)
+        .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').slice(0, 80), holdMinutes: holdMinutesOf(r.x), batchSize: batchSizeOf(r.x) })).sort((a: any, c: any) => a.name.localeCompare(c.name));
+      const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
+      return ok({ screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {
@@ -264,6 +292,59 @@ export async function POST(req: NextRequest) {
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, staff?.name || screen.name);
       return r.ok ? ok({ item: r.item, staffOk }) : bad(r.error, r.status);
+    }
+
+    if (action === 'hold' || action === 'holdUse' || action === 'holdToss' || action === 'fromHold') {
+      const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString(); const nowMs = Date.now();
+      const who = staff?.name || screen.name;
+      if (action === 'hold') {
+        const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which item?');
+        const x: any = (await db.doc(`${T}/inventory/${itemId}`).get()).data();
+        if (!isMenuItem(x) || holdMinutesOf(x) <= 0) return bad('That item isn’t held. Set a holding time for it on the Menu page.', 404);
+        const qty = b.quantity === undefined || b.quantity === null ? batchSizeOf(x) : Math.floor(num(b.quantity));
+        if (!(qty >= 1 && qty <= 200)) return bad('How many? Between 1 and 200.');
+        const ref = db.collection(`${T}/holdingBins`).doc();
+        const bin = { id: ref.id, itemId, name: String(x.name || 'Item').slice(0, 80), quantity: qty, made: qty, startedAt: nowIso, expiresAt: new Date(nowMs + holdMinutesOf(x) * 60000).toISOString(), startedBy: who, status: 'held' };
+        await ref.set(bin);
+        return ok({ bin, staffOk });
+      }
+      if (action === 'fromHold') {
+        const col = String(b.col || '') as KitchenCol; const id = String(b.id || ''); const binId = String(b.binId || '');
+        if (!COLS.includes(col) || !ID.test(id) || !ID.test(binId)) return bad('Which ticket, and which batch?');
+        const tRef = db.doc(`${T}/${col}/${id}`); const bRef = db.doc(`${T}/holdingBins/${binId}`);
+        const r: any = await db.runTransaction(async (tx: any) => {
+          const t: any = (await tx.get(tRef)).data(); const bin: any = (await tx.get(bRef)).data();
+          if (!t) return { error: 'That ticket is gone.', status: 404 };
+          if (!canStep(String(t.status), 'ready')) return { already: true };
+          if (!bin || bin.status !== 'held') return { error: 'That batch is gone. Make it fresh.', status: 409 };
+          if (binState(bin, nowMs).state === 'expired') return { error: 'That batch is past its holding time. Throw it out and make it fresh.', status: 409 };
+          const qty = Math.max(1, Math.round(num(t.quantity) || 1));
+          if (String(t.itemId || t.menuItemId || '') !== bin.itemId) return { error: 'That batch is for something else.', status: 400 };
+          if (num(bin.quantity) < qty) return { error: `Only ${num(bin.quantity)} left in that batch.`, status: 409 };
+          const left = num(bin.quantity) - qty;
+          tx.set(bRef, { quantity: left, ...(left === 0 ? { status: 'used', usedUpAt: nowIso } : {}) }, { merge: true });
+          tx.set(tRef, { status: 'ready', readyAt: nowIso, fromHold: binId, ...(t.claimedBy ? {} : { claimedBy: { staffId: staff?.id || null, name: who, via: screen.name } }) }, { merge: true });
+          return { ok: true, left };
+        });
+        if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
+        return ok({ already: !!r.already, left: r.left ?? null, staffOk });
+      }
+      const binId = String(b.binId || ''); if (!ID.test(binId)) return bad('Which batch?');
+      const bRef = db.doc(`${T}/holdingBins/${binId}`);
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const bin: any = (await tx.get(bRef)).data();
+        if (!bin || bin.status !== 'held') return { already: true };
+        if (action === 'holdToss') { tx.set(bRef, { status: 'tossed', tossedAt: nowIso, tossedQty: num(bin.quantity), tossedBy: who, quantity: 0 }, { merge: true }); return { ok: true, left: 0 }; }
+        const qty = Math.floor(num(b.quantity));
+        if (!(qty >= 1 && qty <= 200)) return { error: 'How many? Between 1 and 200.', status: 400 };
+        if (binState(bin, nowMs).state === 'expired') return { error: 'That batch is past its holding time. Throw it out.', status: 409 };
+        if (num(bin.quantity) < qty) return { error: `Only ${num(bin.quantity)} left in that batch.`, status: 409 };
+        const left = num(bin.quantity) - qty;
+        tx.set(bRef, { quantity: left, ...(left === 0 ? { status: 'used', usedUpAt: nowIso } : {}) }, { merge: true });
+        return { ok: true, left };
+      });
+      if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
+      return ok({ already: !!r.already, left: r.left ?? null, staffOk });
     }
 
     if (action === 'act') {
