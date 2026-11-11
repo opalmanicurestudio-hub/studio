@@ -34,8 +34,14 @@ type Line = { lineId: string; itemId: string; name: string; quantity: number; un
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number };
 type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null; voice?: CarVoice };
-type Stats = { inLane: number; average: number | null; target: number; ordering: number | null; toWindow: number | null; atWindow: number | null; underTarget: number; thisHour: number; servedToday: number };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; menu: MenuItem[]; now: string };
+type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
+type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: MenuItem[]; now: string };
+// Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
+type Role = 'all' | 'speaker' | 'pay' | 'pickup' | 'runner';
+const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
+const ROLE_STAGE: Record<Exclude<Role, 'all'>, Stage> = { speaker: 'speaker', pay: 'pay', pickup: 'pickup', runner: 'forward' };
+const SLOW_WORD: Record<keyof Split, string> = { ordering: 'ordering', toWindow: 'getting to the window', atWindow: 'at the window' };
 
 const keyName = (t: string) => `cf.drivethru.${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -181,6 +187,14 @@ export default function DriveThru() {
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPin, setVoidPin] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [role, setRoleState] = useState<Role>('all');
+  const manualAt = useRef(0);
+  useEffect(() => { const r = read(`cf.drivethru.role.${tenantId}`) as Role | null; if (r && ROLES.some(([k]) => k === r)) setRoleState(r); }, [tenantId]);
+  const setRole = (r: Role) => { setRoleState(r); manualAt.current = 0; write(`cf.drivethru.role.${tenantId}`, r === 'all' ? null : r); setMenuOpen(false); };
+  const pickCar = (id: string) => { manualAt.current = Date.now(); setPicked(id); };
+  // When someone last started or changed something on the car on screen (cash, a spot, a void...): a minute after, a screen
+  // set to a spot goes back to following it, so a step left half done never pins it to one car.
+  const midwayAt = useRef(0);
   const [justPaired, setJustPaired] = useState(false);
   const [voiceCfg, setVoiceCfg] = useState<{ on: boolean; publicKey: string | null } | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -260,16 +274,31 @@ export default function DriveThru() {
   // The car someone at this tablet is talking to at the speaker (after taking over), wherever the screen has moved to.
   const onAirCalls = useOnTheSpeakerHere();
   const onAirCar = cars.find((c) => !!c.voice?.callId && onAirCalls.includes(String(c.voice.callId))) || null;
+  const shownCars = role === 'runner' ? cars.filter((c) => c.stage === 'forward') : cars;
   const car = cars.find((c) => c.id === picked) || null;
   const order = car?.orderId ? lane?.orders[car.orderId] : undefined;
   const target = lane?.stats.target || 210;
   // The car on screen left the lane (handed over, or on another tablet): the next one that needs someone takes its place.
+  // A screen set to a spot follows the car at that spot (the newest at the speaker; the first in line at a window), unless
+  // someone picked a car by hand in the last half minute.
   useEffect(() => {
     if (!lane) return;
+    if (role !== 'all') {
+      const want = ROLE_STAGE[role]; const atSpot = cars.filter((c) => c.stage === want);
+      const next = role === 'speaker' ? atSpot[atSpot.length - 1] : atSpot[0];
+      const cur = cars.find((c) => c.id === picked);
+      // Never while someone is in the middle of something on this car (cash, a spot, a void, a choice, a check).
+      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || handAnyway > 0 || !!choiceFor || voidPin !== null) && Date.now() - midwayAt.current < 60000;
+      const byHand = !!cur && (midway || Date.now() - manualAt.current < 30000);
+      if (!byHand && next && cur?.stage !== want) { setPicked(next.id); return; }
+      if (role === 'runner' && !next && !byHand) { setPicked(null); return; }
+      if (cur) return;
+    }
     if (picked && cars.some((c) => c.id === picked)) return;
-    const next = cars.find((c) => c.stage === 'speaker') || cars.find((c) => c.stage === 'pay') || cars[0];
+    const next = role === 'runner' ? shownCars[0] : cars.find((c) => c.stage === 'speaker') || cars.find((c) => c.stage === 'pay') || cars[0];
     setPicked(next ? next.id : null);
-  }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lane, role]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, handAnyway, choiceFor, voidPin]);
   useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); }, [picked, car?.stage]);
   // The Screen menu closes on Escape or a tap anywhere else.
   useEffect(() => {
@@ -287,6 +316,8 @@ export default function DriveThru() {
     setLane((l) => (l ? { ...l, orders: { ...l.orders, [o.id]: { ...(l.orders[o.id] || {}), ...o } } } : l));
   };
   const act = async (label: string, body: any, after?: (d: any) => void, sig?: string, onFail?: (d: any) => void) => {
+    // Working on a car that isn't at this screen's spot keeps it on screen (the half minute starts again).
+    if (role !== 'all' && car && car.stage !== ROLE_STAGE[role]) manualAt.current = Date.now();
     acted.current++; setBusy(label); const mySeq = ++seq.current;
     try {
       const { d } = await post(body);
@@ -307,7 +338,7 @@ export default function DriveThru() {
   };
 
   const newCar = () => act('car', { action: 'car', carKey: keyFor('car') }, (d) => {
-    setPicked(d.carId);
+    pickCar(d.carId);
     setLane((l) => (l ? { ...l, cars: [...l.cars.filter((c) => c.id !== d.carId), { id: d.carId, number: d.number, stage: 'speaker', arrivedAt: new Date(Date.now() + skew).toISOString(), stageAt: {}, orderId: d.orderId, takenBy: null, spot: null }],
       orders: { ...l.orders, [d.orderId]: l.orders[d.orderId] || { id: d.orderId, number: d.number, status: 'building', lines: [], subtotal: 0, tax: 0, taxLabel: 'Tax', total: 0, paidAt: null, payMethod: null, sentAt: null, dueAt: null, kitchen: 'not sent', waitingOn: [], readyCount: 0, ticketCount: 0 } } } : l));
   }, 'car');
@@ -364,6 +395,16 @@ export default function DriveThru() {
   if (!key) return <ScreenSetup tenantId={tenantId} stopped={stopped} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setStopped(''); setJustPaired(true); }} />;
 
   const st = lane?.stats;
+  // A part that's running slower than usual right now (the last half hour, three cars or more, against today): a quarter
+  // slower and 20 seconds more a car at least. Nothing is said when everything is running as usual.
+  const slow = (() => {
+    const r = st?.recent; if (!st || !r || r.count < 3) return null;
+    const parts = (['ordering', 'toWindow', 'atWindow'] as (keyof Split)[]).map((k) => ({ k, now: r[k], day: st[k] }))
+      .filter((x): x is { k: keyof Split; now: number; day: number } => x.now !== null && x.day !== null && x.now >= x.day * 1.25 && x.now - x.day >= 20);
+    if (!parts.length) return null;
+    const top = parts.sort((a, b) => b.now / b.day - a.now / a.day)[0];
+    return [top.k, top.now, top.day] as [keyof Split, number, number];
+  })();
   const stale = lastOk > 0 && Date.now() - lastOk > 10000;
   const carSeconds = car ? (now - Date.parse(car.arrivedAt)) / 1000 : 0;
   const due = order?.dueAt ? timeLeft(Date.parse(order.dueAt), now) : null;
@@ -419,7 +460,7 @@ export default function DriveThru() {
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: INK, color: '#fff' }}><Car className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0"><h1 className="truncate text-[20px] font-semibold leading-tight">{lane?.business.name || 'Drive-thru'}</h1>
-              <p className="text-[13.5px]" style={{ color: MUTED }}>{lane?.screen || 'Drive-thru'} · {cars.length} {cars.length === 1 ? 'car' : 'cars'} in the lane</p></div>
+              <p className="text-[13.5px]" style={{ color: MUTED }}>{lane?.screen || 'Drive-thru'}{role !== 'all' ? ` · ${ROLES.find(([k]) => k === role)?.[1]}` : ''} · {cars.length} {cars.length === 1 ? 'car' : 'cars'} in the lane</p></div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {staff
@@ -434,6 +475,14 @@ export default function DriveThru() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>
                   {voiceCfg?.on && <a href={`/drive-thru/${tenantId}/speaker`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the speaker</a>}
                   {voiceCfg?.on && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The tablet wired to the speaker, where the voice assistant takes each car’s order.</p>}
+                  <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
+                    <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
+                    {ROLES.map(([k, label, hint]) => (
+                      <button key={k} type="button" aria-pressed={role === k} onClick={() => setRole(k)} className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left ${RING}`} style={{ background: role === k ? SOFT : 'transparent' }}>
+                        <span><span className="block text-[14px] font-medium" style={{ color: INK }}>{label}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{hint}</span></span>
+                        <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${role === k ? INK : LINE}` }}>{role === k && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
+                      </button>))}
+                  </div>
                   <button type="button" onClick={stopScreen} className={`min-h-[44px] w-full rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: RED }}>Stop this screen</button>
                 </div>
               )}
@@ -446,6 +495,7 @@ export default function DriveThru() {
             <span>Under target <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.servedToday ? `${Math.round((st.underTarget / st.servedToday) * 100)}%` : 'none yet'}</b></span>
             <span>Served <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.servedToday}</b></span>
             <span>Last hour <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.thisHour}</b></span>
+            {slow && <span className="rounded-md px-2 py-0.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Slower right now: {SLOW_WORD[slow[0]]}, {mmss(slow[1])} a car ({mmss(slow[2])} today)</span>}
             {st.average !== null && <span className="text-[13.5px]">Ordering {st.ordering === null ? '–' : mmss(st.ordering)} · to the window {st.toWindow === null ? '–' : mmss(st.toWindow)} · at the window {st.atWindow === null ? '–' : mmss(st.atWindow)}</span>}
           </div>
         )}
@@ -453,6 +503,11 @@ export default function DriveThru() {
 
       <div className="space-y-2 px-4 pt-3 sm:px-6">
         {closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{closed}</div>}
+        {st && (st.inLineNow ?? st.inLane) >= (st.rushAt || 6) && !closed && (
+          <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }} role="status">
+            <b className="font-semibold">Busy: {st.inLineNow ?? st.inLane} cars in the lane.</b> {voiceCfg?.on ? 'The assistant is keeping orders short. ' : ''}Pull a car forward as soon as its food is slow, so the window keeps moving.
+          </div>
+        )}
         {stale && !closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The screen can’t reach the server. What’s here may be out of date; it keeps trying.</div>}
         {justPaired && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}>
@@ -468,8 +523,8 @@ export default function DriveThru() {
             <Plus className="h-5 w-5" aria-hidden />New car at the speaker
           </button>
           {!lane ? <div className="flex justify-center py-10"><div className="h-7 w-7 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the lane" /></div>
-            : cars.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No cars in the lane.</p>
-            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{cars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} now={now} target={target} selected={c.id === picked} onAir={c.id === onAirCar?.id} onPick={() => setPicked(c.id)} /></div>)}</div>}
+            : shownCars.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{role === 'runner' && cars.length ? 'No cars parked in a spot.' : 'No cars in the lane.'}</p>
+            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{shownCars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} now={now} target={target} selected={c.id === picked} onAir={c.id === onAirCar?.id} onPick={() => pickCar(c.id)} /></div>)}</div>}
         </aside>
 
         <section aria-label={car ? `Car ${car.number}` : 'No car picked'} className="min-w-0">
@@ -484,7 +539,7 @@ export default function DriveThru() {
               {onAirCar && onAirCar.id !== car.id && (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-2.5" style={{ background: GREEN_TINT, border: '1px solid #cfe8da' }}>
                   <p className="flex items-center gap-2 text-[15px] font-semibold" style={{ color: GREEN }}><Mic className="h-4 w-4" aria-hidden />You’re still on the speaker with car {onAirCar.number}</p>
-                  <button type="button" onClick={() => setPicked(onAirCar.id)} className={btn} style={{ background: GREEN, color: '#fff' }}>Back to car {onAirCar.number}</button>
+                  <button type="button" onClick={() => pickCar(onAirCar.id)} className={btn} style={{ background: GREEN, color: '#fff' }}>Back to car {onAirCar.number}</button>
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
@@ -622,7 +677,11 @@ export default function DriveThru() {
                         {car.stage !== 'forward' && spotOpen && (
                           <div className="space-y-3">
                             <p className="text-[15px] font-semibold">Which spot?</p>
-                            <div className="grid grid-cols-4 gap-2">{['1', '2', '3', '4'].map((s) => <button key={s} type="button" disabled={busy === 'move-forward'} onClick={() => move('forward', s)} className={`${btn} min-h-[64px] text-[22px] tabular-nums`} style={quiet}>{s}</button>)}</div>
+                            <div className="grid grid-cols-4 gap-2">{Array.from({ length: lane?.settings?.spots || 4 }, (_, i) => String(i + 1)).map((s) => {
+                              const there = cars.find((c) => c.stage === 'forward' && c.spot === s && Date.parse(c.arrivedAt) >= Date.now() - 3 * 3600000);
+                              return <button key={s} type="button" disabled={busy === 'move-forward'} aria-disabled={!!there} onClick={() => { if (!there) move('forward', s); }} aria-label={there ? `Spot ${s}, car ${there.number} is there` : `Spot ${s}`}
+                                className={`${btn} flex min-h-[64px] flex-col items-center justify-center text-[22px] leading-none tabular-nums`} style={there ? { background: SOFT, color: MUTED, border: `1px solid ${LINE}`, opacity: 1 } : quiet}>{s}{there && <span className="mt-1 text-[12px] font-medium">{there.number}</span>}</button>;
+                            })}</div>
                             <button type="button" onClick={() => setSpotOpen(false)} className={btn} style={quiet}>Back</button>
                           </div>
                         )}

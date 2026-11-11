@@ -258,7 +258,58 @@ const src = (p: string) => readFileSync(p, 'utf8');
   r = await menuApi(req({ action: 'targets', tenantId: 't1', targets: { 'drive-thru': 120 } }));
   check('…only a manager sets it', r.status === 403);
 
+  console.log('spots, a long line, and the slow part right now');
+  manager = true; signedIn = true;
+  r = await P({ action: 'lane' });
+  check('four pull-forward spots until the business says otherwise, and the lane knows what a long line is', r.body.settings?.spots === 4 && r.body.stats.rushAt === 6 && typeof r.body.stats.recent?.count === 'number', [r.body.settings, r.body.stats]);
+  r = await menuApi(req({ action: 'laneSettings', tenantId: 't1', spots: 6 }));
+  const bad0: any = await menuApi(req({ action: 'laneSettings', tenantId: 't1', spots: 0 }));
+  const bad9: any = await menuApi(req({ action: 'laneSettings', tenantId: 't1', spots: 9 }));
+  const badT: any = await menuApi(req({ action: 'laneSettings', tenantId: 't1', spots: true }));
+  check('a manager sets how many spots there are (1 to 8)', r.body.ok && (await get(T)).driveThru.spots === 6 && bad0.status === 400 && bad9.status === 400 && badT.status === 400, [r.body, bad0.body]);
+  manager = false;
+  r = await menuApi(req({ action: 'laneSettings', tenantId: 't1', spots: 2 }));
+  check('…only a manager', r.status === 403 && (await get(T)).driveThru.spots === 6);
+  signedIn = false;
+  r = await P({ action: 'lane' });
+  check('…and the lane offers that many', r.body.settings.spots === 6);
+  // Three cars handed over in the last half hour, each waiting two minutes at the window.
+  for (let i = 0; i < 3; i++) {
+    const t0 = Date.now() - (10 + i) * 60000; const at = (sec: number) => new Date(t0 + sec * 1000).toISOString();
+    await db.doc(`${T}/driveThruCars/recent${i}`).set({ id: `recent${i}`, number: `R${i}`, stage: 'gone', arrivedAt: at(0), stageAt: { speaker: at(0), pay: at(40), pickup: at(70) }, goneAt: at(190), day: 'x' });
+  }
+  const carS = (await P({ action: 'car', carKey: 'carkey-spots' })).body;   // (a new car: today's numbers are worked out again)
+  r = await P({ action: 'lane' });
+  check('the last half hour on its own says which part is slow right now (here, at the window)', r.body.stats.recent.count >= 3 && r.body.stats.recent.atWindow > r.body.stats.recent.ordering && r.body.stats.recent.atWindow > r.body.stats.recent.toWindow, r.body.stats.recent);
+  await P({ action: 'add', orderId: carS.orderId, itemId: 'fries', quantity: 1, tapKey: 'spots-tap-1' });
+  await P({ action: 'send', orderId: carS.orderId });
+  await P({ action: 'paid', orderId: carS.orderId, method: 'card' });
+  r = await P({ action: 'move', carId: carS.carId, to: 'forward', spot: '7' });
+  check('a spot the business doesn’t have is refused (the car stays where it is, so it’s never parked with no number)', r.status === 409 && /isn’t there anymore/.test(r.body.error) && (await get(`${T}/driveThruCars/${carS.carId}`)).stage === 'pickup', r.body);
+  await db.doc(`${T}/driveThruCars/parked3`).set({ id: 'parked3', number: 'P3', stage: 'forward', spot: '3', arrivedAt: new Date().toISOString(), stageAt: {}, day: 'x' });
+  r = await P({ action: 'move', carId: carS.carId, to: 'forward', spot: '3' });
+  check('…and a spot another car is in is refused too (two tablets never park two cars in one spot)', r.status === 409 && /Spot 3 has car P3/.test(r.body.error) && (await get(`${T}/driveThruCars/${carS.carId}`)).stage === 'pickup', r.body);
+  r = await P({ action: 'move', carId: carS.carId, to: 'forward', spot: '5' });
+  check('…a free one is kept', r.body.ok && (await get(`${T}/driveThruCars/${carS.carId}`)).spot === '5', r.body);
+  await db.doc(`${T}/driveThruCars/parkedOld`).set({ id: 'parkedOld', number: 'OLD', stage: 'forward', spot: '4', arrivedAt: new Date(Date.now() - 30 * 3600000).toISOString(), stageAt: {}, day: 'old' });
+  const carU = (await P({ action: 'car', carKey: 'carkey-spots-2' })).body;
+  await P({ action: 'add', orderId: carU.orderId, itemId: 'fries', quantity: 1, tapKey: 'spots-tap-2' });
+  await P({ action: 'send', orderId: carU.orderId }); await P({ action: 'paid', orderId: carU.orderId, method: 'card' });
+  r = await P({ action: 'move', carId: carU.carId, to: 'forward', spot: '4' });
+  check('…and a car left parked from yesterday doesn’t hold its spot', r.body.ok && (await get(`${T}/driveThruCars/${carU.carId}`)).spot === '4', r.body);
+  await db.doc(`${T}/driveThruCars/parkedOld`).set({ stage: 'gone', goneAt: new Date().toISOString(), left: true }, { merge: true });
+  // A car left behind yesterday is still in the lane, but isn't part of a long line now.
+  for (let i = 0; i < 6; i++) await db.doc(`${T}/driveThruCars/stale${i}`).set({ id: `stale${i}`, number: `S${i}`, stage: 'speaker', arrivedAt: new Date(Date.now() - 30 * 3600000).toISOString(), stageAt: {}, day: 'old' });
+  r = await P({ action: 'lane' });
+  check('cars left behind from yesterday don’t make the lane say it’s busy', r.body.stats.inLane >= 6 && r.body.stats.inLineNow < 6, [r.body.stats.inLane, r.body.stats.inLineNow]);
+  for (let i = 0; i < 6; i++) await db.doc(`${T}/driveThruCars/stale${i}`).set({ stage: 'gone', goneAt: new Date().toISOString(), left: true }, { merge: true });
+
   console.log('the pages');
+  {
+    const lanePage = src('src/app/drive-thru/[tenantId]/page.tsx');
+    check('each tablet can be set to its spot (taking orders, pay window, pickup window, runner) and opens on the car there', lanePage.includes('This screen is at') && lanePage.includes("['runner', 'Runner',") && lanePage.includes('const ROLE_STAGE') && lanePage.includes("role === 'runner' ? cars.filter((c) => c.stage === 'forward')"));
+    check('a long line and the slow part right now are said on the lane; a spot that’s taken can’t be picked twice', lanePage.includes('Busy: {st.inLineNow ?? st.inLane} cars in the lane.') && lanePage.includes('Slower right now:') && lanePage.includes('aria-disabled={!!there}') && lanePage.includes('x.now >= x.day * 1.25'));
+  }
   const lane = src('src/app/drive-thru/[tenantId]/page.tsx'), board = src('src/app/drive-thru/[tenantId]/board/page.tsx'), setup = src('src/components/drive-thru/ScreenSetup.tsx'), kds = src('src/app/kds/[tenantId]/page.tsx'), menuPage = src('src/app/(app)/menu/page.tsx'), pin = src('src/components/kitchen/PinPad.tsx');
   check('the lane and the board read no database themselves (only the server)', !/from ['"]firebase\/firestore|useCollection|getDocs|onSnapshot/.test(lane + board + setup));
   check('the lane: one tap for a car, choices on the shared picker, the order read back, card or cash with the change, pull forward to a spot', lane.includes("action: 'car', carKey") && lane.includes('<ChoicePicker') && lane.includes('readBack(order!.lines)')

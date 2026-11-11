@@ -18,6 +18,13 @@ export const CHANNEL_NAME: Record<Channel, string> = { 'drive-thru': 'Drive-thru
 /** Seconds from order to handed over that each channel aims for (the business can set its own). The drive-thru's is the
  *  tightest: a car waiting holds up every car behind it. */
 export const DEFAULT_TARGETS: Record<Channel, number> = { 'drive-thru': 210, counter: 300, kiosk: 300, ahead: 600 };
+/** A long line: this many cars in the drive-thru (the voice assistant goes into rush mode, and the lane says so). */
+export const RUSH_CARS = 6;
+/** Cars that count toward a long line: those that arrived in the last three hours (one left behind yesterday never does). */
+export const inLineNow = (cars: { id?: string; arrivedAt?: unknown }[], nowMs: number, except?: string): number =>
+  cars.filter((c) => c.id !== except && Date.parse(String(c.arrivedAt || '')) >= nowMs - 3 * 3600000).length;
+/** How many pull-forward spots the drive-thru has (set on the Menu page): 1 to 8, 4 if it hasn't been set. */
+export const spotsOf = (tenant: any): number => { const n = Math.floor(Number(tenant?.driveThru?.spots)); return n >= 1 && n <= 8 ? n : 4; };
 export const DEFAULT_MAKE_SECONDS = 120;
 
 export function targetsOf(tenant: any): Record<Channel, number> {

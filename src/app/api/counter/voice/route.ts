@@ -22,6 +22,7 @@ import { limitPublic } from '@/lib/rate-limit';
 import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
+import { RUSH_CARS, inLineNow } from '@/lib/counter-orders';
 import { readMenu } from '@/lib/menu-server';
 import { menuForVoice } from '@/lib/voice-order';
 import { agentOf, voiceOn, markCallEnded } from '@/lib/drive-thru-voice';
@@ -36,7 +37,6 @@ const CALL = /^[A-Za-z0-9_-]{6,128}$/;
 // is set to hang up after 10).
 const DAILY_CAP = () => { const n = Math.floor(Number(process.env.RETELL_DRIVETHRU_DAILY_CAP)); return Number.isFinite(n) && n > 0 ? n : 600; };
 const STALE_MS = 11 * 60000;
-const RUSH_CARS = 6;
 const first = (s: unknown) => String(s || '').trim().split(/\s+/)[0] || 'Someone';
 const RETELL = 'https://api.retellai.com';
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
@@ -122,8 +122,7 @@ export async function POST(req: NextRequest) {
         const menu = menuForVoice(menuItems);
         // A long line (this many cars in it, counting this one) puts the assistant in rush mode: no suggestions, a short
         // read-back. Only cars that arrived in the last three hours count, so one left behind yesterday never does.
-        const since = Date.now() - 3 * 3600000;
-        const others = laneSnap.docs.filter((d: any) => d.id !== carId && Date.parse(String((d.data() || {}).arrivedAt || '')) >= since).length;
+        const others = inLineNow(laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), Date.now(), carId);
         const busy = others + 1 >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),

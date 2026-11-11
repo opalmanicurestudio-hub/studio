@@ -35,7 +35,7 @@ import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
-import { targetsOf, photoOf, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
+import { targetsOf, photoOf, spotsOf, RUSH_CARS, inLineNow, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
 import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName } from '@/lib/counter-server';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -114,9 +114,11 @@ export async function POST(req: NextRequest) {
         // Served today (a car that left or was voided isn't a time), and where the time went: ordering at the speaker,
         // then from the order to the window, then waiting at the window or parked until it's handed over.
         const since = startOfDay(todayIn(tz, now), tz).toISOString(); const hourAgo = new Date(now.getTime() - 3600000).toISOString();
-        const [goneSnap, hourSnap] = await Promise.all([
+        const halfHourAgo = new Date(now.getTime() - 30 * 60000).toISOString();
+        const [goneSnap, hourSnap, recentSnap] = await Promise.all([
           db.collection(`${T}/driveThruCars`).where('goneAt', '>=', since).limit(3000).get(),
           db.collection(`${T}/driveThruCars`).where('arrivedAt', '>=', hourAgo).limit(1000).get(),
+          db.collection(`${T}/driveThruCars`).where('goneAt', '>=', halfHourAgo).limit(500).get(),
         ]);
         const gone = goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left);
         const span = (c: any, from: string, to: string) => { const a = Date.parse(String(c.stageAt?.[from] || (from === 'speaker' ? c.arrivedAt : ''))), z = Date.parse(String(to === 'gone' ? c.goneAt : c.stageAt?.[to] || '')); const v = (z - a) / 1000; return Number.isFinite(v) && v >= 0 && v < 3600 ? v : null; };
@@ -124,7 +126,10 @@ export async function POST(req: NextRequest) {
         cached = { at: now.getTime(), stats: { average: avg(gone.map((c: any) => span(c, 'speaker', 'gone'))), target,
           ordering: avg(gone.map((c: any) => span(c, 'speaker', 'pay'))), toWindow: avg(gone.map((c: any) => span(c, 'pay', 'pickup'))), atWindow: avg(gone.map((c: any) => span(c, 'pickup', 'gone'))),
           underTarget: gone.filter((c: any) => { const v = span(c, 'speaker', 'gone'); return v !== null && v <= target; }).length,
-          thisHour: hourSnap.docs.filter((d: any) => !(d.data() || {}).left).length, servedToday: gone.length } };
+          thisHour: hourSnap.docs.filter((d: any) => !(d.data() || {}).left).length, servedToday: gone.length,
+          // The last half hour on its own, so the lane can say which part is slow right now (not just on average today).
+          recent: (() => { const r = recentSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left);
+            return { count: r.length, ordering: avg(r.map((c: any) => span(c, 'speaker', 'pay'))), toWindow: avg(r.map((c: any) => span(c, 'pay', 'pickup'))), atWindow: avg(r.map((c: any) => span(c, 'pickup', 'gone'))) }; })() } };
         statsCache.set(tenantId, cached);
         if (statsCache.size > 500) statsCache.delete(statsCache.keys().next().value as string);
       }
@@ -133,7 +138,7 @@ export async function POST(req: NextRequest) {
         cars: live.map((c: any) => ({ id: c.id, number: c.number, stage: c.stage, arrivedAt: c.arrivedAt, stageAt: c.stageAt || {}, orderId: c.orderId || null, takenBy: c.takenBy || null, spot: c.spot || null,
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
-        orders, stats: { ...cached.stats, inLane: live.length }, menu: menu.filter((m) => m.onMenu), now: nowIso,
+        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant) }, menu: menu.filter((m) => m.onMenu), now: nowIso,
       });
     }
 
@@ -167,12 +172,18 @@ export async function POST(req: NextRequest) {
         const car: any = (await tx.get(carRef)).data(); if (!car) return { error: 'That car isn’t in the lane.', status: 404 };
         const order: any = car.orderId ? (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data() : null;
         const tix = to === 'gone' && car.orderId ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', car.orderId))).docs : [];
+        const parked = to === 'forward' && b.spot !== undefined && b.spot !== null ? (await tx.get(db.collection(`${T}/driveThruCars`).where('stage', '==', 'forward').limit(30))).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })) : [];
         if (car.stage === 'gone') return { already: true };
         // Only ever forward (a tap on an old screen never puts a car back, or spoils its times).
         if (STAGES.indexOf(to) <= STAGES.indexOf(car.stage)) return { already: true };
         if (to === 'gone' && order && order.status !== 'building' && !order.paidAt) return { error: 'Take payment first. If they drove off, void the order.', status: 409 };
         if ((to === 'pickup' || to === 'forward') && order && !order.paidAt) return { error: 'Take payment first.', status: 409 };
-        const spot = to === 'forward' ? String(b.spot ?? '').replace(/[^A-Za-z0-9 -]/g, '').trim().slice(0, 12) || null : undefined;
+        // A spot is one of the business's own numbered spots (Menu page), and free; or none at all.
+        const asked = to === 'forward' && b.spot !== undefined && b.spot !== null && String(b.spot) !== '' ? String(b.spot) : null;
+        if (asked !== null && !(/^[1-8]$/.test(asked) && Number(asked) <= spotsOf(tenant))) return { error: 'That spot isn’t there anymore. Pick another.', status: 409 };
+        // (A car left parked from hours ago doesn't hold its spot: the same three hours that make a line "now".)
+        if (asked !== null) { const there = parked.find((p: any) => p.id !== carId && String(p.spot || '') === asked && inLineNow([p], now.getTime()) === 1); if (there) return { error: `Spot ${asked} has car ${there.number}. Pick another.`, status: 409 }; }
+        const spot = to === 'forward' ? asked : undefined;
         tx.set(carRef, { stage: to, stageAt: { ...(car.stageAt || {}), [to]: nowIso }, ...(to === 'gone' ? { goneAt: nowIso, handedBy: by } : {}), ...(to === 'gone' && (!order || order.status === 'building') ? { left: true } : {}), ...(spot !== undefined ? { spot } : {}) }, { merge: true });
         if (to === 'gone' && order) {
           tx.set(db.doc(`${T}/counterOrders/${car.orderId}`), { status: order.status === 'building' ? 'cancelled' : 'done', doneAt: nowIso }, { merge: true });

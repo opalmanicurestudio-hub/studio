@@ -47,6 +47,7 @@ export default function MenuPage() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [targets, setTargets] = useState<Record<string, number> | null>(null);
+  const [spots, setSpots] = useState<number | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
   const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
 
@@ -56,7 +57,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setSpots(d.lane?.spots || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -76,6 +77,11 @@ export default function MenuPage() {
     const was = voice; setVoice((v) => (v ? { ...v, on } : v)); setBusy('voice'); setErr('');
     const d = await call({ action: 'voice', on });
     setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); }
+  };
+  const setSpotCount = async (n: number) => {
+    const was = spots; setSpots(n); setBusy('spots'); setErr('');
+    const d = await call({ action: 'laneSettings', spots: n });
+    setBusy(null); if (!d.ok) { setSpots(was); setErr(d.error || 'That didn’t save.'); }
   };
   const setTarget = async (channel: string, seconds: number) => {
     const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
@@ -124,6 +130,14 @@ export default function MenuPage() {
                     {Array.from(new Set([...TARGET_TIMES, targets[c]])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{mmss(t)}</option>)}
                   </select>
                 </label>))}
+              {spots !== null && (
+                <label className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span className="block text-[15px] font-medium">Pull-forward spots</span><span className="block text-[13px]" style={{ color: MUTED }}>Numbered spots past the window where a car waits for something slow</span></span>
+                  <select value={spots} disabled={busy === 'spots'} onChange={(e) => setSpotCount(Number(e.target.value))} className={pickField} style={{ borderColor: LINE }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n} {n === 1 ? 'spot' : 'spots'}</option>)}
+                  </select>
+                </label>
+              )}
               {voice && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
                   <span><span className="block text-[15px] font-medium">Voice assistant at the drive-thru speaker</span>

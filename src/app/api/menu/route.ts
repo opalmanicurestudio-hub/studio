@@ -10,6 +10,7 @@
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
 //             and whether it asks each car for a first name; list says whether it's set up, on, asking, and up to date
 //   voiceUpdate { tenantId } → managers: bring this business's assistant up to date (lib/drive-thru-voice-setup)
+//   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 // Nothing about cost or suppliers is read or written here.
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,7 +19,7 @@ import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf } from '@/lib/menu-server';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
-import { targetsOf, photoOf, CHANNELS } from '@/lib/counter-orders';
+import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 
@@ -35,8 +36,8 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, ['save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       const [menu, t] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get()]);
       const td: any = t.data() || {};
       const setUp = !!process.env.RETELL_API_KEY && !!agentOf(td);
-      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td),
+      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) },
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -91,6 +92,13 @@ export async function POST(req: NextRequest) {
       if (!r.ok) return bad(r.error, 502);
       await tRef.set({ driveThru: { voiceVersion: VOICE_VERSION, voiceUpdatedAt: new Date().toISOString(), voiceUpdatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
       return ok({ updated: true });
+    }
+
+    if (action === 'laneSettings') {
+      const n = typeof b.spots === 'number' ? Math.floor(b.spots) : NaN;
+      if (!(n >= 1 && n <= 8)) return bad('Between 1 and 8 spots.');
+      await db.doc(`tenants/${tenantId}`).set({ driveThru: { spots: n } }, { merge: true });
+      return ok({ lane: { spots: n } });
     }
 
     if (action === 'targets') {
