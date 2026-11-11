@@ -36,7 +36,7 @@ export function assistQueue(assist: any[], lounge: any[], restock: any[], now = 
       urgency: r.urgency || 'soon', neededBy: r.neededBy || null, status: r.status || 'open', acceptedBy: r.acceptedByName || null, createdAt: r.createdAt, ageMin: age(r.createdAt, now),
       escalated: r.status === 'open' && Date.parse(r.escalateAt || escalateAt(r)) <= now, sub: r.sub || null, raw: r }); }
   for (const r of lounge || []) { if (!r || r.status !== 'pending') continue; const at = r.requestedAt || r.createdAt;
-    out.push({ source: 'lounge', id: r.id, title: `${r.itemName || 'Refreshment'}${Number(r.quantity) > 1 ? ` ×${r.quantity}` : ''}`, detail: r.accessNote || null, where: r.stationName || null, forClient: r.clientName || null,
+    out.push({ source: 'lounge', id: r.id, title: `${r.itemName || 'Refreshment'}${Number(r.quantity) > 1 ? ` ×${r.quantity}` : ''}`, detail: [r.choicesText, r.accessNote].filter(Boolean).join(' · ') || null, where: r.stationName || null, forClient: r.clientName || null,
       requester: 'Client (lounge)', urgency: 'soon', status: r.bringingOutAt ? 'accepted' : 'open', acceptedBy: r.bringingOutBy || null, createdAt: at, ageMin: age(at, now),
       escalated: !r.bringingOutAt && age(at, now) >= ESCALATE_AFTER.soon, raw: r }); }
   for (const r of restock || []) { if (!r || String(r.status || 'pending') !== 'pending') continue; const at = r.requestedAt || r.createdAt; const q = Number(r.quantityRequested ?? r.quantity) || 1;

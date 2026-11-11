@@ -481,6 +481,7 @@ export default function FloorBoard() {
               return (
                 <article key={t.id} className="space-y-2 rounded-2xl bg-[#fff] p-4" style={{ border: m < 1 ? `2px solid ${GREEN}` : `1px solid ${LINE}` }}>
                   <div className="flex items-baseline justify-between gap-3"><p className="text-[16px] font-semibold">{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</p><span className="text-[13.5px] font-semibold tabular-nums" style={{ color: m < 1 ? GREEN : MUTED }}>{ago(m)}</span></div>
+                  {t.choices && <p className="text-[15px] font-semibold">{t.choices}</p>}
                   <p className="text-[15px]">{t.tableNumber ? [t.tableNumber, t.seatNumber ? `seat ${t.seatNumber}` : ''].filter(Boolean).join(', ') : t.station}{t.name ? `, ${first(t.name)}` : ''}</p>
                   {t.note && <p className="text-[14px]" style={{ color: MUTED }}>{t.note}</p>}
                   {flags.any && <p className="rounded-lg px-2.5 py-1.5 text-[13.5px] font-semibold" style={flags.severe ? { background: AMBER, color: '#fff' } : { background: AMBER_TINT, color: AMBER }}>{flags.severe ? 'Severe allergy' : 'Allergy'}: {flags.listed.map((a) => a.name).join(', ') || flags.mentions.join('. ')}</p>}

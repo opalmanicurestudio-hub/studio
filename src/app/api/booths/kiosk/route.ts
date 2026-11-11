@@ -35,6 +35,7 @@ import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { inPersonFromDb } from '@/lib/business-shape';
 import { onAccount, renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { reservationHolds, stationHolds } from '@/lib/space-clash';
+import { itemSoldOut, priceChoices } from '@/lib/menu-choices';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -393,7 +394,11 @@ export async function POST(req: NextRequest) {
       if (!item || item.type !== 'refreshment' || item.showInConcierge === false || !(Number(item.totalStock) > 0)) {
         return NextResponse.json({ ok: false, error: 'That isn’t on the menu right now.' }, { status: 404 });
       }
-      const amountCents = Math.round(Math.max(0, Number(item.price) || 0) * quantity * 100);
+      if (itemSoldOut(item)) return NextResponse.json({ ok: false, error: 'That’s sold out right now, sorry.' }, { status: 409 });
+      // With its choices (size, milk, extras), priced from the item itself: the same amount the order is checked against.
+      const picked = priceChoices(item, body.choices);
+      if (!picked.ok) return NextResponse.json({ ok: false, error: picked.error }, { status: 400 });
+      const amountCents = Math.round(Math.max(0, Math.round(((Number(item.price) || 0) + picked.extra) * 100) / 100) * quantity * 100);
       if (body.amountCents !== undefined && body.amountCents !== null && Math.round(Number(body.amountCents)) !== amountCents) {
         return NextResponse.json({ ok: false, error: 'The price of this item just changed. Please check the menu and order again.' }, { status: 409 });
       }

@@ -14,6 +14,7 @@ import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { allergyFlags, groupTickets, type KitchenTicket, type KitchenStep } from '@/lib/kitchen';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
+import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
@@ -42,6 +43,7 @@ function printTicket(t: KitchenTicket, item: Item | undefined, staff: Staff | nu
   const flags = allergyFlags(t);
   const lines: { text: string; size?: 'big' | 'mid'; bold?: boolean; rule?: boolean }[] = [
     { text: `${t.item}${t.quantity > 1 ? ` × ${t.quantity}` : ''}`, size: 'big', bold: true },
+    ...(t.choices ? [{ text: t.choices, size: 'mid' as const, bold: true }] : []),
     { text: t.name, size: 'mid', bold: true },
     { text: `${where(t)}  ${clock(t.at, tz)}` },
   ];
@@ -120,6 +122,7 @@ function TicketCard({ t, item, now, tz, busy, onStep, onCancel, onPrint }: {
           <h3 className="text-[22px] font-semibold leading-tight mt-0.5" style={{ color: INK }}>
             {t.item}{t.quantity > 1 && <span style={{ color: MUTED }}> × {t.quantity}</span>}
           </h3>
+          {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
         </div>
         <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Waiting ${waited(s)}`}>{waited(s)}</span>
       </div>
@@ -196,6 +199,7 @@ function GroupPanel({ g, by, now, busyIds, onStep, onBump }: {
                   <p className="text-[16px] font-medium leading-snug" style={{ color: INK }}>
                     {by === 'course' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}<span style={{ color: MUTED }}> · {t.name}</span></> : <>{t.name}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</>}
                   </p>
+                  {t.choices && <p className="text-[15px] font-semibold" style={{ color: INK }}>{t.choices}</p>}
                   <p className="text-[13.5px]" style={{ color: MUTED }}>{where(t)} · {t.status === 'pending' ? 'Waiting' : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
                 </div>
                 <div className="flex gap-2">
@@ -210,6 +214,68 @@ function GroupPanel({ g, by, now, busyIds, onStep, onBump }: {
         })}
       </ul>
     </section>
+  );
+}
+
+// ─── Sold out: an item, or one of its choices, off every menu in one tap (lib/menu-server) ──────────────────────────
+function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status: number; d: any }>; onClose: () => void }) {
+  const [menu, setMenu] = useState<MenuItem[] | null>(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+  const gen = useRef(0);
+  const [q, setQ] = useState('');
+  const box = useRef<HTMLDivElement | null>(null); const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    // Read again every 20 seconds while it's open, so a switch flipped on another screen (or the morning's reset) shows here.
+    // A read that left before a switch was flipped is dropped, so it can never flip the switch back on screen.
+    const load = () => { const g = gen.current; void post({ action: 'menu' }).then(({ d }) => { if (g !== gen.current) return; if (d.ok) { setMenu(d.menu); setErr(''); } else setErr(d.error || 'The menu didn’t load.'); }, () => undefined); };
+    load(); const t = setInterval(load, 20000); return () => clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input, button')?.focus();
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; document.addEventListener('keydown', k);
+    return () => { document.removeEventListener('keydown', k); opener?.focus?.(); };
+  }, []);
+  const flip = async (m: MenuItem, out: boolean, groupId?: string, optionId?: string) => {
+    const k = `${m.id}${groupId || ''}${optionId || ''}`; setBusy(k); setErr(''); gen.current++;
+    const { d } = await post({ action: 'soldout', itemId: m.id, groupId, optionId, out }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    gen.current++; setBusy(null);
+    if (d.ok) setMenu((cur) => (cur ? cur.map((x) => (x.id === m.id ? d.item : x)) : cur)); else setErr(d.error || 'That didn’t go through.');
+  };
+  const sw = (on: boolean, label: string, k: string, go: () => void) => (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={busy === k} onClick={go}
+      className="flex h-11 w-16 shrink-0 items-center justify-center rounded-full disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]">
+      <span aria-hidden className="relative h-8 w-14 rounded-full" style={{ background: on ? AMBER : '#d4d6da' }}>
+        <span className="absolute top-1 h-6 w-6 rounded-full bg-[#fff] shadow" style={{ left: on ? 28 : 4 }} />
+      </span>
+    </button>);
+  const list = (menu || []).filter((m) => m.onMenu && (!q.trim() || m.name.toLowerCase().includes(q.trim().toLowerCase())));
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={box} role="dialog" aria-modal="true" aria-labelledby="sold-title" className="w-full sm:max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#fff] p-5 sm:p-6 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div><h2 id="sold-title" className="text-[20px] font-semibold" style={{ color: INK }}>Sold out</h2><p className="text-[14px] mt-1" style={{ color: MUTED }}>Off every menu straight away. Switch it back when there’s more.</p></div>
+          <button type="button" onClick={onClose} aria-label="Close" className="h-11 w-11 shrink-0 rounded-full border text-[20px]" style={{ borderColor: LINE, color: INK }}>×</button>
+        </div>
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className="w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
+        {err && <p role="alert" className="rounded-xl px-3 py-2 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
+        {!menu ? <p className="py-6 text-center text-[15px]" style={{ color: MUTED }}>Loading the menu…</p>
+          : list.length === 0 ? <p className="py-6 text-center text-[15px]" style={{ color: MUTED }}>Nothing on the menu{q ? ' by that name' : ''}.</p>
+          : <ul className="space-y-2">{list.map((m) => (
+            <li key={m.id} className="rounded-2xl p-3" style={{ background: m.soldOut ? AMBER_TINT : SOFT }}>
+              <div className="flex min-h-[44px] items-center justify-between gap-3">
+                <span className="text-[16px] font-semibold" style={{ color: m.soldOut ? AMBER : INK }}>{m.name}{m.soldOut ? ', sold out' : ''}</span>
+                {sw(m.soldOut, `${m.name} sold out`, m.id, () => flip(m, !m.soldOut))}
+              </div>
+              {!m.soldOut && m.choices.map((g) => (
+                <div key={g.id} className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-[13px]" style={{ color: MUTED }}>{g.name}:</span>
+                  {g.options.map((o) => (
+                    <button key={o.id} type="button" aria-pressed={o.soldOut} disabled={busy === `${m.id}${g.id}${o.id}`} onClick={() => flip(m, !o.soldOut, g.id, o.id)}
+                      className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium disabled:opacity-50" style={o.soldOut ? { background: AMBER, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}
+                      aria-label={`${o.name}${o.soldOut ? ' is sold out. Tap when it’s back' : '. Tap if it’s sold out'}`}>{o.name}{o.soldOut ? ', out' : ''}</button>))}
+                </div>))}
+            </li>))}</ul>}
+      </div>
+    </div>
   );
 }
 
@@ -228,7 +294,7 @@ function PinPad({ check, onDone, onClose }: { check: (pin: string) => Promise<{ 
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Who’s working">
-      <div className="w-full max-w-xs rounded-3xl bg-white p-5 space-y-4">
+      <div className="w-full max-w-xs rounded-3xl bg-[#fff] p-5 space-y-4">
         <div>
           <h2 className="text-[20px] font-semibold" style={{ color: INK }}>Who’s working?</h2>
           <p className="text-[14px] mt-1" style={{ color: MUTED }}>Your PIN puts your name on the tickets you move. The screen works without it.</p>
@@ -341,6 +407,7 @@ export default function KitchenScreen() {
   const [notice, setNotice] = useState('');
   const [cancelFor, setCancelFor] = useState<KitchenTicket | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [soldOpen, setSoldOpen] = useState(false);
   const [justPaired, setJustPaired] = useState(false);
   const audio = useRef<AudioContext | null>(null);
   const seen = useRef<Set<string> | null>(null);
@@ -360,13 +427,20 @@ export default function KitchenScreen() {
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(t); }, [notice]);
 
   // Sound needs one tap on the screen before a browser lets it play.
+  // An iPad starts sound only from a real tap (a click or the end of a touch), so those are what unlock it.
   const unlock = useCallback(() => {
     try {
-      if (!audio.current) audio.current = new AudioContext();
-      if (audio.current.state === 'suspended') audio.current.resume().then(() => setAudioOk(true), () => {}); else setAudioOk(true);
+      const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext; if (!AC) return;
+      if (!audio.current) audio.current = new AC();
+      const ctx = audio.current!;
+      if (ctx.state !== 'running') ctx.resume().then(() => setAudioOk(ctx.state === 'running'), () => setAudioOk(false)); else setAudioOk(true);
     } catch { /* no sound on this device */ }
   }, []);
-  useEffect(() => { const h = () => unlock(); window.addEventListener('pointerdown', h, { passive: true }); return () => window.removeEventListener('pointerdown', h); }, [unlock]);
+  useEffect(() => {
+    const h = () => unlock(); const evs = ['click', 'touchend', 'keydown'];
+    for (const e of evs) window.addEventListener(e, h, { passive: true });
+    return () => { for (const e of evs) window.removeEventListener(e, h); };
+  }, [unlock]);
 
   const post = useCallback(async (body: any) => {
     const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...body }) });
@@ -515,6 +589,7 @@ export default function KitchenScreen() {
             {staff
               ? <span className="inline-flex items-center gap-2 rounded-xl pl-3 bg-white" style={{ border: `1px solid ${LINE}` }}><span className="text-[14px]">Working: <b className="font-semibold">{staff.name.split(' ')[0]}</b></span><button type="button" onClick={() => pickStaff(null)} className="min-h-[42px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: MUTED }}>Done</button></span>
               : <button type="button" onClick={() => setPinOpen(true)} className={btn} style={quiet}>Who’s working?</button>}
+            <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
             <div className="relative">
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
@@ -580,6 +655,7 @@ export default function KitchenScreen() {
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">Tap anywhere to turn on the sound for new tickets</div>
       )}
       {pinOpen && <PinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} />}
+      {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">
           <div className="w-full max-w-sm rounded-3xl bg-white p-5 space-y-3">

@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
         clientId: String(r.clientId || ''),
         clientName: String(r.clientName || '').trim(),
         itemName: String(r.itemName || 'your order').trim(),
+        choices: String(r.choicesText || '').trim().slice(0, 120),
         bringingOutBy: String(r.bringingOutBy || '').trim(),
         stationName: String(r.stationName || '').trim(),
         requestedAt: String(r.requestedAt || ''),
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
       const waited = Math.max(1, Math.floor((Date.now() - Date.parse(claimed.requestedAt)) / 60000) || 1);
       const res = await sendTenantSms(
         db, tenantId, to,
-        `Action needed: ${firstName || 'A guest'} has been waiting ${waited} minutes for ${claimed.itemName}${claimed.stationName ? ` at ${claimed.stationName}` : ''}. This request has not yet been picked up.`,
+        `Action needed: ${firstName || 'A guest'} has been waiting ${waited} minutes for ${claimed.itemName}${claimed.choices ? ` (${claimed.choices})` : ''}${claimed.stationName ? ` at ${claimed.stationName}` : ''}. This request has not yet been picked up.`,
       );
       return NextResponse.json({ ok: true, sent: res.ok === true });
     }

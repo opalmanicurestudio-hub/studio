@@ -55,6 +55,8 @@ export function ticketFrom(d: any, col: KitchenCol) {
     status: String(r.status || 'pending'),
     name: String(r.clientName || r.guestName || 'Guest'),
     item: String(r.itemName || r.menuItemName || 'Item'),
+    // The guest's choices for it (lib/menu-choices), as the kitchen reads them: "Large, Oat, Extra shot".
+    choices: String(r.choicesText || '').trim().slice(0, 200) || null,
     itemId: r.itemId || r.menuItemId || null,
     quantity: Math.max(1, Math.round(Number(r.quantity) || 1)),
     station: String(r.stationName || (r.tableNumber ? `Table ${r.tableNumber}${r.seatNumber ? `, seat ${r.seatNumber}` : ''}` : source === 'pos' ? 'Desk' : 'Lounge')),

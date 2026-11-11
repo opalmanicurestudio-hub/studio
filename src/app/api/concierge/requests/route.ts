@@ -57,6 +57,7 @@ import { POST as chargeSavedCard } from '@/app/api/stripe/charge-card/route';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { closedReply } from '@/lib/tenant-open-server';
 import { toolLocked } from '@/lib/tool-lock';
+import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
 import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
@@ -112,7 +113,7 @@ async function perkRemainingFor(db: FirebaseFirestore.Firestore, tenantId: strin
   for (const perk of included) {
     const id = String(perk?.id || ''); if (!id) continue;
     const allotted = Math.max(0, Math.floor(num(perk?.quantity)));
-    const used = inCycle.filter((r) => r.itemId === id && num(r.priceAtRequest) === 0)
+    const used = inCycle.filter((r) => r.itemId === id && (r.isRedemption === true || num(r.priceAtRequest) === 0))
       .reduce((s, r) => s + Math.max(1, Math.floor(num(r.quantity)) || 1), 0);
     out[id] = Math.max(0, allotted - used);
   }
@@ -232,7 +233,8 @@ export async function GET(req: NextRequest) {
           id: String(i.id), name: clean(i.name, 80), price: Math.max(0, num(i.price)),   // the price an order is charged at (POST below)
           section: clean(i.category, 40) || 'Menu', words: clean(i.description, 240) || null,
           imageUrl: typeof i.imageUrl === 'string' && /^https:\/\//.test(i.imageUrl) ? i.imageUrl : null,
-          membersOnly: i.isMembersOnly === true, available: num(i.totalStock) > 0,
+          membersOnly: i.isMembersOnly === true, available: num(i.totalStock) > 0 && orderable(i), soldOut: itemSoldOut(i),
+          choices: choiceGroups(i),   // size, milk, extras (lib/menu-choices): priced again below when ordered
         }))
         .sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name));
       const brand = t.kioskSettings?.primaryColor || t.bookingPage?.accent || t.brandColor || t.theme?.accent || null;
@@ -318,13 +320,41 @@ export async function POST(req: NextRequest) {
     // …and orders from a station tablet are part of Lounge & hospitality: off, they're not taken (lib/tool-lock).
     { const closed = closedReply(tenant) || toolLocked(tenant, ['hospitality'], 'guest'); if (closed) return closed; }
 
+    // Asked again for an order already made (the answer to the first try was lost): that's the order, whatever has sold
+    // out or changed on the menu since. Nothing below is checked again for it. (What it answers says nothing about the
+    // guest, and the order's key is a long random one only their own screen ever had.)
+    if (orderKey) {
+      const made: any = (await db.doc(`tenants/${tenantId}/refreshmentRequests/${KQ(tenantId, orderKey)}`).get()).data();
+      if (made && made.itemId === itemId) {
+        return NextResponse.json({ ok: true, already: true, requestId: made.id || KQ(tenantId, orderKey), settledBy: made.settledBy ?? null, isRedemption: made.isRedemption === true,
+          compedByRenter: made.compedByRenter === true, chargedToStation: made.chargedToStation === true, paidAtKiosk: made.paidAtKiosk === true,
+          orderTotal: Number.isFinite(Number(made.orderTotal)) ? Number(made.orderTotal) : Math.round(num(made.priceAtRequest) * Math.max(1, num(made.quantity)) * 100) / 100 });
+      }
+    }
+
+    // The item can't be ordered after all (sold out, or off the menu, since the first try). If their card was already
+    // charged for this order and the order never got written, the payment goes back now and they're told so, rather
+    // than a bare "sold out" while the money waits for the hourly sweep (lib/lounge-card).
+    const cantOrder = async (error: string, status: number) => {
+      if (orderKey) {
+        const c0: any = (await cardOrderRef(db, tenantId, KQ(tenantId, orderKey)).get()).data() || null;
+        if (c0 && ['charging', 'charged', 'refunding'].includes(String(c0.status)) && c0.piId) {
+          const s0 = await settleCardOrder(db, tenantId, KQ(tenantId, orderKey), error).catch(() => 'failed');
+          if (s0 === 'refunded') return NextResponse.json({ ok: false, restart: true, error: `${error} The payment went back to your card.` }, { status });
+          if (s0 === 'failed') return NextResponse.json({ ok: false, restart: true, error: `${error} The payment is being returned to your card.` }, { status });
+        }
+      }
+      return bad(error, status);
+    };
     // The item, from this business's own menu.
     const iSnap = await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get();
     const item: any = iSnap.exists ? iSnap.data() : null;
-    if (!onMenu(item) || !(num(item.totalStock) > 0)) {
-      return bad('That isn’t on the menu right now.', 404);
-    }
-    const unitPrice = Math.max(0, num(item.price));
+    if (!onMenu(item) || !(num(item.totalStock) > 0)) return cantOrder('That isn’t on the menu right now.', 404);
+    if (itemSoldOut(item)) return cantOrder('That’s sold out right now, sorry.', 409);
+    // Its choices, priced from the item itself (never a price from the browser): what they add is part of the price.
+    const picked = priceChoices(item, body?.choices);
+    if (!picked.ok) return cantOrder(picked.error, 400);
+    const unitPrice = Math.max(0, Math.round((num(item.price) + picked.extra) * 100) / 100);
     const orderTotal = Math.round(unitPrice * quantity * 100) / 100;
     const itemName = clean(item.name, 80) || 'Item';
 
@@ -361,6 +391,8 @@ export async function POST(req: NextRequest) {
 
     // The order's own name (from the screen's), so asking again finds it, and its card claim (lib/lounge-card).
     const requestId = orderKey ? KQ(tenantId, orderKey) : nanoid();
+    // The exact choices, so a card charge kept for this order is only ever used for the same drink (oat and almond can cost the same).
+    const choiceKey = picked.lines.map((l) => `${l.groupId}:${l.optionId}`).sort().join(',');
     const claimRef = orderKey ? cardOrderRef(db, tenantId, requestId) : null;
     const claim: any = claimRef ? ((await claimRef.get()).data() || null) : null;
     // Charged here, but the order can't be written after all: the payment goes back to the card (lib/lounge-card).
@@ -390,6 +422,11 @@ export async function POST(req: NextRequest) {
     // A day guest checked in at the station pays for it themselves; otherwise the booth's resident renter is the payer.
     if (boothId && !reservationId) { const br = await boothRenter(db, tenantId, boothId); renterId = br?.renterId || null; }
 
+    // A club perk or the host's allowance covers the item as it comes; choices that add to the price (a large, oat milk)
+    // aren't part of it, so an order with those is paid for another way (the screen offers them).
+    if ((settledBy === 'perk' || settledBy === 'renter_comp') && picked.extra > 0) {
+      return bad(`Your choices add ${'$'}${picked.extra.toFixed(2)}, so this one isn’t included. Choose another way to pay.`, 409);
+    }
     if (settledBy === 'perk' || settledBy === 'balance') {
       // Someone's own account: proof it's them first. Without it, ordering to pay when it arrives still works.
       if (!phone) {
@@ -437,11 +474,11 @@ export async function POST(req: NextRequest) {
           const c: any = (await tx.get(claimRef)).data() || null; const o = await tx.get(reqRef0);
           if (o.exists) return { already: o.data() };
           if (c && ['refunding', 'refunded'].includes(String(c.status))) return { restart: true };
-          if (c && c.status === 'charged' && c.piId) return Number(c.amountCents) === cents && c.clientId === client.id && c.itemId === itemId && Number(c.quantity) === quantity ? { piId: String(c.piId) } : { mismatch: true };
+          if (c && c.status === 'charged' && c.piId) return Number(c.amountCents) === cents && c.clientId === client.id && c.itemId === itemId && Number(c.quantity) === quantity && String(c.choiceKey || '') === choiceKey ? { piId: String(c.piId) } : { mismatch: true };
           // Another request is charging it right now (one that ended without an answer can be asked again: same key).
           if (c && c.status === 'charging' && c.tryEnded !== true && Date.now() - Date.parse(String(c.at || '')) < 120000) return { busy: true };
           const nowC = new Date().toISOString();
-          tx.set(claimRef, { status: 'charging', tryEnded: false, at: nowC, firstAt: c?.firstAt || nowC, clientId: client.id, clientName: clean(client.name, 60) || null, item: itemName, itemId, quantity, amountCents: cents, account: acct,
+          tx.set(claimRef, { status: 'charging', tryEnded: false, at: nowC, firstAt: c?.firstAt || nowC, clientId: client.id, clientName: clean(client.name, 60) || null, item: itemName, itemId, quantity, choiceKey, amountCents: cents, account: acct,
             customer: String(client.cardOnFile?.customerId || ''), chargeKey: `lounge-${orderKey}` }, { merge: true });
           return { go: true };
         });
@@ -571,6 +608,7 @@ export async function POST(req: NextRequest) {
           clientId: client?.id || 'guest-walkin',
           clientName,
           itemId, itemName, quantity,
+          ...(picked.lines.length ? { choices: picked.lines, choicesText: picked.text } : {}),
           status: 'pending',
           requestedAt: nowIso,
           stationName,
@@ -584,7 +622,7 @@ export async function POST(req: NextRequest) {
           stationOrderId: stationOrderId || null,
           guestDescription: clean(body?.guestDescription, 200),
           notes: clean(body?.notes, 300),
-          priceAtRequest,
+          priceAtRequest, orderTotal,
           isGuestKiosk: true,
         });
         if (chargeRef) {

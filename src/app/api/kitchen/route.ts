@@ -22,6 +22,9 @@
 //                                                    station; cancelling one whose item was taken at ordering puts it back.
 //   bump    { tenantId, key, tickets: [{col,id}], step, staffPass? } → a whole course or dish moved along at once
 //   forget  { tenantId, key }                      → this screen stops working (set it up again to use it)
+//   menu    { tenantId, key }                      → the menu, for "Sold out" (lib/menu-server)
+//   soldout { tenantId, key, itemId, groupId?, optionId?, out, staffPass? } → an item, or one of its choices, sold out
+//                                                    or back, in one tap, under the name of whoever's working
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -36,6 +39,7 @@ import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
 import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
 import { toolLocked } from '@/lib/tool-lock';
+import { readMenu, setSoldOut } from '@/lib/menu-server';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -117,12 +121,12 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
         tx.set(db.doc(`${T}/clients/${r.clientId}`), { subscription: { perkUsage: { [itemId]: FieldValue.increment(qty) }, perkLastUsed: now } }, { merge: true });
       }
       if (r.appointmentId && r.appointmentId !== 'guest-walkin' && ID.test(String(r.appointmentId))) {
-        tx.set(db.doc(`${T}/appointments/${r.appointmentId}`), { checkoutState: { refreshments: FieldValue.arrayUnion({ id: itemId || id, name: String(r.itemName || 'Item'), price: num(r.priceAtRequest), deliveredAt: now, quantity: qty, isAccountedFor: true }) } }, { merge: true });
+        tx.set(db.doc(`${T}/appointments/${r.appointmentId}`), { checkoutState: { refreshments: FieldValue.arrayUnion({ id: itemId || id, name: `${String(r.itemName || 'Item')}${r.choicesText ? ` (${String(r.choicesText).slice(0, 120)})` : ''}`, price: num(r.priceAtRequest), deliveredAt: now, quantity: qty, isAccountedFor: true }) } }, { merge: true });
       } else if (collectAtHandover(r) > 0) {
         // A kiosk order to be paid at the station (lib/kitchen collectAtHandover: nothing was taken when it was ordered)
         // is collected as it's handed over, the same as the desk's delivery books it (lib/lounge-delivery): once, named
         // after the order.
-        tx.set(db.doc(`${T}/transactions/kiosk_${id}`), { id: `kiosk_${id}`, date: now, description: `Lounge Guest Sale: ${String(r.itemName || 'Item')} (x${qty})`, clientOrVendor: String(r.clientName || 'Guest'),
+        tx.set(db.doc(`${T}/transactions/kiosk_${id}`), { id: `kiosk_${id}`, date: now, description: `Lounge Guest Sale: ${String(r.itemName || 'Item')}${r.choicesText ? `, ${String(r.choicesText).slice(0, 120)}` : ''} (x${qty})`, clientOrVendor: String(r.clientName || 'Guest'),
           type: 'income', context: 'Business', category: 'Hospitality Revenue', amount: collectAtHandover(r), paymentMethod: 'Guest Kiosk Entry', hasReceipt: false, tenantId, conciergeRequestId: id, recordedBy: by.name });
       }
     }
@@ -181,7 +185,7 @@ export async function POST(req: NextRequest) {
     // A team member signed in on their own device (the front desk, the dashboard, the host stand) takes the same steps,
     // under their own name. Setting up, stopping and PINs stay with a screen.
     let teamMember: { id: string; name: string } | null = null;
-    if (!screen && !b.key && ['tickets', 'act', 'bump'].includes(action)) {
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -255,6 +259,12 @@ export async function POST(req: NextRequest) {
     let staff = teamMember || staffOf(screen, b.staffPass);
     if (staff && !teamMember) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (offTeam(st)) staff = null; }
     const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
+
+    if (action === 'menu') return ok({ menu: await readMenu(db, tenantId), staffOk });
+    if (action === 'soldout') {
+      const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, staff?.name || screen.name);
+      return r.ok ? ok({ item: r.item, staffOk }) : bad(r.error, r.status);
+    }
 
     if (action === 'act') {
       const col = String(b.col || '') as KitchenCol; const id = String(b.id || ''); const step = String(b.step || '') as KitchenStep;

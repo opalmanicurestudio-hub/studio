@@ -285,7 +285,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         const sessionRequests = refreshmentRequests?.filter(r => r.appointmentId === appointment.id && r.status === 'delivered') || [];
         const dashboardRefreshments = sessionRequests.map(r => ({
             id: r.itemId,
-            name: r.itemName,
+            name: (r as any).choicesText ? `${r.itemName} (${(r as any).choicesText})` : r.itemName,
             price: safeNumber(r.priceAtRequest),
             deliveredAt: r.deliveredAt || r.requestedAt,
             isAccountedFor: true

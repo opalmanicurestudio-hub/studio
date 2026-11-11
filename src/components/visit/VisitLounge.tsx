@@ -13,18 +13,20 @@ import { Bell, Clock, CreditCard, SunDim, MapPin, User, Sparkles, Wifi, MessageS
 import { VisitShell, VisitButton, VisitMuted, VisitRows, VisitLabel, VisitCheck, VisitSaid, type VisitBrand } from '@/components/booking/VisitShell';
 import { CopyButton, safeDate } from '@/components/visit/VisitStages';
 import { wallDate } from '@/lib/tenant-time';
+import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { defaultPicks, orderable, priceChoices, type Picks } from '@/lib/menu-choices';
 
 // ── What the lounge offers, as /api/guest-lounge hands it back ──────────────
 // Deliberately narrower than an inventory item: a guest never receives cost, supplier, margin or stock counts, only
 // whether the thing can be asked for and up to how many.
-export type LoungeAmenity = { id: string; name: string; description?: string; category?: string; price?: number; imageUrl?: string; isMembersOnly?: boolean; maxQty?: number };
+export type LoungeAmenity = { id: string; name: string; description?: string; category?: string; price?: number; imageUrl?: string; isMembersOnly?: boolean; maxQty?: number; choices?: any[] };
 export type LoungeUpsell = { id: string; name: string; description?: string; category?: string; price?: number; duration?: number };
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 /** Fallback only: a staff member opening the link on a studio device can read the inventory itself. */
 export const toAmenity = (i: any): LoungeAmenity => ({
   id: i.id, name: i.name, description: i.description || '', category: i.category || '', price: num(i.price), imageUrl: i.imageUrl || '',
-  isMembersOnly: i.isMembersOnly === true, maxQty: Math.max(1, Math.min(6, Math.floor(num(i.totalStock)) || 1)),
+  isMembersOnly: i.isMembersOnly === true, maxQty: Math.max(1, Math.min(6, Math.floor(num(i.totalStock)) || 1)), choices: Array.isArray(i.choices) ? i.choices : [],
 });
 
 // ── Where a request is ──────────────────────────────────────────────────────
@@ -112,7 +114,7 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
   // The menu: the server's first (the only one a guest can get), the inventory on a studio device.
   const amenities: LoungeAmenity[] = React.useMemo(() => {
     if (Array.isArray(lounge?.amenities) && lounge.amenities.length) return lounge.amenities;
-    return (inventory || []).filter((i: any) => i.type === 'refreshment' && i.showInConcierge !== false && num(i.totalStock) > 0 && (!i.isMembersOnly || isMember)).map(toAmenity);
+    return (inventory || []).filter((i: any) => i.type === 'refreshment' && i.showInConcierge !== false && num(i.totalStock) > 0 && orderable(i) && (!i.isMembersOnly || isMember)).map(toAmenity);
   }, [lounge, inventory, isMember]);
   // Grouped: members' things first, then comforts, then the rest by category. Labels only when there's more than one.
   const groups = React.useMemo(() => {
@@ -140,16 +142,27 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
   const itemStage = item ? stageOfItem(item.id) : null;
   // Asked for meanwhile (on another phone, say): the choice closes, and its chip says where it is.
   React.useEffect(() => { if (itemStage && !ordering) setPicked(null); }, [itemStage]); // eslint-disable-line react-hooks/exhaustive-deps
-  const priceWords = (a: LoungeAmenity, n = 1) => (isPerk(a.id) && perksLeft(a.id) >= n ? 'Included with your membership' : num(a.price) > 0 ? `${money(num(a.price) * n)}${n > 1 ? ` for ${n}` : ''}, added to your visit` : 'On the house');
+  // The choices belong to the item they were made for: a newly opened item starts from its own defaults on its very
+  // first frame (never the last item's picks), and a choice problem is said only once they've touched something.
+  const [pickState, setPickState] = React.useState<{ for: string | null; picks: Picks; touched: boolean }>({ for: null, picks: {}, touched: false });
+  const picks: Picks = item && pickState.for === item.id ? pickState.picks : item ? defaultPicks(item) : {};
+  const setPicks = (p: Picks) => setPickState({ for: item?.id || null, picks: p, touched: true });
+  const priced = item ? priceChoices(item, picks) : null;
+  // Picks start valid for the item (its own defaults), so a problem shown before they touch anything is a real one (a
+  // choice they must make): said quietly then, and out loud once they've changed something.
+  const touchedHere = pickState.for === item?.id && pickState.touched;
+  const each = (a: LoungeAmenity) => Math.max(0, num(a.price) + (priced && priced.ok && a.id === item?.id ? priced.extra : 0));
+  const extraOn = (a: LoungeAmenity) => !!priced && priced.ok && priced.extra > 0 && a.id === item?.id;
+  const priceWords = (a: LoungeAmenity, n = 1) => (isPerk(a.id) && perksLeft(a.id) >= n && !extraOn(a) ? 'Included with your membership' : each(a) > 0 ? `${money(each(a) * n)}${n > 1 ? ` for ${n}` : ''}, added to your visit` : 'On the house');
 
   const order = async () => {
     if (!item || ordering) return;
     setOrdering(true); setOrderSaid(null);
-    const d = await post({ action: 'request', itemId: item.id, quantity: qty });
+    const d = await post({ action: 'request', itemId: item.id, quantity: qty, choices: picks });
     setOrdering(false);
     if (!d.ok) { setOrderSaid({ ok: false, text: d.error || 'That didn’t send. Please ask us in person.' }); return; }
     setOrderSaid({ ok: true, text: d.request?.isRedemption ? `Sent, using your membership. We’ll bring ${qty > 1 ? `${qty} ` : ''}${item.name.toLowerCase()} over.` : `Sent. We’ll bring ${qty > 1 ? `${qty} ` : ''}${item.name.toLowerCase()} over.` });
-    setPicked(null); setQty(1); onRefresh();
+    setPicked(null); setQty(1); setPickState({ for: null, picks: {}, touched: false }); onRefresh();
   };
   const recall = async (id: string) => {
     if (recalling) return; setRecalling(id); setOrderSaid(null);
@@ -238,12 +251,14 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
               {isPerk(item.id) && perksLeft(item.id) < qty && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{perksLeft(item.id) > 0 ? `${perksLeft(item.id)} left with your membership this cycle` : 'Your membership’s ones are used for this cycle'}</p>}
               {item.description && <p className="pt-1 text-[14px] leading-snug" style={{ color: 'var(--muted)' }}>{item.description}</p>}</div>
           </div>
+          {(item.choices || []).length > 0 && <ChoicePicker item={item} picks={picks} onChange={setPicks} accent="var(--accent, #16171a)" />}
+          {priced && !priced.ok && <p role={touchedHere ? 'alert' : 'status'} className="text-[14px]" style={{ color: 'var(--warn, #b45309)' }}>{priced.error}</p>}
           <div className="flex items-center gap-2">
             {maxQty > 1 && <div className="flex shrink-0 items-center rounded-full" style={{ boxShadow: 'inset 0 0 0 1px var(--line)' }} role="group" aria-label="How many">
               <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className="inline-flex h-11 w-11 items-center justify-center disabled:opacity-30"><Minus className="h-4 w-4" /></button>
               <span className="w-6 text-center text-[16px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
               <button type="button" aria-label="One more" disabled={qty >= maxQty} onClick={() => setQty((n) => Math.min(maxQty, n + 1))} className="inline-flex h-11 w-11 items-center justify-center disabled:opacity-30"><Plus className="h-4 w-4" /></button></div>}
-            <div className="min-w-0 flex-1"><VisitButton disabled={ordering || !!itemStage} onClick={order}>{ordering ? 'Sending…' : itemStage ? 'Already asked for' : 'Bring it over'}</VisitButton></div>
+            <div className="min-w-0 flex-1"><VisitButton disabled={ordering || !!itemStage || (!!priced && !priced.ok)} onClick={order}>{ordering ? 'Sending…' : itemStage ? 'Already asked for' : 'Bring it over'}</VisitButton></div>
           </div>
         </div>}
       </section>}

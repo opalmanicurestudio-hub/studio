@@ -72,6 +72,7 @@ const CLIENT_GROWTH = [
 const STUDIO_ASSETS = [
   { href: '/services',    icon: BookOpen,      label: 'Services'       },
   { href: '/inventory',   icon: Box,           label: 'Manifest'           },
+  { href: '/menu',        icon: Coffee,        label: 'Menu'               },
   { href: '/inventory/distribution', icon: Boxes, label: 'Distribution' },
   { href: '/inventory/codes', icon: ScanBarcode, label: 'Codes and listings' },
   { href: '/inventory/formulas', icon: FlaskConical, label: 'Formulas' },

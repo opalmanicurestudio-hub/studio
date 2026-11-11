@@ -41,6 +41,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { closedReplyFor } from '@/lib/tenant-open-server';
 import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
+import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
 
 const MAX_AMENITIES = 60;
 const MAX_UPSELL = 8;
@@ -273,6 +274,7 @@ export async function GET(req: NextRequest) {
       .filter((i: any) => i.type === 'refreshment')
       .filter((i: any) => i.showInConcierge !== false)
       .filter((i: any) => num(i.totalStock) > 0)
+      .filter((i: any) => orderable(i))   // sold out tonight (the kitchen's one tap), or a choice they must make with nothing left: off the list until it's back
       .filter((i: any) => !i.isMembersOnly || isMember)
       .slice(0, MAX_AMENITIES)
       .map((i: any) => ({
@@ -285,6 +287,7 @@ export async function GET(req: NextRequest) {
         isMembersOnly: i.isMembersOnly === true,
         available: true,
         maxQty: Math.max(1, Math.min(MAX_QTY, Math.floor(num(i.totalStock)) || 1)),
+        choices: choiceGroups(i),   // size, milk, extras (lib/menu-choices), priced again on the server when ordered
       }));
 
     // Upsell list: what else this studio does. Public data (firestore.rules:47
@@ -646,6 +649,10 @@ export async function POST(req: NextRequest) {
     if (item.type !== 'refreshment' || item.showInConcierge === false) {
       return NextResponse.json({ ok: false, error: 'That item is not available to order.' }, { status: 403 });
     }
+    if (itemSoldOut(item)) return NextResponse.json({ ok: false, error: 'That’s sold out right now, sorry.' }, { status: 409 });
+    // Its choices, worked out from the item itself (never a price from the browser).
+    const picked = priceChoices(item, body?.choices);
+    if (!picked.ok) return NextResponse.json({ ok: false, error: picked.error }, { status: 400 });
     if (num(item.totalStock) < qty) {
       return NextResponse.json({ ok: false, error: `Only ${Math.floor(num(item.totalStock))} left — sorry.` }, { status: 409 });
     }
@@ -694,7 +701,8 @@ export async function POST(req: NextRequest) {
         remainingPerk = perkAllowance({ id: mSnap.id, ...(mSnap.data() as any) }, client, all)[itemId] || 0;
       }
     }
-    const isRedemption = remainingPerk >= qty;
+    // A perk covers the item as it comes; choices that add to the price are paid for (added to the visit).
+    const isRedemption = remainingPerk >= qty && picked.extra <= 0;
 
     // Station name, so the runner knows where to walk.
     let stationName = 'Lounge Area';
@@ -756,7 +764,8 @@ export async function POST(req: NextRequest) {
       // from a dropdown isn't one.
       accessNote: str(body?.accessNote, 200) || '',
       staffName: str(apt?.staffName, 80) || 'Unassigned',
-      priceAtRequest: isRedemption ? 0 : num(item.price),
+      priceAtRequest: isRedemption ? 0 : Math.max(0, Math.round((num(item.price) + picked.extra) * 100) / 100),
+      ...(picked.lines.length ? { choices: picked.lines, choicesText: picked.text } : {}),
       isRedemption,
       source: 'guest_lounge',
       stockMoved,   // stock taken off at order time → delivery must not take it off again

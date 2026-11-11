@@ -264,7 +264,7 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                         </p>
                                     )}
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                        <p className="text-[18px] font-semibold text-foreground">{request.itemName}</p>
+                                        <p className="text-[18px] font-semibold text-foreground">{request.itemName}{(request as any).choicesText ? <span className="ml-1.5 text-[15px] font-medium text-muted-foreground">{(request as any).choicesText}</span> : null}</p>
                                         {(() => {
                                             const mins = requestWaitMinutes(request as any, nowTick);
                                             if (mins === null) return null;

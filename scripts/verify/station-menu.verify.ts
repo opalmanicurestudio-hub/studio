@@ -16,6 +16,7 @@
 // through", or no answer. Its own behavior is checked by its own scripts.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/station-menu.verify.ts
 import Module from 'module';
+import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { makeDb, check, failures, FV, strictTransactions } from './fake-db';
 
@@ -127,8 +128,8 @@ const fresh = async (tenant: any = {}) => {
   check('the menu lists what can be ordered here, sold-out items marked; hidden, put away, switched off and shop items left out', r.body.ok && JSON.stringify(ids) === '["latte","mint","mint25"]'
     && r.body.menu.find((i: any) => i.id === 'mint').available === false && r.body.menu.find((i: any) => i.id === 'latte').available === true, r.body);
   const keys = Array.from(new Set((r.body.menu || []).flatMap((i: any) => Object.keys(i)))).sort();
-  check('…each item says only its name, price, section, words, picture, members-only and whether it’s available (no cost, supplier or stock count)',
-    JSON.stringify(keys) === '["available","id","imageUrl","membersOnly","name","price","section","words"]', keys);
+  check('…each item says only its name, price, section, words, picture, members-only, its choices and whether it’s available or sold out (no cost, supplier or stock count)',
+    JSON.stringify(keys) === '["available","choices","id","imageUrl","membersOnly","name","price","section","soldOut","words"]', keys);
   check('…the price is the one an order is charged at', r.body.menu.find((i: any) => i.id === 'latte').price === 6 && r.body.menu.find((i: any) => i.id === 'latte').section === 'Coffee');
   check('the business: its name and color', r.body.business?.name === 'Opal Lounge' && r.body.business?.accent === '#1f4e5f' && r.body.business?.logoUrl === null, r.body.business);
   await fresh({ kioskSettings: { primaryColor: 'red;background:url(x)' }, logoUrl: 'http://insecure.test/logo.png' });
@@ -250,6 +251,15 @@ const fresh = async (tenant: any = {}) => {
   before = cardCalls.length;
   r = await order({ guestPass: pass, orderKey: 'okey8' });
   check('an order already made under this name (to pay when it arrives): the card isn’t charged for it again', r.body.ok && r.body.already === true && r.body.settledBy === 'desk' && cardCalls.length === before, r.body);
+  // Charged, the order never written, and then it sold out before they tried again: the money goes back now.
+  const kq9 = `kq_${createHash('sha256').update('t1|okey9b').digest('hex').slice(0, 24)}`;
+  await db.doc(`${T}/private/kiosk/cardOrders/${kq9}`).set({ status: 'charged', piId: 'pi_9', account: 'acct_1', amountCents: 1200, clientId: 'c1', itemId: 'latte', quantity: 2, choiceKey: '' });
+  await db.doc(`${T}/inventory/latte`).set({ soldOut: true }, { merge: true });
+  const rb9 = refunds.length;
+  r = await order({ guestPass: pass, orderKey: 'okey9b' });
+  check('charged but never placed, then sold out: the payment goes back now and they’re told so (not a bare “sold out”)', r.status === 409 && r.body.restart === true && /went back to your card/.test(r.body.error)
+    && refunds.length === rb9 + 1 && refunds[rb9].p.payment_intent === 'pi_9' && (await get(`${T}/private/kiosk/cardOrders/${kq9}`))?.status === 'refunded', { body: r.body, refunds });
+  await db.doc(`${T}/inventory/latte`).set({ soldOut: false }, { merge: true });
 
   // A charge made for this name, asked again for a different order (another amount): given back, start over.
   r = await order({ guestPass: pass, orderKey: 'okey9' });
@@ -262,7 +272,7 @@ const fresh = async (tenant: any = {}) => {
     && cardCalls.length === before && refunds.length === refundsBefore + 1 && !(await get(`${T}/refreshmentRequests/${ord9.id}`)), r.body);
 
   // Another request under this name is charging right now: not sent again.
-  const k10 = 'okey10'; const { createHash } = await import('crypto');
+  const k10 = 'okey10';
   const id10 = `kq_${createHash('sha256').update(`t1|${k10}`).digest('hex').slice(0, 24)}`;
   await db.doc(`${T}/private/kiosk/cardOrders/${id10}`).set({ status: 'charging', at: new Date().toISOString(), clientId: 'c1', amountCents: 1200 });
   before = cardCalls.length;
@@ -298,6 +308,30 @@ const fresh = async (tenant: any = {}) => {
   check('an item put away can’t be ordered', r.status === 404, r.body);
   r = await O({ itemId: 'off', quantity: 1, clientName: 'Sam', settle: 'desk', orderKey: 'k-off' });
   check('…nor one switched off', r.status === 404, r.body);
+
+  console.log('choices and sold out');
+  await db.doc(`${T}/inventory/latte`).set({ choices: [
+    { id: 'size', name: 'Size', pick: 'one', required: true, options: [{ id: 'r', name: 'Regular', price: 0 }, { id: 'l', name: 'Large', price: 1 }] },
+    { id: 'milk', name: 'Milk', pick: 'one', required: true, options: [{ id: 'w', name: 'Whole', price: 0 }, { id: 'o', name: 'Oat', price: 0.75 }, { id: 'a', name: 'Almond', price: 0.75, soldOut: true }] },
+  ] }, { merge: true });
+  r = await G({ menu: '1' });
+  const lat = (r.body.menu || []).find((i: any) => i.id === 'latte');
+  check('the menu shows an item’s choices, with what’s sold out', lat?.choices?.length === 2 && lat.choices[1].options[2].soldOut === true && lat.soldOut === false, lat);
+  r = await O({ itemId: 'latte', quantity: 2, clientName: 'Sam', settle: 'desk', orderKey: 'ch-1', choices: { size: ['l'], milk: ['o'] } });
+  const chOrder = (await all(`${T}/refreshmentRequests`)).find((x: any) => x.choicesText === 'Large, Oat');
+  check('an order’s choices are priced from the item (6 + 1 + 0.75), kept on the order, and read by the kitchen', r.body.ok && chOrder?.priceAtRequest === 7.75 && chOrder.choices.length === 2 && chOrder.choices[1].option === 'Oat', [r.body, chOrder]);
+  r = await O({ itemId: 'latte', quantity: 1, clientName: 'Sam', settle: 'desk', orderKey: 'ch-2', choices: { size: ['l'], milk: ['a'] } });
+  const r5: any = await O({ itemId: 'latte', quantity: 1, clientName: 'Sam', settle: 'desk', orderKey: 'ch-3', choices: { size: ['l'] } });
+  check('a sold-out choice, or a required one left out, is refused', r.status === 400 && /Almond is sold out/.test(r.body.error) && r5.status === 400 && /Choose a milk/.test(r5.body.error), [r.body, r5.body]);
+  check('…and the order keeps its own total (7.75 for each of two)', chOrder?.orderTotal === 15.5, chOrder);
+  await db.doc(`${T}/inventory/latte`).set({ soldOut: true }, { merge: true });
+  r = await O({ itemId: 'latte', quantity: 2, clientName: 'Sam', settle: 'desk', orderKey: 'ch-1', choices: { size: ['l'], milk: ['o'] } });
+  check('an order already made, asked again after it sold out (the first answer was lost): that same order, not “sold out”',
+    r.body.ok && r.body.already === true && r.body.orderTotal === 15.5 && (await all(`${T}/refreshmentRequests`)).filter((x: any) => x.choicesText === 'Large, Oat').length === 1, r.body);
+  r = await O({ itemId: 'latte', quantity: 1, clientName: 'Sam', settle: 'desk', orderKey: 'ch-4', choices: { size: ['r'], milk: ['w'] } });
+  const r6: any = await G({ menu: '1' });
+  check('a whole item sold out can’t be ordered, and shows as not available', r.status === 409 && (r6.body.menu || []).find((i: any) => i.id === 'latte')?.available === false, r.body);
+  await db.doc(`${T}/inventory/latte`).set({ soldOut: false, choices: [] }, { merge: true });
   await fresh();
   await db.doc(`${T}/renters/rt1`).set({ amenityCompAllowance: 1 }, { merge: true });
   const tk = makeStationToken('t1', 'b1', 'rt1', await stationLinkVersion(db, 't1', 'b1'));

@@ -87,8 +87,9 @@ export function ReadyToRun({ tenantId, list, title = 'Ready to run' }: { tenantI
           <article key={`${t.col}/${t.id}`} style={{ background: '#fff', border: `${fresh ? 2 : 1}px solid ${fresh ? GREEN : LINE}`, borderRadius: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
               <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: INK }}>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</p>
-              <span style={{ fontSize: 13, fontWeight: 600, color: fresh ? GREEN : MUTED, fontVariantNumeric: 'tabular-nums' }}>{ago(t.readyAt || t.at, now)}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: fresh ? GREEN : MUTED, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{ago(t.readyAt || t.at, now)}</span>
             </div>
+            {t.choices && <p style={{ margin: '-4px 0 0', fontSize: 15, fontWeight: 600, color: INK }}>{t.choices}</p>}
             <p style={{ margin: 0, fontSize: 14, color: '#4b4e54' }}>{where_(t)}, {t.name}{t.lookFor ? `, ${t.lookFor}` : ''}</p>
             {f.any && <p style={{ margin: 0, fontSize: 13.5, fontWeight: 600, borderRadius: 10, padding: '8px 10px', background: f.severe ? AMBER : AMBER_TINT, color: f.severe ? '#fff' : AMBER }}>
               {f.listed.length ? `${f.severe ? 'Severe allergy' : 'Allergy'}: ${f.listed.map((a) => a.name).join(', ')}` : `Allergy in their note: ${f.mentions[0]}`}

@@ -13,12 +13,14 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { defaultPicks, priceChoices, startingPrice, type Picks } from '@/lib/menu-choices';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const QUIET_MS = 8 * 60000;          // a shared tablet forgets the guest after this long untouched
 const WATCH_MS = 45 * 60000;         // how long the done screen keeps checking an order's status
 
-type Item = { id: string; name: string; price: number; section: string; words: string | null; imageUrl: string | null; membersOnly: boolean; available: boolean };
+type Item = { id: string; name: string; price: number; section: string; words: string | null; imageUrl: string | null; membersOnly: boolean; available: boolean; soldOut?: boolean; choices?: any[] };
 type Biz = { name: string; accent: string | null; logoUrl: string | null };
 type Guest = { firstName: string; member: boolean; membershipName: string | null; card: { brand: string; last4: string } | null };
 type Stay = { payerType: 'renter' | 'reservation'; reservationId?: string; boothName: string; cardOnFile: boolean; amenityPayer: 'renter' | 'client'; compAllowance: number };
@@ -63,6 +65,7 @@ function StationMenu() {
   const [section, setSection] = useState('');
   const [step, setStep] = useState<Step>('menu');
   const [pick, setPick] = useState<{ item: Item; qty: number } | null>(null);
+  const [picks, setPicks] = useState<Picks>({});
   const [sheet, setSheet] = useState(false);
   const [name, setName] = useState('');
   const [where, setWhere] = useState(startWhere);
@@ -162,9 +165,14 @@ function StationMenu() {
   const shown = (menu || []).filter((i) => !section || i.section === section);
 
   // What covers an order on its own (no choice to make): a perk with enough left, the host's allowance, the renter's card.
-  const total = pick ? Math.round(pick.item.price * pick.qty * 100) / 100 : 0;
-  const isPerk = !!pick && perkLeft(pick.item.id) >= pick.qty;
-  const hostComp = !!stationStay && stationStay.payerType === 'renter' && stationStay.compAllowance > 0 && compUsed < stationStay.compAllowance;
+  // Its choices (size, milk, extras) add to the price, worked out the same way the server will (lib/menu-choices).
+  const priced = pick ? priceChoices(pick.item, picks) : null;
+  const each = pick ? Math.max(0, Math.round((pick.item.price + (priced && priced.ok ? priced.extra : 0)) * 100) / 100) : 0;
+  const total = pick ? Math.round(each * pick.qty * 100) / 100 : 0;
+  // A perk or the host's allowance covers the item as it comes, not choices that add to the price.
+  const extras = !!priced && priced.ok && priced.extra > 0;
+  const isPerk = !!pick && !extras && perkLeft(pick.item.id) >= pick.qty;
+  const hostComp = !extras && !!stationStay && stationStay.payerType === 'renter' && stationStay.compAllowance > 0 && compUsed < stationStay.compAllowance;
   const stationPays = !!stationStay && stationStay.payerType === 'renter' && stationStay.amenityPayer === 'renter' && stationStay.cardOnFile && !stationFailed;
   const covered = !pick || total <= 0 || isPerk || (hostComp && !cardLocked) || (stationPays && !cardLocked);
   const canStay = !!stay && stay.payerType === 'reservation' && stay.cardOnFile && !stationFailed;
@@ -196,7 +204,7 @@ function StationMenu() {
     if (ask.thenOrder) setResumeWith({ pass: p, perkBefore: isPerk });
   };
 
-  const choose = (item: Item, el: HTMLElement) => { if (!item.available) return; opener.current = el; setPick({ item, qty: 1 }); setSheet(true); setNotice(''); setGood(''); };
+  const choose = (item: Item, el: HTMLElement) => { if (!item.available) return; opener.current = el; setPick({ item, qty: 1 }); setPicks(defaultPicks(item)); setSheet(true); setNotice(''); setGood(''); };
   const closeSheet = () => { setSheet(false); setTimeout(() => opener.current?.focus(), 0); };
   const toDetails = () => { setSheet(false); freshOrder(); setStep('details'); };
 
@@ -235,7 +243,7 @@ function StationMenu() {
         const { status: st, d } = await post('/api/booths/kiosk', {
           action: 'charge', tenantId, payer: viaStation ? 'station' : 'stay', boothId: boothParam || undefined, stationToken: stationToken || undefined,
           ...(viaStay ? { reservationId: stay?.reservationId, phone: `+1${phone}`, guestPass: p || undefined } : {}),
-          itemId: item.id, quantity: qty, amountCents: Math.round(total * 100), orderKey: orderKey.current });
+          itemId: item.id, quantity: qty, choices: picks, amountCents: Math.round(total * 100), orderKey: orderKey.current });
         if (!d?.ok) {
           if (d?.needsCode) { sending.current = false; setBusy(false); await needCode(d.error || 'Enter the code we text to your phone.'); return; }
           // Still going through, or no answer: the same order, tried again, is the same charge.
@@ -247,7 +255,7 @@ function StationMenu() {
         }
         stationOrderId = d.orderId; s = 'station';
       } else s = total > 0 ? settle : 'desk';
-      const { status: st, d } = await api({ itemId: item.id, quantity: qty, clientName: (name || guest?.firstName || 'Guest').slice(0, 60),
+      const { status: st, d } = await api({ itemId: item.id, quantity: qty, choices: picks, clientName: (name || guest?.firstName || 'Guest').slice(0, 60),
         phone: guest && phone ? `+1${phone}` : undefined, boothId: boothParam || undefined,
         reservationId: stay?.payerType === 'reservation' ? stay.reservationId : undefined,
         stationName: (where || stay?.boothName || 'Lounge').slice(0, 60), guestDescription: lookFor, notes: note,
@@ -275,7 +283,7 @@ function StationMenu() {
         : d.settledBy === 'card_on_file' ? `${money(total)} charged to your ${guest?.card?.brand || 'card'}${guest?.card?.last4 ? ` ending ${guest.card.last4}` : ''}.`
         : d.settledBy === 'balance' ? `${money(total)} added to your visit. Settle it when you check out.`
         : total > 0 ? `${money(total)} to pay when we bring it over.` : 'On us.';
-      setDone({ requestId: String(d.requestId || ''), summary, item: `${item.name}${qty > 1 ? ` × ${qty}` : ''}`, at: Date.now() }); setStatus('pending'); setStep('done');
+      setDone({ requestId: String(d.requestId || ''), summary, item: `${item.name}${qty > 1 ? ` × ${qty}` : ''}${priced && priced.ok && priced.text ? `, ${priced.text}` : ''}`, at: Date.now() }); setStatus('pending'); setStep('done');
       setNote(''); setLookFor('');
     } finally { sending.current = false; setBusy(false); }
   };
@@ -382,7 +390,7 @@ function StationMenu() {
                   <span className="text-[17px] font-semibold leading-snug" style={{ color: INK }}>{i.name}</span>
                   {i.words && <span className="text-[14px] leading-snug line-clamp-2" style={{ color: MUTED }}>{i.words}</span>}
                   <span className="mt-auto pt-2 flex items-center gap-2 flex-wrap">
-                    <span className="text-[15px] font-semibold" style={{ color: left > 0 ? GREEN : INK }}>{!i.available ? 'Sold out' : left > 0 ? 'Included' : i.price > 0 ? money(i.price) : 'Free'}</span>
+                    <span className="text-[15px] font-semibold" style={{ color: left > 0 ? GREEN : INK }}>{!i.available ? 'Sold out' : left > 0 ? 'Included' : startingPrice(i).price > 0 ? `${startingPrice(i).from ? 'from ' : ''}${money(startingPrice(i).price)}` : 'Free'}</span>
                     {locked && i.available && <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Members</span>}
                     {left > 0 && <span className="text-[13px]" style={{ color: GREEN }}>{left} left this cycle</span>}
                   </span>
@@ -511,7 +519,7 @@ function StationMenu() {
       </div>
       {sheet && pick && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) closeSheet(); }}>
-          <div ref={sheetRef} role="dialog" aria-modal="true" aria-labelledby="sheet-title" className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-white overflow-hidden">
+          <div ref={sheetRef} role="dialog" aria-modal="true" aria-labelledby="sheet-title" className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-[#fff] overflow-hidden">
             {pick.item.imageUrl && <img src={pick.item.imageUrl} alt="" className="w-full h-48 object-cover" />}
             <div className="p-6 space-y-5">
               <div className="flex items-start justify-between gap-3">
@@ -521,18 +529,20 @@ function StationMenu() {
               {locked ? <>
                 <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>This one is for members. Sign in with your phone to use your membership.</p>
                 <button type="button" data-autofocus onClick={() => { setSheet(false); setNotice(''); setPick(null); setStep('phone'); }} className={`${btn} w-full`} style={{ background: accent, color: onAccent }}>Sign in with my phone</button>
-              </> : (
+              </> : (<>
+                {(pick.item.choices || []).length > 0 && <div className="max-h-[46dvh] overflow-y-auto pr-1"><ChoicePicker item={pick.item} picks={picks} onChange={setPicks} accent={accent} /></div>}
+                {priced && !priced.ok && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
                 <div className="flex items-center gap-3">
                   <div className="flex items-center rounded-full border border-[#ececee] shrink-0">
                     <button type="button" aria-label="One fewer" disabled={pick.qty <= 1} onClick={() => setPick((p) => p && { ...p, qty: Math.max(1, p.qty - 1) })} className="h-12 w-12 text-[22px] disabled:opacity-35" style={{ color: INK }}>−</button>
                     <span className="min-w-[28px] text-center text-[18px] font-semibold tabular-nums" aria-live="polite" aria-label={`Quantity ${pick.qty}`}>{pick.qty}</span>
                     <button type="button" aria-label="One more" disabled={pick.qty >= 10} onClick={() => setPick((p) => p && { ...p, qty: Math.min(10, p.qty + 1) })} className="h-12 w-12 text-[22px] disabled:opacity-35" style={{ color: INK }}>+</button>
                   </div>
-                  <button type="button" data-autofocus onClick={toDetails} className={`${btn} flex-1`} style={{ background: accent, color: onAccent }}>
-                    {perkLeft(pick.item.id) >= pick.qty ? 'Add, included' : pick.item.price > 0 ? `Add, ${money(pick.item.price * pick.qty)}` : 'Add'}
+                  <button type="button" data-autofocus onClick={toDetails} disabled={!!priced && !priced.ok} className={`${btn} flex-1`} style={{ background: accent, color: onAccent }}>
+                    {isPerk ? 'Add, included' : total > 0 ? `Add, ${money(total)}` : 'Add'}
                   </button>
                 </div>
-              )}
+              </>)}
             </div>
           </div>
         </div>
