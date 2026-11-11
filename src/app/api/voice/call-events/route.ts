@@ -35,6 +35,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { markCallEnded } from '@/lib/drive-thru-voice';
 import { stripUndefined } from '@/lib/voice/voice-utils';
 
 export const runtime = 'nodejs';
@@ -61,6 +62,13 @@ export async function POST(req: NextRequest) {
 
   const call: any = body?.call || {};
   const callId: string = call.call_id || call.callId || '';
+  // The drive-thru's voice assistant (api/counter/voice) isn't a phone call: it's never in the call log. Its end is
+  // kept on its own call and car, so a call whose speaker tablet went quiet is still known to be over.
+  // A team member taking over ends only the assistant's side ('call_take_over'): the guest is still on, with them.
+  if (call?.metadata?.kind === 'drive-thru') {
+    if (event === 'call_ended' && callId && call.disconnection_reason !== 'call_take_over') await markCallEnded(getAdminDb(), String(callId), 'service').catch(() => undefined);
+    return NextResponse.json({ received: true });
+  }
   const tenantId: string =
     call?.metadata?.tenantId ||
     call?.retell_llm_dynamic_variables?.tenant_id ||

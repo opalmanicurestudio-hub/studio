@@ -7,15 +7,19 @@
 //   Set up once by a manager like the kitchen screen (api/kitchen 'pair', kind 'drive-thru'); from then on the tablet
 //   carries its own key and everything goes through api/counter, which prices every line from the menu itself.
 //   A PIN (checked by the server) only puts a name on what's done; the screen works without it.
+//   With the voice assistant on (api/counter/voice), a car's order can be taken at the speaker by the assistant, and
+//   it builds here as it's said: the lane can read along, listen in, take over on its own microphone, or tell the
+//   assistant something (components/drive-thru/VoiceBar).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
-import { Car, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
+import { Car, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { PinPad, type ScreenStaff } from '@/components/kitchen/PinPad';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
+import { VoiceBar, useOnTheSpeakerHere, type CarVoice } from '@/components/drive-thru/VoiceBar';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { readBack, timeLeft } from '@/lib/counter-orders';
 import type { MenuItem } from '@/lib/menu-server';
@@ -29,7 +33,7 @@ type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null };
 type Order = { id: string; number: string; status: string; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number };
-type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null };
+type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null; voice?: CarVoice };
 type Stats = { inLane: number; average: number | null; target: number; ordering: number | null; toWindow: number | null; atWindow: number | null; underTarget: number; thisHour: number; servedToday: number };
 type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; menu: MenuItem[]; now: string };
 
@@ -68,7 +72,7 @@ function KitchenPill({ o }: { o: Order | undefined }) {
 }
 
 // ─── A car in the lane ───────────────────────────────────────────────────────────────────────────────────────────────
-function CarCard({ c, o, now, target, selected, onPick }: { c: CarRow; o?: Order; now: number; target: number; selected: boolean; onPick: () => void }) {
+function CarCard({ c, o, now, target, selected, onAir, onPick }: { c: CarRow; o?: Order; now: number; target: number; selected: boolean; onAir: boolean; onPick: () => void }) {
   const s = (now - Date.parse(c.arrivedAt)) / 1000;
   const items = (o?.lines || []).reduce((n, l) => n + l.quantity, 0);
   return (
@@ -78,7 +82,7 @@ function CarCard({ c, o, now, target, selected, onPick }: { c: CarRow; o?: Order
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="text-[24px] font-semibold leading-none tracking-tight tabular-nums" style={{ color: INK }}>{c.number}</span>
-          <span className="truncate text-[14px] font-medium" style={{ color: MUTED }}>{STAGE_WORD[c.stage]}{c.spot ? ` ${c.spot}` : ''}</span>
+          <span className="truncate text-[14px] font-medium" style={{ color: onAir ? GREEN : MUTED }}>{STAGE_WORD[c.stage]}{c.spot ? ` ${c.spot}` : ''}{onAir ? ' · you’re on' : c.voice?.status === 'live' ? ' · assistant' : c.voice?.status === 'taken_over' ? ' · team' : ''}</span>
         </div>
         <span className="shrink-0 rounded-full px-2.5 py-1 text-[15px] font-semibold tabular-nums" style={clockLook(s, target)}>{mmss(s)}</span>
       </div>
@@ -151,6 +155,7 @@ export default function DriveThru() {
   const [voidPin, setVoidPin] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [justPaired, setJustPaired] = useState(false);
+  const [voiceCfg, setVoiceCfg] = useState<{ on: boolean; publicKey: string | null } | null>(null);
   const audio = useRef<AudioContext | null>(null);
   const acted = useRef(0);
   const inFlight = useRef(false);
@@ -169,6 +174,12 @@ export default function DriveThru() {
     setReady(true);
   }, [tenantId]);
   useEffect(() => { const i = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(i); }, []);
+  // Whether the voice assistant takes orders here (and the public key for its live transcript).
+  useEffect(() => {
+    if (!key) return;
+    void fetch('/api/counter/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, action: 'config' }) })
+      .then((r) => r.json()).then((d) => { if (d.ok) setVoiceCfg({ on: !!d.on, publicKey: d.publicKey || null }); }).catch(() => undefined);
+  }, [tenantId, key]);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
   const now = tick + skew;
 
@@ -219,6 +230,9 @@ export default function DriveThru() {
   }, [key, load]);
 
   const cars = lane?.cars || [];
+  // The car someone at this tablet is talking to at the speaker (after taking over), wherever the screen has moved to.
+  const onAirCalls = useOnTheSpeakerHere();
+  const onAirCar = cars.find((c) => !!c.voice?.callId && onAirCalls.includes(String(c.voice.callId))) || null;
   const car = cars.find((c) => c.id === picked) || null;
   const order = car?.orderId ? lane?.orders[car.orderId] : undefined;
   const target = lane?.stats.target || 210;
@@ -378,6 +392,8 @@ export default function DriveThru() {
                 <div className="absolute right-0 z-40 mt-2 w-72 space-y-1 rounded-2xl bg-[#fff] p-2" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
                   <a href={`/drive-thru/${tenantId}/board`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the order board</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>
+                  {voiceCfg?.on && <a href={`/drive-thru/${tenantId}/speaker`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the speaker</a>}
+                  {voiceCfg?.on && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The tablet wired to the speaker, where the voice assistant takes each car’s order.</p>}
                   <button type="button" onClick={stopScreen} className={`min-h-[44px] w-full rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: RED }}>Stop this screen</button>
                 </div>
               )}
@@ -413,7 +429,7 @@ export default function DriveThru() {
           </button>
           {!lane ? <div className="flex justify-center py-10"><div className="h-7 w-7 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the lane" /></div>
             : cars.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No cars in the lane.</p>
-            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{cars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} now={now} target={target} selected={c.id === picked} onPick={() => setPicked(c.id)} /></div>)}</div>}
+            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{cars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} now={now} target={target} selected={c.id === picked} onAir={c.id === onAirCar?.id} onPick={() => setPicked(c.id)} /></div>)}</div>}
         </aside>
 
         <section aria-label={car ? `Car ${car.number}` : 'No car picked'} className="min-w-0">
@@ -425,11 +441,17 @@ export default function DriveThru() {
             </div>
           ) : (
             <div className="space-y-4">
+              {onAirCar && onAirCar.id !== car.id && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-2.5" style={{ background: GREEN_TINT, border: '1px solid #cfe8da' }}>
+                  <p className="flex items-center gap-2 text-[15px] font-semibold" style={{ color: GREEN }}><Mic className="h-4 w-4" aria-hidden />You’re still on the speaker with car {onAirCar.number}</p>
+                  <button type="button" onClick={() => setPicked(onAirCar.id)} className={btn} style={{ background: GREEN, color: '#fff' }}>Back to car {onAirCar.number}</button>
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums">{car.number}</span>
                   <div className="min-w-0"><p className="text-[16px] font-semibold">{STAGE_WORD[car.stage]}{car.spot ? `, spot ${car.spot}` : ''}</p>
-                    <p className="text-[13.5px]" style={{ color: MUTED }}>In the lane {mmss(carSeconds)}{car.takenBy ? ` · taken by ${car.takenBy.split(' ')[0]}` : ''}</p></div>
+                    <p className="text-[13.5px]" style={{ color: MUTED }}>In the lane {mmss(carSeconds)}{car.voice?.status === 'live' ? ' · the voice assistant is taking it' : car.voice?.status === 'taken_over' ? ` · taken over by ${String(car.voice.takenOverBy || 'the team').split(' ')[0]}` : car.takenBy ? ` · taken by ${car.takenBy.split(' ')[0]}` : ''}</p></div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {due && order.kitchen !== 'ready' && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold tabular-nums" style={due.over ? { background: AMBER, color: '#fff' } : due.left < 60 ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Kitchen time: ${due.text}`}>Kitchen {due.text}</span>}
@@ -437,6 +459,7 @@ export default function DriveThru() {
                   <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold tabular-nums" style={clockLook(carSeconds, target)}>{mmss(carSeconds)}</span>
                 </div>
               </div>
+              {voiceCfg?.on && car.voice && <VoiceBar tenantId={tenantId} screenKey={key} staffPass={staff?.pass || null} carNumber={car.number} voice={car.voice} publicKey={voiceCfg.publicKey} onNotice={(text, tone) => setNotice({ text, tone })} />}
 
               {car.stage === 'speaker' && order.status === 'building' ? (
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -557,7 +580,7 @@ export default function DriveThru() {
         </section>
       </main>
 
-      {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 max-w-[calc(100vw-32px)] -translate-x-1/2 rounded-full px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
+      {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q); setChoiceFor(null); }} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
       {pinOpen && <PinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the orders and payments you take. The screen works without it." />}

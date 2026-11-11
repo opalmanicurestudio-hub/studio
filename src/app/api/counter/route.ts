@@ -35,6 +35,7 @@ import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
 import { createCar, editOrder, sendOrder, voidOrder } from '@/lib/counter-server';
+import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
@@ -127,7 +128,9 @@ export async function POST(req: NextRequest) {
       }
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' }, screen: screen.name, staff: staff ? { id: staff.id, name: staff.name } : null, staffOk,
-        cars: live.map((c: any) => ({ id: c.id, number: c.number, stage: c.stage, arrivedAt: c.arrivedAt, stageAt: c.stageAt || {}, orderId: c.orderId || null, takenBy: c.takenBy || null, spot: c.spot || null })),
+        cars: live.map((c: any) => ({ id: c.id, number: c.number, stage: c.stage, arrivedAt: c.arrivedAt, stageAt: c.stageAt || {}, orderId: c.orderId || null, takenBy: c.takenBy || null, spot: c.spot || null,
+          // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
+          voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
         orders, stats: { ...cached.stats, inLane: live.length }, menu: menu.filter((m) => m.onMenu), now: nowIso,
       });
     }
@@ -177,6 +180,8 @@ export async function POST(req: NextRequest) {
         return { ok: true };
       });
       statsCache.delete(tenantId);   // again once it's done, so a read in between never keeps the old numbers
+      // Handed over or gone: the voice assistant (if it's still on with this car) hangs up.
+      if (!r.error && to === 'gone') await stopCarCall(db, tenantId, carId, 'car gone');
       return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, staffOk });
     }
 
@@ -197,9 +202,10 @@ export async function POST(req: NextRequest) {
         if (o.status !== 'building') return { error: 'That order has gone to the kitchen. If they drove off, void it.', status: 409 };
         tx.set(orderRef, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: by }, { merge: true });
         if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
-        return { ok: true };
+        return { ok: true, carId: o.carId || null };
       });
       statsCache.delete(tenantId);
+      if (!r.error && r.carId) await stopCarCall(db, tenantId, String(r.carId), 'car left');
       return r.error ? bad(r.error, r.status) : ok({ staffOk });
     }
 
@@ -217,6 +223,7 @@ export async function POST(req: NextRequest) {
       if (!reason) return bad('Why is it being voided?');
       const r: any = await voidOrder(db, tenantId, orderId, reason, who);
       statsCache.delete(tenantId);
+      if (!r.error) { const carId = String(((await orderRef.get()).data() || {}).carId || ''); if (ID.test(carId)) await stopCarCall(db, tenantId, carId, 'voided'); }
       return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, returned: r.returned, wasted: r.wasted, staffOk });
     }
 

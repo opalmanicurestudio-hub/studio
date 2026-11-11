@@ -69,6 +69,7 @@
     "react-signature-canvas": "^1.0.6",
     "read-excel-file": "^9.3.10",
     "recharts": "^2.15.1",
+    "retell-client-js-sdk": "3.0.3",
     "stripe": "^16.0.0",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",

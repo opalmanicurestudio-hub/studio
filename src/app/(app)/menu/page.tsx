@@ -24,11 +24,11 @@ const HOLD_TIMES = [5, 7, 10, 15, 20, 30, 45, 60, 90, 120];
 const TARGET_TIMES = [90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 600, 900, 1200];
 const TARGET_ROWS: [string, string, string][] = [['drive-thru', 'Drive-thru', 'From arriving at the speaker to driving away'], ['counter', 'Counter', 'From ordering to handed over'], ['ahead', 'Ordered ahead', 'From the order coming in to ready for pickup']];
 
-function Switch({ on, label, onClick, busy }: { on: boolean; label: string; onClick: () => void; busy?: boolean }) {
+function Switch({ on, label, onClick, busy, color = AMBER }: { on: boolean; label: string; onClick: () => void; busy?: boolean; color?: string }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick} disabled={busy}
       className={`flex h-11 w-16 shrink-0 items-center justify-center rounded-full disabled:opacity-50 ${RING}`}>
-      <span aria-hidden className="relative h-8 w-14 rounded-full transition-colors" style={{ background: on ? AMBER : '#d4d6da' }}>
+      <span aria-hidden className="relative h-8 w-14 rounded-full transition-colors" style={{ background: on ? color : '#d4d6da' }}>
         <span className="absolute top-1 h-6 w-6 rounded-full bg-[#fff] shadow transition-all" style={{ left: on ? 28 : 4 }} />
       </span>
     </button>
@@ -46,6 +46,7 @@ export default function MenuPage() {
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [targets, setTargets] = useState<Record<string, number> | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
+  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean } | null>(null);
 
   const call = useCallback(async (body: any) => {
     try {
@@ -53,7 +54,17 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  const setUpVoice = async () => {
+    setBusy('voice'); setErr('');
+    const d = await call({ action: 'voiceSetup' });
+    setBusy(null); if (d.ok) setVoice({ setUp: true, on: !!d.on }); else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  const setVoiceOn = async (on: boolean) => {
+    const was = voice; setVoice((v) => (v ? { ...v, on } : v)); setBusy('voice'); setErr('');
+    const d = await call({ action: 'voice', on });
+    setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); }
+  };
   const setTarget = async (channel: string, seconds: number) => {
     const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
     const d = await call({ action: 'targets', targets: { [channel]: seconds } });
@@ -100,6 +111,14 @@ export default function MenuPage() {
                     {Array.from(new Set([...TARGET_TIMES, targets[c]])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{mmss(t)}</option>)}
                   </select>
                 </label>))}
+              {voice && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span className="block text-[15px] font-medium">Voice assistant at the drive-thru speaker</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{voice.setUp ? 'Greets each car and takes the order. The team can listen in and take over from the lane screen.' : voice.canSetUp ? 'Takes each car’s order at the speaker. The team can listen in and take over at any time.' : 'Needs the voice service connected before it can be set up.'}</span></span>
+                  {voice.setUp ? <Switch on={voice.on} label="Voice assistant at the drive-thru speaker" busy={busy === 'voice'} onClick={() => setVoiceOn(!voice.on)} color={GREEN} />
+                    : voice.canSetUp && <button type="button" onClick={setUpVoice} disabled={busy === 'voice'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voice' ? 'Setting up…' : 'Set it up'}</button>}
+                </div>
+              )}
             </div>}
           </section>
         )}

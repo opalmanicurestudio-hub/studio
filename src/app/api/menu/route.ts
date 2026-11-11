@@ -6,6 +6,9 @@
 //             holdMinutes?, batchSize? } } → managers (the kitchen timing: lib/counter-orders, lib/holding)
 //   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
 //             aims to be handed over in (list returns them)
+//   voice   { tenantId, on } → managers: the drive-thru's voice assistant on or off here (api/counter/voice); list says
+//             whether it's set up and on
+//   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 // Nothing about cost or suppliers is read or written here.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -14,6 +17,8 @@ import { readMenu, setSoldOut, isMenuItem, menuItemOf } from '@/lib/menu-server'
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
 import { targetsOf, CHANNELS } from '@/lib/counter-orders';
+import { agentOf } from '@/lib/drive-thru-voice';
+import { setUpDriveThruAssistant } from '@/lib/drive-thru-voice-setup';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -26,14 +31,43 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'targets'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, action === 'save' || action === 'targets' ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'targets', 'voice', 'voiceSetup'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'targets', 'voice', 'voiceSetup'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
     if (action === 'list') {
       const [menu, t] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get()]);
-      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(t.data() || {}) });
+      const td: any = t.data() || {};
+      const setUp = !!process.env.RETELL_API_KEY && !!agentOf(td);
+      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td),
+        voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET } });
+    }
+
+    if (action === 'voiceSetup') {
+      const tRef = db.doc(`tenants/${tenantId}`);
+      // Once, however many taps: claimed first, so two taps never make two assistants.
+      const claim: any = await db.runTransaction(async (tx: any) => {
+        const t0: any = (await tx.get(tRef)).data() || {};
+        if (agentOf(t0)) return { done: true, on: t0.driveThru?.voice !== false };
+        if (t0.driveThru?.voiceSettingUpAt && Date.now() - Date.parse(t0.driveThru.voiceSettingUpAt) < 60000) return { busy: true };
+        tx.set(tRef, { driveThru: { voiceSettingUpAt: new Date().toISOString() } }, { merge: true });
+        return { t: t0 };
+      });
+      if (claim.done) return ok({ setUp: true, on: claim.on });
+      if (claim.busy) return bad('It’s being set up right now. Give it a moment.', 409);
+      const t: any = claim.t;
+      const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl?.origin || '').replace(/\/+$/, '');
+      const r = await setUpDriveThruAssistant(String(t.name || t.businessName || '').slice(0, 80), origin);
+      if (!r.ok) { await tRef.set({ driveThru: { voiceSettingUpAt: null } }, { merge: true }); return bad(r.error, 502); }
+      await tRef.set({ driveThru: { voiceAgentId: r.agentId, voiceLlmId: r.llmId, voice: true, voiceSettingUpAt: null, voiceSetUpAt: new Date().toISOString(), voiceSetUpBy: words(g.actor?.name, 60) || null } }, { merge: true });
+      return ok({ setUp: true, on: true });
+    }
+
+    if (action === 'voice') {
+      if (typeof b.on !== 'boolean') return bad('On or off?');
+      await db.doc(`tenants/${tenantId}`).set({ driveThru: { voice: b.on } }, { merge: true });
+      return ok({ on: b.on });
     }
 
     if (action === 'targets') {
