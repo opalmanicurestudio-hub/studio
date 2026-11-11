@@ -32,7 +32,13 @@ export const makeSecondsOf = (item: any) => { const n = Math.floor(Number(item?.
 /** How long a cooked batch of it can be held before it's thrown out, in minutes (0: it isn't held). */
 export const holdMinutesOf = (item: any) => { const n = Math.floor(Number(item?.holdMinutes)); return Number.isFinite(n) && n >= 1 && n <= 240 ? n : 0; };
 
-export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number };
+export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number; imageUrl?: string | null };
+
+/** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
+export const photoOf = (item: any): string | null => {
+  const u = typeof item?.imageUrl === 'string' ? item.imageUrl.trim() : '';
+  return /^https:\/\/[^\s"'<>]+$/.test(u) && u.length <= 1500 ? u : null;
+};
 
 /** One line, from the menu item itself (never a price from a screen). */
 export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string): { ok: true; line: OrderLine } | { ok: false; error: string } {
@@ -43,7 +49,7 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
   const c = priceChoices(item, picks);
   if (!c.ok) return { ok: false, error: c.error };
   const unit = Math.max(0, Math.round((Number(item.price || 0) + c.extra) * 100) / 100);
-  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item) } };
+  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item) } };
 }
 
 /** The order's money: subtotal, the business's sales tax on food and drink, and the total. */

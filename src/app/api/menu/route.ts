@@ -3,7 +3,8 @@
 //   list    { tenantId }                                   → every menu item (anyone on the team)
 //   soldout { tenantId, itemId, groupId?, optionId?, out } → the item, or one of its choices, sold out or back (anyone on the team)
 //   save    { tenantId, itemId, item: { name, section, words, price, choices, onMenu, membersOnly, makeSeconds?,
-//             holdMinutes?, batchSize? } } → managers (the kitchen timing: lib/counter-orders, lib/holding)
+//             holdMinutes?, batchSize?, imageUrl? } } → managers (the kitchen timing: lib/counter-orders, lib/holding; the
+//             photo: an https address the Menu page uploaded, or null to take it off)
 //   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
 //             aims to be handed over in (list returns them)
 //   voice   { tenantId, on } → managers: the drive-thru's voice assistant on or off here (api/counter/voice); list says
@@ -16,7 +17,7 @@ import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf } from '@/lib/menu-server';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
-import { targetsOf, CHANNELS } from '@/lib/counter-orders';
+import { targetsOf, photoOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant } from '@/lib/drive-thru-voice-setup';
 
@@ -24,6 +25,8 @@ export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
+/** This app's storage, where the Menu page uploads photos. */
+const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET, process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET].map((b) => String(b || '').trim()).filter((b) => /^[A-Za-z0-9._-]{3,222}$/.test(b))));
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 export async function POST(req: NextRequest) {
@@ -114,6 +117,19 @@ export async function POST(req: NextRequest) {
     if (x.makeSeconds !== undefined && x.makeSeconds !== null) { const n = Math.floor(Number(x.makeSeconds)); if (!Number.isFinite(n) || n < 10 || n > 3600) return bad('How long it takes to make: between 10 seconds and an hour.'); timing.makeSeconds = n; }
     if (x.holdMinutes !== undefined && x.holdMinutes !== null) { const n = Math.floor(Number(x.holdMinutes)); if (!Number.isFinite(n) || n < 0 || n > 240) return bad('How long it can be held: up to 4 hours.'); timing.holdMinutes = n; }
     if (x.batchSize !== undefined && x.batchSize !== null) { const n = Math.floor(Number(x.batchSize)); if (!Number.isFinite(n) || n < 1 || n > 200) return bad('A batch is between 1 and 200.'); timing.batchSize = n; }
+    // The photo, when given: shown on the drive-thru's buttons and its order board, and on the lounge menu.
+    const photo: Record<string, string | null> = {};
+    if (x.imageUrl !== undefined) {
+      if (x.imageUrl === null || String(x.imageUrl).trim() === '') photo.imageUrl = null;
+      else {
+        // Only a photo this business uploaded from the Menu page (its own product photos, in this app's storage): a
+        // screen guests see never loads anything from anywhere else.
+        const u = photoOf({ imageUrl: x.imageUrl });
+        const own = !!u && ownBuckets().some((bk) => u.startsWith(`https://firebasestorage.googleapis.com/v0/b/${bk}/o/tenants%2F${tenantId}%2Fproducts%2F`));
+        if (!own) return bad('That photo didn’t upload properly. Try adding it again.');
+        photo.imageUrl = u;
+      }
+    }
     const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
     const r: any = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data();
@@ -124,7 +140,7 @@ export async function POST(req: NextRequest) {
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }) };
     });

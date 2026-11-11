@@ -6,12 +6,14 @@
 //   Kitchen timing: how long each item takes to make (a drive-thru order is due no sooner than its slowest item), and
 //   whether it's cooked ahead in batches and held (the kitchen screen's holding timers). Managers also set the time each
 //   kind of order aims to be handed over in (the drive-thru's 3:30 unless they change it).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
 import { ChoicesEditor, type EditGroup } from '@/components/menu/ChoicesEditor';
 import { money, type ChoiceGroup } from '@/lib/menu-choices';
 import type { MenuItem } from '@/lib/menu-server';
+import { uploadImage } from '@/lib/upload-image';
+import { ImagePlus } from 'lucide-react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -83,6 +85,7 @@ export default function MenuPage() {
     const by = new Map<string, MenuItem[]>(); for (const m of list) by.set(m.section, [...(by.get(m.section) || []), m]);
     return Array.from(by.entries());
   }, [menu, q]);
+  const hasPhotos = (menu || []).some((m) => !!m.imageUrl);
   const outCount = (menu || []).filter((m) => m.soldOut || m.choices.some((g) => g.options.some((o) => o.soldOut))).length;
 
   return (
@@ -134,6 +137,7 @@ export default function MenuPage() {
                   const outOpts = m.choices.flatMap((g) => g.options.filter((o) => o.soldOut).map((o) => o.name));
                   return (
                     <li key={m.id} className="flex items-center gap-4 px-4 py-3 sm:px-5" style={{ borderColor: LINE }}>
+                      {hasPhotos && <span className="h-12 w-12 shrink-0 overflow-hidden rounded-xl" style={{ background: SOFT }} aria-hidden>{m.imageUrl && <img src={m.imageUrl} alt="" className="h-full w-full object-cover" style={{ opacity: m.soldOut ? 0.45 : 1 }} />}</span>}
                       <button type="button" onClick={() => setEditing(m)} className={`min-w-0 flex-1 rounded-xl py-1 text-left ${RING}`} aria-label={`${m.name}: ${canEdit ? 'edit' : 'see'} its price and choices`}>
                         <span className="flex flex-wrap items-baseline gap-x-2">
                           <span className="text-[16px] font-semibold" style={{ opacity: m.soldOut ? 0.5 : 1 }}>{m.name}</span>
@@ -156,14 +160,14 @@ export default function MenuPage() {
             </section>
           ))}
       </div>
-      {editing && <EditSheet key={editing.id} item={editing} canEdit={canEdit} busy={busy} onClose={() => setEditing(null)}
+      {editing && <EditSheet key={editing.id} item={editing} tenantId={tenantId} canEdit={canEdit} busy={busy} onClose={() => setEditing(null)}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
         onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); setEditing(null); return null; } return d.error || 'That didn’t save.'; }} />}
     </div>
   );
 }
 
-function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: MenuItem; canEdit: boolean; busy: string | null; onClose: () => void;
+function EditSheet({ item, tenantId, canEdit, busy, onClose, onSave, onSoldOut }: { item: MenuItem; tenantId: string | null; canEdit: boolean; busy: string | null; onClose: () => void;
   onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void }) {
   const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
   const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
@@ -171,7 +175,22 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
   const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
+  const [photo, setPhoto] = useState<string | null>(item.imageUrl || null); const [uploading, setUploading] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
+  // A photo is made smaller on this device before it's uploaded (a phone photo becomes a few hundred KB), then kept with
+  // the business's product photos. It's saved onto the item only with Save.
+  const pickPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f || !tenantId || uploading) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) { setErr('Use a JPEG, PNG or WebP photo.'); return; }
+    if (f.size > 25 * 1024 * 1024) { setErr('That photo is too big. Use one under 25 MB.'); return; }
+    setUploading(true); setErr('');
+    try {
+      const ext = f.type === 'image/png' ? 'png' : f.type === 'image/webp' ? 'webp' : 'jpg';
+      setPhoto(await uploadImage(`tenants/${tenantId}/products/menu-${item.id}-${Date.now()}.${ext}`, f, 900));
+    } catch { setErr('That photo didn’t upload. Check the connection and try again.'); }
+    finally { setUploading(false); }
+  };
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input, button')?.focus();
@@ -188,7 +207,7 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
     const batch = Math.floor(Number(batchSize));
     if (held && !(batch >= 1 && batch <= 200)) { setErr('How many in a batch? Between 1 and 200.'); return; }
     setSaving(true); setErr('');
-    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
+    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
       // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
       ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}) });
     setSaving(false); if (e) setErr(e);
@@ -201,6 +220,21 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
           <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${RING}`} style={{ borderColor: LINE }}>×</button>
         </div>
         {canEdit ? <div className="mt-4 space-y-5">
+          <div className="flex items-center gap-4">
+            <span className="flex h-[90px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-2xl" style={{ background: SOFT, border: `1px solid ${LINE}` }}>
+              {photo ? <img src={photo} alt={`${name || item.name}`} className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" style={{ color: MUTED }} aria-hidden />}
+            </span>
+            <div className="min-w-0 space-y-2">
+              <p><span className="block text-[14px] font-medium">Photo</span><span className="block text-[13px]" style={{ color: MUTED }}>Shows on the drive-thru’s buttons and on the order board facing the car. A photo on a plain background reads best.</span></p>
+              <div className="flex flex-wrap gap-2">
+                <label className={`${BTN} inline-flex cursor-pointer items-center focus-within:ring-2 focus-within:ring-[#16171a] focus-within:ring-offset-2`} style={{ border: `1px solid ${LINE}`, opacity: uploading ? 0.6 : 1 }}>
+                  {uploading ? 'Adding the photo…' : photo ? 'Change photo' : 'Add a photo'}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={pickPhoto} disabled={!tenantId} aria-disabled={uploading} />
+                </label>
+                {photo && !uploading && <button type="button" onClick={() => setPhoto(null)} className={BTN} style={{ border: `1px solid ${LINE}` }}>Remove</button>}
+              </div>
+            </div>
+          </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_180px_140px]">
             <label><span className="text-[14px] font-medium">Name</span><input value={name} onChange={(e) => setName(e.target.value.slice(0, 80))} className={field} style={{ borderColor: LINE }} /></label>
             <label><span className="text-[14px] font-medium">Section</span><input value={section} onChange={(e) => setSection(e.target.value.slice(0, 40))} placeholder="Coffee, Food" className={field} style={{ borderColor: LINE }} /></label>
@@ -239,7 +273,7 @@ function EditSheet({ item, canEdit, busy, onClose, onSave, onSoldOut }: { item: 
           </div>
           {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
           <div className="flex gap-2">
-            <button type="button" onClick={save} disabled={saving} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button type="button" onClick={save} disabled={saving || uploading} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : 'Save'}</button>
             <button type="button" onClick={onClose} className={BTN} style={{ border: `1px solid ${LINE}` }}>Cancel</button>
           </div>
         </div> : <p className="mt-3 text-[15px]" style={{ color: MUTED }}>A manager can change the price and choices. You can mark choices sold out below.</p>}

@@ -2,7 +2,7 @@
 // screen's one-tap "Sold out"). A menu item is an inventory item of the refreshment kind; what guests see of it is its
 // name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier.
 import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
-import { makeSecondsOf, holdMinutesOf } from '@/lib/counter-orders';
+import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
 
@@ -23,7 +23,7 @@ export function menuItemOf(id: string, i: any): MenuItem {
   const start = startingPrice(i);
   return {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
-    price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: typeof i.imageUrl === 'string' && /^https:\/\//.test(i.imageUrl) ? i.imageUrl : null,
+    price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
     choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: i.showInConcierge !== false, membersOnly: i.isMembersOnly === true, inStock: num(i.totalStock) > 0,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
   };

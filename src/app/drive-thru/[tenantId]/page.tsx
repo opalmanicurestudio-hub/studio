@@ -109,7 +109,10 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (picks: 
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="choice-title" className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[#fff] sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-start justify-between gap-3 px-6 pt-6">
-          <div><h2 id="choice-title" className="text-[22px] font-semibold" style={{ color: INK }}>{item.name}</h2>{item.words && <p className="mt-1 text-[14.5px]" style={{ color: MUTED }}>{item.words}</p>}</div>
+          <div className="flex min-w-0 items-center gap-4">
+            {item.imageUrl && <img src={item.imageUrl} alt="" className="h-[72px] w-[72px] shrink-0 rounded-2xl object-cover" style={{ background: SOFT }} />}
+            <div className="min-w-0"><h2 id="choice-title" className="text-[22px] font-semibold" style={{ color: INK }}>{item.name}</h2>{item.words && <p className="mt-1 text-[14.5px]" style={{ color: MUTED }}>{item.words}</p>}</div>
+          </div>
           <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${RING}`} style={{ borderColor: LINE, color: INK }}>×</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5"><ChoicePicker item={item} picks={picks} onChange={setPicks} /></div>
@@ -320,6 +323,7 @@ export default function DriveThru() {
   const menu = useMemo(() => (lane?.menu || []).filter((m) => !m.membersOnly), [lane?.menu]);
   const sections = useMemo(() => Array.from(new Set(menu.map((m) => m.section))), [menu]);
   const shownSection = section && sections.includes(section) ? section : sections[0] || null;
+  const withPhotos = menu.some((m) => !!m.imageUrl);
   const onOrder = useMemo(() => { const n: Record<string, number> = {}; for (const l of order?.lines || []) n[l.itemId] = (n[l.itemId] || 0) + l.quantity; return n; }, [order?.lines]);
 
   if (!ready) return <main className="min-h-dvh" style={{ background: SOFT }} />;
@@ -474,8 +478,31 @@ export default function DriveThru() {
                       : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4" role="tabpanel">
                         {menu.filter((m) => m.section === shownSection).map((m) => {
                           const out = m.soldOut || !m.inStock; const n = onOrder[m.id] || 0;
+                          const label = `${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${out ? ', sold out' : ''}${n ? `, ${n} on the order` : ''}`;
+                          // With photos on the menu, every button is a picture first (the way a fast-food screen is read at a
+                          // glance); an item without one keeps its place with its first letter. With none, the buttons stay compact.
+                          if (withPhotos) return (
+                            <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={label}
+                              className={`relative flex flex-col overflow-hidden rounded-2xl bg-[#fff] text-left transition-transform active:scale-[0.98] disabled:active:scale-100 ${RING}`}
+                              style={{ border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 5 : 6 }}>
+                              <span className="relative block aspect-[16/10] w-full overflow-hidden rounded-xl" style={{ background: SOFT }}>
+                                {m.imageUrl
+                                  ? <img src={m.imageUrl} alt="" draggable={false} className="h-full w-full object-cover" style={out ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
+                                  : <span className="flex h-full w-full items-center justify-center text-[30px] font-semibold" style={{ color: '#c4c6ca' }} aria-hidden>{m.name.trim().charAt(0).toUpperCase()}</span>}
+                                {out && <span className="absolute left-2 top-2 rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Sold out</span>}
+                                {n > 0 && <span className="absolute right-2 top-2 flex h-8 min-w-[32px] items-center justify-center rounded-full px-2 text-[15px] font-semibold tabular-nums" style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>}
+                              </span>
+                              <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
+                                <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{m.name}</span>
+                                <span className="flex items-center justify-between gap-2">
+                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
+                                  {!out && m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
+                                </span>
+                              </span>
+                            </button>
+                          );
                           return (
-                            <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={`${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${out ? ', sold out' : ''}${n ? `, ${n} on the order` : ''}`}
+                            <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={label}
                               className={`relative flex min-h-[96px] flex-col justify-between rounded-2xl p-3.5 text-left transition-transform active:scale-[0.98] disabled:active:scale-100 ${RING}`}
                               style={{ background: out ? SOFT : '#fff', border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 13 : 14 }}>
                               <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{m.name}</span>

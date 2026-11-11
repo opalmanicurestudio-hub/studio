@@ -33,7 +33,7 @@ import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
-import { targetsOf, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
+import { targetsOf, photoOf, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
 import { createCar, editOrder, sendOrder, voidOrder } from '@/lib/counter-server';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       const show = o && (o.status === 'building' ? now.getTime() - touched < 10 * 60000 : o.status === 'sent' && now.getTime() - Date.parse(String(o.sentAt || '')) < 20000);
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' },
-        order: show ? { number: o.number, sent: o.status !== 'building', lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100 })),
+        order: show ? { number: o.number, sent: o.status !== 'building', lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })),
           subtotal: num(o.subtotal), tax: num(o.tax), total: num(o.total) } : null,
         now: nowIso,
       });
