@@ -19,6 +19,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
 import { closedReply } from '@/lib/tenant-open-server';
+import { anyToolOn, toolLocked } from '@/lib/tool-lock';
 import { accessLockOf, CLOSED_FOR_CLIENTS } from '@/lib/tenant-access';
 import { guestLogo } from '@/lib/brand';
 import { brandColor, eventCapacity, eventToday } from '@/lib/studio-page';
@@ -113,7 +114,11 @@ export async function POST(req: NextRequest) {
   const today = eventToday(tenant); const title = clean(ev.title || ev.name, 120) || 'the event';
   // A paused or locked business takes nothing new. Coming back from a payment already made still finishes it, and a
   // guest can still see, cancel or leave what they already have.
-  if (!['load', 'paid', 'left', 'place', 'cancel', 'waitspot', 'leave'].includes(action)) { const closed = closedReply(tenant); if (closed) return closed; }
+  // The same while Classes & events isn't part of the business's plan (lib/tool-lock): nothing new, and what a guest
+  // already has stays theirs.
+  if (!['load', 'paid', 'left', 'place', 'cancel', 'waitspot', 'leave'].includes(action)) {
+    const closed = closedReply(tenant) || toolLocked(tenant, ['classes_events'], 'guest', 'This event isn’t taking sign-ups right now.'); if (closed) return closed;
+  }
 
   try {
     // ── What a page shows ──
@@ -121,6 +126,7 @@ export async function POST(req: NextRequest) {
       const business = { name: clean(tenant.name || tenant.businessName, 80), logoUrl: guestLogo(tenant) || null, color: brandColor(tenant) };
       const base = { title, date: /^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || '')) ? String(ev.date) : null, time: clean(ev.time, 5) || null, endTime: clean(ev.endTime, 5) || null };
       if (accessLockOf(tenant).locked) return out({ ok: true, business, event: base, closed: true, message: CLOSED_FOR_CLIENTS });
+      if (!anyToolOn(tenant, ['classes_events'])) return out({ ok: true, business, event: base, closed: true, message: 'This event isn’t taking sign-ups right now.' });
       if (b.purpose === 'seat') {
         const where = findSeat(ev, String(b.tableId || ''), String(b.seatId || ''));
         if (!where) return out({ ok: false, error: 'This seat’s code is out of date. Please ask a member of the team.', missing: true }, 404);

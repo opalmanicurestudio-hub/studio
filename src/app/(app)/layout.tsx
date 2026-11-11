@@ -12,6 +12,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/shared/AppSidebar';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { AccessGate } from '@/components/auth/AccessGate';
+import { ToolGate } from '@/components/shared/ToolGate';
 import { TenantProvider } from '@/context/TenantContext';
 import { LocationProvider } from '@/context/LocationContext';
 import { usePathname } from 'next/navigation';
@@ -50,7 +51,7 @@ function Framed({ children }: { children: React.ReactNode }) {
   return (<>
     <div className={inSettings ? 'contents lg:hidden' : 'contents'}><AppSidebar /></div>
     <SidebarInset className="bg-background">
-      <main id="main"><StaleCopyBanner />{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}<React.Suspense fallback={null}><SetupBar /></React.Suspense></main>
+      <main id="main"><StaleCopyBanner /><ToolGate>{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}</ToolGate><React.Suspense fallback={null}><SetupBar /></React.Suspense></main>
     </SidebarInset>
   </>);
 }

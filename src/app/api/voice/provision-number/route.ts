@@ -34,6 +34,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaff } from '@/lib/voice/staff-auth';
 import { normalizePhone } from '@/lib/voice/voice-utils';
+import { toolLocked } from '@/lib/tool-lock';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,6 +75,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'tenant_not_found' }, { status: 404 });
     }
     const tenant = tenantSnap.data() as any;
+    { const locked = toolLocked(tenant, ['voice']); if (locked) return locked; }   // part of AI receptionist (lib/tool-lock)
 
     // Owner-only — provisioning has a monthly cost.
     let isOwner = tenant.userId === auth.uid;

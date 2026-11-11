@@ -37,6 +37,7 @@ import { verifyVoiceSecret, localHour, speakDateTime } from '@/lib/voice/voice-u
 import { loadTenantContext } from '@/lib/voice/server-availability';
 import { buildTenantVariables } from '@/lib/voice/tenant-variables';
 import { placeRetellCall } from '@/lib/voice/retell-client';
+import { moduleEnabled } from '@/lib/modules';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,6 +71,8 @@ export async function POST(req: NextRequest) {
     if (va.voiceReminders !== true) {
       return NextResponse.json({ placed: 0, skipped: 'voice_reminders_disabled' });
     }
+    // Reminder calls are the AI receptionist: while it isn't part of the plan, none are placed (lib/tool-lock).
+    if (!moduleEnabled(tenant, 'voice')) return NextResponse.json({ placed: 0, skipped: 'voice_off' });
     const fromNumber = (va.phoneNumber || '').trim();
     if (!fromNumber) {
       return NextResponse.json({ placed: 0, skipped: 'no_assistant_number' });

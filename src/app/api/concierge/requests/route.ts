@@ -56,6 +56,7 @@ import { cardOrderRef, settleCardOrder } from '@/lib/lounge-card';
 import { POST as chargeSavedCard } from '@/app/api/stripe/charge-card/route';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { closedReply } from '@/lib/tenant-open-server';
+import { toolLocked } from '@/lib/tool-lock';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
 import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
@@ -223,7 +224,7 @@ export async function GET(req: NextRequest) {
     if (wantsMenu) {
       const t: any = tSnap.data() || {};
       // A paused or closed business shows no menu (it takes no orders).
-      { const closed = closedReply(t); if (closed) return closed; }
+      { const closed = closedReply(t) || toolLocked(t, ['hospitality'], 'guest'); if (closed) return closed; }
       const inv = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(300).get();
       const menu = inv.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
         .filter((i) => onMenu(i))
@@ -314,7 +315,8 @@ export async function POST(req: NextRequest) {
     if (!tSnap.exists) return bad('Not found.', 404);
     const tenant: any = tSnap.data() || {};
     // A paused or closed business takes no orders or payments (lib/tenant-open-server).
-    { const closed = closedReply(tenant); if (closed) return closed; }
+    // …and orders from a station tablet are part of Lounge & hospitality: off, they're not taken (lib/tool-lock).
+    { const closed = closedReply(tenant) || toolLocked(tenant, ['hospitality'], 'guest'); if (closed) return closed; }
 
     // The item, from this business's own menu.
     const iSnap = await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get();

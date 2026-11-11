@@ -32,16 +32,16 @@ export const EXTRA_RENTER: PriceDef = { key: 'cf_extra_renter_v2', name: 'Additi
 export const TEXTS = { soloIncluded: 300, teamIncluded: 1000, overageCents: 3 };
 
 export const TOOL_PRICES: Partial<Record<ToolId, PriceDef>> = {
-  marketing: { key: 'cf_tool_marketing_v2', name: 'Marketing & reputation', amount: 29, description: 'Campaigns, automations, offers, reviews' },
+  marketing: { key: 'cf_tool_marketing_v2', name: 'Marketing & reputation', amount: 29, description: 'Campaigns, automations, offers, referrals' },
   books: { key: 'cf_tool_books_v2', name: 'Automated bookkeeping', amount: 49, description: 'Ledger, bank feeds, bills, profit per service' },
   team: { key: 'cf_tool_team_v2', name: 'Team & onboarding', amount: 29, description: 'Hiring, onboarding, shifts, time clock, payroll' },
   renters: { key: 'cf_tool_renters_v2', name: 'Booth & suite rental', amount: 99, description: 'Leases, rent autopay, renter portals — includes 10 renters' },
   inventory: { key: 'cf_tool_inventory_v2', name: 'Inventory & retail', amount: 49, description: 'Stock, online shop, fulfilment' },
   memberships: { key: 'cf_tool_memberships_v2', name: 'Memberships & packages', amount: 29, description: 'Recurring memberships, packages, credits' },
-  classes: { key: 'cf_tool_classes_v2', name: 'Classes & events', amount: 29, description: 'Classes, workshops, events, quotes' },
+  classes: { key: 'cf_tool_classes_v2', name: 'Classes & events', amount: 29, description: 'Events, workshops, sign-ups, quotes' },
   kiosk: { key: 'cf_tool_kiosk_v2', name: 'Front desk & walk-ins', amount: 19, description: 'Walk-in kiosk, waitlist, lobby board' },
   voice: { key: 'cf_tool_voice_v2', name: 'AI receptionist', amount: 99, description: 'Answers, books and reschedules by phone' },
-  lounge: { key: 'cf_tool_lounge_v2', name: 'Lounge & hospitality', amount: 39, description: 'Guest lounge menu, host stand, kitchen display' },
+  lounge: { key: 'cf_tool_lounge_v2', name: 'Lounge & hospitality', amount: 39, description: 'Seat-side ordering, host stand, kitchen display' },
   academy: { key: 'cf_tool_academy_v2', name: 'Online academy', amount: 49, description: 'Courses, video lessons, student portal' },
 };
 

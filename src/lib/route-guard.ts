@@ -20,7 +20,7 @@ export async function staffOrServer(req: NextRequest, tenantId: string): Promise
 // Identity comes from the signed-in token the app attaches to every call (components/shared/AuthFetch), checked by
 // verifyStaffActor against this business's team — never from anything the caller writes in the request body.
 export type GuardLevel = 'staff' | 'manager' | 'owner';
-export async function requireRole(req: NextRequest, tenantId: string | null | undefined, level: GuardLevel = 'staff'): Promise<{ actor?: any; deny?: NextResponse }> {
+export async function requireRole(req: NextRequest, tenantId: string | null | undefined, level: GuardLevel = 'staff'): Promise<{ actor?: any; tenant?: any; deny?: NextResponse }> {
   const tid = String(tenantId || '').trim().slice(0, 120);
   if (!tid) return { deny: NextResponse.json({ ok: false, error: 'Which business?' }, { status: 400 }) };
   const auth: any = await verifyStaffActor(req, tid).catch(() => null);
@@ -28,11 +28,11 @@ export async function requireRole(req: NextRequest, tenantId: string | null | un
   const a = auth.actor; const role = String(a.role || '').toLowerCase(); const owner = !!a.isTenantOwner;
   const allowed = level === 'staff' ? true : level === 'manager' ? owner || !!a.isManager || ['owner', 'admin', 'manager'].includes(role) : owner || ['owner', 'admin'].includes(role);
   if (!allowed) return { deny: NextResponse.json({ ok: false, error: level === 'owner' ? 'Only the owner or an admin can do that.' : 'Only a manager can do that.' }, { status: 403 }) };
-  return { actor: a };
+  return { actor: a, tenant: auth.tenant || {} };   // the business, as read to check them (its plan's tools: lib/tool-lock)
 }
 
 // requireCan — the same, by what the person's role allows (lib/permissions): const g = await requireCan(req, tid, 'checkout.refund').
-export async function requireCan(req: NextRequest, tenantId: string | null | undefined, cap: Cap): Promise<{ actor?: any; deny?: NextResponse }> {
+export async function requireCan(req: NextRequest, tenantId: string | null | undefined, cap: Cap): Promise<{ actor?: any; tenant?: any; deny?: NextResponse }> {
   const g = await requireRole(req, tenantId, 'staff'); if (g.deny) return g;
   const a = g.actor; if (a.isTenantOwner || (Array.isArray(a.caps) && a.caps.includes(cap))) return g;
   return { deny: NextResponse.json({ ok: false, error: 'Your role doesn’t allow that — ask the owner.' }, { status: 403 }) };

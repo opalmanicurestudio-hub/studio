@@ -32,13 +32,13 @@ export const TOOLS: Tool[] = [
     includes: ['Your own booking page', 'Deposits & no-show protection', 'Approve requests — or instant', 'Reminders on autopilot'],
     gives: 'About 4 hrs a week of back-and-forth', hours: 4, profit: 'Deposits turn no-shows into paid time', others: 'Most charge extra for deposits or approvals' },
   { id: 'guest', emoji: '✨', name: 'Guest experience', gates: [], line: 'Live updates from booking to goodbye — they always know, so you don’t field the calls.',
-    includes: ['Running-late & arrived, live', 'Self check-in from their phone', 'Forms, consent & photo ID before they arrive', 'Service recovery when something goes wrong'],
+    includes: ['Running-late & arrived, live', 'Self check-in from their phone', 'Forms, consent & photo ID before they arrive', 'Drinks and extras to order while they wait', 'Service recovery when something goes wrong'],
     gives: 'About 3 hrs a week of calls and texts', hours: 3, others: 'Most stop at a reminder text' },
   { id: 'kiosk', emoji: '📲', name: 'Front desk & walk-ins', gates: ['kiosk'], line: 'A tablet front desk for walk-ins and a lobby screen that shows who’s next.',
     includes: ['Walk-in kiosk & live waitlist', 'Text-when-ready', 'Lobby board for the waiting room', 'Waitlist that fills cancellations'],
     gives: 'A front desk that runs itself', hours: 3, others: 'Usually a separate app or add-on' },
   { id: 'marketing', emoji: '💌', name: 'Marketing & reputation', gates: ['marketing'], line: 'Clients come back on their own — and you see who, and what it earned.',
-    includes: ['Win-back & “you’re due” nudges', 'Campaigns with real results', 'Offers applied at checkout', 'Reviews collected & shown off'],
+    includes: ['Win-back & “you’re due” nudges', 'Campaigns with real results', 'Offers applied at checkout', 'Referrals & creator campaigns'],
     gives: 'About 2 hrs a week of chasing', hours: 2, profit: 'Rebookings you’d have lost, counted in dollars', others: 'Often a paid add-on, measured in opens instead of bookings' },
   { id: 'memberships', emoji: '🔁', name: 'Memberships & packages', gates: ['memberships'], line: 'Recurring revenue that renews itself, with credits that apply themselves.',
     includes: ['Monthly memberships on autopay', 'Packages & credits', 'Member perks & early booking', 'Failed-payment follow-up'],
@@ -55,14 +55,14 @@ export const TOOLS: Tool[] = [
   { id: 'renters', emoji: '🔑', name: 'Booth & suite rental', gates: ['booth_rental', 'maintenance'], line: 'Renters get their own portal and clients — rent collects itself.',
     includes: ['Leases & rent on autopay', 'A portal for every renter', 'Their own booking, offers & books', 'Tours, day rentals & a check-in kiosk', 'Maintenance requests'],
     gives: 'No more chasing rent', hours: 2, profit: 'Rent in on time, every time', others: 'Built for owners with renters — most platforms aren’t' },
-  { id: 'classes', emoji: '🎟️', name: 'Classes & events', gates: ['classes_events'], line: 'Classes, workshops and events — spots, waitlists and quotes.',
-    includes: ['Class schedules & capacity', 'Workshops & group bookings', 'Inquiries, event quotes & deposits', 'Waitlists that fill themselves'],
+  { id: 'classes', emoji: '🎟️', name: 'Classes & events', gates: ['classes_events'], line: 'Events and workshops — sign-ups, tickets, seating and quotes.',
+    includes: ['Events & workshops with a set number of places', 'Sign-ups, tickets & meal choices', 'Waitlists that move people up on their own', 'Inquiries, event quotes & deposits', 'Seating, plus the kitchen screen & floor board for event meals'],
     gives: 'Full rooms without the spreadsheet', hours: 2, others: 'Usually a different platform from appointments' },
   { id: 'voice', emoji: '🎙️', name: 'AI receptionist', gates: ['voice'], line: 'Answers the phone, books, moves and cancels — while you work.',
     includes: ['Answers calls 24/7', 'Books into your real calendar', 'Reschedules & cancels by policy', 'Hands off to you when needed'],
     gives: 'Every call answered', hours: 3, others: 'Rare — and usually a separate subscription' },
-  { id: 'lounge', emoji: '☕', name: 'Lounge & hospitality', gates: ['hospitality'], early: true, line: 'A guest lounge, café or bar — menu, orders, host stand and a kitchen screen.',
-    includes: ['Guest lounge menu & orders', 'Host stand & seating', 'Floor service for your team', 'Kitchen & bar display'],
+  { id: 'lounge', emoji: '☕', name: 'Lounge & hospitality', gates: ['hospitality'], early: true, line: 'A lounge, café or bar — order-from-your-seat tablets, a host stand and a kitchen screen.',
+    includes: ['Order-from-your-seat tablets', 'Host stand & seating', 'Floor service for your team', 'Kitchen & bar display'],
     gives: 'Drinks and extras that add to every visit', hours: 1, profit: 'Turns waiting time into sales', others: 'Appointment platforms don’t run a lounge or café' },
   { id: 'academy', emoji: '🎓', name: 'Online academy', gates: ['academy'], early: true, line: 'Sell courses online — video lessons, a student portal, progress and pay-later.',
     includes: ['Courses, modules & video lessons', 'Free preview lessons', 'A student portal that remembers their place', 'Card or pay-later checkout'],
@@ -91,9 +91,11 @@ export function toTenantModules(ids: ToolId[]): Record<string, boolean> {
   return out;
 }
 
-/** The tools a tenant has on, read back from tenant.modules (absent = on). */
+/** The tools a tenant has on, read back from tenant.modules (absent = on). Each tool is read from its OWN switch, its
+ *  first gate: a switch two tools share (maintenance comes with Team and with Booth rental) never turns on, or bills
+ *  for, the other tool. */
 export function fromTenantModules(modules: Record<string, boolean> | null | undefined): ToolId[] {
-  return TOOLS.filter((t) => t.gates.length === 0 || t.gates.some((g) => modules?.[g] !== false)).map((t) => t.id);
+  return TOOLS.filter((t) => t.gates.length === 0 || modules?.[t.gates[0]] !== false).map((t) => t.id);
 }
 
 /** What sign-up used to call "category" — kept for the parts of the app that read it. */

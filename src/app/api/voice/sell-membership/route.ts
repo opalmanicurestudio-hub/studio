@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-utils';
 import { loadTenantContext } from '@/lib/voice/server-availability';
+import { moduleEnabled } from '@/lib/modules';
 import { enrollMembership } from '@/lib/memberships/enroll-membership';
 import { isPoorHistory } from '@/lib/deposit-policy';
 
@@ -61,6 +62,10 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb();
     const ctx = await loadTenantContext(db, tenantId);
     const tenant = ctx.tenant || {};
+    // Memberships & packages isn't part of this business's plan: nothing is sold by phone (lib/tool-lock).
+    if (!moduleEnabled(tenant, 'memberships')) {
+      return NextResponse.json({ ok: false, error: 'not_available', spoken: "That isn’t something I can set up on this line. Let me take a message for the team instead." });
+    }
 
     const clientSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
     if (!clientSnap.exists) {

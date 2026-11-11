@@ -82,10 +82,13 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   check('no event today: no tables, and the lounge’s own requests still show', r.body.event === null && r.body.tables.length === 0 && r.body.requests.length === 1 && r.body.requests[0].id === 'lounge1' && r.body.requests[0].tableId === null, r.body);
 
   console.log('tonight’s event');
-  const today = new Date().toISOString().slice(0, 10);
+  // The business's own day, the same way the board works it out (the test runs at any hour, in any zone).
+  const { eventToday } = await import('../../src/lib/studio-page');
+  const tenantNow: any = await get(T);
+  const today = eventToday(tenantNow); const yesterday = eventToday(tenantNow, new Date(Date.now() - 86400000));
   await db.doc(`${T}/studioEvents/later`).set({ title: 'Brunch club', date: today, time: '23:59', status: 'scheduled' });
   await db.doc(`${T}/studioEvents/stale`).set({ title: 'Left running', date: '2025-01-04', status: 'active' });
-  await db.doc(`${T}/studioEvents/lastnight`).set({ title: 'Last night', date: new Date(Date.now() - 86400000).toISOString().slice(0, 10), time: '18:00', endTime: '23:00', status: 'active' });
+  await db.doc(`${T}/studioEvents/lastnight`).set({ title: 'Last night', date: yesterday, time: '18:00', endTime: '23:00', status: 'active' });
   r = await POST(req({ action: 'board', tenantId: 't1', key }));
   check('today’s next event when none is running (one left “running” from last night, or days ago, doesn’t count)', r.body.event?.id === 'later' && r.body.event.running === false, r.body.event);
   await db.doc(`${T}/studioEvents/e1`).set({

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requestActor } from '@/lib/request-actor';
+import { toolLocked } from '@/lib/tool-lock';
 import { submitRequest, consentToSwap, decideRequest } from '@/lib/shift-requests';
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,8 @@ export async function POST(req: NextRequest) {
   if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 400 });
   const db = getAdminDb(); const who = await requestActor(db, req.headers.get('authorization'), tenantId);
   if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  // Shift requests are part of Team & onboarding: off, nothing new is asked (a request already made can still be answered).
+  if (b.action === 'submit') { const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['team']); if (locked) return locked; }
   if (who.actor.role === 'renter') return NextResponse.json({ ok: false, error: 'Renters don’t have studio shifts.' }, { status: 403 });
   const r = b.action === 'submit' ? await submitRequest(db, tenantId, who.actor, b)
     : b.action === 'consent' ? await consentToSwap(db, tenantId, who.actor, String(b.requestId || ''), b.agree === true)

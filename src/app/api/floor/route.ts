@@ -18,6 +18,7 @@ import { eventToday } from '@/lib/studio-page';
 import { hasTimeZone, tenantTimeZone, wallParts } from '@/lib/tenant-time';
 import { ticketFrom } from '@/lib/kitchen';
 import { offTeam, screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
+import { toolLocked } from '@/lib/tool-lock';
 import { resolveSeat } from '@/lib/hosting';
 
 export const dynamic = 'force-dynamic';
@@ -91,6 +92,8 @@ export async function POST(req: NextRequest) {
     }
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The floor board is closed for now. The business owner can tell you more.' }, { status: 403 });
+    // …and while neither tool it comes with (Lounge & hospitality, Classes & events) is part of the plan (lib/tool-lock).
+    { const locked = toolLocked(tenant, ['hospitality', 'classes_events']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const by = staff?.name || screen.name;

@@ -29,6 +29,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { closedReply, closedReplyFor } from '@/lib/tenant-open-server';
+import { toolLocked, toolLockedFor } from '@/lib/tool-lock';
 import { accessLockOf } from '@/lib/tenant-access';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -507,7 +508,7 @@ export async function POST(req: NextRequest) {
       }
       const dbp = getAdminDb();
       const tSnap = await dbp.doc(`tenants/${tid}`).get();
-      { const closed = closedReply(tSnap.data()); if (closed) return closed; }
+      { const closed = closedReply(tSnap.data()) || toolLocked(tSnap.data() || {}, ['booth_rental'], 'guest', 'Spaces aren’t being booked right now.'); if (closed) return closed; }
       const raw = (tSnap.data() as any)?.bookingPageSettings?.dayPassPacks;
       const packs = Array.isArray(raw) ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0) : [];
       const pack = packs[Number(packIndex)];
@@ -567,6 +568,8 @@ export async function POST(req: NextRequest) {
 
     const db = getAdminDb();
     { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
+    // Day bookings of a space are part of Booth & suite rental (lib/tool-lock): off, none new are taken.
+    { const locked = await toolLockedFor(db, tenantId, ['booth_rental'], 'guest', 'Spaces aren’t being booked right now.'); if (locked) return locked; }
     const boothSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
     if (!boothSnap.exists) return NextResponse.json({ ok: false, error: 'Space not found.' }, { status: 404 });
     const booth = boothSnap.data() as any;

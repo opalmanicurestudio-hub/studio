@@ -1,5 +1,6 @@
 import { cleanGift, giftToken } from '@/lib/gift-orders';
 import { closedReplyFor } from '@/lib/tenant-open-server';
+import { toolLockedFor } from '@/lib/tool-lock';
 import { cleanDigitalGift } from '@/lib/digital-gift';
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { shippoKeyFor } from '@/lib/retail-secrets';
@@ -221,6 +222,9 @@ async function handleCheckout(req: NextRequest) {
   const db = getAdminDb();
   // A paused or closed business takes no new orders (lib/tenant-access).
   { const closed = await closedReplyFor(db, tenantId); if (closed) return closed; }
+  // …and the online shop is part of Inventory & retail: off, it takes no new orders (orders already paid for are still
+  // fulfilled, returned and refunded as usual) (lib/tool-lock).
+  { const locked = await toolLockedFor(db, tenantId, ['retail'], 'guest', 'The shop isn’t taking orders right now.'); if (locked) return locked; }
 
   // ── The checkout page's own id for this checkout (the same on every retry from that page) ─────────────────────
   // An order paid in full here, with store credit or a gift card (no card payment to wait for), is paid once however

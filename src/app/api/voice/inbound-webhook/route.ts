@@ -43,6 +43,7 @@ import {
   buildTenantVariables,
   DEFAULT_AGENT_NAME,
 } from '@/lib/voice/tenant-variables';
+import { moduleEnabled } from '@/lib/modules';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,6 +100,15 @@ export async function POST(req: NextRequest) {
     const tenantDoc = tenantQuery.docs[0];
     const tenant = tenantDoc.data() as any;
     const tenantId = tenantDoc.id;
+
+    // The AI receptionist is switched off for this business (not part of its plan, lib/tool-lock): the line says so
+    // politely and books, moves and looks up nothing (no business is named to the tools), so nothing runs that isn't paid for.
+    if (!moduleEnabled(tenant, 'voice')) {
+      const name = String(tenant.name || tenant.businessName || 'this business').slice(0, 80);
+      return NextResponse.json({ call_inbound: { dynamic_variables: { ...fallback.call_inbound.dynamic_variables, studio_name: name,
+        knowledge_base: `The assistant on this line is switched off. Say only: “Sorry, nobody can take your call on this line right now. Please reach ${name} another way.” Then end the call. Do not take bookings or messages.` },
+        metadata: { tenantId: '' } } });
+    }
 
     const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);
 

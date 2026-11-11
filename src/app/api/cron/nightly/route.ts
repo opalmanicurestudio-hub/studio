@@ -27,6 +27,7 @@ import { moveLegacyCosts } from '@/lib/renter-service-costs';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
+import { moduleEnabled } from '@/lib/modules';
 import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
@@ -137,6 +138,8 @@ export async function GET(req: NextRequest) {
 
   for (const tenantId of tenants) {
     try {
+      // Bank feeds are part of Automated bookkeeping: while it isn't part of the plan, nothing new is pulled in (lib/tool-lock).
+      if (!moduleEnabled((await db.doc(`tenants/${tenantId}`).get()).data() || {}, 'money')) { results[tenantId] = { skipped: 'Automated bookkeeping is off' }; continue; }
       const r = await syncTenantBankFeed(db, tenantId);
       results[tenantId] = r;
       totals = {

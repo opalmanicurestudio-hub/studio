@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendCampaignBatch, runAutomation } from '@/lib/campaign-engine';
 import { localHour } from '@/lib/campaigns';
+import { moduleEnabled } from '@/lib/modules';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -40,6 +41,11 @@ export async function GET(req: NextRequest) {
     if (pausedNow(t.data())) { results.push({ tenantId: t.id, held: true }); continue; }
     // Loyalty messages (lib/loyalty-server): once a day from 10am, only what the business switched on.
     if ((t.data() as any)?.loyalty?.on === true) { try { const { automationSweep } = await import('@/lib/loyalty-server'); await automationSweep(db, t.id, t.data()); } catch (e) { console.error('[campaigns] loyalty', t.id, e); } }
+    // The business's own campaigns and automations are Marketing & reputation: while it isn't part of the plan, none of
+    // them goes out (and nothing is lost: they're all still there when it's turned back on) (lib/tool-lock). Renters'
+    // own campaigns follow their own offer (lib/renter-offers), below.
+    const marketingOn = moduleEnabled(t.data(), 'marketing');
+    if (!marketingOn) results.push({ tenantId: t.id, marketingOff: true });
     // Automations: once a day, at 10am in the business's own time zone.
     try {
       const tz = String((t.data() as any)?.timezone || 'America/New_York');
@@ -47,6 +53,7 @@ export async function GET(req: NextRequest) {
         const autos = (await db.collection(`tenants/${t.id}/campaigns`).where('status', '==', 'automation').get()).docs;
         for (const a of autos) {
           if (Date.now() - started >= 50000) break;
+          if (!marketingOn && !(a.data() as any)?.ownerRenterId) continue;
           const r = await runAutomation(db, t.id, a.id);
           results.push({ tenantId: t.id, campaignId: a.id, automation: true, ...r });
         }
@@ -56,7 +63,8 @@ export async function GET(req: NextRequest) {
     try {
       due = (await db.collection(`tenants/${t.id}/campaigns`).where('status', 'in', ['scheduled', 'sending']).get()).docs
         .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((c: any) => c.status === 'sending' || String(c.scheduledFor || '') <= nowIso);
+        .filter((c: any) => c.status === 'sending' || String(c.scheduledFor || '') <= nowIso)
+        .filter((c: any) => marketingOn || !!c.ownerRenterId);
     } catch { continue; }
     const { resolveOffers, offerAllows } = await import('@/lib/renter-offers');
     const offersHere = resolveOffers(t.data());

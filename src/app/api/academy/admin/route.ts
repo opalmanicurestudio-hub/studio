@@ -23,6 +23,7 @@ import { askAI, aiConfigured, parseJson } from '@/lib/ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { toolLocked } from '@/lib/tool-lock';
 import { slugify, RESERVED_SLUGS, loadLessons, muxConfigured, muxSigningReady, muxCreateUpload, muxUploadStatus, muxAddCaptions, muxTranscript, CAPTION_LANGUAGES } from '@/lib/academy';
 import { appendAudit, verifyAudit, transcript, qrWindow, qrCode, QR_WINDOW_SEC } from '@/lib/academy-compliance';
 import { linkOrigin } from '@/lib/app-origin';
@@ -107,6 +108,8 @@ export async function POST(req: NextRequest) {
   const tenantId = String(peek.tenantId || '');
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return handle(req);
+  // AI help is part of the Online academy: off, nothing is drafted and no credits are used (lib/tool-lock).
+  { const locked = toolLocked(auth.tenant, ['academy']); if (locked) return locked; }
   const take = await takeCredits(tenantId, String(peek.action), weight);
   if (!take.ok) return NextResponse.json({ ok: false, error: take.error, outOfCredits: true }, { status: 402 });
   const res = await handle(req);

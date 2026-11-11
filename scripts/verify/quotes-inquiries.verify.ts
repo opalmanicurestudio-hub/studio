@@ -132,7 +132,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('the inquiry form saves through the server, with no made-up distance', /fetch\('\/api\/inquiry'/.test(inq) && !/addDoc\(/.test(inq) && !/nominatim|calculateMileage|COST_PER_MILE/.test(inq));
   check('…in words that fit any business', !/Bridal|Wedding planner|Knot|bridesmaids|glam|Ritz|At Studio|contact us/i.test(inq));
   check('a paused business takes no lounge or concierge orders', /if \(action === 'request'\) \{ const closed = await closedReplyFor\(db, tenantId\); if \(closed\) return closed; \}/.test(src('src/app/api/guest-lounge/route.ts'))
-    && /\{ const closed = closedReply\(tenant\); if \(closed\) return closed; \}/.test(src('src/app/api/concierge/requests/route.ts')));
+    && /\{ const closed = closedReply\(tenant\)(?: \|\| toolLocked\([^)]*\))?; if \(closed\) return closed; \}/.test(src('src/app/api/concierge/requests/route.ts')));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

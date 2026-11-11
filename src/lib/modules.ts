@@ -76,7 +76,7 @@ export const MODULES: Record<ModuleId, {
   // Reviews (/reviews) is part of every plan: it holds the shop's reviews as well as visit reviews.
   marketing: { label: 'Marketing & reputation', pages: ['/campaigns', '/discounts', '/referrals'], messageKinds: [] },
   memberships: { label: 'Memberships & packages', pages: ['/memberships', '/memberships/ledger'], messageKinds: [] },
-  team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/documents', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
+  team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
   hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/settings/hosting'], messageKinds: [] },
   academy: { label: 'Online academy', pages: ['/academy'], messageKinds: [] },
@@ -101,6 +101,16 @@ export function pageVisible(tenant: any, href: string): boolean {
   if (shared) return shared.some((m) => moduleEnabled(tenant, m));
   const owner = PAGE_TO_MODULE[href];
   return owner ? moduleEnabled(tenant, owner) : true;
+}
+
+/** The tool a page belongs to, when that tool is off for this business (the page is then locked, not just left out
+ *  of the menu); null when the page is open. A page two tools share is open while either is on. */
+export function lockedModule(tenant: any, href: string): ModuleId | null {
+  const path = String(href || '').split(/[?#]/)[0];
+  const sharedAt = Object.keys(SHARED_PAGES).find((p) => path === p || path.startsWith(p + '/'));
+  if (sharedAt) return SHARED_PAGES[sharedAt].some((m) => moduleEnabled(tenant, m)) ? null : SHARED_PAGES[sharedAt][0];
+  const m = hrefModule(path);
+  return m && !moduleEnabled(tenant, m) ? m : null;
 }
 
 /** Which tool a link belongs to — by its page, or any parent page it sits under (/retail-orders/policies → retail). */

@@ -35,6 +35,7 @@ import { ticketFrom, canStep, collectAtHandover, loungeMaker, ACTIVE_STATUSES, t
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
 import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
+import { toolLocked } from '@/lib/tool-lock';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'pair') {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
+      { const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['hospitality', 'classes_events']); if (locked) return locked; }
       const key = randomBytes(32).toString('hex');
       // A floor board's tablet (app/floor) is set up the same way; a team tablet opens both screens.
       const kind = b.kind === 'floor' ? 'floor' : 'kitchen';
@@ -200,6 +202,11 @@ export async function POST(req: NextRequest) {
     // A paused or closed business has its kitchen screen closed too (as the page itself is, app/kds layout).
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The kitchen screen is closed for now. The business owner can tell you more.' }, { status: 403 });
+    // …and while neither tool it comes with (Lounge & hospitality, Classes & events) is part of the plan (lib/tool-lock).
+    // Handing over or canceling what's already been ordered still works (the desk's "Delivered" is this same step), so an
+    // order taken before the plan changed is never stuck.
+    const settling = (action === 'act' || action === 'bump') && ['deliver', 'carry', 'drop', 'cancel', 'release'].includes(String(b.step || ''));
+    if (!settling) { const locked = toolLocked(tenant, ['hospitality', 'classes_events']); if (locked) return locked; }
 
     if (action === 'tickets') {
       const T = `tenants/${tenantId}`;

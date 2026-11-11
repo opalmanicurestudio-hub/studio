@@ -12,6 +12,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { requestActor } from '@/lib/request-actor';
 import { findStaffByPin, pinLocked, recordPinAttempt } from '@/lib/pin';
 import { recordPunch, punchState, type PunchAction } from '@/lib/punch';
+import { toolLocked } from '@/lib/tool-lock';
 export const dynamic = 'force-dynamic';
 
 
@@ -43,6 +44,11 @@ export async function POST(req: NextRequest) {
     const recent = (await db.collection(`tenants/${tenantId}/activityLogs`).where('timestamp', '>=', new Date(Date.now() - 2 * 86400000).toISOString()).get()).docs.map((d: any) => d.data() || {}).filter((p: any) => p.staffId === staffId);
     const s: any = sSnap.data() || {};
     return NextResponse.json({ ok: true, staff: { id: staffId, name: s.name || '', avatarUrl: s.avatarUrl || null, role: s.role || 'staff', splitTime: s.splitTime === true }, state: punchState(recent, tSnap.data() || {}) });
+  }
+  // The time clock is part of Team & onboarding: off, nobody starts a new shift or break on it, and anyone already
+  // clocked in can still clock out (lib/tool-lock).
+  if (['clock_in', 'break_start', 'switch_work'].includes(action)) {
+    const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['team']); if (locked) return locked;
   }
   const r = await recordPunch(db, { tenantId, staffId, action: action as PunchAction, via, actor, work: typeof b.work === 'string' ? b.work : undefined, geo: b.geo && typeof b.geo === 'object' ? { verified: !!b.geo.verified, warnOnly: !!b.geo.warnOnly, coords: b.geo.coords || null } : undefined });
   // Before they go: any client case on their visits still waiting for their side.

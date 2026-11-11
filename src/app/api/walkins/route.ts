@@ -99,6 +99,7 @@ import { nanoid } from 'nanoid';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { searchFields } from '@/lib/client-search';
 import { inPersonFromDb } from '@/lib/business-shape';
+import { moduleEnabled } from '@/lib/modules';
 
 export const dynamic = 'force-dynamic';
 
@@ -1063,7 +1064,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Too many requests. Please try again shortly.' }, { status: 429 });
     }
     if (tenant?.walkInKiosk?.enabled !== true && !deskStaff) {
-      return NextResponse.json({ ok: false, closed: true, error: 'Walk-ins are not being taken right now.' }, { status: 200 });
+      return NextResponse.json({ ok: false, closed: true, error: 'Walk-ins aren’t being taken right now.' }, { status: 200 });
+    }
+    // What each kiosk step belongs to, while that tool isn't part of the plan (lib/tool-lock): joining the line is Front
+    // desk & walk-ins (the desk's own "Add a walk-in" isn't), a renter's day check-in is Booth & suite rental, and an event
+    // arrival is Classes & events. Checking in for a booking stays with the owner's switch above.
+    {
+      const off = (action === 'join' && !deskStaff && !moduleEnabled(tenant, 'kiosk')) || (action === 'booth-arrived' && !moduleEnabled(tenant, 'booth_rental'))
+        || (action === 'event' && !moduleEnabled(tenant, 'classes_events'));
+      if (off) return NextResponse.json({ ok: false, closed: true, error: action === 'join' ? 'Walk-ins aren’t being taken right now.' : 'This isn’t available right now.' }, { status: 200 });
     }
 
     if (action === 'lookup') return await handleLookup(db, tenantId, body);

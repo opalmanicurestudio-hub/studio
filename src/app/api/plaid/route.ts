@@ -26,6 +26,7 @@
  */
 
 import { requireRole } from '@/lib/route-guard';
+import { toolLocked } from '@/lib/tool-lock';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { bucketFor } from '@/lib/categories';
@@ -38,7 +39,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, tenantId } = body || {};
-    { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
+    { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny;
+      // Bank feeds are part of Automated bookkeeping: off, no new bank is connected and nothing new is pulled in
+      // (rules and what's already there stay as they are) (lib/tool-lock).
+      if (['link-token', 'exchange', 'sync'].includes(String(action))) { const locked = toolLocked(g.tenant, ['money']); if (locked) return locked; } }
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing tenantId.' }, { status: 400 });
     if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
       console.error('[plaid] PLAID_CLIENT_ID / PLAID_SECRET are not set'); return NextResponse.json({ ok: false, error: 'Bank connections aren’t available yet.' }, { status: 500 });

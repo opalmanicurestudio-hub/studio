@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendTenantSms } from '@/lib/sms';
+import { toolLocked } from '@/lib/tool-lock';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getAdminDb();
+    // Texting a party their table is ready is part of Lounge & hospitality (the host stand): off, nothing is sent.
+    { const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['hospitality']); if (locked) return locked; }
 
     if (!(await rateLimit(db, tenantId, 'hostNotifyRate', 240))) {
       return NextResponse.json({ ok: false, error: 'Too many requests. Please try again shortly.' }, { status: 429 });

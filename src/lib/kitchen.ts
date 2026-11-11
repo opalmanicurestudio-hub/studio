@@ -3,13 +3,22 @@
 // course, a table tab, a café sale at the desk). Which place it came from travels with it (`col`), so moving it along
 // always writes where it lives (a table tab's ticket used to be written to the lounge's, and never moved). Pure.
 
+import { moduleEnabled } from './modules';
+
 export type KitchenCol = 'refreshmentRequests' | 'kdsTickets';
 export type KitchenStep = 'claim' | 'release' | 'ready' | 'carry' | 'drop' | 'deliver' | 'cancel';
 
+/** Is the kitchen screen part of this business's plan? It comes with Lounge & hospitality, and with Classes & events
+ *  (an event's meals need it). Off, it's locked (lib/tool-lock), so nothing is sent to it. */
+export function kitchenScreenOn(tenant: any): boolean {
+  return moduleEnabled(tenant, 'hospitality') || moduleEnabled(tenant, 'classes_events');
+}
+
 /** Who makes the lounge's drinks and extras: the kitchen screen, or the front desk (its Assist list). One or the other,
- *  never both, so an order is never made twice. Set in Settings or when a kitchen screen is set up; the desk by default. */
+ *  never both, so an order is never made twice. Set in Settings or when a kitchen screen is set up; the desk by default,
+ *  and always the desk while the kitchen screen isn't part of the plan (so no order waits on a screen that's locked). */
 export function loungeMaker(tenant: any): 'kitchen' | 'desk' {
-  return tenant?.kitchenSettings?.loungeOrdersMadeBy === 'kitchen' ? 'kitchen' : 'desk';
+  return tenant?.kitchenSettings?.loungeOrdersMadeBy === 'kitchen' && kitchenScreenOn(tenant) ? 'kitchen' : 'desk';
 }
 export const ACTIVE_STATUSES = ['pending', 'in_progress', 'ready'] as const;
 

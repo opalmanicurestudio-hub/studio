@@ -37,6 +37,7 @@ import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { resolveOffers, offerAllows } from '@/lib/renter-offers';
+import { kitchenScreenOn } from '@/lib/kitchen';
 
 export const dynamic = 'force-dynamic';
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -976,7 +977,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       // kitchen doesn't take it again.
       const toMake = it.quantity - Math.min(it.quantity, sentFromTab[String(it.id)] || 0);
       if (sentFromTab[String(it.id)]) sentFromTab[String(it.id)] -= it.quantity - toMake;
-      if (inv?.type === 'refreshment' && inv?.sendToKitchen !== false && toMake > 0) {
+      if (inv?.type === 'refreshment' && inv?.sendToKitchen !== false && toMake > 0 && kitchenScreenOn(tenant)) {
         const kKey = `${String(checkoutSessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}_${String(it.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}`;
         kitchenLines[kKey] = (kitchenLines[kKey] || 0) + 1;   // the same item on two lines: two tickets
         const kRef = db.doc(`${T}/kdsTickets/pos_${kKey}${kitchenLines[kKey] > 1 ? `_${kitchenLines[kKey]}` : ''}`);

@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { toolLocked } from '@/lib/tool-lock';
 import { personalise } from '@/lib/campaigns';
 import { previewCampaign, sendCampaignBatch, senderFor, composeText, loadOffer, peopleOf } from '@/lib/campaign-engine';
 import { fillTokens } from '@/lib/campaign-templates';
@@ -32,6 +33,9 @@ export async function POST(req: NextRequest) {
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   if (!auth.actor.isManager && !auth.actor.isTenantOwner) return NextResponse.json({ ok: false, error: 'Only an owner or manager can send campaigns.' }, { status: 403 });
+  // Part of Marketing & reputation (lib/tool-lock): off, nothing new goes out, but anything already set to go can still be
+  // paused or taken off the schedule.
+  if (!['pause', 'unschedule', 'preview'].includes(mode)) { const locked = toolLocked(auth.tenant, ['marketing']); if (locked) return locked; }
 
   const db = getAdminDb();
   const cRef = db.doc(`tenants/${tenantId}/campaigns/${campaignId}`);

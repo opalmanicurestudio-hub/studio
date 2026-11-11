@@ -42,6 +42,7 @@ import { verifyStaff } from '@/lib/voice/staff-auth';
 import { speakDateTime } from '@/lib/voice/voice-utils';
 import { buildTenantVariables } from '@/lib/voice/tenant-variables';
 import { placeRetellCall } from '@/lib/voice/retell-client';
+import { toolLocked } from '@/lib/tool-lock';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
       db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get(),
     ]);
     const tenant = tenantSnap.data() as any;
+    { const locked = toolLocked(tenant, ['voice']); if (locked) return locked; }   // part of AI receptionist (lib/tool-lock)
     if (!aptSnap.exists) {
       return NextResponse.json({ ok: false, error: 'appointment_not_found' }, { status: 404 });
     }
