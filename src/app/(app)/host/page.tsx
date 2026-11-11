@@ -39,16 +39,18 @@ import {
   type HostedParty, type ServiceSession,
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { AlertCircle, Bell, Check, Plus, Sparkles, UserRound } from 'lucide-react';
+import { AlertCircle, Bell, Plus, Sparkles } from 'lucide-react';
 
-const CHIP = 'h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest';
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
+const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`;
 
 export default function HostScreen() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
+  const [tableFor, setTableFor] = useState<string | null>(null);   // a seated table tapped: its party, tab and "they've left"
+  const [adding, setAdding] = useState(false);
   const tenantId = selectedTenant?.id ?? null;
   const readyToRun = useReadyToRun(firestore, tenantId);   // "Order up": food and drink ready to carry to a table
   const { toast } = useToast();
@@ -345,11 +347,11 @@ export default function HostScreen() {
     }
   };
 
-  const addParty = async () => {
-    if (!firestore || !tenantId || !session || !name.trim()) return;
+  const addParty = async (): Promise<boolean> => {
+    if (!firestore || !tenantId || !session || !name.trim()) return false;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
     const arrives = isRes ? new Date(`${session.businessDay}T${at.trim()}:00`) : null;
-    await addDoc(collection(firestore, `tenants/${tenantId}/parties`), {
+    const added = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), {
       sessionId: session.id, name: name.trim(),
       size: Math.max(1, Math.floor(Number(size) || 1)), needs: [],
       source: isRes ? 'reservation' : 'walk_in',
@@ -359,8 +361,10 @@ export default function HostScreen() {
       quotedMinutes: null, notifiedAt: null, seatedAt: null, finishedAt: null,
       turnMinutes: null, unitIds: [], guestIds: [],
       ...(phone.trim() ? { phone: phone.trim() } : {}),
-    });
+    }).then(() => true, () => false);
+    if (!added) { toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }); return false; }
     setName(''); setAt(''); setPhone('');
+    return true;
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
@@ -368,10 +372,14 @@ export default function HostScreen() {
     // real party first — skipped if a prior touch already did (the dedupe
     // keys are the source ids carried in guestIds).
     if (/^(walkin|booth|event):/.test(party.id) && firestore && tenantId && session) {
-      if (parties.some((x) => (x.guestIds || []).some((g) => (party.guestIds || []).includes(g)))) return;
-      const { id: _drop, ...body } = party;
-      const ref = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), body);
-      party = { ...party, id: ref.id };
+      const carried = parties.find((x) => (x.guestIds || []).some((g) => (party.guestIds || []).includes(g)));
+      if (carried) party = carried;   // already on the list here (an earlier tap): seat that one
+      else {
+        const { id: _drop, ...body } = party;
+        const ref = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), body);
+        party = { ...party, id: ref.id };
+      }
+      setSelected(party.id);   // the choice stays on them (and "seat anyway" works on the second tap)
     }
     const verdict = canSeat(state, unitId, { id: party.id, size: party.size, needs: party.needs }, { held, vocabulary: hs.vocabulary, allowOverfill: force });
     if (!verdict.allowed) {
@@ -413,148 +421,167 @@ export default function HostScreen() {
     .sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')));
   const expected = [...parties, ...mirroredExpected].filter((p) => p.status === 'expected')
     .sort((a, b) => String(a.arrivesAt || '').localeCompare(String(b.arrivesAt || '')));
-  const sel = parties.find((p) => p.id === selected) || null;
+  const sel = [...parties, ...mirrored, ...mirroredExpected].find((p) => p.id === selected) || null;
+  const at12 = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }) : '');
+  const minsSince = (iso: string | null | undefined) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? Math.max(0, Math.floor((now.getTime() - t) / 60000)) : null; };
+  const seatedAt = (tableId: string) => parties.find((p) => p.status === 'seated' && (p.unitIds || []).includes(tableId)) || null;
+  const nextFree = quoteWait(units, seatedGuests, seatedRows, { id: '__next', size: 2, needs: [] }, { now, held, vocabulary: hs.vocabulary });
+  const Unit = V.units.charAt(0).toUpperCase() + V.units.slice(1);
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+  const openTable = tableFor ? state.tables.find((t) => t.tableId === tableFor) || null : null;
+  const openParty = openTable ? seatedAt(openTable.tableId) : null;
+  const pick = (id: string) => { setSelected(selected === id ? null : id); setTableFor(null); };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-4 text-left">
-      <div>
-        <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Operational</p>
-        <h1 className="text-base font-black uppercase tracking-tighter text-foreground">
-          Host {session ? `· ${session.businessDay}` : ''}
-        </h1>
-      </div>
-
-      {firestore && tenantId && readyToRun.length > 0 && <div className="rounded-2xl border bg-card p-4"><ReadyToRun tenantId={tenantId} list={readyToRun} /></div>}
-
-      {alerts.length > 0 && (
-        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3 space-y-1">
-          {alerts.map((a, i) => (
-            <p key={i} className="flex items-start gap-2 text-[10px] font-black uppercase tracking-widest text-amber-800">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />{a}
-            </p>
+    <div className="min-h-dvh text-left" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <header className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b bg-[#fff] px-4 py-4 sm:px-6" style={{ borderColor: LINE }}>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[22px] font-semibold tracking-tight">Host stand</h1>
+          <p className="text-[14px]" style={{ color: MUTED }}>{now.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz })}, {at12(now.toISOString())}</p>
+        </div>
+        <dl className="flex flex-wrap gap-x-7 gap-y-2">
+          {[
+            ['Seated', `${state.totalSeated}`, `of ${state.totalCapacity} ${V.seats}`],
+            ['Waiting', `${waiting.length}`, waiting.length === 1 ? V.party : V.parties],
+            ['Booked still to come', `${expected.length}`, ''],
+            [`Next free ${V.unit} for 2`, nextFree.immediate ? 'Now' : nextFree.minutes !== null ? `about ${nextFree.minutes} min` : 'Not known', nextFree.immediate ? nextFree.tableName : ''],
+          ].map(([k, v, sub]) => (
+            <div key={k}><dt className="text-[13px]" style={{ color: MUTED }}>{k}</dt><dd className="text-[20px] font-semibold tabular-nums leading-tight">{v}{sub ? <span className="ml-1.5 text-[13px] font-normal" style={{ color: MUTED }}>{sub}</span> : null}</dd></div>
           ))}
-        </div>
-      )}
+        </dl>
+        <button type="button" onClick={() => setAdding(true)} disabled={!session} className={`${BTN} inline-flex items-center gap-2`} style={{ background: INK, color: '#fff' }}><Plus className="h-4 w-4" aria-hidden />Add a {V.party}</button>
+      </header>
 
-      <div className="p-4 rounded-[2rem] border-2 bg-muted/60 border-border flex flex-wrap gap-2 items-end">
-        <div className="flex-1 min-w-[8rem]"><Input placeholder="Name" value={name} onChange={(e: any) => setName(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card" /></div>
-        <div className="w-16"><Input inputMode="numeric" value={size} onChange={(e: any) => setSize(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
-        <div className="w-24"><Input placeholder="19:30?" value={at} onChange={(e: any) => setAt(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
-        <div className="w-32"><Input type="tel" inputMode="tel" placeholder="Phone?" value={phone} onChange={(e: any) => setPhone(e.target.value)} className="h-11 rounded-2xl border-2 font-bold bg-card text-center" /></div>
-        <Button onClick={addParty} disabled={!name.trim() || !session} className={CHIP}><Plus className="w-4 h-4 mr-1" />{at.trim() ? 'Book' : 'Add'}</Button>
-        <Button variant="outline" className={`${CHIP} border-2 bg-card`} onClick={importBookings} disabled={!session}>
-          Import bookings
-        </Button>
-        <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground self-center">
-          Booths{activeEvent ? ` + ${activeEvent.name || activeEvent.title || 'event'}` : ''} mirror in live
-        </span>
-        <Button variant="outline" className={`${CHIP} border-2 bg-card`}
-          onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))}>
-          <Sparkles className="w-4 h-4 mr-1" />Auto-seat
-        </Button>
-      </div>
+      {alerts.length > 0 && <div className="px-4 pt-4 sm:px-6"><div className="space-y-1 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT, color: AMBER }}>
+        {alerts.map((a, i) => <p key={i} className="flex items-start gap-2 text-[14px] font-medium"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{a}</p>)}
+      </div></div>}
 
-      {proposals.length > 0 && (
-        <div className="p-4 rounded-[2rem] border-2 border-primary/30 bg-primary/5 space-y-2">
-          {proposals.map((p) => {
-            const party = parties.find((x) => x.id === p.partyId);
-            return (
-              <div key={p.partyId} className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-foreground min-w-0 truncate">
-                  {party?.name} ({p.partySize}) → {p.tableId ? p.tableName : '—'} <span className="opacity-60 normal-case font-bold">{p.rationale}</span>
-                </p>
-                {p.tableId && party && (
-                  <Button size="sm" className="rounded-xl font-black uppercase text-[9px]" onClick={() => seatAt(party, p.tableId!)}>
-                    <Check className="w-3.5 h-3.5 mr-1" />Use
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected</p>
-          {expected.length === 0 && <p className="text-xs text-muted-foreground ml-1">Nothing booked.</p>}
-          {expected.map((p) => {
-            const late = lateVerdict(p, now, holdOpts);
-            return (
-              <button key={p.id} onClick={() => setSelected(selected === p.id ? null : p.id)}
-                className={`w-full p-3 rounded-2xl border-2 bg-card text-left ${selected === p.id ? 'border-primary' : 'border-border'}`}>
-                <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size}</p>
-                <p className={`text-[9px] font-black uppercase tracking-widest ${late.holdReleased ? 'text-red-600' : late.late ? 'text-amber-600' : 'text-muted-foreground'}`}>
-                  {p.arrivesAt ? new Date(p.arrivesAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }) : ''}
-                  {late.holdReleased ? ` · ${late.minutesLate}m late — hold released` : late.late ? ` · ${late.minutesLate}m late` : ''}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Waiting</p>
-          {waiting.length === 0 && <p className="text-xs text-muted-foreground ml-1">Empty list.</p>}
-          {waiting.map((p) => {
-            const q = quoteWait(units, seatedGuests, seatedRows, { id: p.id, size: p.size, needs: p.needs }, { now, held, vocabulary: hs.vocabulary });
-            return (
-              <div key={p.id} className={`p-3 rounded-2xl border-2 bg-card ${selected === p.id ? 'border-primary' : 'border-border'}`}>
-                <button onClick={() => setSelected(selected === p.id ? null : p.id)} className="w-full text-left">
-                  <p className="text-sm font-black uppercase tracking-tight flex items-center gap-1.5">
-                    <UserRound className="w-3.5 h-3.5" />{p.name} · {p.size}{p.status === 'notified' ? ' · notified' : ''}
-                  </p>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{q.text}</p>
-                </button>
-                {p.status === 'waiting' && !p.id.startsWith('walkin:') && (
-                  <Button size="sm" variant="outline" className="mt-2 rounded-xl font-black uppercase text-[9px] border-2"
-                    onClick={() => notifyParty(p)}>
-                    <Bell className="w-3 h-3 mr-1" />Notify
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">
-        {sel ? `Tap a ${V.unit} to seat ${sel.name}` : `The floor · ${state.totalSeated}/${state.totalCapacity} ${V.seats}`}
-      </p>
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-        {state.tables.map((t) => {
-          const hold = held[t.tableId];
-          const holder = hold ? parties.find((p) => p.id === hold.partyId) : null;
-          const tone = t.overfilled ? 'border-red-400 bg-red-50'
-            : hold ? 'border-blue-300 bg-blue-50'
-            : t.seated > 0 ? 'border-border bg-muted'
-            : 'border-green-300 bg-green-50';
-          return (
-            <button key={t.tableId} disabled={!sel}
-              onClick={() => sel && seatAt(sel, t.tableId, forceFor === `${sel.id}:${t.tableId}`)}
-              className={`p-3 rounded-2xl border-2 text-left ${tone} ${sel ? 'active:scale-95' : ''}`}>
-              <p className="text-sm font-black uppercase tracking-tight truncate">{t.name}</p>
-              <p className="text-[9px] font-black uppercase tracking-widest text-foreground/80">
-                {t.seated}/{t.capacity}{hold ? ` · held${holder ? ` · ${holder.name}` : ''}` : ''}
-              </p>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Seated</p>
-        {parties.filter((p) => p.status === 'seated').map((p) => (
-          <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl border-2 border-border bg-card">
-            <p className="text-sm font-black uppercase tracking-tight">{p.name} · {p.size} · {p.unitIds?.map((u) => state.byTable[u]?.name || u).join(' + ')}</p>
-            <div className="flex gap-2">
-              <Button size="sm" className="rounded-xl font-black uppercase text-[9px]" onClick={() => setTabFor(p)}>Tab</Button>
-              <Button size="sm" variant="outline" className="rounded-xl font-black uppercase text-[9px] border-2"
-                onClick={() => finishParty(p)}>Done</Button>
+      <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <section aria-labelledby="units" className="min-w-0 space-y-4 self-start rounded-3xl border bg-[#fff] p-4 sm:p-5" style={{ borderColor: LINE }}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="units" className="text-[17px] font-semibold">{Unit}</h2>
+            <div className="flex flex-wrap gap-4 text-[13px]" style={{ color: '#4b4e54' }} aria-hidden>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: GREEN }} />Free</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: INK }} />Seated</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full box-border" style={{ border: `2px dashed ${INK}` }} />Held</span>
+              <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: AMBER }} />Over</span>
             </div>
           </div>
-        ))}
+          {sel && <div className="flex items-center gap-3 rounded-2xl py-1.5 pl-4 pr-1.5" style={{ background: INK, color: '#fff' }}>
+            <p className="flex-1 text-[15px] font-medium">Tap a {V.unit} for {sel.name}, {sel.size}</p>
+            <button type="button" onClick={() => setSelected(null)} className={`${BTN} px-3`} style={{ background: 'rgba(255,255,255,0.14)' }}>Cancel</button>
+          </div>}
+          {state.tables.length === 0
+            ? <p className="py-10 text-center text-[15px]" style={{ color: MUTED }}>No {V.units} yet. Add them in the floor plan settings.</p>
+            : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              {state.tables.map((t) => {
+                const hold = held[t.tableId]; const holder = hold ? [...parties, ...mirroredExpected].find((p) => p.id === hold.partyId) : null;
+                const who = seatedAt(t.tableId); const m = minsSince(who?.seatedAt);
+                const fits = !!sel && t.free >= sel.size && !hold;
+                const free = t.seated === 0;
+                const tone = t.overfilled ? { border: `2px solid ${AMBER}`, background: AMBER_TINT }
+                  : hold && free ? { border: `2px dashed ${INK}`, background: '#fff' }
+                  : free ? { border: `1px solid ${GREEN}`, background: GREEN_TINT }
+                  : { border: `1px solid ${LINE}`, background: '#fff' };
+                const line = t.overfilled ? `More than it ${V.seats === 'seats' ? 'seats' : 'holds'}` : who ? `${who.name}${m !== null ? `, seated ${m} min` : ''}`
+                  : hold ? `Held${holder ? ` for ${holder.name}${holder.arrivesAt ? ` at ${at12(holder.arrivesAt)}` : ''}` : ''}` : 'Free';
+                return (
+                  <button key={t.tableId} type="button" aria-disabled={!sel && !who}
+                    onClick={() => (sel ? seatAt(sel, t.tableId, forceFor === `${sel.id}:${t.tableId}`) : who ? setTableFor(t.tableId) : undefined)}
+                    aria-label={`${t.name}: ${line}, ${t.seated} of ${t.capacity}`}
+                    className={`flex min-h-[96px] flex-col justify-between gap-2 rounded-2xl p-3 text-left ${RING}`}
+                    style={{ ...tone, ...(sel ? { opacity: fits ? 1 : 0.5, outline: fits ? `2px solid ${GREEN}` : undefined, outlineOffset: 2 } : {}) }}>
+                    <span className="flex items-baseline justify-between gap-2"><span className="truncate text-[16px] font-semibold">{t.name}</span><span className="shrink-0 text-[13px] tabular-nums" style={{ color: MUTED }}>{free ? `${cap(V.seats)} ${t.capacity}` : `${t.seated} of ${t.capacity}`}</span></span>
+                    <span className="text-[13.5px] leading-snug" style={{ color: t.overfilled ? AMBER : free && !hold ? GREEN : MUTED, fontWeight: t.overfilled ? 600 : 400 }}>{line}</span>
+                  </button>
+                );
+              })}
+            </div>}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button type="button" onClick={() => setProposals(autoSeatPlan(units, waiting.map((p) => ({ id: p.id, size: p.size, needs: p.needs })), seatedGuests, { held, vocabulary: hs.vocabulary }))} disabled={!waiting.length}
+              className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Sparkles className="h-4 w-4" aria-hidden />Suggest {V.units} for everyone waiting</button>
+            <button type="button" onClick={importBookings} disabled={!session} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>Bring in today’s bookings</button>
+          </div>
+          {proposals.length > 0 && <ul className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}>
+            {proposals.map((p) => {
+              const party = [...parties, ...waiting].find((x) => x.id === p.partyId);
+              return (
+                <li key={p.partyId} className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 text-[14.5px]"><b className="font-semibold">{party?.name}, {p.partySize}</b>{p.tableId ? ` at ${p.tableName}` : `: no ${V.unit} fits yet`}<span className="block text-[13px]" style={{ color: MUTED }}>{p.rationale}</span></p>
+                  {p.tableId && party && <button type="button" onClick={() => seatAt(party, p.tableId!)} className={BTN} style={{ background: INK, color: '#fff' }}>Seat</button>}
+                </li>);
+            })}
+          </ul>}
+        </section>
+
+        <div className="min-w-0 space-y-5">
+          {firestore && tenantId && readyToRun.length > 0 && <section className="rounded-3xl border bg-[#fff] p-4" style={{ borderColor: LINE }}><ReadyToRun tenantId={tenantId} list={readyToRun} /></section>}
+
+          <section aria-labelledby="waiting" className="space-y-3">
+            <div className="flex items-center justify-between"><h2 id="waiting" className="text-[17px] font-semibold">Waiting</h2><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{waiting.length}</span></div>
+            {waiting.length === 0 && <p className="rounded-2xl border border-dashed bg-[#fff] px-4 py-5 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nobody waiting.</p>}
+            {waiting.map((p) => {
+              const q = quoteWait(units, seatedGuests, seatedRows, { id: p.id, size: p.size, needs: p.needs }, { now, held, vocabulary: hs.vocabulary });
+              const waited = minsSince(p.joinedAt); const texted = minsSince(p.notifiedAt);
+              return (
+                <article key={p.id} className="space-y-2 rounded-2xl bg-[#fff] p-4" style={{ border: selected === p.id ? `2px solid ${INK}` : `1px solid ${LINE}` }}>
+                  <div className="flex items-baseline justify-between gap-3"><p className="text-[16px] font-semibold">{p.name}, {p.size}</p>{waited !== null && <span className="text-[13.5px] tabular-nums" style={{ color: MUTED }}>{waited} min</span>}</div>
+                  <p className="text-[14px]" style={{ color: q.immediate ? GREEN : MUTED }}>{q.text}</p>
+                  {p.status === 'notified' && <p className="text-[13.5px] font-medium" style={{ color: GREEN }}>Told it’s ready{texted !== null ? `, ${texted} min ago` : ''}</p>}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
+                    {p.status === 'waiting' && !p.id.startsWith('walkin:') && <button type="button" onClick={() => notifyParty(p)} className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Bell className="h-4 w-4" aria-hidden />Text: ready</button>}
+                  </div>
+                </article>);
+            })}
+          </section>
+
+          <section aria-labelledby="expected" className="space-y-3">
+            <div className="flex items-center justify-between"><h2 id="expected" className="text-[17px] font-semibold">Booked, still to come</h2><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{expected.length}</span></div>
+            {expected.length === 0 && <p className="rounded-2xl border border-dashed bg-[#fff] px-4 py-5 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nothing else booked today.</p>}
+            {expected.map((p) => {
+              const late = lateVerdict(p, now, holdOpts);
+              return (
+                <article key={p.id} className="flex items-center gap-3 rounded-2xl bg-[#fff] p-3 pl-4" style={{ border: selected === p.id ? `2px solid ${INK}` : `1px solid ${LINE}` }}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15.5px] font-semibold">{p.name}, {p.size}</p>
+                    <p className="text-[13.5px]" style={{ color: late.holdReleased ? AMBER : late.late ? AMBER : MUTED, fontWeight: late.late ? 600 : 400 }}>{at12(p.arrivesAt)}{late.holdReleased ? `, ${late.minutesLate} min late. Their ${V.unit} isn’t held now` : late.late ? `, ${late.minutesLate} min late` : ''}</p>
+                  </div>
+                  <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
+                </article>);
+            })}
+          </section>
+        </div>
       </div>
+
+      <Drawer accent={null} open={adding} onClose={() => setAdding(false)} title={`Add a ${V.party}`}>
+        <form onSubmit={(e) => { e.preventDefault(); void addParty().then((ok) => { if (ok) setAdding(false); }); }} className="space-y-4" style={{ color: INK }}>
+          <label className="block"><span className="text-[14px] font-medium">Name</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" className="mt-1.5 w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
+          <div><span className="text-[14px] font-medium">How many</span>
+            <div className="mt-1.5 flex items-center gap-3">
+              <button type="button" aria-label="One fewer" onClick={() => setSize(String(Math.max(1, (Number(size) || 1) - 1)))} className={`${BTN} w-12 px-0 text-[20px]`} style={{ border: `1px solid ${LINE}` }}>−</button>
+              <span className="w-10 text-center text-[20px] font-semibold tabular-nums" aria-live="polite">{Math.max(1, Number(size) || 1)}</span>
+              <button type="button" aria-label="One more" onClick={() => setSize(String(Math.min(40, (Number(size) || 1) + 1)))} className={`${BTN} w-12 px-0 text-[20px]`} style={{ border: `1px solid ${LINE}` }}>+</button>
+            </div></div>
+          <label className="block"><span className="text-[14px] font-medium">Coming later? The time</span><span className="block text-[13px]" style={{ color: MUTED }}>Leave it empty for someone here now.</span>
+            <input type="time" value={at} onChange={(e) => setAt(e.target.value)} className="mt-1.5 w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
+          <label className="block"><span className="text-[14px] font-medium">Mobile number</span><span className="block text-[13px]" style={{ color: MUTED }}>So you can text them when their {V.unit} is ready.</span>
+            <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1.5 w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
+          <button type="submit" disabled={!name.trim() || !session} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>{at.trim() ? `Book for ${at.trim()}` : 'Add to the waiting list'}</button>
+        </form>
+      </Drawer>
+
+      <Drawer accent={null} open={!!openTable && !!openParty} onClose={() => setTableFor(null)} title={openTable?.name || ''}>
+        {openTable && openParty && <div className="space-y-4" style={{ color: INK }}>
+          <div><p className="text-[18px] font-semibold">{openParty.name}, {openParty.size}</p>
+            <p className="text-[14px]" style={{ color: MUTED }}>Seated {at12(openParty.seatedAt)}{minsSince(openParty.seatedAt) !== null ? `, ${minsSince(openParty.seatedAt)} min ago` : ''}</p></div>
+          <div className="flex flex-col gap-2">
+            <button type="button" onClick={() => { setTabFor(openParty); setTableFor(null); }} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>Open their tab</button>
+            <button type="button" onClick={() => { void finishParty(openParty); setTableFor(null); }} className={`${BTN} w-full`} style={{ background: '#fff', border: `1px solid ${LINE}` }}>They’ve left, free the {V.unit}</button>
+          </div>
+        </div>}
+      </Drawer>
       <Drawer accent={null} open={!!tabFor} onClose={() => setTabFor(null)} title="Tab">
         {tabFor && firestore && tenantId ? <TableTab key={tabFor.id} firestore={firestore as any} tenantId={tenantId} party={tabFor} tableName={(tabFor.unitIds || []).map((u: string) => state.byTable[u]?.name || u).join(' + ') || 'Table'} by="Host" /> : null}
       </Drawer>
