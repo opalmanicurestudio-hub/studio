@@ -13,7 +13,7 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', TILE = '#24262b';
 const POLL_MS = 1500, STALE_MS = 20000;
-type Board = { business: { name: string }; order: null | { number: string; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number } };
+type Board = { business: { name: string }; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number } };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const boardKey = (t: string) => `cf.drivethru.board.${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -54,7 +54,7 @@ export default function OrderBoard() {
     <main className="flex min-h-dvh flex-col" style={{ background: BG, color: TEXT }}>
       <header className="flex items-center justify-between gap-4 px-[4vw] pb-[2vh] pt-[4vh]" style={{ borderBottom: `1px solid ${RULE}` }}>
         <p className="truncate text-[clamp(22px,3vw,40px)] font-semibold tracking-tight">{name || 'Welcome'}</p>
-        {o && <p className="shrink-0 text-[clamp(18px,2.2vw,30px)] font-medium tabular-nums" style={{ color: SUB }}>Order {o.number}</p>}
+        {o && <p className="shrink-0 text-[clamp(18px,2.2vw,30px)] font-medium tabular-nums" style={{ color: SUB }}>Order {o.number}{o.name ? ` · ${o.name}` : ''}</p>}
       </header>
 
       {!o ? (
@@ -64,7 +64,7 @@ export default function OrderBoard() {
         </section>
       ) : o.sent ? (
         <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
-          <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Thank you</p>
+          <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">{o.name ? `Thank you, ${o.name}` : 'Thank you'}</p>
           <p className="text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: SUB }}>Please pull forward to the window.</p>
           <p className="text-[clamp(30px,4.5vw,72px)] font-semibold tabular-nums">{usd(o.total)}</p>
         </section>

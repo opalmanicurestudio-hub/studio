@@ -31,7 +31,7 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null };
-type Order = { id: string; number: string; status: string; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
+type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number };
 type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null; voice?: CarVoice };
 type Stats = { inLane: number; average: number | null; target: number; ordering: number | null; toWindow: number | null; atWindow: number | null; underTarget: number; thisHour: number; servedToday: number };
@@ -76,12 +76,13 @@ function CarCard({ c, o, now, target, selected, onAir, onPick }: { c: CarRow; o?
   const s = (now - Date.parse(c.arrivedAt)) / 1000;
   const items = (o?.lines || []).reduce((n, l) => n + l.quantity, 0);
   return (
-    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}, ${STAGE_WORD[c.stage]}${c.spot ? ` in spot ${c.spot}` : ''}, ${mmss(s)} in the lane`}
+    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}${o?.guestName ? `, ${o.guestName}` : ''}, ${STAGE_WORD[c.stage]}${c.spot ? ` in spot ${c.spot}` : ''}, ${mmss(s)} in the lane`}
       className={`w-full rounded-2xl bg-[#fff] p-3.5 text-left transition-shadow ${RING}`}
       style={{ border: `${selected ? 2 : 1}px solid ${selected ? INK : s > target ? AMBER : LINE}`, boxShadow: selected ? '0 6px 18px rgba(22,23,26,0.10)' : 'none', padding: selected ? 13 : 14 }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="text-[24px] font-semibold leading-none tracking-tight tabular-nums" style={{ color: INK }}>{c.number}</span>
+          {o?.guestName && <span className="min-w-0 truncate text-[15px] font-semibold" style={{ color: INK }}>{o.guestName}</span>}
           <span className="truncate text-[14px] font-medium" style={{ color: onAir ? GREEN : MUTED }}>{STAGE_WORD[c.stage]}{c.spot ? ` ${c.spot}` : ''}{onAir ? ' · you’re on' : c.voice?.status === 'live' ? ' · assistant' : c.voice?.status === 'taken_over' ? ' · team' : ''}</span>
         </div>
         <span className="shrink-0 rounded-full px-2.5 py-1 text-[15px] font-semibold tabular-nums" style={clockLook(s, target)}>{mmss(s)}</span>
@@ -91,6 +92,29 @@ function CarCard({ c, o, now, target, selected, onAir, onPick }: { c: CarRow; o?
         <KitchenPill o={o} />
       </div>
     </button>
+  );
+}
+
+// ─── The guest's first name, if they give one (optional): the board, the kitchen and the window call them by it ─────
+function NameField({ value, onSave }: { value: string; onSave: (v: string) => Promise<boolean> }) {
+  const [v, setV] = useState(value); const [editing, setEditing] = useState(false); const [pending, setPending] = useState<string | null>(null);
+  // What was typed stays on screen until the lane shows it saved (or the save fails, and the old name comes back).
+  useEffect(() => { if (pending !== null && value === pending) setPending(null); }, [value, pending]);
+  useEffect(() => { if (!editing && pending === null) setV(value); }, [value, editing, pending]);
+  const commit = () => {
+    setEditing(false); const t = v.replace(/\s+/g, ' ').trim(); if (t === value) return;
+    setPending(t);
+    // Saved: the lane already shows the name as kept (tidied, if it needed it). Not saved: the old name comes back.
+    void onSave(t).then((saved) => { setPending(null); if (!saved) setV(value); });
+  };
+  return (
+    <label className="mx-4 mt-3 flex items-center gap-3 rounded-xl px-3 focus-within:ring-2 focus-within:ring-[#16171a]" style={{ background: SOFT }}>
+      <span className="shrink-0 text-[14px] font-medium" style={{ color: MUTED }}>Name</span>
+      <input value={v} maxLength={24} onChange={(e) => setV(e.target.value)} onFocus={() => setEditing(true)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setV(value); setEditing(false); } }}
+        placeholder="First name, if they give one" autoComplete="off" autoCapitalize="words" enterKeyHint="done"
+        className="min-h-[44px] min-w-0 flex-1 bg-transparent text-[16px] font-semibold outline-none focus-visible:outline-none focus-visible:shadow-none" style={{ color: INK, boxShadow: 'none', outline: 'none' }} />
+    </label>
   );
 }
 
@@ -272,6 +296,16 @@ export default function DriveThru() {
     finally { acted.current++; setBusy(null); load(); }
   };
 
+  // A name is saved on its own, without holding up the screen: tapping Send straight after typing one still sends.
+  const saveName = async (orderId: string, name: string): Promise<boolean> => {
+    try {
+      const { d } = await post({ action: 'name', orderId, name });
+      if (!d.ok) { setNotice({ text: d.error || 'The name didn’t save. Try again.', tone: 'warn' }); return false; }
+      setLane((l) => (l && l.orders[orderId] ? { ...l, orders: { ...l.orders, [orderId]: { ...l.orders[orderId], guestName: d.name || null } } } : l));
+      return true;
+    } catch { setNotice({ text: 'No connection. The name didn’t save.', tone: 'warn' }); return false; }
+  };
+
   const newCar = () => act('car', { action: 'car', carKey: keyFor('car') }, (d) => {
     setPicked(d.carId);
     setLane((l) => (l ? { ...l, cars: [...l.cars.filter((c) => c.id !== d.carId), { id: d.carId, number: d.number, stage: 'speaker', arrivedAt: new Date(Date.now() + skew).toISOString(), stageAt: {}, orderId: d.orderId, takenBy: null, spot: null }],
@@ -343,6 +377,8 @@ export default function DriveThru() {
         <h3 className="text-[17px] font-semibold" style={{ color: INK }}>Order {order?.number}</h3>
         <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{items} {items === 1 ? 'item' : 'items'}</span>
       </div>
+      {editable && order ? <NameField key={order.id} value={order.guestName || ''} onSave={(v) => saveName(order.id, v)} />
+        : order?.guestName ? <p className="px-4 pt-1 text-[14px]" style={{ color: MUTED }}>For <b className="font-semibold" style={{ color: INK }}>{order.guestName}</b></p> : null}
       {(order?.lines.length || 0) === 0
         ? <p className="mx-4 my-4 rounded-xl px-4 py-8 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Tap an item to start the order.</p>
         : <ul className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -454,7 +490,7 @@ export default function DriveThru() {
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="text-[30px] font-semibold leading-none tracking-tight tabular-nums">{car.number}</span>
-                  <div className="min-w-0"><p className="text-[16px] font-semibold">{STAGE_WORD[car.stage]}{car.spot ? `, spot ${car.spot}` : ''}</p>
+                  <div className="min-w-0"><p className="text-[16px] font-semibold">{order.guestName ? `${order.guestName} · ` : ''}{STAGE_WORD[car.stage]}{car.spot ? `, spot ${car.spot}` : ''}</p>
                     <p className="text-[13.5px]" style={{ color: MUTED }}>In the lane {mmss(carSeconds)}{car.voice?.status === 'live' ? ' · the voice assistant is taking it' : car.voice?.status === 'taken_over' ? ` · taken over by ${String(car.voice.takenOverBy || 'the team').split(' ')[0]}` : car.takenBy ? ` · taken by ${car.takenBy.split(' ')[0]}` : ''}</p></div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

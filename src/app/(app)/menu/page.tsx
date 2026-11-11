@@ -48,7 +48,7 @@ export default function MenuPage() {
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [targets, setTargets] = useState<Record<string, number> | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
-  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean } | null>(null);
+  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
 
   const call = useCallback(async (body: any) => {
     try {
@@ -60,7 +60,17 @@ export default function MenuPage() {
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
-    setBusy(null); if (d.ok) setVoice({ setUp: true, on: !!d.on }); else setErr(d.error || 'That didn’t go through. Try again.');
+    setBusy(null); if (d.ok) setVoice((v) => ({ ...(v || {}), setUp: true, on: !!d.on, outdated: false })); else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  const setAskName = async (askName: boolean) => {
+    const was = voice; setVoice((v) => (v ? { ...v, askName } : v)); setBusy('askName'); setErr('');
+    const d = await call({ action: 'voice', askName });
+    setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); }
+  };
+  const updateVoice = async () => {
+    setBusy('voiceUpdate'); setErr('');
+    const d = await call({ action: 'voiceUpdate' });
+    setBusy(null); if (d.ok) setVoice((v) => (v ? { ...v, outdated: false } : v)); else setErr(d.error || 'That didn’t go through. Try again.');
   };
   const setVoiceOn = async (on: boolean) => {
     const was = voice; setVoice((v) => (v ? { ...v, on } : v)); setBusy('voice'); setErr('');
@@ -120,6 +130,19 @@ export default function MenuPage() {
                     <span className="block text-[13px]" style={{ color: MUTED }}>{voice.setUp ? 'Greets each car and takes the order. The team can listen in and take over from the lane screen.' : voice.canSetUp ? 'Takes each car’s order at the speaker. The team can listen in and take over at any time.' : 'Needs the voice service connected before it can be set up.'}</span></span>
                   {voice.setUp ? <Switch on={voice.on} label="Voice assistant at the drive-thru speaker" busy={busy === 'voice'} onClick={() => setVoiceOn(!voice.on)} color={GREEN} />
                     : voice.canSetUp && <button type="button" onClick={setUpVoice} disabled={busy === 'voice'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voice' ? 'Setting up…' : 'Set it up'}</button>}
+                </div>
+              )}
+              {voice?.setUp && voice.outdated && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT }}>
+                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it asks for a name and keeps it short when the line is long.</span>
+                  <button type="button" onClick={updateVoice} disabled={busy === 'voiceUpdate'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voiceUpdate' ? 'Updating…' : 'Update the assistant'}</button>
+                </div>
+              )}
+              {voice?.setUp && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span className="block text-[15px] font-medium">Ask each car for a first name</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>The assistant asks once, near the end. The name shows on the lane, the order board and the kitchen ticket.</span></span>
+                  <Switch on={voice.askName !== false} label="Ask each car for a first name" busy={busy === 'askName'} onClick={() => setAskName(voice.askName === false)} color={GREEN} />
                 </div>
               )}
             </div>}

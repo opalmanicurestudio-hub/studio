@@ -18,6 +18,41 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 export type Who = { id: string | null; name: string };
 type Fail = { error: string; status: number };
 
+/** A guest's first name for the order, as said or typed: letters, spaces, apostrophes, periods and hyphens, up to 24. */
+export function cleanName(v: unknown): string {
+  const s = String(v ?? '').normalize('NFC').replace(/[^\p{L}\p{M}'\u2019 .-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!/\p{L}/u.test(s)) return '';
+  return Array.from(s).slice(0, 24).join('').trim();
+}
+/** Who a kitchen ticket is for: "Sam, car B41" at the drive-thru (or "Car B41" with no name), the name elsewhere. */
+export function ticketWho(o: any): string {
+  const name = cleanName(o?.guestName);
+  return o?.channel === 'drive-thru' ? (name ? `${name}, car ${o.number}` : `Car ${o.number}`) : String(o?.name || name || o?.number || 'Guest');
+}
+
+/** The name on an order, so the team can hand it over by name: kept on the order, and on its kitchen tickets if it's
+ *  been sent already. An empty name takes it off. */
+export async function setOrderName(db: any, tenantId: string, orderId: string, name: unknown): Promise<{ ok: true; name: string | null } | Fail> {
+  const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
+  if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
+  const clean = cleanName(name) || null;
+  const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
+    if (o.status === 'cancelled' || o.status === 'voided') return { error: 'That order was cancelled.', status: 409 };
+    tx.set(orderRef, { guestName: clean, updatedAt: nowIso }, { merge: true });
+    return { ok: true, sent: o.status !== 'building', o: { ...o, guestName: clean } };
+  });
+  if (r.error) return r;
+  if (r.sent) {
+    // From the order as it is now (two quick changes both end on the latest name), onto tickets that still exist.
+    const now: any = (await orderRef.get()).data() || r.o;
+    const snap = await db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId).get();
+    await Promise.all(snap.docs.map((d: any) => d.ref.update({ guestName: ticketWho(now) }).catch(() => undefined)));
+  }
+  return { ok: true, name: clean };
+}
+
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
 export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
@@ -121,7 +156,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     const channel = o.channel as Channel;
     const due = new Date(dueAt(channel, now.getTime(), lines, tenant)).toISOString();
-    const who2 = channel === 'drive-thru' ? `Car ${o.number}` : String(o.name || o.number);
+    const who2 = ticketWho(o);
     lines.forEach((l, i) => {
       const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}`);
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: l.itemId, menuItemName: l.name, quantity: l.quantity,

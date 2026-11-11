@@ -21,6 +21,8 @@
 //   move   { tenantId, key, carId, to: 'pickup'|'forward'|'gone', spot? } → along the lane, only ever forward;
 //                                                      "forward" parks it (a numbered spot) so the cars behind keep
 //                                                      moving; "gone" hands it over (paid, or never sent)
+//   name   { tenantId, key, orderId, name }         → the guest's first name on the order (and its kitchen tickets), or
+//                                                      none; the board, the window and the bag call them by it
 //   cancel { tenantId, key, orderId }               → an order not sent yet, dropped (the car leaves the lane)
 //   void   { tenantId, key, orderId, reason, staffPass? } → a sent order that won't be paid (the car drove off), by a
 //                                                      manager (their PIN, or signed in): lib/counter-server voidOrder
@@ -34,7 +36,7 @@ import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, photoOf, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
-import { createCar, editOrder, sendOrder, voidOrder } from '@/lib/counter-server';
+import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName } from '@/lib/counter-server';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'car', 'add', 'remove', 'qty', 'send', 'paid', 'move', 'cancel', 'void'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest) {
         const o: any = s.data(); if (!o) continue;
         const mine = tickets.filter((t: any) => t.orderId === s.id && t.status !== 'cancelled');
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
-        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, lines: o.lines || [], subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
+        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [], subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
           readyCount: mine.filter((t: any) => t.status === 'ready' || t.status === 'delivered').length, ticketCount: mine.length };
@@ -146,7 +148,7 @@ export async function POST(req: NextRequest) {
       const show = o && (o.status === 'building' ? now.getTime() - touched < 10 * 60000 : o.status === 'sent' && now.getTime() - Date.parse(String(o.sentAt || '')) < 20000);
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' },
-        order: show ? { number: o.number, sent: o.status !== 'building', lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })),
+        order: show ? { number: o.number, name: cleanName(o.guestName) || null, sent: o.status !== 'building', lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })),
           subtotal: num(o.subtotal), tax: num(o.tax), total: num(o.total) } : null,
         now: nowIso,
       });
@@ -192,6 +194,11 @@ export async function POST(req: NextRequest) {
       const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey }
         : action === 'remove' ? { action, lineId: String(b.lineId || ''), tapKey: b.tapKey } : { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey });
       return r.error ? bad(r.error, r.status) : ok({ order: r.order, staffOk });
+    }
+
+    if (action === 'name') {
+      const r: any = await setOrderName(db, tenantId, orderId, b.name);
+      return r.error ? bad(r.error, r.status) : ok({ name: r.name, staffOk });
     }
 
     if (action === 'cancel') {

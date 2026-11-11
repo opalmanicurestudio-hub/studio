@@ -7,6 +7,10 @@
 
 const RETELL = 'https://api.retellai.com';
 
+/** Which version of the instructions and tools an assistant was made with: a business whose assistant is older is
+ *  offered an update on the Menu page (2: names on orders, a rush mode, orders placed ahead sent to the window). */
+export const VOICE_VERSION = 2;
+
 /** What the assistant is told, every call. The menu, the business's name and the car's number come with each call. */
 export const DRIVE_THRU_PROMPT = `You take drive-thru orders for {{business_name}}. You sound friendly, quick and clear, like the best drive-thru crew. Keep every reply short: one or two sentences.
 
@@ -18,8 +22,10 @@ How to take the order:
 - When a tool tells you to ask something (which item, which size), ask exactly that, then call add_item again with their answer.
 - Only ever say a price or a total that a tool gave you. Never offer anything that isn't on the menu or is sold out.
 - If they change their mind, use remove_item or change_quantity.
-- You may offer one drink or side once, only if they haven't ordered one. Never push.
-- When they're done, call read_order, read the order back, and ask if that's right. If it is, call finish_order and say what it tells you (the total, and to pull forward to the window). Then say goodbye and end the call.
+- Offering more: the line is long right now if this says yes: {{busy}}. If it's not long, you may offer one drink or side once, only if they haven't ordered one. If it is long, don't offer anything and keep every reply as short as you can. Never push.
+- A name: ask for one if this says yes: {{ask_name}}. If so, once they've finished ordering, ask "Can I get a first name for the order?" once, and save it with set_name. If they'd rather not give one, that's fine.
+- When they're done, call read_order, read the order back (when the line is long, just the items and the total), and ask if that's right. If it is, call finish_order and say what it tells you (the total, and to pull forward to the window). Then say goodbye and end the call.
+- If they're picking up an order they placed ahead, say "Please pull forward to the window, and the team will have it for you," then say goodbye and end the call.
 - If they ask for a person, or you can't understand them after two tries, say "One moment, someone will be right with you." The team can hear you and will take over.
 - Never make up items, deals or wait times, and talk only about their order.`;
 
@@ -44,14 +50,17 @@ export function driveThruTools(origin: string, secret: string) {
     }, ['item']),
     tool('remove_item', 'Take an item off the order, or fewer of it.', url, secret, { item, quantity: { type: 'integer', description: 'How many to take off. Leave out to take it all off.' } }, ['item']),
     tool('change_quantity', 'Change how many of an item already on the order.', url, secret, { item, quantity: { type: 'integer', description: 'The new number.' } }, ['item', 'quantity']),
+    tool('set_name', 'Save the first name the guest gives for the order.', url, secret, { name: { type: 'string', description: 'Their first name, as they said it.' } }, ['name']),
     tool('read_order', 'Get the order so far and its total, to read back.', url, secret),
     tool('finish_order', 'The guest has confirmed the order: send it to the kitchen. Then tell them the total and to pull forward.', url, secret),
     { type: 'end_call', name: 'end_call', description: 'End the call once the order is finished and you have said goodbye.' },
   ];
 }
 
-async function retell(path: string, body: unknown): Promise<{ status: number; data: any }> {
-  const r = await fetch(`${RETELL}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const DEFAULTS = (businessName: string) => ({ business_name: businessName || 'our drive-thru', order_number: '', menu: '', ask_name: 'yes', busy: 'no' });
+
+async function retell(path: string, body: unknown, method = 'POST'): Promise<{ status: number; data: any }> {
+  const r = await fetch(`${RETELL}${path}`, { method, headers: { Authorization: `Bearer ${process.env.RETELL_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await r.text(); let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = { message: text.slice(0, 200) }; }
   return { status: r.status, data };
 }
@@ -63,7 +72,7 @@ export async function setUpDriveThruAssistant(businessName: string, origin: stri
   if (!/^https:\/\/[^/]+$/.test(origin) || /localhost|127\.0\.0\.1/.test(origin)) return { ok: false, error: 'Set it up from the live app (an https address), so the assistant can reach it.' };
   const llm = await retell('/create-retell-llm', {
     general_prompt: DRIVE_THRU_PROMPT, begin_message: DRIVE_THRU_GREETING, start_speaker: 'agent',
-    default_dynamic_variables: { business_name: businessName || 'our drive-thru', order_number: '', menu: '' },
+    default_dynamic_variables: DEFAULTS(businessName),
     general_tools: driveThruTools(origin, secret),
   });
   if (llm.status >= 300 || !llm.data?.llm_id) return { ok: false, error: 'The voice service didn’t accept the assistant. Try again in a minute.' };
@@ -75,4 +84,17 @@ export async function setUpDriveThruAssistant(businessName: string, origin: stri
   });
   if (agent.status >= 300 || !agent.data?.agent_id) return { ok: false, error: 'The voice service didn’t make the assistant. Try again in a minute.' };
   return { ok: true, agentId: String(agent.data.agent_id), llmId: String(llm.data.llm_id) };
+}
+
+/** Bring a business's assistant up to date: the same instructions and tools a new one gets now. Returns what went wrong
+ *  in plain words, or nothing. */
+export async function updateDriveThruAssistant(llmId: string, businessName: string, origin: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const secret = process.env.VOICE_AGENT_SECRET || '';
+  if (!process.env.RETELL_API_KEY || !secret) return { ok: false, error: 'The voice service isn’t connected to this app yet.' };
+  if (!/^[A-Za-z0-9_-]{4,128}$/.test(llmId)) return { ok: false, error: 'This assistant can’t be updated here. Set it up again.' };
+  if (!/^https:\/\/[^/]+$/.test(origin) || /localhost|127\.0\.0\.1/.test(origin)) return { ok: false, error: 'Update it from the live app (an https address), so the assistant can reach it.' };
+  const r = await retell(`/update-retell-llm/${encodeURIComponent(llmId)}`, {
+    general_prompt: DRIVE_THRU_PROMPT, begin_message: DRIVE_THRU_GREETING, default_dynamic_variables: DEFAULTS(businessName), general_tools: driveThruTools(origin, secret),
+  }, 'PATCH');
+  return r.status < 300 ? { ok: true } : { ok: false, error: 'The voice service didn’t take the update. Try again in a minute.' };
 }

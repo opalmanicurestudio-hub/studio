@@ -9,6 +9,7 @@
 //   add_item            { item, quantity?, choices?[] } → added, or a question back ("Which size: ...?")
 //   remove_item         { item, quantity? } → taken off (or fewer of it)
 //   change_quantity     { item, quantity } → how many of something already on the order
+//   set_name            { name } → the guest's first name on the order (lib/counter-server setOrderName)
 //   read_order          → the order so far and its total, to read back
 //   finish_order        → sent to the kitchen: the total, and "please pull forward"
 // Every answer carries the order so far and the total, so the assistant always reads back what's really on it.
@@ -19,7 +20,7 @@ import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-util
 import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { readMenu } from '@/lib/menu-server';
-import { editOrder, sendOrder } from '@/lib/counter-server';
+import { editOrder, sendOrder, setOrderName, cleanName } from '@/lib/counter-server';
 import { readBack } from '@/lib/counter-orders';
 import { askFor, matchChoices, matchItem, menuForVoice, words } from '@/lib/voice-order';
 
@@ -50,10 +51,11 @@ export async function POST(req: NextRequest) {
     if (accessLockOf(tenant).locked || toolLocked(tenant, ['hospitality'])) return reply({ result: 'We can’t take orders right now. Please apologize and let the guest know.' });
     // Taken over by the team, or the call is over: the assistant is out of the conversation, and changes nothing.
     if (call.status === 'taken_over') return reply({ result: 'A team member has taken over this order. Say nothing more.' });
-    if (call.status !== 'live') return reply({ result: 'This call has ended. Say goodbye.' });
+    // (While someone is taking over, for the second it takes, the assistant carries on as it was.)
+    if (call.status !== 'live' && call.status !== 'taking_over') return reply({ result: 'This call has ended. Say goodbye.' });
     const order: any = (await db.doc(`${T}/counterOrders/${orderId}`).get()).data();
     if (!order) return reply({ result: 'I can’t find this order. Please ask the guest to pull forward to the window.' });
-    if (order.status !== 'building' && name !== 'read_order') return reply({ result: 'This order has already gone to the kitchen. Ask them to pull forward to the window.', ...summary(order) });
+    if (order.status !== 'building' && name !== 'read_order' && name !== 'set_name') return reply({ result: 'This order has already gone to the kitchen. Ask them to pull forward to the window.', ...summary(order) });
 
     // One tool call is one change, even if it's sent again. The service gives each tool call its own id, and the call
     // so far lists them: this request is the one invocation of this tool, with these same arguments, still waiting for
@@ -86,6 +88,14 @@ export async function POST(req: NextRequest) {
     };
 
     if (name === 'get_menu') return reply({ result: menuForVoice(menu), ...summary(order) });
+
+    if (name === 'set_name') {
+      const given = cleanName(args?.name);
+      if (!given) return reply({ result: 'That didn’t sound like a name. Carry on without one.', ...summary(order) });
+      const r: any = await setOrderName(db, tenantId, orderId, given);
+      if (r.error) return reply({ result: 'Carry on without the name.', ...summary(order) });
+      return reply({ result: `Saved the name ${r.name}. Now read the order back.`, name: r.name, ...summary(order) });
+    }
 
     if (name === 'read_order') return reply({ result: (order.lines || []).length ? `So far: ${readBack(order.lines)} That’s ${money(order.total)}${Number(order.tax) > 0 ? ' with tax' : ''}.` : 'Nothing on the order yet.', ...summary(order) });
 

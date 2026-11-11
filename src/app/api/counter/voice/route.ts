@@ -36,6 +36,8 @@ const CALL = /^[A-Za-z0-9_-]{6,128}$/;
 // is set to hang up after 10).
 const DAILY_CAP = () => { const n = Math.floor(Number(process.env.RETELL_DRIVETHRU_DAILY_CAP)); return Number.isFinite(n) && n > 0 ? n : 600; };
 const STALE_MS = 11 * 60000;
+const RUSH_CARS = 6;
+const first = (s: unknown) => String(s || '').trim().split(/\s+/)[0] || 'Someone';
 const RETELL = 'https://api.retellai.com';
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -48,7 +50,8 @@ const OPS: Record<string, { method: string; path: (id: string) => string }> = {
 
 
 async function retell(method: string, path: string, body?: unknown): Promise<{ status: number; data: any }> {
-  const r = await fetch(`${RETELL}${path}`, { method, headers: { Authorization: `Bearer ${process.env.RETELL_API_KEY}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  // (15 seconds at most: shorter than the 20 a take-over claim is held for, so a slow answer never lets two people on.)
+  const r = await fetch(`${RETELL}${path}`, { method, headers: { Authorization: `Bearer ${process.env.RETELL_API_KEY}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(15000) });
   const text = await r.text(); let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = { message: text.slice(0, 200) }; }
   return { status: r.status, data };
 }
@@ -115,10 +118,17 @@ export async function POST(req: NextRequest) {
       // From here, anything that goes wrong leaves the car able to be greeted again (never stuck "starting").
       let r: { status: number; data: any };
       try {
-        const menu = menuForVoice(await readMenu(db, tenantId));
+        const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
+        const menu = menuForVoice(menuItems);
+        // A long line (this many cars in it, counting this one) puts the assistant in rush mode: no suggestions, a short
+        // read-back. Only cars that arrived in the last three hours count, so one left behind yesterday never does.
+        const since = Date.now() - 3 * 3600000;
+        const others = laneSnap.docs.filter((d: any) => d.id !== carId && Date.parse(String((d.data() || {}).arrivedAt || '')) >= since).length;
+        const busy = others + 1 >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),
-          retell_llm_dynamic_variables: { business_name: String(tenant.name || tenant.businessName || 'our drive-thru').slice(0, 80), order_number: String(claim.car.number || ''), menu: menu.slice(0, 12000) },
+          retell_llm_dynamic_variables: { business_name: String(tenant.name || tenant.businessName || 'our drive-thru').slice(0, 80), order_number: String(claim.car.number || ''), menu: menu.slice(0, 12000),
+            ask_name: tenant.driveThru?.askName === false ? 'no' : 'yes', busy: busy ? 'yes' : 'no' },
           // (Named so the call log for phone calls never takes it for one of its own: api/voice/call-events.)
           metadata: { driveThruTenantId: tenantId, carId, orderId: claim.car.orderId, kind: 'drive-thru' },
         });
@@ -155,18 +165,45 @@ export async function POST(req: NextRequest) {
       if (!said) return bad('What should the assistant know?');
       body = { call_control: { additional_context: said, trigger_response: b.body?.call_control?.trigger_response === true } };
     } else if (b.op === 'listen-live-call') body = {};
+    let who: string = screen.name;
+    try { const staff = b.staffPass && screen.ref ? await workingNow(db, tenantId, screen, b.staffPass) : (screen.member || null); who = staff?.name || screen.name; } catch { /* the screen's name */ }
+    // One person on the speaker at a time: the first tap on Take over claims the call, and anyone after them is told
+    // who has it (a claim nobody finished is let go after 20 seconds).
+    const callRef = db.doc(`driveThruCalls/${callId}`);
+    if (b.op === 'take-over-live-call') {
+      const got: any = await db.runTransaction(async (tx: any) => {
+        const c: any = (await tx.get(callRef)).data() || {};
+        if (c.status === 'taken_over') return { error: `${first(c.takenOverBy)} is already on this call.` };
+        if (c.status === 'taking_over' && Date.now() - Date.parse(String(c.takingAt || '')) < 20000) return { error: `${first(c.takingBy)} is taking this call.` };
+        if (c.status !== 'live' && c.status !== 'taking_over') return { error: 'This call has ended.' };
+        tx.set(callRef, { status: 'taking_over', takingBy: who, takingAt: nowIso }, { merge: true });
+        return { ok: true };
+      });
+      if (got.error) return NextResponse.json({ ok: false, error: got.error, message: got.error }, { status: 409, headers: { 'Cache-Control': 'no-store' } });
+    }
+    // A take-over that didn't happen gives the call back to the assistant (only if it's still this claim).
+    const letGo = () => db.runTransaction(async (tx: any) => {
+      const c: any = (await tx.get(callRef)).data() || {};
+      if (c.status === 'taking_over' && c.takingAt === nowIso) tx.set(callRef, { status: 'live', takingBy: null, takingAt: null }, { merge: true });
+    }).catch(() => undefined);
     let r: { status: number; data: any };
-    try { r = await retell(op.method, op.path(callId), body); } catch { return bad('The voice service didn’t answer. Try again.', 502); }
+    try { r = await retell(op.method, op.path(callId), body); } catch { if (b.op === 'take-over-live-call') await letGo(); return bad('The voice service didn’t answer. Try again.', 502); }
+    if (b.op === 'take-over-live-call' && r.status >= 300) await letGo();
     // Hanging up a call the service has already ended (the speaker tablet lost power, say) still ends it here: the
     // service answers that the call can't be found. A refused key, a bill or too many tries doesn't end anything.
     const ended = b.op === 'stop-call' && (r.status < 300 || [400, 404, 409, 410, 422].includes(r.status));
     // What happened is kept, but a slip here never turns a step the service took into an error on screen.
     try {
-      const staff = b.staffPass && screen.ref ? await workingNow(db, tenantId, screen, b.staffPass) : (screen.member || null);
-      const who = staff?.name || screen.name;
       if (r.status < 300 && b.op === 'take-over-live-call') {
-        await Promise.all([db.doc(`driveThruCalls/${callId}`).set({ status: 'taken_over', takenOverBy: who, takenOverAt: nowIso }, { merge: true }),
-          carRef ? carRef.set({ voice: { status: 'taken_over', callId, takenOverBy: who, at: nowIso } }, { merge: true }) : null]);
+        // Kept only while this claim is still the one on the call: a call that ended meanwhile (the car drove off) stays
+        // ended, and is never marked taken over again.
+        await db.runTransaction(async (tx: any) => {
+          const c: any = (await tx.get(callRef)).data() || {};
+          const car: any = carRef ? (await tx.get(carRef)).data() : null;
+          if (c.status !== 'taking_over' || c.takingAt !== nowIso) return;
+          tx.set(callRef, { status: 'taken_over', takenOverBy: who, takenOverAt: nowIso, takingBy: null, takingAt: null }, { merge: true });
+          if (carRef && car?.voice?.callId === callId && car.voice.status !== 'ended') tx.set(carRef, { voice: { status: 'taken_over', callId, takenOverBy: who, at: nowIso } }, { merge: true });
+        });
       }
       if (ended) { await db.doc(`driveThruCalls/${callId}`).set({ endedBy: who }, { merge: true }); await markCallEnded(db, callId, 'hung up'); }
       if (r.status < 300 && b.op === 'update-live-call') await db.doc(`driveThruCalls/${callId}`).set({ told: FieldValue.arrayUnion({ at: nowIso, by: who, text: body.call_control.additional_context }) }, { merge: true });

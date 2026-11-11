@@ -80,7 +80,8 @@ export function VoiceBar({ tenantId, screenKey, staffPass, carNumber, voice, pub
   useEffect(() => { if (callId && voice?.status === 'ended') drop(callId); }, [callId, voice?.status]);
 
   const session = async () => { if (!callId) throw new Error('No call'); return (await liveFor(callId, publicKey)).s; };
-  const run = async (k: string, fn: () => Promise<void>, fail: string) => { setBusy(k); try { await fn(); } catch (e: any) { onNotice(/denied|permission|NotAllowed/i.test(String(e?.message || e)) ? 'This tablet isn’t allowed to use its microphone. Allow it in the browser’s settings.' : fail, 'warn'); } finally { setBusy(null); } };
+  // A step the server turned down says why ("Kai is already on this call"); anything else gets the step's own words.
+  const run = async (k: string, fn: () => Promise<void>, fail: string) => { setBusy(k); try { await fn(); } catch (e: any) { onNotice(/denied|permission|NotAllowed/i.test(String(e?.message || e)) ? 'This tablet isn’t allowed to use its microphone. Allow it in the browser’s settings.' : e?.status === 409 && typeof e?.message === 'string' && e.message.length < 120 ? e.message : fail, 'warn'); } finally { setBusy(null); } };
   const listen = () => run('listen', async () => { const s = l?.s || await session(); await s.listen(); }, 'Couldn’t listen in. Try again.');
   const stopListening = () => { try { l?.s?.stopListening?.(); } catch { /* */ } };
   // Taking over: the microphone first (if it's refused, the assistant carries on), then the assistant stops.
