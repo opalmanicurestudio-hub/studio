@@ -66,6 +66,7 @@ interface StatusLine {
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
   pickupAt?: string; tipCents?: number;
+  popup?: { number: number; name: string; called: boolean } | null;
   delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string;
     photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null;
     choices?: DeliveryChoicesData | null; retry?: { label: string; cents: number } | null; retryPay?: { status: string; cents: number; why: string } | null;
@@ -1004,6 +1005,13 @@ export default function OrderStatusPage() {
       </header>
 
       <main className="max-w-lg mx-auto px-5 py-6 space-y-5">
+        {order.popup && !['placed', 'cancelled'].includes(order.stage) && (
+          <section aria-label="Your number" className="rounded-[2rem] border-2 bg-white p-6 text-center">
+            <p className="m-0 text-[15px] text-muted-foreground">{order.popup.name ? `At the table, ${order.popup.name}` : 'At the table'}</p>
+            <p className="m-0 mt-1 text-[15px] text-muted-foreground">Your number</p>
+            <p className="m-0 text-[72px] font-light leading-none tabular-nums">{order.popup.number}</p>
+            <p className="m-0 mt-3 text-[16px]" role="status">{order.stage === 'completed' ? 'Picked up. Thanks for coming by.' : order.popup.called || ['ready', 'arrived'].includes(order.stage) ? 'It’s bagged. Come up to the table.' : 'We’re bagging it. Come up when we call your number.'}</p>
+          </section>)}
         {order.stage !== 'placed' && <OrderNow order={order} help={helpElig} tenantId={tenantId} orderId={orderId} token={selfToken} onChanged={() => void load()} />}
         {order.stage === 'cancelled' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">

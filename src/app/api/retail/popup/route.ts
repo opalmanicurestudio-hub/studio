@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     if (g.actor?.isRenter) return bad('Pop-ups are the business’s own.', 403);
     const db = getAdminDb();
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-    if (!moduleEnabled(tenant, 'retail')) return bad('Pop-ups sell the shop’s products, and the shop is off.', 403);
+    if (!moduleEnabled(tenant, 'pickup')) return bad('Pop-ups are part of Pickup and drive-thru, and it’s off. It’s in Shop setup.', 403);
     const today = todayIn(tenantTimeZone(tenant));
     const now = new Date().toISOString();
     const manager = !!(g.actor?.isTenantOwner || g.actor?.isManager || ['owner', 'admin', 'manager'].includes(String(g.actor?.role || '').toLowerCase()));

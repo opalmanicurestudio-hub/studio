@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
         // The menu, and the shop's products picked for the window (lib/pickup-window), shown after it.
         const [items, products] = await Promise.all([readMenu(db, tenantId).then((l) => l.filter((m) => m.onMenu && !m.membersOnly)),
           // (Only while the business has the shop.)
-          moduleEnabled(tenant, 'retail') ? readWindow(db, tenantId, tenant).catch((e: any) => { console.error('[counter] window not read', e?.message); return [] as any[]; }) : Promise.resolve([] as any[])]);
+          moduleEnabled(tenant, 'pickup') ? readWindow(db, tenantId, tenant).catch((e: any) => { console.error('[counter] window not read', e?.message); return [] as any[]; }) : Promise.resolve([] as any[])]);
         // Popular: the three best sellers on the board over the last 7 days (at least 5 each), from the day's counts sendOrder keeps.
         let popular = hit?.popular || new Set<string>(); let popularAt = hit?.popularAt || 0;
         if (!hit || now.getTime() - hit.popularAt > 10 * 60000) {
@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
       const A = aheadOf(tenant);
       // Ordering ahead: the menu's own page when that's on, else the shop when the board shows its products (and the
       // shop is open).
-      const shopOpen = sections.some((x) => x.kind === 'product') && moduleEnabled(tenant, 'retail') && tenant.retailSettings?.storePaused !== true;
+      const shopOpen = sections.some((x) => x.kind === 'product') && moduleEnabled(tenant, 'pickup') && tenant.retailSettings?.storePaused !== true;
       const origin = linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '');
       return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections,
         // The business's own color (made readable for white text on it), for the tags and the price on the featured item.

@@ -278,7 +278,11 @@ export async function sendOrderConfirmation(
       ${dates.arriveFrom ? `<tr><td style="padding:4px 14px 12px;font-size:14px;color:#16171a">Arrives</td><td style="padding:4px 14px 12px;font-size:14px;color:#16171a;text-align:right">${arrivalLabel(dates, dates.timeZone)}</td></tr>` : '<tr><td colspan="2" style="padding:0 0 8px"></td></tr>'}
     </table>`
     : '';
-  const pickupNote = method !== 'delivery' && order.pickupAt && order.pickupAt !== 'ASAP'
+  // Ordered from the line at a pop-up (lib/popup): its number and the table, not a pickup time at the shop.
+  const popupNo = Number(order.popupNumber) > 0 ? Number(order.popupNumber) : 0;
+  const pickupNote = popupNo
+    ? `<p style="font-size:15px;color:#0f172a">Your number is <strong>${popupNo}</strong>. We’ll bag it and call your number: come up to the table${order.popupName ? ` at ${escapeHtml(String(order.popupName))}` : ''}.</p>`
+    : method !== 'delivery' && order.pickupAt && order.pickupAt !== 'ASAP'
     ? `<p style="font-size:13px;color:#0f172a">Your requested pickup time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
 

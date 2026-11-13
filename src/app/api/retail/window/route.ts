@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
+import { moduleEnabled } from '@/lib/modules';
 import { readMenu } from '@/lib/menu-server';
 import { WINDOW_MAX, windowIdsOf, windowable, readWindow, boardNumbers, windowProductOf } from '@/lib/pickup-window';
 import { linkOrigin } from '@/lib/app-origin';
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
     if (!['list', 'save', 'tag', 'numbers'].includes(action)) return bad('Unknown action.');
     const g: any = await requireRole(req, tenantId, action === 'save' || action === 'tag' ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The window is the business’s own.', 403);
+    if (action !== 'numbers' && !moduleEnabled(((await getAdminDb().doc(`tenants/${tenantId}`).get()).data() || {}), 'pickup')) return bad('The pickup window is part of Pickup and drive-thru, and it’s off. It’s in Shop setup.', 403);
     const db = getAdminDb();
     const tRef = db.doc(`tenants/${tenantId}`);
     const tenant: any = (await tRef.get()).data() || {};

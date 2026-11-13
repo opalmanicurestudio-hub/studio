@@ -355,6 +355,8 @@ export async function GET(req: NextRequest) {
       stage: order.stage,
       method: order.method,
       pickupAt: order.pickupAt || '',
+      // Ordered from the line at a pop-up (lib/popup): the number it's called by, and where.
+      popup: Number(order.popupNumber) > 0 ? { number: Number(order.popupNumber), name: String(order.popupName || '').slice(0, 60), called: !!order.popupCalledAt } : null,
       tipCents: order.tipCents || 0,
       priceTier: order.priceTier || 'retail',
       businessName: order.businessName || '',

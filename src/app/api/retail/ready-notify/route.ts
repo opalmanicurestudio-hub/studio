@@ -44,6 +44,16 @@ export async function POST(req: NextRequest) {
     const link = `${req.nextUrl.origin}/shop/${tenantId}/order/${orderId}`;
     const address = String(t.studioAddress || (typeof t.address === 'string' ? t.address : [t.address?.street, t.address?.city].filter(Boolean).join(', ')) || '').trim();
     const holdDays = Math.max(0, Number(t.retailSettings?.pickupHoldDays) || 0);
+    // Ordered from the line at a pop-up (lib/popup): ready at the table, called by its number, not at the shop.
+    const popupNo = Number(o.popupNumber) > 0 ? Number(o.popupNumber) : 0;
+    if (popupNo) {
+      const where = String(o.popupName || 'the pop-up');
+      const text = `Hi ${first}, No. ${popupNo} is ready. Come up to the table at ${where}.`;
+      if (o.customerPhone) { const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `${text} ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); texted = r.ok === true; if (r.status === 'failed') failed = true; }
+      if (o.customerEmail) { const brand = await getEmailBrand(db, tenantId); const r = await sendNotification(db, { tenantId, channel: 'email', to: String(o.customerEmail), subject: `No. ${popupNo} is ready`, text: `${text} ${link}`, html: brandedEmail(brand, `<p style="font-size:14px;color:#16171a;margin:0 0 8px">${esc(text)}</p>${emailButton(link, 'Open my order', brand)}`), kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); emailed = r.ok === true; if (r.status === 'failed') failed = true; }
+      if (!texted && !emailed && failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text and email services didn’t take it.' }, { status: 503 }); }
+      return NextResponse.json({ ok: true, sent: texted || emailed, texted });
+    }
     if (o.customerPhone) {
       // Through lib/notify, so it becomes the one nudge to the order page (lib/order-inbox) like every order message.
       const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `Hi ${first}, your order ${num} from ${shop} is ready for pickup${address ? ` at ${address}` : ''}. Show the code on your order page at the counter: ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, orderId } as any);

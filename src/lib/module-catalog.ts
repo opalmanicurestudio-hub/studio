@@ -46,7 +46,7 @@ export const TOOLS: Tool[] = [
   { id: 'books', emoji: '📒', name: 'Automated bookkeeping', gates: ['money'], line: 'Books that keep themselves — every sale, tip, fee and bill in the right place.',
     includes: ['Live ledger from every sale', 'Bank feeds & bills', 'True profit per service', 'An AI adviser on your numbers'],
     gives: 'About 3 hrs a week of bookkeeping', hours: 3, profit: 'See what actually makes money', others: 'Booking apps leave this to separate accounting software' },
-  { id: 'inventory', emoji: '📦', name: 'Inventory & retail', gates: ['retail'], line: 'One stock count for the backbar, the shelf and your online shop.',
+  { id: 'inventory', emoji: '📦', name: 'Inventory & retail', gates: ['retail', 'pickup'], line: 'One stock count for the backbar, the shelf and your online shop.',
     includes: ['Stock that counts itself', 'Online shop & fulfilment', 'Low-stock alerts & reorders', 'Returns handled'],
     gives: 'About 2 hrs a week of counting', hours: 2, profit: 'Know product cost per service', others: 'Usually a second system to keep in sync' },
   { id: 'team', emoji: '👥', name: 'Team & onboarding', gates: ['team', 'maintenance'], line: 'Hire, onboard and run your team — schedules, hours and pay in one place.',
@@ -84,10 +84,16 @@ export const RECOMMENDED: Record<string, ToolId[]> = {
 
 export const hoursFor = (ids: ToolId[]) => ids.reduce((n, id) => n + (TOOL_BY_ID[id]?.hours || 0), 0);
 
-/** The tenant.modules map for a chosen set of tools (every gate explicitly on or off). */
+/** Switches inside a tool that the business turns on or off itself, not by choosing tools (Pickup and drive-thru, in
+ *  Shop setup): a change of tools never writes them, so the business's own choice stands. They follow their tool
+ *  anyway (lib/modules moduleEnabled). */
+const OWN_SWITCHES = new Set<string>(['pickup']);
+
+/** The tenant.modules map for a chosen set of tools (every gate explicitly on or off, except the business's own
+ *  switches above). */
 export function toTenantModules(ids: ToolId[]): Record<string, boolean> {
   const out: Record<string, boolean> = {};
-  for (const t of TOOLS) for (const g of t.gates) out[g] = out[g] || ids.includes(t.id);
+  for (const t of TOOLS) for (const g of t.gates) if (!OWN_SWITCHES.has(g)) out[g] = out[g] || ids.includes(t.id);
   return out;
 }
 

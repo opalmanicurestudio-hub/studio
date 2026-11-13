@@ -10,6 +10,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { listedInShop, listingsOf } from '@/lib/variants';
 import { setupSteps, showGuided, type SetupStep } from '@/lib/shop-setup';
+import { moduleEnabled } from '@/lib/modules';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -39,6 +40,43 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/kpis', 'How it’s going', 'Speed, accuracy and who packed what'],
   ] },
 ];
+
+/** PICKUP AND DRIVE-THRU, one switch (lib/modules 'pickup', api/retail/pickup-tools): the pickup window and its board,
+ *  Pickups for a tablet, and pop-up tables. Off, they leave the menu and the board shows the menu only. */
+function PickupTools({ tenantId, on, onToast }: { tenantId: string; on: boolean; onToast: (m: string) => void }) {
+  const [now, setNow] = React.useState(on); const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => setNow(on), [on]);
+  const flip = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/retail/pickup-tools', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, on: !now }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) { onToast(d.error || 'That didn’t save.'); return; }
+      setNow(!now); onToast(!now ? 'Pickup and drive-thru is on.' : 'Pickup and drive-thru is off.');
+    } catch { onToast('No connection. Try again.'); } finally { setBusy(false); }
+  };
+  const pages: Item[] = [
+    ['/window', 'Pickup window', 'The products on the window and its board, numbered'],
+    ['/retail-orders/pickups', 'Pickups', 'Who’s here, what to bag and what’s waiting, on a tablet'],
+    ['/popup', 'Pop-ups', 'Selling from a table somewhere else, and orders from the line'],
+  ];
+  return (
+    <Group title="Pickup and drive-thru">
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={now ? { borderBottom: `1px solid ${C.line}` } : undefined}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Use pickup and drive-thru</span>
+          <span className="block text-[13px]" style={muted}>{now ? 'On: the window and its board, Pickups and pop-ups.' : 'Off. Turn it on for a pickup window, a tablet for pickups and pop-up tables.'}</span></span>
+        <button type="button" role="switch" aria-checked={now} aria-label="Pickup and drive-thru" disabled={busy} onClick={() => void flip()} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: now ? C.ok : '#d2d3d7' }}>
+          <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: now ? 32 : 4 }} /></button>
+      </div>
+      {now && pages.map(([href, label, note], i) => (
+        <Link key={href} href={href} className="cf-press flex min-h-[60px] items-center gap-3 pl-4">
+          <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4" style={i === pages.length - 1 ? undefined : { borderBottom: `1px solid ${C.line}` }}>
+            <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">{label}</span><span className="block text-[13px]" style={muted}>{note}</span></span>
+            <span style={muted}>{Ic.chev}</span>
+          </span>
+        </Link>))}
+    </Group>);
+}
 
 function Steps({ steps, busy, onAction }: { steps: SetupStep[]; busy: string; onAction: (s: SetupStep) => void }) {
   const next = steps.find((s) => !s.done);
@@ -101,6 +139,7 @@ export function SetupScreen() {
         <div className="h-11" />
         <LargeTitle title="Setup" sub={guided ? 'A few steps and your shop is ready to open.' : paused ? 'Your shop is paused. Shoppers can browse but not buy.' : 'Everything that shapes how your shop runs.'} />
         {guided && <Steps steps={steps} busy={busy} onAction={(s) => void onAction(s)} />}
+        <PickupTools tenantId={tenantId} on={moduleEnabled(selectedTenant, 'pickup')} onToast={setToast} />
         {GROUPS.map((g) => (
           <Group key={g.title} title={g.title}>
             {g.items.map(([href, label, note], i) => (

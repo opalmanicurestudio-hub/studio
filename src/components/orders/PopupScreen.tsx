@@ -107,6 +107,7 @@ export function PopupScreen() {
               <div className="min-w-0"><h2 className="m-0 text-[26px] font-light tracking-[-0.01em]">{live.name}</h2>{live.place && <p className="m-0 mt-0.5 text-[15px]" style={muted}>{live.place}</p>}</div>
               <div className="flex flex-wrap gap-2">
                 <Btn kind="primary" onClick={() => openRegister(live)}>Open the register</Btn>
+                <a href={`/print/popup-sign/${encodeURIComponent(tenantId)}/${encodeURIComponent(live.id)}`} target="_blank" rel="noreferrer" className="cf-press inline-flex h-12 items-center rounded-full px-5 text-[16px] font-semibold" style={{ background: C.soft, color: C.ink }}>Print the sign</a>
                 {canEdit && <Btn onClick={() => setEditing(live)}>Change it</Btn>}
               </div>
             </div>

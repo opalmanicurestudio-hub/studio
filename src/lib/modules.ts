@@ -32,7 +32,8 @@ export type ModuleId =
   | 'team'
   | 'voice'
   | 'hospitality'    // host stand, floor service, guest lounge, kitchen display
-  | 'academy';       // online courses (/academy builder; students use /learn)
+  | 'academy'        // online courses (/academy builder; students use /learn)
+  | 'pickup';        // pickup and drive-thru for the shop: the pickup window and its board, Pickups, pop-up tables
 
 export const MODULES: Record<ModuleId, {
   label: string;
@@ -53,10 +54,10 @@ export const MODULES: Record<ModuleId, {
   },
   retail: {
     label: 'Retail',
-    pages: ['/retail', '/retail-orders', '/inventory/distribution', '/inventory/formulas', '/shop', '/window', '/popup',
+    pages: ['/retail', '/retail-orders', '/inventory/distribution', '/inventory/formulas', '/shop',
       '/retail-orders/claims', '/retail-orders/customers', '/retail-orders/designer', '/retail-orders/offers', '/retail-orders/discovery',
       '/retail-orders/history', '/retail-orders/kpis', '/retail-orders/returns', '/retail-orders/reviews',
-      '/retail-orders/settings', '/retail-orders/support', '/retail-orders/waves', '/retail-orders/wholesale', '/retail-orders/licenses', '/retail-orders/pickups'],
+      '/retail-orders/settings', '/retail-orders/support', '/retail-orders/waves', '/retail-orders/wholesale', '/retail-orders/licenses'],
     messageKinds: [],
   },
   classes_events: {
@@ -78,6 +79,9 @@ export const MODULES: Record<ModuleId, {
   memberships: { label: 'Memberships & packages', pages: ['/memberships', '/memberships/ledger'], messageKinds: [] },
   team: { label: 'Team & onboarding', pages: ['/applicants', '/timesheets', '/schedule', '/schedule/requests', '/timeclock', '/staff-portal'], messageKinds: [] },
   voice: { label: 'AI receptionist', pages: ['/voice'], messageKinds: [] },
+  // One switch for the shop's pickup tools (Shop setup): the pickup window and its board, the Pickups tablet screen and
+  // pop-up tables. It comes with the shop (lib/module-catalog), and is on only while the shop is (moduleEnabled).
+  pickup: { label: 'Pickup and drive-thru', pages: ['/window', '/popup', '/retail-orders/pickups'], messageKinds: [] },
   hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/drive-thru', '/settings/hosting'], messageKinds: [] },
   academy: { label: 'Online academy', pages: ['/academy'], messageKinds: [] },
 };
@@ -88,6 +92,8 @@ const PAGE_TO_MODULE: Record<string, ModuleId> = Object.fromEntries(
 );
 
 export function moduleEnabled(tenant: any, id: ModuleId): boolean {
+  // Pickup and drive-thru sells the shop's products: on only while the shop is.
+  if (id === 'pickup') return tenant?.modules?.pickup !== false && tenant?.modules?.retail !== false;
   return tenant?.modules?.[id] !== false;
 }
 
@@ -110,6 +116,8 @@ export function lockedModule(tenant: any, href: string): ModuleId | null {
   const sharedAt = Object.keys(SHARED_PAGES).find((p) => path === p || path.startsWith(p + '/'));
   if (sharedAt) return SHARED_PAGES[sharedAt].some((m) => moduleEnabled(tenant, m)) ? null : SHARED_PAGES[sharedAt][0];
   const m = hrefModule(path);
+  // (A pickup page with the shop itself off is locked by the shop: that's what there is to add.)
+  if (m === 'pickup' && !moduleEnabled(tenant, 'retail')) return 'retail';
   return m && !moduleEnabled(tenant, m) ? m : null;
 }
 

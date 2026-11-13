@@ -127,7 +127,7 @@ export function PickupsScreen() {
 
   const row = (o: any, detail: string, trail?: React.ReactNode) => (
     <ListRow key={o.id} active={o.id === openId} onClick={() => openOn(o.id, 'pack')} lead={<Initials name={String(o.customerName || 'Customer')} />}
-      title={o.customerName || 'Customer'} detail={hasProsOnly(o) ? <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{detail}</span><ProsTag o={o} short /></span> : detail} trail={trail ?? <span style={muted}>{Ic.chev}</span>} />);
+      title={Number(o.popupNumber) > 0 ? `${o.customerName || 'Customer'}, No. ${o.popupNumber}` : o.customerName || 'Customer'} detail={hasProsOnly(o) ? <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{detail}</span><ProsTag o={o} short /></span> : detail} trail={trail ?? <span style={muted}>{Ic.chev}</span>} />);
 
   const listBody = loading ? <p className="m-0 px-4 pt-6 text-[15px]" style={muted}>Loading…</p>
     : shown === 'here' ? (

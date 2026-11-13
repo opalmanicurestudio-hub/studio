@@ -32,6 +32,9 @@ import { liveOffers } from '@/lib/retail-offers-server';
 
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import { licenseFor, licenseValid } from '@/lib/pro-license';
+import { HOLD_MS, leftAt, lineOrdered, takingLineOrders } from '@/lib/popup';
+import { moduleEnabled } from '@/lib/modules';
+import { limitPublic } from '@/lib/rate-limit';
 import { shopStateOf, taxFreeFor, taxStateOf, type TaxFree } from '@/lib/wholesale-tax';
 import {
   FULFILLMENT_METHODS,
@@ -94,6 +97,7 @@ function getAdminDb() {
 
 interface CheckoutBody {
   checkoutKey?: string;          // the checkout page's own id for this checkout, the same on every retry from it
+  popupId?: string;              // ordered from the line at a pop-up (lib/popup): picked up at its table, by a number
   gift?: { isGift?: boolean; to?: string; message?: string }; // a gift: who it's for and the message (lib/gift-orders)
   applyStoreCredit?: boolean;
   promoCode?: string;            // a promo code from Discounts that works in the shop (lib/promo-codes)
@@ -482,8 +486,27 @@ async function handleCheckout(req: NextRequest) {
   // Nothing physical? Then no address, no postage, no pickup slot — and the
   // fulfilment floor never sees this order at all.
   const digitalOnly = isDigitalOnlyOrder(lines);
-  // Only the ways of getting it the shop offers right now (a cart that's all digital needs none).
-  if (!digitalOnly) {
+  // ── ORDERED FROM THE LINE AT A POP-UP (lib/popup) ─────────────────────────
+  // From the sign on the table (shop/[tenantId]/popup/[popupId]): picked up at the table, today, called by a number.
+  // Only while the pop-up is taking orders from the line, and only its own products; what's left of each is checked
+  // again as the order is written, with its number.
+  let popup: { ref: any; data: any } | null = null;
+  if (body.popupId != null) {
+    const pid = String(body.popupId || '');
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(pid) || method !== 'counter') return NextResponse.json({ error: 'That pop-up isn’t here.' }, { status: 400 });
+    // (Each try holds what it takes for a while: a visitor's allowance, so nobody can empty the table with unpaid tries.)
+    const limited = await limitPublic(req, 'popup-order', tenantId, { perHour: 15, perDay: 0 }); if (limited) return limited;
+    const pRef = db.doc(`tenants/${tenantId}/popups/${pid}`); const ps = await pRef.get();
+    const pd: any = ps.exists ? ps.data() || {} : null;
+    if (!pd || !moduleEnabled(tenant, 'pickup') || !takingLineOrders(pd, todayIn(tenantTimeZone(tenant)))) return NextResponse.json({ error: 'This pop-up isn’t taking orders from the line right now. Order at the table.', popupClosed: true }, { status: 409 });
+    const there = new Set((Array.isArray(pd.items) ? pd.items : []).map((x: any) => String(x?.id || '')));
+    const away = lines.filter((l: any) => !there.has(String(l.productId)));
+    if (away.length) return NextResponse.json({ error: `${away.length === 1 ? `${away[0].name} isn’t` : 'Some items aren’t'} at this pop-up. Take ${away.length === 1 ? 'it' : 'them'} out of your order.`, popupChanged: true }, { status: 409 });
+    popup = { ref: pRef, data: pd };
+  }
+  // Only the ways of getting it the shop offers right now (a cart that's all digital needs none; an order from the
+  // line at a pop-up is picked up at its table).
+  if (!digitalOnly && !popup) {
     const offered = method === 'counter' ? rsEarly.pickupEnabled !== false
       : method === 'curbside' ? rsEarly.curbsideOffered !== false
         : method === 'delivery' ? rsEarly.deliveryPlan?.on === true
@@ -691,7 +714,8 @@ async function handleCheckout(req: NextRequest) {
   // A shop that has set its pickup hours (lib/pickup-slots) takes a real window: checked here, and counted again in the
   // same step the order is written, so a window never takes more than it can.
   let pickupWin: { key: string; start: string; end: string; label: string; cap: number | null } | null = null;
-  if (!digitalOnly && (method === 'counter' || method === 'curbside')) {
+  if (popup) pickupAt = `At the table, ${String(popup.data.name || 'the pop-up')}`.slice(0, 40);
+  if (!digitalOnly && !popup && (method === 'counter' || method === 'curbside')) {
     const { shopPickup, chosenWindow } = await import('@/lib/pickup-slots-server');
     const { view, booked } = await shopPickup(db, tenantId, tenant, Date.now(), ckeyHash);
     if (view.scheduled) {
@@ -903,7 +927,41 @@ async function handleCheckout(req: NextRequest) {
     }),
   };
   batch.set(evRef, evData);
-  if (pickupWin && pickupWin.cap !== null) {
+  if (popup) {
+    // What's left at the table, its number and the new order in one step: two people in the line can't both take the
+    // last one, and no two orders get the same number.
+    const pf = popup;
+    const r = await db.runTransaction(async (tx: any) => {
+      const ps = await tx.get(pf.ref); const pd: any = ps.exists ? ps.data() || {} : null;
+      if (!pd || !takingLineOrders(pd, todayIn(tenantTimeZone(tenant)))) return { closed: true };
+      const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('popupId', '==', pf.ref.id));
+      const all = q.docs.map((d: any) => d.data() || {});
+      // The same checkout tried again (back from the payment page) doesn't compete with its own earlier unpaid try,
+      // and keeps its number; and one email holds at most two unpaid tries at a time.
+      const mine = ckeyHash ? all.filter((o: any) => o.stage === 'placed' && o.checkoutKeyHash === ckeyHash) : [];
+      const at = Date.now();
+      const unpaidByEmail = all.filter((o: any) => o.stage === 'placed' && !(ckeyHash && o.checkoutKeyHash === ckeyHash) && String(o.customerEmail || '') === customerEmail && Date.parse(String(o.placedAt || '')) > at - HOLD_MS).length;
+      if (unpaidByEmail >= 2) return { busy: true };
+      const left = leftAt(pd, lineOrdered(all.filter((o: any) => !mine.includes(o)), at));
+      const want: Record<string, number> = {};
+      for (const l of lines as any[]) want[String(l.productId)] = (want[String(l.productId)] || 0) + Number(l.qtyOrdered || 0);
+      const short = (lines as any[]).filter((l) => want[String(l.productId)] > (left[String(l.productId)] ?? 0));
+      if (short.length) return { short: short.map((l) => ({ name: String(l.name || 'An item'), left: left[String(l.productId)] ?? 0 })) };
+      const again = Number(mine.map((o: any) => o.popupNumber).filter((x: any) => Number(x) > 0).sort((a: any, b: any) => b - a)[0]) || 0;
+      const n = again || (Number(pd.nextNumber) || 0) + 1;
+      tx.set(orderRef, { ...orderData, popupId: pf.ref.id, popupNumber: n, popupName: String(pd.name || '').slice(0, 60), ...(ckeyHash ? { checkoutKeyHash: ckeyHash } : {}) });
+      tx.set(evRef, evData);
+      if (!again) tx.update(pf.ref, { nextNumber: n, updatedAt: new Date().toISOString() });
+      return { n };
+    }).catch((e: any) => { console.error('[checkout] pop-up order not written', e?.message); return { contended: true } as any; });
+    if (r.contended) return NextResponse.json({ error: 'Lots of orders at once. Try again in a moment.', popupChanged: true }, { status: 409 });
+    if (r.busy) return NextResponse.json({ error: 'You have an order from the line waiting to be paid. Finish paying for it, or try again in a little while.' }, { status: 429 });
+    if (r.closed) return NextResponse.json({ error: 'This pop-up isn’t taking orders from the line right now. Order at the table.', popupClosed: true }, { status: 409 });
+    if (r.short) {
+      const x = r.short[0];
+      return NextResponse.json({ error: x.left > 0 ? `Only ${x.left} ${x.name} left at the table. Change how many and try again.` : `${x.name} just sold out at the table. Take it out of your order.`, popupChanged: true }, { status: 409 });
+    }
+  } else if (pickupWin && pickupWin.cap !== null) {
     // The window's count and the new order in one step: a window that filled while they were choosing turns them back.
     const win = pickupWin; const cap = pickupWin.cap;
     const { holdsPlace } = await import('@/lib/pickup-slots-server');

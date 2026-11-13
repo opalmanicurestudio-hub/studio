@@ -37,6 +37,18 @@ export function ToolGate({ children }: { children: ReactNode }) {
   // The business isn't known yet: a tool's page waits (so a locked one never flashes and starts loading).
   if (!t && hrefModule(pathname)) return <div className="min-h-[50dvh]" aria-busy="true" />;
   if (!locked) return <>{children}</>;
+  // Pickup and drive-thru is the business's own switch, not a part of the plan: it says where it's turned on.
+  if (locked === 'pickup') return (
+    <div className="flex min-h-[70dvh] items-center justify-center px-4 py-10" style={{ color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <section aria-labelledby="locked-title" className="w-full max-w-lg space-y-4 rounded-3xl border p-6 sm:p-8" style={{ borderColor: LINE, background: '#fff' }}>
+        <h1 id="locked-title" className="text-[26px] font-semibold tracking-tight">Pickup and drive-thru is off</h1>
+        <p className="text-[16px] leading-relaxed" style={{ color: '#3d4046' }}>The pickup window and its board, Pickups and pop-ups are turned off for this business. {ctx?.role === 'owner' || ctx?.role === 'admin' || ctx?.role === 'manager' ? 'Turn them on in Shop setup.' : 'A manager turns them on in Shop setup.'}</p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link href="/retail-orders/setup" className={`${LINK} flex-1`} style={{ background: INK, color: '#fff' }}>Open Shop setup</Link>
+          <Link href="/dashboard" className={`${LINK} border`} style={{ borderColor: LINE, color: INK }}>Back to the dashboard</Link>
+        </div>
+      </section>
+    </div>);
   const tool = TOOLS.find((x) => x.gates[0] === locked) || TOOLS.find((x) => x.gates.includes(locked)) || null;
   const price = tool ? TOOL_PRICES[tool.id] : undefined;
   const owner = ctx?.role === 'owner';
