@@ -16,7 +16,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { permissionsFor } from '@/lib/fulfilment-access';
-import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/fulfil-client';
+import { sweepStaleClaims, type Actor } from '@/lib/fulfil-client';
 import { curbsideWaitMinutes, lineMatchesScan } from '@/lib/retail-orders';
 import { scanInto, startPacking } from '@/lib/orders-flow';
 import { orderTags } from '@/lib/order-tags';
@@ -28,6 +28,7 @@ import { lineProductId } from '@/lib/product-codes';
 import { codeBook, lookupCode } from '@/lib/code-lookup';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
+import { useArrivalAlerts } from './use-arrival-alerts';
 import { PhoneShopBar, useWide, useWidest } from './shell';
 import { mayEditContact } from '@/lib/contact-change';
 import { SelectBar } from './SelectBar';
@@ -244,23 +245,8 @@ export function OrdersApp() {
   const tabTags = React.useMemo(() => tagChoices(tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab), rs), [tab, orders, done, rs]);
   React.useEffect(() => { if (tagOn && !tabTags.some((t) => t.id === tagOn)) setTagOn(''); }, [tabTags, tagOn]);
 
-  const arrivedKey = orders.filter((o) => o.stage === 'arrived').map((o) => o.id).join(',');
-  const announced = React.useRef<Set<string>>(new Set());
-  React.useEffect(() => {
-    const fresh = orders.filter((o) => o.stage === 'arrived' && !announced.current.has(o.id));
-    if (!fresh.length) return;
-    fresh.forEach((o) => announced.current.add(o.id)); feel(true);
-    setToast(`${firstName(fresh[0].customerName)} is outside${fresh[0].curbside?.spotOrVehicle ? ` in ${fresh[0].curbside.spotOrVehicle}` : ''}.`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arrivedKey]);
-  const escalated = React.useRef<Set<string>>(new Set());
-  React.useEffect(() => {
-    for (const o of orders) {
-      if (o.stage !== 'arrived' || escalated.current.has(o.id) || o.curbside?.bringingOutAt) continue;
-      const m = curbsideWaitMinutes(o, new Date(now)); if (m === null || m < 5) continue;
-      escalated.current.add(o.id); notifyCurbside(tenantId, o.id, 'staff_escalation');
-    }
-  }, [orders, now, tenantId]);
+  // Each new arrival said once; a customer waiting five minutes asks the team again (use-arrival-alerts).
+  useArrivalAlerts(orders, now, tenantId, (o) => setToast(`${firstName(o.customerName)} is outside${o.curbside?.spotOrVehicle ? ` in ${o.curbside.spotOrVehicle}` : ''}.`));
 
   const endSelect = React.useCallback(() => { setSelecting(false); setPicked(new Set()); }, []);
   React.useEffect(() => { endSelect(); }, [tab, endSelect]);

@@ -43,7 +43,7 @@ export function Seg<T extends string>({ value, options, onChange }: { value: T; 
       <span aria-hidden="true" className="cf-glide absolute bottom-[3px] top-[3px] rounded-full" style={{ left: 3, width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${i * 100}%)`, background: C.paper, boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 1px 1px rgba(0,0,0,.04)' }} />
       {options.map((o) => {
         const on = o.id === value;
-        return <button key={o.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(o.id)} className="relative z-[1] h-9 flex-1 rounded-full px-3 text-[14px] font-semibold transition-colors duration-200" style={{ color: on ? C.ink : C.muted }}>{o.label}</button>;
+        return <button key={o.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(o.id)} className="relative z-[1] min-h-11 flex-1 rounded-full px-3 text-[14px] font-semibold transition-colors duration-200" style={{ color: on ? C.ink : C.muted }}>{o.label}</button>;
       })}
     </div>);
 }

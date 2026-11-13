@@ -1,7 +1,9 @@
 // src/app/api/retail/order-message/route.ts — A MESSAGE FROM THE SHOP ABOUT ONE ORDER. Team only.
-// POST { tenantId, orderId, text }. Like every message about an order (lib/order-inbox), it goes on the customer's
+// POST { tenantId, orderId, text, soon? }. Like every message about an order (lib/order-inbox), it goes on the customer's
 // order page in full, and they get a one-line nudge with the link: by text when the order has their number, by email
-// otherwise. They answer on the order page, where it lands in the shop's messages. On the order's record too.
+// otherwise. They answer on the order page, where it lands in the shop's messages. On the order's record too. `soon`:
+// the Pickups screen's one-tap "about N minutes" for someone waiting outside, marked on the order (curbside.soonSentAt)
+// so every screen shows it went, once it's on their order page.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -44,6 +46,7 @@ export async function POST(req: NextRequest) {
     cardBody: text, cardBy: String(auth.actor.name || '').trim().split(/\s+/)[0] || null,
   } as any).catch(() => null);
   const now = new Date().toISOString();
+  if (b.soon === true) await ref.set({ curbside: { soonSentAt: now } }, { merge: true }).catch(() => {});
   const ev = ref.collection('events').doc();
   await ev.set({ id: ev.id, type: 'note', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { kind: 'shop_message', text: `Message to ${String(o.customerName || 'the customer').split(' ')[0]}: ${text.slice(0, 300)}` } }).catch(() => {});
   if (r && r.ok === false) return NextResponse.json({ ok: false, error: 'The message is on their order page, but the nudge didn’t go out. They’ll see it next time they open the order.' }, { status: 502 });

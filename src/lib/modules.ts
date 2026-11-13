@@ -56,7 +56,7 @@ export const MODULES: Record<ModuleId, {
     pages: ['/retail', '/retail-orders', '/inventory/distribution', '/inventory/formulas', '/shop', '/window',
       '/retail-orders/claims', '/retail-orders/customers', '/retail-orders/designer', '/retail-orders/offers', '/retail-orders/discovery',
       '/retail-orders/history', '/retail-orders/kpis', '/retail-orders/returns', '/retail-orders/reviews',
-      '/retail-orders/settings', '/retail-orders/support', '/retail-orders/waves', '/retail-orders/wholesale', '/retail-orders/licenses'],
+      '/retail-orders/settings', '/retail-orders/support', '/retail-orders/waves', '/retail-orders/wholesale', '/retail-orders/licenses', '/retail-orders/pickups'],
     messageKinds: [],
   },
   classes_events: {

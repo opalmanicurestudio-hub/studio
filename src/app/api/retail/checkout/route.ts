@@ -476,7 +476,7 @@ async function handleCheckout(req: NextRequest) {
       }, { status: 422 });
     }
     // (The license it was sold on, kept with the order.)
-    proLicense = { number: String(lic.number || ''), state: String(lic.state || ''), expiresOn: String(lic.expiresOn || '') };
+    proLicense = { number: String(lic.number || ''), state: String(lic.state || ''), expiresOn: String(lic.expiresOn || ''), name: String(lic.name || '').slice(0, 80) };
   }
 
   // Nothing physical? Then no address, no postage, no pickup slot — and the

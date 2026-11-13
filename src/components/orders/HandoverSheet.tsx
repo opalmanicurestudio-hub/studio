@@ -2,7 +2,8 @@
 // src/components/orders/HandoverSheet.tsx — HAND IT OVER. Scan the code on the customer's phone, type the 4-digit
 // pickup code they say (checked on the server, lib/pickup-pass), or check their name and the last four digits of their
 // phone. When the customer named someone else to collect it, that's said first. Scanning a different order's code says
-// so instead of handing over the wrong bag. The handoff records who handed it over, who collected it and how.
+// so instead of handing over the wrong bag. The handoff records who handed it over, who collected it and how. An order
+// with products for licensed pros says the license it was sold on, so the name can be checked against it.
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
@@ -10,6 +11,8 @@ import { handOver } from '@/lib/orders-flow';
 import { parseOrderQr } from '@/lib/retail-orders';
 import { PIN_TRIES } from '@/lib/pickup-limits';
 import { firstName, itemCount } from '@/lib/orders-view';
+import { stateName } from '@/lib/wholesale-tax';
+import { licenseLapsed, localDay } from '@/lib/pickups-view';
 import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, Sheet, feel, muted } from './ui';
 
@@ -39,6 +42,11 @@ export function HandoverSheet({ fs, tenantId, order, actor, onClose, onDone }: {
   return (
     <Sheet title={`Hand over to ${other || order.customerName || who}`} sub={`${order.shelfSlot ? `Shelf ${order.shelfSlot} · ` : ''}${itemCount(order)} item${itemCount(order) === 1 ? '' : 's'}`} onClose={onClose}>
       {other && <p className="m-0 mt-1 rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: C.okSoft, color: C.ok }}>{other} is collecting for {order.customerName || who}.</p>}
+      {order.proLicense?.number ? (() => { const L = order.proLicense; const holder = String(L.name || '').trim(); const lapsed = licenseLapsed(order, localDay());
+        const until = L.expiresOn ? (() => { const t = Date.parse(`${L.expiresOn}T12:00:00Z`); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : L.expiresOn; })() : '';
+        return <p className="m-0 mt-2 rounded-2xl px-4 py-3 text-[15px]" style={lapsed ? { background: C.warnSoft, color: C.warn } : { background: C.soft, color: C.ink }}>
+          Products for licensed pros, sold on {holder ? `the license of ${holder}` : 'the license on file'}: {stateName(L.state) || L.state} {L.number}{until ? `, ${lapsed ? 'expired' : 'good to'} ${until}` : ''}. {lapsed ? 'Check a current one before you hand it over.' : holder ? 'Check the name matches.' : 'Check their name against it.'}</p>; })()
+        : (order.lines || []).some((l: any) => l?.prosOnly === true) ? <p className="m-0 mt-2 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>Products for licensed pros: check their license before you hand it over.</p> : null}
       <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void onScan(v)} paused={busy} label="Point at the code on their phone" /></div>
       {!pinLocked && (
         <form className="mt-4" onSubmit={(e) => { e.preventDefault(); void byPin(); }}>

@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon } from 'lucide-react';
+import { ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -87,12 +87,14 @@ const SHOP_SETUP_UNDER = ['settings', 'policies', 'designer', 'wholesale', 'lice
 function shopActive(href: string, pathname: string): boolean {
   const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
   if (href === '/retail-orders/setup') return under(href) || SHOP_SETUP_UNDER.some((x) => under(`/retail-orders/${x}`));
-  if (href === '/retail-orders') return under(href) && !['problems', 'customers', 'setup', ...SHOP_SETUP_UNDER].some((x) => under(`/retail-orders/${x}`));
+  if (href === '/retail-orders') return under(href) && !['problems', 'customers', 'setup', 'pickups', ...SHOP_SETUP_UNDER].some((x) => under(`/retail-orders/${x}`));
   return under(href);
 }
 
 const COMMERCE = [
   { href: '/retail-orders',           icon: PackageCheck,   label: 'Orders'   },
+  // Pickups on a tablet by the window or the door: who's here, what to bag, what's waiting (components/orders/PickupsScreen).
+  { href: '/retail-orders/pickups',   icon: ShoppingBasket, label: 'Pickups'  },
   { href: '/retail-orders/problems',  icon: ShieldQuestion, label: 'Problems' },
   { href: '/retail-orders/customers', icon: Users2,         label: 'Shoppers' },
   { href: '/retail-orders/setup',     icon: ShoppingBag,    label: 'Setup'    },

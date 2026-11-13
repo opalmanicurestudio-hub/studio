@@ -12,7 +12,8 @@
 // "Second scan at packing" on, every unit must be in the box before the order can be finished, and an item picked at the
 // shelf (by the staff portal's walk) is scanned again as it goes in. The counts are saved on the order, so it holds on
 // any screen and device, and the engine checks it as the order is marked packed. A scan of something another order
-// still needs says which order, and its tote.
+// still needs says which order, and its tote. Each item shows its number on the pickup window, the way the customer
+// ordered it (lib/use-window-numbers), and an order with products for licensed pros says the license it was sold on.
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -31,6 +32,8 @@ import { MAX_PACK_BOXES, boxFrom, packBoxesOf, presetsOf, type PackBox } from '@
 import { learnCode } from '@/lib/scan-resolve';
 import { UnknownCodePanel } from '@/components/inventory/UnknownCodePanel';
 import { lineProductId } from '@/lib/product-codes';
+import { useWindowNumbers, lineNumber } from '@/lib/use-window-numbers';
+import { stateName } from '@/lib/wholesale-tax';
 import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from '../ui';
 
 export type PackMode = 'active' | 'preview' | 'review';
@@ -41,6 +44,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   onMissing: (line: any) => void; onFinished: (message: string) => void; onPutDown: () => void; onBoxSizes?: () => void; onToast: (m: string) => void;
 }) {
   const active = mode === 'active';
+  const nums = useWindowNumbers(tenantId);
   const [undo, setUndo] = React.useState<{ text: string; lineId: string; what?: 'scan' | 'box' | 'check' } | null>(null);
   const [err, setErr] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -194,8 +198,18 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
 
   const pending = Number(order.pendingRefundCents) || 0;
 
+  // Products for licensed pros (lib/pro-license): the license it was sold on, or a reminder when there's none with it.
+  const lic = order.proLicense && typeof order.proLicense === 'object' ? order.proLicense : null;
+  const prosLines = (order.lines || []).some((l: any) => l?.prosOnly === true);
+  const licDay = (d: string) => { const t = Date.parse(`${d}T12:00:00Z`); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : d; };
+  // (Past its date by the time it's packed: said in amber, to look at a current one before it goes.)
+  const licToday = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; })();
+  // (Only while it's still to go out: a finished order's record says what it was sold on, nothing more.)
+  const licLapsed = !!lic?.expiresOn && String(lic.expiresOn) < licToday && !['shipped', 'completed', 'cancelled'].includes(String(order.stage));
   const itemsList = (
     <div>
+      {lic ? <p className="m-0 mb-3 rounded-2xl px-4 py-3 text-[15px]" style={licLapsed ? { background: C.warnSoft, color: C.warn } : { background: C.okSoft, color: C.ok }}><span className="font-semibold">{licLapsed ? 'License past its date.' : 'License on file.'}</span> {lic.name ? `${lic.name}, ` : ''}{stateName(lic.state) || lic.state} {lic.number}{lic.expiresOn ? `, ${licLapsed ? 'expired' : 'good to'} ${licDay(lic.expiresOn)}` : ''}.{licLapsed ? ' Check a current one before it goes.' : ''}</p>
+        : prosLines ? <p className="m-0 mb-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}><span className="font-semibold">For licensed pros only.</span> Check their license before you hand it over.</p> : null}
       {(mode !== 'preview' || order.stage !== 'paid') && (
         <div className="flex items-center gap-2.5">
           <p className="m-0 shrink-0 text-[13px] font-semibold" style={muted}>In the box</p>
@@ -212,13 +226,15 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           const picked = (l.qtyScanned || 0) >= owedOf(l);
           const full = !closed && (boxMode ? (l.qtyPacked || 0) >= owedOf(l) : picked);
           const shelf = shelfFor.get(lineProductId(l));
+          const num = lineNumber(nums, l);
           const reopen = active && closed && l.status !== 'backordered' && (Number(l.qtyShorted) || 0) > 0 && pending > 0 && order.stage === 'picking';
           const detail = [l.swapForName ? `Swap for ${l.swapForName}` : '', order.swapOffer?.status === 'waiting' && order.swapOffer.lineId === l.lineId ? `Asked about ${order.swapOffer.sub?.name}` : '', l.swappedToName ? `Swapped for ${l.swappedToName}` : '', l.optionsLabel, shelf ? `Shelf ${shelf}` : '',
             closed ? (l.status === 'backordered' ? 'Sending later' : 'Refunded') : mode === 'preview' && order.stage === 'paid' ? `${l.qtyOrdered} to pack` : boxMode ? `${Math.min(l.qtyPacked || 0, owedOf(l))} of ${owedOf(l)} in the box` : `${Math.min(l.qtyScanned || 0, owedOf(l))} of ${owedOf(l)}`,
             part ? `${l.qtyShorted} ${l.status === 'backordered' ? 'sending later' : 'refunded'}` : ''].filter(Boolean).join(' · ');
           return (
             <div key={l.lineId} className={`flex items-center gap-3.5 border-b py-3 ${active ? 'min-h-[72px]' : 'min-h-[60px]'}`} style={{ borderColor: C.line }}>
-              <button type="button" onClick={() => void tap(l)} disabled={!active || !canTap || full || closed} aria-label={`${l.name}${full ? ', all in' : active && canTap ? ', tap when it’s in the box' : ''}`} className="flex min-w-0 flex-1 items-center gap-3.5 text-left disabled:cursor-default">
+              <button type="button" onClick={() => void tap(l)} disabled={!active || !canTap || full || closed} aria-label={`${num != null ? `No. ${num}, ` : ''}${l.name}${full ? ', all in' : active && canTap ? ', tap when it’s in the box' : ''}`} className="flex min-w-0 flex-1 items-center gap-3.5 text-left disabled:cursor-default">
+                {num != null && <span aria-hidden="true" className="grid h-9 min-w-9 shrink-0 place-items-center rounded-xl px-1.5 text-[16px] font-semibold tabular-nums" style={{ background: C.line, color: C.ink }}>{num}</span>}
                 <Thumb src={photoFor.get(lineProductId(l))} size={active ? 52 : 44} />
                 <span className="min-w-0 flex-1">
                   <span className={`block truncate font-semibold tracking-[-0.01em] ${active ? 'text-[17px]' : 'text-[15.5px]'}`} style={closed ? { color: C.muted, textDecoration: 'line-through' } : undefined}>{l.name}{!active && l.qtyOrdered > 1 ? ` × ${l.qtyOrdered}` : ''}</span>
