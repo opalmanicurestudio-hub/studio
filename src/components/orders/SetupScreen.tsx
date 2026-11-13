@@ -12,6 +12,7 @@ import { listedInShop, listingsOf } from '@/lib/variants';
 import { setupSteps, showGuided, type SetupStep } from '@/lib/shop-setup';
 import { moduleEnabled } from '@/lib/modules';
 import { approversOf, scanRequired, type Approvers } from '@/lib/scan-rule';
+import { bagScanOn } from '@/lib/bag-tag';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -83,8 +84,9 @@ function PickupTools({ tenantId, on, onToast }: { tenantId: string; on: boolean;
  *  item that won't scan. Saved on the shop's settings; the server reads them at every count, whatever screen counts. */
 function ScanningGroup({ fs, tenantId, rs, owner, onToast }: { fs: Firestore; tenantId: string; rs: any; owner: boolean; onToast: (m: string) => void }) {
   const [on, setOn] = React.useState(scanRequired(rs)); const [who, setWho] = React.useState<Approvers>(approversOf(rs));
+  const [bagsOn, setBagsOn] = React.useState(bagScanOn(rs));
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setOn(scanRequired(rs)); setWho(approversOf(rs)); }, [rs?.requireScan, rs?.scanApprovers]);
+  React.useEffect(() => { setOn(scanRequired(rs)); setWho(approversOf(rs)); setBagsOn(bagScanOn(rs)); }, [rs?.requireScan, rs?.scanApprovers, rs?.scanBagAtHandover]);
   // The shop's settings are the owner's to change (firestore.rules); anyone else sees how it's set.
   const save = async (patch: Record<string, any>, done: () => void, said: string) => {
     if (busy || !tenantId || !owner) return; setBusy(true);
@@ -98,6 +100,12 @@ function ScanningGroup({ fs, tenantId, rs, owner, onToast }: { fs: Firestore; te
           <span className="block text-[13px]" style={muted}>{on ? 'Every order: shipping, delivery, pickups, pop-ups and wholesale. A tap doesn’t count an item.' : 'Off: items can be ticked in by hand. Turn it on so every item is scanned.'}</span></span>
         <button type="button" role="switch" aria-checked={on} aria-label="Scan every item" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.requireScan': !on }, () => setOn(!on), !on ? 'Every item is scanned now.' : 'Items can be ticked in by hand now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: on ? C.ok : '#d2d3d7' }}>
           <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: on ? 32 : 4 }} /></button>
+      </div>
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan the bag at handover</span>
+          <span className="block text-[13px]" style={muted}>{bagsOn ? 'A tag prints for each bag as it’s finished, and every bag is scanned before it goes out.' : 'Off: bags go out without their tags being scanned.'}</span></span>
+        <button type="button" role="switch" aria-checked={bagsOn} aria-label="Scan the bag at handover" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.scanBagAtHandover': !bagsOn }, () => setBagsOn(!bagsOn), !bagsOn ? 'Every bag is scanned at handover now.' : 'Bags go out without a scan now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: bagsOn ? C.ok : '#d2d3d7' }}>
+          <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: bagsOn ? 32 : 4 }} /></button>
       </div>
       <div className="px-4 py-3">
         <p className="m-0 text-[17px] tracking-[-0.01em]">Who approves an item that won’t scan</p>

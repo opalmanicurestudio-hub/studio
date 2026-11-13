@@ -71,8 +71,9 @@ export async function markMissing(fs: Firestore, t: string, orderId: string, lin
  *  Ship orders stay packed, ready for a label. With "second scan at packing" on, every unit must be counted into the box
  *  (a scan at the box counts it; an item picked at the shelf is scanned again), and the engine checks that as it marks
  *  the order packed (lib/retail-fulfill markPacked), whichever screen finishes it. */
-export async function finishPacking(fs: Firestore, t: string, o: any, all: any[], actor: Actor, rs: any): Promise<Result & { slot?: string }> {
-  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: rs?.requirePackScan === true });
+export async function finishPacking(fs: Firestore, t: string, o: any, all: any[], actor: Actor, rs: any, bags?: number): Promise<Result & { slot?: string }> {
+  // How many bags it went into (lib/bag-tag): a tag prints for each, and each is scanned at handover.
+  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: rs?.requirePackScan === true, ...(bags != null ? { bags } : {}) });
   if (!p.ok) return p;
   if (o.method === 'ship') return { ok: true, message: 'Packed. Ready for a label.' };
   const r: any = await markReady(fs, t, o.id, actor);
@@ -92,10 +93,10 @@ export { syncRenterCredits } from './renter-credit-client';
 
 /** Hand it over: by the QR code on their phone (this order's part, when it was split), the pickup code they say
  *  (checked on the server, lib/pickup-pass), or a check of their name and phone. */
-export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, via: { scan?: string; pin?: string; verifiedBy?: string }): Promise<Result & { locked?: boolean }> {
-  if (via.scan) return handoffByScan(fs, t, via.scan, actor, o.id);
-  if (via.pin) return handoffByPin(t, o.id, via.pin);
-  return handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
+export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, via: { scan?: string; pin?: string; verifiedBy?: string; bags?: string[]; bagPin?: string }): Promise<Result & { locked?: boolean }> {
+  if (via.scan) return handoffByScan(fs, t, via.scan, actor, o.id, via.bags, via.bagPin);
+  if (via.pin) return handoffByPin(t, o.id, via.pin, via.bags, via.bagPin);
+  return handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor, via.bags, via.bagPin);
 }
 
 export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }): Promise<Result> {

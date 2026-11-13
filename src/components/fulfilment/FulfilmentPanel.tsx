@@ -16,6 +16,7 @@ import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/fulfil-client';
 import { finishPacking } from '@/lib/orders-flow';
+import { bagScanOn, goesInBags } from '@/lib/bag-tag';
 import { fulfilmentPolicy, isPackComplete, lineMatchesScan, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';
 import { tenantTimeZone } from '@/lib/tenant-time';
@@ -126,7 +127,11 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   React.useEffect(() => { if (checking && (!checkOrder || checkOrder.stage !== 'picking')) setChecking(null); }, [checking, checkOrder]);
   const needsCheck = (o: BoardOrder) => rs.requirePackScan === true && !o.waveId && !isPackComplete((o.lines || []) as any);
   const doFinish = async (o: BoardOrder) => {
+    // The bag's tag prints as it's finished, while the shop scans bags at handover (lib/bag-tag): the tab opens from the
+    // tap, so the browser allows it, and loads once the order is finished.
+    const tagTab = goesInBags(o) && !(o as any).popupId && bagScanOn(rs) && (o as any).qrToken && typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
     const r = await finishPacking(fs, tenantId, o, orders, actor as any, rs);
+    if (tagTab) { if (r.ok) tagTab.location.href = `/print/label/${tenantId}/${o.id}?t=${encodeURIComponent((o as any).qrToken)}`; else tagTab.close(); }
     say(r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
     return r.ok;
   };
@@ -310,7 +315,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} autoBelow={Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={weights} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
-      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
+      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={110} />}
     </div>);
 }

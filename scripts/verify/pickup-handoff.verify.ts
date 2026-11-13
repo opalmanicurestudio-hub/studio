@@ -162,8 +162,8 @@ const fresh = async () => {
 
   // ── The team's screens ──
   const sheet = src('src/components/orders/HandoverSheet.tsx'); const desk = src('src/components/pos/desk/OrderPickup.tsx');
-  check('the handoff sheet says who’s collecting, and takes the code they say', /is collecting for/.test(sheet) && /Or the pickup code they say/.test(sheet) && /pin \}\)/.test(sheet));
-  check('…the desk takes the code too (until it’s locked, and typing it drops a check chosen before), and hands over the part it has open', /handoffByPin\(tenantId, sel\.id, pin\)/.test(desk) && /if \(r\.locked\) \{ setPin\(''\); setPinOff\(true\); \}/.test(desk) && /setCheck\(''\); setMsg\(null\)/.test(desk) && /handoffByScan\(firestore, tenantId, sel\.qrToken, actor, sel\.id\)/.test(desk) && /is collecting for/.test(desk));
+  check('the handoff sheet says who’s collecting, and takes the code they say', /is collecting for/.test(sheet) && /Or the pickup code they say/.test(sheet) && /\{ pin, bags: codes, bagPin: bagPin \|\| undefined \}\)/.test(sheet));
+  check('…the desk takes the code too (until it’s locked, and typing it drops a check chosen before), and hands over the part it has open', /handoffByPin\(tenantId, sel\.id, pin, codes, bagPin \|\| undefined\)/.test(desk) && /if \(r\.locked\) \{ setPin\(''\); setPinOff\(true\); \}/.test(desk) && /setCheck\(''\); setMsg\(null\)/.test(desk) && /handoffByScan\(firestore, tenantId, sel\.qrToken, actor, sel\.id, codes, bagPin \|\| undefined\)/.test(desk) && /is collecting for/.test(desk));
   check('the board and the order screen show who’s collecting', /\{o\.collector\.name\} is collecting/.test(src('src/components/orders/OrdersApp.tsx')) && /order\.collector\.name\} is collecting for/.test(src('src/components/orders/workspace/ShipPane.tsx')));
 
   // ── The database ──

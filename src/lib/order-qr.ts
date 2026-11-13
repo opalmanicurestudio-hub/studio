@@ -22,3 +22,22 @@ export function verifyQrToken(token: string): string | null {
   if (given.length !== expected.length) return null;
   return timingSafeEqual(Buffer.from(given), Buffer.from(expected)) ? orderId : null;
 }
+
+// ─── BAG TAGS ──────────────────────────────────────────────────────────────────
+// Each bag of an order has its own code (lib/bag-tag), printed on its tag: "clarityflow://bag/<orderId>.<n>.<sig>".
+// It's never the customer's pickup code, so scanning a bag can't hand an order over by itself: the bag is scanned, then
+// the customer's code (lib/retail-fulfill). Signed here, for this business, order and bag, so a code can't be made up.
+const bagSig = (tenantId: string, orderId: string, n: number) =>
+  createHmac('sha256', qrSecret()).update(`bag|${tenantId}|${orderId}|${n}`).digest('hex').slice(0, 16);
+
+export function makeBagCode(tenantId: string, orderId: string, n: number): string {
+  return `clarityflow://bag/${orderId}.${n}.${bagSig(tenantId, orderId, n)}`;
+}
+
+/** The bag number this code is for, when it's an authentic tag of this order; null otherwise. */
+export function checkBagCode(tenantId: string, orderId: string, raw: string): number | null {
+  const m = /^clarityflow:\/\/bag\/([A-Za-z0-9_-]{1,160})\.(\d{1,2})\.([0-9a-f]{16})$/.exec(String(raw || '').trim());
+  if (!m || m[1] !== orderId) return null;
+  const n = Number(m[2]); const want = bagSig(tenantId, orderId, n);
+  return n >= 1 && timingSafeEqual(Buffer.from(m[3]), Buffer.from(want)) ? n : null;
+}

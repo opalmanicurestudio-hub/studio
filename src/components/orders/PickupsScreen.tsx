@@ -173,7 +173,7 @@ export function PickupsScreen() {
         <div className="pb-32">{header}<div key={shown} className="cf-stagger mt-1">{listBody}</div></div>
       )}
       {!wide && panel}
-      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
+      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? 32 : 40} />}
     </div>);
 }

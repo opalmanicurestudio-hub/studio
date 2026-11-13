@@ -163,7 +163,7 @@ const settle = async () => { while (afterJobs.length) await afterJobs.shift(); }
   actor = { uid: 'k1', name: 'Kai Park', role: 'manager', isManager: true, isTenantOwner: false, caps: [] };
   s = await step({ orderId: 'oD', cents: 500, key: 'k-ten' });
   check('…nor on a checkout that was never paid', s.status === 409 && /never paid/.test(s.body.message), s.body);
-  check('the order’s running total can’t be changed from a browser (it’s what holds the limit)', /'goodwillCents', 'textsIn'\]/.test(src('firestore.rules')));
+  check('the order’s running total can’t be changed from a browser (it’s what holds the limit)', /'goodwillCents', 'textsIn'[,\]]/.test(src('firestore.rules')));
   actor = { uid: 'r1', name: 'Rae', role: 'staff', isRenter: true, isManager: false, isTenantOwner: false, caps: [] };
   const sR = await step({ orderId: 'o1', cents: 500, key: 'k-eight' });
   actor = { uid: 'p1', name: 'Pat', role: 'staff', fulfilmentRole: 'picker', isManager: false, isTenantOwner: false, caps: [] };

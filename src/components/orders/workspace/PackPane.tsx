@@ -24,6 +24,7 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { approveInto, finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
 import { approvedByWords, approversOf, lineCounts, orderCounts, scanRequired, type ApproveReason } from '@/lib/scan-rule';
 import { CantScanSheet } from '../CantScanSheet';
+import { bagScanOn, clampBags, goesInBags } from '@/lib/bag-tag';
 import { reopenShortedLine, type Actor } from '@/lib/fulfil-client';
 import { lineMatchesScan } from '@/lib/retail-orders';
 import { toteOf } from '@/lib/totes';
@@ -50,6 +51,11 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const [undo, setUndo] = React.useState<{ text: string; lineId: string; what?: 'scan' | 'box' | 'check'; via?: 'scan' | 'tap' | 'approve' } | null>(null);
   // An item that won't scan, open in its sheet (while the shop scans every item, a tap opens this instead of counting).
   const [cant, setCant] = React.useState<any | null>(null);
+  // How many bags it goes into (lib/bag-tag): a tag prints for each as it's finished, scanned at handover.
+  // (An order from the line at a pop-up is bagged at a table that usually has no printer: no count, no tags.)
+  const inBags = goesInBags(order) && !order.popupId;
+  const [bags, setBags] = React.useState<number>(clampBags(order.bagCount || 1));
+  React.useEffect(() => { setBags(clampBags(order.bagCount || 1)); }, [order.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // The note that items are scanned now, shown once on this device (a per-device convenience; nothing depends on it).
   const noteKey = `cf-scan-note-${tenantId}`;
   const [noted, setNoted] = React.useState(true);
@@ -209,11 +215,15 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const finish = async () => {
     setBusy(true);
+    // The bags' tags print as it's finished, while the shop scans bags at handover: the tab opens now, from the tap (so
+    // the browser allows it), and loads once the order is finished, with its shelf spot.
+    const tagTab = inBags && bagScanOn(rs) && order.qrToken && typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
     // The box it's in is kept with the order, so its label is bought for that size.
     if (showBoxes && !chosen.length && boxes.length) await saveBoxes(boxes);
-    const r = await finishPacking(fs, tenantId, order, all, actor, rs);
+    const r = await finishPacking(fs, tenantId, order, all, actor, rs, inBags ? bags : undefined);
     setBusy(false);
-    if (!r.ok) { setErr(r.message); return; }
+    if (!r.ok) { tagTab?.close(); setErr(r.message); return; }
+    if (tagTab) tagTab.location.href = `/print/label/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken)}`;
     feel(true);
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (reduce) { onFinished(r.message); return; }
@@ -424,6 +434,13 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
             {photosBlock && <div className={showBoxes ? 'mt-5' : ''}>{photosBlock}</div>}
           </div>)}
       </div>
+      {active && inBags && (
+        <div className="mt-5 flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: C.line }}>
+          <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">Bags</span><span className="block text-[13.5px]" style={muted}>{bagScanOn(rs) ? 'A tag prints for each, scanned at handover' : 'How many it goes out in'}</span></span>
+          <button type="button" aria-label="One bag fewer" disabled={bags <= 1} onClick={() => setBags((b) => clampBags(b - 1))} className="cf-press grid h-11 w-11 shrink-0 place-items-center rounded-full text-[22px] disabled:opacity-40" style={{ background: C.soft, color: C.ink }}>−</button>
+          <span role="status" aria-live="polite" aria-label={`${bags} ${bags === 1 ? 'bag' : 'bags'}`} className="w-8 text-center text-[20px] font-semibold tabular-nums">{bags}</span>
+          <button type="button" aria-label="One more bag" disabled={bags >= 20} onClick={() => setBags((b) => clampBags(b + 1))} className="cf-press grid h-11 w-11 shrink-0 place-items-center rounded-full text-[22px] disabled:opacity-40" style={{ background: C.soft, color: C.ink }}>+</button>
+        </div>)}
       {pending > 0 && active && <p className="m-0 mt-4 text-[14px]" style={muted}>{money(pending)} is waiting to be refunded for what’s missing. Send it from the order’s refund card.</p>}
 
       {view && (

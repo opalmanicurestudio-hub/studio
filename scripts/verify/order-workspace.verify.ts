@@ -40,7 +40,7 @@ check('a scan on the packing screen is a scan at the box: picked and in the box 
   && /const r = await scanInto\(fs, tenantId, order\.id, v, actor, rs\)/.test(pack) && /applyBoxScan\(order\.lines, scannedValue, hint, secondScan\)/.test(engine));
 check('with the second scan on, finishing needs every unit in the box (never a wave order), counted from the order, not from this screen',
   /const boxMode = rs\?\.requirePackScan === true && !order\.waveId/.test(pack) && /const left = \(boxMode \? Math\.max\(0, inBox\.total - inBox\.done\)/.test(pack) && !/COUNTED_HERE|countedAtBox/.test(pack + app));
-check('…and the engine checks it as the order is marked packed, whichever screen finishes it', /markPacked\(fs, t, o\.id, actor, \{ requirePackScan: rs\?\.requirePackScan === true \}\)/.test(flow));
+check('…and the engine checks it as the order is marked packed, whichever screen finishes it', /markPacked\(fs, t, o\.id, actor, \{ requirePackScan: rs\?\.requirePackScan === true, \.\.\.\(bags != null \? \{ bags \} : \{\}\) \}\)/.test(flow));
 check('…items picked at the shelf are named, to scan again as they go in', /const shelfWaiting = active && boxMode \? inBox\.shelf : 0/.test(pack) && /picked at the shelf\. <\/b>Scan/.test(pack));
 check('…an undo takes back exactly what the scan counted', /what: r\.kind === 'checked' \? 'check' : 'box'/.test(pack) && /undoTick\(fs, tenantId, order\.id, undo\.lineId, actor, undo\.what \|\| 'scan', undo\.via \|\| 'scan'\)/.test(pack));
 check('…and tapping can’t stand in for it (nor while the shop scans every item, lib/scan-rule)', /const required = scanRequired\(rs\);/.test(pack) && /const canTap = !required && rs\?\.requirePackScan !== true;/.test(pack));

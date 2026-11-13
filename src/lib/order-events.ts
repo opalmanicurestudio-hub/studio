@@ -44,7 +44,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   address_updated: { customer: true, words: (_m, by) => ({ text: `Delivery address changed${by}`, tone: 'plain' }) },
   held_for_review: { customer: false, words: (m, by) => ({ text: `Held for review${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   hold_released: { customer: false, words: (_m, by) => ({ text: `Released from review${by}`, tone: 'ok' }) },
-  override: { customer: false, words: (m, by) => m.rule === 'unit_approved' ? ({ text: `${overrideText(m)}${by}`, tone: 'plain' }) : ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'warn' }) },
+  override: { customer: false, words: (m, by) => m.rule === 'unit_approved' || m.rule === 'bags_approved' ? ({ text: `${overrideText(m)}${by}`, tone: 'plain' }) : ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'warn' }) },
   message_failed: { customer: false, words: (m) => ({ text: `The ${m.what || 'message'} didn’t reach the customer${m.tries ? ` after ${m.tries} tries` : ''}. Let them know on the order page.`, tone: 'warn' }) },
   note: { customer: false, words: (m) => ({ text: String(m.text || 'Note'), tone: 'plain' }) },
 };
@@ -53,6 +53,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
  *  says which, why and who approved it. */
 export function overrideText(m: any): string {
   if (m?.rule === 'unit_approved') return `${String(m.name || 'An item')} approved without a scan: ${String(m.reason || 'no reason given')}${m.approvedBy ? `, by ${String(m.approvedBy)}` : ''}`;
+  if (m?.rule === 'bags_approved') return `Handed over without scanning every bag’s tag${m.approvedBy ? `, approved by ${String(m.approvedBy)}` : ''}`;
   if (m?.rule === 'handoff_without_scan') return `Handed over without the pickup code${m?.reason ? `: ${String(m.reason)}` : ''}`;
   return [m?.rule, m?.reason].filter(Boolean).join(': ');
 }

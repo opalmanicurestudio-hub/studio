@@ -165,7 +165,7 @@ export function PopupScreen() {
             return <li key={p.id} className="flex min-h-[52px] items-center justify-between gap-3 border-b py-2 text-[15px]" style={{ borderColor: C.line }}><span className="min-w-0 truncate">{p.name}, {dayWords(p.day)}</span><span className="shrink-0" style={muted}>{sold} sold at the table{p.called ? `, ${p.called} number${p.called === 1 ? '' : 's'} given out` : ''}</span></li>; })}</ul></section>}
       </div>
       {editing && <PopupForm tenantId={tenantId} today={today} start={editing === 'new' ? null : editing} call={call} onClose={() => setEditing(null)} onSaved={async (m) => { setEditing(null); setToast(m); await load(); }} />}
-      {handId && line.find((o) => o.id === handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={line.find((o) => o.id === handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
+      {handId && line.find((o) => o.id === handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={line.find((o) => o.id === handId)} actor={actor} lookup={(id) => line.find((o) => o.id === id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={32} />}
     </div>);
 }

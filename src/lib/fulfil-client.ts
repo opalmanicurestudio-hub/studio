@@ -49,14 +49,14 @@ export const approveUnit = (tenantId: string, orderId: string, lineId: string, r
 export const resolveShortLine = (_fs: any, tenantId: string, orderId: string, lineId: string, reason: string, resolution: ShortResolution, _actor: Actor) => step(tenantId, 'shortLine', { orderId, lineId, reason, resolution });
 export const reopenShortedLine = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor) => step(tenantId, 'reopenLine', { orderId, lineId });
 /** The shop's second scan is read by the server itself. */
-export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, _opts?: { requirePackScan?: boolean }) => step(tenantId, 'markPacked', { orderId });
+export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts?: { requirePackScan?: boolean; bags?: number }) => step(tenantId, 'markPacked', { orderId, ...(opts?.bags != null ? { bags: opts.bags } : {}) });
 export const markReady = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { autoArrived?: boolean; notifyReady?: boolean }>(tenantId, 'markReady', { orderId });
 /** The team member's photo is read by the server from their staff record. */
 export const markBringingOut = (_fs: any, tenantId: string, orderId: string, _actor: Actor, _photo?: string) => step(tenantId, 'bringingOut', { orderId });
-export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor: Actor, orderId?: string) => step<Ans & { orderNumber?: number; collector?: string | null }>(tenantId, 'handoffScan', { value, ...(orderId ? { orderId } : {}) });
+export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor: Actor, orderId?: string, bags?: string[], bagPin?: string) => step<Ans & { orderNumber?: number; collector?: string | null; needBags?: boolean; badBagPin?: boolean }>(tenantId, 'handoffScan', { value, ...(orderId ? { orderId } : {}), ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
 /** Handed over by the 4-digit code the person says (checked on the server, lib/pickup-pass). */
-export const handoffByPin = (tenantId: string, orderId: string, pin: string) => step<Ans & { orderNumber?: number; collector?: string | null; locked?: boolean }>(tenantId, 'handoffPin', { orderId, pin });
-export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor) => step(tenantId, 'handoffNoScan', { orderId, verifiedBy });
+export const handoffByPin = (tenantId: string, orderId: string, pin: string, bags?: string[], bagPin?: string) => step<Ans & { orderNumber?: number; collector?: string | null; locked?: boolean; needBags?: boolean }>(tenantId, 'handoffPin', { orderId, pin, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
+export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor, bags?: string[], bagPin?: string) => step<Ans & { needBags?: boolean }>(tenantId, 'handoffNoScan', { orderId, verifiedBy, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
 /** Local delivery (lib/retail-fulfill): out with the person signed in as the driver, delivered, or brought back. */
 export const markOutForDelivery = (tenantId: string, orderId: string) => step(tenantId, 'deliveryOut', { orderId });
 export const markDelivered = (tenantId: string, orderId: string, proof: { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean } = {}) =>

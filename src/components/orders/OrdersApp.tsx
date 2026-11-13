@@ -550,7 +550,7 @@ export function OrdersApp() {
       {!wide && panel}
 
       {shipGroup && byId.get(shipGroup[0]) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipGroup[0])} together={shipGroup.slice(1).map((id) => byId.get(id)).filter(Boolean)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipGroup(null)} onDone={(m) => { setShipGroup(null); setToast(m); }} />}
-      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
+      {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
       {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}
       {daySheet === 'late' && <LateSheet items={day.late} today={day.today} tz={shopZone} now={now} busy={dayBusy} onStep={(it, s) => void lateStep(it, s)} onClose={() => setDaySheet(null)} />}

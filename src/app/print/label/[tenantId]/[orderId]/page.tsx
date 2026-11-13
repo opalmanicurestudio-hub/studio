@@ -1,12 +1,16 @@
 import QRCode from 'qrcode';
 import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { methodWords } from '@/lib/order-method';
+import { bagWords, clampBags, goesInBags } from '@/lib/bag-tag';
+import { makeBagCode } from '@/lib/order-qr';
 
 // ─── /print/label/[tenantId]/[orderId]?t=<qrToken> ────────────────────────────
 // 4x6 label, token-gated. For SHIP orders it's an address label (affix
 // postage, or replace with a carrier-API label later — same slot). For pickup
-// orders it's a bag/shelf tag. The QR is the order token, so scanning the
-// label at handoff/staging verifies the right label is on the right package.
+// orders it's a tag for each bag (lib/bag-tag): "Bag 1 of 3", one 4x6 page each,
+// with that bag's own signed code, scanned at handover before the customer's
+// code. A bag's code is never the customer's pickup code. A ship label carries
+// the order's code, scanned to check the label is on the right box.
 // A label printer prints solid black only, so everything stays black ink, in
 // the app's lighter type with thin rules.
 
@@ -54,6 +58,9 @@ export default async function OrderLabelPage({
   const num = `#${String(order.orderNumber).padStart(4, '0')}`;
   const units = (order.lines || []).reduce((s: number, l: any) => s + (l.qtyOrdered - (l.qtyShorted || 0)), 0);
   const qrDataUrl = await QRCode.toDataURL(`clarityflow://order/${order.qrToken}`, { width: 360, margin: 1 });
+  // A pickup or delivery order: one tag per bag, each with its own code.
+  const bags = goesInBags(order) ? clampBags(order.bagCount || 1) : 0;
+  const tags: string[] = bags ? await Promise.all(Array.from({ length: bags }, (_, i) => QRCode.toDataURL(makeBagCode(tenantId, orderId, i + 1), { width: 360, margin: 1 }))) : [];
 
   return (
     <html>
@@ -77,9 +84,30 @@ export default async function OrderLabelPage({
           .num b { font-weight: 600; }
           .qr { width: 1.9in; height: 1.9in; display: block; margin: 12px auto 0; }
           .note { font-size: 10.5px; text-align: center; margin-top: 6px; }
+          .bag { font-size: 18px; font-weight: 600; margin-top: 4px; }
+          .next { break-after: page; page-break-after: always; }
         `}</style>
       </head>
       <body>
+        {bags ? tags.map((src, i) => (
+          <div key={i} className={`band${i < bags - 1 ? ' next' : ''}`}>
+            <p className="from">From <b>{shopName}</b></p>
+            {a ? (
+              <div>
+                <p className="kind">Deliver to</p>
+                <p className="to"><b>{a.name}</b><br />{a.line1}{a.line2 ? <><br />{a.line2}</> : null}<br />{a.city}, {a.state} {a.postalCode}</p>
+              </div>
+            ) : (
+              <div>
+                <p className="kind">{methodWords(order.method, tenant.retailSettings || {}).long}</p>
+                <p className="who">{order.customerName}</p>
+              </div>
+            )}
+            <p className="num"><b>{num}</b>{order.shelfSlot ? ` · Shelf ${order.shelfSlot}` : ''}</p>
+            <p className="bag">{bags > 1 ? bagWords(i + 1, bags) : `${units} item${units === 1 ? '' : 's'}`}</p>
+            <img className="qr" src={src} alt={bags > 1 ? bagWords(i + 1, bags) : 'Bag tag'} />
+            <p className="note">Scanned at handover, before it goes out</p>
+          </div>)) : (
         <div className="band">
           <p className="from">From <b>{shopName}</b></p>
           {a ? (
@@ -98,7 +126,7 @@ export default async function OrderLabelPage({
           <p className="num"><b>{num}</b> · {units} item{units === 1 ? '' : 's'}</p>
           <img className="qr" src={qrDataUrl} alt="Order QR" />
           <p className="note">Scan to check this package matches its order</p>
-        </div>
+        </div>)}
         <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){window.print()},400);' }} />
       </body>
     </html>

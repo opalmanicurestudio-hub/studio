@@ -25,6 +25,7 @@ import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
 import { failReason } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { approversOf, isApproveReason, mayApprove, scanRequired, type Approvers } from '@/lib/scan-rule';
+import { bagScanOn, clampBags } from '@/lib/bag-tag';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 
 export const dynamic = 'force-dynamic';
@@ -184,7 +185,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'undoCount': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.undoLineCount(db, tenantId, orderId, lineId, actor, b.what === 'box' || b.what === 'check' ? b.what : 'scan', b.via === 'tap' || b.via === 'approve' ? b.via : 'scan'); break; }
       case 'shortLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.resolveShortLine(db, tenantId, orderId, lineId, s(b.reason, 200) || 'Not on the shelf', b.resolution === 'backorder' ? 'backorder' : 'refund', actor); break; }
       case 'reopenLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.reopenShortedLine(db, tenantId, orderId, lineId, actor); break; }
-      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required }); break; }
+      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) }); break; }
       case 'markReady': {
         const m = need1(orderId, 'order'); if (m) return m;
         out = await F.markReady(db, tenantId, orderId, actor);
@@ -199,8 +200,9 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
       case 'bringingOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markBringingOut(db, tenantId, orderId, actor, await photoOf(db, tenantId, actor.id)); if (out?.ok && !/already/.test(out.message || '')) F.notifyCurbside(tenantId, orderId, 'out'); delete out?.notify; break; }
-      case 'handoffScan': out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined }); break;
-      case 'handoffPin': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffByPin(db, tenantId, orderId, s(b.pin, 12), actor); break; }
+      // Each bag's tag is scanned before the customer's code (lib/bag-tag), checked in the step, whatever screen sent it.
+      case 'handoffScan': { const br = await bagRule(db, tenantId, b); if ('deny' in br) return br.deny; out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined, ...br }); break; }
+      case 'handoffPin': { const m = need1(orderId, 'order'); if (m) return m; const br = await bagRule(db, tenantId, b); if ('deny' in br) return br.deny; out = await F.handoffByPin(db, tenantId, orderId, s(b.pin, 12), actor, br); break; }
       // Local delivery (lib/delivery-run): each step the customer hears about queues its message, once per try.
       case 'deliveryOut': {
         const m = need1(orderId, 'order'); if (m) return m;
@@ -254,7 +256,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
       case 'deliverySkip': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliverySkip(db, tenantId, orderId, actor); if (out?.ok) refreshRoute(db, tenantId, orderId); break; }
-      case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor); break; }
+      case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; const br = await bagRule(db, tenantId, b); if ('deny' in br) return br.deny; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor, br); break; }
       case 'splitReady': { const m = need1(orderId, 'order'); if (m) return m; out = await F.splitReadyFromWaiting(db, tenantId, orderId, actor); break; }
       case 'releaseBackorder': { const m = need1(orderId, 'order'); if (m) return m; out = await F.releaseBackorder(db, tenantId, orderId, actor, { onlyIfCovered: b.onlyIfCovered !== false }); break; }
       case 'releaseCovered': {
@@ -405,6 +407,26 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
     await Promise.allSettled(ctx()?.queued || []);
     return NextResponse.json({ ok: false, message: 'That didn’t go through. Try again.' }, { status: 500 });
   }
+}
+
+/** The bag tags scanned with a handover, and whether the shop scans bags at handover (lib/bag-tag), read here. A tag
+ *  that won't scan (or a count that was wrong) is handed over on the PIN of someone the shop lets approve (`bagPin`),
+ *  counted on the business's one lock like every PIN, and kept on the order with their name. */
+async function bagRule(db: any, tenantId: string, b: any): Promise<{ bags: string[]; requireBags: boolean; bagApprovedBy?: { id: string; name: string } } | { deny: any }> {
+  const t = await db.doc(`tenants/${tenantId}`).get().catch(() => null);
+  const rs = (t?.data?.() || {})?.retailSettings || {};
+  const bags = (Array.isArray(b.bags) ? b.bags : []).slice(0, 40).map((x: any) => s(x, 300));
+  const requireBags = bagScanOn(rs);
+  if (!requireBags || b.bagPin == null || b.bagPin === '') return { bags, requireBags };
+  const pin = s(b.bagPin, 8);
+  if (!validPin(pin)) return { deny: NextResponse.json({ ok: false, message: 'Enter a 4-digit PIN.' }, { status: 400 }) };
+  const ticket = await beginPinAttempt(db, tenantId);
+  if (ticket === null) return { deny: NextResponse.json({ ok: false, message: 'Too many wrong PINs. Wait 15 minutes and try again.' }, { status: 423 }) };
+  const hit = await findStaffByPin(db, tenantId, pin); const who: any = hit?.data || {}; const approvers = approversOf(rs);
+  const may = !!hit && who.isRenter !== true && hit.role.toLowerCase() !== 'renter' && mayApprove(permissionsFor(who), approvers);
+  await endPinAttempt(db, tenantId, ticket, may);
+  if (!hit || !may) return { deny: NextResponse.json({ ok: false, badBagPin: true, message: approvers === 'managers' ? 'That isn’t a manager’s PIN. Managers set their PIN on the Staff page.' : 'That PIN can’t approve this. Each person sets their PIN on the Staff page.' }, { status: 403 }) };
+  return { bags, requireBags, bagApprovedBy: { id: hit.id, name: hit.name } };
 }
 
 /** The shop's scanning rules (lib/scan-rule), read here so a screen can't skip them: every item scanned (on unless the

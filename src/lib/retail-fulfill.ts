@@ -22,6 +22,8 @@ import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isF
 import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
 import { handoffRecord, pinKeyOf, pinMatches, PIN_TRIES, type HandoffMethod } from '@/lib/pickup-pass';
 import { lineCounts, tappedLines, type Approval } from '@/lib/scan-rule';
+import { bagsToScan, clampBags, goesInBags, parseBagCode } from '@/lib/bag-tag';
+import { checkBagCode } from '@/lib/order-qr';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // The fulfillment steps. They run on the server (api/retail/fulfil, with the
@@ -715,7 +717,7 @@ export async function recordPackScan(
 
 export async function markPacked(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-  opts?: { requirePackScan?: boolean; requireScan?: boolean }
+  opts?: { requirePackScan?: boolean; requireScan?: boolean; bags?: number }
 ): Promise<{ ok: boolean; message: string }> {
   try {
     const batchId = await runTransaction(fs, async (txn) => {
@@ -742,8 +744,10 @@ export async function markPacked(
         throw new Error(`${ticked.length === 1 ? ticked[0].name : `${ticked.length} items`} ${units === 1 ? 'was' : 'were'} ticked by hand, not scanned. Scan ${units === 1 ? 'it' : 'each one'} to confirm, then finish.`);
       }
 
-      txn.update(oRef, { stage: 'packed', packedAt: new Date().toISOString() });
-      txn.set(doc(collection(oRef, 'events')), evPayload('packed', actor));
+      // How many bags it went into (lib/bag-tag): each gets a tag, and each is scanned at handover.
+      const bagCount = goesInBags(order) ? clampBags(opts?.bags ?? (order as any).bagCount ?? 1) : null;
+      txn.update(oRef, { stage: 'packed', packedAt: new Date().toISOString(), ...(bagCount ? { bagCount } : {}) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('packed', actor, bagCount && bagCount > 1 ? { bags: bagCount } : undefined));
       return order.batchId || null;
     });
 
@@ -914,22 +918,41 @@ export async function markBringingOut(
 
 /** The handoff, in one step with the order: stock out of the shelf, the order completed, and who handed it over, who
  *  collected it and how it was checked recorded on the order and its history (lib/pickup-pass). */
-function completeHandoff(txn: any, fs: Firestore, tenantId: string, oRef: any, order: RetailOrder & { id: string }, itemSnaps: any[], actor: Actor, method: HandoffMethod, check?: string) {
+function completeHandoff(txn: any, fs: Firestore, tenantId: string, oRef: any, order: RetailOrder & { id: string }, itemSnaps: any[], actor: Actor, method: HandoffMethod, check?: string, bags = 0, bagApproval?: { id: string; name: string } | null) {
   convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
-  const handoff = handoffRecord(order, actor, method, check);
+  const handoff = { ...handoffRecord(order, actor, method, check), ...(bags ? { bagsScanned: bags } : {}) };
   txn.update(oRef, clean({ stage: 'completed', completedAt: handoff.at, handoff }));
-  const meta = clean({ method, collectedBy: handoff.collectedBy, ...(handoff.collectedBy === 'someone_else' ? { collectorName: handoff.collectorName || '' } : {}) }) as any;
+  const meta = clean({ method, collectedBy: handoff.collectedBy, ...(handoff.collectedBy === 'someone_else' ? { collectorName: handoff.collectorName || '' } : {}), ...(bags ? { bagsScanned: bags } : {}) }) as any;
+  // Bags handed over without every tag scanned, on a manager's PIN (lib/bag-tag): kept with who approved it.
+  if (bagApproval) txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, { rule: 'bags_approved', approvedBy: String(bagApproval.name || '').slice(0, 60), approvedById: String(bagApproval.id || '').slice(0, 160), bags: Number((order as any).bagCount) || 0 }));
   if (method === 'checked') txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, { rule: 'handoff_without_scan', reason: `Identity verified: ${check || 'checked'}`.slice(0, 140), ...meta }));
   else txn.set(doc(collection(oRef, 'events')), evPayload('handoff_scanned', actor, meta));
   txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor, meta));
   return handoff;
 }
 
+/** EVERY BAG SCANNED (lib/bag-tag): while the shop scans bags at handover, an order finished in bags is handed over only
+ *  once each of its bags' tags was scanned (signed codes, checked here). Checked before the customer's code, so a missing
+ *  bag never costs them a try at it. Null when it's fine; otherwise what's still to scan. */
+export type BagOpts = { bags?: string[]; requireBags?: boolean; bagApprovedBy?: { id: string; name: string } | null };
+function missingBags(tenantId: string, order: any, orderId: string, opts: BagOpts): { need: number; message: string } | null {
+  const need = opts.requireBags ? bagsToScan(order, {}) : 0;
+  if (!need || opts.bagApprovedBy) return null;
+  const got = new Set((Array.isArray(opts.bags) ? opts.bags : []).slice(0, 40).map((c) => checkBagCode(tenantId, orderId, String(c))).filter((n): n is number => n !== null && n <= need));
+  const left = Array.from({ length: need }, (_, i) => i + 1).filter((n) => !got.has(n));
+  if (!left.length) return null;
+  return { need, message: need === 1 ? 'Scan the bag first.' : left.length === need ? `Scan all ${need} bags first.` : `Scan every bag first: bag ${left.join(', ')} of ${need} still to scan.` };
+}
+const bagsDone = (order: any, opts: BagOpts) => (opts.requireBags && !opts.bagApprovedBy ? bagsToScan(order, {}) : 0);
+const bagApproval = (order: any, opts: BagOpts) => (opts.requireBags && opts.bagApprovedBy && bagsToScan(order, {}) ? opts.bagApprovedBy : null);
+
 /** Handed over by the QR code on their phone. The parts of an order split for a back-ordered item share its code: the
  *  part this screen has open, or else the one part that's ready, is the one handed over. */
 export async function handoffByScan(
-  fs: Firestore, tenantId: string, scannedValue: string, actor: Actor, opts: { orderId?: string } = {}
-): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null }> {
+  fs: Firestore, tenantId: string, scannedValue: string, actor: Actor, opts: { orderId?: string } & BagOpts = {}
+): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null; needBags?: boolean }> {
+  // A bag's tag is never the customer's code (lib/bag-tag): scanning the bag alone hands nothing over.
+  if (parseBagCode(scannedValue)) return { ok: false, message: 'That’s a bag tag. Now scan the code on their phone.' };
   const token = parseOrderQr(scannedValue) ?? scannedValue.trim();
   const match = await getDocs(query(orderCol(fs, tenantId), where('qrToken', '==', token), limit(10)));
   if (match.empty) return { ok: false, message: 'Not a valid pickup code for this shop.' };
@@ -955,9 +978,11 @@ export async function handoffByScan(
           message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage]}, so it cannot be handed off yet.`,
         };
       }
+      const miss = missingBags(tenantId, order, orderId, opts);
+      if (miss) return { ok: false, needBags: true, message: miss.message };
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
-      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'qr');
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'qr', undefined, bagsDone(order, opts), bagApproval(order, opts));
       return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
@@ -972,8 +997,8 @@ export async function handoffByScan(
 /** Handed over by the 4-digit code the person says (lib/pickup-pass). A wrong code counts a try; after a few in a row
  *  the code stops working for this order, and the QR code or a check of their name and phone is the way. */
 export async function handoffByPin(
-  fs: Firestore, tenantId: string, orderId: string, said: string, actor: Actor
-): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null; locked?: boolean }> {
+  fs: Firestore, tenantId: string, orderId: string, said: string, actor: Actor, opts: BagOpts = {}
+): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null; locked?: boolean; needBags?: boolean }> {
   try {
     const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -984,6 +1009,8 @@ export async function handoffByPin(
       if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return { ok: false, message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS]}, so it cannot be handed off yet.` };
       }
+      const miss = missingBags(tenantId, order, orderId, opts);
+      if (miss) return { ok: false, needBags: true, message: miss.message };
       const tries = Math.max(0, Number(order.pinTries) || 0);
       if (tries >= PIN_TRIES) return { ok: false, locked: true, message: 'The code was wrong too many times, so it no longer works for this order. Scan the QR code on their phone, or check their name and phone.' };
       if (!pinMatches(tenantId, pinKeyOf(order, orderId), said)) {
@@ -993,7 +1020,7 @@ export async function handoffByPin(
         return { ok: false, locked: left <= 0, message: left > 0 ? `That code doesn’t match order #${order.orderNumber}. Ask them to check their order page.` : 'That code doesn’t match, and it no longer works for this order. Scan the QR code on their phone, or check their name and phone.' };
       }
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
-      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'pin');
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'pin', undefined, bagsDone(order, opts), bagApproval(order, opts));
       return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
     });
     if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
@@ -1006,8 +1033,8 @@ export async function handoffByPin(
 
 /** Lost-phone fallback. Same conversion, but logged as an override. */
 export async function handoffWithoutScan(
-  fs: Firestore, tenantId: string, orderId: string, verifiedBy: string, actor: Actor
-): Promise<{ ok: boolean; message: string }> {
+  fs: Firestore, tenantId: string, orderId: string, verifiedBy: string, actor: Actor, opts: BagOpts = {}
+): Promise<{ ok: boolean; message: string; needBags?: boolean }> {
   try {
     const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -1018,9 +1045,11 @@ export async function handoffWithoutScan(
       if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]} and is not ready for handoff.` };
       }
+      const miss = missingBags(tenantId, order, orderId, opts);
+      if (miss) return { ok: false, needBags: true, message: miss.message };
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
-      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'checked', verifiedBy);
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'checked', verifiedBy, bagsDone(order, opts), bagApproval(order, opts));
       return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)`, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).

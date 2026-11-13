@@ -62,7 +62,8 @@ const as = (x: any) => { actor = { uid: 'k1', name: 'Kai Park', role: 'staff', i
   r = await step('markReady', { orderId: 'o1' });
   o = await get(`${T}/retailOrders/o1`);
   check('packed and ready on the server; the customer is told it’s ready from there, once', r.body.ok && o.stage === 'ready' && called.filter((c) => c.url === 'https://app.example/api/retail/ready-notify').length === 1, { r: r.body, called });
-  r = await step('handoffScan', { value: 'o1.abcdef' });
+  // Its bag's tag first (lib/bag-tag), then their code.
+  r = await step('handoffScan', { value: 'o1.abcdef', bags: [(await import('../../src/lib/order-qr')).makeBagCode('t1', 'o1', 1)] });
   o = await get(`${T}/retailOrders/o1`);
   const gel = await get(`${T}/inventory/gel`);
   const evs = await all(`${T}/retailOrders/o1/events`);
