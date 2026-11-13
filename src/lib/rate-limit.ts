@@ -23,6 +23,8 @@ export async function limitPublic(req: NextRequest, scope: string, tenantId: str
     const h = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32);
     const okIp = await bump(`${scope}_ip_${h(`${tenantId}|${visitorIp(req)}`)}_${hour}`, opts.perHour, 2 * 3600000);
     if (!okIp) return NextResponse.json({ ok: false, error: 'Too many tries from here — please wait a little while and try again.' }, { status: 429 });
+    // (No allowance for the whole business when perDay is 0: an order's own signed page, polled by many guests at once.)
+    if (!(opts.perDay > 0)) return null;
     const okDay = await bump(`${scope}_biz_${h(tenantId)}_${day}`, opts.perDay, 2 * 86400000);
     if (!okDay) return NextResponse.json({ ok: false, error: 'This is very busy right now. Please try again in a little while.' }, { status: 429 });
     return null;

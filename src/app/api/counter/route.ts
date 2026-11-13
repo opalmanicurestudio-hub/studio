@@ -60,6 +60,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
 import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
 import { walletsOn } from '@/lib/wallet-domains';
+import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -172,6 +173,11 @@ export async function POST(req: NextRequest) {
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
         orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant) }, menu: menu.filter((m) => m.onMenu), now: nowIso,
+        // Orders placed ahead for the drive-thru, paid and not picked up yet (lib/counter-ahead): those on their way first.
+        // (Even with ordering ahead switched off since: an order already paid is still picked up.)
+        ahead: await aheadForLane(db, tenantId, tenant).catch((e: any) => { console.error('[counter] orders placed ahead not read', e?.message); return []; }),
+        // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
+        aheadOn: aheadOf(tenant).on,
       });
     }
 
@@ -268,6 +274,12 @@ export async function POST(req: NextRequest) {
     // Anything that changes today's numbers lets them be worked out again on the next read.
     if (['car', 'move', 'cancel', 'void'].includes(action)) statsCache.delete(tenantId);
 
+    // "I ordered ahead, code 4821": the order placed ahead becomes this car's (or a new car's), straight to pickup.
+    if (action === 'aheadCar') {
+      const r: any = await aheadToCar(db, tenantId, tenant, { orderId: b.orderId, code: b.code, carId: b.carId }, who);
+      statsCache.delete(tenantId);
+      return r.ok ? ok({ carId: r.carId, number: r.number, name: r.name, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
     if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who, { inLine: b.inLine === true, looks: cleanLooks(b.looks) }); statsCache.delete(tenantId); return ok({ ...c, staffOk }); }
 
     if (action === 'looks') {

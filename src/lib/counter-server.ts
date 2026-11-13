@@ -130,7 +130,9 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
 /** To the kitchen: one ticket a line, due by the lane's target (never sooner than the slowest item takes). Everything is
  *  checked again first (still on the menu, not sold out, its choices still there, enough in stock), and stock (the item
  *  and what its recipe uses) is taken once, here. */
-export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
+/** `o.due`: when it's wanted (an order placed ahead for a time); `o.holdUntil`: the kitchen doesn't start before then (the
+ *  tickets wait under Later on the kitchen screen until it's time, or until the guest says they're here). */
+export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who, opts: { due?: string | null; holdUntil?: string | null } = {}): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
@@ -192,13 +194,15 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     }
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     const channel = o.channel as Channel;
-    const due = new Date(dueAt(channel, now.getTime(), lines, tenant)).toISOString();
+    const asap = dueAt(channel, now.getTime(), lines, tenant); const wanted = Date.parse(String(opts.due || ''));
+    const due = new Date(Number.isFinite(wanted) && wanted > asap ? wanted : asap).toISOString();
+    const hold = Date.parse(String(opts.holdUntil || '')); const holdUntil = Number.isFinite(hold) && hold > now.getTime() ? new Date(hold).toISOString() : null;
     const who2 = ticketWho(o);
     lines.forEach((l, i) => {
       const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}`);
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: l.itemId, menuItemName: l.name, quantity: l.quantity,
         choicesText: l.choicesText || null, guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due,
-        line: i + 1, lines: lines.length, tenantId, stockMoved: true });
+        line: i + 1, lines: lines.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
     // Taken: each stock item once (lib/usage moveStock for an ingredient, as the lounge does), with a line in the stock

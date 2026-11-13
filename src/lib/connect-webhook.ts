@@ -710,6 +710,17 @@ export async function handleConnectWebhook(req: NextRequest) {
             await settlePhone(db, tenant.id, t, String(meta.orderId || ''), piId);
           }
         } catch (e) { console.error('[connect-webhook] drive-thru phone payment not marked on its order', e); }
+        // An order placed ahead and paid on the guest's phone: to the kitchen and paid by it, in case their page never
+        // said so (lib/counter-ahead; once, whichever hears first).
+        try {
+          const meta: any = charge.metadata || {};
+          const piId = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent as any)?.id;
+          if (piId && meta.source === 'order_ahead' && String(meta.tenantId || '') === tenant.id && charge.paid && !charge.refunded) {
+            const { settleAhead } = await import('@/lib/counter-ahead');
+            const t: any = (await db.doc(`tenants/${tenant.id}`).get()).data() || {};
+            await settleAhead(db, tenant.id, t, String(meta.orderId || ''), piId);
+          }
+        } catch (e) { console.error('[connect-webhook] order placed ahead not sent to the kitchen', e); }
         break;
       }
 

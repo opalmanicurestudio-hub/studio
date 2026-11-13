@@ -500,9 +500,12 @@ export default function KitchenScreen() {
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
       // A sound for every ticket not seen before (the first one after a quiet spell too), never for what was already up.
-      const ids = next.tickets.map((t) => `${t.col}/${t.id}`);
+      // (An order placed ahead for later rings once it's time to start, not when it comes in: only what's showing counts.)
+      const srvNow = d.now && Number.isFinite(Date.parse(d.now)) ? Date.parse(d.now) : Date.now();
+      const showing = next.tickets.filter((t) => !(t.status === 'pending' && t.holdUntil && Date.parse(t.holdUntil) > srvNow));
+      const ids = showing.map((t) => `${t.col}/${t.id}`);
       if (seen.current) {
-        const fresh = next.tickets.filter((t) => t.status === 'pending' && !seen.current!.has(`${t.col}/${t.id}`));
+        const fresh = showing.filter((t) => t.status === 'pending' && !seen.current!.has(`${t.col}/${t.id}`));
         if (fresh.length && soundOn && audio.current && audio.current.state === 'running') chime(audio.current);
         for (const i of ids) seen.current.add(i);
       } else seen.current = new Set(ids);
@@ -574,7 +577,21 @@ export default function KitchenScreen() {
   };
   const showAll = () => { setEventId(null); seen.current = null; try { window.history.replaceState(null, '', window.location.pathname); } catch { /* */ } };
 
-  const tickets = data?.tickets || [];
+  // Orders placed ahead for later wait under Later until it's time to start (or the guest says they're here).
+  const allTickets = data?.tickets || [];
+  const isHeld = (t: KitchenTicket) => t.status === 'pending' && !!t.holdUntil && Date.parse(t.holdUntil) > now;
+  // (Worked out again only when one starts waiting or stops, not every second.)
+  const heldKey = allTickets.filter(isHeld).map((t) => t.id).join('|');
+  const tickets = useMemo(() => allTickets.filter((t) => !isHeld(t)), [allTickets, heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const later = useMemo(() => {
+    const by = new Map<string, { number: string; who: string | null; start: number; due: number | null; count: number }>();
+    for (const t of allTickets) {
+      if (!isHeld(t)) continue;
+      const k = t.orderId || t.id; const cur = by.get(k);
+      by.set(k, { number: t.orderNumber || '', who: t.name && t.name !== 'Guest' ? t.name : null, start: Date.parse(t.holdUntil!), due: t.dueAt ? Date.parse(t.dueAt) : null, count: (cur?.count || 0) + t.quantity });
+    }
+    return Array.from(by.values()).sort((a, b) => a.start - b.start);
+  }, [allTickets, heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const byTime = (a: KitchenTicket, b: KitchenTicket) => String(a.at).localeCompare(String(b.at));
   // What to make next: drive-thru first, then whatever is due soonest (lib/kitchen kitchenOrder).
   const lanes = useMemo(() => ({
@@ -667,6 +684,7 @@ export default function KitchenScreen() {
           <span>Waiting <b className="font-semibold tabular-nums" style={{ color: INK }}>{lanes.waiting.length}</b></span>
           <span>Average wait <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : 'none yet'}</b></span>
           {lateCount > 0 && <span style={{ color: AMBER }}>Past their time <b className="font-semibold tabular-nums">{lateCount}</b></span>}
+          {later.length > 0 && <span>Later {later.slice(0, 4).map((l, i) => <b key={i} className="ml-1.5 font-semibold" style={{ color: INK }}>{l.number}{l.who ? ` · ${l.who}` : ''} starts {new Date(l.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{i < Math.min(later.length, 4) - 1 ? ',' : ''}</b>)}{later.length > 4 ? ` and ${later.length - 4} more` : ''}</span>}
           {stats.top && <span>Most ordered <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
         </div>
       </header>

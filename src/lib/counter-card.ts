@@ -402,12 +402,21 @@ export async function sweepCounterCards(db: any, tenantId: string, tenant: any, 
       const cur: any = (await tx.get(d.ref)).data() || {};
       if (!['paid', 'stopped'].includes(String(cur.card?.state || 'stopped'))) return;
       if (cur.phone?.id && !['paid', 'stopped'].includes(String(cur.phone.state || ''))) return;
+      if (cur.ahead?.state === 'awaiting_pay') return;
       if (Object.values<any>(cur.cardBack || {}).some((b) => b?.refunded === false)) return;
       tx.set(d.ref, { cardOpen: false }, { merge: true });
     });
     // Scan to pay (lib/counter-phone): one paid on the phone that nobody heard about pays the order (or goes back, if it
     // was paid another way); one not paid (and not going through) is called off once the order is paid or voided, or its
     // link has expired.
+    // An order placed ahead (lib/counter-ahead): paid and nobody heard, it goes to the kitchen; not paid after 30
+    // minutes, it's let go.
+    if (or.ahead?.state === 'awaiting_pay') {
+      const A = await import('@/lib/counter-ahead');
+      const r = await A.sweepAhead(db, tenantId, tenant, or, d.id, { stripe, now }).catch(() => null);
+      if (r === 'paid') { out.checked++; out.paid++; } else if (r === 'abandoned') { out.checked++; out.stopped++; }
+      if (r !== 'paid') continue;
+    }
     const ph: any = or.phone || {};
     if (ph.id && ph.state === 'open') {
       const phAge = now - (Date.parse(String(ph.at || '')) || now);

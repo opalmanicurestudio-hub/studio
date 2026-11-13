@@ -27,6 +27,9 @@ import { randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
+import { aheadOf } from '@/lib/counter-ahead';
+import { accountOf } from '@/lib/reader-sale';
+import { linkOrigin } from '@/lib/app-origin';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -36,13 +39,20 @@ const bad = (error: string, status = 400) => NextResponse.json({ ok: false, erro
 const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET, process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET].map((b) => String(b || '').trim()).filter((b) => /^[A-Za-z0-9._-]{3,222}$/.test(b))));
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
+/** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
+function aheadSettings(t: any, tenantId: string, origin: string | null) {
+  const a = t.orderAhead || {}; const A = aheadOf(t);
+  return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, laterHours: A.laterHours, payments: !!accountOf(t),
+    link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -53,7 +63,7 @@ export async function POST(req: NextRequest) {
       // Each item's recipe (what goes into one), for the Menu page's editor.
       const recipes: Record<string, any[]> = {};
       for (const d of items.docs) { const r = recipeOf(d.data() || {}, d.id); if (r.length) recipes[d.id] = r; }
-      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) },
+      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -100,6 +110,22 @@ export async function POST(req: NextRequest) {
       if (!r.ok) return bad(r.error, 502);
       await tRef.set({ driveThru: { voiceVersion: VOICE_VERSION, voiceUpdatedAt: new Date().toISOString(), voiceUpdatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
       return ok({ updated: true });
+    }
+
+    // Ordering ahead (lib/counter-ahead): on or off, how guests can pick up, and how far ahead they can order.
+    if (action === 'ahead') {
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const cur = t.orderAhead || {};
+      const patch: any = {};
+      if (typeof b.on === 'boolean') patch.on = b.on;
+      if (typeof b.driveThru === 'boolean') patch.driveThru = b.driveThru;
+      if (typeof b.inside === 'boolean') patch.inside = b.inside;
+      if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
+      const next = { ...cur, ...patch };
+      if (next.driveThru === false && next.inside === false) return bad('Keep at least one way to pick up.');
+      if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
+      await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
+      return ok({ ahead: aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null) });
     }
 
     if (action === 'laneSettings') {

@@ -44,7 +44,8 @@ type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; sta
   inLine?: boolean; wasInLine?: boolean; hereAt?: string | null; looks?: string | null };
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: MenuItem[]; now: string };
+type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: MenuItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -196,6 +197,9 @@ export default function DriveThru() {
   const [spotOpen, setSpotOpen] = useState(false);
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
+  // Ordered ahead: the list of today's drive-thru orders placed ahead, and the code being typed in.
+  const [aheadOpen, setAheadOpen] = useState(false);
+  const [aheadCode, setAheadCode] = useState('');
   // Scan to pay: the code for this order, up while the guest pays on their own phone.
   const [phoneFor, setPhoneFor] = useState<{ orderId: string; url: string; img: string; wallets: boolean } | null>(null);
   // The card reader at this screen (kept on the device): one of the business's readers, or 'none' for a card machine of
@@ -437,6 +441,14 @@ export default function DriveThru() {
   // A car taken in line has reached the window: from now on the window screens and tablets show it.
   const isHere = (c: CarRow) => act('here', { action: 'here', carId: c.id }, () => { pickCar(c.id); setLane((l) => (l ? { ...l, cars: l.cars.map((x) => (x.id === c.id ? { ...x, inLine: false, wasInLine: true } : x)) } : l)); });
   const handIn = () => act('handIn', { action: 'handIn' }, (d) => { setNotice({ text: d.count ? `Handed in ${usd(d.handedIn)} to the drawer.${d.more ? ' There’s more: hand in again.' : ''}` : 'Nothing to hand in.', tone: 'good' }); void loadPouch(); }, undefined, (d) => { if (d.needsStaff) setPinOpen(true); });
+  // "I ordered ahead": the order placed ahead becomes the car at the speaker (when it hasn't ordered yet), or a new car.
+  const ahead = lane?.ahead || [];
+  const aheadHere = ahead.filter((a) => a.hereAt);
+  const emptyCar = car && car.stage === 'speaker' && order && order.status === 'building' && !order.lines.length ? car : null;
+  const toAhead = (x: { orderId?: string; code?: string }) => act('aheadCar', { action: 'aheadCar', ...x, ...(emptyCar ? { carId: emptyCar.id } : {}) }, (d) => {
+    setAheadOpen(false); setAheadCode(''); pickCar(d.carId);
+    setNotice({ text: `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid. Send them on to the pickup window.`, tone: 'good' });
+  });
   // Coming from the line: ordered there, now on their way to the window.
   const fromLine = role === 'line' ? [] : cars.filter((c) => c.inLine && c.stage !== 'speaker');
   const cardOn = !!order && !order.paidAt && ON_READER.includes(String(order.card?.state || ''));
@@ -652,6 +664,10 @@ export default function DriveThru() {
           <button type="button" onClick={() => (role === 'line' ? setLooksFor('new') : newCar())} disabled={busy === 'car'} className={`${btn} flex min-h-[64px] w-full items-center justify-center gap-2 text-[17px]`} style={{ background: INK, color: '#fff' }}>
             <Plus className="h-5 w-5" aria-hidden />{role === 'line' ? 'New car in line' : 'New car at the speaker'}
           </button>
+          {role !== 'line' && (ahead.length > 0 || !!lane?.aheadOn || aheadOpen) && (
+            <button type="button" onClick={() => setAheadOpen(true)} className={`${btn} flex w-full items-center justify-between`} style={aheadHere.length ? { background: GREEN_TINT, color: GREEN } : quiet}>
+              <span>Ordered ahead{aheadHere.length ? `: ${aheadHere.length} on the way` : ''}</span><span className="tabular-nums">{ahead.length}</span>
+            </button>)}
           {fromLine.length > 0 && (
             <div className="space-y-2 rounded-2xl px-3 py-3" style={{ background: AMBER_TINT }} role="group" aria-labelledby="from-line">
               <p id="from-line" className="px-1 text-[13.5px] font-semibold" style={{ color: AMBER }}>Coming from the line</p>
@@ -884,6 +900,7 @@ export default function DriveThru() {
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q); setChoiceFor(null); }} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
+      {aheadOpen && <AheadSheet list={ahead} code={aheadCode} setCode={setAheadCode} busy={busy === 'aheadCar'} toCar={!!emptyCar} now={now} onPick={(x) => toAhead(x)} onClose={() => { setAheadOpen(false); setAheadCode(''); }} />}
       {looksFor && <LooksSheet start={looksFor === 'new' ? null : cars.find((c) => c.id === looksFor)?.looks || null} busy={busy === 'car' || busy === 'looks'}
         title={looksFor === 'new' ? 'A new car in line' : 'How the car looks'} cta={looksFor === 'new' ? 'Start the order' : 'Save'}
         onClose={() => setLooksFor(null)}
@@ -895,6 +912,49 @@ export default function DriveThru() {
 
 // ─── Walking the line: which car it is, by color and kind (optional), so the window knows it ──────────────────────────
 const SWATCH: Record<string, string> = { White: '#ffffff', Black: '#16171a', Gray: '#8a8d93', Silver: '#c9cbd0', Red: '#c0392b', Blue: '#2f5fb3', Green: '#2e7d4f', Brown: '#7a5230', Gold: '#c9a227' };
+// ─── "I ordered ahead": find the order placed ahead by its code, or from today's list ─────────────────────────────────
+function AheadSheet({ list, code, setCode, busy, toCar, now, onPick, onClose }: { list: Ahead[]; code: string; setCode: (v: string) => void; busy: boolean; toCar: boolean; now: number; onPick: (x: { orderId?: string; code?: string }) => void; onClose: () => void }) {
+  const box = useRef<HTMLDivElement | null>(null);
+  const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    box.current?.querySelector<HTMLElement>('input')?.focus();
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close.current(); } };
+    document.addEventListener('keydown', k);
+    return () => { document.removeEventListener('keydown', k); prev?.focus?.(); };
+  }, []);
+  const clockOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={onClose}>
+      <div ref={box} role="dialog" aria-modal="true" aria-labelledby="ahead-title" className="max-h-[92dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-3xl bg-[#fff] p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h2 id="ahead-title" className="text-[20px] font-semibold tracking-tight">Ordered ahead</h2>
+          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Ask for their pickup code. {toCar ? 'The order becomes the car at the speaker' : 'A car is added for it'}, paid, and goes straight to pickup.</p>
+        </div>
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (/^\d{4}$/.test(code)) onPick({ code }); }}>
+          <label className="sr-only" htmlFor="ahead-code">Pickup code</label>
+          <input id="ahead-code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" autoComplete="off" placeholder="4-digit code" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-center text-[24px] font-semibold tracking-[0.2em] tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
+          <button type="submit" disabled={busy || !/^\d{4}$/.test(code)} className={`${btn} min-h-[56px] shrink-0 px-5`} style={{ background: INK, color: '#fff' }}>{busy ? 'Finding…' : 'Find'}</button>
+        </form>
+        {list.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[14px] font-semibold">Today, not picked up yet</p>
+            {list.map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: a.hereAt ? GREEN_TINT : SOFT }}>
+                <span className="min-w-0">
+                  <span className="block truncate text-[15px]"><b className="font-semibold tabular-nums">{a.number}</b>{a.name ? ` · ${a.name}` : ''} · code <b className="font-semibold tabular-nums">{a.code}</b></span>
+                  <span className="block truncate text-[13px]" style={{ color: a.hereAt ? GREEN : MUTED }}>{a.hereAt ? `On the way, ${Math.max(0, Math.round((now - Date.parse(a.hereAt)) / 60000))} min ago` : a.at ? `For ${clockOf(a.at)}` : 'As soon as it’s ready'} · {a.summary}{a.items > 3 ? '…' : ''}</span>
+                </span>
+                <button type="button" disabled={busy} onClick={() => onPick({ orderId: a.id })} className={`${btn} shrink-0`} style={{ background: INK, color: '#fff' }}>It’s this car</button>
+              </div>
+            ))}
+          </div>)}
+        <button type="button" onClick={onClose} className={`${btn} w-full`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>Close</button>
+      </div>
+    </div>
+  );
+}
+
 function LooksSheet({ start, title, cta, busy, onDone, onClose }: { start: string | null; title: string; cta: string; busy: boolean; onDone: (looks: string | null) => void; onClose: () => void }) {
   const words = (start || '').split(' ');
   const [color, setColor] = useState<string | null>(CAR_COLORS.find((c) => words.includes(c)) || null);

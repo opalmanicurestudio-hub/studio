@@ -79,6 +79,8 @@ export function ticketFrom(d: any, col: KitchenCol) {
     orderId: typeof r.orderId === 'string' ? r.orderId : null,
     orderNumber: typeof r.orderNumber === 'string' ? r.orderNumber.slice(0, 12) : null,
     dueAt: typeof r.dueAt === 'string' && Number.isFinite(Date.parse(r.dueAt)) ? r.dueAt : null,
+    // An order placed ahead for later: not started before this (it waits under Later on the kitchen screen).
+    holdUntil: typeof r.holdUntil === 'string' && Number.isFinite(Date.parse(r.holdUntil)) ? r.holdUntil : null,
     line: Number.isFinite(Number(r.line)) && r.line ? Number(r.line) : null, lines: Number.isFinite(Number(r.lines)) && r.lines ? Number(r.lines) : null,
   };
 }
