@@ -12,6 +12,8 @@
 // It is decision SUPPORT, never a verdict: a weak score means "the record is
 // thin here — look closer," not "the customer is right/wrong."
 
+import { everyUnitScanned } from './scan-rule';
+
 export type IntegrityInput = {
   method?: string;                 // 'ship' | 'counter' | 'curbside' | ...
   stage?: string;
@@ -36,9 +38,8 @@ export function computeIntegrityScore(input: IntegrityInput): IntegrityScore {
   const isShip = input.method === 'ship';
   const delivered = input.stage === 'completed';
 
-  const allScanned =
-    lines.length > 0 &&
-    lines.every((l) => (Number(l.qtyScanned) || 0) >= Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0)));
+  // Scanned means scanned: a unit approved without a scan, or ticked by hand, doesn't pass (lib/scan-rule).
+  const allScanned = everyUnitScanned(lines);
   const photoCount = Array.isArray(input.packPhotoUrls) ? input.packPhotoUrls.length : 0;
 
   const checks: IntegrityScore['checks'] = [

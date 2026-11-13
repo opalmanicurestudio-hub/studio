@@ -21,7 +21,9 @@ import { ScanGate } from '@/components/retail/ScanGate';
 import { INSURED_PACK_RULES, PACK_PHOTO_KIND_LABEL, boxesMissingPhoto, insuredPackCheck, packPhotoLimit, packPhotoPolicy, packPhotoRequired, packPhotosOf, type PackPhotoKind } from '@/lib/pack-photo';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
+import { approveInto, finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
+import { approvedByWords, approversOf, lineCounts, orderCounts, scanRequired, type ApproveReason } from '@/lib/scan-rule';
+import { CantScanSheet } from '../CantScanSheet';
 import { reopenShortedLine, type Actor } from '@/lib/fulfil-client';
 import { lineMatchesScan } from '@/lib/retail-orders';
 import { toteOf } from '@/lib/totes';
@@ -45,7 +47,14 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
 }) {
   const active = mode === 'active';
   const nums = useWindowNumbers(tenantId);
-  const [undo, setUndo] = React.useState<{ text: string; lineId: string; what?: 'scan' | 'box' | 'check' } | null>(null);
+  const [undo, setUndo] = React.useState<{ text: string; lineId: string; what?: 'scan' | 'box' | 'check'; via?: 'scan' | 'tap' | 'approve' } | null>(null);
+  // An item that won't scan, open in its sheet (while the shop scans every item, a tap opens this instead of counting).
+  const [cant, setCant] = React.useState<any | null>(null);
+  // The note that items are scanned now, shown once on this device (a per-device convenience; nothing depends on it).
+  const noteKey = `cf-scan-note-${tenantId}`;
+  const [noted, setNoted] = React.useState(true);
+  React.useEffect(() => { try { setNoted(window.localStorage.getItem(noteKey) === '1'); } catch { setNoted(true); } }, [noteKey]);
+  const dismissNote = () => { setNoted(true); try { window.localStorage.setItem(noteKey, '1'); } catch { /* shown again next time, nothing lost */ } };
   const [err, setErr] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [camera, setCamera] = React.useState(false);
@@ -58,10 +67,12 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const [done, setDone] = React.useState<string | null>(null);
   const [view, setView] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  React.useEffect(() => { setErr(''); setLearn(null); setUndo(null); setCamera(false); setTyped(''); }, [order.id]);
-  // Tapping an item in is allowed unless the shop wants every unit scanned: "scan every item" or "second scan at
-  // packing" (here, at the box, is where that scan happens).
-  const canTap = rs?.requireScan !== true && rs?.requirePackScan !== true;
+  React.useEffect(() => { setErr(''); setLearn(null); setUndo(null); setCamera(false); setTyped(''); setCant(null); }, [order.id]);
+  // EVERY ITEM SCANNED (lib/scan-rule): on unless the shop turned it off. Tapping an item in counts it only when the shop
+  // scans neither every item nor at packing (here, at the box, is where that scan happens); otherwise a tap opens the
+  // help for an item that won't scan. The server holds the same rule, whatever screen sends a tap.
+  const required = scanRequired(rs);
+  const canTap = !required && rs?.requirePackScan !== true;
   const prog = packProgress(order);
   // THE SECOND SCAN: the shop wants every unit counted into the box (never for a wave order, whose one scan is at the
   // box). What's in the box is saved on the order (qtyPacked); what was picked at the shelf and isn't in yet is scanned
@@ -74,7 +85,14 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     const owed = owedOf(l); const packed = Math.min(l.qtyPacked || 0, owed);
     return { done: a.done + packed, total: a.total + owed, shelf: a.shelf + Math.max(0, Math.min(l.qtyScanned || 0, owed) - packed) };
   }, { done: 0, total: 0, shelf: 0 });
-  const left = boxMode ? Math.max(0, inBox.total - inBox.done) : Math.max(0, prog.total - prog.done);
+  // Units ticked by hand before the shop scanned every item are scanned to confirm before it can finish, so they count
+  // as left to scan (the server holds the same rule as it marks the order packed).
+  // (With the second scan on, the scan that checks a ticked unit into the box confirms it too, so only ticked units
+  // already in the box need a scan of their own.)
+  const ticked = !required ? 0 : boxMode
+    ? (order.lines || []).filter((l: any) => l.digital !== true).reduce((a: number, l: any) => a + Math.max(0, lineCounts(l).tapped - Math.max(0, owedOf(l) - (l.qtyPacked || 0))), 0)
+    : orderCounts(order.lines || []).tapped;
+  const left = (boxMode ? Math.max(0, inBox.total - inBox.done) : Math.max(0, prog.total - prog.done)) + ticked;
   // The bar counts what finishing needs: units in the box (second scan) or units counted.
   const shown = boxMode ? inBox : prog;
   // Picked at the shelf, waiting to be scanned into the box.
@@ -111,10 +129,14 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
 
   const after = (r: { ok: boolean; message: string }, name: string, lineId: string, verb: string) => {
     feel(r.ok);
-    if (r.ok) { setErr(''); setUndo({ text: `${name} ${verb}`, lineId }); } else setErr(r.message);
+    if (r.ok) { setErr(''); setUndo({ text: `${name} ${verb}`, lineId, via: 'tap' }); } else setErr(r.message);
   };
+  // Units of a line still to count here: into the box (second scan) or counted at all.
+  const openUnits = (l: any) => boxMode ? Math.max(0, owedOf(l) - (l.qtyPacked || 0))
+    : ['shorted', 'refunded', 'backordered'].includes(l.status) ? 0 : Math.max(0, l.qtyOrdered - l.qtyScanned);
   const tap = async (l: any) => {
-    if (!active || !canTap || l.qtyScanned >= l.qtyOrdered || ['shorted', 'refunded', 'backordered'].includes(l.status)) return;
+    if (!active || openUnits(l) <= 0) return;
+    if (!canTap) { setErr(''); setLearn(null); setCant(l); return; }
     after(await tapInto(fs, tenantId, order.id, l.lineId, actor), l.name, l.lineId, 'ticked');
   };
   // Something that isn't on this order but another order waiting to be packed still needs: which one, and its tote.
@@ -129,8 +151,26 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     const r = await scanInto(fs, tenantId, order.id, v, actor, rs);
     if (!r.ok) { feel(false); setErr(`${r.message}${r.miss === 'elsewhere' ? whoseIs(v) : ''}`); setLearn(r.miss === 'unknown' && !v.includes('://') ? v : null); return; }
     setLearn(null); feel(true); setErr('');
-    // Undone exactly: a scan at the box takes the unit back out; a second scan takes back only its check.
-    setUndo({ text: `${r.name || 'Item'} ${r.kind === 'checked' ? 'checked into the box' : 'scanned'}`, lineId: r.lineId || '', what: r.kind === 'checked' ? 'check' : 'box' });
+    if (cant && r.lineId === cant.lineId) setCant(null);
+    undoFor(r);
+  };
+  // Undone exactly: a scan at the box takes the unit back out; a second scan takes back only its check. A scan that
+  // confirmed a unit ticked by hand counted nothing more, so there's nothing to take back.
+  const undoFor = (r: any) => setUndo(r.kind === 'confirmed' ? { text: `${r.name || 'Item'} confirmed by scan`, lineId: '' }
+    : { text: `${r.name || 'Item'} ${r.kind === 'checked' ? 'checked into the box' : 'scanned'}`, lineId: r.lineId || '', what: r.kind === 'checked' ? 'check' : 'box' });
+  // The number under the barcode, typed in the help for an item that won't scan: the same as a scan.
+  const typedIn = async (v: string) => {
+    const r = await scanInto(fs, tenantId, order.id, v.trim(), actor, rs);
+    if (!r.ok) { feel(false); return { ok: false, message: `${r.message}${r.miss === 'elsewhere' ? whoseIs(v.trim()) : ''}` }; }
+    feel(true); setErr(''); undoFor(r);
+    return { ok: true, message: '' };
+  };
+  // One unit approved by a PIN and a reason (checked on the server); undone like a scan at the box, or a check into it.
+  const approveOne = async (reason: ApproveReason, pin: string) => {
+    if (!cant) return { ok: false, message: 'Choose the item again.' };
+    const r = await approveInto(tenantId, order.id, cant.lineId, reason, pin);
+    if (r.ok) { setErr(''); setUndo({ text: `${cant.name} approved`, lineId: cant.lineId, what: r.kind === 'checked' ? 'check' : 'box', via: 'approve' }); }
+    return { ok: r.ok, message: r.message };
   };
   // The items a new code can be added to: still waiting, and a real product (a test item stands for one).
   const teachable = lines.filter((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && l.qtyScanned < l.qtyOrdered && !lineProductId(l).startsWith('test-'));
@@ -194,7 +234,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const putDown = async () => { const r = await stopPacking(fs, tenantId, order, batch, actor); if (!r.ok) { feel(false); setErr(r.message); return; } onPutDown(); };
 
-  const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : order.method === 'delivery' ? 'Done, ready for its driver' : `Done, it’s ready for ${firstName(order.customerName)}`;
+  const mainLabel = left > 0 ? (canTap ? `${left} more to go` : `${left} more to scan`) : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : order.method === 'delivery' ? 'Done, ready for its driver' : `Done, it’s ready for ${firstName(order.customerName)}`;
 
   const pending = Number(order.pendingRefundCents) || 0;
 
@@ -224,16 +264,20 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           const closed = resolved && owedOf(l) <= 0;
           const part = resolved && !closed;
           const picked = (l.qtyScanned || 0) >= owedOf(l);
-          const full = !closed && (boxMode ? (l.qtyPacked || 0) >= owedOf(l) : picked);
+          const full = !closed && (boxMode ? (l.qtyPacked || 0) >= owedOf(l) : picked) && !(required && lineCounts(l).tapped > 0);
           const shelf = shelfFor.get(lineProductId(l));
           const num = lineNumber(nums, l);
+          const counts = lineCounts(l);
+          const who = counts.approved > 0 ? approvedByWords(l) : '';
           const reopen = active && closed && l.status !== 'backordered' && (Number(l.qtyShorted) || 0) > 0 && pending > 0 && order.stage === 'picking';
           const detail = [l.swapForName ? `Swap for ${l.swapForName}` : '', order.swapOffer?.status === 'waiting' && order.swapOffer.lineId === l.lineId ? `Asked about ${order.swapOffer.sub?.name}` : '', l.swappedToName ? `Swapped for ${l.swappedToName}` : '', l.optionsLabel, shelf ? `Shelf ${shelf}` : '',
             closed ? (l.status === 'backordered' ? 'Sending later' : 'Refunded') : mode === 'preview' && order.stage === 'paid' ? `${l.qtyOrdered} to pack` : boxMode ? `${Math.min(l.qtyPacked || 0, owedOf(l))} of ${owedOf(l)} in the box` : `${Math.min(l.qtyScanned || 0, owedOf(l))} of ${owedOf(l)}`,
-            part ? `${l.qtyShorted} ${l.status === 'backordered' ? 'sending later' : 'refunded'}` : ''].filter(Boolean).join(' · ');
+            part ? `${l.qtyShorted} ${l.status === 'backordered' ? 'sending later' : 'refunded'}` : '',
+            counts.approved > 0 ? `${counts.approved} approved${who ? ` by ${who}` : ''}` : '',
+            counts.tapped > 0 ? (required ? `${counts.tapped} ticked by hand: scan to confirm` : `${counts.tapped} ticked`) : ''].filter(Boolean).join(' · ');
           return (
             <div key={l.lineId} className={`flex items-center gap-3.5 border-b py-3 ${active ? 'min-h-[72px]' : 'min-h-[60px]'}`} style={{ borderColor: C.line }}>
-              <button type="button" onClick={() => void tap(l)} disabled={!active || !canTap || full || closed} aria-label={`${num != null ? `No. ${num}, ` : ''}${l.name}${full ? ', all in' : active && canTap ? ', tap when it’s in the box' : ''}`} className="flex min-w-0 flex-1 items-center gap-3.5 text-left disabled:cursor-default">
+              <button type="button" onClick={() => void tap(l)} disabled={!active || full || closed || openUnits(l) <= 0} aria-label={`${num != null ? `No. ${num}, ` : ''}${l.name}${full ? (counts.approved > 0 ? ', all in, some approved without a scan' : ', all in') : required && counts.tapped > 0 && openUnits(l) <= 0 ? ', ticked by hand, scan it to confirm' : active ? (canTap ? ', tap when it’s in the box' : ', tap if it won’t scan') : ''}`} className="flex min-w-0 flex-1 items-center gap-3.5 text-left disabled:cursor-default">
                 {num != null && <span aria-hidden="true" className="grid h-9 min-w-9 shrink-0 place-items-center rounded-xl px-1.5 text-[16px] font-semibold tabular-nums" style={{ background: C.line, color: C.ink }}>{num}</span>}
                 <Thumb src={photoFor.get(lineProductId(l))} size={active ? 52 : 44} />
                 <span className="min-w-0 flex-1">
@@ -245,7 +289,10 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
                 ? <button type="button" onClick={() => void refundNow(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>{Date.parse(order.swapOffer.expiresAt) < Date.now() ? 'No answer, refund' : 'Waiting · refund now'}</button>
                 : <button type="button" onClick={() => onMissing(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.soft }}>Missing</button>)}
               {reopen && <button type="button" onClick={() => void putBack(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.soft }}>Found it</button>}
-              {!closed && mode !== 'preview' && <span key={full ? 'in' : 'out'} className={`${full ? 'cf-anim-pop ' : ''}grid h-8 w-8 shrink-0 place-items-center rounded-full border-2`} style={full ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{full ? Ic.check : null}</span>}
+              {!closed && mode !== 'preview' && (full && counts.approved > 0
+                // Approved without a scan: an outlined check, so it reads apart from a scanned one.
+                ? <span key="approved" className="cf-anim-pop grid h-8 w-8 shrink-0 place-items-center rounded-full border-2" style={{ borderColor: C.ink, color: C.ink }}><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5 9-10" /></svg></span>
+                : <span key={full ? 'in' : 'out'} className={`${full ? 'cf-anim-pop ' : ''}grid h-8 w-8 shrink-0 place-items-center rounded-full border-2`} style={full ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{full ? Ic.check : null}</span>)}
             </div>);
         })}
         {digital.map((l: any) => (
@@ -256,6 +303,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           </div>))}
       </div>
       {active && canTap && left > 0 && <p className="m-0 mt-2 text-[14px]" style={muted}>Tap an item when it’s in the box, or scan it. A phone camera, a Bluetooth scanner or typing the code all work.</p>}
+      {active && !canTap && left > 0 && <p className="m-0 mt-2 text-[14px]" style={muted}>Scanning counts an item: a phone camera, a Bluetooth scanner or typing the code. Tap one only if it won’t scan.</p>}
     </div>);
 
   const boxesBlock = showBoxes && (
@@ -352,6 +400,11 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           </label>
           <Btn kind="soft" onClick={() => setCamera((c) => !c)} aria-pressed={camera}>{camera ? 'Hide camera' : 'Camera'}</Btn>
         </div>)}
+      {active && required && !noted && (
+        <div className="mt-3 flex items-start gap-3 rounded-2xl px-4 py-3" style={{ background: C.soft }}>
+          <p className="m-0 min-w-0 flex-1 text-[15px] leading-snug"><b className="font-semibold">Every item is scanned now. </b>Tapping an item doesn’t count it. If one won’t scan, tap it for help.</p>
+          <button type="button" onClick={dismissNote} className="h-11 shrink-0 rounded-full px-4 text-[14.5px] font-semibold" style={{ background: C.paper }}>Got it</button>
+        </div>)}
       {shelfWaiting > 0 && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}><b className="font-semibold">{shelfWaiting === 1 ? '1 item was' : `${shelfWaiting} items were`} picked at the shelf. </b>Scan {shelfWaiting === 1 ? 'it' : 'each one'} again as it goes into the box.</p>}
       {mode === 'review' && order.stage === 'picking' && order.claimedByName && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}><b className="font-semibold">{firstName(order.claimedByName)} is packing this order. </b>Take it over to scan and finish it here.</p>}
       {active && camera && <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void scan(v)} label="Point at the item’s barcode" /></div>}
@@ -388,7 +441,8 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
             {done ? <p className="cf-anim-rise m-0 mt-1 text-[15px]" style={muted}>{done}</p> : null}
           </div>
         </div>)}
-      {undo && <UndoBar text={undo.text} onUndo={undo.lineId ? () => void undoTick(fs, tenantId, order.id, undo.lineId, actor, undo.what || 'scan') : undefined} onDone={() => setUndo(null)} bottom={wide ? 92 : 104} />}
+      {cant && <CantScanSheet line={cant} left={openUnits(order.lines?.find((x: any) => x.lineId === cant.lineId) || cant)} shelf={shelfFor.get(lineProductId(cant))} approvers={approversOf(rs)} onTyped={typedIn} onApprove={approveOne} onClose={() => setCant(null)} />}
+      {undo && <UndoBar text={undo.text} onUndo={undo.lineId ? () => void undoTick(fs, tenantId, order.id, undo.lineId, actor, undo.what || 'scan', undo.via || 'scan') : undefined} onDone={() => setUndo(null)} bottom={wide ? 92 : 104} />}
       {active && (wide
         ? <div className="sticky bottom-0 z-10 -mx-6 mt-6 border-t px-6 pb-4 pt-3" style={{ borderColor: C.line, background: 'color-mix(in srgb, var(--paper, #fff) 92%, transparent)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}>{bar}</div>
         : <BottomBar>{bar}</BottomBar>)}

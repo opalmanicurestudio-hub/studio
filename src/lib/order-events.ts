@@ -18,8 +18,8 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   batch_claimed: { customer: true, words: (_m, by) => ({ text: `Packing started${by}`, tone: 'plain' }) },
   batch_released: { customer: false, words: (_m, by) => ({ text: `Put back in the queue${by}`, tone: 'plain' }) },
   batch_auto_released: { customer: false, words: () => ({ text: 'Put back in the queue (no one was on it)', tone: 'plain' }) },
-  item_scanned: { customer: true, words: (m, by) => ({ text: `${m.via === 'tap' ? 'Ticked' : 'Scanned'} into the box (${m.qtyScanned}/${m.qtyOrdered})${by}`, tone: 'plain' }) },
-  scan_mismatch: { customer: false, words: (_m, by) => ({ text: `Wrong item scanned${by}`, tone: 'warn' }) },
+  item_scanned: { customer: true, words: (m, by) => ({ text: m.confirmedTap ? `Scanned to confirm one ticked by hand${by}` : `${m.via === 'tap' ? 'Ticked' : 'Scanned'} into the box (${m.qtyScanned}/${m.qtyOrdered})${by}`, tone: 'plain' }) },
+  scan_mismatch: { customer: false, words: (m, by) => ({ text: `Wrong item scanned${m.scannedValue ? ` (code ${String(m.scannedValue).slice(0, 40)}), not counted` : ''}${by}`, tone: 'warn' }) },
   line_shorted: { customer: true, words: (m, by) => ({ text: `Marked missing${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   line_reopened: { customer: true, words: (_m, by) => ({ text: `Missing item found after all${by}`, tone: 'ok' }) },
   pick_complete: { customer: true, words: () => ({ text: 'Everything is in', tone: 'ok' }) },
@@ -44,10 +44,18 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   address_updated: { customer: true, words: (_m, by) => ({ text: `Delivery address changed${by}`, tone: 'plain' }) },
   held_for_review: { customer: false, words: (m, by) => ({ text: `Held for review${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   hold_released: { customer: false, words: (_m, by) => ({ text: `Released from review${by}`, tone: 'ok' }) },
-  override: { customer: false, words: (m, by) => ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'warn' }) },
+  override: { customer: false, words: (m, by) => m.rule === 'unit_approved' ? ({ text: `${overrideText(m)}${by}`, tone: 'plain' }) : ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'warn' }) },
   message_failed: { customer: false, words: (m) => ({ text: `The ${m.what || 'message'} didn’t reach the customer${m.tries ? ` after ${m.tries} tries` : ''}. Let them know on the order page.`, tone: 'warn' }) },
   note: { customer: false, words: (m) => ({ text: String(m.text || 'Note'), tone: 'plain' }) },
 };
+
+/** A rule set aside, in words, for the record and the evidence pack: an item approved without a scan (lib/scan-rule)
+ *  says which, why and who approved it. */
+export function overrideText(m: any): string {
+  if (m?.rule === 'unit_approved') return `${String(m.name || 'An item')} approved without a scan: ${String(m.reason || 'no reason given')}${m.approvedBy ? `, by ${String(m.approvedBy)}` : ''}`;
+  if (m?.rule === 'handoff_without_scan') return `Handed over without the pickup code${m?.reason ? `: ${String(m.reason)}` : ''}`;
+  return [m?.rule, m?.reason].filter(Boolean).join(': ');
+}
 
 /** Names older events were written with, read as the one name they mean now. */
 export const OLD_NAMES: Record<string, OrderEventType> = { paid: 'payment_confirmed', order_cancelled: 'cancelled', ready: 'marked_ready', arrived: 'customer_arrived' };

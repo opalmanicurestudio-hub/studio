@@ -11,7 +11,7 @@ import {
   BATCH_CLAIM_TIMEOUT_MIN, MAX_SHIP_ORDERS_PER_BATCH, STAGE_LABELS,
   applyPackScan, applyBoxScan, isPackComplete,
   applyScan, buildEvent, canAdvance, depleteBatchesFIFO, fulfilledQty,
-  isClaimStale, isPickComplete, parseOrderQr, queuePriority, shortLine,
+  isClaimStale, isPickComplete, lineMatchesScan, parseOrderQr, queuePriority, shortLine,
   type FulfillmentBatch, type FulfilmentPolicy, type InventoryBatchRef, type OrderEventType,
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
@@ -21,6 +21,7 @@ import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
 import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isFollowUp, lineFor, taxBasisOf } from '@/lib/order-family';
 import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
 import { handoffRecord, pinKeyOf, pinMatches, PIN_TRIES, type HandoffMethod } from '@/lib/pickup-pass';
+import { lineCounts, tappedLines, type Approval } from '@/lib/scan-rule';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // The fulfillment steps. They run on the server (api/retail/fulfil, with the
@@ -266,8 +267,9 @@ export async function sweepStaleClaims(fs: Firestore, tenantId: string): Promise
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export type ScanAnswer = { ok: boolean; message: string; pickComplete?: boolean; packComplete?: boolean; lineId?: string; name?: string; miss?: ScanResolution['kind'];
-  /** A scan at the box: picked and into the box at once, or (second scan) an item picked at the shelf checked in. */
-  kind?: 'picked' | 'checked' };
+  /** A scan at the box: picked and into the box at once, or (second scan) an item picked at the shelf checked in, or a
+   *  unit ticked by hand before the shop scanned every item, confirmed (nothing more is counted). */
+  kind?: 'picked' | 'checked' | 'confirmed' };
 
 /** Works a scan out against the products' current records when the order's own codes don't match (lib/scan-resolve):
  *  a barcode added after the order was placed, another code the product carries, a test order, a duplicate label, a
@@ -281,7 +283,7 @@ async function resolveFirst(fs: Firestore, tenantId: string, orderId: string, sc
 }
 
 export async function recordItemScan(
-  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
+  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor, opts: { confirmTaps?: boolean } = {}
 ): Promise<ScanAnswer> {
   const found = await resolveFirst(fs, tenantId, orderId, scannedValue, false);
   const hint = found?.kind === 'line' ? found.hint : null;
@@ -296,6 +298,17 @@ export async function recordItemScan(
       }
 
       const { result, lines } = applyScan(order.lines, scannedValue, hint);
+      // Every unit of it already counted, some ticked by hand before the shop scanned every item: this scan confirms one
+      // of those (lib/scan-rule), as at the box. Nothing more is counted.
+      if (!result.ok && opts.confirmTaps && result.code === 'over_scan') {
+        const ti = order.lines.findIndex((l) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, scannedValue)) && lineCounts(l).tapped > 0);
+        if (ti >= 0) {
+          const t0 = order.lines[ti];
+          txn.update(oRef, { lines: JSON.parse(JSON.stringify(order.lines.map((l, i) => (i === ti ? { ...l, qtyTapped: Math.max(0, (Number(l.qtyTapped) || 0) - 1) } : l)))) });
+          txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, { lineId: t0.lineId, qtyScanned: t0.qtyScanned, qtyOrdered: t0.qtyOrdered, phase: (order as any).waveId ? 'pack' : 'pick', confirmedTap: true }));
+          return { ok: true, message: 'Confirmed by scan', lineId: t0.lineId, name: t0.name, kind: 'confirmed', pickComplete: isPickComplete(order.lines) };
+        }
+      }
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')),
           evPayload('scan_mismatch', actor, {
@@ -342,7 +355,7 @@ export async function recordItemScan(
  * record says it was at the box.
  */
 export async function recordBoxScan(
-  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor, opts: { secondScan?: boolean } = {}
+  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor, opts: { secondScan?: boolean; confirmTaps?: boolean } = {}
 ): Promise<ScanAnswer> {
   const secondScan = opts.secondScan === true;
   // With the second scan on, the code is worked out against lines still to pick and lines still to check in.
@@ -356,16 +369,32 @@ export async function recordBoxScan(
       const order = oSnap.data() as RetailOrder;
       if (order.stage !== 'picking') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so scanning is closed.` };
       const { result, lines } = applyBoxScan(order.lines, scannedValue, hint, secondScan);
+      // Every unit of it already counted, some ticked by hand before the shop scanned every item: this scan confirms one
+      // of those (lib/scan-rule). Nothing more is counted.
+      if (!result.ok && opts.confirmTaps && (result.code === 'over_scan' || result.code === 'line_closed')) {
+        const ti = order.lines.findIndex((l) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, scannedValue)) && lineCounts(l).tapped > 0);
+        if (ti >= 0) {
+          const t0 = order.lines[ti];
+          const confirmed = order.lines.map((l, i) => (i === ti ? { ...l, qtyTapped: Math.max(0, (Number(l.qtyTapped) || 0) - 1) } : l));
+          txn.update(oRef, { lines: JSON.parse(JSON.stringify(confirmed)) });
+          txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, { lineId: t0.lineId, qtyScanned: t0.qtyScanned, qtyOrdered: t0.qtyOrdered, phase: 'pack', atBox: true, confirmedTap: true }));
+          return { ok: true, message: 'Confirmed by scan', lineId: t0.lineId, name: t0.name, kind: 'confirmed', pickComplete: isPickComplete(order.lines), packComplete: isPackComplete(order.lines) };
+        }
+      }
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')), evPayload('scan_mismatch', actor, { scannedValue: scannedValue.slice(0, 80), code: result.code, phase: 'pack', atBox: true }));
         const message = result.code === 'unknown_sku' && found ? scanMissMessage(found, scannedValue, order.lines as any) : result.message;
         return { ok: false, message, miss: result.code === 'unknown_sku' ? (found?.kind || 'unknown') : undefined };
       }
-      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      // With the second scan on, a unit ticked by hand (before the shop scanned every item) checked into the box by this
+      // scan is confirmed by it too: one scan, not two.
+      const confirming = opts.confirmTaps === true && result.kind === 'checked' && lines.some((l) => l.lineId === result.lineId && lineCounts(l).tapped > 0);
+      const saved = confirming ? lines.map((l) => (l.lineId === result.lineId ? { ...l, qtyTapped: Math.max(0, (Number(l.qtyTapped) || 0) - 1) } : l)) : lines;
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(saved)) });
       txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
         lineId: result.lineId, qtyScanned: result.qtyScanned, qtyOrdered: result.qtyOrdered,
         phase: result.kind === 'checked' ? 'pack_check' : (order as any).waveId ? 'pack' : 'pick', atBox: true,
-        ...(hint ? { matchedBy: (found as any).via } : {}),
+        ...(hint ? { matchedBy: (found as any).via } : {}), ...(confirming ? { confirmedTap: true } : {}),
       }));
       const wasPicked = isPickComplete(order.lines);
       if (result.pickComplete && !wasPicked) txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
@@ -377,11 +406,13 @@ export async function recordBoxScan(
   }
 }
 
-/** Tap-to-pack: one unit of one line counted by hand, for shops that don't scan. Same guards and timeline as a scan,
- *  marked as a tap so the record shows it wasn't scanned. Shops that want every unit scanned turn taps off in setup. */
+/** Tap-to-pack: one unit of one line counted by hand, for shops that don't scan every item. Same guards and timeline as
+ *  a scan, marked as a tap on the line (qtyTapped) and in the record, so neither says it was scanned. While the shop
+ *  scans every item (lib/scan-rule, read by the server), a tap counts nothing, whatever screen sent it. */
 export async function recordLineTap(
-  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor, opts: { scanRequired?: boolean } = {}
 ): Promise<{ ok: boolean; message: string; pickComplete?: boolean }> {
+  if (opts.scanRequired) return { ok: false, message: 'Every item is scanned here. Scan it, or tap it for help if it won’t scan.' };
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -394,7 +425,7 @@ export async function recordLineTap(
       const line = order.lines[idx];
       if (['shorted', 'refunded', 'backordered'].includes(line.status)) return { ok: false, message: `${line.name} was marked missing. Undo that first.` };
       if (line.qtyScanned >= line.qtyOrdered) return { ok: false, message: `All ${line.qtyOrdered} ${line.name} are already in.` };
-      const lines = order.lines.map((l, i) => i === idx ? { ...l, qtyScanned: l.qtyScanned + 1 } : l);
+      const lines = order.lines.map((l, i) => i === idx ? { ...l, qtyScanned: l.qtyScanned + 1, qtyTapped: (Number(l.qtyTapped) || 0) + 1 } : l);
       const complete = isPickComplete(lines);
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
       txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, { lineId, qtyScanned: line.qtyScanned + 1, qtyOrdered: line.qtyOrdered, phase: 'pick', via: 'tap' }));
@@ -406,9 +437,66 @@ export async function recordLineTap(
   }
 }
 
-/** Undo one tick or scan on a line (a slip of the finger). Only while the order is still being packed. */
+/** AN ITEM THAT WON'T SCAN, APPROVED (lib/scan-rule). One unit of one line counted without a scan, by the person whose
+ *  PIN the server checked (`approver`, who may not be the person packing), with one of the reasons. On the packing
+ *  screen it counts as picked and in the box, as a scan at the box does; with the second scan on, a unit already picked
+ *  at the shelf is approved into the box instead. Kept on the line (qtyApproved, approvals) and in the record as a rule
+ *  set aside, with who approved it and why. One unit per approval: two of the same take two. */
+export async function approveLineUnit(
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor,
+  approver: { id: string; name: string }, reason: string, opts: { secondScan?: boolean } = {}
+): Promise<{ ok: boolean; message: string; kind?: 'picked' | 'checked'; pickComplete?: boolean; packComplete?: boolean; lineId?: string; name?: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (order.stage !== 'picking') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so packing is closed.` };
+      const idx = order.lines.findIndex((l) => l.lineId === lineId);
+      if (idx < 0) return { ok: false, message: 'That item isn’t on this order.' };
+      const line = order.lines[idx];
+      if (line.digital === true) return { ok: false, message: `${line.name} is a download. There’s nothing to pack.` };
+      const owed = Math.max(0, line.qtyOrdered - (line.qtyShorted || 0));
+      const closed = ['shorted', 'refunded', 'backordered'].includes(line.status);
+      // A unit still to pick is picked and put in the box; with the second scan on, a unit picked at the shelf goes in.
+      const kind: 'picked' | 'checked' | null = !closed && line.qtyScanned < line.qtyOrdered ? 'picked'
+        : opts.secondScan && !(order as any).waveId && (line.qtyPacked || 0) < owed ? 'checked' : null;
+      if (!kind) return { ok: false, message: owed <= 0 ? `${line.name} was marked missing. Undo that first.` : `All ${owed} ${line.name} are already in.` };
+      const at = new Date().toISOString();
+      const approval: Approval = { by: String(approver.name || 'A manager').slice(0, 60), byId: String(approver.id || '').slice(0, 160), reason: String(reason).slice(0, 60), at, phase: kind === 'checked' ? 'check' : 'pick' };
+      const lines = order.lines.map((l, i) => {
+        if (i !== idx) return l;
+        // Counted without any scan ('picked'), or a unit scanned at the shelf approved into the box ('checked'): that one
+        // was still scanned once, so it's kept apart (qtyApprovedIn) and evidence still counts it as scanned.
+        return {
+          ...l,
+          qtyScanned: kind === 'picked' ? l.qtyScanned + 1 : l.qtyScanned,
+          qtyPacked: Math.min(owed, (l.qtyPacked || 0) + 1),
+          ...(kind === 'picked' ? { qtyApproved: (Number(l.qtyApproved) || 0) + 1 } : { qtyApprovedIn: (Number(l.qtyApprovedIn) || 0) + 1 }),
+          approvals: [...(Array.isArray(l.approvals) ? l.approvals : []), approval].slice(-Math.max(1, 2 * l.qtyOrdered)),
+        };
+      });
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, {
+        rule: 'unit_approved', lineId, name: String(line.name || '').slice(0, 80), reason: approval.reason,
+        approvedBy: approval.by, approvedById: approval.byId, phase: kind === 'checked' ? 'pack_check' : 'pick',
+      }));
+      const pickComplete = isPickComplete(lines);
+      if (pickComplete && !isPickComplete(order.lines)) txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
+      const u = lines[idx];
+      return { ok: true, message: `${kind === 'checked' ? u.qtyPacked : u.qtyScanned}/${owed}`, kind, pickComplete, packComplete: isPackComplete(lines), lineId, name: line.name };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t save. Try again.' };
+  }
+}
+
+/** Undo one tick or scan on a line (a slip of the finger). Only while the order is still being packed. `via` says how
+ *  the unit was counted (a scan, a tap, an approval), so the line's record of it comes off too. */
 export async function undoLineCount(
-  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan'
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan',
+  via: 'scan' | 'tap' | 'approve' = 'scan'
 ): Promise<{ ok: boolean; message: string }> {
   try {
     return await runTransaction(fs, async (txn) => {
@@ -421,13 +509,41 @@ export async function undoLineCount(
       // What's taken back: a counted unit (scan), a unit counted at the box (picked and in the box), or a unit's check
       // into the box (second scan) only.
       if (idx < 0 || (what === 'check' ? (order.lines[idx].qtyPacked || 0) <= 0 : order.lines[idx].qtyScanned <= 0)) return { ok: false, message: 'Nothing to undo.' };
-      const lines = order.lines.map((l, i) => i !== idx ? l : {
-        ...l,
-        ...(what !== 'check' ? { qtyScanned: l.qtyScanned - 1 } : {}),
-        ...(what !== 'scan' ? { qtyPacked: Math.max(0, (l.qtyPacked || 0) - 1) } : {}),
+      const l0 = order.lines[idx];
+      const list = (Array.isArray(l0.approvals) ? l0.approvals : []) as Approval[];
+      const last = list[list.length - 1];
+      // An approval or a tap is taken back only as what it was, so an undo can never leave a unit counted with its
+      // approval gone, or its tick gone and still counted (lib/scan-rule). The line says what's there, not the request.
+      if (via === 'approve') {
+        const phase = last?.phase === 'check' ? 'check' : 'pick';
+        const has = phase === 'check' ? Number(l0.qtyApprovedIn) || 0 : Number(l0.qtyApproved) || 0;
+        if (!last || has <= 0 || what === 'scan' || (what === 'check') !== (phase === 'check')) return { ok: false, message: 'Nothing to undo.' };
+      }
+      if (via === 'tap' && (what !== 'scan' || (Number(l0.qtyTapped) || 0) <= 0)) return { ok: false, message: 'Nothing to undo.' };
+      const lines = order.lines.map((l, i) => {
+        if (i !== idx) return l;
+        const next: any = {
+          ...l,
+          ...(what !== 'check' ? { qtyScanned: l.qtyScanned - 1 } : {}),
+          ...(what !== 'scan' ? { qtyPacked: Math.max(0, (l.qtyPacked || 0) - 1) } : {}),
+        };
+        if (via === 'tap') next.qtyTapped = Math.max(0, (Number(l.qtyTapped) || 0) - 1);
+        if (via === 'approve') {
+          if (what === 'check') next.qtyApprovedIn = Math.max(0, (Number(l.qtyApprovedIn) || 0) - 1);
+          else next.qtyApproved = Math.max(0, (Number(l.qtyApproved) || 0) - 1);
+          next.approvals = list.slice(0, -1);
+        }
+        // Never more approved or ticked than there are units counted.
+        const scanned = Number(next.qtyScanned) || 0; const packed = Number(next.qtyPacked) || 0;
+        if ((Number(next.qtyApproved) || 0) > scanned) next.qtyApproved = scanned;
+        if ((Number(next.qtyApprovedIn) || 0) > packed) next.qtyApprovedIn = packed;
+        if ((Number(next.qtyTapped) || 0) > scanned - (Number(next.qtyApproved) || 0)) next.qtyTapped = Math.max(0, scanned - (Number(next.qtyApproved) || 0));
+        const keep = (Number(next.qtyApproved) || 0) + (Number(next.qtyApprovedIn) || 0);
+        if (Array.isArray(next.approvals) && next.approvals.length > keep) next.approvals = next.approvals.slice(next.approvals.length - keep);
+        return next;
       });
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
-      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { kind: 'count_undone', lineId, text: `Took one ${order.lines[idx].name} back out` }));
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { kind: 'count_undone', lineId, text: via === 'approve' ? `Took back the approval for one ${order.lines[idx].name}` : `Took one ${order.lines[idx].name} back out` }));
       return { ok: true, message: 'Undone' };
     });
   } catch (e: any) {
@@ -599,7 +715,7 @@ export async function recordPackScan(
 
 export async function markPacked(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-  opts?: { requirePackScan?: boolean }
+  opts?: { requirePackScan?: boolean; requireScan?: boolean }
 ): Promise<{ ok: boolean; message: string }> {
   try {
     const batchId = await runTransaction(fs, async (txn) => {
@@ -617,6 +733,13 @@ export async function markPacked(
       // would be labor without information.
       if (opts?.requirePackScan && !(order as any).waveId && !isPackComplete(order.lines)) {
         throw new Error('Pack check required \u2014 scan every item again as it goes into the box.');
+      }
+      // EVERY ITEM SCANNED (lib/scan-rule): a unit ticked by hand (before the shop scanned every item) is scanned to
+      // confirm it before the order is finished, whatever screen finishes it.
+      const ticked = opts?.requireScan ? tappedLines(order.lines) : [];
+      if (ticked.length) {
+        const units = ticked.reduce((a, l) => a + lineCounts(l).tapped, 0);
+        throw new Error(`${ticked.length === 1 ? ticked[0].name : `${ticked.length} items`} ${units === 1 ? 'was' : 'were'} ticked by hand, not scanned. Scan ${units === 1 ? 'it' : 'each one'} to confirm, then finish.`);
       }
 
       txn.update(oRef, { stage: 'packed', packedAt: new Date().toISOString() });

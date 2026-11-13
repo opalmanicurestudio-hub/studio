@@ -41,7 +41,11 @@ export const recordItemScan = (_fs: any, tenantId: string, orderId: string, valu
 export const recordBoxScan = (_fs: any, tenantId: string, orderId: string, value: string, _actor: Actor, opts: { secondScan?: boolean } = {}) => step(tenantId, 'scanBox', { orderId, value, secondScan: opts.secondScan === true });
 export const recordPackScan = (_fs: any, tenantId: string, orderId: string, value: string, _actor: Actor) => step(tenantId, 'scanPack', { orderId, value });
 export const recordLineTap = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor) => step(tenantId, 'tapLine', { orderId, lineId });
-export const undoLineCount = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor, what: 'scan' | 'box' | 'check' = 'scan') => step(tenantId, 'undoCount', { orderId, lineId, what });
+export const undoLineCount = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor, what: 'scan' | 'box' | 'check' = 'scan', via: 'scan' | 'tap' | 'approve' = 'scan') => step(tenantId, 'undoCount', { orderId, lineId, what, via });
+/** An item that won't scan, approved: one unit, by the PIN of someone the shop lets approve, with a reason (checked on the
+ *  server, lib/scan-rule). */
+export const approveUnit = (tenantId: string, orderId: string, lineId: string, reason: string, pin: string) =>
+  step<Ans & { kind?: 'picked' | 'checked'; lineId?: string; name?: string; pickComplete?: boolean; packComplete?: boolean }>(tenantId, 'approveUnit', { orderId, lineId, reason, pin });
 export const resolveShortLine = (_fs: any, tenantId: string, orderId: string, lineId: string, reason: string, resolution: ShortResolution, _actor: Actor) => step(tenantId, 'shortLine', { orderId, lineId, reason, resolution });
 export const reopenShortedLine = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor) => step(tenantId, 'reopenLine', { orderId, lineId });
 /** The shop's second scan is read by the server itself. */

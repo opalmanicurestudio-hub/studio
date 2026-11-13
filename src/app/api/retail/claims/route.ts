@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { unitsOpen } from '@/lib/claim-view';
+import { everyUnitScanned, lineCounts } from '@/lib/scan-rule';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
@@ -265,8 +266,9 @@ export async function POST(req: NextRequest) {
 
     // ── Evidence snapshot: the order's record AS OF the claim ──
     const lineTarget = line ? Math.max(0, (line.qtyOrdered || 0) - (line.qtyShorted || 0)) : 0;
-    const lineScanned = line ? Number(line.qtyScanned) || 0 : 0;
-    const allScanned = lines.length > 0 && lines.every((l) => (Number(l.qtyScanned) || 0) >= Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)));
+    // Scanned means scanned (lib/scan-rule): units approved without a scan or ticked by hand aren't counted as scans.
+    const lineScanned = line ? lineCounts(line).scanned : 0;
+    const allScanned = everyUnitScanned(lines);
     const photoCount = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls.length : 0;
     const evidence = {
       allScanned,

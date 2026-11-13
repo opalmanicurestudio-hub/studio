@@ -646,6 +646,10 @@ export interface OrderLine {
   listingId?: string;          // sold as a variant: the listing it was chosen on (productId is the variant, lib/variants)
   choices?: Record<string, string>; // the choice taken in each of the listing's groups, by group id (optionsLabel has their words)
   qtyPacked?: number;          // second-scan count at the box (pack verification)
+  qtyApproved?: number;        // of the units counted, approved without a scan (lib/scan-rule): a PIN and a reason each
+  qtyApprovedIn?: number;      // second scan: units scanned at the shelf, approved into the box without their second scan
+  qtyTapped?: number;          // of the units counted, ticked by hand while the shop didn't scan every item
+  approvals?: { by: string; byId: string; reason: string; at: string; phase?: 'pick' | 'check' }[]; // who approved each unit and why (newest last)
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time
   digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)

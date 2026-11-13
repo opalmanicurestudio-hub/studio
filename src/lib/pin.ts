@@ -11,17 +11,38 @@ import { pinHash } from '@/lib/approvals';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 export const validPin = (pin: any) => /^\d{4}$/.test(String(pin || ''));
-const WINDOW_MS = 15 * 60 * 1000; const MAX_FAILS = 10;
+const WINDOW_MS = 15 * 60 * 1000; const MAX_FAILS = 15;
 
-/** Too many wrong PINs on this business recently? (A shared tablet is the realistic attacker — 10 tries per 15 min.) */
-export async function pinLocked(db: any, tenantId: string): Promise<boolean> {
-  const d: any = (await db.doc(`tenants/${tenantId}/private/pinGuard`).get()).data() || {};
-  return ((d.failedAt || []) as number[]).filter((t) => Date.now() - t < WINDOW_MS).length >= MAX_FAILS;
+/** THE LOCK ON WRONG PINS, for the whole business (a shared tablet is the realistic attacker): 15 wrong in 15 minutes
+ *  locks every screen that asks for one until they age out.
+ *  Each try is counted BEFORE its PIN is checked, in one step with the lock (a transaction): tries sent all at once each
+ *  take their own place, so a burst can't slip past the limit. A right PIN takes back only its own place, never anyone's
+ *  wrong tries: those age out of the window. Otherwise anyone with a PIN of their own could guess, use theirs on any
+ *  screen, and guess again, without the lock ever closing. (A PIN that's real but can't do what was asked counts as
+ *  wrong.) `beginPinAttempt` is null when locked; its ticket goes back to `endPinAttempt` with whether it was right. */
+export async function beginPinAttempt(db: any, tenantId: string): Promise<number | null> {
+  const ref = db.doc(`tenants/${tenantId}/private/pinGuard`);
+  return db.runTransaction(async (tx: any) => {
+    const snap = await tx.get(ref); const d: any = snap?.data?.() || {};
+    const now = Date.now();
+    const live = ((Array.isArray(d.failedAt) ? d.failedAt : []) as any[]).filter((t) => typeof t === 'number' && now - t < WINDOW_MS);
+    if (live.length >= MAX_FAILS) return null;
+    // Its own place: a time in the window, made unique by a fraction of a millisecond.
+    const ticket = now + Math.random() / 2;
+    tx.set(ref, { failedAt: [...live, ticket].slice(-60) }, { merge: true });
+    return ticket;
+  });
 }
-export async function recordPinAttempt(db: any, tenantId: string, ok: boolean) {
-  const ref = db.doc(`tenants/${tenantId}/private/pinGuard`); const d: any = (await ref.get()).data() || {};
-  const prior = ((d.failedAt || []) as number[]).filter((t) => Date.now() - t < WINDOW_MS);
-  await ref.set({ failedAt: ok ? [] : [...prior, Date.now()].slice(-30) }, { merge: true });
+export async function endPinAttempt(db: any, tenantId: string, ticket: number | null, ok: boolean): Promise<void> {
+  if (!ok || ticket == null) return;
+  const ref = db.doc(`tenants/${tenantId}/private/pinGuard`);
+  // (A busy moment that can't give the place back leaves it to age out: the right PIN still works.)
+  try {
+    await db.runTransaction(async (tx: any) => {
+      const snap = await tx.get(ref); const d: any = snap?.data?.() || {};
+      tx.set(ref, { failedAt: (Array.isArray(d.failedAt) ? d.failedAt : []).filter((t: any) => t !== ticket) }, { merge: true });
+    });
+  } catch { /* ages out of the window */ }
 }
 
 /** Store this PIN the one strong way, and remove every older copy for this person. */

@@ -24,6 +24,8 @@ import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outb
 import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
 import { failReason } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
+import { approversOf, isApproveReason, mayApprove, scanRequired, type Approvers } from '@/lib/scan-rule';
+import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 
 export const dynamic = 'force-dynamic';
 // A payment page the customer opened for another delivery try is theirs to finish for this long (lib/delivery-retry-server).
@@ -34,7 +36,7 @@ type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'return
 /** What each step needs. 'staff': anyone on the team (receiving stock releases backorders it covers). */
 const ACTIONS: Record<string, Need> = {
   claimNext: 'pick', claimOrder: 'pick', takeOver: 'pick', releaseBatch: 'pick', sweepStale: 'staff',
-  scanItem: 'pick', scanBox: 'pick', tapLine: 'pick', undoCount: 'pick', shortLine: 'pick', reopenLine: 'pick',
+  scanItem: 'pick', scanBox: 'pick', tapLine: 'pick', approveUnit: 'pick', undoCount: 'pick', shortLine: 'pick', reopenLine: 'pick',
   scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
@@ -155,14 +157,34 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         await F.releaseBatch(db, tenantId, batch, 'manual', actor); touchedIds.push(...(batch.orderIds || [])); out = { ok: true, message: 'Put back in the queue' }; break;
       }
       case 'sweepStale': out = { ok: true, released: await F.sweepStaleClaims(db, tenantId) }; break;
-      case 'scanItem': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordItemScan(db, tenantId, orderId, s(b.value, 200), actor); break; }
-      case 'scanBox': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordBoxScan(db, tenantId, orderId, s(b.value, 200), actor, { secondScan: b.secondScan === true }); break; }
+      case 'scanItem': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordItemScan(db, tenantId, orderId, s(b.value, 200), actor, { confirmTaps: (await scanSettings(db, tenantId)).required }); break; }
+      case 'scanBox': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordBoxScan(db, tenantId, orderId, s(b.value, 200), actor, { secondScan: b.secondScan === true, confirmTaps: (await scanSettings(db, tenantId)).required }); break; }
       case 'scanPack': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordPackScan(db, tenantId, orderId, s(b.value, 200), actor); break; }
-      case 'tapLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.recordLineTap(db, tenantId, orderId, lineId, actor); break; }
-      case 'undoCount': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.undoLineCount(db, tenantId, orderId, lineId, actor, b.what === 'box' || b.what === 'check' ? b.what : 'scan'); break; }
+      case 'tapLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.recordLineTap(db, tenantId, orderId, lineId, actor, { scanRequired: (await scanSettings(db, tenantId)).required }); break; }
+      // AN ITEM THAT WON'T SCAN (lib/scan-rule): one unit, approved by the PIN of someone the shop lets approve (a
+      // manager, or anyone who packs), with a reason. The PIN is checked here, against the business's lockout.
+      case 'approveUnit': {
+        const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m;
+        const reason = s(b.reason, 60); const pin = s(b.pin, 8);
+        if (!isApproveReason(reason)) return NextResponse.json({ ok: false, message: 'Choose why it won’t scan.' }, { status: 400 });
+        if (!validPin(pin)) return NextResponse.json({ ok: false, message: 'Enter a 4-digit PIN.' }, { status: 400 });
+        const ticket = await beginPinAttempt(db, tenantId);
+        if (ticket === null) return NextResponse.json({ ok: false, message: 'Too many wrong PINs. Wait 15 minutes and try again.' }, { status: 423 });
+        // Whether this PIN may approve is worked out before the try is counted: a PIN that can't approve counts as a wrong
+        // one (a person's own PIN can never clear the lockout), and the answer is the same either way, so it doesn't say
+        // whose PIN a guess was.
+        const hit = await findStaffByPin(db, tenantId, pin);
+        const rules = await scanSettings(db, tenantId); const who: any = hit?.data || {};
+        const may = !!hit && who.isRenter !== true && hit.role.toLowerCase() !== 'renter' && mayApprove(permissionsFor(who), rules.approvers);
+        await endPinAttempt(db, tenantId, ticket, may);
+        if (!hit || !may) return NextResponse.json({ ok: false, message: rules.approvers === 'managers' ? 'That isn’t a manager’s PIN. Managers set their PIN on the Staff page.' : 'That PIN can’t approve this. Each person sets their PIN on the Staff page.' }, { status: 403 });
+        out = await F.approveLineUnit(db, tenantId, orderId, lineId, actor, { id: hit.id, name: hit.name }, reason, { secondScan: rules.secondScan });
+        break;
+      }
+      case 'undoCount': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.undoLineCount(db, tenantId, orderId, lineId, actor, b.what === 'box' || b.what === 'check' ? b.what : 'scan', b.via === 'tap' || b.via === 'approve' ? b.via : 'scan'); break; }
       case 'shortLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.resolveShortLine(db, tenantId, orderId, lineId, s(b.reason, 200) || 'Not on the shelf', b.resolution === 'backorder' ? 'backorder' : 'refund', actor); break; }
       case 'reopenLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.reopenShortedLine(db, tenantId, orderId, lineId, actor); break; }
-      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: await secondScanOn(db, tenantId) }); break; }
+      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required }); break; }
       case 'markReady': {
         const m = need1(orderId, 'order'); if (m) return m;
         out = await F.markReady(db, tenantId, orderId, actor);
@@ -385,10 +407,12 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
   }
 }
 
-/** The shop's second scan at packing (Orders settings), read here so a screen can't skip it. */
-async function secondScanOn(db: any, tenantId: string): Promise<boolean> {
+/** The shop's scanning rules (lib/scan-rule), read here so a screen can't skip them: every item scanned (on unless the
+ *  shop turned it off), the second scan at packing, and who may approve an item that won't scan. */
+async function scanSettings(db: any, tenantId: string): Promise<{ required: boolean; secondScan: boolean; approvers: Approvers }> {
   const t = await db.doc(`tenants/${tenantId}`).get().catch(() => null);
-  return (t?.data?.() || {})?.retailSettings?.requirePackScan === true;
+  const rs = (t?.data?.() || {})?.retailSettings || {};
+  return { required: scanRequired(rs), secondScan: rs.requirePackScan === true, approvers: approversOf(rs) };
 }
 
 /** The team member's photo for the "bringing it out" card, from their staff record. */

@@ -1,6 +1,7 @@
 'use client';
 
-import { eventTypeOf } from '@/lib/order-events';
+import { eventTypeOf, overrideText } from '@/lib/order-events';
+import { lineCounts } from '@/lib/scan-rule';
 import { openPrint } from '@/lib/open-print';
 import { methodWords } from '@/lib/order-method';
 import { collection, doc, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
@@ -81,7 +82,7 @@ const metaLine = (e: Ev): string => {
     case 'label_generated': return [m.carrier, m.trackingNumber].filter(Boolean).join(' · ');
     case 'customer_arrived': return m.spotOrVehicle ? String(m.spotOrVehicle) : '';
     case 'refund_issued': return m.amountCents != null ? `$${(Number(m.amountCents) / 100).toFixed(2)} · ${m.scope || ''}` : '';
-    case 'override': return [m.rule, m.reason].filter(Boolean).join(' — ');
+    case 'override': return overrideText(m);
     case 'address_updated': {
       const to = m.to || {};
       return to.city ? `Now: ${to.line1 || ''}, ${to.city}, ${to.state || ''}` : '';
@@ -139,8 +140,9 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
   const lines: any[] = order?.lines || [];
   const scanChecks = useMemo(() => lines.map((l) => {
     const target = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-    const scanned = Number(l.qtyScanned) || 0;
-    return { l, target, scanned, ok: target > 0 ? scanned >= target : true };
+    // Scanned means scanned (lib/scan-rule): approved and hand-ticked units are shown apart.
+    const c = lineCounts(l);
+    return { l, target, scanned: c.scanned, approved: c.approved, tapped: c.tapped, ok: target > 0 ? c.scanned >= target : true };
   }), [lines]);
   const allScanned = scanChecks.length > 0 && scanChecks.every((c) => c.ok);
 
@@ -297,12 +299,12 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
             <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Scan verification</p>
           </div>
           <div className="space-y-2">
-            {scanChecks.map(({ l, target, scanned, ok }, i) => (
+            {scanChecks.map(({ l, target, scanned, approved, tapped, ok }, i) => (
               <div key={l.lineId || i} className="flex items-center justify-between gap-3 rounded-xl border-2 px-3 py-2.5">
                 <div className="min-w-0">
                   <p className="truncate text-xs font-black uppercase tracking-tight">{l.name}</p>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                    {l.sku ? `${l.sku} · ` : ''}ordered {l.qtyOrdered}{(l.qtyShorted || 0) > 0 ? ` · shorted ${l.qtyShorted} (${l.status || 'shorted'})` : ''}
+                    {l.sku ? `${l.sku} · ` : ''}ordered {l.qtyOrdered}{(l.qtyShorted || 0) > 0 ? ` · shorted ${l.qtyShorted} (${l.status || 'shorted'})` : ''}{approved ? ` · ${approved} approved without a scan` : ''}{tapped ? ` · ${tapped} ticked by hand` : ''}
                   </p>
                 </div>
                 <span className={cn('shrink-0 rounded-lg border-2 px-2 py-1 font-mono text-xs font-black', ok ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900')}>

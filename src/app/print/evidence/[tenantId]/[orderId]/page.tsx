@@ -1,5 +1,6 @@
 import { checkPrintKey } from '@/lib/print-key';
-import { eventTypeOf } from '@/lib/order-events';
+import { eventTypeOf, overrideText } from '@/lib/order-events';
+import { lineCounts } from '@/lib/scan-rule';
 import { PACK_PHOTO_KIND_LABEL, packPhotosOf } from '@/lib/pack-photo';
 import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
@@ -89,7 +90,7 @@ const metaLine = (e: any): string => {
     case 'label_generated': return [m.carrier, m.trackingNumber].filter(Boolean).join(' · ');
     case 'customer_arrived': return m.spotOrVehicle ? String(m.spotOrVehicle) : '';
     case 'refund_issued': return m.amountCents != null ? `${money(m.amountCents)} · ${m.scope || ''}` : '';
-    case 'override': return [m.rule, m.reason].filter(Boolean).join(' — ');
+    case 'override': return overrideText(m);
     case 'address_updated': {
       const to = m.to || {};
       return to.city ? `Now: ${to.line1 || ''}, ${to.city}, ${to.state || ''}` : '';
@@ -189,7 +190,7 @@ export default async function PrintEvidencePage({
                 <tr key={i}>
                   <td className="item">{l.name || 'Item'}{l.optionsLabel ? <span className="muted"> ({l.optionsLabel})</span> : null}</td>
                   <td className="num">{l.qtyOrdered ?? 0}</td>
-                  <td className="num">{l.qtyScanned ?? 0}</td>
+                  <td className="num">{lineCounts(l).scanned}{lineCounts(l).approved ? ` (+${lineCounts(l).approved} approved)` : ''}{lineCounts(l).tapped ? ` (+${lineCounts(l).tapped} ticked)` : ''}</td>
                   <td className="num">{l.qtyShorted || 0}</td>
                   <td className="num">{l.qtyReturned || 0}</td>
                 </tr>

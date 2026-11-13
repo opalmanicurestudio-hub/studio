@@ -11,6 +11,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { listedInShop, listingsOf } from '@/lib/variants';
 import { setupSteps, showGuided, type SetupStep } from '@/lib/shop-setup';
 import { moduleEnabled } from '@/lib/modules';
+import { approversOf, scanRequired, type Approvers } from '@/lib/scan-rule';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -78,6 +79,38 @@ function PickupTools({ tenantId, on, onToast }: { tenantId: string; on: boolean;
     </Group>);
 }
 
+/** SCANNING (lib/scan-rule): every item scanned into a bag or a box, on unless turned off here, and who may approve an
+ *  item that won't scan. Saved on the shop's settings; the server reads them at every count, whatever screen counts. */
+function ScanningGroup({ fs, tenantId, rs, owner, onToast }: { fs: Firestore; tenantId: string; rs: any; owner: boolean; onToast: (m: string) => void }) {
+  const [on, setOn] = React.useState(scanRequired(rs)); const [who, setWho] = React.useState<Approvers>(approversOf(rs));
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { setOn(scanRequired(rs)); setWho(approversOf(rs)); }, [rs?.requireScan, rs?.scanApprovers]);
+  // The shop's settings are the owner's to change (firestore.rules); anyone else sees how it's set.
+  const save = async (patch: Record<string, any>, done: () => void, said: string) => {
+    if (busy || !tenantId || !owner) return; setBusy(true);
+    try { await updateDoc(doc(fs, 'tenants', tenantId), patch); done(); onToast(said); } catch { onToast('That didn’t save. Try again.'); } finally { setBusy(false); }
+  };
+  const choices: [Approvers, string][] = [['managers', 'Managers'], ['packers', 'Anyone who packs']];
+  return (
+    <Group title="Scanning">
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan every item</span>
+          <span className="block text-[13px]" style={muted}>{on ? 'Every order: shipping, delivery, pickups, pop-ups and wholesale. A tap doesn’t count an item.' : 'Off: items can be ticked in by hand. Turn it on so every item is scanned.'}</span></span>
+        <button type="button" role="switch" aria-checked={on} aria-label="Scan every item" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.requireScan': !on }, () => setOn(!on), !on ? 'Every item is scanned now.' : 'Items can be ticked in by hand now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: on ? C.ok : '#d2d3d7' }}>
+          <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: on ? 32 : 4 }} /></button>
+      </div>
+      <div className="px-4 py-3">
+        <p className="m-0 text-[17px] tracking-[-0.01em]">Who approves an item that won’t scan</p>
+        <div role="group" aria-label="Who approves an item that won’t scan" className="mt-2 inline-flex flex-wrap gap-1 rounded-full p-1" style={{ background: C.soft }}>
+          {choices.map(([v, label]) => (
+            <button key={v} type="button" aria-pressed={who === v} disabled={busy || !owner} onClick={() => { if (who !== v) void save({ 'retailSettings.scanApprovers': v }, () => setWho(v), v === 'managers' ? 'Only managers approve now.' : 'Anyone who packs can approve now.'); }}
+              className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={who === v ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(22,23,26,.12)' } : { background: 'transparent', color: C.ink }}>{label}</button>))}
+        </div>
+        <p className="m-0 mt-2 text-[13px]" style={muted}>With their own PIN and a reason, one item at a time. It shows on the order with their name.{owner ? '' : ' Only the owner can change these.'}</p>
+      </div>
+    </Group>);
+}
+
 function Steps({ steps, busy, onAction }: { steps: SetupStep[]; busy: string; onAction: (s: SetupStep) => void }) {
   const next = steps.find((s) => !s.done);
   const done = steps.filter((s) => s.done).length;
@@ -108,7 +141,7 @@ function Steps({ steps, busy, onAction }: { steps: SetupStep[]; busy: string; on
 }
 
 export function SetupScreen() {
-  const { selectedTenant } = useTenant() as any;
+  const { selectedTenant, role } = useTenant() as any;
   const { firestore } = useFirebase() as any;
   const { inventory } = useInventory() as any;
   const router = useRouter();
@@ -140,6 +173,7 @@ export function SetupScreen() {
         <LargeTitle title="Setup" sub={guided ? 'A few steps and your shop is ready to open.' : paused ? 'Your shop is paused. Shoppers can browse but not buy.' : 'Everything that shapes how your shop runs.'} />
         {guided && <Steps steps={steps} busy={busy} onAction={(s) => void onAction(s)} />}
         <PickupTools tenantId={tenantId} on={moduleEnabled(selectedTenant, 'pickup')} onToast={setToast} />
+        <ScanningGroup fs={firestore as Firestore} tenantId={tenantId} rs={rs} owner={role === 'owner'} onToast={setToast} />
         {GROUPS.map((g) => (
           <Group key={g.title} title={g.title}>
             {g.items.map(([href, label, note], i) => (

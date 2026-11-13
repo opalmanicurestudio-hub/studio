@@ -274,6 +274,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           {showMissing && <div className="cf-anim-rise mt-1 flex flex-wrap gap-2">
             {mine.flatMap((o) => (o.lines || []).filter((l: any) => !l.digital && !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyScanned || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0)).map((l: any) => (
               <button key={`${o.id}-${l.lineId}`} type="button" onClick={() => setMissing({ order: o, line: l })} className="cf-press h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: C.soft }}>{l.name} ({orderNum(o)})</button>)))}
+            <p className="m-0 mt-1 w-full text-[13.5px]" style={muted}>Found it, but it won’t scan? Open the order on the Orders screen, where it can be approved with a PIN.</p>
           </div>}
         </section>)}
 

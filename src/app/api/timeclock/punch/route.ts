@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requestActor } from '@/lib/request-actor';
-import { findStaffByPin, pinLocked, recordPinAttempt } from '@/lib/pin';
+import { beginPinAttempt, endPinAttempt, findStaffByPin } from '@/lib/pin';
 import { recordPunch, punchState, type PunchAction } from '@/lib/punch';
 import { toolLocked } from '@/lib/tool-lock';
 export const dynamic = 'force-dynamic';
@@ -24,9 +24,10 @@ export async function POST(req: NextRequest) {
   let staffId = ''; let actor: { id: string; name?: string } | undefined; let via = String(b.via || 'kiosk').slice(0, 20);
 
   if (b.pin != null && b.pin !== '') {
-    if (await pinLocked(db, tenantId)) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — the clock is locked for 15 minutes. Ask a manager.' }, { status: 423 });
+    const ticket = await beginPinAttempt(db, tenantId);
+    if (ticket === null) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — the clock is locked for 15 minutes. Ask a manager.' }, { status: 423 });
     const hit = await findStaffByPin(db, tenantId, String(b.pin));
-    await recordPinAttempt(db, tenantId, !!hit);
+    await endPinAttempt(db, tenantId, ticket, !!hit && (!b.staffId || String(b.staffId) === hit.id));
     if (!hit) return NextResponse.json({ ok: false, error: 'PIN not recognised. Check it and try again.' }, { status: 401 });
     if (b.staffId && String(b.staffId) !== hit.id) return NextResponse.json({ ok: false, error: 'That PIN belongs to someone else.' }, { status: 401 });
     staffId = hit.id; actor = { id: hit.id, name: hit.name };

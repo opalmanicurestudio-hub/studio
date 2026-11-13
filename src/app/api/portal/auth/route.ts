@@ -21,8 +21,8 @@
 //   confirm-reset  → { staffId, code, newPin } — verifies the code, sets
 //                    the new PIN, audits.
 //
-// Rate limiting: per-tenant sliding window in tenants/{id}/private/portalAuth
-// — 5 failed logins in 15 minutes locks logins for 15 minutes. Reset codes:
+// Rate limiting: wrong PINs count on the business's one lock (lib/pin
+// beginPinAttempt), shared with every screen that asks for a PIN. Reset codes:
 // 5 attempts max per code.
 
 import { can } from '@/lib/permissions';
@@ -34,8 +34,6 @@ import { logAuditAdmin } from '@/lib/audit';
 import { staffWithPay } from '@/lib/staff-pay-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-const WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILS = 5;
 
 const maskPhone = (p?: string) => {
   const digits = (p || '').replace(/\D/g, '');
@@ -61,20 +59,9 @@ const safeStaff = (id: string, s: any) => ({
   hourlyRate: s.hourlyRate ?? null,
 });
 
-async function checkRateLimit(db: any, tenantId: string): Promise<{ locked: boolean }> {
-  const ref = db.doc(`tenants/${tenantId}/private/portalAuth`);
-  const snap = await ref.get();
-  const fails: number[] = ((snap.data() as any)?.failedAt || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  return { locked: fails.length >= MAX_FAILS };
-}
-async function recordAttempt(db: any, tenantId: string, ok: boolean) {
-  const ref = db.doc(`tenants/${tenantId}/private/portalAuth`);
-  const snap = await ref.get();
-  const prior: number[] = ((snap.data() as any)?.failedAt || [])
-    .filter((t: number) => Date.now() - t < WINDOW_MS);
-  await ref.set({ failedAt: ok ? [] : [...prior, Date.now()].slice(-20) }, { merge: true });
-}
+// Wrong PINs here count on the business's one lock (lib/pin beginPinAttempt): each try takes its place before its PIN
+// is checked, and a right PIN never clears anyone else's wrong ones, so signing in with your own PIN between guesses at
+// someone else's gets nowhere.
 
 export async function POST(req: NextRequest) {
   try {
@@ -138,19 +125,20 @@ export async function POST(req: NextRequest) {
       const pin = String(body.pin || '');
       if (!/^\d{4}$/.test(pin)) return NextResponse.json({ ok: false, error: 'Enter a 4-digit PIN.' }, { status: 400 });
 
-      const { locked } = await checkRateLimit(db, tenantId);
-      if (locked) {
+      const { beginPinAttempt, endPinAttempt, findStaffByPin } = await import('@/lib/pin');
+      const ticket = await beginPinAttempt(db, tenantId);
+      if (ticket === null) {
         return NextResponse.json({ ok: false, error: 'Too many attempts — locked for 15 minutes. Use Forgot PIN or ask a manager.' }, { status: 423 });
       }
 
       // One PIN library (lib/pin): strong store first; older stores recognised once and converted.
       let hitId: string | null = null; let hitData: any = null;
-      { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
+      { const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       // Signing in as a chosen person (a face on the shared tablet, or "Welcome back" on a personal phone): the PIN
       // must be theirs — it counts as a wrong PIN otherwise.
       const expect = String(body.expectStaffId || '');
       const wrongPerson = !!hitId && !!expect && hitId !== expect;
-      await recordAttempt(db, tenantId, !!hitId && !wrongPerson);
+      await endPinAttempt(db, tenantId, ticket, !!hitId && !wrongPerson);
       if (!hitId || wrongPerson) {
         return NextResponse.json({ ok: false, error: wrongPerson ? 'That PIN isn’t theirs. Try again.' : 'Incorrect PIN. Try again.' }, { status: 401 });
       }
@@ -225,18 +213,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Enter the 6-digit code and a new 4-digit PIN.' }, { status: 400 });
       }
       const resetsRef = db.doc(`tenants/${tenantId}/private/pinResets`);
-      const resets = ((await resetsRef.get()).data() as any) || {};
-      const entry = resets[staffId];
-      if (!entry || Date.now() > entry.expiresAt) {
-        return NextResponse.json({ ok: false, error: 'Code expired — request a new one.' }, { status: 400 });
-      }
-      if ((entry.attempts || 0) >= 5) {
-        return NextResponse.json({ ok: false, error: 'Too many tries — request a new code.' }, { status: 423 });
-      }
-      if (entry.codeHash !== sha256(code)) {
-        await resetsRef.set({ [staffId]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true });
-        return NextResponse.json({ ok: false, error: 'Wrong code. Check with your manager.' }, { status: 401 });
-      }
+      // Each try at a code is counted in one step with the check (a transaction), so tries sent at once can't share a
+      // count: five per code, whatever arrives together.
+      const verdict: 'expired' | 'locked' | 'wrong' | 'ok' = await db.runTransaction(async (tx: any) => {
+        const snap = await tx.get(resetsRef); const entry = ((snap?.data?.() as any) || {})[staffId];
+        if (!entry || Date.now() > entry.expiresAt) return 'expired';
+        if ((entry.attempts || 0) >= 5) return 'locked';
+        if (entry.codeHash !== sha256(code)) { tx.set(resetsRef, { [staffId]: { ...entry, attempts: (entry.attempts || 0) + 1 } }, { merge: true }); return 'wrong'; }
+        return 'ok';
+      });
+      if (verdict === 'expired') return NextResponse.json({ ok: false, error: 'Code expired — request a new one.' }, { status: 400 });
+      if (verdict === 'locked') return NextResponse.json({ ok: false, error: 'Too many tries — request a new code.' }, { status: 423 });
+      if (verdict === 'wrong') return NextResponse.json({ ok: false, error: 'Wrong code. Check with your manager.' }, { status: 401 });
       // Stored the one strong way (lib/pin); every older copy for this person is removed.
       { const { setStaffPin } = await import('@/lib/pin'); const r = await setStaffPin(db, tenantId, staffId, newPin);
         if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 409 }); }
@@ -309,15 +297,16 @@ export async function POST(req: NextRequest) {
     if (action === 'verify-manager') {
       const pin = String(body.pin || '');
       if (!/^\d{4}$/.test(pin)) return NextResponse.json({ ok: false, error: 'Enter a 4-digit PIN.' }, { status: 400 });
-      const { locked } = await checkRateLimit(db, tenantId);
-      if (locked) return NextResponse.json({ ok: false, error: 'Too many attempts — locked for 15 minutes.' }, { status: 423 });
+      const { beginPinAttempt, endPinAttempt, findStaffByPin } = await import('@/lib/pin');
+      const ticket = await beginPinAttempt(db, tenantId);
+      if (ticket === null) return NextResponse.json({ ok: false, error: 'Too many attempts — locked for 15 minutes.' }, { status: 423 });
 
       let hitId: string | null = null; let hitData: any = null;
-      { const { findStaffByPin } = await import('@/lib/pin'); const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
+      { const hit = await findStaffByPin(db, tenantId, pin); if (hit) { hitId = hit.id; hitData = hit.data; } }
       const role = hitData?.role;
       const tDoc: any = hitId ? ((await db.doc(`tenants/${tenantId}`).get()).data() || {}) : {};
       const isManager = !!hitId && (['owner', 'admin', 'manager'].includes(String(role)) || can(tDoc, String(role || 'staff'), 'checkout.refund'));   // whose role allows refunds
-      await recordAttempt(db, tenantId, isManager);
+      await endPinAttempt(db, tenantId, ticket, isManager);
       if (!isManager) return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
       return NextResponse.json({ ok: true, manager: { id: hitId, name: hitData?.name || '', role } });
     }

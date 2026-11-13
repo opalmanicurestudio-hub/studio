@@ -39,11 +39,11 @@ const engine = src('src/lib/retail-fulfill.ts');
 check('a scan on the packing screen is a scan at the box: picked and in the box at once, saved on the order', /return recordBoxScan\(fs, t, orderId, value, actor, \{ secondScan: rs\?\.requirePackScan === true \}\)/.test(flow)
   && /const r = await scanInto\(fs, tenantId, order\.id, v, actor, rs\)/.test(pack) && /applyBoxScan\(order\.lines, scannedValue, hint, secondScan\)/.test(engine));
 check('with the second scan on, finishing needs every unit in the box (never a wave order), counted from the order, not from this screen',
-  /const boxMode = rs\?\.requirePackScan === true && !order\.waveId/.test(pack) && /const left = boxMode \? Math\.max\(0, inBox\.total - inBox\.done\)/.test(pack) && !/COUNTED_HERE|countedAtBox/.test(pack + app));
+  /const boxMode = rs\?\.requirePackScan === true && !order\.waveId/.test(pack) && /const left = \(boxMode \? Math\.max\(0, inBox\.total - inBox\.done\)/.test(pack) && !/COUNTED_HERE|countedAtBox/.test(pack + app));
 check('…and the engine checks it as the order is marked packed, whichever screen finishes it', /markPacked\(fs, t, o\.id, actor, \{ requirePackScan: rs\?\.requirePackScan === true \}\)/.test(flow));
 check('…items picked at the shelf are named, to scan again as they go in', /const shelfWaiting = active && boxMode \? inBox\.shelf : 0/.test(pack) && /picked at the shelf\. <\/b>Scan/.test(pack));
-check('…an undo takes back exactly what the scan counted', /what: r\.kind === 'checked' \? 'check' : 'box'/.test(pack) && /undoTick\(fs, tenantId, order\.id, undo\.lineId, actor, undo\.what \|\| 'scan'\)/.test(pack));
-check('…and tapping can’t stand in for it', /const canTap = rs\?\.requireScan !== true && rs\?\.requirePackScan !== true/.test(pack));
+check('…an undo takes back exactly what the scan counted', /what: r\.kind === 'checked' \? 'check' : 'box'/.test(pack) && /undoTick\(fs, tenantId, order\.id, undo\.lineId, actor, undo\.what \|\| 'scan', undo\.via \|\| 'scan'\)/.test(pack));
+check('…and tapping can’t stand in for it (nor while the shop scans every item, lib/scan-rule)', /const required = scanRequired\(rs\);/.test(pack) && /const canTap = !required && rs\?\.requirePackScan !== true;/.test(pack));
 check('a scan of another order’s item says which order and tote it belongs to', /const whoseIs = \(v: string\)/.test(pack) && /lineMatchesScan\(l, v\)/.test(pack) && /toteOf\(o\)/.test(pack) && (pack.match(/r\.miss === 'elsewhere' \? whoseIs\(v\)/g) || []).length === 1);
 check('the packing scanner only listens while packing (a tote or label scan otherwise reaches the orders screen)', /\{active && <PackScanner /.test(pack) || /active \? <PackScanner/.test(pack));
 check('someone else’s order in packing is shown, not scanned into, until it’s taken over (with every count kept)',

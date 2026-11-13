@@ -4,7 +4,7 @@
 // Returns { ok, message } so every screen (and Klair later) reports the same way.
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
-  claimSpecificOrder, markPacked, markReady, recordBoxScan, recordLineTap, resolveShortLine,
+  approveUnit, claimSpecificOrder, markPacked, markReady, recordBoxScan, recordLineTap, resolveShortLine,
   releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffByPin, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, takeOverOrder, type Actor,
 } from '@/lib/fulfil-client';
 import { nextFreeSlot } from '@/lib/orders-view';
@@ -38,9 +38,15 @@ export async function tapInto(fs: Firestore, t: string, orderId: string, lineId:
   return recordLineTap(fs, t, orderId, lineId, actor);
 }
 
-/** Takes back the last count: a tap (`scan`), a scan at the box (`box`), or a second scan's check into the box (`check`). */
-export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan') {
-  return undoLineCount(fs, t, orderId, lineId, actor, what);
+/** Takes back the last count: a tap (`scan`), a scan at the box (`box`), or a second scan's check into the box (`check`).
+ *  `via` says how it was counted (a scan, a tap, an approval), so the line's record of that comes off too. */
+export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan', via: 'scan' | 'tap' | 'approve' = 'scan') {
+  return undoLineCount(fs, t, orderId, lineId, actor, what, via);
+}
+
+/** An item that won't scan, approved with a PIN and a reason (lib/scan-rule): one unit into the box. */
+export async function approveInto(t: string, orderId: string, lineId: string, reason: string, pin: string) {
+  return approveUnit(t, orderId, lineId, reason, pin);
 }
 
 /** A backorder waiting on stock goes into the packing queue (lib/retail-fulfill releaseBackorder). Without `anyway`,

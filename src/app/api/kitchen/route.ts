@@ -38,7 +38,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { limitPublic } from '@/lib/rate-limit';
-import { findStaffByPin, pinLocked, recordPinAttempt, validPin } from '@/lib/pin';
+import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
 import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -270,9 +270,10 @@ export async function POST(req: NextRequest) {
     if (action === 'pin') {
       const pin = String(b.pin || '');
       if (!validPin(pin)) return bad('Enter a 4-digit PIN.');
-      if (await pinLocked(db, tenantId)) return bad('Too many wrong PINs. Wait 15 minutes, or ask a manager.', 423);
+      const ticket = await beginPinAttempt(db, tenantId);
+      if (ticket === null) return bad('Too many wrong PINs. Wait 15 minutes, or ask a manager.', 423);
       const hit = await findStaffByPin(db, tenantId, pin);
-      await recordPinAttempt(db, tenantId, !!hit);
+      await endPinAttempt(db, tenantId, ticket, !!hit);
       if (!hit) return bad('That PIN isn’t right.', 403);
       const pass = randomBytes(24).toString('hex'); const nowMs = Date.now();
       // This pass added on its own (two people signing in at once each keep theirs), and passes that have run out removed.

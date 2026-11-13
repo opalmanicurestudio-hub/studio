@@ -166,7 +166,7 @@ export default function RetailSettingsPage() {
       blockUndeliverableAddresses: existing.blockUndeliverableAddresses === true,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       requirePackScan: existing.requirePackScan === true,
-      requireScan: existing.requireScan === true,
+      requireScan: existing.requireScan !== false,
       curbsideAlertPhone: existing.curbsideAlertPhone ?? '',
       curbsideLat: existing.curbsideLat ?? undefined,
       curbsideLng: existing.curbsideLng ?? undefined,
@@ -265,7 +265,7 @@ export default function RetailSettingsPage() {
           blockUndeliverableAddresses: rs.blockUndeliverableAddresses === true,
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           requirePackScan: rs.requirePackScan === true,
-          requireScan: rs.requireScan === true,
+          requireScan: rs.requireScan !== false,
           curbsideAlertPhone: String(rs.curbsideAlertPhone || '').trim() || null,
           curbsideLat: Number.isFinite(Number(rs.curbsideLat)) ? Number(rs.curbsideLat) : null,
           curbsideLng: Number.isFinite(Number(rs.curbsideLng)) ? Number(rs.curbsideLng) : null,
@@ -635,11 +635,11 @@ export default function RetailSettingsPage() {
               <div>
                 <Label className="text-[11px] font-black uppercase tracking-widest">Scan every item</Label>
                 <p className="text-[11px] font-bold text-muted-foreground">
-                  Packers scan each item into the box instead of tapping it on the screen. Leave it off if some items have no barcode.
+                  On for every order: an item counts only when it’s scanned. One that won’t scan is approved with a manager’s PIN and a reason (who approves is in Setup).
                 </p>
               </div>
               <Switch aria-label="Scan every item"
-                checked={rs.requireScan === true}
+                checked={rs.requireScan !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, requireScan: v })}
               />
             </div>

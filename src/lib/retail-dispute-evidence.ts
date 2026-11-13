@@ -19,6 +19,8 @@
 // recorded — the carrier trail, the weight check, the notification timestamps,
 // the scan counts. This just reads it back in the order an issuer reads it.
 
+import { everyUnitScanned, orderCounts } from './scan-rule';
+
 export interface RetailEvidence {
   /** Stripe: product_description */
   productDescription: string;
@@ -110,14 +112,17 @@ export function buildNarrative(order: any, tenant: any): string {
     s.push(`Delivered by the merchant's own driver${d.deliveredByName ? ` (${String(d.deliveredByName)})` : ''}.${d.outAt ? ` Left the shop ${when(d.outAt)}.` : ''}${d.deliveredAt ? ` Marked delivered ${when(d.deliveredAt)}.` : ''}${d.window?.label ? ` The customer chose the delivery window ${String(d.window.label)}.` : ''}${d.note ? ` The customer's note for the driver: "${String(d.note)}".` : ''}`);
   }
 
-  // Picking / packing verification
+  // Picking / packing verification: only what was scanned is called scanned (lib/scan-rule). A unit approved without a
+  // scan, or ticked by hand, is said as what it was.
   const lines = Array.isArray(order?.lines) ? order.lines : [];
-  const scanned = lines.reduce((a: number, l: any) => a + (Number(l?.qtyScanned) || 0), 0);
-  const ordered = lines.reduce((a: number, l: any) => a + (Number(l?.qtyOrdered) || 0), 0);
-  if (scanned > 0) {
+  const vc = orderCounts(lines);
+  if (vc.scanned + vc.approved + vc.tapped > 0) {
+    const u = (k: number) => `${k} unit${k === 1 ? '' : 's'}`;
     s.push('');
     s.push('VERIFICATION BEFORE DISPATCH');
-    s.push(`Every unit was barcode-scanned against this order as it was picked and packed — ${scanned} of ${ordered} units scanned. Scans are recorded against the order with the staff member and timestamp at the moment each item was handled.`);
+    s.push(everyUnitScanned(lines)
+      ? `Every unit was barcode-scanned against this order as it was picked and packed: ${vc.scanned} of ${vc.units} units scanned. Scans are recorded against the order with the staff member and timestamp at the moment each item was handled.`
+      : `${vc.scanned} of ${vc.units} units were barcode-scanned against this order as they were picked and packed.${vc.approved ? ` ${u(vc.approved)} ${vc.approved === 1 ? 'was' : 'were'} counted in without a scan, each approved with a staff PIN and a recorded reason.` : ''}${vc.tapped ? ` ${u(vc.tapped)} ${vc.tapped === 1 ? 'was' : 'were'} checked off by hand.` : ''} Each count is recorded against the order with the staff member and timestamp.`);
   }
 
   // Protection bought

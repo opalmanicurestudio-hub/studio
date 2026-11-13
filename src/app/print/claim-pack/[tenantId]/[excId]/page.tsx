@@ -1,5 +1,6 @@
 import { checkPrintKey } from '@/lib/print-key';
 import { eventTypeOf } from '@/lib/order-events';
+import { lineCounts } from '@/lib/scan-rule';
 import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
  * /print/claim-pack/[tenantId]/[excId] — the CLAIM PACK: everything a
@@ -87,7 +88,9 @@ export default async function PrintClaimPackPage({
   const scanLines = order
     ? (order.lines || []).filter((l: any) => l.digital !== true).map((l: any) => {
         const target = Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0));
-        return { name: l.name, scanned: Number(l.qtyScanned) || 0, target };
+        // Scanned means scanned (lib/scan-rule); approved and hand-ticked units are said apart.
+        const c = lineCounts(l);
+        return { name: `${l.name}${c.approved ? ` (${c.approved} approved without a scan)` : ''}${c.tapped ? ` (${c.tapped} ticked by hand)` : ''}`, scanned: c.scanned, target };
       })
     : [];
   const allScanned = scanLines.length > 0 && scanLines.every((l: any) => l.scanned >= l.target);

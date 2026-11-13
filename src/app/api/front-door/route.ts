@@ -8,7 +8,7 @@
 //              and marks the customer as here (Arrived on the fulfilment board when the order is ready).
 import { linkOrigin } from '@/lib/app-origin';
 import { createHash, randomBytes } from 'crypto';
-import { findStaffByPin, pinLocked, recordPinAttempt, validPin } from '@/lib/pin';
+import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { moduleEnabled } from '@/lib/modules';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -44,9 +44,11 @@ export async function POST(req: NextRequest) {
   // a hash). An enabled device can show the students' rotating sign-in code without anyone being signed into the app.
   if (b.action === 'device-enable') {
     const pin = String(b.pin || ''); if (!validPin(pin)) return NextResponse.json({ ok: false, error: 'Enter a 4-digit PIN.' }, { status: 400 });
-    if (await pinLocked(db, tenantId)) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — wait 15 minutes.' }, { status: 423 });
-    const hit = await findStaffByPin(db, tenantId, pin); await recordPinAttempt(db, tenantId, !!hit);
+    const ticket = await beginPinAttempt(db, tenantId);
+    if (ticket === null) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — wait 15 minutes.' }, { status: 423 });
+    const hit = await findStaffByPin(db, tenantId, pin);
     const isMgr = !!hit && (['owner', 'admin', 'manager'].includes(String(hit.role).toLowerCase()) || tenant.userId === hit.id);
+    await endPinAttempt(db, tenantId, ticket, isMgr);
     if (!isMgr) return NextResponse.json({ ok: false, error: hit ? 'Only a manager can turn this on.' : 'That PIN isn’t right.' }, { status: 403 });
     const key = randomBytes(24).toString('base64url'); const id = randomBytes(6).toString('hex');
     await db.doc(`${T}/private/kioskDevices`).set({ [id]: { hash: hashKey(key), label: str(b.label, 40) || 'Front door', enabledBy: hit!.name, at: new Date().toISOString() } }, { merge: true });

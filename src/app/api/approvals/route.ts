@@ -11,6 +11,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
 import { findByPin, issueApproval, isApprover } from '@/lib/approvals';
+import { beginPinAttempt, endPinAttempt } from '@/lib/pin';
 import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
@@ -38,12 +39,13 @@ export async function POST(req: NextRequest) {
     const ref = db.doc(`${T}/approvals/${String(b.id || '')}`); const a: any = (await ref.get()).data();
     if (!a || a.decideHash !== sha(String(b.k))) return NextResponse.json({ ok: false, error: 'This request isn’t available.' }, { status: 404 });
     if (a.status !== 'pending' || Date.parse(a.expiresAt) < Date.now()) return NextResponse.json({ ok: false, error: 'This request has already been dealt with or has expired.' }, { status: 409 });
-    // The manager's PIN is the proof (the link alone isn't) — same guessing guard as the desk.
-    const gRef = db.doc(`${T}/approvalGuard/pins`); const g: any = ((await gRef.get()).data() as any) || {};
-    const recent = (Array.isArray(g.failures) ? g.failures : []).filter((t: string) => Date.now() - Date.parse(t) < 10 * 60000);
-    if (recent.length >= 5) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — try again in a few minutes.' }, { status: 429 });
+    // The manager's PIN is the proof (the link alone isn't), counted on the business's one lock (lib/pin): each try takes
+    // its place before its PIN is checked, and a right one never clears anyone else's wrong ones.
+    const ticket = await beginPinAttempt(db, tenantId);
+    if (ticket === null) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — try again in a few minutes.' }, { status: 429 });
     const who = await findByPin(db, tenantId, String(b.pin || ''));
-    if (!who || !isApprover(who.role)) { await gRef.set({ failures: [...recent, new Date().toISOString()] }, { merge: true }); return NextResponse.json({ ok: false, error: who ? 'That PIN isn’t a manager’s.' : 'That PIN wasn’t recognised.' }, { status: 403 }); }
+    await endPinAttempt(db, tenantId, ticket, !!who && isApprover(who.role));
+    if (!who || !isApprover(who.role)) { return NextResponse.json({ ok: false, error: who ? 'That PIN isn’t a manager’s.' : 'That PIN wasn’t recognised.' }, { status: 403 }); }
     const approve = b.choice === 'approve';
     await ref.set({ status: approve ? 'approved' : 'declined', decidedAt: new Date().toISOString(), approverId: who.id, approverName: who.name, via: 'phone', expiresAt: new Date(Date.now() + 10 * 60000).toISOString(), used: false }, { merge: true });
     await logAuditAdmin(db, tenantId, { action: approve ? 'approval.granted' : 'approval.declined', targetType: 'approval', targetId: ref.id, amount: a.amount ?? undefined, summary: `${who.name} ${approve ? 'approved' : 'declined'} remotely: ${a.requestedBy || 'the desk'} asked to ${KIND_LABEL[a.kind] || a.kind}${a.amount ? ` ($${Number(a.amount).toFixed(2)})` : ''}${a.reason ? ` — ${a.reason}` : ''}`, actor: { type: 'user', id: who.id, name: who.name, role: who.role } } as any).catch(() => {});
@@ -57,13 +59,12 @@ export async function POST(req: NextRequest) {
   const refId = b.ref ? String(b.ref).slice(0, kind === 'held_stock' ? 1200 : 120) : null; const reason = String(b.reason || '').trim().slice(0, 300) || null;
 
   if (action === 'verify') {
-    // Guard against guessing: 5 wrong PINs in 10 minutes → locked for 10 minutes.
-    const gRef = db.doc(`${T}/approvalGuard/pins`); const g: any = ((await gRef.get()).data() as any) || {};
-    const recent = (Array.isArray(g.failures) ? g.failures : []).filter((t: string) => Date.now() - Date.parse(t) < 10 * 60000);
-    if (recent.length >= 5) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — try again in a few minutes, or ask from a manager’s phone.' }, { status: 429 });
+    // Guard against guessing: the business's one lock (lib/pin), each try counted before its PIN is checked.
+    const ticket = await beginPinAttempt(db, tenantId);
+    if (ticket === null) return NextResponse.json({ ok: false, error: 'Too many wrong PINs — try again in a few minutes, or ask from a manager’s phone.' }, { status: 429 });
     const who = await findByPin(db, tenantId, String(b.pin || ''));
+    await endPinAttempt(db, tenantId, ticket, !!who && isApprover(who.role));
     if (!who || !isApprover(who.role)) {
-      await gRef.set({ failures: [...recent, new Date().toISOString()] }, { merge: true });
       return NextResponse.json({ ok: false, error: who ? 'That PIN isn’t a manager’s.' : 'That PIN wasn’t recognised.' }, { status: 403 });
     }
     if (b.requireReason !== false && !reason) return NextResponse.json({ ok: false, error: 'Add a reason.' }, { status: 400 });

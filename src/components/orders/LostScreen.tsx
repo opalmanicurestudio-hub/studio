@@ -84,7 +84,7 @@ export function LostScreen() {
   }, [fs, tenantId, month, monthOf]);
 
   const pol = protectionPolicy(rs);
-  const m = rows ? monthLoss(rows, month, { monthOf, unusedRefundedCents: refunded, shippedValues, insuranceOn: pol.insuranceEnabled, insureOverCents: pol.insuranceOverCents, requireScan: rs.requireScan === true, ordersById: orders, tz }) : null;
+  const m = rows ? monthLoss(rows, month, { monthOf, unusedRefundedCents: refunded, shippedValues, insuranceOn: pol.insuranceEnabled, insureOverCents: pol.insuranceOverCents, requireScan: rs.requireScan !== false, ordersById: orders, tz }) : null;
   const toFile = rows ? claimsToFile(rows, orders, (v) => monthDay(v, tz), Date.now(), tz, { all: true }) : [];
   const following = (rows || []).filter((r) => RECOVERABLE.has(String(r.reason)) && ['filed', 'approved'].includes(claimStage(r)));
   const closedThisMonth = (rows || []).filter((r) => RECOVERABLE.has(String(r.reason)) && ['paid', 'denied'].includes(claimStage(r)) && monthOf(String(r.recovery?.events?.slice(-1)?.[0]?.at || r.at || '')) === month);
