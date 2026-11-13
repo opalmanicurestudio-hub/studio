@@ -30,6 +30,9 @@
 //                                                      at the window like any other (the window screens show it)
 //   pouch  { tenantId, key, staffPass }             → the cash the person signed in has taken in line and not handed in
 //   handIn { tenantId, key, staffPass }             → that cash, into the one open drawer
+//   phoneLink / phoneCheck { tenantId, key, orderId } → scan to pay: the code the guest scans to pay on their own phone
+//                                                      (lib/counter-phone; the window screen shows it too, for 10 minutes)
+//                                                      / whether they have
 //   readers { tenantId, key }                       → the business's card readers the lane can send a payment to
 //   card   { tenantId, key, orderId, readerId }     → the order's total sent to that reader (lib/counter-card); the guest
 //                                                      taps, inserts or swipes there
@@ -55,6 +58,8 @@ import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, pa
 import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
+import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
+import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -77,7 +82,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -99,7 +104,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -124,7 +129,7 @@ export async function POST(req: NextRequest) {
         const mine = tickets.filter((t: any) => t.orderId === s.id && t.status !== 'cancelled');
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
         orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [], subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
-          paidAt: o.paidAt || null, payMethod: o.payMethod || null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
+          paidAt: o.paidAt || null, payMethod: o.payMethod || null, paidVia: o.paidAt ? (o.paidVia || null) : null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
@@ -244,7 +249,10 @@ export async function POST(req: NextRequest) {
           subtotal: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.subtotal) : 0, tax: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.tax) : 0, total: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.total) : 0, paid: !!o.paidAt, payMethod: o.paidAt ? (o.payMethod || null) : null,
           // Change for cash, while the car is still likely at the window.
           change: o.paidAt && o.payMethod === 'cash' && num(o.changeGiven) > 0 && ageOf(o.paidAt) < 60000 ? num(o.changeGiven) : null,
-          card, cardMessage: card === 'declined' ? String(o.card.failed || '') || null : null, kitchen, nextWindow: at === 'pay' } : null,
+          card, cardMessage: card === 'declined' ? String(o.card.failed || '') || null : null, kitchen, nextWindow: at === 'pay',
+          // Scan to pay: the code, while the team has it up (10 minutes) and the order isn't paid.
+          payUrl: shown.mode === 'pay' && !o.paidAt && o.phone?.shownAt && ageOf(o.phone.shownAt) < 10 * 60000 && phoneSig(tenantId, String(pick!.car.orderId))
+            ? `${linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '')}/drive-thru/${encodeURIComponent(tenantId)}/pay?o=${encodeURIComponent(String(pick!.car.orderId))}&s=${phoneSig(tenantId, String(pick!.car.orderId))}` : null } : null,
         now: nowIso,
       });
     }
@@ -362,6 +370,16 @@ export async function POST(req: NextRequest) {
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
 
+    if (action === 'phoneLink') {
+      const r: any = await phoneLink(db, tenantId, tenant, orderId, linkOrigin(tenant, req.nextUrl.origin), by);
+      return r.ok ? ok({ url: r.url, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    if (action === 'phoneCheck') {
+      const r: any = await checkPhone(db, tenantId, tenant, orderId);
+      if (r.ok && r.paid) statsCache.delete(tenantId);
+      return r.ok ? ok({ paid: !!r.paid, viaPhone: !!r.viaPhone, payMethod: r.payMethod || null, staffOk }) : NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status });
+    }
+
     if (action === 'cardTest') {
       // Only on a test reader (the card company's own pretend one): never on a real reader, and never with real money.
       const acct = accountOf(tenant); const stripe = readerStripe(); const o: any = (await orderRef.get()).data();
@@ -409,6 +427,8 @@ export async function POST(req: NextRequest) {
         if (ID.test(carId)) await stopCarCall(db, tenantId, carId, 'voided');
         // A card payment started for it (declined, or left) is called off, so it can never go through later.
         if (vo.card?.id && !['stopped', 'paid'].includes(String(vo.card.state))) await stopCard(db, tenantId, tenant, orderId, who.name).catch(() => null);
+        // …and so is one on the guest's phone.
+        await stopPhone(db, tenantId, tenant, orderId).catch(() => null);
       }
       return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, returned: r.returned, wasted: r.wasted, staffOk });
     }
@@ -422,6 +442,8 @@ export async function POST(req: NextRequest) {
     const r: any = await payOrder(db, tenantId, orderId, { method, tendered: b.tendered, by, byId: staff?.id || null, pouch, day: todayIn(tz, now) });
     if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     if (r.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
+    // A phone payment the guest had open is called off too (or given back, if they paid at that very moment).
+    if (!r.already) await stopPhone(db, tenantId, tenant, orderId).catch(() => null);
     return ok({ already: !!r.already, inDrawer: r.drawer ?? null, inPouch: !!r.pouch, change: r.change ?? null, payMethod: r.payMethod || null, staffOk });
   } catch (e: any) {
     console.error('[counter] failed', e?.message || e);

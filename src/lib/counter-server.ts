@@ -361,13 +361,16 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     const drawer = method === 'cash' && !pouch && till.length === 1 ? till[0].ref : null;
     if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
     const change = tendered !== null ? Math.round((tendered - total) * 100) / 100 : null;
-    // A reader payment started for it and not used (declined, or left): called off by the caller, so it can't go through later.
-    const leftCard = !viaReader && o.card?.id && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
+    // A reader payment started for it and not the one paying (declined, left, or the guest paid on their phone instead):
+    // called off by the caller, so it can't go through later.
+    const cardIsThis = viaReader && String(o.card?.id || '') === how.card!.id;
+    const leftCard = o.card?.id && !cardIsThis && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
     tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: how.by, tillId: drawer ? drawer.id : null,
       // (Counted on the day it was taken, the business's day, whenever the car arrived.)
       ...(pouch ? { cashInPouch: true, pouchOpen: true, cashWith: how.by, cashWithId: how.byId || null, cashDay: how.day || o.day || null } : method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
       ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
-      ...(viaReader ? { cardPaymentId: how.card!.id, card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
+      ...(viaReader ? { cardPaymentId: how.card!.id } : {}),
+      ...(cardIsThis ? { card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
       ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
     if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
     return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };

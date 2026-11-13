@@ -22,7 +22,7 @@ const ATS: [At, string, string][] = [['one', 'One window', 'Guests pay and pick 
 type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name: string | null; spot: string | null;
   lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl: string | null }[];
   subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
-  card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean };
+  card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null };
 type View = { business: { name: string }; show: Show | null };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const keyName = (t: string) => `cf.drivethru.window.${t}`;
@@ -57,6 +57,14 @@ export default function WindowScreen() {
   }, [tenantId, key, at]);
   useEffect(() => { if (!key) return; load(); const i = setInterval(load, POLL_MS); return () => clearInterval(i); }, [key, load]);
   useEffect(() => { if (!picking) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setPicking(false); }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, [picking]);
+  // Scan to pay: the code for the order on screen, drawn here (only while the team has it up).
+  const payUrl = view?.show?.payUrl || null;
+  const [qr, setQr] = useState<{ url: string; img: string } | null>(null);
+  useEffect(() => {
+    if (!payUrl || qr?.url === payUrl) return; let live = true;
+    void import('qrcode').then((Q: any) => Q.toDataURL(payUrl, { margin: 1, width: 640, errorCorrectionLevel: 'M', color: { dark: '#16171a', light: '#ffffff' } })).then((img: string) => { if (live) setQr({ url: payUrl, img }); }).catch(() => null);
+    return () => { live = false; };
+  }, [payUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) return <main className="min-h-dvh" style={{ background: BG }} />;
   if (!key) return <ScreenSetup window tenantId={tenantId} stopped={stopped} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setStopped(''); }} />;
@@ -101,6 +109,14 @@ export default function WindowScreen() {
                 <div className="space-y-[1vh]">
                   <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight" style={{ color: AMBER_ON_DARK }}>{s.cardMessage || 'The card didn’t go through.'}</p>
                   <p className="text-[clamp(18px,2.4vw,36px)] leading-snug" style={{ color: SUB }}>Try another card, or pay another way.</p>
+                </div>
+              ) : s.payUrl && qr?.url === s.payUrl ? (
+                <div className="flex items-center gap-[2.5vw]">
+                  <img src={qr.img} alt="Code to pay on your phone" className="shrink-0 rounded-[clamp(12px,2vh,24px)] bg-[#fff] p-[clamp(6px,1vh,12px)]" style={{ width: 'clamp(150px,24vh,300px)', height: 'clamp(150px,24vh,300px)' }} />
+                  <div className="min-w-0 space-y-[1vh]">
+                    <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">Scan to pay on your phone</p>
+                    <p className="text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Point your camera at the code. Card, Apple Pay or Google Pay. Or pay at the window.</p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-[1vh]">

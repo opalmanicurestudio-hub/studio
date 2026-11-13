@@ -699,6 +699,17 @@ export async function handleConnectWebhook(req: NextRequest) {
             }
           }
         } catch (e) { console.error('[connect-webhook] desk sale payment not marked on its ticket', e); }
+        // A drive-thru order paid on the guest's own phone (scan to pay): paid by it, in case the guest's page never
+        // said so (lib/counter-phone; once, whichever hears first).
+        try {
+          const meta: any = charge.metadata || {};
+          const piId = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent as any)?.id;
+          if (piId && meta.source === 'drive_thru_phone' && String(meta.tenantId || '') === tenant.id && charge.paid && !charge.refunded) {
+            const { settlePhone } = await import('@/lib/counter-phone');
+            const t: any = (await db.doc(`tenants/${tenant.id}`).get()).data() || {};
+            await settlePhone(db, tenant.id, t, String(meta.orderId || ''), piId);
+          }
+        } catch (e) { console.error('[connect-webhook] drive-thru phone payment not marked on its order', e); }
         break;
       }
 

@@ -15,7 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation';
 import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
-import { Car, CreditCard, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
+import { Car, CreditCard, Mic, Minus, Plus, QrCode, Volume2, VolumeX } from 'lucide-react';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { PinPad, type ScreenStaff } from '@/components/kitchen/PinPad';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
@@ -32,7 +32,7 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null };
-type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
+type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
   // The card reader's payment for it (lib/counter-card), if one was started.
   card?: { state: string; failed: string | null; readerId: string | null; at: string | null } | null };
@@ -196,6 +196,8 @@ export default function DriveThru() {
   const [spotOpen, setSpotOpen] = useState(false);
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
+  // Scan to pay: the code for this order, up while the guest pays on their own phone.
+  const [phoneFor, setPhoneFor] = useState<{ orderId: string; url: string; img: string } | null>(null);
   // The card reader at this screen (kept on the device): one of the business's readers, or 'none' for a card machine of
   // their own. With nothing picked and only one reader, that one.
   const [readers, setReaders] = useState<Reader[] | null>(null);
@@ -322,7 +324,7 @@ export default function DriveThru() {
       const cur = cars.find((c) => c.id === picked);
       const there = (c?: CarRow) => !!c && (role === 'line' ? inLineNow(c) : c.stage === want);
       // Never while someone is in the middle of something on this car (cash, a spot, a void, a choice, a check).
-      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || handAnyway > 0 || !!choiceFor || voidPin !== null) && Date.now() - midwayAt.current < 60000;
+      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || !!phoneFor || handAnyway > 0 || !!choiceFor || voidPin !== null) && Date.now() - midwayAt.current < 60000;
       const byHand = !!cur && (midway || Date.now() - manualAt.current < 30000);
       if (!byHand && next && !there(cur)) { setPicked(next.id); return; }
       if ((role === 'runner' || role === 'line') && !next && !byHand) { setPicked(null); return; }
@@ -332,7 +334,7 @@ export default function DriveThru() {
     const next = role === 'runner' || role === 'line' ? shownCars[0] : cars.find((c) => c.stage === 'speaker' && !c.inLine) || cars.find((c) => c.stage === 'pay' && !c.inLine) || (role === 'speaker' ? null : cars[0]);
     setPicked(next ? next.id : null);
   }, [lane, role]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, handAnyway, choiceFor, voidPin]);
+  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, phoneFor, handAnyway, choiceFor, voidPin]);
   useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); }, [picked, car?.stage]);
   // The Screen menu closes on Escape or a tap anywhere else.
   useEffect(() => {
@@ -408,6 +410,30 @@ export default function DriveThru() {
     setNotice(d.state === 'paid' ? { text: d.justWent ? 'The card went through just before it was stopped, so it’s paid.' : paidWords(d), tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
   });
   const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
+  // Scan to pay: a code for this order only; the guest pays on their own phone and it's marked paid by itself.
+  const showPhone = () => order && act('phoneLink', { action: 'phoneLink', orderId: order.id }, async (d) => {
+    try { const QR: any = await import('qrcode'); const img = await QR.toDataURL(d.url, { margin: 1, width: 560, errorCorrectionLevel: 'M', color: { dark: INK, light: '#ffffff' } }); setPhoneFor({ orderId: order.id, url: d.url, img }); }
+    catch { setNotice({ text: 'The code didn’t load. Try again.', tone: 'warn' }); }
+  });
+  const phoneOn = !!order && !order.paidAt && phoneFor?.orderId === order.id;
+  useEffect(() => { if (phoneFor && (!order || order.id !== phoneFor.orderId || order.paidAt)) setPhoneFor(null); }, [order?.id, order?.paidAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // While the code is up, whether they've paid (every few seconds; the card company tells the server too).
+  useEffect(() => {
+    const id = phoneOn ? order?.id : null; if (!id) return;
+    let live = true; let asking = false;
+    const ask = async () => {
+      if (asking) return; asking = true;
+      try {
+        const { d } = await post({ action: 'phoneCheck', orderId: id });
+        if (!live || !d.ok || !d.paid) return;
+        setPhoneFor(null);
+        setNotice({ text: (d.viaPhone ? 'Paid on their phone.' : `It was paid already${d.payMethod === 'cash' ? ' in cash' : ''}.`) + (car?.inLine ? ' Ask them to pull up to the pickup window.' : ''), tone: 'good' });
+        load();
+      } catch { /* asked again */ } finally { asking = false; }
+    };
+    const i = setInterval(ask, 2500);
+    return () => { live = false; clearInterval(i); };
+  }, [phoneOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // A car taken in line has reached the window: from now on the window screens and tablets show it.
   const isHere = (c: CarRow) => act('here', { action: 'here', carId: c.id }, () => { pickCar(c.id); setLane((l) => (l ? { ...l, cars: l.cars.map((x) => (x.id === c.id ? { ...x, inLine: false, wasInLine: true } : x)) } : l)); });
   const handIn = () => act('handIn', { action: 'handIn' }, (d) => { setNotice({ text: d.count ? `Handed in ${usd(d.handedIn)} to the drawer.${d.more ? ' There’s more: hand in again.' : ''}` : 'Nothing to hand in.', tone: 'good' }); void loadPouch(); }, undefined, (d) => { if (d.needsStaff) setPinOpen(true); });
@@ -765,6 +791,18 @@ export default function DriveThru() {
                               <button type="button" onClick={stopReader} disabled={!cardOn || busy === 'cardStop'} className={`${btn} min-h-[56px]`} style={quiet}>{busy === 'cardStop' ? 'Stopping…' : 'Stop, and take it another way'}</button>
                             </div>
                           </div>
+                        ) : phoneOn ? (
+                          <div className="space-y-3" role="status" aria-live="polite">
+                            <div className="flex flex-col items-center gap-3 rounded-2xl px-4 py-5 text-center sm:flex-row sm:text-left" style={{ background: SOFT }}>
+                              <img src={phoneFor!.img} alt="Code to pay this order on a phone" className="h-[220px] w-[220px] shrink-0 rounded-2xl bg-[#fff] p-2" />
+                              <div className="min-w-0 space-y-1">
+                                <p className="text-[18px] font-semibold">Scan to pay</p>
+                                <p className="text-[14.5px] leading-relaxed" style={{ color: MUTED }}>Turn the screen to them. They scan it with their phone’s camera and pay {usd(order.total)} there, with a card, Apple Pay or Google Pay. It’s marked paid by itself once it goes through.</p>
+                                {!car?.inLine && <p className="text-[13.5px]" style={{ color: MUTED }}>The window screen shows it too, for the next 10 minutes.</p>}
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => setPhoneFor(null)} className={`${btn} min-h-[56px] w-full`} style={quiet}>Back, take it another way</button>
+                          </div>
                         ) : cardCheck ? (
                           <div className="space-y-3">
                             <p className="text-[16px] font-semibold">Paid {usd(order.total)} by card on the machine?</p>
@@ -780,6 +818,7 @@ export default function DriveThru() {
                             <button type="button" onClick={() => (pouchCash && !staff ? setPinOpen(true) : setCash('open'))} className={`${btn} min-h-[72px] text-[18px]`} style={quiet}>{pouchCash && !staff ? 'Cash (your PIN first)' : 'Cash'}</button>
                             <p className="text-[13.5px] sm:col-span-2" style={{ color: MUTED }}>{reader ? `Card sends ${usd(order.total)} to ${reader.label}${reader.online ? '' : ', which looks offline right now'}.` : 'Card is taken on your card machine; this records it.'}{pouchCash ? ' Cash goes in your pouch.' : ''}</p>
                             <div className="flex flex-wrap gap-x-5 sm:col-span-2">
+                              <button type="button" onClick={showPhone} disabled={busy === 'phoneLink'} className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}><QrCode className="h-4 w-4" aria-hidden />{busy === 'phoneLink' ? 'Making the code…' : 'Scan to pay on their phone'}</button>
                               {reader && <button type="button" onClick={() => setCardCheck(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Card on another machine</button>}
                               <button type="button" onClick={() => setVoidOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>They drove off, or won’t pay</button>
                             </div>
@@ -803,7 +842,7 @@ export default function DriveThru() {
                     ) : (
                       <>
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <div><p className="text-[15px] font-medium" style={{ color: MUTED }}>Paid {order.payMethod === 'cash' ? 'in cash' : 'by card'}</p><p className="text-[32px] font-semibold tracking-tight tabular-nums">{usd(order.total)}</p></div>
+                          <div><p className="text-[15px] font-medium" style={{ color: MUTED }}>Paid {order.payMethod === 'cash' ? 'in cash' : order.paidVia === 'phone' ? 'on their phone' : 'by card'}</p><p className="text-[32px] font-semibold tracking-tight tabular-nums">{usd(order.total)}</p></div>
                           {order.kitchen === 'ready' ? <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Everything is ready</span>
                             : <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>{order.waitingOn.length} still being made</span>}
                         </div>

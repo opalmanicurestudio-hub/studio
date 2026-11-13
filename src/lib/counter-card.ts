@@ -176,13 +176,15 @@ async function settle(db: any, stripe: any, acct: string, tenantId: string, orde
   const r: any = await payOrder(db, tenantId, orderId, { method: 'card', by, card: { id: pi.id, cents } });
   if (r.paidOtherwise) return giveBack(db, stripe, acct, tenantId, orderId, taken, claim.number);
   if (!r.ok) { await putCard(db, ref, mine, { state: 'on_reader' }).catch(() => {}); return fail(r.error || 'That didn’t go through. Try again.', r.status || 500); }
+  // A payment on the guest's own phone meanwhile is called off (or given back, if it went through at that moment).
+  if (!r.already) { const P = await import('@/lib/counter-phone'); const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; await P.stopPhone(db, tenantId, t, orderId, { stripe }).catch(() => null); }
   return { ok: true, state: 'paid', already: !!r.already, payMethod: 'card' };
 }
 
 /** A card payment the order doesn't need (paid another way, or voided, before it went through): an approval is let
  *  go; one already taken goes back to the card, once, and the managers are told. The answer says how the order stands:
  *  paid (and how), or voided. */
-async function giveBack(db: any, stripe: any, acct: string, tenantId: string, orderId: string, pi: any, number: string): Promise<CardAnswer> {
+export async function giveBack(db: any, stripe: any, acct: string, tenantId: string, orderId: string, pi: any, number: string): Promise<CardAnswer> {
   const ref = orderRefOf(db, tenantId, orderId);
   const cents = Math.round(Number(pi.amount_received || pi.amount) || 0);
   let pending = false;
@@ -394,17 +396,34 @@ export async function sweepCounterCards(db: any, tenantId: string, tenant: any, 
       const r = await refundAmount(acct, piId, Math.round(Number(back.cents) || 0), `counter-card-back-${piId}`, { origin: 'app', orderId: d.id });
       if (r.ok || r.code === 'charge_already_refunded') { await d.ref.set({ cardBack: { [piId]: { refunded: true, refundId: r.id || null, at: new Date(now).toISOString() } } }, { merge: true }); await tellManagers(db, tenantId, piId, String(or.number || ''), Math.round(Number(back.cents) || 0), true); }
     }
+    // Off the sweep's list, in one step that checks nothing new started (a card sent again, a phone payment) and nothing
+    // is left to give back.
+    const settled = () => db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(d.ref)).data() || {};
+      if (!['paid', 'stopped'].includes(String(cur.card?.state || 'stopped'))) return;
+      if (cur.phone?.id && !['paid', 'stopped'].includes(String(cur.phone.state || ''))) return;
+      if (Object.values<any>(cur.cardBack || {}).some((b) => b?.refunded === false)) return;
+      tx.set(d.ref, { cardOpen: false }, { merge: true });
+    });
+    // Scan to pay (lib/counter-phone): one paid on the phone that nobody heard about pays the order (or goes back, if it
+    // was paid another way); one not paid (and not going through) is called off once the order is paid or voided, or its
+    // link has expired.
+    const ph: any = or.phone || {};
+    if (ph.id && ph.state === 'open') {
+      const phAge = now - (Date.parse(String(ph.at || '')) || now);
+      if (phAge >= 5 * 60000 || or.paidAt || or.status === 'voided') {
+        out.checked++;
+        const P = await import('@/lib/counter-phone');
+        const s: any = await P.settlePhone(db, tenantId, tenant, d.id, String(ph.id), { stripe }).catch(() => null);
+        if (s?.ok && s.paid) out.paid++;
+        else if (s?.ok && s.pending && (or.paidAt || or.status === 'voided' || phAge >= 3 * 3600000)) { await P.stopPhone(db, tenantId, tenant, d.id, { stripe }).catch(() => null); out.stopped++; }
+      }
+    }
+    if (!or.card) { await settled(); continue; }
     const age = now - (Date.parse(String(c.at || '')) || now);
     if (age < 5 * 60000 && c.state !== 'stopping') continue;
     out.checked++;
     const by = 'Card reader';
-    // Off the sweep's list, in one step that checks nothing new started (a card sent again) and nothing is left to give back.
-    const settled = () => db.runTransaction(async (tx: any) => {
-      const cur: any = (await tx.get(d.ref)).data() || {};
-      if (!['paid', 'stopped'].includes(String(cur.card?.state || 'stopped'))) return;
-      if (Object.values<any>(cur.cardBack || {}).some((b) => b?.refunded === false)) return;
-      tx.set(d.ref, { cardOpen: false }, { merge: true });
-    });
     if (!c.id) { await putCard(db, d.ref, { id: null, attempt: Math.floor(Number(c.attempt) || 0) }, { state: 'stopped' }, false); await settled(); continue; }
     if (c.state === 'paid' || c.state === 'stopped') { await settled(); continue; }
     const g = await getPi(stripe, acct, c.id);
