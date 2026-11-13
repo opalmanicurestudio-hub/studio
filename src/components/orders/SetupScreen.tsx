@@ -16,6 +16,7 @@ import { allSpots, bagScanOn } from '@/lib/bag-tag';
 import { printPickupSpots } from '@/lib/shelf-labels-client';
 import { noBarcodeYet, registerScanOn } from '@/lib/register-scan';
 import { isSellable } from '@/lib/pos-scan';
+import { SPOT_CHOICES, spotEvery } from '@/lib/spot-check';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -91,6 +92,8 @@ function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fi
   // Sold, with nothing on it to scan yet (lib/register-scan): a label for each prints from here.
   const bare = React.useMemo(() => noBarcodeYet(inventory || [], isSellable).sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))), [inventory]);
   const [seeBare, setSeeBare] = React.useState(false);
+  const [spot, setSpot] = React.useState(spotEvery(rs));
+  React.useEffect(() => { setSpot(spotEvery(rs)); }, [rs?.spotCheckEvery]);
   const [on, setOn] = React.useState(scanRequired(rs)); const [who, setWho] = React.useState<Approvers>(approversOf(rs));
   const [bagsOn, setBagsOn] = React.useState(bagScanOn(rs));
   const [shelfOn, setShelfOn] = React.useState(rs?.scanBagToShelf !== false);
@@ -152,6 +155,15 @@ function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fi
               </li>))}
             {bare.length > 60 && <li className="border-t py-2 text-[13px]" style={{ borderColor: C.line, color: C.muted }}>And {bare.length - 60} more, all on the labels page.</li>}
           </ul>)}
+      </div>
+      <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <p className="m-0 text-[17px] tracking-[-0.01em]">Spot checks</p>
+        <div role="group" aria-label="Spot checks" className="mt-2 inline-flex flex-wrap gap-1 rounded-full p-1" style={{ background: C.soft }}>
+          {([0, ...SPOT_CHOICES] as number[]).map((n) => (
+            <button key={n} type="button" aria-pressed={spot === n} disabled={busy || !owner} onClick={() => { if (spot !== n) void save({ 'retailSettings.spotCheckEvery': n }, () => setSpot(n), n ? `1 in ${n} orders is spot-checked now.` : 'Spot checks are off.'); }}
+              className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={spot === n ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(22,23,26,.12)' } : { background: 'transparent', color: C.ink }}>{n ? `1 in ${n}` : 'Off'}</button>))}
+        </div>
+        <p className="m-0 mt-2 text-[13px]" style={muted}>{spot ? `1 in ${spot} packed orders is picked at random. Someone other than its packer scans every item again before it goes any further, and what they find shows on How it’s going.` : 'Off. Turn it on when there are two people on: someone other than the packer scans a share of orders again.'}</p>
       </div>
       <div className="px-4 py-3">
         <p className="m-0 text-[17px] tracking-[-0.01em]">Who approves an item that won’t scan</p>

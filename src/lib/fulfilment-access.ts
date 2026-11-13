@@ -122,6 +122,9 @@ export interface StaffKpis {
   abandonedClaims: number;
   ordersPacked: number;          // boxed or put on the pickup shelf by this person
   labelsChecked: number;         // shipping labels scanned onto the right box
+  spotChecked?: number;          // their packed orders a second person checked (lib/spot-check)
+  spotMistakes?: number;         // wrong, extra or missing items those checks found
+  approvedNoScan?: number;       // units they counted without a scan, on someone's PIN (lib/scan-rule)
 }
 
 const median = (xs: number[]): number | null => {
@@ -150,7 +153,7 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now(), wavePic
     if (!row) {
       row = {
         actorId: id, name, ordersPicked: 0, itemsPicked: 0, medianMinutes: null,
-        onTimeRate: null, accuracy: null, shortsRaised: 0, reopens: 0, abandonedClaims: 0, ordersPacked: 0, labelsChecked: 0,
+        onTimeRate: null, accuracy: null, shortsRaised: 0, reopens: 0, abandonedClaims: 0, ordersPacked: 0, labelsChecked: 0, spotChecked: 0, spotMistakes: 0, approvedNoScan: 0,
         durations: [], onTime: 0, finished: 0, scans: 0, mismatches: 0,
       };
       byActor.set(id, row);
@@ -180,6 +183,12 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now(), wavePic
       if (e.type === 'line_shorted') row.shortsRaised += 1;
       if (e.type === 'line_reopened') row.reopens += 1;
       if (e.type === 'label_scan_verified') row.labelsChecked += 1;
+      if (e.type === 'override' && e.meta?.rule === 'unit_approved') row.approvedNoScan = (row.approvedNoScan || 0) + 1;
+      // A spot check counts for the person who packed the order, not the one who checked it.
+      if (e.type === 'spot_check' && ['passed', 'fixed'].includes(String(e.meta?.result)) && e.meta?.packedById) {
+        const p = ensure(String(e.meta.packedById), String(e.meta.packedBy || 'Staff'));
+        p.spotChecked = (p.spotChecked || 0) + 1; p.spotMistakes = (p.spotMistakes || 0) + (Number(e.meta.wrong) || 0) + (Number(e.meta.missing) || 0);
+      }
     }
     if (packedBy?.actorId && !['system', 'shippo', 'customer'].includes(String(packedBy.actorId))) ensure(String(packedBy.actorId), String(packedBy.actorName || 'Staff')).ordersPacked += 1;
 
@@ -213,6 +222,9 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now(), wavePic
       abandonedClaims: r.abandonedClaims,
       ordersPacked: r.ordersPacked,
       labelsChecked: r.labelsChecked,
+      spotChecked: r.spotChecked || 0,
+      spotMistakes: r.spotMistakes || 0,
+      approvedNoScan: r.approvedNoScan || 0,
     }))
     .sort((a, b) => b.ordersPicked - a.ordersPicked || b.itemsPicked - a.itemsPicked);
 }

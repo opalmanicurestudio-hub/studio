@@ -66,6 +66,8 @@ const ADDRESS_ASKED = 'The customer asked to change the address. Answer that on 
 function notReady(order: any, qrToken: string): string | null {
   if (String(order.qrToken || '') !== qrToken) return 'Not authorized';
   if (order.stage !== 'packed') return `Not packed yet (${order.stage})`;
+  // Picked for a spot check as it was packed (lib/spot-check): checked by someone else before its label is bought.
+  if (order.spotCheck?.due === true) return 'Waiting for its spot check';
   if (openRequest(order)) return ADDRESS_ASKED;
   if (order.method !== 'ship' || !order.shippingAddress) return 'Not a ship order';
   return null;

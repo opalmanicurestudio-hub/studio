@@ -24,6 +24,7 @@ import { handoffRecord, pinKeyOf, pinMatches, PIN_TRIES, type HandoffMethod } fr
 import { lineCounts, tappedLines, type Approval } from '@/lib/scan-rule';
 import { bagsToLoad, bagsToScan, bagsToShelve, clampBags, goesInBags, parseBagCode, parseSpot } from '@/lib/bag-tag';
 import { checkBagCode } from '@/lib/order-qr';
+import { pickForSpot, spotDue, spotLines, spotMistakes } from '@/lib/spot-check';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // The fulfillment steps. They run on the server (api/retail/fulfil, with the
@@ -717,8 +718,9 @@ export async function recordPackScan(
 
 export async function markPacked(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-  opts?: { requirePackScan?: boolean; requireScan?: boolean; bags?: number }
-): Promise<{ ok: boolean; message: string }> {
+  opts?: { requirePackScan?: boolean; requireScan?: boolean; bags?: number; spotEvery?: number; roll?: number }
+): Promise<{ ok: boolean; message: string; spotCheck?: boolean }> {
+  let picked = false;
   try {
     const batchId = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -746,8 +748,14 @@ export async function markPacked(
 
       // How many bags it went into (lib/bag-tag): each gets a tag, and each is scanned at handover.
       const bagCount = goesInBags(order) ? clampBags(opts?.bags ?? (order as any).bagCount ?? 1) : null;
-      txn.update(oRef, { stage: 'packed', packedAt: new Date().toISOString(), ...(bagCount ? { bagCount } : {}) });
+      // A SPOT CHECK (lib/spot-check): 1 in so many orders, picked as it's packed, is scanned again by someone else before
+      // it goes any further.
+      picked = pickForSpot(order, Number(opts?.spotEvery) || 0, Number.isFinite(opts?.roll) ? Number(opts?.roll) : Math.random());
+      const now = new Date().toISOString();
+      txn.update(oRef, { stage: 'packed', packedAt: now, ...(bagCount ? { bagCount } : {}),
+        ...(picked ? { spotCheck: { due: true, pickedAt: now, packedById: actor.id, packedByName: actor.name, counts: {}, missing: {}, wrong: 0 } } : {}) });
       txn.set(doc(collection(oRef, 'events')), evPayload('packed', actor, bagCount && bagCount > 1 ? { bags: bagCount } : undefined));
+      if (picked) txn.set(doc(collection(oRef, 'events')), evPayload('spot_check', actor, { result: 'picked', packedById: actor.id, packedBy: actor.name }));
       return order.batchId || null;
     });
 
@@ -765,9 +773,104 @@ export async function markPacked(
         }
       });
     }
-    return { ok: true, message: 'Packed' };
+    return { ok: true, message: picked ? 'Packed. Picked for a spot check: someone else scans it before it goes out.' : 'Packed', ...(picked ? { spotCheck: true } : {}) };
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not mark packed.' };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * SPOT CHECKS — a second person scans a packed order again (lib/spot-check)
+ * ════════════════════════════════════════════════════════════════════════════
+ * Someone other than its packer scans every unit. A wrong or extra item is taken out and counted as a mistake; an item
+ * that was missing is marked missing, put in and scanned. Once every unit is counted it's done: passed, or fixed with
+ * its mistakes kept on the order (and counted for its packer on How it's going). A manager's PIN can let it go unchecked.
+ */
+type SpotAnswer = { ok: boolean; message: string; left?: number; lineId?: string; mistake?: boolean };
+const spotGate = (order: any, actor: Actor): string | null => {
+  if (!spotDue(order)) return 'This order isn’t waiting for a spot check.';
+  if (order.stage !== 'packed') return `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}.`;
+  if (String(order.spotCheck?.packedById || '') === actor.id) return 'Someone other than its packer checks it. Ask a teammate, or a manager can let it go with their PIN.';
+  return null;
+};
+
+export async function recordSpotScan(fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor): Promise<SpotAnswer> {
+  const found = await resolveFirst(fs, tenantId, orderId, scannedValue, false);
+  const hint = found?.kind === 'line' ? found.hint : null;
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      const bad = spotGate(order, actor); if (bad) return { ok: false, message: bad };
+      const lines = spotLines(order);
+      const match = (order.lines || []).find((l: any) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, scannedValue)) && lines.some((x) => x.lineId === l.lineId));
+      const sc = order.spotCheck || {};
+      const code = scannedValue.trim().slice(0, 80); const nowMs = Date.now();
+      const wrong = (message: string): SpotAnswer => {
+        // The same wrong item read twice in a row (a scanner's double read) is one mistake.
+        if (sc.lastWrong?.code === code && nowMs - (Date.parse(String(sc.lastWrong?.at || '')) || 0) < 4000) return { ok: false, message: 'Already counted. Take it out of the bag.' };
+        txn.update(oRef, { 'spotCheck.wrong': (Number(sc.wrong) || 0) + 1, 'spotCheck.lastWrong': { code, at: new Date(nowMs).toISOString() } } as any);
+        txn.set(doc(collection(oRef, 'events')), evPayload('scan_mismatch', actor, { scannedValue: scannedValue.slice(0, 80), code: 'spot_check', phase: 'spot' }));
+        return { ok: false, mistake: true, left: spotLines({ ...order }).reduce((a, l) => a + Math.max(0, l.need - l.got), 0), message };
+      };
+      if (!match) return wrong('That isn’t on this order. Take it out of the bag: it’s counted as a mistake.');
+      const row = lines.find((x) => x.lineId === match.lineId)!;
+      if (row.got >= row.need) return wrong(`That’s one more ${row.name} than the order has. Take it out: it’s counted as a mistake.`);
+      txn.update(oRef, { [`spotCheck.counts.${match.lineId}`]: row.got + 1 } as any);
+      const left = lines.reduce((a, l) => a + Math.max(0, l.need - l.got), 0) - 1;
+      return { ok: true, lineId: match.lineId, left, message: left > 0 ? `${row.name}. ${left} more to scan.` : 'Every item scanned. Finish the check.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That scan didn’t go through.' };
+  }
+}
+
+/** An item that wasn't in the bag: a mistake kept for its packer. It's put in, then scanned like the rest. */
+export async function markSpotMissing(fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor): Promise<SpotAnswer> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      const bad = spotGate(order, actor); if (bad) return { ok: false, message: bad };
+      const row = spotLines(order).find((x) => x.lineId === lineId);
+      if (!row) return { ok: false, message: 'That item isn’t on this order.' };
+      if (row.got + row.missing >= row.need) return { ok: false, message: `Every ${row.name} is already counted.` };
+      txn.update(oRef, { [`spotCheck.missing.${lineId}`]: row.missing + 1 } as any);
+      return { ok: true, mistake: true, lineId, message: `Counted as missing. Put one in, then scan it.` };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t go through.' };
+  }
+}
+
+/** Done: every unit scanned (or let go on a manager's PIN). The order can go on: to the shelf, the van or its label. */
+export async function finishSpotCheck(fs: Firestore, tenantId: string, orderId: string, actor: Actor, approvedBy?: { id: string; name: string } | null): Promise<SpotAnswer & { result?: string; method?: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (approvedBy && String(order.spotCheck?.packedById || '') === approvedBy.id) return { ok: false, message: 'The person who packed it can’t let it go unchecked. Ask another manager.' };
+      const bad = approvedBy ? (!spotDue(order) ? 'This order isn’t waiting for a spot check.' : order.stage !== 'packed' ? 'This order has moved on.' : null) : spotGate(order, actor);
+      if (bad) return { ok: false, message: bad };
+      const left = spotLines(order).reduce((a, l) => a + Math.max(0, l.need - l.got), 0);
+      if (left > 0 && !approvedBy) return { ok: false, left, message: `${left} more to scan. One that isn’t there: mark it missing, put it in and scan it.` };
+      const m = spotMistakes(order);
+      // Nothing left in it to check (every item refunded or sent later since it was packed): closed, not counted as a check.
+      const result = !spotLines(order).length ? 'empty' : approvedBy && left > 0 ? 'skipped' : m.wrong + m.missing > 0 ? 'fixed' : 'passed';
+      const now = new Date().toISOString();
+      txn.update(oRef, { 'spotCheck.due': false, 'spotCheck.doneAt': now, 'spotCheck.byId': actor.id, 'spotCheck.byName': actor.name, 'spotCheck.result': result,
+        ...(approvedBy ? { 'spotCheck.approvedById': approvedBy.id, 'spotCheck.approvedBy': approvedBy.name } : {}) } as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('spot_check', actor, clean({ result, wrong: m.wrong, missing: m.missing, packedById: String(order.spotCheck?.packedById || ''), packedBy: String(order.spotCheck?.packedByName || ''), ...(approvedBy ? { approvedBy: approvedBy.name, approvedById: approvedBy.id } : {}) }) as any));
+      return { ok: true, result, method: String(order.method || ''), message: result === 'empty' ? 'Nothing left in it to check, so the check is closed.' : result === 'passed' ? 'Spot check passed.' : result === 'fixed' ? `Fixed: ${[m.wrong ? `${m.wrong} wrong or extra` : '', m.missing ? `${m.missing} missing` : ''].filter(Boolean).join(' and ')}. It’s kept on the order.` : 'Let go without the check, on a manager’s PIN.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t go through.' };
   }
 }
 

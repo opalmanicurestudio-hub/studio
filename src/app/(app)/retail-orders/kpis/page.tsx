@@ -166,6 +166,8 @@ export default function FulfilmentKpisPage() {
                   ? 'No promise times to compare against yet.'
                   : `${mine.onTimeRate}% finished before the promised time.`}
                 {mine.shortsRaised > 0 ? ` You flagged ${mine.shortsRaised} stock problem${mine.shortsRaised === 1 ? '' : 's'}.` : ''}
+                {mine.spotChecked ? ` ${mine.spotChecked} of your orders ${mine.spotChecked === 1 ? 'was' : 'were'} spot-checked: ${mine.spotMistakes ? `${mine.spotMistakes} mistake${mine.spotMistakes === 1 ? '' : 's'} found` : 'every item right'}.` : ''}
+                {mine.approvedNoScan ? ` ${mine.approvedNoScan} item${mine.approvedNoScan === 1 ? '' : 's'} went in without a scan, on a PIN.` : ''}
               </p>
             </CardContent>
           </Card>
@@ -267,6 +269,16 @@ export default function FulfilmentKpisPage() {
                     <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
                       r.onTimeRate < 90 ? 'bg-amber-100 text-amber-800' : 'bg-muted/40')}>
                       {r.onTimeRate}% on time
+                    </span>
+                  )}
+                  {(r.spotChecked || 0) > 0 && (
+                    <span className={cn('rounded-full px-2.5 py-1 text-[12px] font-semibold', r.spotMistakes ? 'bg-amber-100 text-amber-800' : 'bg-muted/40')}>
+                      {r.spotMistakes ? `${r.spotMistakes} ${r.spotMistakes === 1 ? 'mistake' : 'mistakes'} in ${r.spotChecked} spot ${r.spotChecked === 1 ? 'check' : 'checks'}` : `${r.spotChecked} spot ${r.spotChecked === 1 ? 'check' : 'checks'}, every item right`}
+                    </span>
+                  )}
+                  {(r.approvedNoScan || 0) > 0 && (
+                    <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[12px] font-semibold">
+                      {r.approvedNoScan} without a scan, on a PIN
                     </span>
                   )}
                   {r.shortsRaised > 0 && (

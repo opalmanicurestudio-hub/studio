@@ -6,6 +6,7 @@
 // Repeats: a step that can arrive more than once (a carrier update, a customer's tap, a retried message) is written with
 // a key (eventIdFor), so the same step with the same key is one event however often it comes.
 import type { OrderEventType } from './retail-orders';
+import { spotWords } from './spot-check';
 
 type Tone = 'ok' | 'warn' | 'plain';
 type Info = { customer: boolean; words: (m: any, by: string) => { text: string; tone: Tone } };
@@ -27,6 +28,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   label_generated: { customer: false, words: (m) => ({ text: `${m.carrier ? `${m.carrier} ` : ''}label${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}`, tone: 'plain' }) },
   label_scan_verified: { customer: false, words: (_m, by) => ({ text: `Label checked onto its box${by}`, tone: 'ok' }) },
   marked_ready: { customer: true, words: (m, by) => ({ text: `${m.forDelivery ? 'Ready to go out for delivery' : 'Ready for pickup'}${by}`, tone: 'ok' }) },
+  spot_check: { customer: false, words: (m, by) => ({ text: `${spotWords(m)}${by}`, tone: m.result === 'fixed' || m.result === 'skipped' ? 'warn' : 'plain' }) },
   put_away: { customer: false, words: (m, by) => ({ text: `${Number(m.bags) > 1 ? `${m.bags} bags scanned` : 'Bag scanned'} onto shelf ${String(m.shelf || '')}${by}`, tone: 'plain' }) },
   customer_arrived: { customer: true, words: (m) => ({ text: `Customer arrived${m.spotOrVehicle ? ` · ${m.spotOrVehicle}` : ''}`, tone: 'plain' }) },
   handoff_scanned: { customer: true, words: (m, by) => ({ text: `${m.method === 'pin' ? 'Pickup code checked' : 'Pickup code scanned'}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'ok' }) },

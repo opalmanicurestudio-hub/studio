@@ -49,7 +49,7 @@ export const approveUnit = (tenantId: string, orderId: string, lineId: string, r
 export const resolveShortLine = (_fs: any, tenantId: string, orderId: string, lineId: string, reason: string, resolution: ShortResolution, _actor: Actor) => step(tenantId, 'shortLine', { orderId, lineId, reason, resolution });
 export const reopenShortedLine = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor) => step(tenantId, 'reopenLine', { orderId, lineId });
 /** The shop's second scan is read by the server itself. */
-export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts?: { requirePackScan?: boolean; bags?: number }) => step(tenantId, 'markPacked', { orderId, ...(opts?.bags != null ? { bags: opts.bags } : {}) });
+export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts?: { requirePackScan?: boolean; bags?: number }) => step<Ans & { spotCheck?: boolean }>(tenantId, 'markPacked', { orderId, ...(opts?.bags != null ? { bags: opts.bags } : {}) });
 export const markReady = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { autoArrived?: boolean; notifyReady?: boolean }>(tenantId, 'markReady', { orderId });
 /** The team member's photo is read by the server from their staff record. */
 export const markBringingOut = (_fs: any, tenantId: string, orderId: string, _actor: Actor, _photo?: string) => step(tenantId, 'bringingOut', { orderId });
@@ -59,6 +59,11 @@ export const handoffByPin = (tenantId: string, orderId: string, pin: string, bag
 export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor, bags?: string[], bagPin?: string) => step<Ans & { needBags?: boolean }>(tenantId, 'handoffNoScan', { orderId, verifiedBy, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
 /** Local delivery (lib/retail-fulfill): out with the person signed in as the driver, delivered, or brought back. */
 export const markOutForDelivery = (tenantId: string, orderId: string, bags?: string[], bagPin?: string) => step<Ans & { needBags?: boolean; badBagPin?: boolean }>(tenantId, 'deliveryOut', { orderId, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
+/** A spot check by a second person (lib/spot-check): each unit scanned again, an item that was missing marked, then done
+ *  (or let go unchecked on a manager's PIN). */
+export const spotScan = (tenantId: string, orderId: string, value: string) => step<Ans & { left?: number; lineId?: string; mistake?: boolean }>(tenantId, 'spotScan', { orderId, value });
+export const spotMissing = (tenantId: string, orderId: string, lineId: string) => step<Ans & { mistake?: boolean }>(tenantId, 'spotMissing', { orderId, lineId });
+export const spotDone = (tenantId: string, orderId: string, pin?: string) => step<Ans & { result?: string; ready?: boolean; left?: number; badPin?: boolean }>(tenantId, 'spotDone', { orderId, ...(pin ? { pin } : {}) });
 /** The order's bags scanned onto their spot on the ready shelf (checked on the server, lib/bag-tag). */
 export const putAway = (tenantId: string, orderId: string, bags: string[], spot: string) => step<Ans & { needBags?: boolean; spot?: string }>(tenantId, 'putAway', { orderId, bags, spot });
 export const markDelivered = (tenantId: string, orderId: string, proof: { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean } = {}) =>

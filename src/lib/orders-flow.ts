@@ -76,6 +76,8 @@ export async function finishPacking(fs: Firestore, t: string, o: any, all: any[]
   // How many bags it went into (lib/bag-tag): a tag prints for each, and each is scanned at handover.
   const p = await markPacked(fs, t, o.id, actor, { requirePackScan: rs?.requirePackScan === true, ...(bags != null ? { bags } : {}) });
   if (!p.ok) return p;
+  // Picked for a spot check (lib/spot-check): it waits, packed, for someone else to check it.
+  if (p.spotCheck) return { ok: true, message: o.method === 'ship' ? 'Packed. Picked for a spot check: someone else scans it before its label goes on.' : 'Packed. Picked for a spot check: someone else scans it before it goes on the shelf.', spotCheck: true } as any;
   if (o.method === 'ship') return { ok: true, message: 'Packed. Ready for a label.' };
   const r: any = await markReady(fs, t, o.id, actor);
   if (!r.ok) return { ok: true, message: `Packed. ${r.message}` };

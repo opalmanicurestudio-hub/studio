@@ -43,6 +43,9 @@ export async function POST(req: NextRequest) {
       const key = togetherKey(orders[0], { labelled: true });
       if (!key || orders.some((o: any) => togetherKey(o, { labelled: true }) !== key)) throw new Error('These orders aren’t going to the same person and address, so they can’t share a box.');
       if (orders.some((o: any) => !['packed', 'shipped'].includes(String(o.stage)))) throw new Error('Every order needs to be packed first.');
+      // Picked for a spot check as it was packed (lib/spot-check): checked by someone else before it goes in a box.
+      const due = orders.find((o: any) => o.spotCheck?.due === true);
+      if (due) throw new Error(`#${String(due.orderNumber ?? '').padStart(4, '0')} was picked for a spot check. Someone other than its packer scans it before it ships.`);
       if (orders.slice(1).some((o: any) => o.shippoTransactionId)) throw new Error('One of the other orders already has its own label. Void it first.');
       const p: any = orders[0];
       const label = manual

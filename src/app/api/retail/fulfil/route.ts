@@ -26,6 +26,7 @@ import { failReason } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { approversOf, isApproveReason, mayApprove, scanRequired, type Approvers } from '@/lib/scan-rule';
 import { bagScanOn, clampBags, shelfScanOn } from '@/lib/bag-tag';
+import { spotEvery } from '@/lib/spot-check';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +39,7 @@ type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'return
 const ACTIONS: Record<string, Need> = {
   claimNext: 'pick', claimOrder: 'pick', takeOver: 'pick', releaseBatch: 'pick', sweepStale: 'staff',
   scanItem: 'pick', scanBox: 'pick', tapLine: 'pick', approveUnit: 'pick', undoCount: 'pick', shortLine: 'pick', reopenLine: 'pick',
-  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', putAway: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
+  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', putAway: 'pack', spotScan: 'pack', spotMissing: 'pack', spotDone: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
@@ -138,6 +139,18 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
   const touchedIds: string[] = [];
   try {
     let out: any;
+    // Onto the ready shelf, and the customer told, from here: a curbside customer not already outside by text (it starts
+    // their trip), anyone else collecting by the ready email. Each route sends its message once per order.
+    const markReadyAndTell = async (id: string) => {
+      const r: any = await F.markReady(db, tenantId, id, actor);
+      if (r?.ok) {
+        const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${id}`).get()).data() || {};
+        if (o.method === 'curbside') { if (r.notifyReady) F.notifyCurbside(tenantId, id, 'ready'); }
+        // A delivery isn't collected: its customer hears when it's on the way, not that it's ready to pick up.
+        else if (o.method !== 'ship' && o.method !== 'delivery') sendMessage('order_ready', { orderId: id });
+      }
+      return r;
+    };
     switch (action) {
       case 'claimNext': case 'claimOrder': {
         // How many batches one person may take from the queue at once (their role's limit), checked here, not only on
@@ -185,17 +198,35 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'undoCount': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.undoLineCount(db, tenantId, orderId, lineId, actor, b.what === 'box' || b.what === 'check' ? b.what : 'scan', b.via === 'tap' || b.via === 'approve' ? b.via : 'scan'); break; }
       case 'shortLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.resolveShortLine(db, tenantId, orderId, lineId, s(b.reason, 200) || 'Not on the shelf', b.resolution === 'backorder' ? 'backorder' : 'refund', actor); break; }
       case 'reopenLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.reopenShortedLine(db, tenantId, orderId, lineId, actor); break; }
-      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) }); break; }
+      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, spotEvery: rules.spotEvery, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) }); break; }
       case 'markReady': {
         const m = need1(orderId, 'order'); if (m) return m;
-        out = await F.markReady(db, tenantId, orderId, actor);
-        // The customer is told it's ready, from here: a curbside customer not already outside by text (it starts their
-        // trip), anyone else collecting by the ready email. Each route sends its message once per order.
-        if (out?.ok) {
-          const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
-          if (o.method === 'curbside') { if (out.notifyReady) F.notifyCurbside(tenantId, orderId, 'ready'); }
-          // A delivery isn't collected: its customer hears when it's on the way, not that it's ready to pick up.
-          else if (o.method !== 'ship' && o.method !== 'delivery') sendMessage('order_ready', { orderId });
+        out = await markReadyAndTell(orderId);
+        break;
+      }
+      // A SPOT CHECK by a second person (lib/spot-check): each unit scanned again, an item that was missing marked, then
+      // done; a manager's PIN can let one go unchecked. Done, a pickup or delivery goes onto the ready shelf as it would
+      // have, and its customer is told.
+      case 'spotScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordSpotScan(db, tenantId, orderId, s(b.value, 200), actor); break; }
+      case 'spotMissing': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.markSpotMissing(db, tenantId, orderId, lineId, actor); break; }
+      case 'spotDone': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        let approvedBy: { id: string; name: string } | null = null;
+        if (b.pin != null && b.pin !== '') {
+          const pin = s(b.pin, 8);
+          if (!validPin(pin)) return NextResponse.json({ ok: false, message: 'Enter a 4-digit PIN.' }, { status: 400 });
+          const ticket = await beginPinAttempt(db, tenantId);
+          if (ticket === null) return NextResponse.json({ ok: false, message: 'Too many wrong PINs. Wait 15 minutes and try again.' }, { status: 423 });
+          const hit = await findStaffByPin(db, tenantId, pin); const who: any = hit?.data || {};
+          const may = !!hit && who.isRenter !== true && mayApprove(permissionsFor(who), 'managers');
+          await endPinAttempt(db, tenantId, ticket, may);
+          if (!hit || !may) return NextResponse.json({ ok: false, badPin: true, message: 'That isn’t a manager’s PIN. Managers set their PIN on the Staff page.' }, { status: 403 });
+          approvedBy = { id: hit.id, name: hit.name };
+        }
+        out = await F.finishSpotCheck(db, tenantId, orderId, actor, approvedBy);
+        if (out?.ok && out.method !== 'ship') {
+          const r: any = await markReadyAndTell(orderId);
+          out = { ...out, ready: !!r?.ok, message: r?.ok ? `${out.message} ${r.message}` : out.message };
         }
         break;
       }
@@ -445,10 +476,10 @@ async function bagRule(db: any, tenantId: string, b: any): Promise<{ bags: strin
 
 /** The shop's scanning rules (lib/scan-rule), read here so a screen can't skip them: every item scanned (on unless the
  *  shop turned it off), the second scan at packing, and who may approve an item that won't scan. */
-async function scanSettings(db: any, tenantId: string): Promise<{ required: boolean; secondScan: boolean; approvers: Approvers }> {
+async function scanSettings(db: any, tenantId: string): Promise<{ required: boolean; secondScan: boolean; approvers: Approvers; spotEvery: number }> {
   const t = await db.doc(`tenants/${tenantId}`).get().catch(() => null);
   const rs = (t?.data?.() || {})?.retailSettings || {};
-  return { required: scanRequired(rs), secondScan: rs.requirePackScan === true, approvers: approversOf(rs) };
+  return { required: scanRequired(rs), secondScan: rs.requirePackScan === true, approvers: approversOf(rs), spotEvery: spotEvery(rs) };
 }
 
 /** The team member's photo for the "bringing it out" card, from their staff record. */

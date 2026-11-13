@@ -1009,6 +1009,7 @@ export const ORDER_EVENT_TYPES = [
   'label_scan_verified',       // the label's barcode scanned onto the right box
   'marked_ready',
   'put_away',                  // the bags scanned onto their spot on the ready shelf — meta: { shelf, bags }
+  'spot_check',                // a second person's check of a packed order (lib/spot-check) — meta: { result, wrong, missing, packedById }
   'customer_arrived',          // meta: { spotOrVehicle }
   'handoff_scanned',           // customer QR verified at counter/car
   'out_for_delivery',          // local delivery: a driver left with it — meta: { driver, bags? }
@@ -1660,6 +1661,11 @@ export type GuardResult = { ok: true } | { ok: false; reason: string };
 export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult {
   if (!LEGAL_TRANSITIONS[order.stage].includes(target)) {
     return { ok: false, reason: `Cannot go from ${order.stage} to ${target}.` };
+  }
+
+  // Picked for a spot check as it was packed (lib/spot-check): it goes no further until someone else has checked it.
+  if ((target === 'ready' || target === 'shipped') && (order as any).spotCheck?.due === true) {
+    return { ok: false, reason: 'This order was picked for a spot check. Someone other than its packer scans it first.' };
   }
 
   switch (target) {

@@ -159,7 +159,7 @@ const fresh = async (rs: any = {}, x: any = {}) => {
 
   // ── Rules and screens ──
   const rules = src('firestore.rules');
-  check('put-away is one of the order’s steps: a browser can’t write it (firestore.rules)', /function orderStepKeys\(\) \{[\s\S]{0,420}'putAway'\]/.test(rules));
+  check('put-away is one of the order’s steps: a browser can’t write it (firestore.rules)', /function orderStepKeys\(\) \{[^}]{0,460}'putAway'/.test(rules));
   check('put-away is a packing step on the server', /putAway: 'pack'/.test(src('src/app/api/retail/fulfil/route.ts')));
   check('once put away, the shelf spot moves only on the server (firestore.rules)', /hasAny\(\['shelfSlot'\]\) \|\| resource\.data\.get\('putAway', null\) == null\)/.test(rules));
   const route = src('src/app/api/retail/fulfil/route.ts');

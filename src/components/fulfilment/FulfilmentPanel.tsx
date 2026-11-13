@@ -25,6 +25,8 @@ import { MissingSheet } from '@/components/orders/MissingSheet';
 import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
 import { PutAwaySheet } from '@/components/orders/PutAwaySheet';
+import { SpotCheckSheet } from '@/components/orders/SpotCheckSheet';
+import { spotDue } from '@/lib/spot-check';
 import { binMatches, compareBins } from '@/lib/bins';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { markLabelChecked, assignTote, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, skipTotes, toteBusy, toteOf } from '@/lib/totes';
@@ -70,6 +72,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const [shipId, setShipId] = React.useState<string | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
   const [putting, setPutting] = React.useState(false);
+  const [spotId, setSpotId] = React.useState<string | null>(null);
   const [showMissing, setShowMissing] = React.useState(false);
   const [banner, setBanner] = React.useState<Banner | null>(null);
   // The order at the box for its second scan, when the shop asks for one.
@@ -134,7 +137,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
     const tagTab = goesInBags(o) && !(o as any).popupId && bagScanOn(rs) && (o as any).qrToken && typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
     const r = await finishPacking(fs, tenantId, o, orders, actor as any, rs);
     if (tagTab) { if (r.ok) tagTab.location.href = `/print/label/${tenantId}/${o.id}?t=${encodeURIComponent((o as any).qrToken)}`; else tagTab.close(); }
-    say(r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
+    say(r.ok && (r as any).spotCheck ? r.message : r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
     return r.ok;
   };
   // Finishing an order picked at the shelf, with the second scan on, starts its scan into the box instead.
@@ -303,6 +306,12 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           {toShip.map((o) => <ListRow key={o.id} onClick={() => setShipId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${o.labelCheckedAt ? 'Label on and checked' : o.labelUrl || o.trackingNumber ? 'Scan the label on the box' : 'Needs a label'}${o.groundOnly ? ' · ground only' : ''}`} trail={<span style={muted}>{Ic.chev}</span>} />)}
         </Section>)}
 
+      {perms.canPack && orders.some((o) => spotDue(o) && o.stage === 'packed') && (() => { const due = orders.filter((o) => spotDue(o) && o.stage === 'packed'); return (
+        <section className="mt-5 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
+          <p className="m-0 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{due.length === 1 ? '1 order is' : `${due.length} orders are`} waiting for a spot check. </b>Someone other than the packer scans every item again before it goes any further.</p>
+          <div className="mt-2 flex flex-wrap gap-2">{due.slice(0, 6).map((o) => <Btn key={o.id} kind="primary" className="h-11 text-[14px]" onClick={() => setSpotId(o.id)}>Check {orderNum(o)}</Btn>)}</div>
+        </section>); })()}
+
       {perms.canPack && shelfScanOn(rs) && orders.some((o) => needsPutAway(o, rs)) && (() => { const n = orders.filter((o) => needsPutAway(o, rs)).length; return (
         <section className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
           <p className="m-0 min-w-[200px] flex-1 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{n} on the ready shelf to put away. </b>Scan each bag, then the spot it’s on.</p>
@@ -325,6 +334,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={weights} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
       {putting && <PutAwaySheet tenantId={tenantId} orders={orders} rs={rs} onClose={() => setPutting(false)} />}
+      {spotId && byId.get(spotId) && <SpotCheckSheet tenantId={tenantId} order={byId.get(spotId)} meId={String(staffMember.id)} onClose={() => setSpotId(null)} onDone={(m) => { setSpotId(null); say(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={110} />}
     </div>);
 }

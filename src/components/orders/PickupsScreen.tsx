@@ -30,6 +30,8 @@ import { Btn, C, Empty, Initials, LargeTitle, ListRow, Seg, UndoBar, feel, muted
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
 import { HandoverSheet } from './HandoverSheet';
 import { PutAwaySheet } from './PutAwaySheet';
+import { SpotCheckSheet } from './SpotCheckSheet';
+import { spotDue } from '@/lib/spot-check';
 import { needsPutAway } from '@/lib/bag-tag';
 import { useWide, useWidest } from './shell';
 import { BAGGED, hasProsOnly, isHere, isPickup, licenseLapsed, localDay, minutesAway, onTheWay, pickupLists, shortName, soonSent, soonText, type PickupTab } from '@/lib/pickups-view';
@@ -60,6 +62,7 @@ export function PickupsScreen() {
   const [focus, setFocus] = React.useState<{ tab: WorkTab; n: number } | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
   const [putting, setPutting] = React.useState(false);
+  const [spotId, setSpotId] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState('');
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
@@ -134,6 +137,13 @@ export function PickupsScreen() {
     <ListRow key={o.id} active={o.id === openId} onClick={() => openOn(o.id, 'pack')} lead={<Initials name={String(o.customerName || 'Customer')} />}
       title={Number(o.popupNumber) > 0 ? `${o.customerName || 'Customer'}, No. ${o.popupNumber}` : o.customerName || 'Customer'} detail={hasProsOnly(o) ? <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{detail}</span><ProsTag o={o} short /></span> : detail} trail={trail ?? <span style={muted}>{Ic.chev}</span>} />);
 
+  // Picked for a spot check as they were packed (lib/spot-check): someone other than the packer checks them first.
+  const spots = orders.filter((o) => spotDue(o) && o.stage === 'packed');
+  const spotBanner = spots.length > 0 && canHand ? (
+    <div className="mx-4 mt-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
+      <p className="m-0 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{spots.length === 1 ? '1 order is' : `${spots.length} orders are`} waiting for a spot check. </b>Someone other than the packer scans {spots.length === 1 ? 'it' : 'each'} before it goes on the shelf.</p>
+      <div className="mt-2 flex flex-wrap gap-2">{spots.slice(0, 6).map((o) => <Btn key={o.id} kind="primary" className="h-11 text-[14px]" onClick={() => setSpotId(o.id)}>Check #{String(o.orderNumber ?? '').padStart(4, '0')}</Btn>)}</div>
+    </div>) : null;
   const listBody = loading ? <p className="m-0 px-4 pt-6 text-[15px]" style={muted}>Loading…</p>
     : shown === 'here' ? (
       <div className="px-4 pt-3">
@@ -177,15 +187,16 @@ export function PickupsScreen() {
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
       {wide ? (
         <div className="flex h-[100dvh]">
-          <div className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r pb-8" style={{ borderColor: C.line }}>{header}<div key={shown} className="cf-stagger mt-1">{listBody}</div></div>
+          <div className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r pb-8" style={{ borderColor: C.line }}>{header}{spotBanner}<div key={shown} className="cf-stagger mt-1">{listBody}</div></div>
           <div className="min-w-0 flex-1">{panel || <Empty title="Pick an order" sub="Its bag list, with each item’s number and shelf, opens here." />}</div>
         </div>
       ) : (
-        <div className="pb-32">{header}<div key={shown} className="cf-stagger mt-1">{listBody}</div></div>
+        <div className="pb-32">{header}{spotBanner}<div key={shown} className="cf-stagger mt-1">{listBody}</div></div>
       )}
       {!wide && panel}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {putting && <PutAwaySheet tenantId={tenantId} orders={orders} rs={rs} onClose={() => setPutting(false)} />}
+      {spotId && byId.get(spotId) && <SpotCheckSheet tenantId={tenantId} order={byId.get(spotId)} meId={actor.id} onClose={() => setSpotId(null)} onDone={(m) => { setSpotId(null); setToast(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? 32 : 40} />}
     </div>);
 }

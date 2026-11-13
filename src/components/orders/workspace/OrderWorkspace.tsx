@@ -18,6 +18,8 @@ import type { FulfilmentPermissions } from '@/lib/fulfilment-access';
 import { setHold } from '../bulk';
 import { MissingSheet } from '../MissingSheet';
 import { HandoverSheet } from '../HandoverSheet';
+import { SpotCheckSheet } from '../SpotCheckSheet';
+import { spotDue } from '@/lib/spot-check';
 import { RefundPartSheet } from '../RefundPartSheet';
 import { StartReturnSheet, hasReturnable } from '../StartReturnSheet';
 import { ReturnSheet } from '../ReturnSheet';
@@ -100,6 +102,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const [tab, setTab] = React.useState<WorkTab>(() => defaultTab(order));
   const [missing, setMissing] = React.useState<any | null>(null);
   const [handing, setHanding] = React.useState(false);
+  const [spotOpen, setSpotOpen] = React.useState(false);
   const [more, setMore] = React.useState(false);
   const [boxSizes, setBoxSizes] = React.useState(false);
   const [partRefund, setPartRefund] = React.useState(false);
@@ -227,6 +230,11 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
             <div key={s} className="flex-1 text-[12px] font-semibold" style={{ color: i === now ? C.ink : C.muted }}><div className="mb-1.5 h-1 rounded-full" style={{ background: i < now ? C.ink : i === now ? C.mint : C.line }} />{s}</div>))}
         </div>)}
 
+      {spotDue(order) && stage === 'packed' && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
+          <p className="m-0 min-w-[200px] flex-1 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">Picked for a spot check. </b>Someone other than {order.spotCheck?.packedByName ? firstName(order.spotCheck.packedByName) : 'its packer'} scans every item again before it goes any further.</p>
+          <Btn kind="primary" className="shrink-0" onClick={() => setSpotOpen(true)}>Spot check</Btn>
+        </div>)}
       <div className="mt-4"><Attention fs={fs} tenantId={tenantId} order={order} actor={actor} rs={rs} shopZone={shopZone} canRefund={canRefund} isManager={isManager} recs={recs} onToast={onToast} onShip={() => setTab('ship')} onMessage={message} /></div>
 
       <div role="tablist" aria-label="This order" className="mt-4 flex rounded-full p-[3px]" style={{ background: C.soft, maxWidth: phone ? undefined : 420 }}>
@@ -267,6 +275,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       ) : <div className="h-full overflow-y-auto">{body}</div>}
 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={order} line={missing} shelf={shelfFor.get(missing.productId)} inventory={inventory} actor={actor} autoBelow={Math.max(0, Number(rs.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); onToast(m); }} />}
+      {spotOpen && spotDue(order) && <SpotCheckSheet tenantId={tenantId} order={order} meId={actor.id} onClose={() => setSpotOpen(false)} onDone={(m) => { setSpotOpen(false); onToast(m); }} />}
       {handing && <HandoverSheet fs={fs} tenantId={tenantId} order={order} actor={actor} lookup={(id) => (all || []).find((x: any) => x.id === id)} onClose={() => setHanding(false)} onDone={(m) => { setHanding(false); onToast(m); }} />}
       {boxSizes && <BoxSizesSheet tenantId={tenantId} rs={rs} onClose={() => setBoxSizes(false)} onToast={onToast} />}
       {tagsOpen && <TagsSheet fs={fs} tenantId={tenantId} order={order} all={all} rs={rs} actor={actor} onClose={() => setTagsOpen(false)} onDone={(m) => { setTagsOpen(false); onToast(m); }} />}
