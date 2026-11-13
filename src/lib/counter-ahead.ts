@@ -17,6 +17,7 @@ import { readMenu, type MenuItem } from '@/lib/menu-server';
 import { sendOrder, payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { loyaltyOf } from '@/lib/loyalty';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -82,12 +83,15 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   const sections: { name: string; items: ReturnType<typeof guestItem>[] }[] = [];
   for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(guestItem(m)); }
   const payments = !!accountOf(tenant) && !!process.env.STRIPE_SECRET_KEY && !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && !!secret();
-  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant), sections, timeZone: tenantTimeZone(tenant) };
+  // The rewards program, when it's on: the page asks for a phone number (and, for a program you join, whether they want to).
+  const L = loyaltyOf(tenant);
+  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant), sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
+    points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
 }
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -125,12 +129,15 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (m.soldOut || !m.inStock) return fail(`${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
     if (m.canMake !== null && m.canMake < q) return fail(m.canMake > 0 ? `Only ${m.canMake} ${m.name} left. Change your order and try again.` : `${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
   }
+  // A phone number for points (optional): kept with the order, and the order is theirs once it's paid.
+  const phone = String(b.phone ?? '').replace(/\D/g, '').slice(-10);
+  if (b.phone && phone.length !== 10) return fail('A 10-digit phone number for points, or leave it empty.', 400, 'phone');
   const money = totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at });
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   const made: any = await db.runTransaction(async (tx: any) => {
@@ -145,7 +152,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
-      ahead: { state: 'awaiting_pay', way, at, code, cents, payId: null } });
+      ahead: { state: 'awaiting_pay', way, at, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) } });
     return { number, code };
   });
   if (made.busy) return fail('Something went wrong. Try again.', 503);
@@ -225,7 +232,25 @@ export async function settleAhead(db: any, tenantId: string, tenant: any, orderI
   if (r.paidOtherwise) { await done({}); return back('This order was paid another way.'); }
   if (!r.ok) { await done({}); return fail(r.error || 'That didn’t go through. Try again.', r.status || 500); }
   await ref.set({ ahead: { state: 'paid', paidAt: nowIso(), settlingAt: null }, paidVia: 'online' }, { merge: true });
+  // Points, for a guest who gave their number (lib/counter-points): a member's order is theirs; someone new joins only if
+  // they said yes. Never holds up the order.
+  if (or.ahead?.pointsPhone) await linkAheadPoints(db, tenantId, tenant, orderId, or);
   return { ok: true, paid: true };
+}
+
+/** The phone number given when ordering: once it's paid, the order is theirs (a member, or someone who said yes to
+ *  joining). Done, the full number isn't kept on the order; not done (a hiccup), it's tried again when the guest's page
+ *  next asks how the order is going. */
+export async function linkAheadPoints(db: any, tenantId: string, tenant: any, orderId: string, or: any) {
+  try {
+    const P = await import('@/lib/counter-points');
+    const r: any = await P.linkOrder(db, tenantId, tenant, orderId, { phone: or.ahead.pointsPhone, join: or.ahead.pointsJoin === true, name: or.guestName }, 'Ordered ahead');
+    // Linked, or nothing to link (not a member and didn't join, the program's off, the order's gone): the number is let
+    // go either way. Only the card company or the database not answering is tried again, five times at most.
+    const tries = Math.floor(num(or.ahead?.pointsTries)) + 1;
+    if (r.ok || r.status !== 503 || tries >= 5) await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).set({ ahead: { pointsPhone: null, pointsJoin: null, pointsDone: true } }, { merge: true });
+    else await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).set({ ahead: { pointsTries: tries } }, { merge: true });
+  } catch (e: any) { console.error('[counter-ahead] points not linked', orderId, e?.message); }
 }
 
 /** How the order is going, for the guest's page: paid, the code, being made (or waiting until it's time), ready. */
@@ -246,6 +271,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     state, paid: !!or.paidAt, code: or.paidAt ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
     kitchen: !or.paidAt ? null : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
     here: !!or.ahead?.hereAt, failed: state === 'canceled' ? String(or.ahead?.failed || '') || null : null,
+    // Points this order earned (never their balance: a page anyone with the link can open).
+    earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
     lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null })),
     subtotal: num(or.subtotal), tax: num(or.tax), total: num(or.total),
   };

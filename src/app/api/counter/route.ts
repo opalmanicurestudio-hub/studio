@@ -61,6 +61,7 @@ import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card'
 import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
 import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
+import { pointsOn, linkOrder } from '@/lib/counter-points';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard', 'points'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -133,7 +134,9 @@ export async function POST(req: NextRequest) {
         const o: any = s.data(); if (!o) continue;
         const mine = tickets.filter((t: any) => t.orderId === s.id && t.status !== 'cancelled');
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
-        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [], subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
+        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [],
+          // Rewards for this order (lib/counter-points): the last 4 of the phone given, and what it earned once paid.
+          points: o.clientId && o.points?.phone ? { phone: String(o.points.phone), earned: num(o.points.earned) } : null, subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, paidVia: o.paidAt ? (o.paidVia || null) : null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
@@ -180,7 +183,7 @@ export async function POST(req: NextRequest) {
         // (Even with ordering ahead switched off since: an order already paid is still picked up.)
         ahead: await aheadForLane(db, tenantId, tenant).catch((e: any) => { console.error('[counter] orders placed ahead not read', e?.message); return []; }),
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
-        aheadOn: aheadOf(tenant).on,
+        aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant),
       });
     }
 
@@ -298,6 +301,14 @@ export async function POST(req: NextRequest) {
     // Anything that changes today's numbers lets them be worked out again on the next read.
     if (['car', 'move', 'cancel', 'void'].includes(action)) statsCache.delete(tenantId);
 
+    // Rewards: the guest's phone number puts the order in their name (they join only when they say yes); paid already,
+    // it earns now (lib/counter-points).
+    if (action === 'points') {
+      const r: any = await linkOrder(db, tenantId, tenant, String(b.orderId || ''), { phone: b.phone, join: b.join === true, name: b.name }, who.name);
+      // (Not in the program yet: the lane asks them in its own sheet, so no message across the bottom too.)
+      return r.ok ? ok({ earned: r.earned || 0, balance: r.balance ?? null, unit: r.unit || 'points', already: !!r.already, staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, quiet: r.code === 'not_found' || r.code === 'not_member', staffOk }, { status: r.status });
+    }
     // "I ordered ahead, code 4821": the order placed ahead becomes this car's (or a new car's), straight to pickup.
     if (action === 'aheadCar') {
       const r: any = await aheadToCar(db, tenantId, tenant, { orderId: b.orderId, code: b.code, carId: b.carId }, who);

@@ -195,6 +195,8 @@ async function sentAtStripe(acct: string | null, cards: { pi: string }[], transa
 
 /** Points earned on the sale come back off (best effort, once per sale). */
 async function afterRefund(db: any, tenantId: string, x: any, transactionId: string, refunded: number, byName: string | null) {
+  // A drive-thru or order-ahead sale (counter_<order>) earned under its own id (lib/counter-points); its tax line didn't.
+  if (refunded > 0 && !x.checkoutSessionId && x.orderId && transactionId === `counter_${x.orderId}`) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: transactionId, refundCents: refunded, refundId: `c${transactionId}`, by: byName || 'Refund' }); } catch { /* best effort */ } return; }
   if (refunded > 0 && x.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(x.checkoutSessionId), refundCents: refunded, refundId: `c${transactionId}`, by: byName || 'Refund' }); } catch { /* best effort */ } }
 }
 

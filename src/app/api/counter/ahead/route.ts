@@ -1,6 +1,6 @@
 // src/app/api/counter/ahead/route.ts — ORDERING AHEAD, the guest's side (public). lib/counter-ahead.
 //   menu  { tenantId }                                  → on or off, how they can pick up, the times, the menu
-//   place { tenantId, key, lines, name, way, at }       → the order (not paid yet) and the secure form's key for its payment
+//   place { tenantId, key, lines, name, way, at, phone?, join? }       → the order (not paid yet) and the secure form's key for its payment
 //   done  { tenantId, o, s }                            → after the form says it went through: asked of the card company
 //   track { tenantId, o, s }                            → how it's going (paid, the pickup code, being made, ready)
 //   here  { tenantId, o, s }                            → "I'm here": the kitchen starts now if it was waiting
@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadSigOk } from '@/lib/counter-ahead';
+import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadSigOk, linkAheadPoints } from '@/lib/counter-ahead';
 import { ensureWalletDomainsSoon } from '@/lib/wallet-domains';
 import { closedReply } from '@/lib/tenant-open-server';
 export const dynamic = 'force-dynamic';
@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
       // Still waiting on its payment: asked of the card company too (the page may have stopped asking before it went through).
       const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
       if (o?.channel === 'ahead' && !o.paidAt && o.ahead?.state === 'awaiting_pay' && o.ahead?.payId) await settleAhead(db, tenantId, tenant, orderId, String(o.ahead.payId)).catch(() => null);
+      // Paid, with points that didn't go through at the time: tried again.
+      if (o?.channel === 'ahead' && o.paidAt && o.ahead?.pointsPhone) await linkAheadPoints(db, tenantId, tenant, orderId, o);
       const r: any = await aheadView(db, tenantId, tenant, orderId); return reply(r, r.ok ? 200 : r.status);
     }
     if (action === 'here') { const r: any = await aheadHere(db, tenantId, orderId); return reply(r, r.ok ? 200 : r.status); }

@@ -18,9 +18,9 @@ const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean };
-type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; sections: { name: string; items: Item[] }[]; timeZone?: string };
+type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
 async function call(body: any) {
   try { const r = await fetch('/api/counter/ahead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, d: await r.json().catch(() => ({})) }; }
@@ -134,6 +134,7 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
         </div>
         <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
         <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>
+        {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
         {t.kitchen !== 'handed' && (t.here ? <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>
           : <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>)}
       </section>
@@ -152,6 +153,7 @@ export default function OrderAhead() {
   const [cart, setCart] = React.useState<CartLine[]>([]); const [open, setOpen] = React.useState<Item | null>(null);
   const [step, setStep] = React.useState<'menu' | 'review' | 'pay'>('menu');
   const [name, setName] = React.useState(''); const [way, setWay] = React.useState<Way | null>(null); const [at, setAt] = React.useState<string>('');
+  const [phone, setPhone] = React.useState(''); const [join, setJoin] = React.useState(false);
   const [placing, setPlacing] = React.useState(false); const [payBusy, setPayBusy] = React.useState(false); const [placeErr, setPlaceErr] = React.useState('');
   const [pay, setPay] = React.useState<{ orderId: string; sig: string; number: string; total: number; clientSecret: string; publishableKey: string; stripeAccount: string } | null>(null);
   const [track, setTrack] = React.useState<{ o: string; s: string } | null>(null);
@@ -161,12 +163,12 @@ export default function OrderAhead() {
     const q = new URLSearchParams(window.location.search); const o = q.get('o'), s = q.get('s');
     if (o && s) { setTrack({ o, s }); return; }
     try { const c = JSON.parse(read(cartKey) || '[]'); if (Array.isArray(c)) setCart(c.slice(0, 30)); } catch { /* */ }
-    setName(read('cf.ahead.name') || '');
+    setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || '');
     void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); } else setErr(d.error || 'This page isn’t here.'); });
   }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!track) write(cartKey, cart.length ? JSON.stringify(cart) : null); key.current = ''; }, [cart]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
-  React.useEffect(() => { key.current = ''; }, [way, at, name]);
+  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   const add = (item: Item, picks: Picks, qty: number) => {
     const p = priceChoices(item, picks); const each = Math.max(0, item.price + (p.ok ? p.extra : 0)); const text = pickWords(item, picks);
@@ -177,9 +179,11 @@ export default function OrderAhead() {
   const place = async () => {
     if (!way) { setPlaceErr('How will you pick it up?'); return; }
     if (!name.trim()) { setPlaceErr('What name should we put on the order?'); return; }
-    setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim());
+    const digits = phone.replace(/\D/g, '').slice(-10);
+    if (phone.trim() && digits.length !== 10) { setPlaceErr('A 10-digit phone number for points, or leave it empty.'); return; }
+    setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks })) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(phone.replace(/\D/g, '').length >= 10 && menu?.points ? { phone: phone.replace(/\D/g, '').slice(-10), join } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks })) });
     setPlacing(false);
     if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'at') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) setMenu(m); setAt(''); }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
@@ -248,6 +252,13 @@ export default function OrderAhead() {
       <section className="space-y-4 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <label className="block"><span className="text-[15px] font-semibold">Name for the order</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>
+        {menu.points && (
+          <div>
+            <label className="block"><span className="text-[15px] font-semibold">Phone for {menu.points.unit} <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
+            {menu.points.askJoin && phone.replace(/\D/g, '').length >= 10 && (
+              <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Join the rewards program, if I haven’t already</label>)}
+          </div>)}
         {menu.ways.length > 1 && (
           <fieldset><legend className="text-[15px] font-semibold">How you’ll pick it up</legend>
             <div className="mt-2 grid grid-cols-2 gap-2">

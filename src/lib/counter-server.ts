@@ -334,7 +334,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
   const method = how.method; const tendered = method === 'cash' && how.tendered !== undefined && how.tendered !== null ? Math.round(Number(how.tendered) * 100) / 100 : null;
   if (tendered !== null && (!Number.isFinite(tendered) || tendered < 0 || tendered > 100000)) return { error: 'How much did they hand over?', status: 400 };
   const viaReader = !!how.card?.id;
-  return db.runTransaction(async (tx: any) => {
+  const res: any = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
@@ -379,4 +379,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
     return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };
   });
+  // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
+  if (res?.ok && !res.already) { try { const P = await import('@/lib/counter-points'); await P.earnForOrder(db, tenantId, null, orderId); } catch (e: any) { console.error('[counter] points not earned', orderId, e?.message); } }
+  return res;
 }
