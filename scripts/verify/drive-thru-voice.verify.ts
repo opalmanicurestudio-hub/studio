@@ -97,6 +97,13 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const car = (await counter(req({ tenantId: 't1', key, action: 'car', carKey: 'voicecar-01' }))).body;
   r = await V({ action: 'speaker' });
   check('the speaker tablet sees the car at the speaker', r.body.car?.id === car.carId && r.body.car.voice === null, r.body);
+  // A car taken in line (before the speaker) already has someone with it: never the one the speaker greets.
+  const lineCar = (await counter(req({ tenantId: 't1', key, action: 'car', carKey: 'voicecar-line', inLine: true, looks: 'Gray Van' }))).body;
+  let rl: any = await V({ action: 'speaker' });
+  check('a car ordering in line is never the one the speaker greets', rl.body.car?.id === car.carId, rl.body.car);
+  rl = await V({ action: 'start', carId: lineCar.carId });
+  check('…and the assistant can’t be started on it', rl.status === 409 && /in line/.test(rl.body.error), rl.body);
+  await db.doc(`${T}/driveThruCars/${lineCar.carId}`).set({ stage: 'gone', goneAt: new Date().toISOString() }, { merge: true });
   calls = [];
   r = await V({ action: 'start', carId: car.carId });
   const made = calls.find((c) => c.url.endsWith('/v3/create-web-call'));

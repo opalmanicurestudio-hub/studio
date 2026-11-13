@@ -65,7 +65,9 @@ export async function setOrderName(db: any, tenantId: string, orderId: string, n
 }
 
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
-export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+/** A car in the lane, with its empty order. `inLine`: taken by someone walking the line before the speaker (the speaker
+ *  never greets it, and the order board by the speaker never shows it), told apart by how it looks. */
+export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   const day = todayIn(tenantTimeZone(tenant), now);
   const counterRef = db.doc(`${T}/orderCounters/${day}`);
@@ -80,7 +82,8 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     const number = orderNumber('drive-thru', n);
     tx.set(counterRef, { 'drive-thru': n, day }, { merge: true });
     tx.set(orderRef, { id: orderRef.id, number, channel: 'drive-thru' as Channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day });
-    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day });
+    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day,
+      ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}) });
     return { carId: carRef.id, orderId: orderRef.id, number };
   });
 }
@@ -311,8 +314,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   });
 }
 
-export type PayHow = { method: 'card' | 'cash'; tendered?: number | null; by: string; card?: { id: string; cents: number } | null };
-export type PayDone = { ok: true; already?: boolean; drawer?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null };
+export type PayHow = { method: 'card' | 'cash'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string };
+export type PayDone = { ok: true; already?: boolean; drawer?: boolean; pouch?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null };
 
 /** Paid at the window: the sale and its tax in the books, cash into the one open drawer (with what was handed over and
  *  the change), and the car moves on to pick up — all in one step. Asking again changes nothing and says how it was
@@ -342,6 +345,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
     }
     if (!viaReader && cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409, code: 'card_busy' };
+    // A pouch is only for cash taken in line, from a car that was taken there.
+    if (how.pouch && method === 'cash' && !(car?.inLine === true || car?.wasInLine === true)) return { error: 'Cash goes in a pouch only for a car taken in line. Take it at the window.', status: 409 };
     const total = num(o.total), subtotal = num(o.subtotal), tax = num(o.tax);
     if (viaReader && Math.round(how.card!.cents) !== Math.round(total * 100)) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
     if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
@@ -350,17 +355,21 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}) };
     tx.set(saleRef, { id: saleRef.id, ...common, description: `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
     if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
-    // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count).
-    const drawer = method === 'cash' && till.length === 1 ? till[0].ref : null;
+    // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count); taken
+    // in line, it goes into that person's own pouch, counted as theirs for the day.
+    const pouch = method === 'cash' && how.pouch === true;
+    const drawer = method === 'cash' && !pouch && till.length === 1 ? till[0].ref : null;
     if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
     const change = tendered !== null ? Math.round((tendered - total) * 100) / 100 : null;
     // A reader payment started for it and not used (declined, or left): called off by the caller, so it can't go through later.
     const leftCard = !viaReader && o.card?.id && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
-    tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: how.by, tillId: drawer ? drawer.id : null, ...(method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
+    tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: how.by, tillId: drawer ? drawer.id : null,
+      // (Counted on the day it was taken, the business's day, whenever the car arrived.)
+      ...(pouch ? { cashInPouch: true, pouchOpen: true, cashWith: how.by, cashWithId: how.byId || null, cashDay: how.day || o.day || null } : method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
       ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
       ...(viaReader ? { cardPaymentId: how.card!.id, card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
       ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
     if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
-    return { ok: true, drawer: !!drawer, change, payMethod: method, cardId: leftCard };
+    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };
   });
 }

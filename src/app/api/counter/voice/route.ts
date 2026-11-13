@@ -86,8 +86,9 @@ export async function POST(req: NextRequest) {
 
     if (action === 'speaker') {
       // The newest car at the speaker whose order is still being taken: the one to greet.
-      const snap = await db.collection(`${T}/driveThruCars`).where('stage', '==', 'speaker').limit(20).get();
-      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
+      const snap = await db.collection(`${T}/driveThruCars`).where('stage', '==', 'speaker').limit(100).get();
+      // (A car taken in line, before the speaker, already has someone with it: never greeted.)
+      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
       const o: any = car?.orderId && ID.test(String(car.orderId)) ? (await db.doc(`${T}/counterOrders/${car.orderId}`).get()).data() : null;
       return ok({ on: voiceOn(tenant), now: nowIso, car: car ? { id: car.id, number: car.number, orderId: car.orderId || null, arrivedAt: car.arrivedAt, voice: car.voice || null, items: Array.isArray(o?.lines) ? o.lines.length : 0 } : null });
     }
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
       const claim: any = await db.runTransaction(async (tx: any) => {
         const car: any = (await tx.get(carRef)).data();
         if (!car || car.stage !== 'speaker') return { error: 'That car isn’t at the speaker.', status: 409 };
+        if (car.inLine === true) return { error: 'That car’s order is being taken in line.', status: 409 };
         const o: any = car.orderId ? (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data() : null;
         if (!o || o.status !== 'building') return { error: 'That order has been taken already.', status: 409 };
         const v = car.voice || {};

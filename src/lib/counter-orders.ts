@@ -20,6 +20,14 @@ export const CHANNEL_NAME: Record<Channel, string> = { 'drive-thru': 'Drive-thru
 export const DEFAULT_TARGETS: Record<Channel, number> = { 'drive-thru': 210, counter: 300, kiosk: 300, ahead: 600 };
 /** A long line: this many cars in the drive-thru (the voice assistant goes into rush mode, and the lane says so). */
 export const RUSH_CARS = 6;
+// A car taken in line (before the speaker) is told apart by how it looks: a color and a kind, tapped on the phone.
+export const CAR_COLORS = ['White', 'Black', 'Gray', 'Silver', 'Red', 'Blue', 'Green', 'Brown', 'Gold'] as const;
+export const CAR_KINDS = ['Car', 'SUV', 'Truck', 'Van', 'Motorcycle'] as const;
+/** How a car looks ("Red SUV"), cleaned: letters, numbers and a few marks, up to 30 characters; or none. */
+export function cleanLooks(v: unknown): string | null {
+  const t = String(v ?? '').replace(/[^\p{L}\p{N} '’.-]/gu, '').replace(/\s+/g, ' ').trim();
+  return t ? Array.from(t).slice(0, 30).join('').trim() : null;
+}
 /** Cars that count toward a long line: those that arrived in the last three hours (one left behind yesterday never does). */
 export const inLineNow = (cars: { id?: string; arrivedAt?: unknown }[], nowMs: number, except?: string): number =>
   cars.filter((c) => c.id !== except && Date.parse(String(c.arrivedAt || '')) >= nowMs - 3 * 3600000).length;

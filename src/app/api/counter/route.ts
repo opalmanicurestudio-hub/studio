@@ -23,6 +23,13 @@
 //                                                      moving; "gone" hands it over (paid, or never sent)
 //   name   { tenantId, key, orderId, name }         → the guest's first name on the order (and its kitchen tickets), or
 //                                                      none; the board, the window and the bag call them by it
+//   car    { tenantId, key, carKey, inLine?, looks? } → a new car (taken in line before the speaker: never greeted at the
+//                                                      speaker or shown on its board; told apart by how it looks)
+//   looks  { tenantId, key, carId, looks }          → how a car looks ("Red SUV"), or none
+//   here   { tenantId, key, carId }                 → a car taken in line has reached the window: from now on it's a car
+//                                                      at the window like any other (the window screens show it)
+//   pouch  { tenantId, key, staffPass }             → the cash the person signed in has taken in line and not handed in
+//   handIn { tenantId, key, staffPass }             → that cash, into the one open drawer
 //   readers { tenantId, key }                       → the business's card readers the lane can send a payment to
 //   card   { tenantId, key, orderId, readerId }     → the order's total sent to that reader (lib/counter-card); the guest
 //                                                      taps, inserts or swipes there
@@ -45,6 +52,8 @@ import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, photoOf, spotsOf, RUSH_CARS, inLineNow, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
 import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder } from '@/lib/counter-server';
+import { cleanLooks } from '@/lib/counter-orders';
+import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -68,7 +77,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -90,7 +99,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -136,12 +145,16 @@ export async function POST(req: NextRequest) {
         const gone = goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left);
         const span = (c: any, from: string, to: string) => { const a = Date.parse(String(c.stageAt?.[from] || (from === 'speaker' ? c.arrivedAt : ''))), z = Date.parse(String(to === 'gone' ? c.goneAt : c.stageAt?.[to] || '')); const v = (z - a) / 1000; return Number.isFinite(v) && v >= 0 && v < 3600 ? v : null; };
         const avg = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x !== null); return v.length ? Math.round(v.reduce((s2, x) => s2 + x, 0) / v.length) : null; };
+        // A car taken in line ordered and paid before it reached the speaker: its own times say nothing about where the
+        // speaker and the windows lose time, so it isn't counted in those parts. It is in the day's average, from when it
+        // was taken in line: that's the guest's whole wait, which is what the target is about.
+        const viaSpeaker = (c: any) => !c.inLine && !c.wasInLine;
         cached = { at: now.getTime(), stats: { average: avg(gone.map((c: any) => span(c, 'speaker', 'gone'))), target,
-          ordering: avg(gone.map((c: any) => span(c, 'speaker', 'pay'))), toWindow: avg(gone.map((c: any) => span(c, 'pay', 'pickup'))), atWindow: avg(gone.map((c: any) => span(c, 'pickup', 'gone'))),
+          ordering: avg(gone.filter(viaSpeaker).map((c: any) => span(c, 'speaker', 'pay'))), toWindow: avg(gone.filter(viaSpeaker).map((c: any) => span(c, 'pay', 'pickup'))), atWindow: avg(gone.filter(viaSpeaker).map((c: any) => span(c, 'pickup', 'gone'))),
           underTarget: gone.filter((c: any) => { const v = span(c, 'speaker', 'gone'); return v !== null && v <= target; }).length,
           thisHour: hourSnap.docs.filter((d: any) => !(d.data() || {}).left).length, servedToday: gone.length,
           // The last half hour on its own, so the lane can say which part is slow right now (not just on average today).
-          recent: (() => { const r = recentSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left);
+          recent: (() => { const r = recentSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left && viaSpeaker(c));
             return { count: r.length, ordering: avg(r.map((c: any) => span(c, 'speaker', 'pay'))), toWindow: avg(r.map((c: any) => span(c, 'pay', 'pickup'))), atWindow: avg(r.map((c: any) => span(c, 'pickup', 'gone'))) }; })() } };
         statsCache.set(tenantId, cached);
         if (statsCache.size > 500) statsCache.delete(statsCache.keys().next().value as string);
@@ -149,6 +162,7 @@ export async function POST(req: NextRequest) {
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' }, screen: screen.name, staff: staff ? { id: staff.id, name: staff.name } : null, staffOk,
         cars: live.map((c: any) => ({ id: c.id, number: c.number, stage: c.stage, arrivedAt: c.arrivedAt, stageAt: c.stageAt || {}, orderId: c.orderId || null, takenBy: c.takenBy || null, spot: c.spot || null,
+          inLine: c.inLine === true, wasInLine: c.wasInLine === true, hereAt: c.hereAt || null, looks: cleanLooks(c.looks),
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
         orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant) }, menu: menu.filter((m) => m.onMenu), now: nowIso,
@@ -160,7 +174,8 @@ export async function POST(req: NextRequest) {
       // it comes to (for 20 seconds). An order nobody has touched for 10 minutes is never shown to the next car.
       const since = new Date(now.getTime() - 30 * 60000).toISOString();
       const carSnap = await db.collection(`${T}/driveThruCars`).where('arrivedAt', '>=', since).get();
-      const newest: any = carSnap.docs.map((d: any) => d.data() || {}).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
+      // (A car taken in line, before the speaker, is never the one at the speaker.)
+      const newest: any = carSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => c.inLine !== true).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
       const o: any = newest && (newest.stage === 'speaker' || newest.stage === 'pay') && ID.test(String(newest.orderId || '')) ? (await db.doc(`${T}/counterOrders/${newest.orderId}`).get()).data() : null;
       const touched = o ? Date.parse(String(o.updatedAt || o.createdAt || '')) : NaN;
       const show = o && (o.status === 'building' ? now.getTime() - touched < 10 * 60000 : o.status === 'sent' && now.getTime() - Date.parse(String(o.sentAt || '')) < 20000);
@@ -183,8 +198,10 @@ export async function POST(req: NextRequest) {
         db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(),
         at === 'pay' ? Promise.resolve({ docs: [] as any[] }) : db.collection(`${T}/driveThruCars`).where('goneAt', '>=', new Date(nowMs - 10000).toISOString()).limit(10).get(),
       ]);
-      const live = liveSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => inLineNow([c], nowMs) === 1)
-        .sort((a: any, c: any) => String(a.arrivedAt).localeCompare(String(c.arrivedAt)));
+      // (A car taken in line is still back in the line until someone at the window taps “It’s here”.)
+      // In the order they reached the window: a car taken in line from when it got there, not when it was taken.
+      const live = liveSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => inLineNow([c], nowMs) === 1 && c.inLine !== true)
+        .sort((a: any, c: any) => String(a.hereAt || a.arrivedAt).localeCompare(String(c.hereAt || c.arrivedAt)));
       const newest = (xs: any[], when: (c: any) => unknown) => xs.sort((a, c) => ageOf(when(a)) - ageOf(when(c)))[0] || null;
       let pick: { car: any; mode: 'pay' | 'paid' | 'forward' | 'thanks' } | null = null;
       // The car the reader is asking for (or just asked for) is the one at the window, whichever is first in the lane.
@@ -206,7 +223,7 @@ export async function POST(req: NextRequest) {
       } else {
         // Only a car parked or handed over straight from the window: one brought out to its spot isn't at the window.
         const parked = newest(live.filter((c: any) => c.stage === 'forward' && ageOf(c.stageAt?.forward) < 20000), (c) => c.stageAt?.forward);
-        const handed = newest(goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left && !c.voided && !c.stageAt?.forward && ageOf(c.goneAt) < 8000), (c) => c.goneAt);
+        const handed = newest(goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left && !c.voided && c.inLine !== true && !c.stageAt?.forward && ageOf(c.goneAt) < 8000), (c) => c.goneAt);
         const first = paying || live.find((c: any) => (at === 'one' ? c.stage === 'pay' || c.stage === 'pickup' : c.stage === 'pickup'));
         pick = parked ? { car: parked, mode: 'forward' } : handed ? { car: handed, mode: 'thanks' } : first ? { car: first, mode: first.stage === 'pay' ? 'pay' : 'paid' } : null;
       }
@@ -240,7 +257,54 @@ export async function POST(req: NextRequest) {
     // Anything that changes today's numbers lets them be worked out again on the next read.
     if (['car', 'move', 'cancel', 'void'].includes(action)) statsCache.delete(tenantId);
 
-    if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who); statsCache.delete(tenantId); return ok({ ...c, staffOk }); }
+    if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who, { inLine: b.inLine === true, looks: cleanLooks(b.looks) }); statsCache.delete(tenantId); return ok({ ...c, staffOk }); }
+
+    if (action === 'looks') {
+      const carId = String(b.carId || ''); if (!ID.test(carId)) return bad('Which car?');
+      const carRef = db.doc(`${T}/driveThruCars/${carId}`); const looks = cleanLooks(b.looks);
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const car: any = (await tx.get(carRef)).data(); if (!car || car.stage === 'gone') return { error: 'That car isn’t in the lane.', status: 404 };
+        tx.set(carRef, { looks: looks || null }, { merge: true }); return { ok: true };
+      });
+      return r.error ? bad(r.error, r.status) : ok({ looks, staffOk });
+    }
+
+    if (action === 'here') {
+      const carId = String(b.carId || ''); if (!ID.test(carId)) return bad('Which car?');
+      const carRef = db.doc(`${T}/driveThruCars/${carId}`);
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const car: any = (await tx.get(carRef)).data(); if (!car || car.stage === 'gone') return { error: 'That car isn’t in the lane.', status: 404 };
+        if (car.inLine !== true) return { ok: true, already: true };
+        // Only once its order is with the kitchen: one still being taken in line stays with the person taking it (the
+        // speaker would greet it otherwise).
+        if (car.stage !== 'pay' && car.stage !== 'pickup') return { error: 'That car’s order is still being taken in line.', status: 409 };
+        tx.set(carRef, { inLine: false, wasInLine: true, hereAt: nowIso }, { merge: true }); return { ok: true };
+      });
+      return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, staffOk });
+    }
+
+    if (action === 'pouch' || action === 'handIn') {
+      // Only for someone signed in with their PIN: the cash is theirs to hand in. What they haven't handed in yet, from
+      // whichever day.
+      if (!staff?.id) return action === 'handIn' ? NextResponse.json({ ok: false, needsStaff: true, error: 'Enter your PIN first, so it’s your pouch that’s handed in.', staffOk }, { status: 403 }) : ok({ name: null, total: 0, count: 0, staffOk });
+      // (Up to 400 orders a hand-in, so one step stays within what the database takes at once; any more, hand in again.)
+      const q = db.collection(`${T}/counterOrders`).where('cashWithId', '==', String(staff.id)).where('pouchOpen', '==', true).limit(400);
+      if (action === 'pouch') {
+        const mine = (await q.get()).docs.map((d: any) => d.data() || {});
+        return ok({ name: staff.name, total: Math.round(mine.reduce((n: number, o: any) => n + num(o.total), 0) * 100) / 100, count: mine.length, staffOk });
+      }
+      // Handed in: all of it into the one drawer that's open, in one step (two open, or none: it waits).
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const [mine, till] = await Promise.all([tx.get(q), tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))]);
+        if (till.docs.length !== 1) return { error: till.docs.length ? 'Two drawers are open. Close one, then hand it in.' : 'Open the drawer first, then hand it in.', status: 409 };
+        const total = Math.round(mine.docs.reduce((n: number, d: any) => n + num((d.data() || {}).total), 0) * 100) / 100;
+        if (!mine.docs.length) return { ok: true, total: 0, count: 0 };
+        tx.set(till.docs[0].ref, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
+        for (const d of mine.docs) tx.set(d.ref, { pouchOpen: false, pouchHandedAt: nowIso, pouchHandedTo: till.docs[0].id, tillId: till.docs[0].id }, { merge: true });
+        return { ok: true, total, count: mine.docs.length, more: mine.docs.length === 400 };
+      });
+      return r.error ? bad(r.error, r.status) : ok({ handedIn: r.total, count: r.count, more: !!r.more, staffOk });
+    }
 
     if (action === 'move') {
       const carId = String(b.carId || ''); const to = String(b.to || '') as Stage;
@@ -352,10 +416,13 @@ export async function POST(req: NextRequest) {
     // paid (cash, or a card machine of the business's own): lib/counter-server payOrder. A card payment the window's
     // reader started for it and that isn't needed now is called off, so it can never go through later.
     const method = b.method === 'cash' ? 'cash' : b.method === 'card' ? 'card' : null; if (!method) return bad('Card or cash?');
-    const r: any = await payOrder(db, tenantId, orderId, { method, tendered: b.tendered, by });
+    // Cash into the pouch of the person taking orders in line: theirs, so they're signed in with their PIN.
+    const pouch = method === 'cash' && b.pouch === true;
+    if (pouch && !staff?.id) return NextResponse.json({ ok: false, needsStaff: true, error: 'Enter your PIN first, so the cash is counted as yours.', staffOk }, { status: 403 });
+    const r: any = await payOrder(db, tenantId, orderId, { method, tendered: b.tendered, by, byId: staff?.id || null, pouch, day: todayIn(tz, now) });
     if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     if (r.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
-    return ok({ already: !!r.already, inDrawer: r.drawer ?? null, change: r.change ?? null, payMethod: r.payMethod || null, staffOk });
+    return ok({ already: !!r.already, inDrawer: r.drawer ?? null, inPouch: !!r.pouch, change: r.change ?? null, payMethod: r.payMethod || null, staffOk });
   } catch (e: any) {
     console.error('[counter] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);

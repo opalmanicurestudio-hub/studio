@@ -46,6 +46,7 @@ const all = async (p: string) => (await db.collection(p).get()).docs.map((d: any
 const req = (body: any) => ({ json: async () => body, text: async () => JSON.stringify(body), headers: { get: (k: string) => (String(k).toLowerCase() === 'authorization' ? 'Bearer test' : null) }, nextUrl: { origin: 'https://app.test' } }) as any;
 const src = (p: string) => readFileSync(p, 'utf8');
 let passOfM: () => Promise<string> = async () => '';
+const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
 
 (async () => {
   const { POST: kitchen } = await import('../../src/app/api/kitchen/route');
@@ -397,6 +398,64 @@ let passOfM: () => Promise<string> = async () => '';
   r = await P({ action: 'lane' });
   check('cars left behind from yesterday don’t make the lane say it’s busy', r.body.stats.inLane >= 6 && r.body.stats.inLineNow < 6, [r.body.stats.inLane, r.body.stats.inLineNow]);
   for (let i = 0; i < 6; i++) await db.doc(`${T}/driveThruCars/stale${i}`).set({ stage: 'gone', goneAt: new Date().toISOString(), left: true }, { merge: true });
+
+  console.log('taking orders in line');
+  manager = true; signedIn = true;
+  for (const c of await all(`${T}/driveThruCars`)) if (c.stage !== 'gone') await db.doc(`${T}/driveThruCars/${c.id}`).set({ stage: 'gone', goneAt: new Date(Date.now() - 60000).toISOString() }, { merge: true });
+  const atSpeaker = (await P({ action: 'car', carKey: 'carkey-spk-1' })).body;
+  await P({ action: 'add', orderId: atSpeaker.orderId, itemId: 'fries', tapKey: 'tap-line-0' });
+  r = await P({ action: 'car', carKey: 'carkey-line-1', inLine: true, looks: '  Red   SUV <b>' });
+  const lc = r.body;
+  const lcar = await get(`${T}/driveThruCars/${lc.carId}`);
+  check('a car taken in line: marked so, with how it looks (cleaned)', r.body.ok && lcar.inLine === true && lcar.looks === 'Red SUV b' && lcar.stage === 'speaker', lcar);
+  r = await P({ action: 'lane' });
+  const lrow = r.body.cars.find((c: any) => c.id === lc.carId);
+  check('…the lane shows it in line, by how it looks', lrow?.inLine === true && lrow.looks === 'Red SUV b', lrow);
+  await P({ action: 'add', orderId: lc.orderId, itemId: 'fries', quantity: 2, tapKey: 'tap-line-1' });
+  r = await POST(req({ tenantId: 't1', key: bkey, action: 'board' }));
+  check('the order board by the speaker never shows a car ordering in line (it shows the car at the speaker)', r.body.order?.number === atSpeaker.number, r.body.order);
+  r = await P({ action: 'looks', carId: lc.carId, looks: 'Blue Truck' });
+  check('how it looks can be changed', r.body.ok && (await get(`${T}/driveThruCars/${lc.carId}`)).looks === 'Blue Truck', r.body);
+  r = await P({ action: 'here', carId: lc.carId });
+  check('“It’s here” waits until its order is with the kitchen (still being taken in line, it stays with that person)', r.status === 409 && (await get(`${T}/driveThruCars/${lc.carId}`)).inLine === true, r.body);
+  await P({ action: 'send', orderId: lc.orderId });
+  r = await P({ action: 'paid', orderId: lc.orderId, method: 'cash', tendered: 10, pouch: true });
+  check('cash into a pouch needs the person’s PIN (it’s counted as theirs)', r.status === 403 && r.body.needsStaff === true, r.body);
+  const kaiPass = await passOfM();
+  const drawerBefore = (await get(`${T}/tillSessions/d1`))?.expectedCash;
+  r = await P({ action: 'paid', orderId: lc.orderId, method: 'cash', tendered: 10, pouch: true, staffPass: kaiPass });
+  const lo2 = await get(`${T}/counterOrders/${lc.orderId}`);
+  check('paid in cash in line: into their pouch (not the drawer), with the change, and the car goes straight on to pick up', r.body.ok && r.body.inPouch === true && r.body.change === 4.5 && lo2.cashInPouch === true && lo2.cashWithId === 'm9'
+    && (await get(`${T}/tillSessions/d1`))?.expectedCash === drawerBefore && (await get(`${T}/driveThruCars/${lc.carId}`)).stage === 'pickup', { body: r.body, lo2 });
+  r = await P({ action: 'pouch', staffPass: kaiPass });
+  check('their pouch today: what they took, and from how many orders', r.body.ok && r.body.total === 5.5 && r.body.count === 1 && r.body.name === 'Mo Diaz', r.body);
+  r = await P({ action: 'pouch' });
+  check('…nobody signed in: no pouch', r.body.ok && r.body.name === null && r.body.total === 0, r.body);
+  // The windows don't see it until it gets there.
+  const wkey2 = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Window screen', kind: 'drive-thru-board' }))).body.key;
+  const win = (at: string) => POST(req({ tenantId: 't1', key: wkey2, action: 'window', at }));
+  await P({ action: 'send', orderId: atSpeaker.orderId });
+  r = await win('one');
+  check('paid in line, still back in the line: the window screen shows the car really at the window', r.body.show?.number === atSpeaker.number, r.body.show);
+  r = await win('pickup');
+  check('…and the pickup window doesn’t call it up yet', r.body.show === null, r.body.show);
+  r = await P({ action: 'here', carId: lc.carId });
+  const lcar2 = await get(`${T}/driveThruCars/${lc.carId}`);
+  r = await win('pickup');
+  check('“It’s here” at the window: now it’s a car at the window like any other', lcar2.inLine === false && lcar2.wasInLine === true && r.body.show?.number === lc.number && r.body.show.mode === 'paid', { lcar2, show: r.body.show });
+  r = await P({ action: 'paid', orderId: atSpeaker.orderId, method: 'cash', tendered: 5, pouch: true, staffPass: kaiPass });
+  check('a pouch is only for a car taken in line', r.status === 409 && /only for a car taken in line/.test(r.body.error), r.body);
+  // Handed in: the pouch goes into the drawer, once.
+  await db.doc(`${T}/tillSessions/d1`).set({ status: 'open' }, { merge: true });
+  const drawerNow = num0((await get(`${T}/tillSessions/d1`)).expectedCash);
+  r = await P({ action: 'handIn' });
+  check('handing in needs the person’s PIN (it’s their pouch)', r.status === 403 && r.body.needsStaff === true, r.body);
+  r = await P({ action: 'handIn', staffPass: kaiPass });
+  const after = await get(`${T}/counterOrders/${lc.orderId}`);
+  check('handed in: the pouch’s cash goes into the open drawer, once, and the pouch is empty', r.body.ok && r.body.handedIn === 5.5 && num0((await get(`${T}/tillSessions/d1`)).expectedCash) === drawerNow + 5.5
+    && after.pouchOpen === false && after.tillId === 'd1' && (await P({ action: 'pouch', staffPass: kaiPass })).body.total === 0, { body: r.body, after });
+  r = await P({ action: 'handIn', staffPass: kaiPass });
+  check('…handed in again: nothing more', r.body.ok && r.body.count === 0 && num0((await get(`${T}/tillSessions/d1`)).expectedCash) === drawerNow + 5.5, r.body);
 
   console.log('the pages');
   {
