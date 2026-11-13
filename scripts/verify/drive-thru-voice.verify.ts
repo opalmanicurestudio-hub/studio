@@ -84,6 +84,22 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const c1 = VO.matchChoices(await get(`${T}/inventory/frs`), []);
   check('a size it must have is asked for, never filled in', !!c1.ask && VO.askFor(c1.ask) === 'Which size: Small or Large?', c1);
   check('the menu the assistant reads has prices and choices, and says what’s sold out', /Fries \$2\.50 \[Size \(must choose one\): Small, Large \+\$1\.00\]/.test(VO.menuForVoice(m)) && /Sold out right now: Onion rings/.test(VO.menuForVoice(m)));
+  const MN = await import('../../src/lib/menu-numbers');
+  const heard = ['3', 'number 3', '#3', 'No. 3', 'num 3', 'number three', 'the number two', 'Number  12', 'three', '0', 'number zero', 'burger 3', 'number 3 please', '', null, 1234, 'no one', 'noone', 'no two', '#two', 'no 3'].map((x) => MN.spokenNumber(x));
+  check('a number heard: “3”, “number 3”, “#3”, “no. 3”, “number three”; not a bare word, not zero, not a number inside other words, not “no one”',
+    JSON.stringify(heard) === JSON.stringify([3, 3, 3, 3, 3, 3, 2, 12, null, null, null, null, null, null, null, null, null, null, null, 2, 3]), heard);
+  check('the menu’s numbers: section by section, members-only and items off the menu left out',
+    JSON.stringify(Array.from(MN.menuNumbers([{ id: 'a', section: 'S' }, { id: 'b', section: 'D' }, { id: 'c', section: 'S', membersOnly: true }, { id: 'd', section: 'S' }, { id: 'e', section: 'D', onMenu: false }, { id: 'f', section: 'D' }]).entries()))
+    === JSON.stringify([['a', 1], ['d', 2], ['b', 3], ['f', 4]]));
+  check('an item asked for by its number on the menu board is found; a sold-out number says so; a number not on the board is nothing',
+    name(VO.matchItem(m, 'number 2')) === 'Classic burger' && name(VO.matchItem(m, 'number three')) === 'Fries' && name(VO.matchItem(m, '#1')) === 'Double burger'
+    && name(VO.matchItem(m, 'number 4')) === 'out:Onion rings' && name(VO.matchItem(m, 'number 9')) === 'none', ['number 2', 'number three', '#1', 'number 4', 'number 9'].map((x) => name(VO.matchItem(m, x))));
+  const combo = [...m, { ...m[1], id: 'c3', name: 'Combo 3', section: 'Sides' }];
+  check('…but with an item that has the number in its name (“Combo 3”), “number 3” is a question back, not a guess',
+    name(VO.matchItem(combo, 'number 3')) === '?Fries/Combo 3' && name(VO.matchItem(combo, 'number three')) === '?Fries/Combo 3' && name(VO.matchItem(combo, 'combo 3')) === 'Combo 3', ['number 3', 'number three', 'combo 3'].map((x) => name(VO.matchItem(combo, x))));
+  const combo4 = [...m, { ...m[1], id: 'c4', name: 'Combo 4', section: 'Sides' }];
+  check('…asked even when the board’s number 4 is sold out and “Combo 4” isn’t (never a silent pick)', name(VO.matchItem(combo4, 'number 4')) === '?Onion rings/Combo 4', name(VO.matchItem(combo4, 'number 4')));
+  check('…and the menu the assistant reads has each item’s number before its name', /No\. 1 Double burger \$7\.50/.test(VO.menuForVoice(m)) && /No\. 3 Fries \$2\.50/.test(VO.menuForVoice(m)) && /order by the number/.test(VO.menuForVoice(m)), VO.menuForVoice(m));
 
   console.log('starting a call');
   const key = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Speaker', kind: 'drive-thru' }))).body.key;

@@ -317,8 +317,14 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   check('the menu board: by section, with photos and prices, sold out as it is, members-only items not shown', r.body.ok && r.body.business.name === 'Northside' && mbItems.find((i: any) => i.id === 'burger')?.price === 5 && mbItems.find((i: any) => i.id === 'burger')?.imageUrl
     && mbItems.find((i: any) => i.id === 'shake')?.soldOut === true && !mbItems.some((i: any) => i.id === 'secret'), r.body);
   check('…with the code to order ahead while that’s on', r.body.orderAhead === 'https://app.test/order/t1', r.body.orderAhead);
-  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut', 'featured', 'badge', 'calories'];
+  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut', 'featured', 'badge', 'calories', 'number'];
   check('…and nothing about costs or stock counts (only what a guest may see)', mbItems.every((i: any) => Object.keys(i).every((k) => allowed.includes(k))) && !/cost|canMake|totalStock|supplier|short/.test(JSON.stringify(r.body)), mbItems[0]);
+  const boardNums = mbItems.map((i: any) => i.number);
+  check('…each item with the number guests order by: 1, 2, 3… in the order the board shows them', boardNums.length > 1 && boardNums.every((n: any, k: number) => n === k + 1), boardNums);
+  const lnN: any = await L({ action: 'lane' });
+  const laneMenu: any[] = lnN.body.menu || [];
+  check('…the same numbers on the lane tablet’s buttons, and none on a members-only item', lnN.body.ok && mbItems.every((i: any) => laneMenu.find((m: any) => m.id === i.id)?.number === i.number)
+    && laneMenu.some((m: any) => m.membersOnly) && laneMenu.filter((m: any) => m.membersOnly).every((m: any) => m.number === null), laneMenu.map((m: any) => [m.id, m.number, m.membersOnly]));
   r = await MB({ action: 'car', carKey: 'carkey-menuboard' });
   check('a menu board’s key can only show: it can’t start a car or take a payment', r.status === 401, r.body);
   r = await L({ action: 'menuBoard' });

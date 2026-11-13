@@ -63,6 +63,7 @@ import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
 import { pointsOn, linkOrder } from '@/lib/counter-points';
 import { pageAccent } from '@/lib/studio-page';
+import { menuNumbers } from '@/lib/menu-numbers';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -124,6 +125,8 @@ export async function POST(req: NextRequest) {
       // (Read generously and sorted here, so however many were left behind, the cars that just arrived are always shown.)
       const [carSnap, menu] = await Promise.all([db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(), readMenu(db, tenantId)]);
       const live = carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).sort((a: any, c: any) => String(a.arrivedAt).localeCompare(String(c.arrivedAt))).slice(-40);
+      // (Each button carries the number guests order by, as on the menu board: lib/menu-numbers.)
+      const laneNums = menuNumbers(menu);
       const orderIds = Array.from(new Set(live.map((c: any) => String(c.orderId || '')).filter((x: string) => ID.test(x))));
       const [orderSnaps, ticketSnaps] = await Promise.all([
         Promise.all(orderIds.map((id) => db.doc(`${T}/counterOrders/${id}`).get())),
@@ -179,7 +182,7 @@ export async function POST(req: NextRequest) {
           inLine: c.inLine === true, wasInLine: c.wasInLine === true, hereAt: c.hereAt || null, looks: cleanLooks(c.looks),
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
-        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant) }, menu: menu.filter((m) => m.onMenu), now: nowIso,
+        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant) }, menu: menu.filter((m) => m.onMenu).map((m) => ({ ...m, number: laneNums.get(m.id) ?? null })), now: nowIso,
         // Orders placed ahead for the drive-thru, paid and not picked up yet (lib/counter-ahead): those on their way first.
         // (Even with ordering ahead switched off since: an order already paid is still picked up.)
         ahead: await aheadForLane(db, tenantId, tenant).catch((e: any) => { console.error('[counter] orders placed ahead not read', e?.message); return []; }),
@@ -211,11 +214,13 @@ export async function POST(req: NextRequest) {
             popularAt = now.getTime();
           }
         }
-        sections = [];
+        sections = []; const nums = menuNumbers(items);
         for (const m of items) {
           let sec = sections.find((x) => x.name === m.section); if (!sec) sections.push((sec = { name: m.section, items: [] }));
           sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
-            featured: m.featured, badge: m.badge || (popular.has(m.id) ? 'popular' : null), calories: m.calories });
+            featured: m.featured, badge: m.badge || (popular.has(m.id) ? 'popular' : null), calories: m.calories,
+            // The number guests can order by ("number 3"), the same on every screen (lib/menu-numbers).
+            number: nums.get(m.id) ?? null });
         }
         // (Not read just now, it tries again on the next ask: the tags it had stay until then.)
         menuBoardCache.set(tenantId, { at: now.getTime(), sections, popular, popularAt });

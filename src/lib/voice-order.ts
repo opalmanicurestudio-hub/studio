@@ -4,6 +4,7 @@
 // Nothing is guessed that the guest didn't say: two items that both fit is a question back, never a pick, and a choice
 // the item must have (a size) is asked for rather than filled in. Prices always come from the menu (lib/menu-choices).
 import { choiceGroups, type Picks } from '@/lib/menu-choices';
+import { menuNumbers, spokenNumber, NUMBER_WORDS } from '@/lib/menu-numbers';
 
 type MenuLike = { id: string; name: string; section: string; price: number; from?: boolean; startPrice?: number; choices: any[]; soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean };
 
@@ -23,12 +24,14 @@ export const orderableNow = (m: MenuLike) => m.onMenu && !m.membersOnly && m.inS
 export function menuForVoice(menu: MenuLike[]): string {
   const live = menu.filter(orderableNow);
   const sections = Array.from(new Set(live.map((m) => m.section)));
+  // (Each with its number on the menu board, so a guest can order "number 3": lib/menu-numbers.)
+  const nums = menuNumbers(menu);
   const lines = sections.map((s) => `${s}: ${live.filter((m) => m.section === s).map((m) => {
     const groups = choiceGroups(m).map((g) => `${g.name}${g.required ? ' (must choose one)' : ''}: ${g.options.filter((o) => !o.soldOut).map((o) => `${o.name}${o.price ? ` ${o.price > 0 ? '+' : '-'}${money(Math.abs(o.price))}` : ''}`).join(', ')}`);
-    return `${m.name} ${money(m.price)}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
+    return `${nums.has(m.id) ? `No. ${nums.get(m.id)} ` : ''}${m.name} ${money(m.price)}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
   }).join('. ')}.`);
   const out = menu.filter((m) => m.onMenu && !m.membersOnly && (!m.inStock || m.soldOut)).map((m) => m.name);
-  return [...lines, out.length ? `Sold out right now: ${out.join(', ')}.` : ''].filter(Boolean).join('\n');
+  return ['Each item’s number on the menu board comes before its name; a guest may order by the number.', ...lines, out.length ? `Sold out right now: ${out.join(', ')}.` : ''].filter(Boolean).join('\n');
 }
 
 /** Which item was meant. One clear match, or the few it could be (a question back), or nothing on the menu. */
@@ -38,6 +41,16 @@ export function matchItem<T extends MenuLike>(menu: T[], spoken: string): { item
   const exact = all.filter((m) => key(m.name) === want);
   const pickLive = (list: T[]) => list.filter(orderableNow);
   if (exact.length) { const l = pickLive(exact); return l.length === 1 ? { item: l[0] } : l.length > 1 ? { ambiguous: l } : { none: true, soldOut: exact[0] }; }
+  // "Number 3": the item with that number on the menu board (lib/menu-numbers); a number that isn't on it is nothing.
+  // An item with that number in its own name ("Combo 3") could be what was meant too: then it's a question back.
+  const n = spokenNumber(spoken);
+  if (n != null) {
+    const nums = menuNumbers(menu); const it = all.find((m) => nums.get(m.id) === n);
+    const named = all.filter((m) => m !== it && words(m.name).some((w) => w === String(n) || w === NUMBER_WORDS[n]));
+    // (Asked even when one of them is sold out: the guest may have meant that one, and then hears it's sold out.)
+    if (named.length) { const c = it ? [it, ...named] : named; return !pickLive(c).length ? { none: true, soldOut: c[0] } : c.length > 1 ? { ambiguous: c } : { item: c[0] }; }
+    return !it ? { none: true } : orderableNow(it) ? { item: it } : { none: true, soldOut: it };
+  }
   // Every word of the menu name heard ("double burger" in "double burger with cheese"), or every word heard in the name.
   const w = new Set(want.split(' '));
   const scored = all.map((m) => { const n = key(m.name).split(' ').filter(Boolean); const hit = n.filter((x) => w.has(x)).length; return { m, hit, full: hit === n.length, cover: hit / Math.max(1, w.size) }; })

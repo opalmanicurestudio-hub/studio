@@ -45,7 +45,7 @@ type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; sta
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
 type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: MenuItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: (MenuItem & { number?: number | null })[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -740,7 +740,10 @@ export default function DriveThru() {
                         {menu.filter((m) => m.section === shownSection).map((m) => {
                           // Switched to sold out, an ingredient run out, or none left of it (lib/menu-stock), said as such.
                           const why = outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
-                          const label = `${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
+                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
+                          // The number guests order by, as on the menu board ("number 3"): lib/menu-numbers. (Light, so it isn't
+                          // taken for the count on the order, which is dark.)
+                          const num = m.number ? <span className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12.5px] font-bold tabular-nums" style={{ background: LINE, color: INK }} aria-hidden>{m.number}</span> : null;
                           // With photos on the menu, every button is a picture first (the way a fast-food screen is read at a
                           // glance); an item without one keeps its place with its first letter. With none, the buttons stay compact.
                           if (withPhotos) return (
@@ -755,7 +758,7 @@ export default function DriveThru() {
                                 {n > 0 && <span className="absolute right-2 top-2 flex h-8 min-w-[32px] items-center justify-center rounded-full px-2 text-[15px] font-semibold tabular-nums" style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>}
                               </span>
                               <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
-                                <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{m.name}</span>
+                                <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                                 <span className="flex items-center justify-between gap-2">
                                   <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
                                   {!out && m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
@@ -767,7 +770,7 @@ export default function DriveThru() {
                             <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={label}
                               className={`relative flex min-h-[96px] flex-col justify-between rounded-2xl p-3.5 text-left transition-transform active:scale-[0.98] disabled:active:scale-100 ${RING}`}
                               style={{ background: out ? SOFT : '#fff', border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 13 : 14 }}>
-                              <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{m.name}</span>
+                              <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                               <span className="mt-2 flex items-center justify-between gap-2">
                                 <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
                                 {why ? <span className="min-w-0 truncate rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>
