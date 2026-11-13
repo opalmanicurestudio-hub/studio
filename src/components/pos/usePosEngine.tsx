@@ -1133,8 +1133,22 @@ export function usePosEngine() {
     const made = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     try { const k = 'cf.desk.tab'; const v = sessionStorage.getItem(k) || made; sessionStorage.setItem(k, v); deskIdRef.current = v; } catch { deskIdRef.current = made; }
   }
+  // Selling at a pop-up table (lib/popup): the desk opened from the Pop-ups screen (?popup=, kept for this browser tab)
+  // sends it with each sale, and the server counts the sale against what the table brought. Stop ends it here.
+  const [popup, setPopup] = useState<{ id: string; name: string; day: string } | null>(null);
+  useEffect(() => {
+    if (!tenantId || typeof window === 'undefined') return;
+    const key = `cf-popup-${tenantId}`;
+    let p: any = null; try { p = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch { p = null; }
+    const asked = new URLSearchParams(window.location.search).get('popup');
+    // Only the one this tab was opened for. Whether it's on today is the server's to say, on the business's own
+    // calendar: each sale's answer says whether it counted, and the desk stops when the pop-up is over.
+    if (p?.id && /^[A-Za-z0-9_-]{1,120}$/.test(String(p.id)) && (!asked || asked === p.id)) setPopup({ id: String(p.id), name: String(p.name || 'the pop-up').slice(0, 60), day: String(p.day || '') });
+    else { try { sessionStorage.removeItem(key); } catch { /* nothing kept */ } setPopup(null); }
+  }, [tenantId]);
+  const stopPopup = useCallback(() => { try { sessionStorage.removeItem(`cf-popup-${tenantId}`); } catch { /* nothing kept */ } setPopup(null); }, [tenantId]);
   const buildCheckoutPayload = (paymentData?: any) => ({
-    tenantId, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
+    tenantId, popupId: popup?.id || null, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
@@ -1255,6 +1269,11 @@ export function usePosEngine() {
       }
       if (!res.ok || !out?.ok) throw new Error(out?.error || 'save failed');
       finishSale(out, payload);
+      // At a pop-up: a sale that didn't count against the table is said, and a pop-up that's over stops here.
+      if (payload.popupId && out?.popupCounted === false) {
+        if (out.popupMiss === 'off') { stopPopup(); toast({ variant: 'destructive', duration: 15000, title: 'The pop-up isn’t on today', description: 'The sale is saved, but it wasn’t counted at the pop-up. This screen has stopped selling for it.' }); }
+        else toast({ variant: 'destructive', duration: 15000, title: 'Not counted at the pop-up', description: 'The sale is saved, but the pop-up couldn’t be reached. Take one off how many came on the Pop-ups screen.' });
+      }
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1743,7 +1762,7 @@ export function usePosEngine() {
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
     handleCheckout, recoveryApprovalRef, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
-    handlePosScan, addProductChecked, variantChoice, setVariantChoice, packChoice, setPackChoice,
+    handlePosScan, addProductChecked, variantChoice, setVariantChoice, packChoice, setPackChoice, popup, stopPopup,
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };

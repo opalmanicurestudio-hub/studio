@@ -25,6 +25,8 @@ import { consumeApproval, isApprover } from '@/lib/approvals';
 import { heldCovered, heldLine, heldShortfall } from '@/lib/held-stock';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
+import { popupToday } from '@/lib/popup';
+import { tenantTimeZone as popupZone, todayIn as popupDay } from '@/lib/tenant-time';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
@@ -960,6 +962,19 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // it's created (never overwritten): two saves of the same sale at once (the desk and a manager, or "Save again") can't
   // both record it — the second finds it already there.
   const receiptRef = pendingRef ? db.doc(`${T}/receipts/tk_${pendingRef.id}`) : db.collection(`${T}/receipts`).doc();
+  // A sale at a pop-up table (lib/popup, the desk opened from the Pop-ups screen): each of its products sold here is
+  // counted against what the table brought, in the same write as the sale. Only a pop-up that's on today, on the
+  // business's calendar; otherwise the sale is just a sale.
+  // The desk is told whether it counted (popupCounted), and why not: 'off' (closed, or not today) or 'error'.
+  let popupSale: { ref: any; ids: Set<string> } | null = null; let popupMiss: 'off' | 'error' | null = null;
+  if (/^[A-Za-z0-9_-]{1,120}$/.test(String(b.popupId || ''))) {
+    const pRef = db.doc(`${T}/popups/${String(b.popupId)}`);
+    let pp: any = undefined;
+    for (let i = 0; i < 2 && pp === undefined; i++) { try { const ps = await pRef.get(); pp = ps.exists ? ps.data() : null; } catch { /* tried once more */ } }
+    if (pp === undefined) popupMiss = 'error';
+    else if (pp && popupToday(pp, popupDay(popupZone(tenant)))) popupSale = { ref: pRef, ids: new Set((Array.isArray(pp.items) ? pp.items : []).map((x: any) => String(x?.id || ''))) };
+    else popupMiss = 'off';
+  }
   // What a table's tab already sent to the kitchen when it was ordered (lib/table-tab): paying for it doesn't send it again.
   const sentFromTab: Record<string, number> = {}; const kitchenLines: Record<string, number> = {};
   for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + Math.max(1, Number(l.quantity) || 1);
@@ -985,6 +1000,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
           status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId }), { merge: true });
       }
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
+      if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
       batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: Math.max(0, num(it.stock) - it.quantity), refKind: 'checkout', refId: checkoutSessionId }));
     }
@@ -1388,5 +1404,5 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   try { await receiptRef.set({ detail: { ...detail, accounts: outcomes.filter((o: any) => o.kind === 'rent' || o.kind === 'tuition').map((o: any) => ({ kind: o.kind, name: o.name, program: o.program || null, paidCents: o.paidCents,
     owedAfterCents: o.owedAfterCents ?? null, creditCents: o.creditCents ?? null, remainingCents: o.remainingCents ?? null })) } }, { merge: true }); } catch { /* best effort */ }
   if (paidDiffers) warnings.push(`The card was charged $${(paidDiffers.paidCents / 100).toFixed(2)}, but the sale comes to $${(paidDiffers.dueCents / 100).toFixed(2)}. The receipt is flagged: settle the $${(Math.abs(paidDiffers.paidCents - paidDiffers.dueCents) / 100).toFixed(2)} difference with the client.`);
-  return json({ ok: true, checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes, giftCards: giftsIssued, ...(paidDiffers ? { paidDiffers } : {}) });
+  return json({ ok: true, ...(b.popupId ? { popupCounted: !!popupSale, ...(popupMiss ? { popupMiss } : {}) } : {}), checkoutSessionId, receiptId: receiptRef.id, total: calc.total, collected: Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100), depositUsed, subtotal: calc.subtotal, tax: calc.tax, mismatch, warnings, outcomes, giftCards: giftsIssued, ...(paidDiffers ? { paidDiffers } : {}) });
 }

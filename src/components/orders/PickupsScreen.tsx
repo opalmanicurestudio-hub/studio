@@ -93,6 +93,11 @@ export function PickupsScreen() {
   }, [fs, tenantId, openId, inLists]);
   const open = openId ? byId.get(openId) || (single?.id === openId ? single : null) : null;
   const openOn = (id: string, t: WorkTab) => { setOpenId(id); setFocus((f) => ({ tab: t, n: (f?.n || 0) + 1 })); };
+  // Opened from a link to one order (?open=, the Pop-ups screen's Bag it): that order, on its bag list.
+  React.useEffect(() => {
+    const id = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('open') || '';
+    if (/^[A-Za-z0-9_-]{1,80}$/.test(id)) { setOpenId(id); setFocus((f) => ({ tab: 'pack', n: (f?.n || 0) + 1 })); }
+  }, []);
   useArrivalAlerts(orders, now, tenantId, (o) => setToast(`${firstName(o.customerName)} is here${o.curbside?.spotOrVehicle ? `: ${o.curbside.spotOrVehicle}` : ''}.`), (o) => isHere(o) && isPickup(o));
 
   // Handing over, and telling the customer, are for the roles that hand orders over (lib/fulfilment-access).

@@ -723,6 +723,9 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   return (
     <DeskFrame accent={accent}>
       <header className="space-y-3 px-4 pb-4 pt-4 md:px-8">
+        {e.popup && <div role="status" className="flex flex-wrap items-center justify-between gap-x-3 rounded-2xl px-4 py-1.5 text-[14.5px]" style={{ background: 'var(--soft, #f5f5f7)' }}>
+          <span>Selling at <span className="font-semibold">{e.popup.name}</span>. Each sale counts against what the table brought.</span>
+          <button type="button" onClick={e.stopPopup} className="h-11 font-semibold underline underline-offset-4">Stop</button></div>}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0"><p className="text-[22px] font-light tracking-tight sm:text-[26px]">Front desk <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{format(now, 'h:mm a')}</span></p>
             <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings).toLocaleString()} taken{next ? ` · next: ${first(next.name)} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}{requests > 0 && <> · <a href="/appointments/requests" className="font-semibold underline underline-offset-2" style={{ color: 'var(--ink)' }}>{requests} request{requests === 1 ? '' : 's'} to answer</a></>}</p></div>

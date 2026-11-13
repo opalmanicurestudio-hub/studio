@@ -838,8 +838,9 @@ service cloud.firestore {
     // a form's answers kept beside a visit, health answers among them; the team's marks and private notes on a client's
     // photo; a photo's record), read only through the server, by its own rules; and the drive-thru's cars, quick-service
     // orders, their day's numbering and the kitchen's holding batches (api/counter, api/kitchen: prices, payments and
-    // stock are only ever changed by the server); and the licenses customers send for products for licensed pros
-    // (proLicenses, lib/pro-license: a copy of someone's license, read and decided only through the server).
+    // stock are only ever changed by the server); the licenses customers send for products for licensed pros
+    // (proLicenses, lib/pro-license: a copy of someone's license, read and decided only through the server); and
+    // pop-up tables (popups, lib/popup: what each sold is counted by the server as it sells).
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -855,7 +856,7 @@ service cloud.firestore {
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',
-          'proLicenses',
+          'proLicenses', 'popups',
           'activityLogs', 'shifts', 'shiftRequests', 'staffThreads',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',
