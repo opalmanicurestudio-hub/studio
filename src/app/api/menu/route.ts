@@ -190,6 +190,14 @@ export async function POST(req: NextRequest) {
     if (x.makeSeconds !== undefined && x.makeSeconds !== null) { const n = Math.floor(Number(x.makeSeconds)); if (!Number.isFinite(n) || n < 10 || n > 3600) return bad('How long it takes to make: between 10 seconds and an hour.'); timing.makeSeconds = n; }
     if (x.holdMinutes !== undefined && x.holdMinutes !== null) { const n = Math.floor(Number(x.holdMinutes)); if (!Number.isFinite(n) || n < 0 || n > 240) return bad('How long it can be held: up to 4 hours.'); timing.holdMinutes = n; }
     if (x.batchSize !== undefined && x.batchSize !== null) { const n = Math.floor(Number(x.batchSize)); if (!Number.isFinite(n) || n < 1 || n > 200) return bad('A batch is between 1 and 200.'); timing.batchSize = n; }
+    // The menu board, when given: shown big up front, a New or Limited time tag, and its calories.
+    const board: Record<string, any> = {};
+    if (x.featured !== undefined) board.boardFeatured = x.featured === true;
+    if (x.badge !== undefined) { if (![null, '', 'new', 'limited'].includes(x.badge)) return bad('Pick New, Limited time, or none.'); board.boardBadge = x.badge || null; }
+    if (x.calories !== undefined) {
+      if (x.calories === null || String(x.calories).trim() === '') board.calories = null;
+      else { const n = typeof x.calories === 'number' ? Math.round(x.calories) : typeof x.calories === 'string' && /^\s*\d{1,4}\s*$/.test(x.calories) ? Number(x.calories.trim()) : NaN; if (!Number.isFinite(n) || n < 0 || n > 5000) return bad('Calories: a number up to 5000, or leave it empty.'); board.calories = n; }
+    }
     // The photo, when given: shown on the drive-thru's buttons and its order board, and on the lounge menu.
     const photo: Record<string, string | null> = {};
     if (x.imageUrl !== undefined) {
@@ -240,7 +248,7 @@ export async function POST(req: NextRequest) {
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });

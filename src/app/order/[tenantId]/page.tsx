@@ -17,7 +17,7 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font-semibold disabled:opacity-50 ${RING}`;
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
-type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean };
+type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null };
 type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
 type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
@@ -70,7 +70,7 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
         <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
       </div>}>
       {item.imageUrl && <img src={item.imageUrl} alt="" className="mb-4 aspect-[4/3] w-full rounded-2xl object-cover" style={{ background: SOFT }} />}
-      {item.words && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{item.words}</p>}
+      {(item.words || item.calories != null) && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
       <ChoicePicker item={item} picks={picks} onChange={setPicks} />
       {!priced.ok && <p role="status" className="mt-3 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
     </Sheet>
@@ -296,7 +296,7 @@ export default function OrderAhead() {
                   {i.imageUrl && <img src={i.imageUrl} alt="" className="h-full w-full object-cover" />}
                   {i.soldOut && <span className="absolute left-2 top-2 rounded-full bg-[#fff] px-2.5 py-1 text-[12.5px] font-semibold" style={{ color: AMBER }}>Sold out</span>}
                 </span>
-                <span className="block px-3 py-2.5"><span className="block text-[15px] font-semibold leading-snug">{i.name}</span><span className="mt-0.5 block text-[14px] tabular-nums" style={{ color: MUTED }}>{i.from ? `From ${usd(i.startPrice)}` : usd(i.price)}</span></span>
+                <span className="block px-3 py-2.5"><span className="block text-[15px] font-semibold leading-snug">{i.name}</span><span className="mt-0.5 flex flex-wrap gap-x-2 text-[14px] tabular-nums" style={{ color: MUTED }}><span>{i.from ? `From ${usd(i.startPrice)}` : usd(i.price)}</span>{i.calories != null && <span>{i.calories} cal</span>}</span></span>
               </button>
             ))}
           </div>

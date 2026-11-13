@@ -227,6 +227,13 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const stockTaken: Record<string, { own: number; parts: Record<string, number> }> = {};
     for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: Object.fromEntries(Object.entries(t.parts).filter(([pid]) => countable(pid))) };
     tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken }, { merge: true });
+    // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
+    // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
+    const qty = new Map<string, number>();
+    for (const l of lines) { const id = String(l.itemId || ''); if (!ID.test(id)) continue; qty.set(`n_${id}`, (qty.get(`n_${id}`) || 0) + num(l.quantity)); }
+    const sold: Record<string, any> = {}; for (const [k, q] of qty) if (q > 0) sold[k] = FieldValue.increment(q);
+    const sDay = todayIn(tenantTimeZone(tenant), now);
+    tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...sold }, { merge: true });
     if (car && car.stage === 'speaker') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pay', stageAt: { ...(car.stageAt || {}), pay: nowIso } }, { merge: true });
     return { ok: true, due };
   });

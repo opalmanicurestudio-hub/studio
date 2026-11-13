@@ -62,6 +62,7 @@ import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone'
 import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
 import { pointsOn, linkOrder } from '@/lib/counter-points';
+import { pageAccent } from '@/lib/studio-page';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -81,7 +82,7 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 const statsCache = new Map<string, { at: number; stats: any }>();
 
 // The menu board's menu, per business, for a few seconds (api 'menuBoard').
-const menuBoardCache = new Map<string, { at: number; sections: { name: string; items: any[] }[] }>();
+const menuBoardCache = new Map<string, { at: number; sections: { name: string; items: any[] }[]; popular: Set<string>; popularAt: number }>();
 
 export async function POST(req: NextRequest) {
   try {
@@ -190,21 +191,40 @@ export async function POST(req: NextRequest) {
     // The menu board (a screen guests read before they order): the menu by section, each item's photo and price, sold out
     // shown as it happens, and the code to order ahead when that's on. Only what's on the menu for everyone.
     if (action === 'menuBoard') {
-      // (Read at most every 10 seconds per business, however many boards poll.)
+      // (Read at most every 10 seconds per business, however many boards poll; the week's best sellers every 10 minutes.)
       const hit = menuBoardCache.get(tenantId);
       let sections: { name: string; items: any[] }[];
       if (hit && now.getTime() - hit.at < 10000) sections = hit.sections;
       else {
         const items = (await readMenu(db, tenantId)).filter((m) => m.onMenu && !m.membersOnly);
+        // Popular: the three best sellers on the board over the last 7 days (at least 5 each), from the day's counts sendOrder keeps.
+        let popular = hit?.popular || new Set<string>(); let popularAt = hit?.popularAt || 0;
+        if (!hit || now.getTime() - hit.popularAt > 10 * 60000) {
+          // (The business's last 7 days by date, counted back from today's date: a short or long day at a clock change skips none.)
+          const noon = Date.parse(`${todayIn(tz, now)}T12:00:00Z`);
+          const days = Array.from({ length: 7 }, (_, k) => new Date(noon - k * 86400000).toISOString().slice(0, 10));
+          const snaps: any[] | null = await db.getAll(...days.map((d) => db.doc(`${T}/menuSales/${d}`))).catch((e: any) => { console.error('[counter] best sellers not read', e?.message); return null; });
+          if (snaps) {
+            const sum = new Map<string, number>(); const onBoard = new Set(items.map((m) => m.id));
+            for (const sn of snaps) for (const [k, v] of Object.entries<any>((sn?.data?.() || {}) as any)) if (k.startsWith('n_') && onBoard.has(k.slice(2))) sum.set(k.slice(2), (sum.get(k.slice(2)) || 0) + num(v));
+            popular = new Set(Array.from(sum.entries()).filter(([, q]) => q >= 5).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id));
+            popularAt = now.getTime();
+          }
+        }
         sections = [];
         for (const m of items) {
           let sec = sections.find((x) => x.name === m.section); if (!sec) sections.push((sec = { name: m.section, items: [] }));
-          sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock });
+          sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
+            featured: m.featured, badge: m.badge || (popular.has(m.id) ? 'popular' : null), calories: m.calories });
         }
-        menuBoardCache.set(tenantId, { at: now.getTime(), sections }); if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
+        // (Not read just now, it tries again on the next ask: the tags it had stay until then.)
+        menuBoardCache.set(tenantId, { at: now.getTime(), sections, popular, popularAt });
+        if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
       }
       const A = aheadOf(tenant);
       return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections,
+        // The business's own color (made readable for white text on it), for the tags and the price on the featured item.
+        accent: pageAccent(tenant),
         orderAhead: A.on ? `${linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` : null, now: nowIso });
     }
 

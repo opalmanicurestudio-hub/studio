@@ -287,6 +287,8 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
   useEffect(() => { if (!canEdit) return; void call({ action: 'ingredients' }).then((d: any) => { if (d.ok) setStock(d.ingredients || []); }); }, [canEdit, call]);
   const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
   const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
+  // The menu board: shown big up front, a tag, and calories (optional).
+  const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
   const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
@@ -329,7 +331,7 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
     const recipeChanged = JSON.stringify(lines.map((l) => [l.id, Number(l.q)])) !== JSON.stringify(startLines.map((l) => [l.id, Number(l.q)]))
       || lines.some((l) => { const x = stock?.find((y) => y.id === l.id); return !!x && !sameUnit(x.unit, l.unit); });
     setSaving(true); setErr('');
-    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
+    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, featured, badge: badge || null, calories: calories.trim() === '' ? null : Number(calories), ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
       // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
       ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
       ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}) });
@@ -395,6 +397,22 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={onMenu} onChange={(e) => setOnMenu(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />On the menu guests see</label>
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Members only</label>
           </div>
+          <fieldset className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
+            <legend className="sr-only">On the menu board</legend>
+            <p className="text-[15px] font-semibold">On the menu board</p>
+            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Feature it: shown big, up front</label>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label htmlFor="item-badge" className="text-[15px]">Tag</label>
+              <select id="item-badge" value={badge} onChange={(e) => setBadge(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
+                <option value="">None</option><option value="new">New</option><option value="limited">Limited time</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <label htmlFor="item-cal" className="text-[15px]">Calories <span style={{ color: MUTED }}>(optional)</span></label>
+              <input id="item-cal" value={calories} onChange={(e) => setCalories(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="540" className={pickField} style={{ borderColor: LINE }} />
+            </div>
+            <p className="text-[13px]" style={{ color: MUTED }}>Popular shows by itself on your three best sellers this week.</p>
+          </fieldset>
           {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={saving || uploading} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : 'Save'}</button>

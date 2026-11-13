@@ -61,7 +61,7 @@ export function pickupTimes(tenant: any, now = Date.now()): string[] {
 
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so). */
 const guestItem = (m: MenuItem) => ({ id: m.id, name: m.name, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
-  choices: m.choices, soldOut: m.soldOut || !m.inStock });
+  choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories });
 
 /** Today and yesterday in the business's own time zone: an order placed just before midnight is still picked up after. */
 function openDays(tenant: any, now = Date.now()): string[] {

@@ -282,12 +282,42 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   console.log('the menu board');
   const bkey = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Menu board', kind: 'drive-thru-board' }))).body.key;
   const MB = (b: any) => LANE(req({ tenantId: 't1', key: bkey, ...b }));
+  // Each item's sales, counted as orders go to the kitchen: the board's Popular tags come from these.
+  const sentOrders = (await all(`${T}/counterOrders`)).filter((o: any) => o.sentAt);
+  const want = new Map<string, number>(); for (const o of sentOrders) for (const l of o.lines || []) want.set(l.itemId, (want.get(l.itemId) || 0) + Number(l.quantity));
+  const got = new Map<string, number>(); for (const d of await all(`${T}/menuSales`)) for (const [k, v] of Object.entries<any>(d)) if (k.startsWith('n_')) got.set(k.slice(2), (got.get(k.slice(2)) || 0) + Number(v));
+  check('each item’s sales are counted as its order goes to the kitchen, once', sentOrders.length > 0 && got.size === want.size && Array.from(want).every(([id, q]) => got.get(id) === q), { want: Array.from(want), got: Array.from(got) });
+  // Popular: the three best sellers on the board over the last week (5 or more). Members-only items and sales older than a
+  // week don't count; an item's own tag (New, Limited time) shows instead.
+  await db.doc(`${T}/inventory/pie`).set({ type: 'refreshment', name: 'Pie', category: 'Sides', price: 3, totalStock: 10 });
+  const dayAgo = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  await db.doc(`${T}/menuSales/${dayAgo(1)}`).set({ day: dayAgo(1), n_fries: 40, n_burger: 7, n_pie: 6, n_secret: 99, n_shake: 1 }, { merge: true });
+  await db.doc(`${T}/menuSales/${dayAgo(9)}`).set({ day: dayAgo(9), n_shake: 80 });
+  // The business's own board settings, from the Menu page: shown big up front, a tag, calories.
+  const sv = (itemId: string, item: any) => Mn({ action: 'save', itemId, item });
+  const burgerItem = { name: 'Burger', section: 'Burgers', price: 5 };
+  const friesItem = { name: 'Fries', section: 'Sides', price: 2, choices: [{ id: 'sz', name: 'Size', pick: 'one', required: true, options: [{ id: 's', name: 'Small', price: 0 }, { id: 'l', name: 'Large', price: 1 }] }] };
+  const bads = await Promise.all([sv('burger', { ...burgerItem, badge: 'popular' }), sv('burger', { ...burgerItem, calories: 6000 }), sv('burger', { ...burgerItem, calories: 'lots' }), sv('burger', { ...burgerItem, calories: true }), sv('burger', { ...burgerItem, calories: -5 }), sv('burger', { ...burgerItem, calories: '0x10' }), sv('burger', { ...burgerItem, calories: '1e3' })]);
+  check('the board settings are checked: Popular can’t be set by hand, calories are a number up to 5000', bads.every((x: any) => x.status === 400), bads.map((x: any) => [x.status, x.body.error]));
+  r = await sv('burger', { ...burgerItem, featured: true, calories: '540' });
+  const rf: any = await sv('fries', { ...friesItem, badge: 'limited', calories: '' });
+  const bd: any = await get(`${T}/inventory/burger`);
+  check('…and saved: featured, its calories, its tag (none unless picked)', r.status === 200 && rf.status === 200 && bd.boardFeatured === true && bd.calories === 540 && bd.boardBadge === undefined
+    && r.body.item.featured === true && r.body.item.calories === 540 && rf.body.item.badge === 'limited' && rf.body.item.calories === null && bd.imageUrl === 'https://img.test/burger.png', [r.body, rf.body, bd]);
   r = await MB({ action: 'menuBoard' });
   const mbItems = (r.body.sections || []).flatMap((x: any) => x.items);
+  const mb = (id: string) => mbItems.find((i: any) => i.id === id) || {};
+  check('the board: the featured item, calories, and Popular on the week’s best sellers (not counting members-only items or older sales)',
+    mb('burger').featured === true && mb('burger').calories === 540 && mb('burger').badge === 'popular' && mb('pie').badge === 'popular' && mb('shake').badge === null
+    && mb('fries').badge === 'limited' && mb('fries').featured === false && mb('pie').calories === null, mbItems);
+  check('…in the business’s own color, or none without one', r.body.accent === null, r.body.accent);
+  await db.doc(T).set({ brandColor: '#c8102e' }, { merge: true });
+  const rc: any = await MB({ action: 'menuBoard' });
+  check('…its color, when it has one', /^#[0-9a-f]{6}$/i.test(String(rc.body.accent)), rc.body.accent);
   check('the menu board: by section, with photos and prices, sold out as it is, members-only items not shown', r.body.ok && r.body.business.name === 'Northside' && mbItems.find((i: any) => i.id === 'burger')?.price === 5 && mbItems.find((i: any) => i.id === 'burger')?.imageUrl
     && mbItems.find((i: any) => i.id === 'shake')?.soldOut === true && !mbItems.some((i: any) => i.id === 'secret'), r.body);
   check('…with the code to order ahead while that’s on', r.body.orderAhead === 'https://app.test/order/t1', r.body.orderAhead);
-  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut'];
+  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut', 'featured', 'badge', 'calories'];
   check('…and nothing about costs or stock counts (only what a guest may see)', mbItems.every((i: any) => Object.keys(i).every((k) => allowed.includes(k))) && !/cost|canMake|totalStock|supplier|short/.test(JSON.stringify(r.body)), mbItems[0]);
   r = await MB({ action: 'car', carKey: 'carkey-menuboard' });
   check('a menu board’s key can only show: it can’t start a car or take a payment', r.status === 401, r.body);
