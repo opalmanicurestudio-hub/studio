@@ -24,6 +24,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/offers', 'Bundles and kits', 'Kits, build-your-own boxes, shoppable looks and bought-together picks'],
     ['/retail-orders/discovery', 'Search and assistants', 'How you show up on Google and to AI assistants, and your Google Shopping feed'],
     ['/retail-orders/wholesale', 'Wholesale', 'Trade prices and access for businesses'],
+    ['/retail-orders/licenses', 'Licenses', 'Customers’ licenses on file, for products sold to licensed pros only'],
   ] },
   { title: 'Customers', items: [
     ['/reviews?tab=shop', 'Reviews', 'What shoppers say, which ones show, and asking for them'],

@@ -45,6 +45,8 @@ interface ProductDetail {
   lowStock: boolean;
   // The variants group's choices carry what each variant sells for and whether it can be bought; the other choices
   // what they add (lib/variants shopOptionGroups).
+  /** Sold to licensed pros only: a license on file is needed at checkout (lib/pro-license). */
+  prosOnly?: boolean;
   optionGroups?: { id: string; name: string; variants?: boolean; choices: { id: string; label: string; deltaCents?: number; priceCents?: number; wholesalePriceCents?: number | null; inStock?: boolean; qtyAvailable?: number; lowStock?: boolean }[] }[];
 }
 
@@ -270,6 +272,13 @@ export default function ProductPage() {
       </div>);
   })() : null;
 
+  // For licensed pros: said before they add it, with where to send a license (checkout asks for one on file).
+  const prosNote = product.prosOnly ? (
+    <div className="p-4 text-sm" style={{ borderRadius: 'var(--shop-radius-card)', background: 'var(--shop-tint)' }}>
+      <p className="font-semibold">For licensed pros</p>
+      <p className="mt-0.5" style={{ color: 'var(--shop-muted)' }}>Orders need your license on file. <Link href={`/shop/${encodeURIComponent(tenantId)}/pro`} className="underline underline-offset-2">Send it once</Link> and it’s checked before your first order.</p>
+    </div>) : null;
+
   const restock = !canBuy && !paused && !sold.preorder?.isPreorder && !sold.digital ? (
     <RestockAlert key={line?.variantChoice?.id || 'all'} tenantId={tenantId} productId={(product as any).id || productId}
       productName={line?.variantChoice ? `${product.name} · ${line.variantChoice.label}` : product.name} choiceId={line?.variantChoice?.id} />
@@ -373,7 +382,7 @@ export default function ProductPage() {
         selections={selections}
         onSelect={(g, c) => { setSelections({ ...selections, [g]: c }); setQty(wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1); }}
         showVideo={cfg.showVideo !== false}
-        promise={promise}
+        promise={prosNote && promise ? <div className="space-y-3">{prosNote}{promise}</div> : prosNote || promise}
         restock={restock}
         together={together}
         trust={trust}

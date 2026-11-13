@@ -193,6 +193,15 @@ export default function CheckoutPage() {
     } catch { if (mine === pickupReq.current) setPickupState('error'); }
   }, [tenantId]);
   const [preorderAgreed, setPreorderAgreed] = useState(false);
+  // Refused for a product sold to licensed pros only: where to send a license (lib/pro-license).
+  // Products for licensed pros (lib/pro-license): what's missing, said where they'll pay. `signIn` when the email has to
+  // be proven theirs first; `done` once they've signed in from the link and can place the order again.
+  const [licenseNeeded, setLicenseNeeded] = useState<{ url: string; text: string; signIn: boolean; done?: boolean } | null>(null);
+  const licenseRef = React.useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!licenseNeeded || !licenseRef.current) return;
+    licenseRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' }); licenseRef.current.focus({ preventScroll: true });
+  }, [licenseNeeded]);
   const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
   const [isGift, setIsGift] = useState(() => search?.get('gift') === '1'); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
   // A download given as a gift (lib/digital-gift): it goes by email to the person it's for, today or on a chosen day.
@@ -351,6 +360,22 @@ export default function CheckoutPage() {
     window.addEventListener('storage', recheck); document.addEventListener('visibilitychange', recheck); window.addEventListener('focus', recheck);
     return () => { window.removeEventListener('storage', recheck); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); };
   }, [tenantId, wholesale, wholesaleCode, acctSess]);
+  // The same for products for licensed pros: signed in from the link, they place the order again.
+  const needSignIn = !!licenseNeeded?.signIn;
+  useEffect(() => {
+    if (!tenantId || !needSignIn) return;
+    const recheck = () => {
+      if (document.visibilityState === 'hidden') return;
+      let a: any = null;
+      try { a = JSON.parse(localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null'); } catch { a = null; }
+      if (!a?.e || !a?.x || !a?.s || Date.now() >= Number(a.x) || (acctSess && acctSess.s === a.s)) return;
+      setAcctSess({ e: String(a.e), x: Number(a.x), s: String(a.s) }); setAcctEmail(String(a.e));
+      const same = String(a.e).trim().toLowerCase() === email.trim().toLowerCase();
+      setLicenseNeeded((c) => (c ? { ...c, signIn: !same, done: same, text: same ? `You’re signed in as ${String(a.e)}. Place your order again.` : `You’re signed in as ${String(a.e)}, but this order is for ${email.trim()}. Use the same email for both.` } : c));
+    };
+    window.addEventListener('storage', recheck); document.addEventListener('visibilitychange', recheck); window.addEventListener('focus', recheck);
+    return () => { window.removeEventListener('storage', recheck); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); };
+  }, [tenantId, needSignIn, acctSess, email]);
   const wsTaxNote = wsTax && !wsTax.free && email.trim() && shop?.wholesaleTax && !shop.wholesaleTax.house && !(shipStateMissing && wsTax.why === 'state') ? taxNote(wsTax, shop.wholesaleTax.business || shop.wholesaleBusiness || '', shop.name || '') : null;
   const wantsPickupTime = !!shop && !digitalOnlyCart && (method === 'counter' || method === 'curbside');
   useEffect(() => { if (wantsPickupTime) void loadPickupTimes(); }, [wantsPickupTime, loadPickupTimes]);
@@ -622,7 +647,8 @@ export default function CheckoutPage() {
           applyStoreCredit: applyCredit,
           creditSession: applyCredit ? acctSess : undefined,
           // Proof the email is theirs, for a wholesale buyer's tax-free order (lib/wholesale-tax).
-          accountSession: wholesale && acctSess ? acctSess : undefined,
+          // (Signed in from an emailed link: what tax-free wholesale and products for licensed pros are bought with.)
+          accountSession: acctSess || undefined,
           giftCode: giftCode.trim() || undefined,
           promoCode: promo?.code || undefined,
           storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
@@ -658,6 +684,7 @@ export default function CheckoutPage() {
       if (!res.ok) {
         if (data.promoError) { setPromo(null); setPromoErr(data.error || null); }
         if (data.needsPreorderAck) setPreorderAgreed(false);
+        if (data.needsLicense) setLicenseNeeded({ url: String(data.licenseUrl || `/shop/${tenantId}/pro`), text: String(data.error || ''), signIn: data.needsSignIn === true });
         // The time they chose filled up while they were paying: the choices catch up.
         if (data.pickupFull) void loadPickupTimes(data.error || 'That time filled up. Choose another.');
         // The same for a delivery time, or the address no longer delivered to: the delivery choices catch up.
@@ -1004,6 +1031,21 @@ export default function CheckoutPage() {
                 />
                 <span className="text-[11px] font-bold leading-relaxed text-amber-900">{notice.agreeLabel}</span>
               </label>
+            </div>
+          )}
+
+          {licenseNeeded && (
+            <div ref={licenseRef} tabIndex={-1} role="alert" className="rounded-2xl border p-4 outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]" style={licenseNeeded.done ? { borderColor: '#cfe6d8', background: '#ecf6f0', color: '#14532d' } : { borderColor: '#fed7aa', background: '#fff7ed', color: '#7c2d12' }}>
+              <p className="text-[15px] font-semibold">{licenseNeeded.done ? 'Signed in' : licenseNeeded.signIn ? 'Sign in to order this' : 'A license on file is needed'}</p>
+              <p className="mt-1 text-[14px] leading-relaxed">{licenseNeeded.text}</p>
+              {licenseNeeded.signIn && linkSentTo === email.trim().toLowerCase() && <p role="status" className="mt-2 text-[14px] leading-relaxed">If {email.trim()} has orders or a license with us, a link is on its way. Open it in this browser, then come back here.</p>}
+              {licenseNeeded.signIn && linkErr ? <p className="mt-2 text-[14px]">{linkErr}</p> : null}
+              {!licenseNeeded.done && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {licenseNeeded.signIn && linkSentTo !== email.trim().toLowerCase() && <button type="button" onClick={() => void sendSignInLink()} className="inline-flex min-h-[44px] items-center rounded-full px-4 text-[14px] font-semibold" style={{ background: '#16171a', color: '#fff' }}>Email me a sign-in link</button>}
+                  <a href={licenseNeeded.url} className="inline-flex min-h-[44px] items-center rounded-full px-4 text-[14px] font-semibold" style={licenseNeeded.signIn ? { background: '#fff', color: '#16171a', border: '1px solid #ececee' } : { background: '#16171a', color: '#fff' }}>{licenseNeeded.signIn ? 'Send your license first' : 'Send your license'}</a>
+                </div>
+              )}
             </div>
           )}
 

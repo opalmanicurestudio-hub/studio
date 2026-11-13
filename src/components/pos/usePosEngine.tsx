@@ -1617,7 +1617,22 @@ export function usePosEngine() {
       else if (left - n <= 1) toast({ title: added, description: left - n <= 0 ? 'That’s the last on the shelf.' : 'Only 1 more on the shelf after this.' });
       else toast({ title: added });
     }
-  }, [retailItems, handleAddToCart, toast]);
+    // For licensed pros only (the product's own setting, or its listing's: lib/pro-license): said once it's added, with
+    // whether the customer on this sale has a license on file today (the shop's list, api/retail/pro-licenses).
+    if (item?.prosOnly === true || deskListings.get(String(item?.id))?.prosOnly === true) {
+      const c: any = selectedClientId ? (clients || []).find((x: any) => x.id === selectedClientId) : null;
+      const email = String(c?.email || '').trim();
+      if (!email || !tenantId) toast({ title: 'For licensed pros only', description: 'Check their license before you hand it over. Choose the customer to look it up.' });
+      else void fetch('/api/retail/pro-licenses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'check', email }) })
+        .then((r) => r.json().catch(() => ({}))).then((d) => {
+          const who = c?.firstName || c?.name || 'This customer';
+          // (Not looked up: said so, never read as no license.)
+          if (!d?.ok) { toast({ title: 'For licensed pros only', description: 'Their license couldn’t be looked up just now. Check it before you hand it over.' }); return; }
+          if (d.state === 'valid') toast({ title: 'License on file', description: `${who}’s license is good to ${new Date(`${d.expiresOn}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}.` });
+          else toast({ variant: 'destructive', title: 'For licensed pros only', description: d?.state === 'expired' ? `${who}’s license on file has expired. Check a current one before you hand it over.` : d?.state === 'waiting' ? `${who}’s license is waiting to be checked in Licenses. Check it before you hand this over.` : `${who} has no license on file. Check theirs before you hand it over.` });
+        }).catch(() => toast({ title: 'For licensed pros only', description: 'Check their license before you hand it over.' }));
+    }
+  }, [retailItems, handleAddToCart, toast, deskListings, selectedClientId, clients, tenantId]);
   const handlePosScan = useCallback((raw: string) => {
     const hit = identifyPosScan(raw, { inventory: inventory || [], appointments: appointmentsFromInventory || [], walkIns: (walkIns as any[]) || [] });
     if (hit.kind === 'empty') return;

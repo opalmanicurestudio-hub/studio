@@ -159,6 +159,9 @@ export async function GET(req: NextRequest) {
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
       digital: item.digital === true,
+      // Sold to licensed pros only (a license on file at checkout: lib/pro-license).
+      // For licensed pros (lib/pro-license): the listing, or any of its variants (checkout holds either to a license).
+      prosOnly: (item as any).prosOnly === true || [...byId.values()].some((v: any) => v?.prosOnly === true),
       // What's in a download and how it arrives, without its files' whereabouts (lib/digital-product).
       digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item), { deviceLimit: deviceCap(tenant, item) }) : null,
       preorder: pre,

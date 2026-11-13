@@ -15,6 +15,7 @@
 // that rings mid-edit shouldn't cost you the work you already did.
 
 import { SoldForSection } from './SoldForSection';
+import { ProsOnlySection } from './ProsOnlySection';
 import { DigitalSection } from './DigitalSection';
 import { Section } from './ListingSection';
 import { BeforeStockSection, DocumentsSection, PhotosSection, VariantsSellSection, WholesaleSection } from './ListingExtras';
@@ -282,6 +283,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
       </div>
 
       <SoldForSection product={product} onSave={onSave} />
+      <ProsOnlySection product={product} onSave={onSave} />
 
       <PhotosSection product={product} onSave={onSave} />
 

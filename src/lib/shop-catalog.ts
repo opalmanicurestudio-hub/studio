@@ -15,7 +15,7 @@ export const MAX_SHOWN_QTY = 99; // never reveal exact large stock counts
 // sells): what's kept in the server's short-lived cache, so a big catalog fits and cost, suppliers and notes never go in.
 const KEEP = new Set(['id', 'type', 'name', 'status', 'showOnline', 'optionGroups', 'parentId', 'category', 'description', 'onlineDescription', 'howToUse', 'specs', 'includes',
   'imageUrl', 'imageUrls', 'images', 'videoUrl', 'photoUrl', 'sku', 'brand', 'gtin', 'upc', 'ean', 'barcode', 'barcodes', 'seoTitle', 'seoDescription', 'digital', 'finalSale', 'finalSaleCode', 'finalSaleReason',
-  'isGiftCard', 'leadDays', 'allowBackorder', 'lowStockThreshold', 'totalStock', 'stockReserved', 'storeHoldback', 'batches', 'msrp', 'retailPriceCents', 'priceCents', 'price', 'soldFor', 'shipGroundOnly', 'documents', 'allocations']);
+  'isGiftCard', 'leadDays', 'allowBackorder', 'lowStockThreshold', 'totalStock', 'stockReserved', 'storeHoldback', 'batches', 'msrp', 'retailPriceCents', 'priceCents', 'price', 'soldFor', 'shipGroundOnly', 'documents', 'allocations', 'prosOnly']);
 export function publicRow(item: any): any {
   const out: any = {};
   for (const [k, v] of Object.entries(item || {})) if (KEEP.has(k) || k.startsWith('preorder') || k.startsWith('wholesale')) out[k] = v;
@@ -58,6 +58,8 @@ export function catalogProducts(all: SellableItem[], byId: Map<string, any>, lis
         category: String(item.category || '') || 'General',
         description: publicDescription(item).slice(0, 300),
         imageUrls: collectImages(item),
+        // Sold to licensed pros only (a license on file at checkout: lib/pro-license): the listing, or any of its variants.
+        prosOnly: (item as any).prosOnly === true || variantIdsOf(item).some((id: string) => byId.get(id)?.prosOnly === true),
         optionGroups,
         priceCents: (vg && pick('priceCents')) ?? listingPriceCents(item, 'retail'),
         // Variants at different prices: the grid says "from".

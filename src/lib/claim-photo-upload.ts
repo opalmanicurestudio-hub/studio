@@ -24,14 +24,15 @@ export async function uploadClaimPhotoFromDataUrl(
   claimId: string,
   dataUrl: any,
   /** Storage folder under the tenant — claims by default; booking photos use 'booking-inspiration'. */
-  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' | 'delivery-photos' | 'wholesale-certs' = 'retail-claims',
+  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' | 'delivery-photos' | 'wholesale-certs' | 'pro-licenses' = 'retail-claims',
 ): Promise<ClaimPhotoResult> {
   try {
     const s = String(dataUrl || '');
     const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(s);
     // A resale certificate's copy (api/retail/wholesale, api/retail/wholesale-apply) may also be a PDF, checked by its
     // first bytes as well as its type.
-    const cert = folder === 'wholesale-certs';
+    // (A pro's license copy, lib/pro-license, the same: a photo or a PDF.)
+    const cert = folder === 'wholesale-certs' || folder === 'pro-licenses';
     if (!m) return { url: null, error: cert ? 'That file isn\u2019t one we can read. Use a photo or a PDF.' : 'That file isn\u2019t a photo we can read.' };
     const mime = m[1].toLowerCase();
     const audio = folder === 'cases' && /^audio\/(webm|mp4|mpeg|ogg|aac|x-m4a)$/.test(mime.split(';')[0]);
@@ -95,6 +96,6 @@ export async function uploadClaimPhotoFromDataUrl(
     return { url: null, error: cert ? 'The copy couldn\u2019t be saved. Try again in a minute.' : 'The photo couldn\u2019t be saved \u2014 your report is still open, and you can try the photo again in a minute.' };
   } catch (err: any) {
     console.error('[claim-photo] upload failed', err);
-    return { url: null, error: folder === 'wholesale-certs' ? 'The copy couldn\u2019t be saved. Try again in a minute.' : 'The photo couldn\u2019t be saved \u2014 your report is still open.' };
+    return { url: null, error: (folder === 'wholesale-certs' || folder === 'pro-licenses') ? 'The copy couldn\u2019t be saved. Try again in a minute.' : 'The photo couldn\u2019t be saved \u2014 your report is still open.' };
   }
 }

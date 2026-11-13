@@ -4,6 +4,7 @@ import { limitPublic } from '@/lib/rate-limit';
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
 
 import { accountUrl, normalizeEmail } from '@/lib/retail-account';
+import { licenseFor } from '@/lib/pro-license';
 
 // ─── POST /api/retail/account/request ─────────────────────────────────────────
 // { tenantId, email } → emails a magic sign-in link via Resend.
@@ -31,7 +32,7 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const UNIFORM = { ok: true, message: 'If that email address has orders or a wholesale account with us, a sign-in link is on its way.' };
+const UNIFORM = { ok: true, message: 'If that email address has orders, a wholesale account or a license with us, a sign-in link is on its way.' };
 const esc = (x: any) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 export async function POST(req: NextRequest) {
@@ -58,15 +59,19 @@ export async function POST(req: NextRequest) {
   await rlRef.set(inWindow ? { count: (rl.count || 0) + 1, windowStart: rl.windowStart } : { count: 1, windowStart: now });
 
   // Only send when the email actually has orders, or is one of a wholesale buyer's (their own, or one the shop added
-  // for their staff, who need this link to buy tax free before they've ordered). The response stays uniform either way.
-  const [a, b, w1, w2] = await Promise.all([
+  // for their staff, who need this link to buy tax free before they've ordered), or has an approved license on file
+  // (lib/pro-license: products for licensed pros are bought signed in). The response stays uniform either way.
+  const [a, b, w1, w2, lic] = await Promise.all([
     db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', email).limit(1).get(),
     db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', String(body.email || '').trim()).limit(1).get(),
     db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('email', '==', email).limit(5).get(),
     db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('taxEmails', 'array-contains', email).limit(5).get(),
+    licenseFor(db, tenantId, email).catch(() => null),
   ]);
   const buyer = [...w1.docs, ...w2.docs].map((d: any) => d.data() || {}).find((x: any) => x.status === 'active');
-  if (a.empty && b.empty && !buyer) return NextResponse.json(UNIFORM);
+  // (An approved one only: anyone can send a license with any email, and that alone mustn't send mail to it.)
+  const licensed = !!lic && (lic as any).status === 'approved';
+  if (a.empty && b.empty && !buyer && !licensed) return NextResponse.json(UNIFORM);
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;

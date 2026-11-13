@@ -44,6 +44,15 @@ export async function catalogItem(db: any, t: string, productId: string, order?:
   return { productId, name: c ? `${listing.name || i.name || 'Item'} \u00b7 ${c.choice.label}` : String(i.name || 'Item'), ...(c ? { listingId: String(listing.id) } : {}), unitPriceCents: price, sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || (listing && Array.isArray(listing.imageUrls) && listing.imageUrls[0]) || '' };
 }
 
+/** Sold to licensed pros only: the product, or the listing a variant sells in (lib/pro-license). */
+async function forProsOnly(db: any, t: string, productId: string): Promise<boolean> {
+  const s = await db.collection(`tenants/${t}/inventory`).doc(productId).get(); if (!s.exists) return false;
+  const i: any = s.data() || {}; if (i.prosOnly === true) return true;
+  if (!i.parentId || i.parentId === productId) return false;
+  const l = await db.collection(`tenants/${t}/inventory`).doc(String(i.parentId)).get();
+  return l.exists && (l.data() as any)?.prosOnly === true;
+}
+
 function correction(productId: string, change: number, reason: string, orderId: string, actor: Actor) {
   return { productId, change, unit: 'units', reason, date: new Date().toISOString(), orderId, actorId: actor.id, actorName: actor.name, source: 'retail_engine' };
 }
@@ -126,6 +135,8 @@ export async function offerSwap(db: any, t: string, orderId: string, lineId: str
   const snap = await orderRef(db, t, orderId).get(); if (!snap.exists) return { ok: false, message: 'Order not found.' };
   const o = { ...(snap.data() as any), id: orderId };
   const sub = await catalogItem(db, t, productId, o); if (!sub) return { ok: false, message: 'That item isn’t for sale right now.' };
+  // A product for licensed pros goes only on an order sold on a license on file (lib/pro-license).
+  if (await forProsOnly(db, t, productId) && !o.proLicense) return { ok: false, message: 'That’s for licensed pros, and this order wasn’t placed with a license on file. Pick something else.' };
   const line = (o.lines || []).find((l: any) => l.lineId === lineId); if (!line) return { ok: false, message: 'That item isn’t on this order.' };
   const first = String(o.customerName || '').split(' ')[0] || 'there';
   const pref = normaliseIfUnavailable(o.ifUnavailable);

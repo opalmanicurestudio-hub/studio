@@ -31,6 +31,7 @@ import { capSavings, matchOffers, savingsLabel, type MatchResult } from '@/lib/r
 import { liveOffers } from '@/lib/retail-offers-server';
 
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { licenseFor, licenseValid } from '@/lib/pro-license';
 import { shopStateOf, taxFreeFor, taxStateOf, type TaxFree } from '@/lib/wholesale-tax';
 import {
   FULFILLMENT_METHODS,
@@ -425,6 +426,8 @@ async function handleCheckout(req: NextRequest) {
     if (itemGroundOnly(item)) { groundOnly = true; (line as any).groundOnly = true; }
     // Sold for a renter: the share agreed today travels with the line, so a later change can't rewrite this sale.
     { const sf = soldForOf(item); if (sf) (line as any).soldFor = sf; }
+    // Sold to licensed pros only (the listing's setting, or the variant's own): checked against a license on file below.
+    if (listing.prosOnly === true || (variant as any)?.prosOnly === true) (line as any).prosOnly = true;
     lines.push(line);
   }
 
@@ -442,6 +445,38 @@ async function handleCheckout(req: NextRequest) {
       error: 'This order includes a pre-ordered item. Please review the ship-by date and tick the box to continue.',
       needsPreorderAck: true,
     }, { status: 422 });
+  }
+
+  // ── PROS ONLY (lib/pro-license) ──────────────────────────────────────────
+  // A product sold to licensed pros only is sold to an email with a license on file that's good today, and only with
+  // that email proven theirs: a session opened from a link emailed to it (lib/retail-account), for this same email.
+  // Unproven, nothing is looked up, so typing someone else's email neither buys on their license nor says whether they
+  // have one. Wholesale buyers too: a resale certificate isn't a license. Otherwise nothing is charged and the
+  // customer is told what's missing.
+  const acctSession = (body as any).accountSession || {};
+  const emailProven = !!customerEmail && verifyProvenAccountToken(tenantId, normalizeEmail(String(acctSession.e || '')), Number(acctSession.x), String(acctSession.s || '')).ok
+    && normalizeEmail(String(acctSession.e || '')) === normalizeEmail(customerEmail);
+  const proNames = Array.from(new Set(lines.filter((l: any) => l.prosOnly === true).map((l: any) => String(l.name || 'An item'))));
+  let proLicense: any = null;
+  if (proNames.length) {
+    const which = proNames.length === 1 ? `${proNames[0]} is` : 'Some items are';
+    const them = proNames.length === 1 ? 'it' : 'them';
+    const licenseUrl = `/shop/${encodeURIComponent(tenantId)}/pro`;
+    if (!emailProven) {
+      return NextResponse.json({
+        error: `${which} for licensed pros. Sign in as ${customerEmail} first: we’ll email you a link. Open it in this browser, then come back here. Or take ${them} out of your cart.`,
+        needsLicense: true, needsSignIn: true, licenseUrl, names: proNames.slice(0, 10),
+      }, { status: 422 });
+    }
+    const lic: any = await licenseFor(db, tenantId, customerEmail).catch(() => null);
+    if (!lic || !licenseValid(lic, todayIn(tenantTimeZone(tenant)))) {
+      return NextResponse.json({
+        error: `${which} for licensed pros. Orders for ${customerEmail} need a current license on file. Send yours, or take ${them} out of your cart.`,
+        needsLicense: true, licenseUrl, names: proNames.slice(0, 10),
+      }, { status: 422 });
+    }
+    // (The license it was sold on, kept with the order.)
+    proLicense = { number: String(lic.number || ''), state: String(lic.state || ''), expiresOn: String(lic.expiresOn || '') };
   }
 
   // Nothing physical? Then no address, no postage, no pickup slot — and the
@@ -536,9 +571,7 @@ async function handleCheckout(req: NextRequest) {
   // was sold under.
   // The email has to be proven theirs: a session opened from a link emailed to it (lib/retail-account), for this same
   // email. A session from an order's pass isn't enough here: whoever placed that order holds it, whatever they typed.
-  const ts = (body as any).accountSession || {};
-  const taxProven = !!customerEmail && verifyProvenAccountToken(tenantId, normalizeEmail(String(ts.e || '')), Number(ts.x), String(ts.s || '')).ok
-    && normalizeEmail(String(ts.e || '')) === normalizeEmail(customerEmail);
+  const taxProven = emailProven;
   const taxFree: TaxFree | null = priceTier === 'wholesale'
     ? taxFreeFor({ account: wsAccount ? (wsAccount.raw || {}) : null, rs, email: customerEmail, proven: taxProven, taxState: taxStateOf(method, (body.shippingAddress as any)?.state, shopStateOf(tenant)), today: todayIn(tenantTimeZone(tenant)), digitalOnly })
     : null;
@@ -825,6 +858,7 @@ async function handleCheckout(req: NextRequest) {
     ...(preorderLines.length > 0 ? { hasPreorder: true } : {}),
     ...(groundOnly && method === 'ship' ? { groundOnly: true } : {}),
     ...(lines.some((l: any) => l.soldFor?.renterId) ? { hasRenterItems: true } : {}),
+    ...(proLicense ? { proLicense } : {}),
     // The agreement itself, in the customer's own words as they were shown
     // them. Carried as TEXT, not a version pointer: a pointer sends whoever
     // reads this later to a file that has since been edited, which is the

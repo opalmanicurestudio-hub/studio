@@ -46,6 +46,8 @@ export function makeDb() {
     where: (k: string, op: string, v: any) => q(c, [...f, [k, op, v]], lim, after, byId), limit: (l: number) => q(c, f, l, after, byId),
     orderBy: (k?: any) => q(c, f, lim, after, byId || k === '__name__'),
     startAfter: (x: any) => q(c, f, lim, typeof x === 'string' ? x : String(x?.id || ''), true),
+    // (An aggregate count, as Firestore's count(): the documents the query would return.)
+    count: () => ({ get: async () => { const r = await q(c, f, lim, after, byId).get(); return { data: () => ({ count: r.size }) }; } }),
     get: async () => { const docs = [...store.entries()].filter(([p]) => p.startsWith(c + '/') && p.split('/').length === c.split('/').length + 1)
       .filter(([, d]) => f.every(([k, op, v]) => cmp(op, k.split('.').reduce((o: any, x) => (o == null ? o : o[x]), d), v)))
       .sort(([a], [b]) => (!byId ? 0 : a < b ? -1 : a > b ? 1 : 0)).filter(([p]) => !after || String(p.split('/').pop()) > after).slice(0, lim)
