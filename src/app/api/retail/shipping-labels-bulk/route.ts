@@ -63,11 +63,13 @@ function getAdminDb() {
 const ADDRESS_ASKED = 'The customer asked to change the address. Answer that on the order first.';
 
 /** Why an order can't get a label from here right now, or null when it can. */
-function notReady(order: any, qrToken: string): string | null {
+function notReady(order: any, qrToken: string, rs: any = {}): string | null {
   if (String(order.qrToken || '') !== qrToken) return 'Not authorized';
   if (order.stage !== 'packed') return `Not packed yet (${order.stage})`;
   // Picked for a spot check as it was packed (lib/spot-check): checked by someone else before its label is bought.
   if (order.spotCheck?.due === true) return 'Waiting for its spot check';
+  // The shop weighs every box before its label (lib/weight-check): this run works weights out, so each is bought one at a time.
+  if (rs?.weighEveryBox === true) return 'Weigh the box first: buy its label on the order';
   if (openRequest(order)) return ADDRESS_ASKED;
   if (order.method !== 'ship' || !order.shippingAddress) return 'Not a ship order';
   return null;
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
         if (!snap.exists) { left.push({ orderId, why: 'Order not found' }); return; }
         const order = snap.data() as any;
         if (order.trackingNumber || order.labelUrl) return;
-        const why = notReady(order, qrToken);
+        const why = notReady(order, qrToken, rs);
         if (why) { left.push({ orderId, why }); return; }
         const p = await planFor(order);
         if ('error' in p) { left.push({ orderId, why: p.error }); return; }
@@ -212,7 +214,7 @@ export async function POST(req: NextRequest) {
         results.push({ orderId, ok: true, skipped: true, labelUrl: order.labelUrl || '', trackingNumber: order.trackingNumber || '', message: 'Already has a label' });
         continue;
       }
-      const why = notReady(order, qrToken);
+      const why = notReady(order, qrToken, rs);
       if (why) { fail(why); continue; }
       // Claimed, and checked again as the order is now: a label bought on its own ship sheet a moment ago is seen here.
       const claim = await claimLabelBuy(db, snap.ref, auth.actor.name, Date.now(), (cur) => (cur.trackingNumber || cur.labelUrl ? 'It got a label meanwhile' : openRequest(cur) ? ADDRESS_ASKED : null));

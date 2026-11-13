@@ -10,7 +10,8 @@
 // Insurance and signature follow the shop's shipping rules automatically (the label route applies them).
 import { isZplLabel, slipAfterLabel } from '@/lib/label-format';
 import * as React from 'react';
-import { doc, onSnapshot, type Firestore } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, type Firestore } from 'firebase/firestore';
+import { inTheBox, itemsWeight, ozWords, weighEveryBox, weightOff } from '@/lib/weight-check';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { shipIt } from '@/lib/orders-flow';
 import { firstName, money, orderNum } from '@/lib/orders-view';
@@ -33,7 +34,7 @@ type Rate = { id: string; provider: string; service: string; amountCents: number
 type Dims = { lengthIn: number; widthIn: number; heightIn: number };
 // One box: a saved size (presetId) or a size of its own (dims: an old label's, or one chosen at the bench), and its
 // weight; typed means someone weighed it. tareOz: the empty box's own weight as the bench kept it.
-type Box = { presetId: string | null; oz: number; typed: boolean; dims?: Dims | null; fromOld?: boolean; tareOz?: number };
+type Box = { presetId: string | null; oz: number; typed: boolean; dims?: Dims | null; fromOld?: boolean; tareOz?: number; est?: boolean };
 type Step = 'why' | 'rates' | 'box' | null;
 const MOVED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 const word = (s: string) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
@@ -63,7 +64,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const who = firstName(order.customerName);
   const presets: Preset[] = (rs?.packagingPresets || []).slice(0, 8);
   const itemsOz = React.useMemo(() => group.flatMap((g: any) => g.lines || []).reduce((s: number, l: any) => {
-    if (l.digital === true) return s;
+    if (!inTheBox(l)) return s;
     const w = Number(inventory.find((i: any) => i.id === l.productId)?.weightOz) || 4;
     return s + w * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
   }, 0), [order, together, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -88,6 +89,25 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const setBox = (i: number, patch: Partial<Box>) => setBoxes((list) => settle(list.map((b, j) => (j === i ? { ...b, ...patch } : b))));
   const addBox = () => setBoxes((list) => settle([...list, { presetId: presets[0]?.id || null, oz: 0, typed: false }]));
   const removeBox = (i: number) => setBoxes((list) => settle(list.filter((_, j) => j !== i)));
+  // THE WEIGHT CHECK (lib/weight-check): every box weighed, against what its items and the box should weigh. One that's
+  // off is held until someone opens it and looks, and that look goes on the order. Only when every product has its
+  // weight saved; a shop can also ask for every box to be weighed before its label.
+  const realItems = React.useMemo(() => itemsWeight(group.flatMap((g: any) => g.lines || []), inventory), [order, together, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
+  const weighedAll = boxes.length > 0 && boxes.every((b) => b.typed && !b.fromOld && !b.est);
+  const expectOz = realItems.oz + boxes.reduce((s2, b) => s2 + tare(b), 0);
+  const weighedOz = boxes.reduce((s2, b) => s2 + (Number(b.oz) || 0), 0);
+  const offBy = realItems.known && weighedAll ? weightOff(weighedOz, expectOz) : null;
+  const mustWeigh = weighEveryBox(rs) && !weighedAll;
+  const weightKey = JSON.stringify(boxes.map((b) => [b.oz, b.presetId]));
+  const [lookedAt, setLookedAt] = React.useState('');
+  const weightHold = offBy !== null && lookedAt !== weightKey;
+  const looked = async () => {
+    setLookedAt(weightKey);
+    try {
+      await addDoc(collection(fs, `tenants/${tenantId}/retailOrders/${order.id}/events`), { type: 'note', at: new Date().toISOString(), actorId: actor.id, actorName: actor.name,
+        meta: { text: `Box weighed ${ozWords(weighedOz)}, about ${ozWords(expectOz)} expected (${offBy! > 0 ? `${ozWords(offBy!)} heavy` : `${ozWords(-offBy!)} light`}): opened and checked by ${actor.name}`.slice(0, 300), kind: 'weight_checked' } });
+    } catch { /* the look still counts on this screen */ }
+  };
   const parcels = boxes.map((b) => { const d = presetOf(b.presetId) || b.dims || { lengthIn: 10, widthIn: 8, heightIn: 4 }; return { weightOz: b.oz, lengthIn: d.lengthIn, widthIn: d.widthIn, heightIn: d.heightIn }; });
   const parcelsKey = JSON.stringify(parcels);
   // A box as an old label had it: its saved size when one matches, otherwise its own size, at the weight it was bought for.
@@ -233,7 +253,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const openBox = (slot: number) => {
     setErr(''); setReplaced(null); setBoxSlot(slot);
     const p = boxRec(slot)?.parcel;
-    setBoxes(settle([p ? boxFrom(p) : { presetId: presets[0]?.id || null, oz: Math.max(4, Math.round(itemsOz / Math.max(1, slots.length)) + 3), typed: true }]));
+    setBoxes(settle([p ? boxFrom(p) : { presetId: presets[0]?.id || null, oz: Math.max(4, Math.round(itemsOz / Math.max(1, slots.length)) + 3), typed: true, est: true }]));
     setEditing(null); setStep('box');
   };
   const buyBox = async () => {
@@ -319,7 +339,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
           {presets.length === 0 && !b.dims && <span className="text-[15px]" style={muted}>Standard box, 10 × 8 × 4</span>}
         </div>
         <div className="mt-3 flex items-center justify-between rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}>
-          {editing === i ? <label className="flex items-center gap-2">Weight <input type="number" min={1} value={b.oz} onChange={(e) => setBox(i, { oz: Math.max(1, Number(e.target.value) || 1), typed: true, fromOld: false })} className="h-10 w-20 rounded-xl border px-2 text-[17px]" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /> oz</label>
+          {editing === i ? <label className="flex items-center gap-2">Weight <input type="number" min={1} value={b.oz} onChange={(e) => setBox(i, { oz: Math.max(1, Number(e.target.value) || 1), typed: true, fromOld: false, est: false })} className="h-10 w-20 rounded-xl border px-2 text-[17px]" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /> oz</label>
             : <span><b className="font-semibold">{Math.floor(b.oz / 16) ? `${Math.floor(b.oz / 16)} lb ` : ''}{b.oz % 16} oz</b> <span style={muted}>{b.fromOld ? 'as the old label had it' : b.typed ? 'as you weighed it' : boxes.length > 1 ? 'its share of the items, plus the box' : 'from the items and box'}</span></span>}
           <button type="button" onClick={() => setEditing((e) => (e === i ? null : i))} className="h-11 px-1 font-semibold">{editing === i ? 'Done' : 'Change'}</button>
         </div>
@@ -480,9 +500,15 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
       ) : (
         <div className="mt-2">
           {editor({})}
+          {mustWeigh && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}>Weigh {boxes.length > 1 ? 'each box' : 'the box'} and type {boxes.length > 1 ? 'their weights' : 'its weight'} (Change). The shop weighs every box before its label.{!realItems.known ? ` To check it against its items, save the weight of ${realItems.missing.slice(0, 2).join(' and ')}${realItems.missing.length > 2 ? ' and the others' : ''} in Inventory.` : ''}</p>}
+          {offBy !== null && (
+            <div className="mt-3 rounded-2xl px-4 py-3.5" style={weightHold ? { background: C.warnSoft } : { background: C.soft }}>
+              <p className="m-0 text-[15px]" style={weightHold ? { color: C.warn } : undefined}><b className="font-semibold">{boxes.length > 1 ? 'These boxes weigh' : 'This box weighs'} {ozWords(weighedOz)}. </b>{boxes.length > 1 ? 'Their items and boxes' : 'Its items and the box'} should weigh about {ozWords(expectOz)}, so it’s {offBy > 0 ? `${ozWords(offBy)} heavy` : `${ozWords(-offBy)} light`}. {weightHold ? (offBy > 0 ? 'Something extra may be in it.' : 'Something may be missing.') + ' Open it and check before the label goes on.' : 'Checked, and noted on the order.'}</p>
+              {weightHold && <Btn kind="primary" className="mt-2" onClick={() => void looked()}>I opened it: it’s right</Btn>}
+            </div>)}
           {rateList}
           <p className="m-0 mt-3 text-[14px]" style={muted}>{cover ? `${cover.insuranceCents > 0 ? `Insured with Shippo for ${money(cover.insuranceCents)}, about ${money(Math.round(cover.insuranceCents * SHIPPO_INSURANCE_RATE))} of the price.` : `Not insured: ${chosen?.provider || 'the carrier'}’s included cover applies (up to $100 with most services).`}${cover.signature !== 'NONE' ? ' Someone signs for it.' : ''} ` : 'Insurance and signature follow your shipping rules. '}{who} gets tracking when the carrier first scans the box.</p>
-          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={loading || !chosen || !!asked} onClick={() => void buy()}>{chosen ? (boxes.length > 1 ? `Buy ${boxes.length} labels for ${money(chosen.amountCents)} and print` : `Buy label for ${money(chosen.amountCents)} and print`) : 'Choose a rate'}</Btn>
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={loading || !chosen || !!asked || mustWeigh || weightHold} onClick={() => void buy()}>{chosen ? (boxes.length > 1 ? `Buy ${boxes.length} labels for ${money(chosen.amountCents)} and print` : `Buy label for ${money(chosen.amountCents)} and print`) : 'Choose a rate'}</Btn>
           <Btn kind="plain" className="mt-1 w-full" style={muted} onClick={() => setManual(true)}>I already have tracking</Btn>
         </div>)}
       {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}

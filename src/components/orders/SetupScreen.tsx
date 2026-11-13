@@ -94,6 +94,8 @@ function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fi
   const [seeBare, setSeeBare] = React.useState(false);
   const [spot, setSpot] = React.useState(spotEvery(rs));
   React.useEffect(() => { setSpot(spotEvery(rs)); }, [rs?.spotCheckEvery]);
+  const [weigh, setWeigh] = React.useState(rs?.weighEveryBox === true);
+  React.useEffect(() => { setWeigh(rs?.weighEveryBox === true); }, [rs?.weighEveryBox]);
   const [on, setOn] = React.useState(scanRequired(rs)); const [who, setWho] = React.useState<Approvers>(approversOf(rs));
   const [bagsOn, setBagsOn] = React.useState(bagScanOn(rs));
   const [shelfOn, setShelfOn] = React.useState(rs?.scanBagToShelf !== false);
@@ -155,6 +157,12 @@ function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fi
               </li>))}
             {bare.length > 60 && <li className="border-t py-2 text-[13px]" style={{ borderColor: C.line, color: C.muted }}>And {bare.length - 60} more, all on the labels page.</li>}
           </ul>)}
+      </div>
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Weigh every box</span>
+          <span className="block text-[13px]" style={muted}>{weigh ? 'Each box is weighed and its weight typed in before its first label (one at a time, not in a batch). A box that’s off from what its items should weigh is held for a look.' : 'Off: a box that’s weighed is still checked against its items. Turn it on with a shipping scale at the bench.'}</span></span>
+        <button type="button" role="switch" aria-checked={weigh} aria-label="Weigh every box" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.weighEveryBox': !weigh }, () => setWeigh(!weigh), !weigh ? 'Every box is weighed before its label now.' : 'Boxes can get a label without being weighed now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: weigh ? C.ok : '#d2d3d7' }}>
+          <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: weigh ? 32 : 4 }} /></button>
       </div>
       <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
         <p className="m-0 text-[17px] tracking-[-0.01em]">Spot checks</p>
