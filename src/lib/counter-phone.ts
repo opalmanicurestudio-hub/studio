@@ -14,6 +14,7 @@ import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
 import { photoOf } from '@/lib/counter-orders';
+import { ensureWalletDomainsSoon, walletsOn } from '@/lib/wallet-domains';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const LINK_HOURS = 3;
@@ -47,7 +48,7 @@ const markPhone = (db: any, ref: any, piId: string, state: 'paid' | 'stopped', e
 const payable = (o: any, now = Date.now()) => !!o && (o.status === 'sent' || o.status === 'done') && !o.paidAt && now - (Date.parse(String(o.createdAt || '')) || 0) < LINK_HOURS * 3600000;
 
 /** The link the guest scans, for this order: shown on the lane (and on the window screen, for the next 10 minutes). */
-export async function phoneLink(db: any, tenantId: string, tenant: any, orderId: string, origin: string, by: string): Promise<{ ok: true; url: string } | Fail> {
+export async function phoneLink(db: any, tenantId: string, tenant: any, orderId: string, origin: string, by: string, o: { stripe?: any } = {}): Promise<{ ok: true; url: string; wallets: boolean } | Fail> {
   if (!ID.test(orderId)) return fail('Which order?', 400);
   if (!accountOf(tenant) || !process.env.STRIPE_SECRET_KEY) return fail('Card payments aren’t set up for this business yet.', 409, 'no_payments');
   const sig = phoneSig(tenantId, orderId); if (!sig) return fail('Scan to pay isn’t set up on the server yet.', 409, 'no_secret');
@@ -61,7 +62,9 @@ export async function phoneLink(db: any, tenantId: string, tenant: any, orderId:
     return { ok: true };
   });
   if (!r.ok) return r;
-  return { ok: true, url: `${origin.replace(/\/+$/, '')}/drive-thru/${encodeURIComponent(tenantId)}/pay?o=${encodeURIComponent(orderId)}&s=${sig}` };
+  // Apple Pay and Google Pay on the guest's page: the address registered first, if it isn't yet (a few seconds at most).
+  await ensureWalletDomainsSoon(db, tenantId, tenant, origin, 3000, o);
+  return { ok: true, url: `${origin.replace(/\/+$/, '')}/drive-thru/${encodeURIComponent(tenantId)}/pay?o=${encodeURIComponent(orderId)}&s=${sig}`, wallets: walletsOn(tenant, origin) };
 }
 
 /** The guest's page: the order and its total, and the secure form's key for this order's one phone payment. */
@@ -131,6 +134,8 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
       });
       if (!kept) { try { await stripe.paymentIntents.cancel(pi.id, {}, { stripeAccount: acct }); } catch { /* never confirmed: it charges nothing */ } continue; }
     }
+    // (Only the business's own addresses: never the one a guest's request says it came from.)
+    await ensureWalletDomainsSoon(db, tenantId, tenant, null, 2500, { stripe });
     return { ok: true, paid: false, ...summary, clientSecret: pi.client_secret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, stripeAccount: acct };
   }
   return fail('Paying by phone isn’t working right now. Pay at the window.', 503);

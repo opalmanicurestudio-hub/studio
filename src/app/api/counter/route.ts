@@ -59,6 +59,7 @@ import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
 import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
+import { walletsOn } from '@/lib/wallet-domains';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -253,6 +254,8 @@ export async function POST(req: NextRequest) {
           // Scan to pay: the code, while the team has it up (10 minutes) and the order isn't paid.
           payUrl: shown.mode === 'pay' && !o.paidAt && o.phone?.shownAt && ageOf(o.phone.shownAt) < 10 * 60000 && phoneSig(tenantId, String(pick!.car.orderId))
             ? `${linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '')}/drive-thru/${encodeURIComponent(tenantId)}/pay?o=${encodeURIComponent(String(pick!.car.orderId))}&s=${phoneSig(tenantId, String(pick!.car.orderId))}` : null } : null,
+        // Whether the guest's phone offers Apple Pay or Google Pay (said beside the code; lib/wallet-domains).
+        wallets: walletsOn(tenant, linkOrigin(tenant, req.nextUrl.origin)),
         now: nowIso,
       });
     }
@@ -372,7 +375,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'phoneLink') {
       const r: any = await phoneLink(db, tenantId, tenant, orderId, linkOrigin(tenant, req.nextUrl.origin), by);
-      return r.ok ? ok({ url: r.url, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      return r.ok ? ok({ url: r.url, wallets: !!r.wallets, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     if (action === 'phoneCheck') {
       const r: any = await checkPhone(db, tenantId, tenant, orderId);

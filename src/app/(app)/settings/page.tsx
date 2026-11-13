@@ -23,6 +23,7 @@ import { TeamDiscountsCard } from '@/components/settings/TeamDiscountsCard';
 import { VoidsApprovalsCard } from '@/components/settings/VoidsApprovalsCard';
 import { CheckoutNudgesCard } from '@/components/settings/CheckoutNudgesCard';
 import { SalesTaxCard } from '@/components/settings/SalesTaxCard';
+import { WalletsCard } from '@/components/settings/WalletsCard';
 import { PayLaterCard } from '@/components/settings/PayLaterCard';
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -584,6 +585,7 @@ function SettingsPageImpl() {
                   />
                 </div>
               </Section>
+              {tenantId && (selectedTenant as any)?.stripeAccountId && <WalletsCard tenantId={tenantId} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
               {tenantId && <SalesTaxCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
               <More label="More checkout options" help="Pay later, tip prompts, refunds and voids, team discounts, and the screen clients see.">
                 <PayLaterCard tenantId={tenantId || ''} />

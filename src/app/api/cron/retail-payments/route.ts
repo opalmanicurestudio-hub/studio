@@ -15,6 +15,7 @@ import { sendRestockAlerts } from '@/lib/restock-alerts';
 import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepCounterCards } from '@/lib/counter-card';
+import { ensureWalletDomains } from '@/lib/wallet-domains';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { sweepRetryPays } from '@/lib/delivery-retry-server';
 import { sweepDriverLocations } from '@/lib/delivery-live-server';
@@ -54,6 +55,9 @@ export async function GET(req: NextRequest) {
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
     // …and the drive-thru window's: approved ones pay their order, ones left waiting are stopped (lib/counter-card).
     try { const r = await sweepCounterCards(db, t.id, tenant); counts.windowCardsChecked = (counts.windowCardsChecked || 0) + r.checked; counts.windowCardsPaid = (counts.windowCardsPaid || 0) + r.paid; counts.windowCardsStopped = (counts.windowCardsStopped || 0) + r.stopped; } catch { /* next run */ }
+    // Apple Pay and Google Pay on the business's pay pages: its addresses registered on its payments account (only
+    // what's due: nothing is asked of the card company otherwise; lib/wallet-domains).
+    if (tenant.stripeChargesEnabled !== false) { try { const w = await ensureWalletDomains(db, t.id, tenant, null); counts.walletAddressesChecked = (counts.walletAddressesChecked || 0) + w.checked; } catch { /* next run */ } }
     // Swap questions nobody answered in time become refunds, so the order isn't held up.
     try { counts.swapsRefunded += await expireSwapOffers(db, t.id); } catch { /* next run */ }
     // Pickup reminders for ready orders nobody has collected (each sent once).

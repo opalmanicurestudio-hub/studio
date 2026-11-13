@@ -197,7 +197,7 @@ export default function DriveThru() {
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
   // Scan to pay: the code for this order, up while the guest pays on their own phone.
-  const [phoneFor, setPhoneFor] = useState<{ orderId: string; url: string; img: string } | null>(null);
+  const [phoneFor, setPhoneFor] = useState<{ orderId: string; url: string; img: string; wallets: boolean } | null>(null);
   // The card reader at this screen (kept on the device): one of the business's readers, or 'none' for a card machine of
   // their own. With nothing picked and only one reader, that one.
   const [readers, setReaders] = useState<Reader[] | null>(null);
@@ -412,7 +412,7 @@ export default function DriveThru() {
   const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
   // Scan to pay: a code for this order only; the guest pays on their own phone and it's marked paid by itself.
   const showPhone = () => order && act('phoneLink', { action: 'phoneLink', orderId: order.id }, async (d) => {
-    try { const QR: any = await import('qrcode'); const img = await QR.toDataURL(d.url, { margin: 1, width: 560, errorCorrectionLevel: 'M', color: { dark: INK, light: '#ffffff' } }); setPhoneFor({ orderId: order.id, url: d.url, img }); }
+    try { const QR: any = await import('qrcode'); const img = await QR.toDataURL(d.url, { margin: 1, width: 560, errorCorrectionLevel: 'M', color: { dark: INK, light: '#ffffff' } }); setPhoneFor({ orderId: order.id, url: d.url, img, wallets: !!d.wallets }); }
     catch { setNotice({ text: 'The code didn’t load. Try again.', tone: 'warn' }); }
   });
   const phoneOn = !!order && !order.paidAt && phoneFor?.orderId === order.id;
@@ -797,7 +797,7 @@ export default function DriveThru() {
                               <img src={phoneFor!.img} alt="Code to pay this order on a phone" className="h-[220px] w-[220px] shrink-0 rounded-2xl bg-[#fff] p-2" />
                               <div className="min-w-0 space-y-1">
                                 <p className="text-[18px] font-semibold">Scan to pay</p>
-                                <p className="text-[14.5px] leading-relaxed" style={{ color: MUTED }}>Turn the screen to them. They scan it with their phone’s camera and pay {usd(order.total)} there, with a card, Apple Pay or Google Pay. It’s marked paid by itself once it goes through.</p>
+                                <p className="text-[14.5px] leading-relaxed" style={{ color: MUTED }}>Turn the screen to them. They scan it with their phone’s camera and pay {usd(order.total)} there{phoneFor!.wallets ? ', with a card, Apple Pay or Google Pay' : ' by card'}. It’s marked paid by itself once it goes through.</p>
                                 {!car?.inLine && <p className="text-[13.5px]" style={{ color: MUTED }}>The window screen shows it too, for the next 10 minutes.</p>}
                               </div>
                             </div>

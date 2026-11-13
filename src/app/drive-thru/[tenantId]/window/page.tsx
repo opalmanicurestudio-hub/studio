@@ -23,7 +23,7 @@ type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name:
   lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl: string | null }[];
   subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
   card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null };
-type View = { business: { name: string }; show: Show | null };
+type View = { business: { name: string }; show: Show | null; wallets?: boolean };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const keyName = (t: string) => `cf.drivethru.window.${t}`;
 const atName = (t: string) => `cf.drivethru.window.at.${t}`;
@@ -115,7 +115,7 @@ export default function WindowScreen() {
                   <img src={qr.img} alt="Code to pay on your phone" className="shrink-0 rounded-[clamp(12px,2vh,24px)] bg-[#fff] p-[clamp(6px,1vh,12px)]" style={{ width: 'clamp(150px,24vh,300px)', height: 'clamp(150px,24vh,300px)' }} />
                   <div className="min-w-0 space-y-[1vh]">
                     <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">Scan to pay on your phone</p>
-                    <p className="text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Point your camera at the code. Card, Apple Pay or Google Pay. Or pay at the window.</p>
+                    <p className="text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Point your camera at the code{view?.wallets ? '. Card, Apple Pay or Google Pay' : ' and pay by card'}. Or pay at the window.</p>
                   </div>
                 </div>
               ) : (

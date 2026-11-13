@@ -1117,6 +1117,15 @@ export async function handleConnectWebhook(req: NextRequest) {
         }
         const tenant = await getTenant(acct.id || connAcct);
         if (tenant) await tenant.ref.set(flags, { merge: true });
+        // Ready to take payments: the app's address goes on the account, so Apple Pay and Google Pay show on its pay
+        // pages (lib/wallet-domains; only what isn't done yet).
+        if (tenant && acct.charges_enabled) {
+          try {
+            const { ensureWalletDomainsSoon } = await import('@/lib/wallet-domains');
+            const t: any = (await tenant.ref.get()).data() || {};
+            await ensureWalletDomainsSoon(db, tenant.id, t, null, 2000);
+          } catch (e) { console.error('[connect-webhook] wallet addresses not registered', e); }
+        }
         break;
       }
 
