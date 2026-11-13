@@ -23,12 +23,20 @@
 //                                                      moving; "gone" hands it over (paid, or never sent)
 //   name   { tenantId, key, orderId, name }         → the guest's first name on the order (and its kitchen tickets), or
 //                                                      none; the board, the window and the bag call them by it
+//   readers { tenantId, key }                       → the business's card readers the lane can send a payment to
+//   card   { tenantId, key, orderId, readerId }     → the order's total sent to that reader (lib/counter-card); the guest
+//                                                      taps, inserts or swipes there
+//   cardCheck / cardStop { tenantId, key, orderId } → how it's going (approved: the order is paid by it) / called off so
+//                                                      it can be paid another way
+//   cardTest { tenantId, key, orderId }             → a test reader only: a test card is presented, to try it end to end
+//   window { tenantId, key, at: 'pay'|'pickup'|'one' } → the screen facing the guest at a window (its own display-only key,
+//                                                      like the board): the car there, its order and total, how paying is
+//                                                      going, and where to go next
 //   cancel { tenantId, key, orderId }               → an order not sent yet, dropped (the car leaves the lane)
 //   void   { tenantId, key, orderId, reason, staffPass? } → a sent order that won't be paid (the car drove off), by a
 //                                                      manager (their PIN, or signed in): lib/counter-server voidOrder
 // Part of Lounge & hospitality: closed while it isn't part of the plan (lib/tool-lock).
 import { NextRequest, NextResponse } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { accessLockOf } from '@/lib/tenant-access';
@@ -36,7 +44,9 @@ import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, photoOf, spotsOf, RUSH_CARS, inLineNow, CHANNEL_NAME, type Channel } from '@/lib/counter-orders';
-import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName } from '@/lib/counter-server';
+import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder } from '@/lib/counter-server';
+import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
+import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -58,12 +68,12 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
     let member: { id: string; name: string } | null = null;
-    if (!screen && !b.key && action !== 'board') {
+    if (!screen && !b.key && action !== 'board' && action !== 'window') {
       const t: any = await teamInstead(req, db, tenantId);
       if (t.deny) return t.deny;
       if (t.renter) return bad('This is for the business’s own team.', 403);
@@ -73,13 +83,14 @@ export async function POST(req: NextRequest) {
       const slow = await limitPublic(req, 'kitchen_key', tenantId, { perHour: 60, perDay: 2000 }); if (slow) return slow;
       return bad('This screen isn’t set up, or was stopped. A manager can set it up again here.', 401);
     }
-    // Only a lane screen takes orders and payments here; the outdoor order board's key only shows the order at the
-    // speaker. A kitchen or floor screen's key does nothing here.
-    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && action === 'board'))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
+    // Only a lane screen takes orders and payments here; a screen guests can see (the order board by the speaker, the
+    // screen at the window) has a key that only shows. A kitchen or floor screen's key does nothing here.
+    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
+    if (action === 'window' && screen.kind !== 'drive-thru-board') return bad('This screen isn’t set up for the window. A manager can set it up here.', 401);
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'void'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -105,6 +116,8 @@ export async function POST(req: NextRequest) {
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
         orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [], subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
+          // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
+          card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
           readyCount: mine.filter((t: any) => t.status === 'ready' || t.status === 'delivered').length, ticketCount: mine.length };
       }
@@ -157,6 +170,71 @@ export async function POST(req: NextRequest) {
           subtotal: num(o.subtotal), tax: num(o.tax), total: num(o.total) } : null,
         now: nowIso,
       });
+    }
+
+    if (action === 'window') {
+      // The car at this window and nothing about any other: at the pay window, the first car to pay (or the one that just
+      // paid, for a few seconds, while it pulls away); at the pickup window, the first car picking up; at a single window,
+      // whichever of those is first. A car just parked in a spot or just handed over at this window is told where to go,
+      // or thanked, before the next car shows.
+      const at = b.at === 'pay' || b.at === 'pickup' ? b.at : 'one';
+      const nowMs = now.getTime(); const ageOf = (iso: unknown) => nowMs - (Date.parse(String(iso || '')) || 0);
+      const [liveSnap, goneSnap] = await Promise.all([
+        db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(),
+        at === 'pay' ? Promise.resolve({ docs: [] as any[] }) : db.collection(`${T}/driveThruCars`).where('goneAt', '>=', new Date(nowMs - 10000).toISOString()).limit(10).get(),
+      ]);
+      const live = liveSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => inLineNow([c], nowMs) === 1)
+        .sort((a: any, c: any) => String(a.arrivedAt).localeCompare(String(c.arrivedAt)));
+      const newest = (xs: any[], when: (c: any) => unknown) => xs.sort((a, c) => ageOf(when(a)) - ageOf(when(c)))[0] || null;
+      let pick: { car: any; mode: 'pay' | 'paid' | 'forward' | 'thanks' } | null = null;
+      // The car the reader is asking for (or just asked for) is the one at the window, whichever is first in the lane.
+      const atWindow = live.filter((c: any) => (at === 'pickup' ? false : c.stage === 'pay') && ID.test(String(c.orderId || ''))).slice(0, 6);
+      const cardOf = new Map<string, string>();
+      if (atWindow.length) {
+        const snaps: any[] = await db.getAll(...atWindow.map((c: any) => db.doc(`${T}/counterOrders/${c.orderId}`)));
+        // (A card being started counts for a minute, a decline for half a minute: as long as the screen would show them.)
+        atWindow.forEach((c: any, k: number) => {
+          const cd: any = snaps[k]?.data?.()?.card || {}; const st = String(cd.state || '');
+          if (st === 'on_reader' || st === 'capturing' || (st === 'starting' && ageOf(cd.at) < 60000) || (st === 'declined' && ageOf(cd.failedAt) < 30000)) cardOf.set(c.id, st);
+        });
+      }
+      const paying = atWindow.find((c: any) => cardOf.has(c.id) && cardOf.get(c.id) !== 'declined') || atWindow.find((c: any) => cardOf.has(c.id)) || null;
+      if (at === 'pay') {
+        const justPaid = newest(live.filter((c: any) => (c.stage === 'pickup' || c.stage === 'forward') && ageOf(c.stageAt?.pickup) < 12000), (c) => c.stageAt?.pickup);
+        const first = paying || live.find((c: any) => c.stage === 'pay');
+        pick = justPaid && !paying ? { car: justPaid, mode: 'paid' } : first ? { car: first, mode: 'pay' } : null;
+      } else {
+        // Only a car parked or handed over straight from the window: one brought out to its spot isn't at the window.
+        const parked = newest(live.filter((c: any) => c.stage === 'forward' && ageOf(c.stageAt?.forward) < 20000), (c) => c.stageAt?.forward);
+        const handed = newest(goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left && !c.voided && !c.stageAt?.forward && ageOf(c.goneAt) < 8000), (c) => c.goneAt);
+        const first = paying || live.find((c: any) => (at === 'one' ? c.stage === 'pay' || c.stage === 'pickup' : c.stage === 'pickup'));
+        pick = parked ? { car: parked, mode: 'forward' } : handed ? { car: handed, mode: 'thanks' } : first ? { car: first, mode: first.stage === 'pay' ? 'pay' : 'paid' } : null;
+      }
+      const o: any = pick && ID.test(String(pick.car.orderId || '')) ? (await db.doc(`${T}/counterOrders/${pick.car.orderId}`).get()).data() : null;
+      let kitchen: 'making' | 'ready' | null = null;
+      if (o && pick && pick.mode === 'paid') {
+        const mine = (await db.collection(`${T}/kdsTickets`).where('orderId', '==', String(pick.car.orderId)).get()).docs.map((d: any) => d.data() || {}).filter((t: any) => t.status !== 'cancelled');
+        kitchen = mine.length && !mine.some((t: any) => t.status === 'pending' || t.status === 'in_progress') ? 'ready' : 'making';
+      }
+      // An order that was cancelled or voided never shows.
+      const shown = o && pick && !['cancelled', 'voided', 'building'].includes(String(o.status)) ? pick : null;
+      const card = shown && o.card && !o.paidAt ? (o.card.state === 'on_reader' || o.card.state === 'starting' || o.card.state === 'capturing' ? 'on_reader' : o.card.state === 'declined' && ageOf(o.card.failedAt) < 30000 ? 'declined' : null) : null;
+      return ok({
+        business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' },
+        show: shown ? { mode: shown.mode === 'pay' && o.paidAt ? 'paid' : shown.mode, number: o.number, name: cleanName(o.guestName) || null, spot: shown.mode === 'forward' ? (shown.car.spot || null) : null,
+          // The items and money only while they're paying (a car told where to go, or thanked, doesn't need them).
+          lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })) : [],
+          subtotal: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.subtotal) : 0, tax: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.tax) : 0, total: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.total) : 0, paid: !!o.paidAt, payMethod: o.paidAt ? (o.payMethod || null) : null,
+          // Change for cash, while the car is still likely at the window.
+          change: o.paidAt && o.payMethod === 'cash' && num(o.changeGiven) > 0 && ageOf(o.paidAt) < 60000 ? num(o.changeGiven) : null,
+          card, cardMessage: card === 'declined' ? String(o.card.failed || '') || null : null, kitchen, nextWindow: at === 'pay' } : null,
+        now: nowIso,
+      });
+    }
+
+    if (action === 'readers') {
+      const r: any = await listReaders(tenantId, tenant);
+      return r.error ? bad(r.error, 503) : ok({ readers: r.rows, payments: r.payments, staffOk });
     }
 
     // Anything that changes today's numbers lets them be worked out again on the next read.
@@ -212,6 +290,27 @@ export async function POST(req: NextRequest) {
       return r.error ? bad(r.error, r.status) : ok({ name: r.name, staffOk });
     }
 
+    if (action === 'card' || action === 'cardCheck' || action === 'cardStop') {
+      const r: any = action === 'card' ? await startCard(db, tenantId, tenant, orderId, String(b.readerId || ''), by)
+        : action === 'cardCheck' ? await checkCard(db, tenantId, tenant, orderId, by) : await stopCard(db, tenantId, tenant, orderId, by);
+      if (r.ok && r.state === 'paid' && !r.already) statsCache.delete(tenantId);
+      return r.ok ? ok({ state: r.state, message: r.message || null, already: !!r.already, payMethod: r.payMethod || null, justWent: !!r.justWent, notKept: !!r.notKept, voided: !!r.voided, wrongAmount: !!r.wrongAmount, staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+
+    if (action === 'cardTest') {
+      // Only on a test reader (the card company's own pretend one): never on a real reader, and never with real money.
+      const acct = accountOf(tenant); const stripe = readerStripe(); const o: any = (await orderRef.get()).data();
+      const readerId = String(o?.card?.readerId || '');
+      if (!acct || !stripe || !o?.card?.id || o.card.state !== 'on_reader' || !/^tmr_[A-Za-z0-9]{4,60}$/.test(readerId)) return bad('Send the order to the test reader first.', 409);
+      try {
+        const rd: any = await stripe.terminal.readers.retrieve(readerId, {}, { stripeAccount: acct });
+        if (rd?.device_type !== 'simulated_wisepos_e') return bad('That only works on a test reader.', 409);
+        await stripe.testHelpers.terminal.readers.presentPaymentMethod(readerId, {}, { stripeAccount: acct });
+      } catch { return bad('The test card didn’t go through. Try again.', 503); }
+      return ok({ staffOk });
+    }
+
     if (action === 'cancel') {
       const r: any = await db.runTransaction(async (tx: any) => {
         const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
@@ -241,39 +340,22 @@ export async function POST(req: NextRequest) {
       if (!reason) return bad('Why is it being voided?');
       const r: any = await voidOrder(db, tenantId, orderId, reason, who);
       statsCache.delete(tenantId);
-      if (!r.error) { const carId = String(((await orderRef.get()).data() || {}).carId || ''); if (ID.test(carId)) await stopCarCall(db, tenantId, carId, 'voided'); }
+      if (!r.error) {
+        const vo: any = (await orderRef.get()).data() || {}; const carId = String(vo.carId || '');
+        if (ID.test(carId)) await stopCarCall(db, tenantId, carId, 'voided');
+        // A card payment started for it (declined, or left) is called off, so it can never go through later.
+        if (vo.card?.id && !['stopped', 'paid'].includes(String(vo.card.state))) await stopCard(db, tenantId, tenant, orderId, who.name).catch(() => null);
+      }
       return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, returned: r.returned, wasted: r.wasted, staffOk });
     }
 
-    // paid
+    // paid (cash, or a card machine of the business's own): lib/counter-server payOrder. A card payment the window's
+    // reader started for it and that isn't needed now is called off, so it can never go through later.
     const method = b.method === 'cash' ? 'cash' : b.method === 'card' ? 'card' : null; if (!method) return bad('Card or cash?');
-    // Cash handed over, when the screen worked out the change: kept with the sale.
-    const tendered = method === 'cash' && b.tendered !== undefined && b.tendered !== null ? Math.round(Number(b.tendered) * 100) / 100 : null;
-    if (tendered !== null && (!Number.isFinite(tendered) || tendered < 0 || tendered > 100000)) return bad('How much did they hand over?');
-    const r: any = await db.runTransaction(async (tx: any) => {
-      const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
-      const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
-      // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
-      const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
-      // Paid already (another tablet, or the first answer was lost): say how, and the change that was given.
-      if (o.paidAt) return { already: true, change: o.changeGiven ?? null, payMethod: o.payMethod || null };
-      if (o.status !== 'sent' && o.status !== 'done') return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
-      const total = num(o.total), subtotal = num(o.subtotal), tax = num(o.tax);
-      if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
-      const saleRef = db.doc(`${T}/transactions/counter_${orderId}`); const taxRef = db.doc(`${T}/transactions/counter_${orderId}_tax`);
-      const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId };
-      tx.set(saleRef, { id: saleRef.id, ...common, description: `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
-      if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
-      // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count).
-      const drawer = method === 'cash' && till.length === 1 ? till[0].ref : null;
-      if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
-      const change = tendered !== null ? Math.round((tendered - total) * 100) / 100 : null;
-      tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: by, tillId: drawer ? drawer.id : null, ...(method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
-        ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}) }, { merge: true });
-      if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
-      return { ok: true, drawer: !!drawer, change, payMethod: method };
-    });
-    return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, inDrawer: r.drawer ?? null, change: r.change ?? null, payMethod: r.payMethod || null, staffOk });
+    const r: any = await payOrder(db, tenantId, orderId, { method, tendered: b.tendered, by });
+    if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    if (r.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
+    return ok({ already: !!r.already, inDrawer: r.drawer ?? null, change: r.change ?? null, payMethod: r.payMethod || null, staffOk });
   } catch (e: any) {
     console.error('[counter] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);

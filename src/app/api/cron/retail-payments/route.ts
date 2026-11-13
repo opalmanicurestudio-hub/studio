@@ -14,6 +14,7 @@ import { expireSwapOffers } from '@/lib/retail-swap-server';
 import { sendRestockAlerts } from '@/lib/restock-alerts';
 import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
+import { sweepCounterCards } from '@/lib/counter-card';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { sweepRetryPays } from '@/lib/delivery-retry-server';
 import { sweepDriverLocations } from '@/lib/delivery-live-server';
@@ -51,6 +52,8 @@ export async function GET(req: NextRequest) {
     try { counts.retryPays = (counts.retryPays || 0) + await sweepRetryPays(db, t.id, tenant); } catch { /* next run */ }
     // Card reader payments the desk never heard back about: captured, recorded or released (lib/reader-sale).
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
+    // …and the drive-thru window's: approved ones pay their order, ones left waiting are stopped (lib/counter-card).
+    try { const r = await sweepCounterCards(db, t.id, tenant); counts.windowCardsChecked = (counts.windowCardsChecked || 0) + r.checked; counts.windowCardsPaid = (counts.windowCardsPaid || 0) + r.paid; counts.windowCardsStopped = (counts.windowCardsStopped || 0) + r.stopped; } catch { /* next run */ }
     // Swap questions nobody answered in time become refunds, so the order isn't held up.
     try { counts.swapsRefunded += await expireSwapOffers(db, t.id); } catch { /* next run */ }
     // Pickup reminders for ready orders nobody has collected (each sent once).

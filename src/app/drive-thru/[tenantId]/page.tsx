@@ -15,7 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation';
 import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
-import { Car, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
+import { Car, CreditCard, Mic, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { PinPad, type ScreenStaff } from '@/components/kitchen/PinPad';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
@@ -33,7 +33,12 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null;
-  sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number };
+  sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
+  // The card reader's payment for it (lib/counter-card), if one was started.
+  card?: { state: string; failed: string | null; readerId: string | null; at: string | null } | null };
+type Reader = { id: string; label: string; online: boolean; test: boolean };
+// A card payment the reader is asking for, or taking right now.
+const ON_READER = ['starting', 'on_reader', 'capturing'];
 type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null; voice?: CarVoice };
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
@@ -185,12 +190,18 @@ export default function DriveThru() {
   const [spotOpen, setSpotOpen] = useState(false);
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
+  // The card reader at this screen (kept on the device): one of the business's readers, or 'none' for a card machine of
+  // their own. With nothing picked and only one reader, that one.
+  const [readers, setReaders] = useState<Reader[] | null>(null);
+  const [readerPick, setReaderPickState] = useState<string | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPin, setVoidPin] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [role, setRoleState] = useState<Role>('all');
   const manualAt = useRef(0);
   useEffect(() => { const r = read(`cf.drivethru.role.${tenantId}`) as Role | null; if (r && ROLES.some(([k]) => k === r)) setRoleState(r); }, [tenantId]);
+  useEffect(() => { setReaderPickState(read(`cf.drivethru.reader.${tenantId}`)); }, [tenantId]);
+  const setReaderPick = (v: string | null) => { setReaderPickState(v); write(`cf.drivethru.reader.${tenantId}`, v); };
   const setRole = (r: Role) => { setRoleState(r); manualAt.current = 0; write(`cf.drivethru.role.${tenantId}`, r === 'all' ? null : r); setMenuOpen(false); };
   const pickCar = (id: string) => { manualAt.current = Date.now(); setPicked(id); };
   // When someone last started or changed something on the car on screen (cash, a spot, a void...): a minute after, a screen
@@ -244,6 +255,11 @@ export default function DriveThru() {
     return { status: r.status, d };
   }, [tenantId, key, staff]);
 
+  const loadReaders = useCallback(async () => {
+    try { const { d } = await post({ action: 'readers' }); if (d.ok) setReaders(d.readers || []); } catch { /* asked again when the menu opens */ }
+  }, [post]);
+  useEffect(() => { if (key) void loadReaders(); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (menuOpen && key) void loadReaders(); }, [menuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     if (!key || inFlight.current) return;
     inFlight.current = true; const at = acted.current;
@@ -360,6 +376,34 @@ export default function DriveThru() {
     const how = d.payMethod || method;
     setNotice({ text: (d.already ? 'It was paid already. ' : '') + (how === 'cash' ? (d.change > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') + (d.inDrawer === false ? ' No drawer is open, so it’s kept with the order for the count.' : '') : 'Paid by card.'), tone: 'good' });
   });
+  // The card reader at this screen: the one picked here, or the business's only one (lib/counter-card). The total goes to
+  // it; the guest taps, inserts or swipes there, and the server says when it's gone through.
+  const reader = readerPick === 'none' ? null : (readers || []).find((x) => x.id === readerPick) || (!readerPick && readers?.length === 1 ? readers[0] : null);
+  const paidWords = (d: any) => (d.voided ? 'The order was voided, so the card isn’t charged.'
+    : d.wrongAmount ? 'That card payment didn’t match the order’s total, so it was let go. Send it again.'
+    : d.notKept || (d.already && d.payMethod && d.payMethod !== 'card') ? `It was paid already${d.payMethod === 'cash' ? ' in cash' : ''}, so the card isn’t charged.` : 'Paid by card.');
+  const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id }, (d) => { if (d.state === 'paid') setNotice({ text: paidWords(d), tone: 'good' }); });
+  const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => {
+    setNotice(d.state === 'paid' ? { text: d.justWent ? 'The card went through just before it was stopped, so it’s paid.' : paidWords(d), tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
+  });
+  const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
+  const cardOn = !!order && !order.paidAt && ON_READER.includes(String(order.card?.state || ''));
+  // While the reader asks for the card, how it's going (every two seconds, on every screen showing this order).
+  useEffect(() => {
+    const id = order?.id; if (!cardOn || !id) return;
+    let live = true; let asking = false;
+    const ask = async () => {
+      if (asking) return; asking = true;
+      try {
+        const { d } = await post({ action: 'cardCheck', orderId: id });
+        if (!live) return;
+        if (d.ok && (d.state === 'paid' || d.voided || d.wrongAmount)) { setNotice({ text: paidWords(d), tone: d.wrongAmount ? 'warn' : 'good' }); load(); }
+        else if (d.ok && d.state !== 'on_reader') load();
+      } catch { /* asked again */ } finally { asking = false; }
+    };
+    const i = setInterval(ask, 2000); void ask();
+    return () => { live = false; clearInterval(i); };
+  }, [cardOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (to: 'gone' | 'forward', spot?: string) => car && act(`move-${to}`, { action: 'move', carId: car.id, to, ...(spot ? { spot } : {}) }, () => {
     if (to === 'gone') setNotice({ text: `Car ${car.number} is on its way.`, tone: 'good' });
   });
@@ -471,11 +515,13 @@ export default function DriveThru() {
             <div className="relative" data-screen-menu>
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
               {menuOpen && (
-                <div className="absolute right-0 z-40 mt-2 w-72 space-y-1 rounded-2xl bg-[#fff] p-2" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
+                <div className="absolute right-0 z-40 mt-2 max-h-[80dvh] w-72 space-y-1 overflow-y-auto rounded-2xl bg-[#fff] p-2" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
                   <a href={`/drive-thru/${tenantId}/board`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the order board</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>
                   {voiceCfg?.on && <a href={`/drive-thru/${tenantId}/speaker`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the speaker</a>}
                   {voiceCfg?.on && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The tablet wired to the speaker, where the voice assistant takes each car’s order.</p>}
+                  <a href={`/drive-thru/${tenantId}/window`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the window screen</a>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Faces the guest at the window: their order, the total, how paying is going, and where to go next.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
                     {ROLES.map(([k, label, hint]) => (
@@ -483,6 +529,19 @@ export default function DriveThru() {
                         <span><span className="block text-[14px] font-medium" style={{ color: INK }}>{label}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{hint}</span></span>
                         <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${role === k ? INK : LINE}` }}>{role === k && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
                       </button>))}
+                  </div>
+                  <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-reader">
+                    <p id="screen-reader" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>Card reader here</p>
+                    {readers === null ? <p className="px-3 pb-2 text-[13px]" style={{ color: MUTED }}>Looking for your card readers…</p>
+                      : readers.length === 0 ? <p className="px-3 pb-2 text-[13px]" style={{ color: MUTED }}>No card reader is set up yet. Add one in Settings, under Card reader, and the total goes to it from this screen.</p>
+                      : [...readers.map((x) => ({ id: x.id, label: x.label, hint: x.test ? 'Test reader, no real money' : x.online ? 'Online' : 'Offline right now' })), { id: 'none', label: 'None here', hint: 'Card is taken on a machine of your own' }].map((x) => {
+                        const on = x.id === 'none' ? !reader : reader?.id === x.id;
+                        return (
+                          <button key={x.id} type="button" aria-pressed={on} onClick={() => setReaderPick(x.id)} className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left ${RING}`} style={{ background: on ? SOFT : 'transparent' }}>
+                            <span className="min-w-0"><span className="block truncate text-[14px] font-medium" style={{ color: INK }}>{x.label}</span><span className="block text-[12.5px]" style={{ color: x.hint === 'Offline right now' ? AMBER : MUTED }}>{x.hint}</span></span>
+                            <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${on ? INK : LINE}` }}>{on && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
+                          </button>);
+                      })}
                   </div>
                   <button type="button" onClick={stopScreen} className={`min-h-[44px] w-full rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: RED }}>Stop this screen</button>
                 </div>
@@ -631,6 +690,23 @@ export default function DriveThru() {
                             </div>
                             <button type="button" onClick={() => setVoidOpen(false)} className={btn} style={quiet}>Back</button>
                           </div>
+                        ) : cardOn || busy === 'card' ? (
+                          <div className="space-y-3" role="status" aria-live="polite">
+                            <div className="flex items-center gap-4 rounded-2xl px-4 py-4" style={{ background: SOFT }}>
+                              <span aria-hidden className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full" style={{ background: INK }}>
+                                <span className="absolute inset-0 rounded-full motion-safe:animate-ping" style={{ background: INK, opacity: 0.18 }} />
+                                <CreditCard className="relative h-6 w-6" color="#fff" />
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[18px] font-semibold">{cardOn ? 'On the reader' : 'Sending to the reader…'}</p>
+                                <p className="text-[14px]" style={{ color: MUTED }}>Ask them to tap, insert or swipe their card{reader ? ` on ${reader.label}` : ''}. It’s marked paid by itself once it goes through.</p>
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {cardOn && readers?.find((x) => x.id === order.card?.readerId)?.test && <button type="button" onClick={testCard} disabled={busy !== null} className={`${btn} min-h-[56px]`} style={quiet}>Use a test card</button>}
+                              <button type="button" onClick={stopReader} disabled={!cardOn || busy === 'cardStop'} className={`${btn} min-h-[56px]`} style={quiet}>{busy === 'cardStop' ? 'Stopping…' : 'Stop, and take it another way'}</button>
+                            </div>
+                          </div>
                         ) : cardCheck ? (
                           <div className="space-y-3">
                             <p className="text-[16px] font-semibold">Paid {usd(order.total)} by card on the machine?</p>
@@ -641,10 +717,14 @@ export default function DriveThru() {
                           </div>
                         ) : cash === null ? (
                           <div className="grid gap-3 sm:grid-cols-2">
-                            <button type="button" onClick={() => setCardCheck(true)} className={`${btn} min-h-[72px] text-[18px]`} style={{ background: INK, color: '#fff' }}>Card</button>
+                            {order.card?.state === 'declined' && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium sm:col-span-2" style={{ background: AMBER_TINT, color: AMBER }}>{order.card.failed || 'The card didn’t go through.'} Try the card again, or take it another way.</p>}
+                            <button type="button" onClick={() => (reader ? toReader() : setCardCheck(true))} className={`${btn} min-h-[72px] text-[18px]`} style={{ background: INK, color: '#fff' }}>{reader && order.card?.state === 'declined' ? 'Card again' : 'Card'}</button>
                             <button type="button" onClick={() => setCash('open')} className={`${btn} min-h-[72px] text-[18px]`} style={quiet}>Cash</button>
-                            <p className="text-[13.5px] sm:col-span-2" style={{ color: MUTED }}>Card is taken on your card machine; this records it.</p>
-                            <button type="button" onClick={() => setVoidOpen(true)} className={`min-h-[44px] justify-self-start rounded-lg text-[14px] font-medium underline underline-offset-4 sm:col-span-2 ${RING}`} style={{ color: MUTED }}>They drove off, or won’t pay</button>
+                            <p className="text-[13.5px] sm:col-span-2" style={{ color: MUTED }}>{reader ? `Card sends ${usd(order.total)} to ${reader.label}${reader.online ? '' : ', which looks offline right now'}.` : 'Card is taken on your card machine; this records it.'}</p>
+                            <div className="flex flex-wrap gap-x-5 sm:col-span-2">
+                              {reader && <button type="button" onClick={() => setCardCheck(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Card on another machine</button>}
+                              <button type="button" onClick={() => setVoidOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>They drove off, or won’t pay</button>
+                            </div>
                           </div>
                         ) : (
                           <div className="space-y-3">

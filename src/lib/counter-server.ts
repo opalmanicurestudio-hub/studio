@@ -2,7 +2,8 @@
 // so the lane screen (api/counter) and the drive-thru's voice assistant (api/counter/assistant) can never take an order
 // two different ways: a car at the speaker, a line added or changed (priced from the menu with its choices, lib/
 // counter-orders), the order sent to the kitchen (one ticket a line, due by the lane's target, stock and recipe parts
-// taken once), and an order voided when a car drives off without paying.
+// taken once), an order paid (cash, a card machine of the business's own, or the card reader at the window, lib/
+// counter-card), and an order voided when a car drives off without paying.
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
 import { lineFor, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
@@ -15,6 +16,15 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
+// A card payment the window's reader is asking for, or taking right now: nothing else may pay the order, or void it, until
+// it's finished or stopped (lib/counter-card). One still being started counts for a minute.
+const CARD_BUSY_STATES = ['on_reader', 'capturing'];
+export const cardBusy = (o: any, now = Date.now()): boolean => {
+  const c = o?.card; if (!c || typeof c !== 'object') return false;
+  if (CARD_BUSY_STATES.includes(String(c.state))) return true;
+  return c.state === 'starting' && now - (Date.parse(String(c.at || '')) || 0) < 60000;
+};
+const CARD_BUSY_WORDS = 'The card reader is asking for this order’s payment. Stop it on the lane first, then take it another way.';
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 export type Who = { id: string | null; name: string };
 type Fail = { error: string; status: number };
@@ -226,6 +236,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     if (o.status === 'voided' || o.status === 'cancelled') return { ok: true, already: true, returned: 0, wasted: 0 };
     if (o.paidAt) return { error: 'That order is paid. Refund it at the desk instead.', status: 409 };
+    if (cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409 };
     if (o.status === 'building') return { error: 'That order hasn’t gone to the kitchen. Use “The car left without ordering”.', status: 409 };
     // Only an order the kitchen got (and took stock for) is voided: nothing else ever puts stock back.
     if (o.status !== 'sent') return { error: 'That order can’t be voided now.', status: 409 };
@@ -297,5 +308,59 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted }, { merge: true });
     if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
     return { ok: true, returned, wasted };
+  });
+}
+
+export type PayHow = { method: 'card' | 'cash'; tendered?: number | null; by: string; card?: { id: string; cents: number } | null };
+export type PayDone = { ok: true; already?: boolean; drawer?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null };
+
+/** Paid at the window: the sale and its tax in the books, cash into the one open drawer (with what was handed over and
+ *  the change), and the car moves on to pick up — all in one step. Asking again changes nothing and says how it was
+ *  paid. `card`: the reader's payment that pays it (lib/counter-card), which must be for exactly the order's total;
+ *  when the order was paid another way first, nothing is written and `paidOtherwise` says so (that payment is given
+ *  back by the caller). Cash or another card machine waits while the reader is asking for the card. `cardId` in the
+ *  answer: a card payment that was started for the order and is now not needed (the caller calls it off). */
+export async function payOrder(db: any, tenantId: string, orderId: string, how: PayHow): Promise<PayDone | (Fail & { code?: string })> {
+  const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
+  if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
+  const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
+  const method = how.method; const tendered = method === 'cash' && how.tendered !== undefined && how.tendered !== null ? Math.round(Number(how.tendered) * 100) / 100 : null;
+  if (tendered !== null && (!Number.isFinite(tendered) || tendered < 0 || tendered > 100000)) return { error: 'How much did they hand over?', status: 400 };
+  const viaReader = !!how.card?.id;
+  return db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
+    const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
+    // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
+    const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
+    // Paid already (another tablet, or the first answer was lost): say how, and the change that was given.
+    if (o.paidAt) {
+      if (viaReader && o.cardPaymentId !== how.card!.id) return { ok: true, already: true, paidOtherwise: true, payMethod: o.payMethod || null };
+      return { ok: true, already: true, change: o.changeGiven ?? null, payMethod: o.payMethod || null };
+    }
+    if (o.status !== 'sent' && o.status !== 'done') {
+      if (viaReader && o.status === 'voided') return { ok: true, already: true, paidOtherwise: true, payMethod: null };
+      return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
+    }
+    if (!viaReader && cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409, code: 'card_busy' };
+    const total = num(o.total), subtotal = num(o.subtotal), tax = num(o.tax);
+    if (viaReader && Math.round(how.card!.cents) !== Math.round(total * 100)) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
+    if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
+    const saleRef = db.doc(`${T}/transactions/counter_${orderId}`); const taxRef = db.doc(`${T}/transactions/counter_${orderId}_tax`);
+    const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
+      ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}) };
+    tx.set(saleRef, { id: saleRef.id, ...common, description: `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
+    if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
+    // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count).
+    const drawer = method === 'cash' && till.length === 1 ? till[0].ref : null;
+    if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
+    const change = tendered !== null ? Math.round((tendered - total) * 100) / 100 : null;
+    // A reader payment started for it and not used (declined, or left): called off by the caller, so it can't go through later.
+    const leftCard = !viaReader && o.card?.id && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
+    tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: how.by, tillId: drawer ? drawer.id : null, ...(method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
+      ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
+      ...(viaReader ? { cardPaymentId: how.card!.id, card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
+      ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
+    if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
+    return { ok: true, drawer: !!drawer, change, payMethod: method, cardId: leftCard };
   });
 }
