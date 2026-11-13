@@ -79,12 +79,15 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 // Today's lane numbers, worked out at most every 20 seconds a business (every tablet polls every 2), not on every read.
 const statsCache = new Map<string, { at: number; stats: any }>();
 
+// The menu board's menu, per business, for a few seconds (api 'menuBoard').
+const menuBoardCache = new Map<string, { at: number; sections: { name: string; items: any[] }[] }>();
+
 export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -101,12 +104,12 @@ export async function POST(req: NextRequest) {
     }
     // Only a lane screen takes orders and payments here; a screen guests can see (the order board by the speaker, the
     // screen at the window) has a key that only shows. A kitchen or floor screen's key does nothing here.
-    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
+    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window' || action === 'menuBoard')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
     if (action === 'window' && screen.kind !== 'drive-thru-board') return bad('This screen isn’t set up for the window. A manager can set it up here.', 401);
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -179,6 +182,27 @@ export async function POST(req: NextRequest) {
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
         aheadOn: aheadOf(tenant).on,
       });
+    }
+
+    // The menu board (a screen guests read before they order): the menu by section, each item's photo and price, sold out
+    // shown as it happens, and the code to order ahead when that's on. Only what's on the menu for everyone.
+    if (action === 'menuBoard') {
+      // (Read at most every 10 seconds per business, however many boards poll.)
+      const hit = menuBoardCache.get(tenantId);
+      let sections: { name: string; items: any[] }[];
+      if (hit && now.getTime() - hit.at < 10000) sections = hit.sections;
+      else {
+        const items = (await readMenu(db, tenantId)).filter((m) => m.onMenu && !m.membersOnly);
+        sections = [];
+        for (const m of items) {
+          let sec = sections.find((x) => x.name === m.section); if (!sec) sections.push((sec = { name: m.section, items: [] }));
+          sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock });
+        }
+        menuBoardCache.set(tenantId, { at: now.getTime(), sections }); if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
+      }
+      const A = aheadOf(tenant);
+      return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections,
+        orderAhead: A.on ? `${linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` : null, now: nowIso });
     }
 
     if (action === 'board') {

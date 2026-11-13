@@ -582,6 +582,8 @@ export default function DriveThru() {
                 <div className="absolute right-0 z-40 mt-2 max-h-[80dvh] w-72 space-y-1 overflow-y-auto rounded-2xl bg-[#fff] p-2" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
                   <a href={`/drive-thru/${tenantId}/board`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the order board</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>
+                  <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the menu board</a>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The menu with photos and prices, for a screen guests read before they order. Sold out shows by itself.</p>
                   {voiceCfg?.on && <a href={`/drive-thru/${tenantId}/speaker`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the speaker</a>}
                   {voiceCfg?.on && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The tablet wired to the speaker, where the voice assistant takes each car’s order.</p>}
                   <a href={`/drive-thru/${tenantId}/window`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the window screen</a>

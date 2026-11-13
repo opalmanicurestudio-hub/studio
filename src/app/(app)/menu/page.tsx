@@ -116,7 +116,7 @@ export default function MenuPage() {
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight">Menu</h1>
-            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.</p>
+            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.{tenantId ? <> Show it on a screen: <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center underline">open the menu board</a>.</> : null}</p>
           </div>
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>

@@ -279,6 +279,25 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   check('ordering ahead switched off with paid orders still to come: they stay on the lane', (r.body.ahead || []).some((a: any) => a.id === idT), r.body.ahead);
   await Mn({ action: 'ahead', on: true });
 
+  console.log('the menu board');
+  const bkey = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Menu board', kind: 'drive-thru-board' }))).body.key;
+  const MB = (b: any) => LANE(req({ tenantId: 't1', key: bkey, ...b }));
+  r = await MB({ action: 'menuBoard' });
+  const mbItems = (r.body.sections || []).flatMap((x: any) => x.items);
+  check('the menu board: by section, with photos and prices, sold out as it is, members-only items not shown', r.body.ok && r.body.business.name === 'Northside' && mbItems.find((i: any) => i.id === 'burger')?.price === 5 && mbItems.find((i: any) => i.id === 'burger')?.imageUrl
+    && mbItems.find((i: any) => i.id === 'shake')?.soldOut === true && !mbItems.some((i: any) => i.id === 'secret'), r.body);
+  check('…with the code to order ahead while that’s on', r.body.orderAhead === 'https://app.test/order/t1', r.body.orderAhead);
+  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut'];
+  check('…and nothing about costs or stock counts (only what a guest may see)', mbItems.every((i: any) => Object.keys(i).every((k) => allowed.includes(k))) && !/cost|canMake|totalStock|supplier|short/.test(JSON.stringify(r.body)), mbItems[0]);
+  r = await MB({ action: 'car', carKey: 'carkey-menuboard' });
+  check('a menu board’s key can only show: it can’t start a car or take a payment', r.status === 401, r.body);
+  r = await L({ action: 'menuBoard' });
+  check('the lane tablet can open it too', r.body.ok && Array.isArray(r.body.sections), r.status);
+  await Mn({ action: 'ahead', on: false });
+  r = await MB({ action: 'menuBoard' });
+  check('ordering ahead off: no code on the board', r.body.ok && r.body.orderAhead === null, r.body.orderAhead);
+  await Mn({ action: 'ahead', on: true });
+
   console.log('closed');
   await db.doc(T).set({ accessLocked: true, accessLockedAt: new Date().toISOString() }, { merge: true });
   r = await A({ action: 'menu' });
