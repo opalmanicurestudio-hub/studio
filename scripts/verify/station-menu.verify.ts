@@ -131,6 +131,15 @@ const fresh = async (tenant: any = {}) => {
   check('…each item says only its name, price, section, words, picture, members-only, its choices and whether it’s available or sold out (no cost, supplier or stock count)',
     JSON.stringify(keys) === '["available","choices","id","imageUrl","membersOnly","name","price","section","soldOut","words"]', keys);
   check('…the price is the one an order is charged at', r.body.menu.find((i: any) => i.id === 'latte').price === 6 && r.body.menu.find((i: any) => i.id === 'latte').section === 'Coffee');
+  // A drink made from a recipe is counted by what goes into it, not a count of its own (lib/menu-stock).
+  await db.doc(`${T}/inventory/milk`).set({ name: 'Oat milk', type: 'professional', totalStock: 2, unit: 'units' });
+  await db.doc(`${T}/inventory/chai`).set({ name: 'Chai', type: 'refreshment', price: 5, totalStock: 0, category: 'Tea', formula: [{ id: 'milk', name: 'Oat milk', quantityUsed: 1, unit: 'each' }] });
+  r = await G({ menu: '1' });
+  check('a drink made from a recipe is available with none of its own, while its ingredients are in stock', r.body.menu.find((i: any) => i.id === 'chai')?.available === true, r.body.menu);
+  await db.doc(`${T}/inventory/milk`).set({ totalStock: 0 }, { merge: true });
+  r = await G({ menu: '1' });
+  check('…and not once one runs out', r.body.menu.find((i: any) => i.id === 'chai')?.available === false, r.body.menu);
+  await db.doc(`${T}/inventory/chai`).delete(); await db.doc(`${T}/inventory/milk`).delete();
   check('the business: its name and color', r.body.business?.name === 'Opal Lounge' && r.body.business?.accent === '#1f4e5f' && r.body.business?.logoUrl === null, r.body.business);
   await fresh({ kioskSettings: { primaryColor: 'red;background:url(x)' }, logoUrl: 'http://insecure.test/logo.png' });
   r = await G({ menu: '1' });

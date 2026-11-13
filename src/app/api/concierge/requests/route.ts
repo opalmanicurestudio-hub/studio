@@ -58,6 +58,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { closedReply } from '@/lib/tenant-open-server';
 import { toolLocked } from '@/lib/tool-lock';
 import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
+import { stockNow } from '@/lib/menu-server';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
 import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
@@ -227,13 +228,15 @@ export async function GET(req: NextRequest) {
       // A paused or closed business shows no menu (it takes no orders).
       { const closed = closedReply(t) || toolLocked(t, ['hospitality'], 'guest'); if (closed) return closed; }
       const inv = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(300).get();
+      // Whether each can be made: by its recipe's ingredients when it has one, else its own count (lib/menu-stock).
+      const stock = await stockNow(db, tenantId, inv.docs.map((d) => ({ id: d.id, i: d.data() || {} })), new Map(inv.docs.map((d) => [d.id, d.data() || {}])));
       const menu = inv.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
         .filter((i) => onMenu(i))
         .map((i) => ({
           id: String(i.id), name: clean(i.name, 80), price: Math.max(0, num(i.price)),   // the price an order is charged at (POST below)
           section: clean(i.category, 40) || 'Menu', words: clean(i.description, 240) || null,
           imageUrl: typeof i.imageUrl === 'string' && /^https:\/\//.test(i.imageUrl) ? i.imageUrl : null,
-          membersOnly: i.isMembersOnly === true, available: num(i.totalStock) > 0 && orderable(i), soldOut: itemSoldOut(i),
+          membersOnly: i.isMembersOnly === true, available: !!stock.get(String(i.id))?.inStock && orderable(i), soldOut: itemSoldOut(i),
           choices: choiceGroups(i),   // size, milk, extras (lib/menu-choices): priced again below when ordered
         }))
         .sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name));
@@ -349,7 +352,8 @@ export async function POST(req: NextRequest) {
     // The item, from this business's own menu.
     const iSnap = await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get();
     const item: any = iSnap.exists ? iSnap.data() : null;
-    if (!onMenu(item) || !(num(item.totalStock) > 0)) return cantOrder('That isn’t on the menu right now.', 404);
+    if (!onMenu(item)) return cantOrder('That isn’t on the menu right now.', 404);
+    if (!(await stockNow(db, tenantId, [{ id: itemId, i: item }])).get(itemId)?.inStock) return cantOrder('That’s sold out right now, sorry.', 409);
     if (itemSoldOut(item)) return cantOrder('That’s sold out right now, sorry.', 409);
     // Its choices, priced from the item itself (never a price from the browser): what they add is part of the price.
     const picked = priceChoices(item, body?.choices);

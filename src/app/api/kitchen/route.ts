@@ -40,6 +40,7 @@ import { requireRole } from '@/lib/route-guard';
 import { limitPublic } from '@/lib/rate-limit';
 import { findStaffByPin, pinLocked, recordPinAttempt, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
+import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -89,9 +90,10 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
       const iRef = db.doc(`${T}/inventory/${itemId}`);
       item = (await tx.get(iRef)).data() || null;
       if (item && step === 'deliver') {
-        // A recipe (a latte) uses up its parts now: ordering only took the item itself. A plain item is taken now only
-        // if ordering didn't already.
-        const recipe = Array.isArray(item.formula) && item.formula.length ? item.formula : null;
+        // A recipe (a latte) uses up its parts now: an item made from a recipe is counted by its parts (lib/menu-stock).
+        // A plain item is taken now only if ordering didn't already.
+        // The recipe as every menu reads it (lib/menu-stock recipeOf): the lines with an amount, never the item itself.
+        const recipe = recipeOf(item, itemId).length ? recipeOf(item, itemId) : null;
         const formula = recipe || (r.stockMoved === true ? [] : [{ id: itemId, quantityUsed: 1 }]);
         tookItem = !recipe && formula.length > 0;
         for (const f of formula) {
@@ -100,7 +102,8 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
           if (same) { same.qty += num(f.quantityUsed) * qty; continue; }
           const pRef = db.doc(`${T}/inventory/${pid}`);
           const data = pid === itemId ? item : (await tx.get(pRef)).data();
-          if (data) parts.push({ ref: pRef, data, qty: num(f.quantityUsed) * qty });
+          // An ingredient that's put away, or a menu item made from its own recipe, isn't counted (as on every menu).
+          if (data && (!recipe || ingredientLeft(data) !== null)) parts.push({ ref: pRef, data, qty: num(f.quantityUsed) * qty });
         }
       }
     }

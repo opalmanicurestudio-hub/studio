@@ -225,6 +225,20 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   before = await shelf();
   r = await LOUNGE(req({ token: 'tok1', action: 'recall', requestId: 'g3' }));
   check('…once the kitchen has started it, it can’t be taken back, and nothing moves', r.status === 409 && (await shelf()) === before && (await get(`${T}/refreshmentRequests/g3`)).status === 'in_progress');
+  // A drink made from a recipe: ordering checks its ingredients and takes nothing of its own; handing it over takes the
+  // ingredients (lib/menu-stock).
+  await db.doc(`${T}/inventory/milk2`).set({ name: 'Oat milk', type: 'professional', totalStock: 1, unit: 'units' });
+  await db.doc(`${T}/inventory/chai2`).set({ name: 'Chai', type: 'refreshment', price: 0, totalStock: 0, category: 'Tea', formula: [{ id: 'milk2', name: 'Oat milk', quantityUsed: 1, unit: 'each' }] });
+  r = await LOUNGE(req({ token: 'tok1', action: 'request', itemId: 'chai2', quantity: 2 }));
+  check('a guest orders a drink made from a recipe: more than its ingredients make is refused', r.status === 409 && /Only 1 left/.test(r.body.error || ''), r.body);
+  r = await LOUNGE(req({ token: 'tok1', action: 'request', itemId: 'chai2', quantity: 1 }));
+  const chaiReq = (await all(`${T}/refreshmentRequests`)).find((x: any) => x.itemId === 'chai2');
+  check('…one is ordered with none of its own, and its own count isn’t touched (nothing to take)', r.body.ok && !!chaiReq && chaiReq.stockMoved === false && (await get(`${T}/inventory/chai2`)).totalStock === 0, { body: r.body, chaiReq });
+  if (chaiReq) {
+    await POST(req({ action: 'act', tenantId: 't1', key, col: 'refreshmentRequests', id: chaiReq.id, step: 'claim' }));
+    await POST(req({ action: 'act', tenantId: 't1', key, col: 'refreshmentRequests', id: chaiReq.id, step: 'deliver' }));
+    check('…handed over: its ingredient taken, once', (await get(`${T}/inventory/milk2`)).totalStock === 0 && (await get(`${T}/inventory/chai2`)).totalStock === 0, [await get(`${T}/inventory/milk2`), await get(`${T}/refreshmentRequests/${chaiReq.id}`)]);
+  }
   await order('g4', { stockMoved: true, clientId: 'someone-else' });
   r = await LOUNGE(req({ token: 'tok1', action: 'recall', requestId: 'g4' }));
   check('…and only their own', r.status === 403 && (await get(`${T}/refreshmentRequests/g4`)).status === 'pending');

@@ -42,6 +42,8 @@ import { closedReplyFor } from '@/lib/tenant-open-server';
 import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
 import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
+import { stockOf, recipeOf } from '@/lib/menu-stock';
+import { stockNow } from '@/lib/menu-server';
 
 const MAX_AMENITIES = 60;
 const MAX_UPSELL = 8;
@@ -269,11 +271,13 @@ export async function GET(req: NextRequest) {
     // document: cost, supplier, reorder points and every other internal field
     // stay on the server. `available` is a boolean, not a stock count — a guest
     // has no business knowing there are three cans left.
+    // Whether each can be made: by its recipe's ingredients when it has one, else its own count (lib/menu-stock).
+    const stockById = new Map<string, any>(invSnap.docs.map((d: any) => [d.id, d.data() || {}]));
     const amenities = invSnap.docs
-      .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+      .map((d: any) => ({ id: d.id, ...(d.data() as any), _stock: stockOf(d.data() || {}, d.id, stockById) }))
       .filter((i: any) => i.type === 'refreshment')
       .filter((i: any) => i.showInConcierge !== false)
-      .filter((i: any) => num(i.totalStock) > 0)
+      .filter((i: any) => i._stock.inStock)
       .filter((i: any) => orderable(i))   // sold out tonight (the kitchen's one tap), or a choice they must make with nothing left: off the list until it's back
       .filter((i: any) => !i.isMembersOnly || isMember)
       .slice(0, MAX_AMENITIES)
@@ -286,7 +290,7 @@ export async function GET(req: NextRequest) {
         imageUrl: str(i.imageUrl, 600),
         isMembersOnly: i.isMembersOnly === true,
         available: true,
-        maxQty: Math.max(1, Math.min(MAX_QTY, Math.floor(num(i.totalStock)) || 1)),
+        maxQty: Math.max(1, Math.min(MAX_QTY, i._stock.canMake === null ? MAX_QTY : i._stock.canMake || 1)),
         choices: choiceGroups(i),   // size, milk, extras (lib/menu-choices), priced again on the server when ordered
       }));
 
@@ -653,8 +657,11 @@ export async function POST(req: NextRequest) {
     // Its choices, worked out from the item itself (never a price from the browser).
     const picked = priceChoices(item, body?.choices);
     if (!picked.ok) return NextResponse.json({ ok: false, error: picked.error }, { status: 400 });
-    if (num(item.totalStock) < qty) {
-      return NextResponse.json({ ok: false, error: `Only ${Math.floor(num(item.totalStock))} left — sorry.` }, { status: 409 });
+    // Made from a recipe: there's enough of each ingredient for this many; otherwise, enough of the item itself.
+    const byRecipe = recipeOf(item, itemId).length > 0;
+    const can = byRecipe ? (await stockNow(db, tenantId, [{ id: itemId, i: item }])).get(itemId)?.canMake ?? null : Math.floor(num(item.totalStock));
+    if (can !== null && can < qty) {
+      return NextResponse.json({ ok: false, error: can > 0 ? `Only ${can} left — sorry.` : 'That’s sold out right now, sorry.' }, { status: 409 });
     }
 
     const isMember = !!(client?.activeMembershipId && client?.subscription?.status === 'active');
@@ -724,8 +731,11 @@ export async function POST(req: NextRequest) {
     //
     // Recalled/cancelled orders put it back (the recall handler above), so a
     // change of mind never loses a unit.
+    // (An item made from a recipe takes its ingredients when the kitchen hands it over, api/kitchen; it has no count of
+    // its own to take now. Orders waiting in the kitchen don't hold ingredients back: the last of the milk can be ordered
+    // twice, and the second is still handed over, the count stopping at none.)
     let stockMoved = false;
-    try {
+    if (!byRecipe) try {
       const itemRef = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
       const batch = db.batch();
       batch.set(itemRef, { totalStock: FieldValue.increment(-qty) }, { merge: true });

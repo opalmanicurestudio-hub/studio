@@ -1,10 +1,12 @@
 // src/lib/menu-server.ts — THE MENU, read and changed on the server (api/menu for the team, api/kitchen for the kitchen
 // screen's one-tap "Sold out"). A menu item is an inventory item of the refreshment kind; what guests see of it is its
-// name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier.
+// name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier. Whether it can be made
+// now comes from its recipe's ingredients when it has one, else its own count (lib/menu-stock).
 import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
 import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
+import { stockOf, ingredientIds, recipeOf, type MenuStock } from '@/lib/menu-stock';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -12,19 +14,24 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
   soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
+  /** Made from a recipe: the first ingredient that's run out (null when there's enough, or it isn't counted), and how
+   *  many could be made from what's counted (null: nothing is counted). Without a recipe, `canMake` is its own count. */
+  short: string | null; canMake: number | null; byRecipe: boolean;
   /** Kitchen timing (lib/counter-orders, lib/holding): how long it takes to make, and how long a batch may be held (0: not held). */
   makeSeconds: number; holdMinutes: number; batchSize: number };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
 
-/** What the team (and the kitchen screen) sees of one item. */
-export function menuItemOf(id: string, i: any): MenuItem {
-  const start = startingPrice(i);
+/** What the team (and the kitchen screen) sees of one item. `parts`: its recipe's ingredients as read (an ingredient
+ *  not given isn't counted, so it never holds the item back). */
+export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map()): MenuItem {
+  const start = startingPrice(i); const stock = stockOf(i, id, parts);
   return {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
-    choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: i.showInConcierge !== false, membersOnly: i.isMembersOnly === true, inStock: num(i.totalStock) > 0,
+    choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: i.showInConcierge !== false, membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
+    short: stock.short, canMake: stock.canMake, byRecipe: stock.byRecipe,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
   };
 }
@@ -32,8 +39,37 @@ export function menuItemOf(id: string, i: any): MenuItem {
 /** The whole menu, by section then name. */
 export async function readMenu(db: any, tenantId: string): Promise<MenuItem[]> {
   const snap = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get();
-  return snap.docs.map((d: any) => ({ id: d.id, i: d.data() || {} })).filter((x: any) => isMenuItem(x.i)).map((x: any) => menuItemOf(x.id, x.i))
+  const all = snap.docs.map((d: any) => ({ id: d.id, i: d.data() || {} }));
+  const items = all.filter((x: any) => isMenuItem(x.i));
+  const parts = await readIngredients(db, tenantId, ingredientIds(items), new Map(all.map((x: any) => [x.id, x.i])));
+  return items.map((x: any) => menuItemOf(x.id, x.i, parts))
     .sort((a: MenuItem, b: MenuItem) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name));
+}
+
+/** Recipe ingredients by id (those already read are used as they are). */
+async function readIngredients(db: any, tenantId: string, ids: string[], have: Map<string, any> = new Map()): Promise<Map<string, any>> {
+  const out = new Map(have);
+  const need = ids.filter((id) => !out.has(id) && ID.test(id));
+  // One read for many (the lane asks every few seconds), a hundred at a time.
+  for (let i = 0; i < need.length; i += 100) {
+    const chunk = need.slice(i, i + 100);
+    const snaps: any[] = await db.getAll(...chunk.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`))).catch((e: any) => { console.error('[menu] ingredients not read', e?.message); return []; });
+    chunk.forEach((id, k) => { const d = snaps[k]?.data?.(); if (d) out.set(id, d); });
+  }
+  return out;
+}
+
+/** Whether each item can be made now (lib/menu-stock), its recipe's ingredients read (those in `have` are used as
+ *  they are): for the lounge's menus and orders, which read the items themselves. */
+export async function stockNow(db: any, tenantId: string, items: { id: string; i: any }[], have: Map<string, any> = new Map()): Promise<Map<string, MenuStock>> {
+  const parts = await readIngredients(db, tenantId, ingredientIds(items), have);
+  return new Map(items.map((x) => [x.id, stockOf(x.i, x.id, parts)]));
+}
+
+/** One item as the team sees it now, its ingredients read fresh (after a save, or a sold-out tap). */
+export async function menuItemNow(db: any, tenantId: string, id: string, i: any): Promise<MenuItem> {
+  const parts = await readIngredients(db, tenantId, recipeOf(i, id).map((l) => l.id));
+  return menuItemOf(id, i, parts);
 }
 
 /** When something marked sold out comes back on its own: 4 in the morning, the business's time, so "sold out tonight"
@@ -58,13 +94,13 @@ export async function setSoldOut(db: any, tenantId: string, input: { itemId: unk
   const nowIso = new Date().toISOString();
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const until = out ? soldOutUntil(tenant) : null;
-  return db.runTransaction(async (tx: any) => {
+  const r: any = await db.runTransaction(async (tx: any) => {
     const i: any = (await tx.get(ref)).data();
     if (!isMenuItem(i)) return { ok: false, error: 'That isn’t on the menu.', status: 404 };
     if (!groupId) {
       const patch = { soldOut: out, soldOutAt: out ? nowIso : null, soldOutBy: out ? words(by, 60) || null : null, soldOutUntil: until };
       tx.set(ref, patch, { merge: true });
-      return { ok: true, item: menuItemOf(itemId, { ...i, ...patch }) };
+      return { ok: true, item: menuItemOf(itemId, { ...i, ...patch }), raw: { ...i, ...patch } };
     }
     const raw = Array.isArray(i.choices) ? i.choices : [];
     let found = false;
@@ -73,6 +109,9 @@ export async function setSoldOut(db: any, tenantId: string, input: { itemId: unk
     }) }));
     if (!found) return { ok: false, error: 'That choice isn’t on this item.', status: 404 };
     tx.set(ref, { choices: next }, { merge: true });
-    return { ok: true, item: menuItemOf(itemId, { ...i, choices: next }) };
+    return { ok: true, item: menuItemOf(itemId, { ...i, choices: next }), raw: { ...i, choices: next } };
   });
+  if (!r.ok) return r;
+  // With its recipe's ingredients counted, as every menu shows it.
+  return { ok: true, item: await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item) };
 }

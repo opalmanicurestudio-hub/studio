@@ -2,7 +2,9 @@
 // src/app/(app)/menu/page.tsx — THE MENU: what guests see of each drink and dish on the station tablets and their own
 // phones and at the drive-thru (and later the counter and kiosk), by section. Each item's price, words, choices (size, milk,
 // extras, each with its own price) and whether it's on the menu; and "Sold out" in one tap, for the item or one of its
-// choices. Reads and saves through api/menu. Items themselves (stock, cost, recipe) are made in Inventory.
+// choices. Reads and saves through api/menu. Items themselves (stock, cost) are made in Inventory.
+//   Recipe: what goes into one, from the business's own stock. An item with a recipe is available while its ingredients
+//   are in stock and each one sold takes them off; without one it uses its own count (lib/menu-stock).
 //   Kitchen timing: how long each item takes to make (a drive-thru order is due no sooner than its slowest item), and
 //   whether it's cooked ahead in batches and held (the kitchen screen's holding timers). Managers also set the time each
 //   kind of order aims to be handed over in (the drive-thru's 3:30 unless they change it).
@@ -12,6 +14,7 @@ import { useTenant } from '@/context/TenantContext';
 import { ChoicesEditor, type EditGroup } from '@/components/menu/ChoicesEditor';
 import { money, type ChoiceGroup } from '@/lib/menu-choices';
 import type { MenuItem } from '@/lib/menu-server';
+import { outWords, type RecipeLine } from '@/lib/menu-stock';
 import { uploadImage } from '@/lib/upload-image';
 import { ImagePlus } from 'lucide-react';
 
@@ -41,6 +44,7 @@ export default function MenuPage() {
   const { selectedTenant } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
+  const [recipes, setRecipes] = useState<Record<string, RecipeLine[]>>({});
   const [canEdit, setCanEdit] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -57,7 +61,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setSpots(d.lane?.spots || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setSpots(d.lane?.spots || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -181,7 +185,7 @@ export default function MenuPage() {
                           <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? `from ${money(m.startPrice)}` : money(m.price)}</span>
                           {!m.onMenu && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Not on the menu</span>}
                           {m.membersOnly && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Members</span>}
-                          {!m.inStock && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>None in stock</span>}
+                          {!m.inStock && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{outWords(m)}</span>}
                         </span>
                         <span className="mt-0.5 block text-[13.5px]" style={{ color: outOpts.length ? AMBER : MUTED }}>
                           {outOpts.length ? `Sold out: ${outOpts.join(', ')}` : m.choices.length ? m.choices.map((g) => g.name).join(', ') : 'No choices'}
@@ -197,15 +201,87 @@ export default function MenuPage() {
             </section>
           ))}
       </div>
-      {editing && <EditSheet key={editing.id} item={editing} tenantId={tenantId} canEdit={canEdit} busy={busy} onClose={() => setEditing(null)}
+      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} onClose={() => setEditing(null)} call={call}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
-        onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); setEditing(null); return null; } return d.error || 'That didn’t save.'; }} />}
+        onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null); return null; } return d.error || 'That didn’t save.'; }} />}
     </div>
   );
 }
 
-function EditSheet({ item, tenantId, canEdit, busy, onClose, onSave, onSoldOut }: { item: MenuItem; tenantId: string | null; canEdit: boolean; busy: string | null; onClose: () => void;
-  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void }) {
+type Ingredient = { id: string; name: string; unit: string; left: number | null; menu: boolean };
+type EditLine = { id: string; name: string; unit: string; q: string };
+const amount = (n: number) => String(Math.round(n * 1000) / 1000);
+// "each", "unit", "units" and nothing all mean counted one by one.
+const sameUnit = (a: string, b: string) => { const n = (u: string) => (!u || /^(each|units?)$/i.test(u.trim()) ? 'each' : u.trim().toLowerCase()); return n(a) === n(b); };
+
+/** What goes into one: the ingredients from the business's stock, each with how much one takes. */
+function RecipeEditor({ lines, onChange, stock, item }: { lines: EditLine[]; onChange: (l: EditLine[]) => void; stock: Ingredient[] | null; item: MenuItem }) {
+  const [find, setFind] = useState('');
+  const byId = useMemo(() => new Map((stock || []).map((x) => [x.id, x])), [stock]);
+  const matches = useMemo(() => {
+    const t = find.trim().toLowerCase(); if (!t || !stock) return [];
+    return stock.filter((x) => x.id !== item.id && !lines.some((l) => l.id === x.id) && x.name.toLowerCase().includes(t)).slice(0, 6);
+  }, [find, stock, lines, item.id]);
+  const leftWords = (x: Ingredient | undefined) => (!x ? 'Not in your stock any more' : x.left === null ? 'Not counted' : `${amount(x.left)}${x.unit === 'each' ? '' : ` ${x.unit}`} in stock`);
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-[16px] font-semibold">Recipe</h3>
+        <p className="mt-0.5 text-[13px]" style={{ color: MUTED }}>What goes into one. With a recipe, this item is available while its ingredients are in stock, and each one sold takes them off. Without one, it uses its own count in Inventory.</p>
+      </div>
+      {lines.length > 0 && (
+        <ul className="space-y-2" aria-label="Ingredients">
+          {lines.map((l, i) => {
+            // Measured as the ingredient is counted now (if that changed since the recipe was saved, the amount is checked).
+            const x = byId.get(l.id); const unit = x?.unit || l.unit; const moved = !!x && !sameUnit(x.unit, l.unit);
+            return (
+              <li key={l.id} className="flex items-center gap-2 rounded-xl py-1.5 pl-3 pr-1" style={{ background: SOFT }}>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium">{l.name}</span>
+                  {stock && <span className="block text-[12.5px]" style={{ color: moved || (x && x.left !== null && x.left <= 0) ? AMBER : MUTED }}>{moved ? `Now counted in ${unit}: check the amount` : leftWords(x)}</span>}
+                </span>
+                <label className="flex shrink-0 items-center gap-1.5">
+                  <span className="sr-only">How much {l.name} goes into one</span>
+                  <input inputMode="decimal" value={l.q} onChange={(e) => onChange(lines.map((y, k) => (k === i ? { ...y, q: e.target.value.replace(/[^0-9.]/g, '').slice(0, 8) } : y)))}
+                    className="min-h-[44px] w-20 rounded-xl border bg-[#fff] px-2.5 text-right text-[16px] tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
+                  <span className="w-10 truncate text-[13.5px]" style={{ color: MUTED }}>{unit}</span>
+                </label>
+                <button type="button" onClick={() => onChange(lines.filter((_, k) => k !== i))} aria-label={`Take ${l.name} out of the recipe`} className={`h-11 w-11 shrink-0 rounded-full text-[20px] ${RING}`} style={{ color: MUTED }}>×</button>
+              </li>);
+          })}
+        </ul>
+      )}
+      {lines.length < 20 && (
+        <div className="relative">
+          <label className="block"><span className="sr-only">Add an ingredient</span>
+            <input type="search" value={find} onChange={(e) => setFind(e.target.value.slice(0, 60))} placeholder={stock ? 'Add an ingredient: buns, milk, cups' : 'Loading your stock…'} disabled={!stock}
+              className={`${field} mt-0`} style={{ borderColor: LINE }} /></label>
+          {find.trim() && stock && (
+            <ul className="mt-1.5 overflow-hidden rounded-2xl border bg-[#fff]" style={{ borderColor: LINE }}>
+              {matches.length === 0 ? <li className="px-4 py-3 text-[14px]" style={{ color: MUTED }}>Nothing in your stock is called that. Add it in Inventory first.</li>
+                : matches.map((x) => (
+                  <li key={x.id}><button type="button" onClick={() => { onChange([...lines, { id: x.id, name: x.name, unit: x.unit, q: '1' }]); setFind(''); }}
+                    className={`flex min-h-[48px] w-full items-center justify-between gap-3 px-4 text-left ${RING}`}>
+                    <span className="min-w-0 truncate text-[15px] font-medium">{x.name}</span>
+                    <span className="shrink-0 text-[13px]" style={{ color: MUTED }}>{leftWords(x)}</span>
+                  </button></li>))}
+            </ul>
+          )}
+        </div>
+      )}
+      {item.byRecipe && item.canMake !== null && (
+        <p className="text-[13.5px]" style={{ color: item.canMake > 0 ? GREEN : AMBER }}>{item.canMake > 0 ? `Enough in stock for ${item.canMake} right now.` : `Can’t be made right now: ${item.short || 'an ingredient'} has run out.`}</p>
+      )}
+    </div>
+  );
+}
+
+function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onSoldOut, call }: { item: MenuItem; recipe: RecipeLine[]; tenantId: string | null; canEdit: boolean; busy: string | null; onClose: () => void;
+  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any> }) {
+  const startLines = useMemo<EditLine[]>(() => recipe.map((l) => ({ id: l.id, name: l.name, unit: l.unit, q: amount(l.quantityUsed) })), [recipe]);
+  const [lines, setLines] = useState<EditLine[]>(startLines);
+  const [stock, setStock] = useState<Ingredient[] | null>(null);
+  useEffect(() => { if (!canEdit) return; void call({ action: 'ingredients' }).then((d: any) => { if (d.ok) setStock(d.ingredients || []); }); }, [canEdit, call]);
   const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
   const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
@@ -243,10 +319,17 @@ function EditSheet({ item, tenantId, canEdit, busy, onClose, onSave, onSoldOut }
     if (bad) { setErr(`What does ${bad.name || 'that option'} add? Type an amount, like 0.75, or leave it at 0.`); return; }
     const batch = Math.floor(Number(batchSize));
     if (held && !(batch >= 1 && batch <= 200)) { setErr('How many in a batch? Between 1 and 200.'); return; }
+    const noAmount = lines.find((l) => !(Number(l.q) > 0));
+    if (noAmount) { setErr(`How much ${noAmount.name} goes into one? Type an amount, like 1 or 0.5.`); return; }
+    // The recipe is saved only when it was changed here (one left alone is kept as it is).
+    // (Saved again, too, when an ingredient is now counted in another unit, so the recipe says what it's measured in.)
+    const recipeChanged = JSON.stringify(lines.map((l) => [l.id, Number(l.q)])) !== JSON.stringify(startLines.map((l) => [l.id, Number(l.q)]))
+      || lines.some((l) => { const x = stock?.find((y) => y.id === l.id); return !!x && !sameUnit(x.unit, l.unit); });
     setSaving(true); setErr('');
     const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
       // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
-      ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}) });
+      ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
+      ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}) });
     setSaving(false); if (e) setErr(e);
   };
   return (
@@ -285,6 +368,7 @@ function EditSheet({ item, tenantId, canEdit, busy, onClose, onSave, onSoldOut }
             <h3 className="text-[16px] font-semibold">Choices</h3>
             <ChoicesEditor groups={groups} onChange={setGroups} />
           </div>
+          <RecipeEditor lines={lines} onChange={setLines} stock={stock} item={item} />
           <div className="space-y-3">
             <h3 className="text-[16px] font-semibold">Kitchen timing</h3>
             <label className="flex flex-wrap items-center justify-between gap-3">

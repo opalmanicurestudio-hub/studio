@@ -3,8 +3,12 @@
 //   list    { tenantId }                                   → every menu item (anyone on the team)
 //   soldout { tenantId, itemId, groupId?, optionId?, out } → the item, or one of its choices, sold out or back (anyone on the team)
 //   save    { tenantId, itemId, item: { name, section, words, price, choices, onMenu, membersOnly, makeSeconds?,
-//             holdMinutes?, batchSize?, imageUrl? } } → managers (the kitchen timing: lib/counter-orders, lib/holding; the
-//             photo: an https address the Menu page uploaded, or null to take it off)
+//             holdMinutes?, batchSize?, imageUrl?, recipe? } } → managers (the kitchen timing: lib/counter-orders, lib/holding;
+//             the photo: an https address the Menu page uploaded, or null to take it off; the recipe: [{ id, quantityUsed }],
+//             what goes into one, from the business's own stock — an item with one is counted by its ingredients,
+//             lib/menu-stock; [] takes it off, and the item is counted by itself again)
+//   ingredients { tenantId } → managers: what a recipe can use (the business's stock, by name, with what's left and what
+//             it's counted in; never cost or supplier)
 //   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
 //             aims to be handed over in (list returns them)
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
@@ -12,11 +16,12 @@
 //   voiceUpdate { tenantId } → managers: bring this business's assistant up to date (lib/drive-thru-voice-setup)
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
-// Nothing about cost or suppliers is read or written here.
+// Nothing about cost or suppliers is read or written here. `list` also gives each item's recipe.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
-import { readMenu, setSoldOut, isMenuItem, menuItemOf } from '@/lib/menu-server';
+import { readMenu, setSoldOut, isMenuItem, menuItemOf, menuItemNow } from '@/lib/menu-server';
+import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
@@ -36,16 +41,19 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, ['save', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
     if (action === 'list') {
-      const [menu, t] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get()]);
+      const [menu, t, items] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get(), db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get()]);
       const td: any = t.data() || {};
       const setUp = !!process.env.RETELL_API_KEY && !!agentOf(td);
-      return ok({ menu, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) },
+      // Each item's recipe (what goes into one), for the Menu page's editor.
+      const recipes: Record<string, any[]> = {};
+      for (const d of items.docs) { const r = recipeOf(d.data() || {}, d.id); if (r.length) recipes[d.id] = r; }
+      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) },
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -115,6 +123,17 @@ export async function POST(req: NextRequest) {
       return ok({ targets: targetsOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}) });
     }
 
+    if (action === 'ingredients') {
+      // What a recipe can use: anything the business stocks but equipment, and never a menu item that's made from its own
+      // recipe (one level of recipe only).
+      const snap = await db.collection(`tenants/${tenantId}/inventory`).limit(1500).get();
+      const list = snap.docs.map((d: any) => ({ id: d.id, x: d.data() || {} }))
+        .filter(({ id, x }: any) => ID.test(id) && canBeIngredient(x, id))
+        .map(({ id, x }: any) => { const left = ingredientLeft(x); return { id, name: words(x.name, 80) || 'Item', unit: ingredientUnit(x), left: left === null ? null : Math.round(left * 100) / 100, menu: x.type === 'refreshment' }; })
+        .sort((a: any, c: any) => a.name.localeCompare(c.name));
+      return ok({ ingredients: list });
+    }
+
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, String(g.actor?.name || 'The team'));
       return r.ok ? ok({ item: r.item }) : bad(r.error, r.status);
@@ -158,23 +177,62 @@ export async function POST(req: NextRequest) {
         photo.imageUrl = u;
       }
     }
+    // The recipe, when given: what goes into one, from the business's own stock (checked against it below).
+    let recipeIn: { id: string; q: number }[] | null = null;
+    if (x.recipe !== undefined && x.recipe !== null) {
+      if (!Array.isArray(x.recipe)) return bad('Check the recipe.');
+      if (x.recipe.length > MAX_RECIPE_LINES) return bad(`Up to ${MAX_RECIPE_LINES} ingredients in a recipe.`);
+      recipeIn = [];
+      for (const l of x.recipe) {
+        const id = String(l?.id || ''); const q = Math.round(Number(l?.quantityUsed) * 1000) / 1000;
+        if (!ID.test(id) || id === itemId) return bad('Check the recipe: one of the ingredients isn’t in your stock.');
+        if (!Number.isFinite(q) || q <= 0 || q > 10000) return bad(`How much ${words(l?.name, 40) || 'of an ingredient'} goes into one? Type an amount above 0.`);
+        const same = recipeIn.find((y) => y.id === id); if (same) same.q = Math.round((same.q + q) * 1000) / 1000; else recipeIn.push({ id, q });
+      }
+    }
     const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
     const r: any = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data();
+      const partDocs = recipeIn ? await Promise.all(recipeIn.map((l) => tx.get(db.doc(`tenants/${tenantId}/inventory/${l.id}`)))) : [];
+      // An item that goes into another item's recipe is counted by its own count, so it can't have a recipe of its own.
+      const usedIn = recipeIn && recipeIn.length ? (await tx.get(db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400))).docs
+        .find((d: any) => d.id !== itemId && isMenuItem(d.data()) && recipeOf(d.data() || {}, d.id).some((l) => l.id === itemId)) : null;
       if (!isMenuItem(cur)) return { error: 'That isn’t on the menu.', status: 404 };
+      if (usedIn) return { error: `${words(cur.name, 40) || 'This item'} goes into ${words(usedIn.data()?.name, 40) || 'another item'}’s recipe, so it’s counted by itself. Take it out of that recipe first.`, status: 409 };
+      let formula: any[] | undefined;
+      if (recipeIn) {
+        formula = [];
+        for (const [k, l] of recipeIn.entries()) {
+          const p: any = partDocs[k].data();
+          if (!p || !canBeIngredient(p, l.id)) return { error: `${p ? words(p.name, 40) || 'One of the ingredients' : 'One of the ingredients'} can’t go into a recipe. Take it off and save again.`, status: 409 };
+          formula.push({ id: l.id, name: words(p.name, 80) || 'Ingredient', quantityUsed: l.q, unit: ingredientUnit(p) });
+        }
+      }
       // What's sold out is the kitchen's to say (one tap, api/menu 'soldout' or the kitchen screen): a save keeps it as
       // it is now, whatever the form had when it opened.
       const nowOut = new Map<string, string | null>();
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
-      return { item: menuItemOf(itemId, { ...cur, ...patch }) };
+      return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });
-    return r.error ? bad(r.error, r.status) : ok({ item: r.item });
+    if (r.error) return bad(r.error, r.status);
+    // As every menu shows it now: with its recipe's ingredients counted.
+    const item = await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item);
+    return ok({ item, recipe: recipeOf(r.raw, itemId) });
   } catch (e: any) {
     console.error('[menu] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);
   }
+}
+
+/** Can this go into a menu item's recipe: something the business stocks (not equipment, not archived), and not a menu
+ *  item that's made from a recipe of its own. */
+function canBeIngredient(x: any, id: string): boolean {
+  if (!x || x.archived === true || x.status === 'archived' || x.isActive === false) return false;
+  if (x.type === 'equipment') return false;
+  if (x.type === 'refreshment' && recipeOf(x, id).length) return false;
+  return true;
 }

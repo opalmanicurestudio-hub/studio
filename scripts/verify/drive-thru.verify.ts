@@ -45,6 +45,7 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
 const all = async (p: string) => (await db.collection(p).get()).docs.map((d: any) => ({ id: d.id, ...d.data() }));
 const req = (body: any) => ({ json: async () => body, text: async () => JSON.stringify(body), headers: { get: (k: string) => (String(k).toLowerCase() === 'authorization' ? 'Bearer test' : null) }, nextUrl: { origin: 'https://app.test' } }) as any;
 const src = (p: string) => readFileSync(p, 'utf8');
+let passOfM: () => Promise<string> = async () => '';
 
 (async () => {
   const { POST: kitchen } = await import('../../src/app/api/kitchen/route');
@@ -114,10 +115,11 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const due = Date.parse(r.body.dueAt);
   check('sent: one ticket a line, each named for the car, due by the slowest item (the burger’s 5:00 beats the 3:30 target)', r.body.ok && tix.length === 2 && tix.every((t: any) => t.channel === 'drive-thru' && t.orderNumber === 'B1' && t.dueAt === r.body.dueAt && t.status === 'pending')
     && Math.abs(due - (t0 + 300000)) < 5000, { body: r.body, tix });
-  check('…stock taken once, with a line in the stock ledger each', (await get(`${T}/inventory/burger`)).totalStock === 48 && (await get(`${T}/inventory/fries`)).totalStock === 98 && (await all(`${T}/stockCorrections`)).filter((x: any) => x.refId === car1.orderId && x.type === 'sold').length === 2);
+  check('…stock taken once: the fries by their own count (with a line in the stock ledger), the burger by its recipe, never its own count', (await get(`${T}/inventory/burger`)).totalStock === 50 && (await get(`${T}/inventory/fries`)).totalStock === 98 && (await all(`${T}/stockCorrections`)).filter((x: any) => x.refId === car1.orderId && x.type === 'sold').length === 1
+    && JSON.stringify((await get(`${T}/counterOrders/${car1.orderId}`)).itemsTaken) === '["fries"]');
   check('…and what the recipe uses (a bun a burger), as the lounge does', (await get(`${T}/inventory/bun`)).totalStock === 98 && (await all(`${T}/stockCorrections`)).some((x: any) => x.refId === car1.orderId && x.type === 'used' && x.productId === 'bun' && x.change === -2));
   r = await P({ action: 'send', orderId: car1.orderId });
-  check('…sent again: nothing more (no second tickets or stock)', r.body.already === true && (await all(`${T}/kdsTickets`)).length === 2 && (await get(`${T}/inventory/burger`)).totalStock === 48, r.body);
+  check('…sent again: nothing more (no second tickets or stock)', r.body.already === true && (await all(`${T}/kdsTickets`)).length === 2 && (await get(`${T}/inventory/fries`)).totalStock === 98 && (await get(`${T}/inventory/bun`)).totalStock === 98, r.body);
   check('…and the car moves on to pay', (await get(`${T}/driveThruCars/${car1.carId}`)).stage === 'pay');
   r = await P({ action: 'add', orderId: car1.orderId, itemId: 'fries', tapKey: 'tap-00000008' });
   check('a sent order can’t be changed from the lane', r.status === 409, r.body);
@@ -220,6 +222,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const crew = null;
   const passOf = async (id: string, name: string) => { const { createHash, randomBytes } = await import('crypto'); const pass = randomBytes(24).toString('hex'); const h = createHash('sha256').update(key).digest('hex');
     await db.doc(`kitchenScreens/${h}`).set({ passes: { [createHash('sha256').update(pass).digest('hex')]: { id, name, exp: Date.now() + 3600000 } } }, { merge: true }); return pass; };
+  passOfM = () => passOf('m9', 'Mo Diaz');
   r = await P({ action: 'void', orderId: car7.orderId, reason: 'Drove off without paying', staffPass: await passOf('s9', 'Kai Park') });
   check('…a team member who isn’t a manager can’t', r.status === 403 && r.body.needsManager === true, r.body);
   const friesBefore = (await get(`${T}/inventory/fries`)).totalStock;
@@ -257,6 +260,97 @@ const src = (p: string) => readFileSync(p, 'utf8');
   manager = false;
   r = await menuApi(req({ action: 'targets', tenantId: 't1', targets: { 'drive-thru': 120 } }));
   check('…only a manager sets it', r.status === 403);
+
+  console.log('recipes: a made-to-order item is counted by its ingredients');
+  manager = true; signedIn = true;
+  await db.doc(`${T}/inventory/patty`).set({ type: 'professional', name: 'Patties', totalStock: 3, unit: 'units' });
+  await db.doc(`${T}/inventory/grill`).set({ type: 'equipment', name: 'Grill', totalStock: 1 });
+  await db.doc(`${T}/inventory/sauce`).set({ type: 'professional', name: 'Sauce', totalStock: 0, costingMethod: 'size', containerSize: 0 });
+  await db.doc(`${T}/inventory/wrap`).set({ type: 'refreshment', name: 'Wrap', category: 'Food', price: 7, totalStock: 0 });
+  await db.doc(`${T}/inventory/oldbun`).set({ type: 'retail', name: 'Old buns', totalStock: 40, archived: true });
+  let ml: any = await menuApi(req({ action: 'list', tenantId: 't1' }));
+  let wrapM = ml.body.menu.find((m: any) => m.id === 'wrap');
+  check('an item with no recipe and none of its own is “None in stock”', wrapM && wrapM.inStock === false && wrapM.short === null && wrapM.byRecipe === false && (await import('../../src/lib/menu-stock')).outWords(wrapM) === 'None in stock', wrapM);
+  r = await menuApi(req({ action: 'ingredients', tenantId: 't1' }));
+  const ingIds = (r.body.ingredients || []).map((x: any) => x.id);
+  check('what a recipe can use: the business’s stock with what’s left, never equipment, an archived item, or cost', r.body.ok && ingIds.includes('patty') && ingIds.includes('bun') && !ingIds.includes('grill') && !ingIds.includes('oldbun')
+    && r.body.ingredients.find((x: any) => x.id === 'patty').left === 3 && !JSON.stringify(r.body).includes('cost'), r.body);
+  const wrapSave = (recipe: any) => menuApi(req({ action: 'save', tenantId: 't1', itemId: 'wrap', item: { name: 'Wrap', section: 'Food', price: 7, choices: [], recipe } }));
+  r = await wrapSave([{ id: 'patty', quantityUsed: 1 }, { id: 'bun', quantityUsed: 2 }, { id: 'patty', quantityUsed: 0.5 }]);
+  const wrapDoc = await get(`${T}/inventory/wrap`);
+  check('a manager gives it a recipe: one line an ingredient (the same one twice is added up), named and measured from stock', r.body.ok && wrapDoc.formula.length === 2 && wrapDoc.formula[0].id === 'patty' && wrapDoc.formula[0].quantityUsed === 1.5
+    && wrapDoc.formula[0].name === 'Patties' && wrapDoc.formula[0].unit === 'each' && r.body.recipe.length === 2, { body: r.body, f: wrapDoc.formula });
+  check('…and it’s available with none of its own: enough for 2 (3 patties at 1.5 each)', r.body.item.inStock === true && r.body.item.byRecipe === true && r.body.item.canMake === 2, r.body.item);
+  ml = await menuApi(req({ action: 'list', tenantId: 't1' }));
+  check('the menu list gives each item’s recipe for the editor', ml.body.recipes.wrap?.length === 2 && ml.body.recipes.burger?.length === 1, ml.body.recipes);
+  for (const [bad, why] of [[[{ id: 'grill', quantityUsed: 1 }], 'equipment'], [[{ id: 'wrap', quantityUsed: 1 }], 'itself'], [[{ id: 'burger', quantityUsed: 1 }], 'a menu item with its own recipe'],
+    [[{ id: 'nope', quantityUsed: 1 }], 'something not in stock'], [[{ id: 'patty', quantityUsed: 0 }], 'no amount'], [Array.from({ length: 21 }, (_, k) => ({ id: `p${k}`, quantityUsed: 1 })), 'more than 20 lines']] as [any, string][]) {
+    r = await wrapSave(bad);
+    check(`a recipe with ${why} is refused, and the recipe kept as it was`, (r.status === 400 || r.status === 409) && (await get(`${T}/inventory/wrap`)).formula.length === 2, r.body);
+  }
+  manager = false;
+  r = await wrapSave([]);
+  check('…only a manager changes a recipe', r.status === 403 && (await get(`${T}/inventory/wrap`)).formula.length === 2);
+  manager = true;
+  r = await menuApi(req({ action: 'save', tenantId: 't1', itemId: 'wrap', item: { name: 'Wrap', section: 'Food', price: 7.5, choices: [] } }));
+  check('saving without the recipe leaves it as it is', r.body.ok && (await get(`${T}/inventory/wrap`)).formula.length === 2 && r.body.item.price === 7.5, r.body);
+  const carR = (await P({ action: 'car', carKey: 'carkey-0021' })).body;
+  await P({ action: 'add', orderId: carR.orderId, itemId: 'wrap', quantity: 3, tapKey: 'tap-00000041' });
+  r = await P({ action: 'send', orderId: carR.orderId });
+  check('more than the ingredients make is refused at sending, naming the one that’s short', r.status === 409 && /Not enough Patties for this order \(3 each left\)/.test(r.body.error), r.body);
+  await P({ action: 'qty', orderId: carR.orderId, lineId: (await get(`${T}/counterOrders/${carR.orderId}`)).lines[0].lineId, quantity: 1, tapKey: 'tap-00000042' });
+  r = await P({ action: 'send', orderId: carR.orderId });
+  const afterR = await get(`${T}/counterOrders/${carR.orderId}`);
+  check('one wrap goes: its ingredients taken (1.5 patties, 2 buns), its own count left alone', r.body.ok && (await get(`${T}/inventory/patty`)).totalStock === 1.5 && (await get(`${T}/inventory/wrap`)).totalStock === 0
+    && JSON.stringify(afterR.itemsTaken) === '[]', { body: r.body, patty: await get(`${T}/inventory/patty`), o: afterR });
+  let laneR: any = await P({ action: 'lane' });
+  let wrapL = laneR.body.menu.find((m: any) => m.id === 'wrap');
+  check('…and with 1.5 patties left, one more can be made: the lane shows it', wrapL.inStock === true && wrapL.canMake === 1, wrapL);
+  await db.doc(`${T}/inventory/patty`).set({ totalStock: 1 }, { merge: true });
+  laneR = await P({ action: 'lane' });
+  wrapL = laneR.body.menu.find((m: any) => m.id === 'wrap');
+  check('an ingredient run short: the item is out, named for it (“Out of Patties”), not switched to sold out', wrapL.inStock === false && wrapL.soldOut === false && wrapL.short === 'Patties' && (await import('../../src/lib/menu-stock')).outWords(wrapL) === 'Out of Patties', wrapL);
+  await db.doc(`${T}/inventory/patty`).set({ totalStock: 0, costingMethod: 'size', containerSize: 0 }, { merge: true });
+  laneR = await P({ action: 'lane' });
+  check('an ingredient that can’t be counted (no size set) never holds it back', laneR.body.menu.find((m: any) => m.id === 'wrap').inStock === true, laneR.body.menu.find((m: any) => m.id === 'wrap'));
+  await db.doc(`${T}/inventory/patty`).set({ totalStock: 3, costingMethod: null, containerSize: null }, { merge: true });
+  // A void puts back the ingredients, and only the counts that were taken.
+  const pattyBefore = (await get(`${T}/inventory/patty`)).totalStock; const wrapBefore = (await get(`${T}/inventory/wrap`)).totalStock;
+  r = await P({ action: 'void', orderId: carR.orderId, reason: 'Drove off without paying', staffPass: await passOfM() });
+  check('voided before it was started: the patties back, and the wrap’s own count untouched (it was never taken)', r.body.ok && (await get(`${T}/inventory/patty`)).totalStock === pattyBefore + 1.5 && (await get(`${T}/inventory/wrap`)).totalStock === wrapBefore, { body: r.body, p: await get(`${T}/inventory/patty`), w: await get(`${T}/inventory/wrap`) });
+  // An ingredient that's also sold on its own line (a bottled sauce): its own count and the recipe's share both come off,
+  // in one step, and a void puts both back.
+  await db.doc(`${T}/inventory/sauce2`).set({ type: 'refreshment', name: 'Hot sauce', category: 'Sides', price: 1, totalStock: 5, unit: 'units' });
+  await db.doc(`${T}/inventory/taco`).set({ type: 'refreshment', name: 'Taco', category: 'Food', price: 4, totalStock: 0 });
+  r = await menuApi(req({ action: 'save', tenantId: 't1', itemId: 'taco', item: { name: 'Taco', section: 'Food', price: 4, choices: [], recipe: [{ id: 'sauce2', quantityUsed: 1 }] } }));
+  check('a menu item counted by itself can go into another’s recipe', r.body.ok && r.body.item.canMake === 5, r.body);
+  r = await menuApi(req({ action: 'save', tenantId: 't1', itemId: 'sauce2', item: { name: 'Hot sauce', section: 'Sides', price: 1, choices: [], recipe: [{ id: 'bun', quantityUsed: 1 }] } }));
+  check('…and then it can’t have a recipe of its own (it’s counted by itself)', r.status === 409 && /goes into Taco’s recipe/.test(r.body.error) && !(await get(`${T}/inventory/sauce2`)).formula, r.body);
+  const carT = (await P({ action: 'car', carKey: 'carkey-0022' })).body;
+  await P({ action: 'add', orderId: carT.orderId, itemId: 'taco', quantity: 3, tapKey: 'tap-00000051' });
+  await P({ action: 'add', orderId: carT.orderId, itemId: 'sauce2', quantity: 3, tapKey: 'tap-00000052' });
+  r = await P({ action: 'send', orderId: carT.orderId });
+  check('3 tacos and 3 sauces need 6 sauces: with 5, it’s refused, naming the sauce', r.status === 409 && /Not enough Hot sauce for this order \(2 each left\)/.test(r.body.error) && (await get(`${T}/inventory/sauce2`)).totalStock === 5, r.body);
+  await P({ action: 'qty', orderId: carT.orderId, lineId: (await get(`${T}/counterOrders/${carT.orderId}`)).lines[0].lineId, quantity: 2, tapKey: 'tap-00000053' });
+  r = await P({ action: 'send', orderId: carT.orderId });
+  const oT = await get(`${T}/counterOrders/${carT.orderId}`);
+  const sauceLog = (await all(`${T}/stockCorrections`)).filter((x: any) => x.refId === carT.orderId && x.productId === 'sauce2');
+  check('2 tacos and 3 sauces: all 5 sauces come off, logged as 3 sold and 2 used, each line’s take kept', r.body.ok && (await get(`${T}/inventory/sauce2`)).totalStock === 0
+    && sauceLog.some((x: any) => x.type === 'sold' && x.change === -3) && sauceLog.some((x: any) => x.type === 'used' && x.change === -2)
+    && oT.stockTaken[oT.lines[0].lineId].parts.sauce2 === 2 && oT.stockTaken[oT.lines[1].lineId].own === 3, { body: r.body, s: await get(`${T}/inventory/sauce2`), sauceLog, st: oT.stockTaken });
+  r = await P({ action: 'void', orderId: carT.orderId, reason: 'Drove off without paying', staffPass: await passOfM() });
+  check('…voided before it was started: all 5 back, logged as returned', r.body.ok && (await get(`${T}/inventory/sauce2`)).totalStock === 5
+    && (await all(`${T}/stockCorrections`)).filter((x: any) => x.refId === carT.orderId && x.type === 'returned' && x.productId === 'sauce2').reduce((n: number, x: any) => n + x.change, 0) === 5, { body: r.body, s: await get(`${T}/inventory/sauce2`) });
+  // An ingredient that's put away isn't counted, and isn't taken.
+  await db.doc(`${T}/inventory/sauce2`).set({ archived: true }, { merge: true });
+  laneR = await P({ action: 'lane' });
+  check('an ingredient put away no longer holds an item back', laneR.body.menu.find((m: any) => m.id === 'taco')?.inStock === true, laneR.body.menu.find((m: any) => m.id === 'taco'));
+  await db.doc(`${T}/inventory/sauce2`).set({ archived: false }, { merge: true });
+  // Switched to sold out still wins, whatever the stock.
+  await db.doc(`${T}/inventory/wrap`).set({ soldOut: true }, { merge: true });
+  laneR = await P({ action: 'lane' });
+  check('switched to sold out, it says “Sold out”', (await import('../../src/lib/menu-stock')).outWords(laneR.body.menu.find((m: any) => m.id === 'wrap')) === 'Sold out');
+  await db.doc(`${T}/inventory/wrap`).set({ soldOut: false }, { merge: true });
 
   console.log('spots, a long line, and the slow part right now');
   manager = true; signedIn = true;

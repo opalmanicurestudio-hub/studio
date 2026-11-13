@@ -22,6 +22,7 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 import { VoiceBar, useOnTheSpeakerHere, type CarVoice } from '@/components/drive-thru/VoiceBar';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { readBack, timeLeft } from '@/lib/counter-orders';
+import { outWords } from '@/lib/menu-stock';
 import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -568,8 +569,9 @@ export default function DriveThru() {
                     {menu.length === 0 ? <p className="rounded-2xl bg-[#fff] px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
                       : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4" role="tabpanel">
                         {menu.filter((m) => m.section === shownSection).map((m) => {
-                          const out = m.soldOut || !m.inStock; const n = onOrder[m.id] || 0;
-                          const label = `${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${out ? ', sold out' : ''}${n ? `, ${n} on the order` : ''}`;
+                          // Switched to sold out, an ingredient run out, or none left of it (lib/menu-stock), said as such.
+                          const why = outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
+                          const label = `${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
                           // With photos on the menu, every button is a picture first (the way a fast-food screen is read at a
                           // glance); an item without one keeps its place with its first letter. With none, the buttons stay compact.
                           if (withPhotos) return (
@@ -580,7 +582,7 @@ export default function DriveThru() {
                                 {m.imageUrl
                                   ? <img src={m.imageUrl} alt="" draggable={false} className="h-full w-full object-cover" style={out ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
                                   : <span className="flex h-full w-full items-center justify-center text-[30px] font-semibold" style={{ color: '#c4c6ca' }} aria-hidden>{m.name.trim().charAt(0).toUpperCase()}</span>}
-                                {out && <span className="absolute left-2 top-2 rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Sold out</span>}
+                                {why && <span className="absolute left-2 top-2 max-w-[calc(100%-16px)] truncate rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>}
                                 {n > 0 && <span className="absolute right-2 top-2 flex h-8 min-w-[32px] items-center justify-center rounded-full px-2 text-[15px] font-semibold tabular-nums" style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>}
                               </span>
                               <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
@@ -599,7 +601,7 @@ export default function DriveThru() {
                               <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{m.name}</span>
                               <span className="mt-2 flex items-center justify-between gap-2">
                                 <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
-                                {out ? <span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Sold out</span>
+                                {why ? <span className="min-w-0 truncate rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>
                                   : m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
                               </span>
                               {n > 0 && <span className="absolute right-2.5 top-2.5 flex h-7 min-w-[28px] items-center justify-center rounded-full px-1.5 text-[14px] font-semibold tabular-nums" style={{ background: INK, color: '#fff' }}>{n}</span>}
