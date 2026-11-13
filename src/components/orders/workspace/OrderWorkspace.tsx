@@ -274,7 +274,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
         </div>
       ) : <div className="h-full overflow-y-auto">{body}</div>}
 
-      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={order} line={missing} shelf={shelfFor.get(missing.productId)} inventory={inventory} actor={actor} autoBelow={Math.max(0, Number(rs.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); onToast(m); }} />}
+      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={order} line={missing} shelf={shelfFor.get(missing.productId)} inventory={inventory} actor={actor} autoBelow={Math.max(0, Number(rs.policies?.refundAutoBelowCents) || 0)} rs={rs} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); onToast(m); }} />}
       {spotOpen && spotDue(order) && <SpotCheckSheet tenantId={tenantId} order={order} meId={actor.id} onClose={() => setSpotOpen(false)} onDone={(m) => { setSpotOpen(false); onToast(m); }} />}
       {handing && <HandoverSheet fs={fs} tenantId={tenantId} order={order} actor={actor} lookup={(id) => (all || []).find((x: any) => x.id === id)} onClose={() => setHanding(false)} onDone={(m) => { setHanding(false); onToast(m); }} />}
       {boxSizes && <BoxSizesSheet tenantId={tenantId} rs={rs} onClose={() => setBoxSizes(false)} onToast={onToast} />}

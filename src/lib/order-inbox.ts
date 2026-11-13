@@ -13,7 +13,7 @@
 const NUDGE_WINDOW_MS = 10 * 60 * 1000;
 
 export const ORDER_PAGE_KINDS = new Set([
-  'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
+  'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short', 'order_changes',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
   'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
   'shop_message', 'order_collected', 'delivery_out', 'delivery_door', 'delivery_done', 'delivery_failed', 'delivery_near',
@@ -35,6 +35,7 @@ export function nudgeLine(kind: string, num: string, shop: string, subject?: str
     case 'order_delayed': case 'delay_notice': return `There’s a new delivery date for your order ${num}.`;
     case 'carrier_delivered': return `Your order ${num} was delivered.`;
     case 'order_short': return `One item in your order ${num} isn’t available. See what happens next.`;
+    case 'order_changes': return `Your order ${num} is packed. Some items were out: see what we did.`;
     case 'order_swap': return `Quick question about your order ${num}: one item sold out.`;
     case 'order_id_check': return `Please confirm your ID so we can send your order ${num}.`;
     case 'preorder_eta': return `There’s a new date for the pre-order in your order ${num}.`;

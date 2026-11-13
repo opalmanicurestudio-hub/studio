@@ -4,6 +4,8 @@
 // step's transaction. A browser can't move an order's stage or change its items itself (firestore.rules), so nothing
 // on the order page or the boards can show a step that didn't happen. Screens call this through lib/fulfil-client.
 //   POST { tenantId, action, ...args } → what the step answers ({ ok, message, … })
+import { autoRefund } from '@/lib/auto-refund';
+import { packChanges } from '@/lib/pack-changes';
 import { canChoose, whenInSentence } from '@/lib/delivery-retry';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -77,7 +79,9 @@ function refreshRoute(db: any, tenantId: string, orderId: string): void {
 F.setFulfilEffects({
   // The shop's own alert about a customer left waiting comes from the board (api/retail/curbside-notify), not a step.
   curbside: (t, orderId, moment) => { if (moment !== 'staff_escalation') sendMessage(moment === 'ready' ? 'curbside_ready' : 'curbside_out', { orderId }, t); },
-  short: (t, orderId, lineId) => sendMessage('order_short', { orderId, lineId }, t),
+  // An item short while packing isn't told on its own any more: the customer hears once, when packing is done, what
+  // changed (lib/pack-changes, in markPacked below).
+  short: () => {},
   renterCredits: (t, o) => { const name = ctx()?.actor.name || 'A team member'; if (o?.id && (o.lines || []).some((l: any) => l?.soldFor?.renterId)) after(async () => { await syncRenterCreditsForOrder(getAdminDb(), t, String(o.id), name).catch(() => 0); }); },
   tip: (t, o) => { if (o?.id && (Number(o.tipCents) || 0) > 0) after(async () => { await shareOrderTip(getAdminDb(), t, String(o.id)).catch(() => null); }); },
 });
@@ -145,7 +149,11 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       const r: any = await F.markReady(db, tenantId, id, actor);
       if (r?.ok) {
         const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${id}`).get()).data() || {};
-        if (o.method === 'curbside') { if (r.notifyReady) F.notifyCurbside(tenantId, id, 'ready'); }
+        if (o.method === 'curbside') {
+          if (r.notifyReady) F.notifyCurbside(tenantId, id, 'ready');
+          // Already waiting outside, so there's no ready text: what changed while it was packed goes on its own.
+          else if (r.autoArrived && packChanges(o).length) sendMessage('order_changes', { orderId: id });
+        }
         // A delivery isn't collected: its customer hears when it's on the way, not that it's ready to pick up.
         else if (o.method !== 'ship' && o.method !== 'delivery') sendMessage('order_ready', { orderId: id });
       }
@@ -198,7 +206,22 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'undoCount': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.undoLineCount(db, tenantId, orderId, lineId, actor, b.what === 'box' || b.what === 'check' ? b.what : 'scan', b.via === 'tap' || b.via === 'approve' ? b.via : 'scan'); break; }
       case 'shortLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.resolveShortLine(db, tenantId, orderId, lineId, s(b.reason, 200) || 'Not on the shelf', b.resolution === 'backorder' ? 'backorder' : 'refund', actor); break; }
       case 'reopenLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.reopenShortedLine(db, tenantId, orderId, lineId, actor); break; }
-      case 'markPacked': { const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId); out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, spotEvery: rules.spotEvery, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) }); break; }
+      case 'markPacked': {
+        const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId);
+        out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, spotEvery: rules.spotEvery, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) });
+        // ONE REFUND, ONE MESSAGE (lib/pack-changes): what's owed back for items that were out or swapped for less goes
+        // back now in one refund (within the shop's automatic amount, lib/auto-refund; a bigger one waits on Problems),
+        // and the customer hears once what changed: in the ready message for an order collected, or now for one that's
+        // shipped or delivered.
+        if (out?.ok) {
+          const po: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+          // Queued first, so it goes (and is tried again) even if the refund call below runs long; it's sent after this
+          // step answers, by when the refund has gone, so it says so.
+          if ((po.method === 'ship' || po.method === 'delivery') && packChanges(po).length) sendMessage('order_changes', { orderId });
+          if ((Number(po.pendingRefundCents) || 0) > 0) await autoRefund(db, tenantId, orderId, ctx()?.base || '').catch(() => null);
+        }
+        break;
+      }
       case 'markReady': {
         const m = need1(orderId, 'order'); if (m) return m;
         out = await markReadyAndTell(orderId);

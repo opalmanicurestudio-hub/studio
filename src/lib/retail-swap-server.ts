@@ -2,15 +2,15 @@
 // the customer's answer (from their order page or a YES/NO text) all run here in transactions, so the stock, the order
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
 import { shrinkStock } from './retail-orders';
-import { choiceFor, variantPriceCents } from './variants';
+import { choiceFor, variantIdsOf, variantPriceCents } from './variants';
 import { discountedCents } from './retail-wholesale';
 import { ensureCodeIndex } from './code-index';
 import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
-import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
+import { SWAP_ANSWER_HOURS, lineIfOut, swapCapCents, swapLines, type SwapItem } from './retail-swap';
 import { brandedEmailHtml } from './email-template';
 import { effectiveUnitCents } from '@/lib/retail-swap';
-import { autoRefund, refundWords, refundWordsShort } from './auto-refund';
+import { autoRefund, refundWords } from './auto-refund';
 import { queueAndSend } from './order-outbox';
 
 type Actor = { id: string; name: string };
@@ -42,6 +42,31 @@ export async function catalogItem(db: any, t: string, productId: string, order?:
   const c = listing ? choiceFor(listing, productId) : null;
   // Named as its listing and choice ("Rose cuticle oil · Clear"), the way the customer's messages and the order show it.
   return { productId, name: c ? `${listing.name || i.name || 'Item'} \u00b7 ${c.choice.label}` : String(i.name || 'Item'), ...(c ? { listingId: String(listing.id) } : {}), unitPriceCents: price, sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || (listing && Array.isArray(listing.imageUrls) && listing.imageUrls[0]) || '' };
+}
+
+/** A replacement the customer, or the packer, may use for `line` today: the product as the shop sells it (lib/variants),
+ *  sold online, in stock, never a product the shop never swaps, never sold to licensed pros only on an item that wasn't,
+ *  and never dearer than what was paid for the line (up to the shop's limit when it covers the difference itself,
+ *  lib/retail-swap swapCapCents). The reason in the customer's words when it can't. */
+export async function swapCandidate(db: any, t: string, productId: string, line: any, order: any, rs: any): Promise<{ ok: true; item: SwapItem } | { ok: false; message: string }> {
+  const id = String(productId || '');
+  if (!id || id === String(line?.productId || '')) return { ok: false, message: 'Pick a different item as the backup.' };
+  const s = await db.collection(`tenants/${t}/inventory`).doc(id).get();
+  if (!s.exists) return { ok: false, message: 'That backup isn’t for sale any more. Pick another.' };
+  const i: any = s.data() || {};
+  // A product as it's sold: never a listing that sells as its variants, never something that isn't a shop product.
+  if (i.type !== 'retail' || variantIdsOf({ ...i, id }).length > 0) return { ok: false, message: 'Pick one color or size as the backup.' };
+  let l: any = null;
+  if (i.parentId && i.parentId !== id) { const ls = await db.collection(`tenants/${t}/inventory`).doc(String(i.parentId)).get(); l = ls.exists ? ls.data() : null; }
+  const shown = (x: any) => !!x && x.status !== 'archived' && x.showOnline === true;
+  if (i.status === 'archived' || (l ? !shown(l) || l.status === 'archived' : !shown(i)) || i.digital === true || i.giftCard === true) return { ok: false, message: 'That backup isn’t for sale online. Pick another.' };
+  if (i.noSwap === true || l?.noSwap === true) return { ok: false, message: 'That product isn’t used as a swap. Pick another.' };
+  if ((i.prosOnly === true || l?.prosOnly === true) && line?.prosOnly !== true) return { ok: false, message: 'That’s for licensed pros only. Pick another.' };
+  if ((Number(i.totalStock) || 0) - (Number(i.stockReserved) || 0) <= 0) return { ok: false, message: 'That backup is out too. Pick another.' };
+  const item = await catalogItem(db, t, id, order);
+  if (!item) return { ok: false, message: 'That backup isn’t for sale right now. Pick another.' };
+  if (item.unitPriceCents > swapCapCents(Number(line?.unitPriceCents) || 0, rs)) return { ok: false, message: `${item.name} costs more than what was paid for this item. Pick one at the same price or less.` };
+  return { ok: true, item };
 }
 
 /** Sold to licensed pros only: the product, or the listing a variant sells in (lib/pro-license). */
@@ -129,28 +154,38 @@ async function tell(db: any, t: string, o: any, origin: string, sms: string, sub
   }
 }
 
-/** Staff found an item missing and picked a replacement. "Similar" customers get it straight away; everyone else is
- *  asked first, by text and email, and has SWAP_ANSWER_HOURS to answer. */
+/** Staff found an item missing and picked a replacement, as the customer chose at checkout for that item
+ *  (lib/retail-swap lineIfOut): their own backup, or the best match, goes in straight away, never dearer than what they
+ *  paid (swapCandidate), and they hear once, when packing is done, what changed (lib/pack-changes); an item they asked
+ *  to have refunded isn't swapped. Only an order placed when customers could ask to be asked is still asked, by text
+ *  and email, with SWAP_ANSWER_HOURS to answer. */
 export async function offerSwap(db: any, t: string, orderId: string, lineId: string, productId: string, actor: Actor, origin: string, forceAsk = false): Promise<{ ok: boolean; message: string; asked?: boolean }> {
   const snap = await orderRef(db, t, orderId).get(); if (!snap.exists) return { ok: false, message: 'Order not found.' };
   const o = { ...(snap.data() as any), id: orderId };
+  const line = (o.lines || []).find((l: any) => l.lineId === lineId); if (!line) return { ok: false, message: 'That item isn’t on this order.' };
+  const first = String(o.customerName || '').split(' ')[0] || 'there';
+  const choice = lineIfOut(o, line);
+  // Asked first only for an order placed when customers could ask to be asked: never to get round what they chose.
+  if (choice.how !== 'ask') {
+    if (choice.how === 'refund') return { ok: false, message: `${first} asked for a refund if this is out, so it isn’t swapped. Refund it, or send it when it’s back.` };
+    if (choice.how === 'backup' && String(productId) !== String(choice.backup?.productId || '')) return { ok: false, message: `${first} picked ${choice.backup?.name || 'a backup'} at checkout. Swap it for that, or refund it.` };
+    const rs = ((await db.doc(`tenants/${t}`).get()).data() as any)?.retailSettings || {};
+    const c = await swapCandidate(db, t, productId, line, o, rs);
+    if (!c.ok) return { ok: false, message: choice.how === 'backup' ? `${first}’s backup can’t go in: ${c.message.replace(/ Pick (another|one at the same price or less)\.$/, '')} Refund it, as they chose.` : c.message };
+    // A product for licensed pros goes only on an order sold on a license on file (lib/pro-license).
+    if (await forProsOnly(db, t, productId) && !o.proLicense) return { ok: false, message: 'That’s for licensed pros, and this order wasn’t placed with a license on file. Pick something else.' };
+    const r = await applySwap(db, t, orderId, lineId, c.item, actor, choice.how === 'backup' ? 'their backup from checkout' : 'best match, as they chose at checkout');
+    return r.ok ? { ok: true, message: `Swapped for ${c.item.name}. Scan it in. ${first} hears what changed when packing is done.` } : r;
+  }
   const sub = await catalogItem(db, t, productId, o); if (!sub) return { ok: false, message: 'That item isn’t for sale right now.' };
   // A product for licensed pros goes only on an order sold on a license on file (lib/pro-license).
   if (await forProsOnly(db, t, productId) && !o.proLicense) return { ok: false, message: 'That’s for licensed pros, and this order wasn’t placed with a license on file. Pick something else.' };
-  const line = (o.lines || []).find((l: any) => l.lineId === lineId); if (!line) return { ok: false, message: 'That item isn’t on this order.' };
-  const first = String(o.customerName || '').split(' ')[0] || 'there';
-  const pref = normaliseIfUnavailable(o.ifUnavailable);
+  // Never dearer than what they paid, asked or not (lib/retail-swap swapCapCents).
+  { const rs = ((await db.doc(`tenants/${t}`).get()).data() as any)?.retailSettings || {}; if (sub.unitPriceCents > swapCapCents(Number(line.unitPriceCents) || 0, rs)) return { ok: false, message: `${sub.name} costs more than what was paid for this item. Pick one at the same price or less.` }; }
   // What a swap gives back is what the swap itself works out (lib/retail-swap): the price paid, after any promo, less
   // the replacement's, with its tax. The message says the same amount.
   let back = 0; try { back = swapLines(o, lineId, sub, 'preview').refundCents; } catch { back = 0; }
   const cheaper = back > 0;
-  if (pref === 'similar' && !forceAsk) {
-    const r = await applySwap(db, t, orderId, lineId, sub, actor, 'customer chose swaps at checkout');
-    // The difference goes back on its own when it's within the shop's automatic amount (lib/auto-refund).
-    const sent = r.ok && r.refundCents ? await autoRefund(db, t, orderId, origin) : null;
-    if (r.ok) await tell(db, t, o, origin, `we were out of ${line.name}, so we've packed ${sub.name} instead, as you asked.${r.refundCents ? ` It costs less: ${refundWordsShort(r.refundCents, sent)}` : ''}`, `Order #${String(o.orderNumber).padStart(4, '0')}: a swap in your order`, 'A swap in your order', [`Hi ${first},`, `We were out of ${line.name}, so we have packed ${sub.name} instead, as you asked at checkout.`, r.refundCents ? `It costs less than what you paid. ${refundWords(r.refundCents, sent)}` : 'There is nothing extra to pay.', 'If you would rather have a refund, reply to this email or open your order and let us know.']);
-    return r.ok && sent?.sent ? { ...r, message: `Swapped for ${sub.name}. ${money(sent.cents)} sent back to them.` } : r;
-  }
   if (!o.customerPhone && !o.customerEmail) return { ok: false, message: 'There’s no way to reach this customer. Refund it or send it later.' };
   const offer = { lineId, lineName: line.name, sub, at: new Date().toISOString(), expiresAt: new Date(Date.now() + SWAP_ANSWER_HOURS * 3600e3).toISOString(), status: 'waiting', by: actor.name };
   await orderRef(db, t, orderId).set({ swapOffer: offer, swapPendingPhone: last10(o.customerPhone || '') || null }, { merge: true });

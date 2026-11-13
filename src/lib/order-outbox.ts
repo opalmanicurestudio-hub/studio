@@ -15,7 +15,7 @@
 import { buildEvent } from './retail-orders';
 import { eventIdFor } from './order-events';
 
-export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'claim_info' | 'order_collected'
+export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_changes' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'claim_info' | 'order_collected'
   | 'delivery_out' | 'delivery_door' | 'delivery_done' | 'delivery_failed';
 
 /** Each kind: the route that sends it, what it's called on the team's timeline, and what it's sent with. */
@@ -24,6 +24,7 @@ const KINDS: Record<MessageKind, { path: string; what: string; body: (a: Args) =
   curbside_ready: { path: '/api/retail/curbside-notify', what: 'curbside ready text', body: (a) => ({ orderId: a.orderId!, moment: 'ready' }) },
   curbside_out: { path: '/api/retail/curbside-notify', what: 'text that someone is bringing it out', body: (a) => ({ orderId: a.orderId!, moment: 'out' }) },
   order_short: { path: '/api/retail/short-notify', what: 'missing item email', body: (a) => ({ orderId: a.orderId!, lineId: a.lineId! }) },
+  order_changes: { path: '/api/retail/changes-notify', what: 'message saying what changed while it was packed', body: (a) => ({ orderId: a.orderId! }) },
   order_shipped: { path: '/api/retail/shipped-notify', what: 'shipped email', body: (a) => ({ orderId: a.orderId! }) },
   return_outcome: { path: '/api/retail/return-notify', what: 'return settled email', body: (a) => ({ returnId: a.returnId! }) },
   claim_decided: { path: '/api/retail/claim-notify', what: 'email about their report', body: (a) => ({ claimId: a.claimId! }) },

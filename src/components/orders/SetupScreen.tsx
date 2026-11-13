@@ -17,6 +17,7 @@ import { printPickupSpots } from '@/lib/shelf-labels-client';
 import { noBarcodeYet, registerScanOn } from '@/lib/register-scan';
 import { isSellable } from '@/lib/pos-scan';
 import { SPOT_CHOICES, spotEvery } from '@/lib/spot-check';
+import { COVER_MORE_PCT, coverMore, perItemOn, swapDefault } from '@/lib/retail-swap';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -81,6 +82,50 @@ function PickupTools({ tenantId, on, onToast }: { tenantId: string; on: boolean;
             <span style={muted}>{Ic.chev}</span>
           </span>
         </Link>))}
+    </Group>);
+}
+
+/** WHEN SOMETHING'S OUT (lib/retail-swap): customers choose for each item at checkout, what an item left as it is gets,
+ *  whether the shop covers a slightly pricier swap itself, and the products it never swaps (set on each product). */
+function SwapsGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Firestore; tenantId: string; rs: any; owner: boolean; inventory: any[]; onToast: (m: string) => void }) {
+  const [perItem, setPerItem] = React.useState(perItemOn(rs));
+  const [dflt, setDflt] = React.useState(swapDefault(rs));
+  const [cover, setCover] = React.useState(coverMore(rs));
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { setPerItem(perItemOn(rs)); setDflt(swapDefault(rs)); setCover(coverMore(rs)); }, [rs?.swapPerItem, rs?.swapDefault, rs?.swapCoverMore]);
+  const never = React.useMemo(() => (inventory || []).filter((i: any) => i?.noSwap === true && i.status !== 'archived').sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))), [inventory]);
+  const save = async (patch: Record<string, any>, done: () => void, said: string) => {
+    if (busy || !tenantId || !owner) return; setBusy(true);
+    try { await updateDoc(doc(fs, 'tenants', tenantId), patch); done(); onToast(said); } catch { onToast('That didn’t save. Try again.'); } finally { setBusy(false); }
+  };
+  const sw = (on: boolean, label: string, flip: () => void) => (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={busy || !owner} onClick={flip} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: on ? C.ok : '#d2d3d7' }}>
+      <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: on ? 32 : 4 }} /></button>);
+  return (
+    <Group title="When something’s out">
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Customers pick a backup for each item</span>
+          <span className="block text-[13px]" style={muted}>{perItem ? 'At checkout, for each item: best match, a backup they pick, or a refund. A backup can be kept for next time.' : 'Off: one choice at checkout covers the whole order.'}</span></span>
+        {sw(perItem, 'Customers pick a backup for each item', () => void save({ 'retailSettings.swapPerItem': !perItem }, () => setPerItem(!perItem), !perItem ? 'Customers choose for each item now.' : 'One choice covers the whole order now.'))}
+      </div>
+      <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <p className="m-0 text-[17px] tracking-[-0.01em]">When a customer doesn’t choose</p>
+        <div role="radiogroup" aria-label="When a customer doesn’t choose" className="mt-2 inline-flex flex-wrap gap-1 rounded-full p-1" style={{ background: C.soft }}>
+          {(['match', 'refund'] as const).map((h) => (
+            <button key={h} type="button" role="radio" aria-checked={dflt === h} disabled={busy || !owner} onClick={() => { if (dflt !== h) void save({ 'retailSettings.swapDefault': h }, () => setDflt(h), h === 'match' ? 'Items left as they are get the best match now.' : 'Items left as they are are refunded now.'); }}
+              className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={dflt === h ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(22,23,26,.12)' } : { background: 'transparent', color: C.ink }}>{h === 'match' ? 'Best match' : 'Refund it'}</button>))}
+        </div>
+        <p className="m-0 mt-2 text-[13px]" style={muted}>A swap never costs more than what they paid: only items at the same price or less are offered, to customers and to packers. Everything is decided at checkout, so nobody waits on an answer while packing.</p>
+      </div>
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Allow pricier swaps, and cover the difference yourself</span>
+          <span className="block text-[13px]" style={muted}>{cover ? `On: a match up to ${COVER_MORE_PCT}% more can go in, at what they paid. You cover the difference.` : 'Off: when the only match costs more, the item is refunded.'}</span></span>
+        {sw(cover, 'Allow pricier swaps, and cover the difference yourself', () => void save({ 'retailSettings.swapCoverMore': !cover }, () => setCover(!cover), !cover ? `Swaps up to ${COVER_MORE_PCT}% more can go in now, at your cost.` : 'Swaps are the same price or less now.'))}
+      </div>
+      <div className="px-4 py-3">
+        <p className="m-0 text-[17px] tracking-[-0.01em]">{never.length ? `${never.length} ${never.length === 1 ? 'product is' : 'products are'} never swapped` : 'Every product can be swapped'}</p>
+        <p className="m-0 mt-0.5 text-[13px]" style={muted}>{never.length ? `${never.slice(0, 4).map((i: any) => i.name || 'Product').join(', ')}${never.length > 4 ? ` and ${never.length - 4} more` : ''}. Out means refunded.` : 'Made to order, or only right as it is? Turn on Never swap this product on its Online listing tab.'}</p>
+      </div>
     </Group>);
 }
 
@@ -248,6 +293,7 @@ export function SetupScreen() {
         {guided && <Steps steps={steps} busy={busy} onAction={(s) => void onAction(s)} />}
         <PickupTools tenantId={tenantId} on={moduleEnabled(selectedTenant, 'pickup')} onToast={setToast} />
         <ScanningGroup fs={firestore as Firestore} tenantId={tenantId} rs={rs} owner={role === 'owner'} inventory={inventory || []} onToast={setToast} />
+        <SwapsGroup fs={firestore as Firestore} tenantId={tenantId} rs={rs} owner={role === 'owner'} inventory={inventory || []} onToast={setToast} />
         {GROUPS.map((g) => (
           <Group key={g.title} title={g.title}>
             {g.items.map(([href, label, note], i) => (

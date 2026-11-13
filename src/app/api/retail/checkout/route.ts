@@ -6,7 +6,8 @@ import { getRetailSecrets } from '@/lib/retail-secrets';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { soldForOf } from '@/lib/renter-sales';
 import { itemGroundOnly } from '@/lib/ground-only';
-import { normaliseIfUnavailable } from '@/lib/retail-swap';
+import { normaliseIfOut, perItemOn, swapDefault, type SwapHow } from '@/lib/retail-swap';
+import { swapCandidate } from '@/lib/retail-swap-server';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
@@ -123,7 +124,7 @@ interface CheckoutBody {
   deliveryNote?: string;         // where it can be left (when the shop allows a note)
   shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string; days?: number | null; facts?: string };
   tenantId?: string;
-  items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
+  items?: { productId?: string; qty?: number; selections?: Record<string, string>; ifOut?: { how?: string; backupId?: string } }[];
   method?: string;
   customer?: { name?: string; email?: string; phone?: string };
   shippingAddress?: ShippingAddress;
@@ -208,7 +209,7 @@ async function handleCheckout(req: NextRequest) {
   // stay two lines (each priced, stock-checked and held as itself). Chosen options travel with the cart line; the
   // server re-prices them from the item document, so what the client sends is a selection, never a price.
   const stableSel = (sel: any) => (sel && typeof sel === 'object') ? JSON.stringify(Object.keys(sel).sort().map((k) => [k, String(sel[k])])) : '';
-  const cartEntries: { productId: string; qty: number; selections?: Record<string, string> }[] = [];
+  const cartEntries: { productId: string; qty: number; selections?: Record<string, string>; ifOut?: { how: SwapHow; backupId?: string } | null }[] = [];
   const entryByKey = new Map<string, number>();
   for (const it of rawItems) {
     const id = String(it.productId || '').trim();
@@ -219,8 +220,10 @@ async function handleCheckout(req: NextRequest) {
     const sel = it.selections && typeof it.selections === 'object' ? it.selections as Record<string, string> : undefined;
     const key = `${id}|${stableSel(sel)}`;
     const at = entryByKey.get(key);
-    if (at != null) cartEntries[at].qty += qty;
-    else { entryByKey.set(key, cartEntries.length); cartEntries.push({ productId: id, qty, selections: sel }); }
+    // What the customer wants if this item is out (lib/retail-swap): checked against the catalog below.
+    const ifOut = normaliseIfOut((it as any).ifOut);
+    if (at != null) { cartEntries[at].qty += qty; if (ifOut && !cartEntries[at].ifOut) cartEntries[at].ifOut = ifOut; }
+    else { entryByKey.set(key, cartEntries.length); cartEntries.push({ productId: id, qty, selections: sel, ifOut }); }
   }
   if (cartEntries.length > 60) return NextResponse.json({ error: 'That cart is too large for one order.' }, { status: 400 });
 
@@ -432,6 +435,23 @@ async function handleCheckout(req: NextRequest) {
     { const sf = soldForOf(item); if (sf) (line as any).soldFor = sf; }
     // Sold to licensed pros only (the listing's setting, or the variant's own): checked against a license on file below.
     if (listing.prosOnly === true || (variant as any)?.prosOnly === true) (line as any).prosOnly = true;
+    // IF IT'S OUT WHEN PACKED (lib/retail-swap): a product the shop never swaps is refunded; otherwise the customer's
+    // own choice for this item, a backup checked here against the catalog (sold online, in stock, never dearer than
+    // this line), as the swap at packing checks it again. A download or a pre-order is never "out" at the shelf.
+    if (item.digital !== true && line.preorder !== true) {
+      if (listing.noSwap === true || (variant as any)?.noSwap === true) (line as any).noSwap = true;
+      else {
+        const want = cartEntries[i].ifOut;
+        if (want && perItemOn(rsEarly)) {
+          if (want.how !== 'backup') (line as any).ifOut = { how: want.how };
+          else {
+            const c = await swapCandidate(db, tenantId, String(want.backupId), line, { priceTier, wholesaleDiscountPct: wsDiscount }, rsEarly);
+            if (!c.ok) return NextResponse.json({ error: `${lineName}: ${c.message}`, productId: listing.id, backup: true }, { status: 409 });
+            (line as any).ifOut = { how: 'backup', backupId: c.item.productId, backupName: c.item.name, backupPriceCents: c.item.unitPriceCents, ...(c.item.imageUrl ? { backupImage: c.item.imageUrl } : {}), ...(c.item.listingId ? { backupListingId: c.item.listingId } : {}) };
+          }
+        }
+      }
+    }
     lines.push(line);
   }
 
@@ -889,8 +909,10 @@ async function handleCheckout(req: NextRequest) {
     // exact failure this is here to prevent. Same shape as policySnapshot,
     // so anything that already reads one can read the other.
     ...(preorderAck ? { preorderAck } : {}),
-    // What the customer wants if an item turns out to be out of stock. Saying nothing means a refund.
-    ifUnavailable: normaliseIfUnavailable(body.ifUnavailable),
+    // What happens to an item the customer left as it is if it turns out to be out (each item's own choice rides on its
+    // line): their one choice for the order, else the shop's (Setup). Nobody is asked while packing any more, so an old
+    // page's "ask me first" gets the shop's choice.
+    ifUnavailable: body.ifUnavailable === 'refund' || body.ifUnavailable === 'similar' ? body.ifUnavailable : swapDefault(rsEarly) === 'refund' ? 'refund' : 'similar',
     // A gift: who it's for and their message. The recipient's exchange code is separate from the buyer's order code.
     ...(giftInfo && !digitalOnly ? { gift: { ...giftInfo, token: giftToken() } } : {}),
     ...(digitalGift ? { digitalGift } : {}),

@@ -16,6 +16,7 @@
 
 import { SoldForSection } from './SoldForSection';
 import { ProsOnlySection } from './ProsOnlySection';
+import { NoSwapSection } from './NoSwapSection';
 import { DigitalSection } from './DigitalSection';
 import { Section } from './ListingSection';
 import { BeforeStockSection, DocumentsSection, PhotosSection, VariantsSellSection, WholesaleSection } from './ListingExtras';
@@ -284,6 +285,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
 
       <SoldForSection product={product} onSave={onSave} />
       <ProsOnlySection product={product} onSave={onSave} />
+      <NoSwapSection product={product} onSave={onSave} />
 
       <PhotosSection product={product} onSave={onSave} />
 

@@ -113,6 +113,8 @@ export function asSold(listing: any, variant: any): any {
   if (v.digital !== true && l.digital === true) Object.assign(out, { digital: true, digitalUrl: l.digitalUrl ?? null, digitalFilePath: l.digitalFilePath ?? null, digitalFileName: l.digitalFileName ?? null, digitalAccessDays: l.digitalAccessDays ?? null, digitalFiles: l.digitalFiles ?? null, digitalFormat: l.digitalFormat ?? null, digitalDelivery: l.digitalDelivery ?? null, digitalDownloadLimit: l.digitalDownloadLimit ?? null, digitalDeviceLimit: l.digitalDeviceLimit ?? null, digitalProtection: l.digitalProtection ?? null, license: l.license ?? null, licenseId: l.licenseId ?? l.license?.id ?? null });
   if (!(Number(v.leadDays?.max ?? v.leadDays?.min) > 0)) out.leadDays = l.leadDays ?? null;
   if (v.allowBackorder !== true && l.allowBackorder === true) out.allowBackorder = true;
+  // A listing the shop never swaps: none of its variants is swapped, or offered as a swap (lib/retail-swap).
+  if (v.noSwap !== true && l.noSwap === true) out.noSwap = true;
   for (const k of ['weightOz', 'lengthIn', 'widthIn', 'heightIn']) if (!(Number(v[k]) > 0) && Number(l[k]) > 0) out[k] = l[k];
   out.shipGroundOnly = v.shipGroundOnly === true || l.shipGroundOnly === true;
   if (!(Array.isArray(v.documents) && v.documents.length)) out.documents = l.documents;

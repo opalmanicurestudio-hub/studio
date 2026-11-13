@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { changesNote } from '@/lib/pack-changes';
 import { staffOrServer } from '@/lib/route-guard';
 import { sendTenantSms } from '@/lib/sms';
 import { tenantPrivate, withPrivate } from '@/lib/tenant-private';
@@ -141,9 +142,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, sent: res.ok === true });
     }
 
+    // What changed while it was packed (lib/pack-changes), told once, here, with the ready text.
+    const changed = moment === 'ready' ? changesNote((await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {}).short : '';
     const message = moment === 'ready'
       // Said plainly, because they may be reading it while driving.
-      ? `${hi}your order ${num} is ready. Please park out front and tap "I'm here" on your order link, or scan the sign at your parking spot.`
+      ? `${hi}your order ${num} is ready.${changed ? ` ${changed}` : ''} Please park out front and tap "I'm here" on your order link, or scan the sign at your parking spot.`
       : `${hi}we are bringing order ${num} out to you now${claimed.spot ? ` (${claimed.spot})` : ''}.`;
 
     const res = await sendTenantSms(

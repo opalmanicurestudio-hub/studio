@@ -9,7 +9,7 @@
 // Cart contents live in localStorage (shop-cart) and are shared with the
 // storefront, so nothing about adding to cart changed.
 
-import { IF_UNAVAILABLE, type IfUnavailable } from '@/lib/retail-swap';
+import { IfOutSection, rememberedBackups, type IfOutChoice } from '@/components/shop/IfOutSection';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -202,7 +202,10 @@ export default function CheckoutPage() {
     if (!licenseNeeded || !licenseRef.current) return;
     licenseRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' }); licenseRef.current.focus({ preventScroll: true });
   }, [licenseNeeded]);
-  const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
+  // If something's out (lib/retail-swap): each item's own choice, kept by its cart key, and one choice for the whole
+  // order (null: the shop's own, from Setup).
+  const [ifOut, setIfOut] = useState<Record<string, IfOutChoice>>({});
+  const [orderWide, setOrderWide] = useState<'match' | 'refund' | null>(null);
   const [isGift, setIsGift] = useState(() => search?.get('gift') === '1'); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
   // A download given as a gift (lib/digital-gift): it goes by email to the person it's for, today or on a chosen day.
   const [giftEmail, setGiftEmail] = useState(''); const [giftOn, setGiftOn] = useState('');
@@ -326,6 +329,22 @@ export default function CheckoutPage() {
   // delivery method (or an address) reads as a broken shop, and that's where
   // abandoned carts come from. The server already accepts this shape.
   const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) => lineOf(key)?.digital === true);
+  // The items a choice is asked for if they're out: not a download, not a pre-order (never "out" at the shelf).
+  const ifOutItems = cartEntries.filter(([key]) => { const l: any = lineOf(key); return l && l.digital !== true && l.preorder?.open !== true; }).map(([key]) => {
+    const k = parseCartKey(key); const p: any = byId.get(k.productId) || {}; const l: any = lineOf(key) || {};
+    return { key, productId: k.productId, selections: k.selections, name: String(p.name || 'Item'), label: l.label || '', imageUrl: (Array.isArray(p.imageUrls) && p.imageUrls[0]) || p.imageUrl || '', unitCents: Number(l.unitCents) || 0 };
+  });
+  // What goes with each item: its own choice, a backup only once one is picked (else the shop's choice applies).
+  const ifOutFor = (key: string) => { const c = ifOut[key]; if (!c || (c.how === 'backup' && !c.backupId)) return undefined; return c.how === 'backup' ? { how: 'backup', backupId: c.backupId } : { how: c.how }; };
+  // Backups kept on this device from last time, for what's in the cart now (checked again at checkout).
+  const ifOutSeeded = React.useRef(false);
+  useEffect(() => {
+    if (ifOutSeeded.current || !ifOutItems.length) return;
+    ifOutSeeded.current = true;
+    const kept = rememberedBackups(tenantId);
+    const found = Object.fromEntries(ifOutItems.filter((it) => kept[it.key]?.how === 'backup' && kept[it.key]?.backupId).map((it) => [it.key, kept[it.key]]));
+    if (Object.keys(found).length) setIfOut((m) => ({ ...found, ...m }));
+  }, [ifOutItems.length, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   // A wholesale order's sales tax, as checkout will decide it (lib/wholesale-tax): tax free only with the buyer's own
   // email, signed in. Nothing is said about a shipped order's state until there's one to judge.
   const wsTax = wholesale && shop?.wholesaleTax ? taxFreeOnShop(shop.wholesaleTax, email, method, addr.state, digitalOnlyCart) : null;
@@ -639,7 +658,7 @@ export default function CheckoutPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
-          items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
+          items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty, ...(!wholesale && ifOutFor(key) ? { ifOut: ifOutFor(key) } : {}) })),
           tipCents,
           pickupAt: !digitalOnlyCart && method !== 'ship' && method !== 'delivery' && shop?.scheduledPickup && !timedPickup ? pickupChoice : '',
           pickupWindowKey: timedPickup ? pickupKey : undefined,
@@ -658,7 +677,7 @@ export default function CheckoutPage() {
           // The ship-by date the pre-order notice showed, so the order is never stored with a different one.
           preorderShownAt: hasPreorder ? notice?.promiseAt || undefined : undefined,
           shownShipBy: chosenDates ? (serverShipBy && serverShipBy !== chosenDates.shipBy ? serverShipBy : chosenDates.shipBy) : undefined,
-          ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
+          ifUnavailable: digitalOnlyCart || !orderWide ? undefined : orderWide === 'match' ? 'similar' : 'refund',
           gift: isGift ? (digitalOnlyCart ? { isGift: true, to: giftTo.trim(), toEmail: giftEmail.trim(), sendOn: giftOn || undefined, message: giftMsg.trim() } : { isGift: true, to: giftTo.trim(), message: giftMsg.trim() }) : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...(extra?.address || addr), country: 'US' }
@@ -691,6 +710,8 @@ export default function CheckoutPage() {
         if (data.deliveryFull || data.deliveryProblem) void loadDelivery(data.error || '');
         // The ship-by date moved while they were paying: the screen catches up, and the date named is the one sent.
         if (data.datesChanged) { setClock(new Date(Date.now() + clockOffset)); setServerShipBy(String(data.shipBy || '')); }
+        // A backup that can't be used any more (sold out, or now dearer): that item goes back to the shop's choice.
+        if (data.backup && data.productId) setIfOut((m) => Object.fromEntries(Object.entries(m).filter(([k, c]) => !(c.how === 'backup' && parseCartKey(k).productId === String(data.productId)))));
         throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
       }
       window.location.href = data.url;
@@ -1139,18 +1160,9 @@ export default function CheckoutPage() {
               </div>
             )}
             {!digitalOnlyCart && (
-              <div className="space-y-1.5" role="radiogroup" aria-label="If something is out of stock">
-                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">If something is out of stock</span>
-                {IF_UNAVAILABLE.map((o) => (
-                  <button key={o.id} type="button" role="radio" aria-checked={ifUnavailable === o.id} onClick={() => setIfUnavailable(o.id)}
-                    className={cn('flex w-full items-start gap-2.5 rounded-2xl border-2 p-3 text-left transition-all', ifUnavailable === o.id ? 'border-foreground/60 bg-muted/20' : 'bg-white')}>
-                    <span className={cn('mt-0.5 h-4 w-4 shrink-0 rounded-full border-2', ifUnavailable === o.id ? 'border-[5px] border-foreground' : 'border-muted-foreground/40')} />
-                    <span className="min-w-0">
-                      <span className="block text-[11px] font-black uppercase tracking-widest">{o.label}</span>
-                      <span className="block text-[11px] font-bold text-muted-foreground">{o.id === 'ask' ? (phone.trim() ? 'We text you a suggestion. No answer in 2 hours means a refund.' : 'We email you a suggestion. Add a phone number above to get a text instead.') : o.note}</span>
-                    </span>
-                  </button>))}
-              </div>
+              <IfOutSection tenantId={tenantId} items={ifOutItems} perItem={shop?.swaps?.perItem !== false && !wholesale} shopDefault={shop?.swaps?.default === 'refund' ? 'refund' : 'match'}
+                choices={ifOut} onChoose={(k, c) => setIfOut((m) => { const n = { ...m }; if (c) n[k] = c; else delete n[k]; return n; })}
+                orderWide={orderWide || (shop?.swaps?.default === 'refund' ? 'refund' : 'match')} onOrderWide={setOrderWide} />
             )}
             {!digitalOnlyCart && (
               <div className="space-y-2 rounded-2xl border-2 bg-white p-3">

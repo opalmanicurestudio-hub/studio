@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { changesNote } from '@/lib/pack-changes';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
@@ -48,15 +49,18 @@ export async function POST(req: NextRequest) {
     const popupNo = Number(o.popupNumber) > 0 ? Number(o.popupNumber) : 0;
     if (popupNo) {
       const where = String(o.popupName || 'the pop-up');
-      const text = `Hi ${first}, No. ${popupNo} is ready. Come up to the table at ${where}.`;
+      const ch = changesNote(o).short;
+      const text = `Hi ${first}, No. ${popupNo} is ready.${ch ? ` ${ch}` : ''} Come up to the table at ${where}.`;
       if (o.customerPhone) { const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `${text} ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); texted = r.ok === true; if (r.status === 'failed') failed = true; }
       if (o.customerEmail) { const brand = await getEmailBrand(db, tenantId); const r = await sendNotification(db, { tenantId, channel: 'email', to: String(o.customerEmail), subject: `No. ${popupNo} is ready`, text: `${text} ${link}`, html: brandedEmail(brand, `<p style="font-size:14px;color:#16171a;margin:0 0 8px">${esc(text)}</p>${emailButton(link, 'Open my order', brand)}`), kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); emailed = r.ok === true; if (r.status === 'failed') failed = true; }
       if (!texted && !emailed && failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text and email services didn’t take it.' }, { status: 503 }); }
       return NextResponse.json({ ok: true, sent: texted || emailed, texted });
     }
+    // What changed while it was packed (lib/pack-changes): told once, here, with the ready message.
+    const changed = changesNote(o);
     if (o.customerPhone) {
       // Through lib/notify, so it becomes the one nudge to the order page (lib/order-inbox) like every order message.
-      const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `Hi ${first}, your order ${num} from ${shop} is ready for pickup${address ? ` at ${address}` : ''}. Show the code on your order page at the counter: ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, orderId } as any);
+      const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `Hi ${first}, your order ${num} from ${shop} is ready for pickup${address ? ` at ${address}` : ''}.${changed.short ? ` ${changed.short}` : ''} Show the code on your order page at the counter: ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, orderId } as any);
       texted = r.ok === true; if (r.status === 'failed') failed = true;
     }
     if (o.customerEmail) {
@@ -64,6 +68,7 @@ export async function POST(req: NextRequest) {
       const html = brandedEmail(brand, `
         <p style="font-size:14px;color:#16171a;margin:0 0 8px">Hi ${esc(first)},</p>
         <p style="font-size:14px;color:#334155;line-height:1.6">Your order is ready and waiting for you${o.shelfSlot ? ` on shelf ${esc(String(o.shelfSlot))}` : ''}. Show the pickup code on your order page at the counter.</p>
+        ${changed.lines.length ? `<p style="font-size:14px;color:#334155;line-height:1.6;margin:12px 0">${changed.lines.map((x) => esc(x)).join('<br>')}</p>` : ''}
         ${address ? `<p style="font-size:14px;color:#334155;line-height:1.6;margin:12px 0"><strong>Where:</strong> ${esc(address)}</p>` : ''}
         ${holdDays ? `<p style="font-size:13px;color:#6d7075;line-height:1.6">We’ll hold it for ${holdDays} days.</p>` : ''}
         ${emailButton(link, 'Show my pickup code', brand)}

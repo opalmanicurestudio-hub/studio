@@ -35,6 +35,7 @@ import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/
 import { formatDay } from '@/lib/tenant-time';
 import { claimWaiting, customerClaimStatus, unitsOpen } from '@/lib/claim-view';
 import { CustomerReturns } from '@/components/shop/CustomerReturns';
+import { changesNote } from '@/lib/pack-changes';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -1486,6 +1487,17 @@ export default function OrderStatusPage() {
                   )}
                 </div>
               );
+            })()}
+            {(() => {
+              // What changed while it was packed, and the one refund (lib/pack-changes), as their message said it.
+              if (!['packed', 'ready', 'arrived', 'out', 'shipped', 'delivered', 'completed', 'collected'].includes(String(order.stage))) return null;
+              // The refund's timing only while it's still news (two weeks from packing).
+              const note = changesNote(order, { money: Date.now() - Date.parse(String((order as any).packedAt || '')) < 14 * 86400e3 });
+              if (!note.lines.length) return null;
+              return (
+                <div className="rounded-2xl p-3 text-[14px] leading-relaxed" style={{ background: '#f5f5f7', color: '#16171a' }}>
+                  {note.lines.map((x, i) => <p key={i} className="m-0" style={i === note.lines.length - 1 && /refund/.test(x) ? { color: '#1f7a4d', fontWeight: 600 } : undefined}>{x}</p>)}
+                </div>);
             })()}
             <div className="space-y-2.5">
               {order.lines.map((l, i) => (

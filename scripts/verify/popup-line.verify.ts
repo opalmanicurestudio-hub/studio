@@ -99,7 +99,7 @@ const today = new Date().toISOString().slice(0, 10);
   console.log('the number, the sign');
   check('the line’s tries are limited per visitor', /limitPublic\(req, 'popup-order', tenantId, \{ perHour: 15, perDay: 0 \}\)/.test(src('src/app/api/retail/checkout/route.ts')));
   const ready = src('src/app/api/retail/ready-notify/route.ts'); const conf = src('src/lib/retail-webhook.ts');
-  check('ready and confirmed: the number and the table, never the shop’s address or a pickup time', /No\. \$\{popupNo\} is ready\. Come up to the table at \$\{where\}\./.test(ready) && /Your number is <strong>\$\{popupNo\}<\/strong>/.test(conf) && /const pickupNote = popupNo/.test(conf));
+  check('ready and confirmed: the number and the table, never the shop’s address or a pickup time', /No\. \$\{popupNo\} is ready\.\$\{ch \? ` \$\{ch\}` : ''\} Come up to the table at \$\{where\}\./.test(ready) && /Your number is <strong>\$\{popupNo\}<\/strong>/.test(conf) && /const pickupNote = popupNo/.test(conf));
   check('the line’s page: products for licensed pros are ordered at the table', /const atTable = it\.prosOnly/.test(src('src/app/shop/[tenantId]/popup/[popupId]/page.tsx')) && /!out && !atTable && \(n \?/.test(src('src/app/shop/[tenantId]/popup/[popupId]/page.tsx')));
   check('the sign only for a real pop-up with the pickup tools on', /if \(p\.marker \|\| !p\.day \|\| !moduleEnabled\(tenant, 'pickup'\)\)/.test(src('src/app/print/popup-sign/[tenantId]/[popupId]/page.tsx')));
   const status = src('src/app/api/retail/order-status/route.ts'); const page = src('src/app/shop/[tenantId]/order/[orderId]/page.tsx');
