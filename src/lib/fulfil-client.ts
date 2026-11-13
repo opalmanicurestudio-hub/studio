@@ -58,7 +58,9 @@ export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor:
 export const handoffByPin = (tenantId: string, orderId: string, pin: string, bags?: string[], bagPin?: string) => step<Ans & { orderNumber?: number; collector?: string | null; locked?: boolean; needBags?: boolean }>(tenantId, 'handoffPin', { orderId, pin, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
 export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor, bags?: string[], bagPin?: string) => step<Ans & { needBags?: boolean }>(tenantId, 'handoffNoScan', { orderId, verifiedBy, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
 /** Local delivery (lib/retail-fulfill): out with the person signed in as the driver, delivered, or brought back. */
-export const markOutForDelivery = (tenantId: string, orderId: string) => step(tenantId, 'deliveryOut', { orderId });
+export const markOutForDelivery = (tenantId: string, orderId: string, bags?: string[], bagPin?: string) => step<Ans & { needBags?: boolean; badBagPin?: boolean }>(tenantId, 'deliveryOut', { orderId, ...(bags ? { bags } : {}), ...(bagPin ? { bagPin } : {}) });
+/** The order's bags scanned onto their spot on the ready shelf (checked on the server, lib/bag-tag). */
+export const putAway = (tenantId: string, orderId: string, bags: string[], spot: string) => step<Ans & { needBags?: boolean; spot?: string }>(tenantId, 'putAway', { orderId, bags, spot });
 export const markDelivered = (tenantId: string, orderId: string, proof: { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean } = {}) =>
   step<Ans & { needs?: 'photo' | 'pin'; locked?: boolean }>(tenantId, 'deliveryDone', { orderId, ...proof });
 export const markDeliveryFailed = (tenantId: string, orderId: string, reason: string, code?: string) => step(tenantId, 'deliveryFailed', { orderId, reason, code });

@@ -47,3 +47,23 @@ export function printToteTags(count = 12, paper: 'label' | 'sheet' = 'sheet'): b
   w.document.open(); w.document.write(toteTagHtml(1, count, paper)); w.document.close();
   return true;
 }
+
+// Ready-shelf spots: the spot in large type and a barcode of SPOT-A3 (lib/bag-tag), one per 3 × 2 in label, or a sheet
+// of them on letter paper. Putting an order away is scanning its bags, then this label, so the shelf says where each
+// bag is. Every spot the shelf hands out (A1 to F12) and Overflow, unless fewer are asked for.
+export function pickupSpotHtml(spots: string[], paper: 'label' | 'sheet' = 'sheet'): string {
+  const tags = spots.filter((s) => s.trim()).map((spot) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    try { JsBarcode(svg, `SPOT-${spot.toUpperCase()}`, { format: 'CODE128', displayValue: false, margin: 0, height: 50, width: 2 }); } catch { /* the spot still prints */ }
+    return `<div class="g"><div class="t"><span>Ready shelf</span><b${spot.length > 3 ? ' style="font-size:44px"' : ''}>${esc(spot)}</b></div>${svg.outerHTML}</div>`;
+  });
+  const page = paper === 'label' ? '@page{size:3in 2in;margin:0}.g{page-break-after:always}' : '@page{size:letter;margin:0.4in}body{display:grid;grid-template-columns:repeat(2,3in);gap:0.2in 0.4in;justify-content:center}.g{border:1px dashed #c9cacd;border-radius:14px}';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Ready shelf spots</title>${FONT_LINK}<style>${page}*{box-sizing:border-box}body{margin:0;font-family:${PRINT_FONT_STACK};font-weight:400;color:#000}.g{width:3in;height:2in;padding:0.12in 0.16in;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;break-inside:avoid}.t{display:flex;justify-content:space-between;align-items:center;gap:8px}.t span{font-size:14px;font-weight:500;white-space:nowrap}.t b{font-size:72px;line-height:1;font-weight:300;letter-spacing:-0.03em;font-variant-numeric:tabular-nums}svg{width:100%;height:0.6in}</style></head><body>${tags.join('')}${AUTO_PRINT}</body></html>`;
+}
+
+export function printPickupSpots(spots: string[], paper: 'label' | 'sheet' = 'sheet'): boolean {
+  const w = window.open('', '_blank');
+  if (!w) return false;
+  w.document.open(); w.document.write(pickupSpotHtml(spots, paper)); w.document.close();
+  return true;
+}

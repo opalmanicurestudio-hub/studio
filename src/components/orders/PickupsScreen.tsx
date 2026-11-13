@@ -29,6 +29,8 @@ import { mayEditContact } from '@/lib/contact-change';
 import { Btn, C, Empty, Initials, LargeTitle, ListRow, Seg, UndoBar, feel, muted, Ic } from './ui';
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
 import { HandoverSheet } from './HandoverSheet';
+import { PutAwaySheet } from './PutAwaySheet';
+import { needsPutAway } from '@/lib/bag-tag';
 import { useWide, useWidest } from './shell';
 import { BAGGED, hasProsOnly, isHere, isPickup, licenseLapsed, localDay, minutesAway, onTheWay, pickupLists, shortName, soonSent, soonText, type PickupTab } from '@/lib/pickups-view';
 import { useArrivalAlerts } from './use-arrival-alerts';
@@ -57,6 +59,7 @@ export function PickupsScreen() {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [focus, setFocus] = React.useState<{ tab: WorkTab; n: number } | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
+  const [putting, setPutting] = React.useState(false);
   const [toast, setToast] = React.useState('');
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
@@ -82,6 +85,8 @@ export function PickupsScreen() {
   // (Every active order is kept, shipping ones too: the bag list says which order a scanned item belongs to, and an
   // order's links reach the customer's other orders. Only the lists are pickups.)
   const { here, coming, toBag, bagged, held } = pickupLists(orders, rs, now, shopZone);
+  // Orders on the ready shelf whose bags aren't scanned onto their spot yet (lib/bag-tag), deliveries waiting there too.
+  const toPut = orders.filter((o) => needsPutAway(o, rs)).length;
   const shown: Tab = tab ?? 'bag';
   const byId = new Map(orders.map((o) => [o.id, o]));
   // One that's just left the active stages (handed over, cancelled) stays open, live, until it's closed.
@@ -152,8 +157,14 @@ export function PickupsScreen() {
       </div>)
     : (
       <div className="px-4 pt-3">
+        {toPut > 0 && canHand && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
+            <p className="m-0 min-w-[180px] flex-1 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{toPut} to put away. </b>Scan each bag, then the spot it’s on.</p>
+            <Btn kind="primary" className="shrink-0" onClick={() => setPutting(true)}>Put away</Btn>
+          </div>)}
         {!bagged.length ? <Empty title="Nothing waiting" sub="Bagged orders wait here, with their shelf, until they’re collected." />
-          : <div className="overflow-hidden rounded-2xl" style={{ background: C.soft }}>{bagged.map((o) => row(o, [o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', methodLabel(o.method, rs), `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(', ')))}</div>}
+          : <div className="overflow-hidden rounded-2xl" style={{ background: C.soft }}>{bagged.map((o) => row(o, [o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', methodLabel(o.method, rs), `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(', '),
+            needsPutAway(o, rs) ? <span className="shrink-0 text-[14px] font-semibold" style={{ color: C.warn }}>Not put away</span> : undefined))}</div>}
       </div>);
 
   const panel = open && (
@@ -174,6 +185,7 @@ export function PickupsScreen() {
       )}
       {!wide && panel}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
+      {putting && <PutAwaySheet tenantId={tenantId} orders={orders} rs={rs} onClose={() => setPutting(false)} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? 32 : 40} />}
     </div>);
 }

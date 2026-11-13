@@ -4,8 +4,13 @@
 // search that also takes a scanned code (Enter adds it), departments for the tools you use, and category chips.
 // With `tenantId`, the pickup window's numbers too (lib/pickup-window, api/retail/window 'numbers'): a product on the
 // window shows its number, and typing the number ("3", "#3", "no. 3") finds it, the way a customer orders at the window.
+// While the shop scans at the register (lib/register-scan), tapping a product with a barcode asks for its scan instead of
+// adding it (RegisterScanSheet), so the item in the customer's hand is the one that's sold.
 import * as React from 'react';
-import { isSellable, onHand, variantsOf } from '@/lib/pos-scan';
+import { deskBook, isSellable, onHand, variantsOf } from '@/lib/pos-scan';
+import { useTenant } from '@/context/TenantContext';
+import { mustScanAtRegister } from '@/lib/register-scan';
+import { RegisterScanSheet, type NoScan, type RegisterAdd } from '@/components/pos/RegisterScanSheet';
 import { choiceFor, deskPrice, listingsOf, variantIdsOf } from '@/lib/variants';
 import { spokenNumber } from '@/lib/menu-numbers';
 
@@ -14,7 +19,7 @@ type Dept = 'products' | 'services' | 'memberships' | 'packages';
 
 export function PosCatalog({ inventory, services, memberships, packages, cart, onAdd, onScan, compact, tenantId }: {
   inventory: any[]; services?: any[]; memberships?: any[]; packages?: any[]; cart?: any[];
-  onAdd: (item: any) => void; onScan?: (code: string) => void; compact?: boolean; tenantId?: string | null;
+  onAdd: (item: any, noScan?: NoScan) => void; onScan?: (code: string) => void; compact?: boolean; tenantId?: string | null;
 }) {
   // The window's numbers (read once; none when it has no window or this can't be read).
   const [nums, setNums] = React.useState<Record<string, number>>({});
@@ -26,6 +31,19 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   }, [tenantId]);
   // Variants appear inside their listing, priced as the shop prices them (lib/variants).
   const listings = React.useMemo(() => listingsOf(inventory || []), [inventory]);
+  // The register's scan rule: a product with a barcode is added by its scan.
+  const { selectedTenant } = useTenant() as any;
+  const rs = selectedTenant?.retailSettings || {};
+  const book = React.useMemo(() => deskBook(inventory || []), [inventory]);
+  const [scanFor, setScanFor] = React.useState<any | null>(null);
+  const [said, setSaid] = React.useState('');
+  React.useEffect(() => { if (!said) return; const t = setTimeout(() => setSaid(''), 7000); return () => clearTimeout(t); }, [said]);
+  const nameFor = (i: any) => { const l = listings.get(String(i?.id)); const c = l ? choiceFor(l, String(i.id))?.choice.label : ''; return l ? `${l.name}${c ? `, ${c}` : ''}` : String(i?.name || 'this item'); };
+  const add = (i: any) => { if (dept === 'products' && mustScanAtRegister(i, rs)) { setScanFor(i); return; } onAdd(i); };
+  const added = (a: RegisterAdd) => {
+    setScanFor(null); onAdd(a.item, a.how === 'approved' && a.token ? { token: a.token, by: a.approver?.name || '', reason: a.reason || '' } : undefined);
+    setSaid(a.note || (a.how === 'approved' ? `${nameFor(a.item)} added without a scan, approved by ${a.approver?.name || 'a manager'}.` : ''));
+  };
   const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !listings.has(String(i.id))), [inventory, listings]);
   const isListing = (i: any) => dept === 'products' && variantIdsOf(i).length > 0;
   const depts = ([['products', 'Products', products.length], ['services', 'Services', (services || []).length], ['memberships', 'Memberships', (memberships || []).filter((m: any) => !m.isPrivate).length], ['packages', 'Packages', (packages || []).filter((p: any) => !p.isPrivate).length]] as [Dept, string, number][]).filter(([, , n]) => n > 0);
@@ -51,10 +69,11 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const submit = () => { const v = q.trim(); if (!v) return;
     const exact = base.filter((i: any) => [i.sku, i.barcode].some((c) => c && String(c).toLowerCase() === v.toLowerCase()));
     if (onScan && (exact.length || /^[A-Za-z0-9:/._-]{6,}$/.test(v) && !shown.length)) { onScan(v); setQ(''); return; }
-    if (shown.length === 1 || byNumber.length === 1) { const only = byNumber.length === 1 ? byNumber[0] : shown[0]; if (isListing(only)) setOpenParent(only.id); else { onAdd(only); setQ(''); } } };
+    if (shown.length === 1 || byNumber.length === 1) { const only = byNumber.length === 1 ? byNumber[0] : shown[0]; if (isListing(only)) setOpenParent(only.id); else { add(only); setQ(''); } } };
   const tile = 'relative flex flex-col overflow-hidden rounded-2xl text-left transition active:scale-[.98]';
   return (
     <div className="space-y-3">
+      {said && <p role="status" className="m-0 rounded-2xl px-4 py-3 text-[14px]" style={{ background: 'var(--soft)' }}>{said}</p>}
       <div className="flex gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key !== 'Enter') return;
             // A handheld scanner typing here was already heard by the desk's scanner listener (it stops the Enter), so
@@ -74,7 +93,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
             const img = i.imageUrl || (Array.isArray(i.imageUrls) ? i.imageUrls[0] : null); const n = inCart(i.id) + vs.reduce((s: number, v: any) => s + inCart(v.id), 0);
             const opened = openParent === i.id;
             return <div key={i.id} className={opened ? 'col-span-full' : ''}>
-              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : onAdd(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a variant of' : 'Add'} ${dept === 'products' && nums[String(i.id)] ? `number ${nums[String(i.id)]}, ` : ''}${i.name}`}>
+              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : add(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a variant of' : 'Add'} ${dept === 'products' && nums[String(i.id)] ? `number ${nums[String(i.id)]}, ` : ''}${i.name}`}>
                 {!compact && <div className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden" style={{ background: 'var(--soft)' }}>
                   {img ? <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" /> : <span className="text-[28px] font-semibold" style={{ color: 'var(--muted)' }}>{String(i.name || '?').slice(0, 1).toUpperCase()}</span>}</div>}
                 <div className="space-y-0.5 p-2.5">
@@ -88,7 +107,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
                 {n > 0 && <span className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[12px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{n} in this sale</span>}
               </button>
               {opened && <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {vs.map((v: any) => <button key={v.id} type="button" onClick={() => onAdd(v)} className="rounded-2xl p-3 text-left" style={{ background: 'var(--soft)', border: inCart(v.id) ? '1px solid var(--accent)' : '1px solid transparent' }}>
+                {vs.map((v: any) => <button key={v.id} type="button" onClick={() => add(v)} className="rounded-2xl p-3 text-left" style={{ background: 'var(--soft)', border: inCart(v.id) ? '1px solid var(--accent)' : '1px solid transparent' }}>
                   <span className="block text-[14px] font-semibold">{choiceFor(i, String(v.id))?.choice.label || v.name}</span>
                   <span className="block text-[13px] tabular-nums">{priceText(v)}</span>{stockPill(v)}{inCart(v.id) ? <span className="block text-[12px] font-semibold">{inCart(v.id)} in this sale</span> : null}
                 </button>)}
@@ -97,6 +116,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
           })}
         </div>}
       {shown.length > limit && <button type="button" onClick={() => setLimit((n) => n + 60)} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Show more ({shown.length - limit})</button>}
+      {scanFor && <RegisterScanSheet tenantId={String(selectedTenant?.id || tenantId || '')} item={scanFor} label={nameFor(scanFor)} book={book} onAdd={added} onClose={() => setScanFor(null)} />}
     </div>
   );
 }

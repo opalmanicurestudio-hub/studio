@@ -899,6 +899,20 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       heldApprovedBy = ok.approverName;
     }
   }
+  // Items added at the register without a scan (lib/register-scan), each on a manager's PIN given at the desk: kept on
+  // that item's sale, so the record says who let it through and why. It's a record, not a permission (the PIN was checked
+  // when it was given), so an approval from earlier in the day still counts; each is marked used in the same write as
+  // the sale, so a sale that stops before then leaves it to be used by the retry, and it's never on two sales.
+  const noScanBy: Record<string, { by: string; reason: string | null }[]> = {};
+  const noScanRefs: any[] = [];
+  for (const x of (Array.isArray(b.noScan) ? b.noScan : []).slice(0, 60)) {
+    const pid = String(x?.productId || '').slice(0, 160); const aid = String(x?.approvalToken || '');
+    if (!pid || !/^[A-Za-z0-9]{10,40}$/.test(aid) || noScanRefs.some((r: any) => r.id === aid)) continue;
+    if (!items.some((it: any) => it.type === 'product' && String(it.id) === pid)) continue;
+    const aRef = db.doc(`${T0}/approvals/${aid}`); const a: any = (await aRef.get()).data();
+    if (!a || a.status !== 'approved' || a.used || a.kind !== 'item_without_scan' || a.ref !== pid || !(Date.now() - Date.parse(String(a.createdAt || '')) < 12 * 3600_000)) continue;
+    noScanRefs.push(aRef); (noScanBy[pid] = noScanBy[pid] || []).push({ by: String(a.approverName || ''), reason: a.reason || null });
+  }
   // The "up to" price the client agreed (before the visit or in person) — the work can't go over it unless they agreed again.
   for (const [idx, v] of visits.entries()) {
     const o = overCeiling(v.appointment, workOf(calc.visits[idx]));
@@ -908,6 +922,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
 
   // ── Write it all, together ──
   const batch = db.batch();
+  for (const r of noScanRefs) batch.update(r, { used: true, usedAt: new Date().toISOString() });
   // A shared service: the visit names an assistant and their share (Appointment → "Assisted by"); the main service line
   // carries it so both people's pay splits the credit (lib/commission → splitShare).
   // Only an assistant who earns commission takes a share — someone paid by the hour is already paid for that time
@@ -982,7 +997,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const value = it.price * it.quantity;
     const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
     const description = it.type === 'giftcard' ? `Gift card sold: ${it.name}` : it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
-    txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.listingId ? { listingId: it.listingId } : {}), ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
+    txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.listingId ? { listingId: it.listingId } : {}), ...(it.type === 'product' && noScanBy[String(it.id)]?.length ? { addedWithoutScan: noScanBy[String(it.id)].slice(0, Math.max(1, it.quantity)) } : {}), ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
       // The batches move too (soonest-expiring first, lib/retail-orders), so lots and expiry stay true for in-store sales.
       let batchPatch: any = {}; let inv: any = null;

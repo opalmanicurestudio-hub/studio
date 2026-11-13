@@ -9,6 +9,7 @@ import {
 } from '@/lib/fulfil-client';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { goesInBags, shelfScanOn } from '@/lib/bag-tag';
 
 export type Result = { ok: boolean; message: string };
 
@@ -80,8 +81,9 @@ export async function finishPacking(fs: Firestore, t: string, o: any, all: any[]
   if (!r.ok) return { ok: true, message: `Packed. ${r.message}` };
   const slot = nextFreeSlot(all.filter((x) => x.id !== o.id));
   try { await updateDoc(doc(fs, `tenants/${t}/retailOrders`, o.id), { shelfSlot: slot }); } catch { /* a missing spot is cosmetic */ }
-  // The customer is told it's ready by the server, as it marks it ready (api/retail/fulfil).
-  return { ok: true, message: `Ready. Put it on shelf ${slot}.`, slot };
+  // The customer is told it's ready by the server, as it marks it ready (api/retail/fulfil). While the shop scans bags
+  // onto the shelf (lib/bag-tag), the bags are scanned onto the spot as they're put there (Put away).
+  return { ok: true, message: shelfScanOn(rs) && goesInBags(o) && !o.popupId ? `Ready. Put it on shelf ${slot}, and scan its ${bags != null && bags > 1 ? 'bags' : 'bag'} onto it.` : `Ready. Put it on shelf ${slot}.`, slot };
 }
 
 export async function bringingOut(fs: Firestore, t: string, o: any, actor: Actor, photo?: string): Promise<Result> {

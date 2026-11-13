@@ -17,6 +17,8 @@ import { listingsOf, variantIdsOf } from '@/lib/variants';
 import { codeForm } from '@/lib/code-form';
 import { LAYOUTS, MAX_LABELS, SHOW_ALL, designUrlOk, drawLabel, expandCopies, labelContent, labelNote, labelRowsFromLink, labelable, perPage, placeLabels, type LabelRow, type LabelShow, type LabelSize } from '@/lib/product-labels';
 import { LabelMarks } from '@/components/inventory/LabelMarks';
+import { doc, writeBatch } from 'firebase/firestore';
+import { useFirebase } from '@/firebase';
 import { Btn, C, UndoBar, muted } from '@/components/orders/ui';
 
 type Row = LabelRow;
@@ -88,8 +90,18 @@ function LabelsScreen() {
   }, [find, items, listings]);
   const nameOf = (it: any) => { const c = labelContent(it, listings); return [c.name, c.sub].filter(Boolean).join(' · '); };
 
+  // A label with something to scan on it (its barcode, or the QR code) means the product has a barcode now: the register
+  // asks for its scan from then on (lib/register-scan), and it leaves the list of products with no barcode yet.
+  const { firestore } = useFirebase() as any;
+  const markPrinted = async () => {
+    const ids = list.filter((r) => r.qty > 0).map((r) => r.productId).filter((id) => { const c = contents.get(id); return !!c && ((show.barcode && !!c.code) || show.qr) && !byId.get(id)?.labelPrintedAt; });
+    if (!firestore || !tenantId || !ids.length) return;
+    const at = new Date().toISOString();
+    try { for (let i = 0; i < ids.length; i += 400) { const b = writeBatch(firestore); ids.slice(i, i + 400).forEach((id) => b.update(doc(firestore, `tenants/${tenantId}/inventory`, id), { labelPrintedAt: at })); await b.commit(); } } catch { /* the labels still print */ }
+  };
   const print = async () => {
     if (!copies.length || over) return;
+    void markPrinted();
     // The words are fitted to the app's typeface: it's loaded (both weights) before anything prints.
     try { const f = (document as any).fonts; await Promise.all([f?.load("400 8px 'Plus Jakarta Sans'"), f?.load("500 8px 'Plus Jakarta Sans'")]); await f?.ready; } catch { /* print anyway */ }
     window.print();
@@ -101,6 +113,7 @@ function LabelsScreen() {
       const r = await fetch('/api/inventory/labels', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, size, show, skip: size === 'sheet' ? skip : 0, design: design && hasDesign, rows: list.filter((r) => r.qty > 0 && contents.get(r.productId)) }) });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'The PDF didn’t download. Try again.'); }
+      void markPrinted();
       const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = 'product-labels.pdf';
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 8000);
     } catch (e: any) { setToast(e?.message || 'The PDF didn’t download. Try again.'); }

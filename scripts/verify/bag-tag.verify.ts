@@ -68,7 +68,7 @@ const fresh = async (rs: any = {}, x: any = {}) => {
     && Q.checkBagCode('t2', 'o1', c1) === null && Q.checkBagCode('t1', 'o1', c1.replace('o1.1.', 'o1.2.')) === null && Q.checkBagCode('t1', 'o1', 'clarityflow://order/o1.abcdef') === null);
   check('a tag numbered 0 isn’t a bag', B.parseBagCode('clarityflow://bag/o1.0.0123456789abcdef') === null);
   check('an order from the line at a pop-up isn’t bag-scanned (its table has no printer)', B.bagsToScan({ method: 'counter', lines: [line()], bagCount: 1, popupId: 'p1' }, {}) === 0);
-  check('the bag count is one of the order’s steps: a browser can’t change it (firestore.rules)', /function orderStepKeys\(\) \{[\s\S]{0,400}'bagCount'\]/.test(src('firestore.rules')));
+  check('the bag count is one of the order’s steps: a browser can’t change it (firestore.rules)', /function orderStepKeys\(\) \{[^}]{0,400}'bagCount'/.test(src('firestore.rules')));
   const rules = src('firestore.rules');
   const locked = (k: string) => new RegExp(`function (orderLockedKeys|orderStepKeys)\\(\\) \\{[^}]*'${k}'`).test(rules);
   check('…nor anything else the bag check reads (how it goes out, a pop-up, its items)', ['bagCount', 'method', 'popupId', 'lines'].every(locked), ['bagCount', 'method', 'popupId', 'lines'].filter((k) => !locked(k)));

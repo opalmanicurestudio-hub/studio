@@ -22,7 +22,7 @@ import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isF
 import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
 import { handoffRecord, pinKeyOf, pinMatches, PIN_TRIES, type HandoffMethod } from '@/lib/pickup-pass';
 import { lineCounts, tappedLines, type Approval } from '@/lib/scan-rule';
-import { bagsToScan, clampBags, goesInBags, parseBagCode } from '@/lib/bag-tag';
+import { bagsToLoad, bagsToScan, bagsToShelve, clampBags, goesInBags, parseBagCode, parseSpot } from '@/lib/bag-tag';
 import { checkBagCode } from '@/lib/order-qr';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
@@ -935,8 +935,7 @@ function completeHandoff(txn: any, fs: Firestore, tenantId: string, oRef: any, o
  *  once each of its bags' tags was scanned (signed codes, checked here). Checked before the customer's code, so a missing
  *  bag never costs them a try at it. Null when it's fine; otherwise what's still to scan. */
 export type BagOpts = { bags?: string[]; requireBags?: boolean; bagApprovedBy?: { id: string; name: string } | null };
-function missingBags(tenantId: string, order: any, orderId: string, opts: BagOpts): { need: number; message: string } | null {
-  const need = opts.requireBags ? bagsToScan(order, {}) : 0;
+function missingBags(tenantId: string, order: any, orderId: string, opts: BagOpts, need = opts.requireBags ? bagsToScan(order, {}) : 0): { need: number; message: string } | null {
   if (!need || opts.bagApprovedBy) return null;
   const got = new Set((Array.isArray(opts.bags) ? opts.bags : []).slice(0, 40).map((c) => checkBagCode(tenantId, orderId, String(c))).filter((n): n is number => n !== null && n <= need));
   const left = Array.from({ length: need }, (_, i) => i + 1).filter((n) => !got.has(n));
@@ -1062,6 +1061,41 @@ export async function handoffWithoutScan(
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+ * PUT AWAY — the bags scanned onto their spot on the ready shelf (lib/bag-tag)
+ * ════════════════════════════════════════════════════════════════════════════
+ * An order finished in bags waits on the ready shelf, for its customer or its driver. Putting it away is scanning each
+ * of its bags (their signed codes, checked here) and then the spot's label, so the shelf says where every bag is and a
+ * bag on the wrong spot is caught as it's put there (Walmart's pickup shelf works this way). There's no skipping it with a
+ * PIN: a tag that won't scan is reprinted. Done again, it moves the order to the new spot.
+ */
+export async function recordPutAway(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, opts: { bags?: string[]; spot?: string },
+): Promise<{ ok: boolean; message: string; needBags?: boolean; spot?: string }> {
+  const spot = parseSpot(String(opts.spot || ''));
+  if (!spot) return { ok: false, message: 'Scan the label on the shelf spot.' };
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (!['ready', 'arrived'].includes(String(order.stage))) return { ok: false, message: order.stage === 'completed' ? 'This order has been handed over.' : `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}, not on the ready shelf.` };
+      if (order.method === 'delivery' && order.delivery?.status === 'out') return { ok: false, message: 'This order is out for delivery.' };
+      const need = bagsToShelve(order, {});
+      if (!need) return { ok: false, message: 'This order’s bags have no tags to scan. Put it on the shelf as it is.' };
+      const miss = missingBags(tenantId, order, orderId, { bags: opts.bags, requireBags: true }, need);
+      if (miss) return { ok: false, needBags: true, message: miss.message };
+      const now = new Date().toISOString();
+      txn.update(oRef, clean({ shelfSlot: spot, putAway: { at: now, byId: actor.id, byName: actor.name, spot, bags: need } }) as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('put_away', actor, { shelf: spot, bags: need }));
+      return { ok: true, spot, message: `#${String(order.orderNumber ?? '').padStart(4, '0')} is on shelf ${spot}.` };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not put it away.' };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
  * LOCAL DELIVERY — out with a driver, delivered, or brought back (lib/delivery-plan)
  * ════════════════════════════════════════════════════════════════════════════
  * A delivery order is picked and packed like any other, then waits on the ready shelf for its driver. Going out
@@ -1069,9 +1103,15 @@ export async function handoffWithoutScan(
  * it is the sale, as handing over is for pickup. One brought back waits on the shelf again for another try.
  */
 
+/** The bags still to scan into the van for this delivery, in words; null when it can go (checked again in the step). */
+export function vanBagsMissing(tenantId: string, order: any, orderId: string, opts: BagOpts): string | null {
+  const miss = missingBags(tenantId, order, orderId, opts, opts.requireBags ? bagsToLoad(order, {}) : 0);
+  return miss ? miss.message.replace(' first', ' into the van first') : null;
+}
+
 export async function markOutForDelivery(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-): Promise<{ ok: boolean; message: string; tries?: number }> {
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, opts: BagOpts = {},
+): Promise<{ ok: boolean; message: string; tries?: number; needBags?: boolean }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -1092,6 +1132,12 @@ export async function markOutForDelivery(
       if (order.stage === 'packed') {
         const g = canAdvance(order, 'ready'); if (!g.ok) return { ok: false, message: g.reason };
       } else if (order.stage !== 'ready') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}. Pack it first.` };
+      // Every bag scanned into the van (lib/bag-tag), each time it goes out: a bag left on the shelf is caught here, not
+      // at the customer's door. A tag that won't scan goes out on the PIN of someone the shop lets approve.
+      const load = opts.requireBags ? bagsToLoad(order, {}) : 0;
+      const miss = vanBagsMissing(tenantId, order, orderId, opts);
+      if (miss) return { ok: false, needBags: true, message: miss };
+      const loaded = load && !opts.bagApprovedBy ? load : 0;
       const now = new Date().toISOString();
       const tries = (Number(order.delivery?.tries) || 0) + 1;
       txn.update(oRef, clean({
@@ -1099,9 +1145,13 @@ export async function markOutForDelivery(
         'delivery.status': 'out', 'delivery.outAt': now, 'delivery.driverId': actor.id, 'delivery.driverName': actor.name, 'delivery.tries': tries,
         // Each try starts fresh: no wait at the door, no stop skipped for later.
         'delivery.doorAt': null, 'delivery.doorCode': null, 'delivery.skippedAt': null,
+        'delivery.bagsLoaded': loaded || null,
+        // Off the shelf: brought back, it's put away again.
+        putAway: null,
       }) as any);
       if (order.stage === 'packed') txn.set(doc(collection(oRef, 'events')), evPayload('marked_ready', actor, { forDelivery: true }));
-      txn.set(doc(collection(oRef, 'events')), evPayload('out_for_delivery', actor, { driver: actor.name, ...(tries > 1 ? { attempt: tries } : {}) }));
+      if (load && opts.bagApprovedBy) txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, { rule: 'bags_approved', at: 'van', approvedBy: String(opts.bagApprovedBy.name || '').slice(0, 60), approvedById: String(opts.bagApprovedBy.id || '').slice(0, 160), bags: load }));
+      txn.set(doc(collection(oRef, 'events')), evPayload('out_for_delivery', actor, { driver: actor.name, ...(tries > 1 ? { attempt: tries } : {}), ...(loaded ? { bags: loaded } : {}) }));
       return { ok: true, tries, message: tries > 1 ? `Out again with ${actor.name.split(' ')[0]}.` : `Out for delivery with ${actor.name.split(' ')[0]}.` };
     });
   } catch (e: any) {

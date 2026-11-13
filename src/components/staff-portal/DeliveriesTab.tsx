@@ -21,6 +21,9 @@ import { DOOR_WAIT_MS, FAIL_REASONS, mapsLink, proofNeeded, runFor, stopHint, st
 import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
 import { SEND_EVERY_MS } from '@/lib/delivery-live';
 import { markAtDoor, markDelivered, markDeliveryFailed, markOutForDelivery, skipDeliveryStop } from '@/lib/fulfil-client';
+import { bagReply, bagWords, bagsToLoad, parseBagCode } from '@/lib/bag-tag';
+import { approversOf } from '@/lib/scan-rule';
+import { ScanGate } from '@/components/retail/ScanGate';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', OK = '#1f7a4d', WARN = '#b45309';
 const card: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 20, background: '#fff' };
@@ -134,6 +137,14 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   const live = useLive();
   const [view, setView] = React.useState<{ kind: 'run' } | { kind: 'stop' | 'fail'; id: string; left?: boolean }>({ kind: 'run' });
   const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  // While the shop scans bags (lib/bag-tag), an order is in the van once each of its bags' tags is scanned, or on the PIN
+  // of someone the shop lets approve when a tag won't scan (checked by the server as it goes out).
+  const rs = tenant?.retailSettings || {};
+  const needOf = (o: any) => bagsToLoad(o, rs);
+  const [loaded, setLoaded] = React.useState<Map<string, Map<number, string>>>(new Map());
+  const [pins, setPins] = React.useState<Map<string, string>>(new Map());
+  const [skipFor, setSkipFor] = React.useState<{ id: string; pin: string } | null>(null);
+  const [scanSay, setScanSay] = React.useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = React.useState('');
   const [note, setNote] = React.useState<{ text: string; bad?: boolean } | null>(null);
   React.useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 6000); return () => clearTimeout(t); }, [note]);
@@ -142,11 +153,41 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   // The order left the run (delivered, brought back, or taken by someone else): back to the run.
   React.useEffect(() => { if (view.kind !== 'run' && orders && (!stop || stop.delivery?.status !== 'out' || String(stop.delivery?.driverId || '') !== me)) setView({ kind: 'run' }); }, [view, orders, stop, me]);
 
+  const inVan = (o: any) => { const n = needOf(o); return n ? (loaded.get(o.id)?.size || 0) >= n || !!pins.get(o.id) : picked.has(o.id); };
+  const going = toTake.filter(inVan);
+  const scanning = toTake.some((o: any) => needOf(o) > 0);
+  // A bag's tag: which waiting order it's for, counted once; a bag that's already out, or not waiting, says so.
+  const onBag = (v: string) => {
+    if (busy) return;
+    const tag = parseBagCode(v);
+    if (!tag) { setScanSay({ text: 'That isn’t a bag tag. Scan the tag on each bag.', bad: true }); return; }
+    const o = toTake.find((x: any) => x.id === tag.orderId);
+    if (!o) { setScanSay({ text: route.some((x: any) => x.id === tag.orderId) ? 'That bag is already out with you.' : 'That bag isn’t waiting to go out for delivery. Put it back on the shelf.', bad: true }); return; }
+    const need = needOf(o);
+    if (!need) { setPicked((p) => new Set(p).add(o.id)); setScanSay({ text: `${shortName(o.customerName)} · ${num(o)} is in the van.` }); return; }
+    const have = loaded.get(o.id) || new Map<number, string>();
+    const r = bagReply(v, o, need, have);
+    if (!r.ok) { setScanSay({ text: r.message, bad: true }); return; }
+    const m = new Map(have).set(r.n, r.code);
+    setLoaded((all) => new Map(all).set(o.id, m));
+    setScanSay({ text: m.size >= need ? `${shortName(o.customerName)} · ${num(o)}: ${need > 1 ? `all ${need} bags` : 'the bag'} in the van.` : `${bagWords(r.n, need)} for ${shortName(o.customerName)} · ${num(o)}. ${need - m.size} to go.` });
+  };
+  // Each order goes out on its own: the ones that went leave the van list; one that didn't keeps its scans, except the
+  // bags (to scan again) or the PIN (to enter again) the server turned down.
   const start = async () => {
-    setBusy('start'); const bad: string[] = [];
-    for (const id of picked) { const r = await markOutForDelivery(tenantId, id); if (!r.ok) bad.push(r.message); }
-    setBusy(''); setPicked(new Set());
-    setNote(bad.length ? { text: bad[0], bad: true } : { text: 'On your way. Each customer has been texted.' });
+    setBusy('start'); const bad: string[] = []; const went = new Set<string>(); const rescan = new Set<string>(); const repin = new Set<string>();
+    for (const o of going) {
+      const r: any = await markOutForDelivery(tenantId, o.id, needOf(o) ? [...(loaded.get(o.id)?.values() || [])] : undefined, pins.get(o.id) || undefined);
+      if (r.ok) { went.add(o.id); continue; }
+      bad.push(r.message);
+      if (r.needBags) rescan.add(o.id);
+      if (r.badBagPin) repin.add(o.id);
+    }
+    const drop = <T,>(m: Map<string, T>, ids: Set<string>[]) => { const n = new Map(m); for (const s of ids) for (const id of s) n.delete(id); return n; };
+    setLoaded((m) => drop(m, [went, rescan])); setPins((m) => drop(m, [went, repin]));
+    setPicked((p) => new Set([...p].filter((id) => !went.has(id))));
+    setBusy(''); setScanSay(null);
+    setNote(bad.length ? { text: bad.length > 1 ? `${bad[0]} (${bad.length} didn’t go out.)` : bad[0], bad: true } : { text: 'On your way. Each customer has been texted.' });
   };
 
   if (!plan?.on) return <p className="text-[15px]" style={{ color: MUTED }}>Local delivery isn’t turned on for this shop.</p>;
@@ -165,20 +206,48 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
       {isLoading && !orders ? <p role="status" className="text-[15px]" style={{ color: MUTED }}>Loading deliveries…</p> : null}
 
       {toTake.length > 0 && (
-        <section aria-labelledby="take-h" className="p-4" style={{ ...card, borderColor: picked.size ? INK : LINE, borderWidth: picked.size ? 2 : 1 }}>
-          <div className="flex items-center justify-between gap-3"><h3 id="take-h" className="text-[16px] font-semibold">Put in the van</h3><span className="text-[14px] font-semibold">{picked.size} of {toTake.length}</span></div>
+        <section aria-labelledby="take-h" className="p-4" style={{ ...card, borderColor: going.length ? INK : LINE, borderWidth: going.length ? 2 : 1 }}>
+          <div className="flex items-center justify-between gap-3"><h3 id="take-h" className="text-[16px] font-semibold">Put in the van</h3><span className="text-[14px] font-semibold">{going.length} of {toTake.length}</span></div>
+          {scanning && (<>
+            <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Scan the tag on each bag as it goes in.</p>
+            <div className="mt-2 overflow-hidden rounded-2xl"><ScanGate onScan={onBag} paused={!!busy} label="Point at the tag on a bag" /></div>
+            {scanSay && <p role={scanSay.bad ? 'alert' : 'status'} className="mt-2 rounded-2xl px-4 py-3 text-[15px]" style={{ background: scanSay.bad ? '#fff7ed' : '#eaf6ef', color: scanSay.bad ? WARN : OK }}>{scanSay.text}</p>}
+          </>)}
           <ul className="mt-2 space-y-1">
-            {toTake.map((o: any) => { const on = picked.has(o.id); const tries = Number(o.delivery?.tries) || 0; return (
-              <li key={o.id}>
-                <label className="flex min-h-12 cursor-pointer items-start gap-3 py-1.5">
-                  <input type="checkbox" checked={on} onChange={() => setPicked((s) => { const n = new Set(s); if (n.has(o.id)) n.delete(o.id); else n.add(o.id); return n; })} className="mt-1 h-5 w-5 accent-[#16171a]" />
-                  <span className="min-w-0 flex-1 text-[15px]">
-                    <span className="block font-semibold">{shortName(o.customerName)} · {num(o)}</span>
-                    <span className="block text-[13.5px]" style={{ color: MUTED }}>{[streetLines(o.shippingAddress)[0], when(o, tz), `${itemsOf(o)} item${itemsOf(o) === 1 ? '' : 's'}`, o.stage === 'packed' ? 'packed, not on the shelf yet' : o.shelfSlot ? `shelf ${o.shelfSlot}` : ''].filter(Boolean).join(' · ')}</span>
-                    {tries > 0 && <span className="block text-[13px] font-semibold" style={{ color: WARN }}>Brought back{o.delivery?.failReason ? `: ${String(o.delivery.failReason).toLowerCase()}` : ''}. Try {tries + 1}.</span>}
-                  </span>
-                </label>
-              </li>); })}
+            {toTake.map((o: any) => { const tries = Number(o.delivery?.tries) || 0; const need = needOf(o); const got = loaded.get(o.id)?.size || 0; const on = inVan(o); const sf = skipFor?.id === o.id ? skipFor : null;
+              const facts = <>
+                <span className="block font-semibold">{shortName(o.customerName)} · {num(o)}</span>
+                <span className="block text-[13.5px]" style={{ color: MUTED }}>{[streetLines(o.shippingAddress)[0], when(o, tz), `${itemsOf(o)} item${itemsOf(o) === 1 ? '' : 's'}`, o.stage === 'packed' ? 'packed, not on the shelf yet' : o.shelfSlot ? `shelf ${o.shelfSlot}` : ''].filter(Boolean).join(' · ')}</span>
+                {tries > 0 && <span className="block text-[13px] font-semibold" style={{ color: WARN }}>Brought back{o.delivery?.failReason ? `: ${String(o.delivery.failReason).toLowerCase()}` : ''}. Try {tries + 1}.</span>}
+              </>;
+              if (!need) return (
+                <li key={o.id}>
+                  <label className="flex min-h-12 cursor-pointer items-start gap-3 py-1.5">
+                    <input type="checkbox" checked={on} onChange={() => setPicked((s) => { const n = new Set(s); if (n.has(o.id)) n.delete(o.id); else n.add(o.id); return n; })} className="mt-1 h-5 w-5 accent-[#16171a]" />
+                    <span className="min-w-0 flex-1 text-[15px]">{facts}</span>
+                  </label>
+                </li>);
+              return (
+                <li key={o.id} className="py-1.5">
+                  <div className="flex items-start gap-3">
+                    <span aria-hidden="true" className="mt-1 flex h-5 w-5 flex-none items-center justify-center rounded-full" style={{ background: on ? (pins.get(o.id) ? WARN : OK) : SOFT, border: on ? 0 : `1.5px solid ${LINE}` }}>{on && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5 9-10" /></svg>}</span>
+                    <span className="min-w-0 flex-1 text-[15px]">
+                      {facts}
+                      <span className="block text-[13.5px] font-semibold" style={{ color: on ? (pins.get(o.id) ? WARN : OK) : INK }}>{pins.get(o.id) ? 'Going without every tag scanned, on a PIN' : got >= need ? (need > 1 ? `All ${need} bags scanned` : 'Bag scanned') : `${got} of ${need} ${need === 1 ? 'bag' : 'bags'} scanned`}</span>
+                    </span>
+                  </div>
+                  {!on && (sf ? (
+                    <form className="ml-8 mt-2 rounded-2xl p-3" style={{ background: SOFT }} onSubmit={(e) => { e.preventDefault(); if (sf.pin.length === 4) { setPins((m) => new Map(m).set(o.id, sf.pin)); setSkipFor(null); } }}>
+                      <label htmlFor={`van-pin-${o.id}`} className="block text-[14px] font-semibold">{approversOf(rs) === 'managers' ? 'Manager PIN' : 'Your PIN, or a manager’s'}</label>
+                      <span className="block text-[13px]" style={{ color: MUTED }}>It goes without every tag scanned. Checked as you start, and kept on the order.</span>
+                      <div className="mt-2 flex gap-2">
+                        <input id={`van-pin-${o.id}`} type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoComplete="off" value={sf.pin} onChange={(e) => setSkipFor({ id: o.id, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })} placeholder="4 digits"
+                          className="h-12 min-w-0 flex-1 rounded-xl px-4 text-[18px] tabular-nums outline-none" style={{ border: `1px solid ${LINE}`, background: '#fff' }} />
+                        <Btn kind="primary" type="submit" disabled={sf.pin.length !== 4}>Use PIN</Btn>
+                      </div>
+                    </form>
+                  ) : <button type="button" onClick={() => setSkipFor({ id: o.id, pin: '' })} className="ml-8 h-11 text-[14px] font-semibold underline underline-offset-4" style={{ color: MUTED }}>A tag won’t scan?</button>)}
+                </li>); })}
           </ul>
         </section>)}
 
@@ -218,8 +287,8 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
 
       {toTake.length > 0 && (
         <div className="space-y-2">
-          <Btn kind="primary" className="w-full" disabled={!picked.size || !!busy} onClick={() => void start()}>{busy === 'start' ? 'Starting…' : picked.size ? `Start with ${picked.size} order${picked.size === 1 ? '' : 's'}` : 'Start the route'}</Btn>
-          <p className="text-center text-[13px]" style={{ color: MUTED }}>Tick each order as it goes in the van. Starting tells each customer you’re on the way. Customers see roughly where you are only while you’re on their delivery.</p>
+          <Btn kind="primary" className="w-full" disabled={!going.length || !!busy} onClick={() => void start()}>{busy === 'start' ? 'Starting…' : going.length ? `Start with ${going.length} order${going.length === 1 ? '' : 's'}` : 'Start the route'}</Btn>
+          <p className="text-center text-[13px]" style={{ color: MUTED }}>{scanning ? 'Scan every bag as it goes in the van.' : 'Tick each order as it goes in the van.'} Starting tells each customer you’re on the way. Customers see roughly where you are only while you’re on their delivery.</p>
         </div>)}
     </div>);
 }

@@ -25,7 +25,7 @@ import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
 import { failReason } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { approversOf, isApproveReason, mayApprove, scanRequired, type Approvers } from '@/lib/scan-rule';
-import { bagScanOn, clampBags } from '@/lib/bag-tag';
+import { bagScanOn, clampBags, shelfScanOn } from '@/lib/bag-tag';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,7 @@ type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'return
 const ACTIONS: Record<string, Need> = {
   claimNext: 'pick', claimOrder: 'pick', takeOver: 'pick', releaseBatch: 'pick', sweepStale: 'staff',
   scanItem: 'pick', scanBox: 'pick', tapLine: 'pick', approveUnit: 'pick', undoCount: 'pick', shortLine: 'pick', reopenLine: 'pick',
-  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
+  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', putAway: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
@@ -199,6 +199,14 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         }
         break;
       }
+      // The bags scanned onto their shelf spot (lib/bag-tag), while the shop scans bags onto the shelf.
+      case 'putAway': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        const rs = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.retailSettings || {};
+        if (!shelfScanOn(rs)) return NextResponse.json({ ok: false, message: 'This shop doesn’t scan bags onto the shelf. A manager can turn it on in Setup.' }, { status: 409 });
+        out = await F.recordPutAway(db, tenantId, orderId, actor, { bags: (Array.isArray(b.bags) ? b.bags : []).slice(0, 40).map((x: any) => s(x, 300)), spot: s(b.spot, 40) });
+        break;
+      }
       case 'bringingOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markBringingOut(db, tenantId, orderId, actor, await photoOf(db, tenantId, actor.id)); if (out?.ok && !/already/.test(out.message || '')) F.notifyCurbside(tenantId, orderId, 'out'); delete out?.notify; break; }
       // Each bag's tag is scanned before the customer's code (lib/bag-tag), checked in the step, whatever screen sent it.
       case 'handoffScan': { const br = await bagRule(db, tenantId, b); if ('deny' in br) return br.deny; out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined, ...br }); break; }
@@ -211,11 +219,17 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
           const drivers = deliveryFrom(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.retailSettings).drivers;
           if (drivers.length && !drivers.includes(actor.id)) return NextResponse.json({ ok: false, message: 'Only the shop’s drivers take deliveries out. A manager can add you under Delivery.' }, { status: 403 });
         }
+        // Every bag scanned into the van (lib/bag-tag), checked in the step; a wrong skip PIN stops here, before anything else.
+        const br = await bagRule(db, tenantId, b); if ('deny' in br) return br.deny;
+        const pre: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+        // A bag still to scan stops it here too, before the customer's payment page below is closed for a try that isn't
+        // going out yet.
+        const vanMiss = F.vanBagsMissing(tenantId, { ...pre, id: orderId }, orderId, br);
+        if (vanMiss && pre.method === 'delivery' && ['packed', 'ready'].includes(String(pre.stage)) && pre.delivery?.status !== 'out') return NextResponse.json({ ok: false, needBags: true, message: vanMiss });
         // The customer was choosing another try on their order page and left its payment page open (lib/delivery-retry-
         // server): a page just opened is theirs to finish; one left a few minutes is closed, so it goes out now. Paid in
         // the meantime, the try they paid for stands, in the time they chose.
         {
-          const pre: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
           const rp = pre.delivery?.retryPay;
           if (rp?.status === 'awaiting_payment' && canChoose(pre)) {
             const who = String(pre.customerName || 'The customer').split(' ')[0];
@@ -227,7 +241,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
             if (c.result === 'pending') return NextResponse.json({ ok: false, message: `${who}’s payment page couldn’t be closed just now. Try again in a minute.` }, { status: 409 });
           }
         }
-        out = await F.markOutForDelivery(db, tenantId, orderId, actor);
+        out = await F.markOutForDelivery(db, tenantId, orderId, actor, br);
         if (out?.ok && out.tries && !/^Already/.test(out.message || '')) sendMessage('delivery_out', { orderId, key: `t${out.tries}` });
         if (out?.ok) refreshRoute(db, tenantId, orderId);
         break;

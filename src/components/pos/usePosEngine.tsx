@@ -18,6 +18,7 @@ import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
+import { mustScanAtRegister } from '@/lib/register-scan';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { heldCovered, heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
@@ -635,7 +636,7 @@ export function usePosEngine() {
   // listing's. One with no price yet isn't added (it used to sell at cost).
   const deskListings = useMemo(() => listingsOf(inventory || []), [inventory]);
   const deskListingsRef = useRef(deskListings); deskListingsRef.current = deskListings;
-  const handleAddToCart = useCallback((item: any, qty = 1): boolean => {
+  const handleAddToCart = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }): boolean => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product'; let name = String(item?.name || 'Item'); let listingId: string | null = null;
     if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
@@ -649,8 +650,10 @@ export function usePosEngine() {
     }
     setRetailItems(prev => {
       const existing = prev.find(i => i.id === item.id);
-      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + n } : i);
-      return [...prev, { id: item.id, name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock, ...(listingId ? { listingId } : {}) } as any];
+      // An item added on a manager's PIN at the register (lib/register-scan) keeps that approval on its line.
+      const ns = noScan?.token ? [noScan] : [];
+      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + n, ...(ns.length ? { noScan: [...((i as any).noScan || []), ...ns] } : {}) } : i);
+      return [...prev, { id: item.id, name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock, ...(listingId ? { listingId } : {}), ...(ns.length ? { noScan: ns } : {}) } as any];
     });
     return true;
   }, [toast]);
@@ -1151,6 +1154,8 @@ export function usePosEngine() {
     tenantId, popupId: popup?.id || null, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
+    // Items added at the register without a scan, each on a manager's PIN: the approvals, used by the sale on the server.
+    noScan: retailItems.flatMap((it: any) => (Array.isArray(it.noScan) ? it.noScan : []).map((x: any) => ({ productId: it.id, approvalToken: x.token }))).slice(0, 60),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
     // A tip chosen on the client screen together with the payment is recorded exactly (it goes to the provider(s) on the ticket).
     tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied, creditAtPayment: true, giftCards: giftApplied.map((g) => ({ id: g.id, cents: g.cents, holdId: giftHoldRef.current })),
@@ -1623,12 +1628,12 @@ export function usePosEngine() {
   const [variantChoice, setVariantChoice] = useState<{ parent: any; variants: any[]; clash?: boolean } | null>(null);
   // A case's or pallet's code: add that many, or just one.
   const [packChoice, setPackChoice] = useState<{ item: any; pack: number; packKind: 'case' | 'pallet' } | null>(null);
-  const addProductChecked = useCallback((item: any, qty = 1) => {
+  const addProductChecked = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }) => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
     const left = onHand(item) - inCart;
     const heldN = Math.max(0, Math.round(Number(item.stockReserved) || 0));
-    if (handleAddToCart(item, n) === false) return;
+    if (handleAddToCart(item, n, noScan) === false) return;
     const added = n > 1 ? `${n} × ${item.name} added` : `${item.name} added`;
     if (item.type === 'retail' || item.msrp) {
       if (left <= 0 && heldN > 0 && (Number(item.totalStock) || 0) > inCart) toast({ variant: 'destructive', title: added, description: `The ${heldN === 1 ? 'one' : heldN} left on the shelf ${heldN === 1 ? 'is' : 'are'} held for paid online orders. A manager approves selling ${heldN === 1 ? 'it' : 'them'} at checkout.` });
@@ -1657,7 +1662,13 @@ export function usePosEngine() {
     if (hit.kind === 'empty') return;
     if (hit.kind === 'order') { window.dispatchEvent(new CustomEvent('cf:order-pickup', { detail: { value: hit.value } })); return; }   // → the desk's pickup panel
     if (hit.kind === 'product') { if (hit.pack > 1) { setPackChoice({ item: hit.item, pack: hit.pack, packKind: hit.packKind || 'case' }); return; } addProductChecked(hit.item); return; }
-    if (hit.kind === 'choose') { setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
+    if (hit.kind === 'choose') {
+      // A listing's own code is on every color: while the register scans (lib/register-scan), a color with its own
+      // barcode is added by that scan, so only the colors with nothing to scan are offered here.
+      const tappable = hit.variants.filter((v: any) => !mustScanAtRegister(v, (selectedTenant as any)?.retailSettings));
+      if (!tappable.length) { toast({ variant: 'destructive', title: 'Not added', description: `That’s the code for ${hit.parent?.name || 'a listing'}, not one color. Scan the barcode on the item itself.` }); return; }
+      setVariantChoice({ parent: hit.parent, variants: tappable }); return;
+    }
     if (hit.kind === 'clash') { setVariantChoice({ parent: { name: 'product' }, variants: hit.items, clash: true }); return; }
     if (hit.kind === 'unsold') { toast({ variant: 'destructive', title: 'Not added', description: hit.text }); return; }
     if (hit.kind === 'ticket') {
@@ -1668,7 +1679,7 @@ export function usePosEngine() {
       setScanMode('checkin'); setScanQuery(String(r.shortCode || r.checkInToken || '')); setScanResult(hit.walkIn ? { ...r, __walkIn: true } : { ...r }); setScanNotFound(false); setIsScanLookupOpen(true); return;
     }
     setScanMode('checkin'); setScanQuery(hit.value); resolveScanCode(hit.value); setIsScanLookupOpen(true);   // not in today's list — ask the server
-  }, [inventory, appointmentsFromInventory, walkIns, addProductChecked, readyForCheckoutAppointments, selectedAppointmentIds, handleSelectAppointment, resolveScanCode, toast]);
+  }, [inventory, appointmentsFromInventory, walkIns, addProductChecked, readyForCheckoutAppointments, selectedAppointmentIds, handleSelectAppointment, resolveScanCode, toast, selectedTenant]);
 
   const checkoutHubProps = {
     cart: retailItems, onCartChange: setRetailItems, appointmentsData: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)), onSelectAppointment: handleSelectAppointment,

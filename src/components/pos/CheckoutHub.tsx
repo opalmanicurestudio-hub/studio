@@ -10,6 +10,9 @@ import { viaWords, dollars } from '@/lib/pay-via';
 import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
+import { RegisterScanSheet } from '@/components/pos/RegisterScanSheet';
+import { mustScanAtRegister } from '@/lib/register-scan';
+import { deskBook } from '@/lib/pos-scan';
 import { useClientScreen, useVisitScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
 import { DESK_CSS, Icon as DIcon, Ring, deskAccent } from '@/components/pos/desk/kit';
@@ -539,6 +542,14 @@ export const CheckoutHub = ({
     const m = new Map<string, Client>(); [...payerFound, ...local].forEach((c: Client) => m.set(c.id, c)); return [...m.values()].slice(0, 20);
   }, [payerOptions, clients, clientSearch, isGroupCheckout, payerFound]);
 
+  // One more of a product with a barcode, while the register scans (lib/register-scan): the next one is scanned too.
+  const [scanMore, setScanMore] = useState<any | null>(null);
+  const scanBook = useMemo(() => deskBook(inventory || []), [inventory]);
+  const oneMore = (item: any) => {
+    const inv = item.type === 'product' ? (inventory || []).find((x: any) => x.id === item.id) : null;
+    if (inv && onAddItem && mustScanAtRegister(inv, (selectedTenant as any)?.retailSettings)) { setScanMore({ inv, label: String(item.name || inv.name || 'this item') }); return; }
+    handleUpdateQuantity(item.id, item.quantity + 1);
+  };
   const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));
     else onCartChange(cart.map((item: any) => item.id === itemId ? { ...item, quantity: newQuantity } : item));
@@ -1223,7 +1234,7 @@ export const CheckoutHub = ({
                 {onScanClick && <button type="button" onClick={onScanClick} className="h-9 rounded-full px-3.5 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Scan</button>}
               </div></div>
             {addOpen && onAddItem && <div className="rounded-2xl p-3" style={{ background: 'var(--paper)' }}>
-              <PosCatalog compact inventory={inventory || []} services={services || []} memberships={memberships || []} packages={packages || []} cart={cart || []} onAdd={(i: any) => onAddItem(i)} onScan={onPosScan ? (c: string) => onPosScan(c) : undefined} />
+              <PosCatalog compact inventory={inventory || []} services={services || []} memberships={memberships || []} packages={packages || []} cart={cart || []} onAdd={(i: any, ns?: any) => onAddItem(i, 1, ns)} onScan={onPosScan ? (c: string) => onPosScan(c) : undefined} />
             </div>}
             {groupRest && <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl p-3 text-[14px]" style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}>
               <span><b>{groupRest.label}</b> · {groupRest.names.join(', ')} {groupRest.names.length === 1 ? 'is' : 'are'} ready to pay too</span>
@@ -1263,11 +1274,13 @@ export const CheckoutHub = ({
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   {!['rent', 'tuition'].includes(item.type) && <>                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)} aria-label={`One fewer ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>−</button>
                   <span className="w-6 text-center text-[15px] font-semibold tabular-nums">{item.quantity}</span>
-                  <button type="button" onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button></>}
+                  <button type="button" onClick={() => oneMore(item)} aria-label={`One more ${item.name}`} className="h-9 w-9 rounded-full text-[18px]" style={{ background: 'var(--card)' }}>+</button></>}
                   <span className="w-16 text-right text-[15px] font-semibold tabular-nums">{coMoney(safeNumber(item.price) * item.quantity)}</span>
                   <button type="button" onClick={() => handleUpdateQuantity(item.id, 0)} aria-label={`Remove ${item.name}`} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: 'var(--card)' }}><DIcon name="close" size={15} /></button>
                 </div>
               </div>)}
+              {scanMore && <RegisterScanSheet tenantId={String((selectedTenant as any)?.id || '')} item={scanMore.inv} label={scanMore.label} book={scanBook} onClose={() => setScanMore(null)}
+                onAdd={(a) => { setScanMore(null); onAddItem?.(a.item, 1, a.how === 'approved' && a.token ? { token: a.token, by: a.approver?.name || '', reason: a.reason || '' } : undefined); if (a.note) toast({ title: 'A different item was scanned', description: a.note }); }} />}
               {Array.from(appliedAdjustments).filter((id: any) => { const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id); return !fee || !appointmentsData.some((d: any) => d.appointment.id === fee.appointmentId); }).map((id: any) => {
                 const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
                 return <div key={id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: 'var(--soft)' }}>

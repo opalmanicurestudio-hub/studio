@@ -12,7 +12,10 @@ import { listedInShop, listingsOf } from '@/lib/variants';
 import { setupSteps, showGuided, type SetupStep } from '@/lib/shop-setup';
 import { moduleEnabled } from '@/lib/modules';
 import { approversOf, scanRequired, type Approvers } from '@/lib/scan-rule';
-import { bagScanOn } from '@/lib/bag-tag';
+import { allSpots, bagScanOn } from '@/lib/bag-tag';
+import { printPickupSpots } from '@/lib/shelf-labels-client';
+import { noBarcodeYet, registerScanOn } from '@/lib/register-scan';
+import { isSellable } from '@/lib/pos-scan';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -82,11 +85,17 @@ function PickupTools({ tenantId, on, onToast }: { tenantId: string; on: boolean;
 
 /** SCANNING (lib/scan-rule): every item scanned into a bag or a box, on unless turned off here, and who may approve an
  *  item that won't scan. Saved on the shop's settings; the server reads them at every count, whatever screen counts. */
-function ScanningGroup({ fs, tenantId, rs, owner, onToast }: { fs: Firestore; tenantId: string; rs: any; owner: boolean; onToast: (m: string) => void }) {
+function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Firestore; tenantId: string; rs: any; owner: boolean; inventory: any[]; onToast: (m: string) => void }) {
+  const [regOn, setRegOn] = React.useState(registerScanOn(rs));
+  React.useEffect(() => { setRegOn(registerScanOn(rs)); }, [rs?.scanAtRegister]);
+  // Sold, with nothing on it to scan yet (lib/register-scan): a label for each prints from here.
+  const bare = React.useMemo(() => noBarcodeYet(inventory || [], isSellable).sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))), [inventory]);
+  const [seeBare, setSeeBare] = React.useState(false);
   const [on, setOn] = React.useState(scanRequired(rs)); const [who, setWho] = React.useState<Approvers>(approversOf(rs));
   const [bagsOn, setBagsOn] = React.useState(bagScanOn(rs));
+  const [shelfOn, setShelfOn] = React.useState(rs?.scanBagToShelf !== false);
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setOn(scanRequired(rs)); setWho(approversOf(rs)); setBagsOn(bagScanOn(rs)); }, [rs?.requireScan, rs?.scanApprovers, rs?.scanBagAtHandover]);
+  React.useEffect(() => { setOn(scanRequired(rs)); setWho(approversOf(rs)); setBagsOn(bagScanOn(rs)); setShelfOn(rs?.scanBagToShelf !== false); }, [rs?.requireScan, rs?.scanApprovers, rs?.scanBagAtHandover, rs?.scanBagToShelf]);
   // The shop's settings are the owner's to change (firestore.rules); anyone else sees how it's set.
   const save = async (patch: Record<string, any>, done: () => void, said: string) => {
     if (busy || !tenantId || !owner) return; setBusy(true);
@@ -102,10 +111,47 @@ function ScanningGroup({ fs, tenantId, rs, owner, onToast }: { fs: Firestore; te
           <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: on ? 32 : 4 }} /></button>
       </div>
       <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
-        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan the bag at handover</span>
-          <span className="block text-[13px]" style={muted}>{bagsOn ? 'A tag prints for each bag as it’s finished, and every bag is scanned before it goes out.' : 'Off: bags go out without their tags being scanned.'}</span></span>
-        <button type="button" role="switch" aria-checked={bagsOn} aria-label="Scan the bag at handover" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.scanBagAtHandover': !bagsOn }, () => setBagsOn(!bagsOn), !bagsOn ? 'Every bag is scanned at handover now.' : 'Bags go out without a scan now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: bagsOn ? C.ok : '#d2d3d7' }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan every bag</span>
+          <span className="block text-[13px]" style={muted}>{bagsOn ? 'A tag prints for each bag as it’s finished. Every bag is scanned at handover, and into the van for a delivery.' : 'Off: bags go out without their tags being scanned.'}</span></span>
+        <button type="button" role="switch" aria-checked={bagsOn} aria-label="Scan every bag" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.scanBagAtHandover': !bagsOn }, () => setBagsOn(!bagsOn), !bagsOn ? 'Every bag is scanned before it goes out now.' : 'Bags go out without a scan now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: bagsOn ? C.ok : '#d2d3d7' }}>
           <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: bagsOn ? 32 : 4 }} /></button>
+      </div>
+      {bagsOn && (
+        <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div className="flex min-h-[44px] items-center gap-3">
+            <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan bags onto the shelf</span>
+              <span className="block text-[13px]" style={muted}>{shelfOn ? 'Each order’s bags are scanned, then the label on the shelf spot they go on, so the shelf says where every bag is.' : 'Off: orders go on the ready shelf without a scan.'}</span></span>
+            <button type="button" role="switch" aria-checked={shelfOn} aria-label="Scan bags onto the shelf" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.scanBagToShelf': !shelfOn }, () => setShelfOn(!shelfOn), !shelfOn ? 'Bags are scanned onto the shelf now.' : 'Orders go on the shelf without a scan now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: shelfOn ? C.ok : '#d2d3d7' }}>
+              <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: shelfOn ? 32 : 4 }} /></button>
+          </div>
+          {shelfOn && (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <p className="m-0 min-w-[200px] flex-1 text-[13px]" style={muted}>A label for each spot on the ready shelf, A1 to F12 and Overflow. Stick each one where its spot is.</p>
+              <Btn kind="soft" className="shrink-0" style={{ background: C.paper, border: `1px solid ${C.line}` }} onClick={() => { if (!printPickupSpots(allSpots())) onToast('Allow pop-ups for this site to print the labels.'); }}>Print shelf labels</Btn>
+            </div>)}
+        </div>)}
+      <div className="flex min-h-[60px] items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Scan at the register</span>
+          <span className="block text-[13px]" style={muted}>{regOn ? 'A product with a barcode is added by scanning it, so the one in their hand is what’s sold. Services and gift cards stay a tap.' : 'Off: products are added at the register with a tap.'}</span></span>
+        <button type="button" role="switch" aria-checked={regOn} aria-label="Scan at the register" disabled={busy || !owner} onClick={() => void save({ 'retailSettings.scanAtRegister': !regOn }, () => setRegOn(!regOn), !regOn ? 'Products with a barcode are scanned at the register now.' : 'Products are added with a tap at the register now.')} className="relative h-11 w-[72px] shrink-0 rounded-full transition-colors" style={{ background: regOn ? C.ok : '#d2d3d7' }}>
+          <span aria-hidden="true" className="absolute top-1 h-9 w-9 rounded-full bg-[#fff] shadow transition-all" style={{ left: regOn ? 32 : 4 }} /></button>
+      </div>
+      <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="min-w-[200px] flex-1"><span className="block text-[17px] tracking-[-0.01em]">{bare.length ? `${bare.length} ${bare.length === 1 ? 'product has' : 'products have'} no barcode yet` : 'Every product has a barcode'}</span>
+            <span className="block text-[13px]" style={muted}>{bare.length ? 'Print a label for each and stick it on. From then on it scans everywhere: packing, handover and the register.' : 'Each product sold has the maker’s barcode, or a label printed from here.'}</span></span>
+          {bare.length > 0 && <Link href={`/inventory/labels?ids=${bare.slice(0, 200).map((i: any) => encodeURIComponent(String(i.id))).join(',')}`} className="cf-press inline-flex h-11 shrink-0 items-center rounded-full px-4 text-[15px] font-semibold" style={{ background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>Print their labels</Link>}
+        </div>
+        {bare.length > 0 && <button type="button" aria-expanded={seeBare} onClick={() => setSeeBare((v) => !v)} className="mt-1 h-11 text-[14px] font-semibold underline underline-offset-4">{seeBare ? 'Hide the list' : 'See which ones'}</button>}
+        {seeBare && (
+          <ul className="m-0 list-none p-0">
+            {bare.slice(0, 60).map((i: any) => (
+              <li key={i.id} className="flex min-h-11 items-center justify-between gap-3 border-t py-1.5 text-[15px]" style={{ borderColor: C.line }}>
+                <span className="min-w-0 truncate">{i.name || 'Product'}</span>
+                <Link href={`/inventory/product/${encodeURIComponent(String(i.id))}`} className="inline-flex h-11 shrink-0 items-center text-[14px] font-semibold underline underline-offset-4" style={muted}>Add its barcode</Link>
+              </li>))}
+            {bare.length > 60 && <li className="border-t py-2 text-[13px]" style={{ borderColor: C.line, color: C.muted }}>And {bare.length - 60} more, all on the labels page.</li>}
+          </ul>)}
       </div>
       <div className="px-4 py-3">
         <p className="m-0 text-[17px] tracking-[-0.01em]">Who approves an item that won’t scan</p>
@@ -181,7 +227,7 @@ export function SetupScreen() {
         <LargeTitle title="Setup" sub={guided ? 'A few steps and your shop is ready to open.' : paused ? 'Your shop is paused. Shoppers can browse but not buy.' : 'Everything that shapes how your shop runs.'} />
         {guided && <Steps steps={steps} busy={busy} onAction={(s) => void onAction(s)} />}
         <PickupTools tenantId={tenantId} on={moduleEnabled(selectedTenant, 'pickup')} onToast={setToast} />
-        <ScanningGroup fs={firestore as Firestore} tenantId={tenantId} rs={rs} owner={role === 'owner'} onToast={setToast} />
+        <ScanningGroup fs={firestore as Firestore} tenantId={tenantId} rs={rs} owner={role === 'owner'} inventory={inventory || []} onToast={setToast} />
         {GROUPS.map((g) => (
           <Group key={g.title} title={g.title}>
             {g.items.map(([href, label, note], i) => (

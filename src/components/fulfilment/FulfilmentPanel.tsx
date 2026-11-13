@@ -16,7 +16,7 @@ import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/fulfil-client';
 import { finishPacking } from '@/lib/orders-flow';
-import { bagScanOn, goesInBags } from '@/lib/bag-tag';
+import { bagScanOn, goesInBags, needsPutAway, shelfScanOn } from '@/lib/bag-tag';
 import { fulfilmentPolicy, isPackComplete, lineMatchesScan, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';
 import { tenantTimeZone } from '@/lib/tenant-time';
@@ -24,6 +24,7 @@ import { Btn, C, Empty, Initials, ListRow, UndoBar, feel, muted, Ic } from '@/co
 import { MissingSheet } from '@/components/orders/MissingSheet';
 import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
+import { PutAwaySheet } from '@/components/orders/PutAwaySheet';
 import { binMatches, compareBins } from '@/lib/bins';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { markLabelChecked, assignTote, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, skipTotes, toteBusy, toteOf } from '@/lib/totes';
@@ -68,6 +69,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const [missing, setMissing] = React.useState<{ order: BoardOrder; line: any } | null>(null);
   const [shipId, setShipId] = React.useState<string | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
+  const [putting, setPutting] = React.useState(false);
   const [showMissing, setShowMissing] = React.useState(false);
   const [banner, setBanner] = React.useState<Banner | null>(null);
   // The order at the box for its second scan, when the shop asks for one.
@@ -301,10 +303,16 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           {toShip.map((o) => <ListRow key={o.id} onClick={() => setShipId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${o.labelCheckedAt ? 'Label on and checked' : o.labelUrl || o.trackingNumber ? 'Scan the label on the box' : 'Needs a label'}${o.groundOnly ? ' · ground only' : ''}`} trail={<span style={muted}>{Ic.chev}</span>} />)}
         </Section>)}
 
+      {perms.canPack && shelfScanOn(rs) && orders.some((o) => needsPutAway(o, rs)) && (() => { const n = orders.filter((o) => needsPutAway(o, rs)).length; return (
+        <section className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
+          <p className="m-0 min-w-[200px] flex-1 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{n} on the ready shelf to put away. </b>Scan each bag, then the spot it’s on.</p>
+          <Btn kind="primary" className="shrink-0" onClick={() => setPutting(true)}>Put away</Btn>
+        </section>); })()}
+
       {shelfOrders.length > 0 && (
         <Section title="Pickup shelf" sub={`${shelfOrders.length}`}>
           {shelfOrders.map((o) => <ListRow key={o.id} onClick={() => setHandId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName}
-            detail={[o.stage === 'arrived' ? `Outside${o.curbside?.spotOrVehicle ? ` in ${o.curbside.spotOrVehicle}` : ''}` : methodLabel(o.method, rs), o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+            detail={[o.stage === 'arrived' ? `Outside${o.curbside?.spotOrVehicle ? ` in ${o.curbside.spotOrVehicle}` : ''}` : methodLabel(o.method, rs), o.shelfSlot ? `Shelf ${o.shelfSlot}${needsPutAway(o, rs) ? ', not scanned onto it yet' : ''}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
             trail={<span className="text-[14px] font-semibold" style={o.stage === 'arrived' ? { color: C.warn } : muted}>{o.stage === 'arrived' ? 'Now' : 'Hand over'}</span>} />)}
         </Section>)}
 
@@ -316,6 +324,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} autoBelow={Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={weights} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
+      {putting && <PutAwaySheet tenantId={tenantId} orders={orders} rs={rs} onClose={() => setPutting(false)} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={110} />}
     </div>);
 }

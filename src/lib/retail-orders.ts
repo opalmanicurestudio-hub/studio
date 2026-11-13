@@ -1008,9 +1008,10 @@ export const ORDER_EVENT_TYPES = [
   'label_generated',           // meta: { carrier?, trackingNumber? }
   'label_scan_verified',       // the label's barcode scanned onto the right box
   'marked_ready',
+  'put_away',                  // the bags scanned onto their spot on the ready shelf — meta: { shelf, bags }
   'customer_arrived',          // meta: { spotOrVehicle }
   'handoff_scanned',           // customer QR verified at counter/car
-  'out_for_delivery',          // local delivery: a driver left with it — meta: { driver }
+  'out_for_delivery',          // local delivery: a driver left with it — meta: { driver, bags? }
   'delivered',                 // local delivery: left with the customer or where they asked
   'delivery_failed',           // local delivery: brought back — meta: { reason }
   'shipped',

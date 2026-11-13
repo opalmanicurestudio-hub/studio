@@ -2,8 +2,13 @@
 // src/components/orders/workspace/DeliveryPane.tsx — A LOCAL DELIVERY, INSIDE THE ORDER (lib/delivery-plan). Where it
 // goes and when it was promised, the customer's note for the driver, then its steps: out with whoever takes it (the
 // person signed in is the driver), delivered, or brought back with the reason. One brought back can go out again, or
-// waits for the customer's choice on their order page (lib/delivery-retry): another try, pickup, or cancelling.
+// waits for the customer's choice on their order page (lib/delivery-retry): another try, pickup, or cancelling. While
+// the shop scans bags, taking it out scans each bag into the van first (LoadBagsSheet).
 import * as React from 'react';
+import { useTenant } from '@/context/TenantContext';
+import { bagsToLoad } from '@/lib/bag-tag';
+import { approversOf } from '@/lib/scan-rule';
+import { LoadBagsSheet } from '../LoadBagsSheet';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { markDelivered, markDeliveryFailed, markOutForDelivery } from '@/lib/fulfil-client';
 import { firstName, itemCount } from '@/lib/orders-view';
@@ -20,7 +25,11 @@ export function deliveryWhen(order: any, shopZone: string): string {
   return '';
 }
 
-export function DeliveryPane({ tenantId, order, shopZone, onToast }: { tenantId: string; order: any; shopZone: string; onToast: (m: string) => void }) {
+export function DeliveryPane({ tenantId, order, shopZone, onToast, lookup }: { tenantId: string; order: any; shopZone: string; onToast: (m: string) => void; lookup?: (orderId: string) => any }) {
+  const { selectedTenant } = useTenant() as any;
+  const rs = selectedTenant?.retailSettings || {};
+  const load = bagsToLoad(order, rs);
+  const [loadOpen, setLoadOpen] = React.useState(false);
   const [busy, setBusy] = React.useState('');
   const [failOpen, setFailOpen] = React.useState<{ code: FailCode; other: string } | null>(null);
   const [err, setErr] = React.useState('');
@@ -113,14 +122,17 @@ export function DeliveryPane({ tenantId, order, shopZone, onToast }: { tenantId:
             <Btn kind="soft" className="flex-1" disabled={!!busy} onClick={() => setFailOpen({ code: 'no_answer', other: '' })}>Couldn’t deliver</Btn>
           </>)}
         </>) : (
-          <Btn kind="primary" className="flex-1" disabled={!!busy} onClick={() => void run('out')}>{busy === 'out' ? 'Saving…' : status === 'failed' ? 'Send it out again with me' : 'I’m taking it out'}</Btn>
+          <Btn kind="primary" className="flex-1" disabled={!!busy} onClick={() => { if (load) { setErr(''); setLoadOpen(true); } else void run('out'); }}>{busy === 'out' ? 'Saving…' : status === 'failed' ? 'Send it out again with me' : 'I’m taking it out'}</Btn>
         )}
       </div>
       {err && <p role="alert" className="m-0 text-[15px]" style={{ color: C.warn }}>{err}</p>}
       {needs && status === 'out' && (forceSure
         ? <div className="flex gap-2"><Btn kind="primary" className="flex-1" disabled={!!busy} onClick={() => void run('force')}>{busy === 'force' ? 'Saving…' : 'Yes, it was delivered'}</Btn><Btn kind="soft" className="flex-1" disabled={!!busy} onClick={() => setForceSure(false)}>Not yet</Btn></div>
         : <Btn kind="soft" className="w-full" disabled={!!busy} onClick={() => setForceSure(true)}>{`Mark it delivered without the ${needs === 'photo' ? 'photo' : 'code'}`}</Btn>)}
-      <p className="m-0 text-[13px]" style={muted} aria-live="polite">{status === 'out' ? (sure ? 'Delivered completes the order. Confirm it’s with them, or left where they asked.' : 'Mark it delivered once it’s with them, or left where they asked.') : 'Whoever taps this is the driver.'}</p>
+      <p className="m-0 text-[13px]" style={muted} aria-live="polite">{status === 'out' ? (sure ? 'Delivered completes the order. Confirm it’s with them, or left where they asked.' : 'Mark it delivered once it’s with them, or left where they asked.') : load ? `Whoever takes it out is the driver, and scans ${load > 1 ? `all ${load} bags` : 'the bag'} into the van.` : 'Whoever taps this is the driver.'}</p>
+      {loadOpen && load > 0 && status !== 'out' && (
+        <LoadBagsSheet tenantId={tenantId} order={order} need={load} approvers={approversOf(rs)} lookup={lookup} onClose={() => setLoadOpen(false)}
+          onGo={async (codes, bagPin) => { const r: any = await markOutForDelivery(tenantId, order.id, codes, bagPin); if (r.ok) { setLoadOpen(false); onToast(r.message); } return r; }} />)}
 
       {failOpen && (
         <Sheet title="Couldn’t deliver" sub="It goes back on the ready shelf, and the order says why." onClose={() => setFailOpen(null)}>

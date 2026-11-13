@@ -116,7 +116,7 @@ M._load = function (request: string, ...rest: any[]) {
   const engine = fs.readFileSync('src/components/pos/usePosEngine.tsx', 'utf8'); const desk = fs.readFileSync('src/components/pos/desk/DeskPOS.tsx', 'utf8');
   check('…the desk asks “Add 12” or “Just one” for a case, and which product for a shared code', /if \(hit\.pack > 1\) \{ setPackChoice\(/.test(engine) && /hit\.kind === 'clash'\) \{ setVariantChoice\(\{ parent: \{ name: 'product' \}, variants: hit\.items, clash: true \}\)/.test(engine)
     && /Add \{e\.packChoice\.pack\}/.test(desk) && />Just one</.test(desk) && /Which product is it\?/.test(desk));
-  check('…and adds that many at once', /const handleAddToCart = useCallback\(\(item: any, qty = 1\)/.test(engine) && /e\.addProductChecked\?\.\(c\.item, c\.pack\)/.test(desk));
+  check('…and adds that many at once', /const handleAddToCart = useCallback\(\(item: any, qty = 1[,)]/.test(engine) && /e\.addProductChecked\?\.\(c\.item, c\.pack\)/.test(desk));
   check('…one scan does one thing at the desk: the desk’s products and tickets, or the kit scanner for a kit, bundle, steriliser or station (it used to do both)',
     /const scanner = useScanSheet\(false\);/.test(desk) && /if \(hit\.kind !== 'lookup' && hit\.kind !== 'empty' && hit\.kind !== 'unsold'\) \{ e\.handlePosScan\?\.\(code\); return; \}/.test(desk) && /scanner\.openWith\(code\); return; \}/.test(desk)
     && /useWedge\(openWith, listen && !open, 'background'\);/.test(fs.readFileSync('src/components/pos/desk/ScanSheet.tsx', 'utf8')));

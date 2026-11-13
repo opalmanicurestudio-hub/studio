@@ -27,9 +27,10 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   label_generated: { customer: false, words: (m) => ({ text: `${m.carrier ? `${m.carrier} ` : ''}label${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}`, tone: 'plain' }) },
   label_scan_verified: { customer: false, words: (_m, by) => ({ text: `Label checked onto its box${by}`, tone: 'ok' }) },
   marked_ready: { customer: true, words: (m, by) => ({ text: `${m.forDelivery ? 'Ready to go out for delivery' : 'Ready for pickup'}${by}`, tone: 'ok' }) },
+  put_away: { customer: false, words: (m, by) => ({ text: `${Number(m.bags) > 1 ? `${m.bags} bags scanned` : 'Bag scanned'} onto shelf ${String(m.shelf || '')}${by}`, tone: 'plain' }) },
   customer_arrived: { customer: true, words: (m) => ({ text: `Customer arrived${m.spotOrVehicle ? ` · ${m.spotOrVehicle}` : ''}`, tone: 'plain' }) },
   handoff_scanned: { customer: true, words: (m, by) => ({ text: `${m.method === 'pin' ? 'Pickup code checked' : 'Pickup code scanned'}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'ok' }) },
-  out_for_delivery: { customer: true, words: (m, by) => ({ text: `${Number(m.attempt) > 1 ? 'Out for delivery again' : 'Out for delivery'}${by}`, tone: 'plain' }) },
+  out_for_delivery: { customer: true, words: (m, by) => ({ text: `${Number(m.attempt) > 1 ? 'Out for delivery again' : 'Out for delivery'}${Number(m.bags) > 0 ? `, ${Number(m.bags) > 1 ? `all ${m.bags} bags` : 'the bag'} scanned into the van` : ''}${by}`, tone: 'plain' }) },
   delivered: { customer: true, words: (_m, by) => ({ text: `Delivered${by}`, tone: 'ok' }) },
   delivery_failed: { customer: true, words: (m, by) => ({ text: `Couldn’t be delivered${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   shipped: { customer: true, words: (m, by) => ({ text: `Shipped${m.carrier ? ` with ${m.carrier}` : ''}${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}${by}`, tone: 'ok' }) },
@@ -53,7 +54,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
  *  says which, why and who approved it. */
 export function overrideText(m: any): string {
   if (m?.rule === 'unit_approved') return `${String(m.name || 'An item')} approved without a scan: ${String(m.reason || 'no reason given')}${m.approvedBy ? `, by ${String(m.approvedBy)}` : ''}`;
-  if (m?.rule === 'bags_approved') return `Handed over without scanning every bag’s tag${m.approvedBy ? `, approved by ${String(m.approvedBy)}` : ''}`;
+  if (m?.rule === 'bags_approved') return `${m.at === 'van' ? 'Out for delivery' : 'Handed over'} without scanning every bag’s tag${m.approvedBy ? `, approved by ${String(m.approvedBy)}` : ''}`;
   if (m?.rule === 'handoff_without_scan') return `Handed over without the pickup code${m?.reason ? `: ${String(m.reason)}` : ''}`;
   return [m?.rule, m?.reason].filter(Boolean).join(': ');
 }
