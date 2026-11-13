@@ -166,7 +166,9 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
         ? [sp.split(':')[0]?.trim() || '', sp.split(':').slice(1).join(':').trim()]
         : [String(sp?.label || ''), String(sp?.value || '')])).filter((r: string[]) => r[0] || r[1])),
     kit: JSON.stringify(kit) !== JSON.stringify((Array.isArray(product.kitContents) ? product.kitContents : []).map((k: string) => [String(k)])),
-    options: optionGroupsToText(groups) !== optionGroupsToText(Array.isArray(product.optionGroups) ? product.optionGroups : []),
+    // (A choice's color counts as a change too, which the editor's text form doesn't carry.)
+    options: optionGroupsToText(groups) !== optionGroupsToText(Array.isArray(product.optionGroups) ? product.optionGroups : [])
+      || JSON.stringify(groups.map((g) => g.choices.map((c) => c.swatch || ''))) !== JSON.stringify((Array.isArray(product.optionGroups) ? product.optionGroups : []).map((g: any) => (g.choices || []).map((c: any) => c.swatch || ''))),
     publish: showOnline !== (product.showOnline === true),
     seo: seoT !== (product.seoTitle || '') || seoD !== (product.seoDescription || ''),
     stock: Number(holdback) !== (Number(product.storeHoldback) || 0) || Number(lowAt) !== (Number(product.lowStockThreshold) || 0) || ground !== (product.shipGroundOnly === true) || JSON.stringify(dims) !== JSON.stringify(dimStart),
@@ -427,7 +429,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
                     const choices = [...g.choices];
                     const v = e.target.value;
                     // A variant sells for its own price (or the listing's), so it has no extra cost of its own.
-                    choices[ci] = v ? { id: c.id, label: c.label, deltaCents: 0, variantProductId: v } : { id: c.id, label: c.label, deltaCents: 0 };
+                    choices[ci] = v ? { id: c.id, label: c.label, deltaCents: 0, variantProductId: v, ...(c.swatch ? { swatch: c.swatch } : {}) } : { id: c.id, label: c.label, deltaCents: 0, ...(c.swatch ? { swatch: c.swatch } : {}) };
                     next[gi] = { ...g, choices };
                     setGroups(next);
                   }}
@@ -443,6 +445,40 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
                     <option value={c.variantProductId}>{byId.get(String(c.variantProductId))?.name || 'A product no longer in Inventory'}</option>
                   )}
                 </select>
+                <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                  <label className="inline-flex min-h-[44px] items-center gap-2 text-xs font-semibold">
+                    <input
+                      type="color"
+                      aria-label={`Color for choice ${ci + 1}`}
+                      value={c.swatch || '#c4c6ca'}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const next = [...groups];
+                        const choices = [...g.choices];
+                        choices[ci] = { ...c, swatch: e.target.value.toLowerCase() };
+                        next[gi] = { ...g, choices };
+                        setGroups(next);
+                      }}
+                      className="h-11 w-14 cursor-pointer rounded-xl border-2 bg-card p-1"
+                    />
+                    {c.swatch ? 'Shown as this color' : 'Add a color'}
+                  </label>
+                  {c.swatch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = [...groups];
+                        const choices = [...g.choices];
+                        const { swatch, ...rest } = c; void swatch;
+                        choices[ci] = rest;
+                        next[gi] = { ...g, choices };
+                        setGroups(next);
+                      }}
+                      className="min-h-[44px] rounded-xl px-3 text-xs font-semibold text-muted-foreground underline"
+                    >
+                      No color
+                    </button>
+                  )}
+                </div>
                 <Button
                   variant="ghost"
                   onClick={() => {
@@ -478,7 +514,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
           <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Add a choice group
         </Button>
         <p className="text-[10px] font-bold text-muted-foreground">
-          A choice that picks a product is a variant: it keeps its own stock and codes, sells out on its own, and sells for its own price when it has one, otherwise this listing’s. Variants go in one group, and a product can be a variant of one listing. A choice with no product just adds to the price.
+          A choice that picks a product is a variant: it keeps its own stock and codes, sells out on its own, and sells for its own price when it has one, otherwise this listing’s. Variants go in one group, and a product can be a variant of one listing. A choice with no product just adds to the price. A color shows the choice as a dot to tap, in the shop and on the window board.
         </p>
       </Section>
 

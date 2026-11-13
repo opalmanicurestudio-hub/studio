@@ -559,6 +559,9 @@ export interface OptionChoice {
    * doesn't. Absent = decoration, as before.
    */
   variantProductId?: string;
+  /** The color shown for this choice (a shade of polish, a fabric): a dot to pick in the shop and on the window board.
+   *  "#rrggbb"; absent = shown by its name only. */
+  swatch?: string;
 }
 export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
 

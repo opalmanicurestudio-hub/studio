@@ -12,6 +12,9 @@
 //   • Light (inside) or dark (outdoors, bright sun), picked on each screen. Numbers on the items ("number 3"), the same
 //     numbers the lane tablet and the voice assistant at the speaker know (lib/menu-numbers): on for a dark screen unless
 //     turned off, off for a light one unless turned on.
+//   • The shop's products picked for the pickup window (lib/pickup-window) after the menu, numbered after it: each with
+//     its size, its shades as dots, and Pros only when it's sold to licensed pros alone. A business with only a shop
+//     shows just its window, and the code goes to its shop.
 // A business with more than one screen can split it: each screen shows all sections, or just one (picked in the corner,
 // or with ?show=Drinks in its address). A menu too long for the screen gets smaller pictures, then lines, then shows its
 // sections (or a section's items) in turn, never cut off. If it loses touch with the server it keeps the last menu it had.
@@ -32,7 +35,9 @@ const INK = '#16171a';
 const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif";
 const POLL_MS = 15000, ROTATE_MS = 12000, HERO_MS = 8000;
 type Item = { id: string; name: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; soldOut: boolean;
-  featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null };
+  featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null ;
+  /** A product from the shop's window (lib/pickup-window): its size, its shades, and Pros only. */
+  kind?: 'product'; size?: string | null; prosOnly?: boolean; swatches?: { label: string; color: string | null; soldOut: boolean }[] };
 type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null };
 const BADGE: Record<string, string> = { popular: 'Popular', new: 'New', limited: 'Limited time' };
 const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
@@ -144,7 +149,7 @@ export default function MenuBoard() {
   // own, then run together); then lines with small pictures; then (showing everything) the sections take turns, as
   // pictures and then as lines. A screen showing one section: the same, then its items in turns, two pages, three, up to
   // seven.
-  const sig = board ? board.sections.map((x) => `${x.name}:${x.items.map((i) => `${i.id}${i.imageUrl ? '+' : ''}${i.badge || ''}${i.calories != null ? 'c' : ''}${i.number ?? ''}`).join(',')}`).join('|') : '';
+  const sig = board ? board.sections.map((x) => `${x.name}:${x.items.map((i) => `${i.id}${i.imageUrl ? '+' : ''}${i.badge || ''}${i.calories != null ? 'c' : ''}${i.number ?? ''}${i.size ? 's' : ''}${i.prosOnly ? 'p' : ''}${(i.swatches || []).length}`).join(',')}`).join('|') : '';
   const fitKey = `${sig}#${show}#${vp}#${numbers ? 'n' : ''}#${fontIn ? 'f' : ''}`;
   const fit = fitAt.key === fitKey ? fitAt.n : 0;
   const single = !!show && !!board?.sections.some((x) => x.name === show && x.items.length);
@@ -201,9 +206,24 @@ export default function MenuBoard() {
     if (!n.length) return null; const a = Math.min(...n), b = Math.max(...n);
     return a === b ? `Number ${a}` : `Numbers ${a} to ${b}`;
   };
+  // A product's shades as dots (those with a color; a sold-out one faded), up to a few with how many more.
+  const dots = (i: Item, d: string, most = 7) => {
+    const sw = (i.swatches || []).filter((w) => w.color); if (!sw.length) return null;
+    return (
+      <span role="img" aria-label={`${sw.length} colors`} className="flex items-center gap-[0.5vmin]">
+        {sw.slice(0, most).map((w, k) => <span key={k} className="shrink-0 rounded-full" style={{ width: d, height: d, background: w.color!, opacity: w.soldOut ? 0.35 : 1, boxShadow: `inset 0 0 0 1px ${look === 'dark' ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.1)'}` }} />)}
+        {sw.length > most && <span className="font-semibold" style={{ fontSize: `calc(${d} * 0.9)`, color: C.sub }}>+{sw.length - most}</span>}
+      </span>);
+  };
+  // "Pros only": sold to licensed pros alone.
+  const pros = (i: Item, size: string) => i.prosOnly ? <span className="inline-block shrink-0 whitespace-nowrap rounded-full px-[0.75em] py-[0.25em] font-bold" style={{ fontSize: size, background: look === 'dark' ? '#ffffff' : INK, color: look === 'dark' ? INK : '#ffffff' }}>Pros only</span> : null;
+  // What sits beside the price: calories for the menu, the size for a product.
+  const extra = (i: Item, size: string) => i.calories != null ? <span style={{ fontSize: size, color: C.sub }}>{i.calories} cal</span>
+    : i.size ? <span style={{ fontSize: size, color: C.sub }}>{i.size}</span> : null;
   const price = (i: Item) => <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(i.from ? i.startPrice : i.price)}</>;
   const picture = (i: Item, letter: string) => i.imageUrl
-    ? <img key={i.imageUrl} src={i.imageUrl} alt="" onError={hide} className="h-full w-full object-cover" style={i.soldOut ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
+    // (A product's photo whole, the way a shop shows it; a dish's or drink's photo filling its space.)
+    ? <img key={i.imageUrl} src={i.imageUrl} alt="" onError={hide} className={`h-full w-full ${i.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} style={i.soldOut ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
     : <span aria-hidden className="flex h-full w-full items-center justify-center font-extrabold" style={{ color: C.faint, fontSize: letter }}>{i.name.trim().charAt(0).toUpperCase()}</span>;
   const cardBox = { background: C.card, border: look === 'light' ? `1px solid ${C.line}` : 'none' } as const;
 
@@ -213,26 +233,29 @@ export default function MenuBoard() {
       <span className="relative block w-full overflow-hidden rounded-[1.6vmin]" style={{ height: `${S.pic}vmin`, background: C.well }}>
         {picture(i, `${S.pic * 0.42}vmin`)}
         <span className="absolute left-[0.8vmin] top-[0.8vmin]">{num(i, `${S.name * 1.25}vmin`)}</span>
+        <span className="absolute right-[0.8vmin] top-[0.8vmin]">{pros(i, `${S.cal}vmin`)}</span>
         <span className="absolute bottom-[0.8vmin] left-[0.8vmin] flex max-w-[calc(100%-1.6vmin)]">{tag(i, `${S.cal}vmin`)}</span>
       </span>
       <span className="block px-[0.5vmin] pb-[0.4vmin] pt-[1vmin]">
         <span className="line-clamp-2 block font-bold leading-[1.15]" style={{ fontSize: `${S.name}vmin`, color: i.soldOut ? C.sub : C.text }}>{i.name}</span>
         <span className="mt-[0.3vmin] flex flex-wrap items-baseline gap-x-[1vmin]">
           {!i.soldOut && <span className="font-bold tabular-nums" style={{ fontSize: `${S.price}vmin` }}>{price(i)}</span>}
-          {i.calories != null && <span style={{ fontSize: `${S.cal}vmin`, color: C.sub }}>{i.calories} cal</span>}
+          {extra(i, `${S.cal}vmin`)}
         </span>
+        {(i.swatches || []).some((w) => w.color) && <span className="mt-[0.6vmin] block">{dots(i, `${S.cal}vmin`)}</span>}
       </span>
     </li>
   ) : (
     <li key={i.id} className="flex min-w-0 items-center gap-[1.4vmin] rounded-[2.2vmin] p-[1vmin]" style={cardBox}>
       <span className="relative block shrink-0 overflow-hidden rounded-[1.6vmin]" style={{ width: `${S.pic * 0.72}vmin`, height: `${S.pic * 0.72}vmin`, background: C.well }}>{picture(i, `${S.pic * 0.3}vmin`)}</span>
       <span className="block min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-[0.8vmin]">{num(i, `${S.name * 1.15}vmin`)}{tag(i, `${S.cal}vmin`)}</span>
+        <span className="flex flex-wrap items-center gap-[0.8vmin]">{num(i, `${S.name * 1.15}vmin`)}{tag(i, `${S.cal}vmin`)}{pros(i, `${S.cal}vmin`)}</span>
         <span className="mt-[0.6vmin] line-clamp-2 block font-extrabold leading-[1.1] tracking-[-0.02em]" style={{ fontSize: `${S.name * 1.1}vmin`, color: i.soldOut ? C.sub : C.text }}>{i.name}</span>
         <span className="mt-[0.4vmin] flex flex-wrap items-baseline gap-x-[1vmin]">
           {!i.soldOut && <span className="font-bold tabular-nums" style={{ fontSize: `${S.price * 1.05}vmin` }}>{price(i)}</span>}
-          {i.calories != null && <span style={{ fontSize: `${S.cal}vmin`, color: C.sub }}>{i.calories} cal</span>}
+          {extra(i, `${S.cal}vmin`)}
         </span>
+        {(i.swatches || []).some((w) => w.color) && <span className="mt-[0.6vmin] block">{dots(i, `${S.cal}vmin`)}</span>}
       </span>
     </li>
   );
@@ -246,6 +269,7 @@ export default function MenuBoard() {
         <span className="flex items-center gap-[0.8vmin]" style={{ fontSize: '1.7vmin' }}>
           {i.soldOut ? <span style={{ color: C.sub }}>Sold out</span> : <span className="font-bold tabular-nums">{price(i)}</span>}
           {!i.soldOut && i.badge && tag(i, '1.3vmin')}
+          {pros(i, '1.3vmin')}
         </span>
       </span>
     </li>
@@ -261,7 +285,7 @@ export default function MenuBoard() {
   const featured = h ? (
     <section aria-label="Featured" className={`flex min-h-0 overflow-hidden rounded-[3vmin] ${wide ? 'flex-col p-[1.6vmin]' : 'flex-row-reverse items-stretch p-[1.4vmin]'}`} style={{ ...cardBox, ...(wide ? { width: '29%', flexShrink: 0 } : { height: '27%', flexShrink: 0 }) }}>
       <div className={`relative flex min-h-0 items-center justify-center overflow-hidden rounded-[2.2vmin] ${wide ? 'flex-1' : 'w-[42%] shrink-0'}`} style={{ background: C.well }}>
-        {h.imageUrl ? <img key={`${h.id}|${h.imageUrl}`} src={h.imageUrl} alt="" onError={hide} className="cf-hero-img h-full w-full object-cover" />
+        {h.imageUrl ? <img key={`${h.id}|${h.imageUrl}`} src={h.imageUrl} alt="" onError={hide} className={`cf-hero-img h-full w-full ${h.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} />
           : <span aria-hidden className="font-extrabold" style={{ color: C.faint, fontSize: '14vmin' }}>{h.name.trim().charAt(0).toUpperCase()}</span>}
         {h.badge && <span className="absolute left-[1.4vmin] top-[1.4vmin]">{tag(h, '1.9vmin')}</span>}
       </div>
@@ -269,9 +293,11 @@ export default function MenuBoard() {
         <p className="m-0 flex items-center gap-[1.2vmin]">{num(h, '4.4vmin')}</p>
         <p className="m-0 line-clamp-2 pb-[0.12em] font-extrabold leading-[1.08] tracking-[-0.03em]" style={{ fontSize: wide ? '5.4vmin' : '4.6vmin', marginTop: numbers && h.number ? '1vmin' : 0 }}>{h.name}</p>
         {h.words && <p className="m-0 mt-[1vmin] line-clamp-2 leading-[1.4]" style={{ fontSize: '2.1vmin', color: C.sub }}>{h.words}</p>}
+        {(h.swatches || []).some((w) => w.color) && <span className="mt-[1.4vmin] block">{dots(h, '3vmin', 8)}</span>}
         <p className="m-0 mt-[1.8vmin] flex flex-wrap items-center gap-[1.6vmin]">
           <span className="rounded-[1.8vmin] px-[0.55em] py-[0.12em] font-extrabold tabular-nums" style={{ fontSize: '4.2vmin', background: brand, color: brandInk }}>{price(h)}</span>
-          {h.calories != null && <span style={{ fontSize: '2vmin', color: C.sub }}>{h.calories} cal</span>}
+          {extra(h, '2vmin')}
+          {pros(h, '1.9vmin')}
         </p>
         {heroes.length > 1 && <span aria-hidden className="mt-[1.8vmin] flex gap-[0.8vmin]">{heroes.map((x, k) => <span key={x.id} className="h-[0.8vmin] rounded-full transition-all motion-reduce:transition-none" style={{ width: k === hero % heroes.length ? '3.6vmin' : '0.8vmin', background: k === hero % heroes.length ? C.text : C.line }} />)}</span>}
       </div>
@@ -329,7 +355,14 @@ export default function MenuBoard() {
             </ul>)}
         </div>
       </div>
-      {numbers && items.some((i) => i.number) && <p className="m-0 shrink-0 text-center font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>Order by number or by name</p>}
+      {(() => {
+        // What to know before ordering, each said once: order by number, and that Pros only items need a license on file.
+        const notes = [numbers && items.some((i) => i.number) ? 'Order by number or by name' : '', items.some((i) => i.prosOnly) ? 'Pros only items need your license on file' : ''].filter(Boolean);
+        return notes.length ? (
+          <p className="m-0 flex shrink-0 flex-wrap items-center justify-center gap-x-[2.4vmin] font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>
+            {notes.map((n, k) => <span key={n} className="flex items-center gap-[2.4vmin]">{k > 0 && <span aria-hidden className="h-[0.7vmin] w-[0.7vmin] rounded-full" style={{ background: C.faint }} />}{n}</span>)}
+          </p>) : null;
+      })()}
 
       <div className="absolute bottom-1 right-2">
         <button ref={pickBtn} type="button" onClick={() => setPicking((v) => !v)} aria-expanded={picking} className="min-h-[44px] min-w-[44px] max-w-[40vw] truncate rounded-xl px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2" style={{ color: C.sub, opacity: 0.75 }}>{show || 'All sections'}, {look === 'dark' ? 'dark' : 'light'}</button>

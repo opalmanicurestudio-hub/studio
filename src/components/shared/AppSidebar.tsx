@@ -96,6 +96,8 @@ const COMMERCE = [
   { href: '/retail-orders/problems',  icon: ShieldQuestion, label: 'Problems' },
   { href: '/retail-orders/customers', icon: Users2,         label: 'Shoppers' },
   { href: '/retail-orders/setup',     icon: ShoppingBag,    label: 'Setup'    },
+  // The products shown at the pickup window and on its board, numbered (lib/pickup-window).
+  { href: '/window',                  icon: Car,            label: 'Pickup window' },
 ];
 
 const TEAM_FULL = [

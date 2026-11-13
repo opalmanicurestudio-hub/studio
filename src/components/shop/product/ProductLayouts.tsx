@@ -16,7 +16,7 @@ import type { SiteLayout } from '@/lib/shop-site';
 import { cn } from '@/lib/utils';
 import { accessWords, downloadWords, sizeWords, type PublicDigital } from '@/lib/digital-product';
 
-export type ViewChoice = { id: string; label: string; deltaCents?: number; priceCents?: number; wholesalePriceCents?: number | null; inStock?: boolean; lowStock?: boolean };
+export type ViewChoice = { id: string; label: string; deltaCents?: number; priceCents?: number; wholesalePriceCents?: number | null; inStock?: boolean; lowStock?: boolean; swatch?: string };
 export type ViewGroup = { id: string; name: string; variants?: boolean; choices: ViewChoice[] };
 export type ViewProduct = {
   id: string; name: string; category: string; sku: string; description: string; howToUse: string;
@@ -159,7 +159,24 @@ function Choices({ v }: { v: ProductViewProps }) {
             <p id={labelId} className="text-sm" style={L === 'maison' ? spaced : undefined}>
               {L === 'maison' ? `${g.name} · ${pickedLabel}` : <>{g.name}: <span className="font-semibold">{pickedLabel}</span></>}
             </p>
-            {L === 'index' && g.variants ? (
+            {g.choices.some((c) => c.swatch) ? (
+              // Shades: a dot of each color to tap (its name and price read out), the picked one ringed, a sold-out one
+              // faded with a line through it. A choice with no color of its own shows its first letter.
+              <div role="group" aria-labelledby={labelId} className="flex flex-wrap gap-2.5">
+                {g.choices.map((c) => {
+                  const on = picked === c.id; const t = choiceText(g, c, v.wholesale);
+                  return (
+                    <button key={c.id} type="button" aria-pressed={on} onClick={() => v.onSelect(g.id, c.id)}
+                      aria-label={`${c.label}${t.price ? `, ${t.price}` : ''}${t.soldOut ? ', sold out' : ''}`} title={c.label}
+                      className="relative inline-flex h-11 w-11 items-center justify-center rounded-full text-xs font-semibold"
+                      style={{ background: c.swatch || 'var(--shop-tint)', color: 'var(--shop-ink)', opacity: t.soldOut ? 0.45 : 1,
+                        boxShadow: on ? '0 0 0 3px var(--shop-surface), 0 0 0 5px var(--shop-ink)' : 'inset 0 0 0 1px var(--shop-line)' }}>
+                      {c.swatch ? null : c.label.trim().charAt(0).toUpperCase()}
+                      {t.soldOut && <span aria-hidden className="absolute inset-y-1 left-1/2 w-0.5 -translate-x-1/2 rotate-45 rounded-full" style={{ background: 'var(--shop-surface)' }} />}
+                    </button>);
+                })}
+              </div>
+            ) : L === 'index' && g.variants ? (
               <div role="group" aria-labelledby={labelId} className="overflow-hidden cf-line" style={{ ...radius('control'), ...line }}>
                 {g.choices.map((c, n) => {
                   const on = picked === c.id; const t = choiceText(g, c, v.wholesale);

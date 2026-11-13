@@ -269,7 +269,7 @@ export function leadDaysOf(v: any): { min: number; max: number } | null {
 export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { wholesale?: boolean; discountPct?: number; zone?: string | null; maxShown?: number } = {}) {
   const vg = variantGroup(listing); const max = o.maxShown ?? 99;
   return groupsOf(listing).map((g) => {
-    if (g !== vg) return { id: g.id, name: g.name, choices: g.choices.filter((c) => !(vg && pickedBy(listing, c))).map((c) => ({ id: c.id, label: c.label, deltaCents: Math.round(Number(c.deltaCents) || 0) })) };
+    if (g !== vg) return { id: g.id, name: g.name, choices: g.choices.filter((c) => !(vg && pickedBy(listing, c))).map((c) => ({ id: c.id, label: c.label, deltaCents: Math.round(Number(c.deltaCents) || 0), ...(swatchOf(c.swatch) ? { swatch: swatchOf(c.swatch) } : {}) })) };
     return {
       id: g.id, name: g.name, variants: true,
       choices: g.choices.map((c) => {
@@ -282,6 +282,7 @@ export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { whol
         const n = ok ? canSell(v) : 0;
         return {
           id: c.id, label: c.label, priceCents: retail, wholesalePriceCents: wholesale,
+          ...(swatchOf(c.swatch) ? { swatch: swatchOf(c.swatch) } : {}),
           ...st, live: ok,
           lowStock: ok && n > 0 && n <= (Number(v.lowStockThreshold) || 0),
         };
@@ -331,6 +332,12 @@ export function shopLine(product: any, selections: Record<string, string> | unde
 /** A listing's choices as a screen sent them, kept to what a choice holds: ids kept (so a cart's picks still match),
  *  words trimmed, a variant's choice without an extra cost (its price is the variant's). `problem` when they can't be
  *  saved as sent. */
+/** A choice's color as "#rrggbb" (lower case), or null for anything else. */
+export function swatchOf(v: unknown): string | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(s) ? s : null;
+}
+
 export function cleanChoices(input: any): { groups: OptionGroup[]; problem: string } {
   const out: OptionGroup[] = [];
   if (!Array.isArray(input)) return { groups: out, problem: 'Those choices couldn’t be read. Try again.' };
@@ -352,8 +359,10 @@ export function cleanChoices(input: any): { groups: OptionGroup[]; problem: stri
       if (!label) return { groups: out, problem: `Give every choice in “${name}” a name.` };
       const cid = idOk(String(c.id ?? '')) && !cids.has(String(c.id)) ? String(c.id) : fresh(`c${gi}-${ci}${stamp}`, cids); cids.add(cid);
       const v = String(c.variantProductId ?? '').trim();
-      if (v && v.length <= 160 && !v.includes('/')) choices.push({ id: cid, label, deltaCents: 0, variantProductId: v });
-      else choices.push({ id: cid, label, deltaCents: Math.max(-100000, Math.min(100000, Math.round(Number(c.deltaCents) || 0))) });
+      // (A color to show it by, kept only as "#rrggbb".)
+      const sw = swatchOf(c.swatch); const color = sw ? { swatch: sw } : {};
+      if (v && v.length <= 160 && !v.includes('/')) choices.push({ id: cid, label, deltaCents: 0, variantProductId: v, ...color });
+      else choices.push({ id: cid, label, deltaCents: Math.max(-100000, Math.min(100000, Math.round(Number(c.deltaCents) || 0))), ...color });
     }
     out.push({ id: gid, name, choices });
   }

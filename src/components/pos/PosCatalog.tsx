@@ -2,17 +2,28 @@
 // src/components/pos/PosCatalog.tsx — WHAT YOU CAN SELL AT THE DESK, at a glance (Counter, and "Add to this sale" in checkout).
 // Photo tiles with price and on-shelf stock, variants shown inline, members-only and "already in this sale" badges,
 // search that also takes a scanned code (Enter adds it), departments for the tools you use, and category chips.
+// With `tenantId`, the pickup window's numbers too (lib/pickup-window, api/retail/window 'numbers'): a product on the
+// window shows its number, and typing the number ("3", "#3", "no. 3") finds it, the way a customer orders at the window.
 import * as React from 'react';
 import { isSellable, onHand, variantsOf } from '@/lib/pos-scan';
 import { choiceFor, deskPrice, listingsOf, variantIdsOf } from '@/lib/variants';
+import { spokenNumber } from '@/lib/menu-numbers';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 type Dept = 'products' | 'services' | 'memberships' | 'packages';
 
-export function PosCatalog({ inventory, services, memberships, packages, cart, onAdd, onScan, compact }: {
+export function PosCatalog({ inventory, services, memberships, packages, cart, onAdd, onScan, compact, tenantId }: {
   inventory: any[]; services?: any[]; memberships?: any[]; packages?: any[]; cart?: any[];
-  onAdd: (item: any) => void; onScan?: (code: string) => void; compact?: boolean;
+  onAdd: (item: any) => void; onScan?: (code: string) => void; compact?: boolean; tenantId?: string | null;
 }) {
+  // The window's numbers (read once; none when it has no window or this can't be read).
+  const [nums, setNums] = React.useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (!tenantId) return; let live = true;
+    fetch('/api/retail/window', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'numbers' }) })
+      .then((r) => r.json()).then((d) => { if (live && d?.ok && d.numbers && typeof d.numbers === 'object') setNums(d.numbers); }).catch(() => null);
+    return () => { live = false; };
+  }, [tenantId]);
   // Variants appear inside their listing, priced as the shop prices them (lib/variants).
   const listings = React.useMemo(() => listingsOf(inventory || []), [inventory]);
   const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !listings.has(String(i.id))), [inventory, listings]);
@@ -25,8 +36,11 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const base: any[] = dept === 'products' ? products : dept === 'services' ? (services || []) : dept === 'memberships' ? (memberships || []).filter((m: any) => !m.isPrivate) : (packages || []).filter((p: any) => !p.isPrivate);
   const cats = React.useMemo(() => ['All', ...Array.from(new Set(base.map((i: any) => String(i.category || '').trim()).filter(Boolean))).sort()], [base]);
   const t = q.trim().toLowerCase();
-  const shown = base.filter((i: any) => (cat === 'All' || String(i.category || '') === cat) && (!t || String(i.name || '').toLowerCase().includes(t) || String(i.sku || '').toLowerCase().includes(t) || String(i.barcode || '').toLowerCase().includes(t)))
-    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+  // A window number typed: that product first (whatever category is picked), then anything else that matches the words.
+  const asked = dept === 'products' ? spokenNumber(q) : null;
+  const byNumber = asked != null ? base.filter((i: any) => nums[String(i.id)] === asked) : [];
+  const shown = [...byNumber, ...base.filter((i: any) => !byNumber.includes(i) && (cat === 'All' || String(i.category || '') === cat) && (!t || String(i.name || '').toLowerCase().includes(t) || String(i.sku || '').toLowerCase().includes(t) || String(i.barcode || '').toLowerCase().includes(t)))
+    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)))];
   const inCart = (id: string) => (cart || []).find((c: any) => c.id === id)?.quantity || 0;
   const priceOf = (i: any) => (dept === 'products' ? deskPrice(i, listings) : Number(i.price || 0));
   const priceText = (i: any) => { const p = priceOf(i); return dept === 'products' && !(p > 0) ? 'No price yet' : money(p); };
@@ -37,7 +51,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const submit = () => { const v = q.trim(); if (!v) return;
     const exact = base.filter((i: any) => [i.sku, i.barcode].some((c) => c && String(c).toLowerCase() === v.toLowerCase()));
     if (onScan && (exact.length || /^[A-Za-z0-9:/._-]{6,}$/.test(v) && !shown.length)) { onScan(v); setQ(''); return; }
-    if (shown.length === 1) { const only = shown[0]; if (isListing(only)) setOpenParent(only.id); else { onAdd(only); setQ(''); } } };
+    if (shown.length === 1 || byNumber.length === 1) { const only = byNumber.length === 1 ? byNumber[0] : shown[0]; if (isListing(only)) setOpenParent(only.id); else { onAdd(only); setQ(''); } } };
   const tile = 'relative flex flex-col overflow-hidden rounded-2xl text-left transition active:scale-[.98]';
   return (
     <div className="space-y-3">
@@ -60,11 +74,11 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
             const img = i.imageUrl || (Array.isArray(i.imageUrls) ? i.imageUrls[0] : null); const n = inCart(i.id) + vs.reduce((s: number, v: any) => s + inCart(v.id), 0);
             const opened = openParent === i.id;
             return <div key={i.id} className={opened ? 'col-span-full' : ''}>
-              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : onAdd(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a variant of' : 'Add'} ${i.name}`}>
+              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : onAdd(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a variant of' : 'Add'} ${dept === 'products' && nums[String(i.id)] ? `number ${nums[String(i.id)]}, ` : ''}${i.name}`}>
                 {!compact && <div className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden" style={{ background: 'var(--soft)' }}>
                   {img ? <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" /> : <span className="text-[28px] font-semibold" style={{ color: 'var(--muted)' }}>{String(i.name || '?').slice(0, 1).toUpperCase()}</span>}</div>}
                 <div className="space-y-0.5 p-2.5">
-                  <p className="line-clamp-2 text-[14px] font-semibold leading-snug">{i.name}</p>
+                  <p className="line-clamp-2 text-[14px] font-semibold leading-snug">{dept === 'products' && nums[String(i.id)] ? <span aria-hidden className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12px] font-bold tabular-nums" style={{ background: 'var(--soft)' }}>{nums[String(i.id)]}</span> : null}{i.name}</p>
                   <p className="text-[14px] tabular-nums">{parent && vs.length ? (() => { const ps = vs.map((v: any) => priceOf(v)).filter((x: number) => x > 0); return ps.length ? `${new Set(ps).size > 1 ? 'from ' : ''}${money(Math.min(...ps))}` : 'No price yet'; })() : priceText(i)}{dept === 'memberships' && i.interval ? <span style={{ color: 'var(--muted)' }}> / {i.interval === 'monthly' ? 'month' : 'year'}</span> : null}{dept === 'packages' && i.sessions ? <span style={{ color: 'var(--muted)' }}> · {i.sessions} visits</span> : null}</p>
                   <div className="flex flex-wrap items-center gap-1">
                     {dept === 'products' && (parent ? <span className="text-[11px] font-semibold">{vs.length} {vs.length === 1 ? 'variant' : 'variants'}</span> : stockPill(i))}

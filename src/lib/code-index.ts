@@ -359,7 +359,7 @@ function renewMovedIds(listing: any, groups: OptionGroup[]) {
  *  ids are kept, so what's already in a customer's cart still matches. */
 /** A listing's choices in a form two copies can be compared by: what each group and choice is and picks. */
 function choicesKey(groups: any): string {
-  return JSON.stringify((Array.isArray(groups) ? groups : []).map((g: any) => [String(g?.id ?? ''), String(g?.name ?? ''), (Array.isArray(g?.choices) ? g.choices : []).map((c: any) => [String(c?.id ?? ''), String(c?.label ?? ''), Math.round(Number(c?.deltaCents) || 0), String(c?.variantProductId || '')])]));
+  return JSON.stringify((Array.isArray(groups) ? groups : []).map((g: any) => [String(g?.id ?? ''), String(g?.name ?? ''), (Array.isArray(g?.choices) ? g.choices : []).map((c: any) => [String(c?.id ?? ''), String(c?.label ?? ''), Math.round(Number(c?.deltaCents) || 0), String(c?.variantProductId || ''), String(c?.swatch || '').toLowerCase()])]));
 }
 
 export async function saveListingChoices(db: any, tenantId: string, listingId: string, input: any | ((listing: any) => any), by: string, was?: any[]): Promise<{ ok: true; groups: OptionGroup[]; changed: string[] } | { ok: false; error: string; status: number }> {

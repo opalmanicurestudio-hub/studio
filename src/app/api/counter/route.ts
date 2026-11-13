@@ -64,6 +64,8 @@ import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
 import { pointsOn, linkOrder } from '@/lib/counter-points';
 import { pageAccent } from '@/lib/studio-page';
 import { menuNumbers } from '@/lib/menu-numbers';
+import { readWindow, boardNumbers } from '@/lib/pickup-window';
+import { moduleEnabled } from '@/lib/modules';
 import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
@@ -196,10 +198,13 @@ export async function POST(req: NextRequest) {
     if (action === 'menuBoard') {
       // (Read at most every 10 seconds per business, however many boards poll; the week's best sellers every 10 minutes.)
       const hit = menuBoardCache.get(tenantId);
-      let sections: { name: string; items: any[] }[];
+      let sections: { name: string; kind?: 'product'; items: any[] }[];
       if (hit && now.getTime() - hit.at < 10000) sections = hit.sections;
       else {
-        const items = (await readMenu(db, tenantId)).filter((m) => m.onMenu && !m.membersOnly);
+        // The menu, and the shop's products picked for the window (lib/pickup-window), shown after it.
+        const [items, products] = await Promise.all([readMenu(db, tenantId).then((l) => l.filter((m) => m.onMenu && !m.membersOnly)),
+          // (Only while the business has the shop.)
+          moduleEnabled(tenant, 'retail') ? readWindow(db, tenantId, tenant).catch((e: any) => { console.error('[counter] window not read', e?.message); return [] as any[]; }) : Promise.resolve([] as any[])]);
         // Popular: the three best sellers on the board over the last 7 days (at least 5 each), from the day's counts sendOrder keeps.
         let popular = hit?.popular || new Set<string>(); let popularAt = hit?.popularAt || 0;
         if (!hit || now.getTime() - hit.popularAt > 10 * 60000) {
@@ -213,8 +218,19 @@ export async function POST(req: NextRequest) {
             popular = new Set(Array.from(sum.entries()).filter(([, q]) => q >= 5).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id));
             popularAt = now.getTime();
           }
+          // The window's best sellers the same way: its products' units on the shop's paid orders over the same 7 days.
+          if (products.length) {
+            const since = new Date(noon - 7 * 86400000).toISOString(); const onWin = new Set(products.map((p: any) => p.id));
+            const os: any = await db.collection(`${T}/retailOrders`).where('placedAt', '>', since).orderBy('placedAt', 'desc').limit(400).get().catch((e: any) => { console.error('[counter] window best sellers not read', e?.message); return null; });
+            if (os) {
+              const sum = new Map<string, number>();
+              for (const d of os.docs) { const o: any = d.data() || {}; if (!o.paidAt || o.stage === 'cancelled') continue;
+                for (const l of Array.isArray(o.lines) ? o.lines : []) { const id = String(l?.listingId || l?.productId || ''); if (onWin.has(id)) sum.set(id, (sum.get(id) || 0) + num(l?.qtyOrdered)); } }
+              for (const [id] of Array.from(sum.entries()).filter(([, q]) => q >= 5).sort((a, b) => b[1] - a[1]).slice(0, 3)) popular.add(id);
+            }
+          }
         }
-        sections = []; const nums = menuNumbers(items);
+        sections = []; const nums = boardNumbers(items, products);
         for (const m of items) {
           let sec = sections.find((x) => x.name === m.section); if (!sec) sections.push((sec = { name: m.section, items: [] }));
           sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
@@ -222,15 +238,30 @@ export async function POST(req: NextRequest) {
             // The number guests can order by ("number 3"), the same on every screen (lib/menu-numbers).
             number: nums.get(m.id) ?? null });
         }
+        // The window's products after the menu: their size and shades instead of calories, and Pros only when it's sold
+        // to licensed pros alone.
+        // (A category with the same name as a menu section is named apart, so a screen can show either one.)
+        const menuNames = new Set(sections.map((x) => x.name));
+        for (const p of products as any[]) {
+          const name = menuNames.has(p.section) ? `${p.section} (shop)` : p.section;
+          let sec = sections.find((x) => x.name === name && x.kind === 'product'); if (!sec) sections.push((sec = { name, kind: 'product', items: [] } as any));
+          sec!.items.push({ id: p.id, name: p.name, words: p.words, price: p.price, from: p.from, startPrice: p.startPrice, imageUrl: p.imageUrl, soldOut: p.soldOut,
+            featured: p.featured, badge: p.badge || (popular.has(p.id) ? 'popular' : null), calories: null, number: nums.get(p.id) ?? null,
+            kind: 'product', size: p.size, prosOnly: p.prosOnly, swatches: p.swatches.map((w: any) => ({ label: w.label, color: w.color, soldOut: w.soldOut })) });
+        }
         // (Not read just now, it tries again on the next ask: the tags it had stay until then.)
         menuBoardCache.set(tenantId, { at: now.getTime(), sections, popular, popularAt });
         if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
       }
       const A = aheadOf(tenant);
+      // Ordering ahead: the menu's own page when that's on, else the shop when the board shows its products (and the
+      // shop is open).
+      const shopOpen = sections.some((x) => x.kind === 'product') && moduleEnabled(tenant, 'retail') && tenant.retailSettings?.storePaused !== true;
+      const origin = linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '');
       return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections,
         // The business's own color (made readable for white text on it), for the tags and the price on the featured item.
         accent: pageAccent(tenant),
-        orderAhead: A.on ? `${linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` : null, now: nowIso });
+        orderAhead: A.on ? `${origin}/order/${encodeURIComponent(tenantId)}` : shopOpen ? `${origin}/shop/${encodeURIComponent(tenantId)}` : null, now: nowIso });
     }
 
     if (action === 'board') {
