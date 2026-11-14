@@ -15,7 +15,7 @@ import { beginPinAttempt, endPinAttempt } from '@/lib/pin';
 import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
-const KIND_LABEL: Record<string, string> = { held_stock: 'sell units held for online orders', waive: 'waive fees', recovery: 'give service recovery', discount: 'give a discount', void: 'void a sale', cancel_override: 'override a cancellation fee', service_override: 'override a service rule', client_recovery: 'issue a recovery credit', pos_override: 'approve an override', item_without_scan: 'add an item at the register without scanning it' };
+const KIND_LABEL: Record<string, string> = { held_stock: 'sell units held for online orders', waive: 'waive fees', recovery: 'give service recovery', discount: 'give a discount', void: 'void a sale', cancel_override: 'override a cancellation fee', service_override: 'override a service rule', client_recovery: 'issue a recovery credit', pos_override: 'approve an override', item_without_scan: 'add an item at the register without scanning it', comp: 'comp an item on a table’s check', void_item: 'void an item the kitchen has started' };
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
 export async function GET(req: NextRequest) {

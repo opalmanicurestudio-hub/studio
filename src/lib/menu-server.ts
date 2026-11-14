@@ -20,7 +20,10 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   /** Kitchen timing (lib/counter-orders, lib/holding): how long it takes to make, and how long a batch may be held (0: not held). */
   makeSeconds: number; holdMinutes: number; batchSize: number;
   /** The menu board (api/counter 'menuBoard'): shown big up front, a New or Limited time tag, and its calories (optional). */
-  featured: boolean; badge: 'new' | 'limited' | null; calories: number | null };
+  featured: boolean; badge: 'new' | 'limited' | null; calories: number | null;
+  /** Table service (lib/table-service): the station it's made at and its course, as set on it (null: worked out from
+   *  its section; course 0: always right away). */
+  station: string | null; course: number | null };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -37,6 +40,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
     featured: i.boardFeatured === true, badge: i.boardBadge === 'new' || i.boardBadge === 'limited' ? i.boardBadge : null,
     calories: Number.isFinite(Number(i.calories)) && i.calories !== null && i.calories !== '' && Number(i.calories) >= 0 && Number(i.calories) <= 5000 ? Math.round(Number(i.calories)) : null,
+    station: words(i.station, 24) || null, course: Number.isInteger(Number(i.course)) && i.course !== null && i.course !== '' && Number(i.course) >= 0 && Number(i.course) <= 9 ? Number(i.course) : null,
   };
 }
 

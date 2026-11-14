@@ -660,17 +660,44 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     if (a.status === 'completed' && a.checkoutSessionId) return json({ ok: false, error: `${a.clientName || 'This visit'} has already been checked out.` }, 409);
     visits.push({ appointment: { ...a, id }, service: svc(a.serviceId) || { id: a.serviceId, name: a.serviceName || 'Service', price: num(a.price) }, addOnServices: addOnIdsOf(a).map((x: string) => svc(x)).filter(Boolean) });   // agreed counts (lib/prep-checkout)
   }
+  // A table's held course that was never fired (api/tab 'fire'): fired or voided first, so nobody pays for food the
+  // kitchen was never asked to make, and no ticket waits forever.
+  for (const v of visits) {
+    const waiting = (Array.isArray(v.appointment?.tab) ? v.appointment.tab : []).filter((l: any) => l?.kdsId && l.firedAt === null);
+    if (waiting.length) return json({ ok: false, error: `${waiting.slice(0, 3).map((l: any) => String(l.name || 'An item')).join(', ')}${waiting.length > 3 ? ' and more' : ''} at ${v.appointment.tableName || 'this table'} ${waiting.length === 1 ? 'hasn’t' : 'haven’t'} been fired. Fire or void ${waiting.length === 1 ? 'it' : 'them'} from the table’s tab first.` }, 409);
+  }
   // Sale items, priced here (never by the browser) — except next-visit deposits (capped by that booking's deposit) and rentals.
   const items: any[] = [];
+  // A comped item from a table's tab (api/tab): sent as its own line, and charged less only when its comp checks out
+  // against the record the server kept when it was comped (never on the browser's word).
+  const compsUsed = new Set<string>();
+  const tabComp = async (visitId: string, lineId: string, itemId: string): Promise<{ amount: number; approvalId: string } | null> => {
+    const v = visits.find((x: any) => x.appointment?.id === visitId); const l = (Array.isArray(v?.appointment?.tab) ? v.appointment.tab : []).find((x: any) => x?.lineId === lineId);
+    const c = l?.comp; if (!c || typeof c.approvalId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(c.approvalId)) return null;
+    const a: any = (await db.doc(`${T}/approvals/${c.approvalId}`).get()).data();
+    if (!a || a.kind !== 'comp' || a.status !== 'approved' || a.used !== true || a.ref !== `${visitId}:${lineId}` || num(a.amount) + 0.005 < num(c.amount)) return null;
+    // …for this item on this table, and not already taken off an earlier sale.
+    if (String(a.visitId || '') !== visitId || String(a.itemId || '') !== itemId || String(l.itemId || '') !== itemId || a.compSaleId) return null;
+    return { amount: Math.max(0, num(c.amount)), approvalId: c.approvalId };
+  };
   for (const it of reqItems) {
-    const qty = ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String(it.id || '');
+    const compLineId = typeof it.compLineId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(it.compLineId) ? it.compLineId : null;
+    if (compLineId && Math.round(num(it.quantity) || 1) !== 1) return json({ ok: false, error: 'A comped item is one item. Take it off the sale and check out from the table again.' }, 400);
+    const qty = compLineId ? 1 : ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String((compLineId ? it.itemId : it.id) || '');
     let price = num(it.price), name = String(it.name || 'Item'), stock: number | null = null;
     // A product sells for the shop's price for it (lib/variants): a variant's own price when it has one, otherwise its
     // listing's. One with no price isn't sold (it used to sell at cost).
     if (type === 'product') { const p = inventory.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: `${name} isn’t in your inventory any more.` }, 400);
       price = deskPrice(p, deskListings); name = saleName(p, deskListings); stock = num(p.totalStock);
       if (!(price > 0)) return json({ ok: false, error: `${name} has no price yet. Give it one in Inventory, then take it off this sale and add it again.` }, 400);
-      const lid = deskListings.get(String(p.id))?.id; if (lid) (it as any).__listingId = String(lid); }
+      const lid = deskListings.get(String(p.id))?.id; if (lid) (it as any).__listingId = String(lid);
+      if (compLineId) {
+        const c = compsUsed.has(compLineId) ? null : await tabComp(String(it.compVisitId || ''), compLineId, id);
+        if (!c) return json({ ok: false, error: `The comp on ${name} couldn’t be checked. Take it off this sale and check out from the table again.` }, 409);
+        compsUsed.add(compLineId); const off = Math.min(price, c.amount);
+        price = Math.round((price - off) * 100) / 100; name = `${name}, comped`; (it as any).__comp = { lineId: compLineId, visitId: String(it.compVisitId), approvalId: c.approvalId, amount: Math.round(off * 100) / 100 };
+      } }
+    else if (compLineId) return json({ ok: false, error: 'Only food and drink can be comped from a table’s tab.' }, 400);
     else if (type === 'service') { const s = svc(id); if (s) { price = num(s.price); name = s.name || name; } }
     else if (type === 'tuition') { const acct: any = await tuitionAccount(db, tenantId, String(it.planId || '')); if (!acct) return json({ ok: false, error: 'That tuition plan wasn’t found.' }, 400);
       if (!acct.open) return json({ ok: false, error: 'That student isn’t enrolled yet — their down payment is taken on their application link.' }, 400);
@@ -686,7 +713,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       price = cents / 100; const g = it.gift || {}; name = `Gift card${g.recipientName ? ` for ${String(g.recipientName).slice(0, 60)}` : ''}`;
       (it as any).__gift = { cents, recipientName: g.recipientName ? String(g.recipientName).slice(0, 80) : null, recipientId: g.recipientId ? String(g.recipientId) : null, recipientPhone: g.recipientPhone ? String(g.recipientPhone).slice(0, 30) : null, recipientEmail: g.recipientEmail ? String(g.recipientEmail).slice(0, 120) : null, message: g.message ? String(g.message).slice(0, 400) : null, design: typeof g.design === 'string' && /^[a-z0-9-]{2,30}$/.test(g.design) ? g.design : null, line: g.line ? String(g.line).slice(0, 30) : null, service: g.service && typeof g.service.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(g.service.id) ? { id: g.service.id, name: String(g.service.name || '').slice(0, 80) } : null, sendVia: ['text', 'email', 'print', 'code'].includes(g.sendVia) ? g.sendVia : 'code', sendAt: g.sendAt && Date.parse(g.sendAt) > Date.now() + 60000 ? new Date(g.sendAt).toISOString() : null }; }
     else if (type === 'deposit' && it.depositForAppointmentId) { const ap: any = (await db.doc(`${T}/appointments/${String(it.depositForAppointmentId)}`).get()).data() || {}; const max = num(ap.depositAmountCents) / 100; if (max > 0) price = Math.min(price || max, max); }
-    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__listingId ? { listingId: (it as any).__listingId } : {}), ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}) });   // rent carries its renter's account to the payment step
+    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__listingId ? { listingId: (it as any).__listingId } : {}), ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}), ...((it as any).__comp ? { comp: (it as any).__comp } : {}) });   // rent carries its renter's account to the payment step
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
@@ -993,15 +1020,22 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // What a table's tab already sent to the kitchen when it was ordered (lib/table-tab): paying for it doesn't send it again.
   const sentFromTab: Record<string, number> = {}; const kitchenLines: Record<string, number> = {};
   for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + Math.max(1, Number(l.quantity) || 1);
+  // The same product can be on two lines (a comped one from a table's tab beside the rest): its stock, lots and pop-up
+  // count move once per line, each from where the line before left them.
+  const invRead = new Map<string, any>(); const lotsNow = new Map<string, any[]>(); const stockNow = new Map<string, number>();
   for (const it of items) {
     const value = it.price * it.quantity;
     const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
     const description = it.type === 'giftcard' ? `Gift card sold: ${it.name}` : it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
     txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.listingId ? { listingId: it.listingId } : {}), ...(it.type === 'product' && noScanBy[String(it.id)]?.length ? { addedWithoutScan: noScanBy[String(it.id)].slice(0, Math.max(1, it.quantity)) } : {}), ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
+      // A comp from a table's tab is spent by this sale, in the same write: it can't come off another one.
+      if (it.comp?.approvalId) batch.set(db.doc(`${T}/approvals/${it.comp.approvalId}`), { compSaleId: checkoutSessionId, compSaleAt: now }, { merge: true });
       // The batches move too (soonest-expiring first, lib/retail-orders), so lots and expiry stay true for in-store sales.
       let batchPatch: any = {}; let inv: any = null;
-      try { inv = (await db.doc(`${T}/inventory/${it.id}`).get()).data(); if (Array.isArray(inv?.batches) && inv.batches.length) batchPatch = { batches: JSON.parse(JSON.stringify(depleteBatchesFIFO(inv.batches, it.quantity).batches)) }; } catch { /* the total still moves */ }
+      try { const k = String(it.id); if (!invRead.has(k)) invRead.set(k, (await db.doc(`${T}/inventory/${it.id}`).get()).data() || null); inv = invRead.get(k);
+        const lots = lotsNow.get(k) ?? (Array.isArray(inv?.batches) ? inv.batches : null);
+        if (Array.isArray(lots) && lots.length) { const next = JSON.parse(JSON.stringify(depleteBatchesFIFO(lots, it.quantity).batches)); lotsNow.set(k, next); batchPatch = { batches: next }; } } catch { /* the total still moves */ }
       // Food and drink sold at the desk (a café or lounge item) go to the kitchen screen to be made (app/kds), in the
       // same write as the sale (a sale saved twice is refused whole, ticket and all). Its stock is taken here, so the
       // kitchen doesn't take it again.
@@ -1017,7 +1051,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
-      batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: Math.max(0, num(it.stock) - it.quantity), refKind: 'checkout', refId: checkoutSessionId }));
+      batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: (() => { const k = String(it.id); const left = Math.max(0, (stockNow.has(k) ? stockNow.get(k)! : num(it.stock)) - it.quantity); stockNow.set(k, left); return left; })(), refKind: 'checkout', refId: checkoutSessionId }));
     }
     if (it.type === 'membership' || it.type === 'package') toEnroll.push({ offeringType: it.type, offeringId: it.id });
     if (it.type === 'rent' && it.__acct) rentPayments.push(applyRentPayment(batch, db, T, it.__acct, { amountCents: Math.round(value * 100), method: String(method), receiptId: receiptRef.id, transactionId: checkoutSessionId, now, by: auth.actor.name || 'Front desk' }));   // the renter's rent ledger, oldest charges first
@@ -1198,7 +1232,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
       // Counted at a pop-up table (lib/popup): a void puts these back into what the table has left.
-      ...(popupSale ? { popup: { id: String(popupSale.ref.id), items: Object.fromEntries(items.filter((x) => x.type === 'product' && popupSale!.ids.has(String(x.id))).map((x) => [String(x.id), x.quantity])) } } : {}),
+      // Comps from a table's tab this sale spent (api/tab): a void gives them back, so the reopened table can pay again.
+      ...(items.some((x: any) => x.comp?.approvalId) ? { comps: items.filter((x: any) => x.comp?.approvalId).map((x: any) => String(x.comp.approvalId)) } : {}),
+      ...(popupSale ? { popup: { id: String(popupSale.ref.id), items: items.filter((x) => x.type === 'product' && popupSale!.ids.has(String(x.id))).reduce((m: Record<string, number>, x) => { m[String(x.id)] = (m[String(x.id)] || 0) + x.quantity; return m; }, {}) } } : {}),
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
       depositCreditId: depositsUsed[0]?.id || null, ...(depositsUsed.length ? { depositsUsed } : {}),
       redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,

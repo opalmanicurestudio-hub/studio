@@ -636,7 +636,7 @@ export function usePosEngine() {
   // listing's. One with no price yet isn't added (it used to sell at cost).
   const deskListings = useMemo(() => listingsOf(inventory || []), [inventory]);
   const deskListingsRef = useRef(deskListings); deskListingsRef.current = deskListings;
-  const handleAddToCart = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }): boolean => {
+  const handleAddToCart = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }, comp?: { lineId: string; visitId: string; cents: number }): boolean => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product'; let name = String(item?.name || 'Item'); let listingId: string | null = null;
     if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
@@ -647,6 +647,13 @@ export function usePosEngine() {
       price = deskPrice(item, listings);
       if (!(price > 0)) { toast({ variant: 'destructive', title: 'No price yet', description: `${saleName(item, listings)} has no price. Give it one in Inventory, then add it.` }); return false; }
       name = saleName(item, listings); listingId = listings.get(String(item.id))?.id || null;
+    }
+    // A comped item from a table's tab (api/tab): its own line, at what's left of its price. The server checks the comp
+    // against its record before charging less (api/checkout/complete).
+    if (comp && type === 'product') {
+      const off = Math.max(0, Math.round(Number(comp.cents) || 0)) / 100;
+      setRetailItems(prev => (prev.some((i: any) => i.compLineId === comp.lineId) ? prev : [...prev, { id: `${item.id}~comp~${comp.lineId}`, itemId: item.id, compLineId: comp.lineId, compVisitId: comp.visitId, name: `${name}, comped`, quantity: 1, price: Math.max(0, Math.round((price - off) * 100) / 100), type, imageUrl: item.imageUrl, stock: item.totalStock, ...(listingId ? { listingId } : {}) } as any]));
+      return true;
     }
     setRetailItems(prev => {
       const existing = prev.find(i => i.id === item.id);
@@ -1169,7 +1176,7 @@ export function usePosEngine() {
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, popupId: popup?.id || null, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null, ...(it.compLineId ? { itemId: it.itemId, compLineId: it.compLineId, compVisitId: it.compVisitId } : {}) })),
     // Items added at the register without a scan, each on a manager's PIN: the approvals, used by the sale on the server.
     noScan: retailItems.flatMap((it: any) => (Array.isArray(it.noScan) ? it.noScan : []).map((x: any) => ({ productId: it.id, approvalToken: x.token }))).slice(0, 60),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why

@@ -12,7 +12,9 @@
 // A team member signed in on their own device can list, move and bump tickets too (no key: their sign-in instead), so
 // the front desk and the dashboard hand a lounge order over with this same step, never one of their own.
 //   tickets { tenantId, key, eventId? }            → the tickets waiting, being made and ready, from both places they
-//                                                    live (lib/kitchen), the items they use, and today's for the numbers
+//                                                    live (lib/kitchen), the items they use, and today's for the numbers;
+//                                                    each with the station that makes it, the business's stations, and
+//                                                    the tables' courses not fired yet (lib/table-service)
 //   pin     { tenantId, key, pin }                 → who's working, checked here (lib/pin, with its lockout): a pass for
 //                                                    this screen for 12 hours, so what they move carries their name
 //   act     { tenantId, key, col, id, step, staffPass? } → one ticket moved along, once (lib/kitchen canStep).
@@ -50,6 +52,7 @@ import { toolLocked } from '@/lib/tool-lock';
 import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
 import { binState, batchSizeOf } from '@/lib/holding';
 import { holdMinutesOf } from '@/lib/counter-orders';
+import { stationsOf, stationOfItem } from '@/lib/table-service';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -248,9 +251,21 @@ export async function POST(req: NextRequest) {
       const lounge = loungeMaker(tenant) === 'kitchen' ? la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')) : [];
       let tickets = [...lounge, ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
       if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
+      // A table's held courses, not fired yet (lib/table-service): shown as coming, never started. A day old at most.
+      const cutoff = new Date(Date.now() - 16 * 3600000).toISOString();
+      const unfiredAll = eventId ? [] : (await db.collection(`${T}/kdsTickets`).where('status', '==', 'unfired').limit(400).get().catch(() => ({ docs: [] as any[] }))).docs
+        .map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'));
+      // One left behind (a table that left without firing it) is taken off for good, so the held list never fills up.
+      const stale = unfiredAll.filter((t: any) => String(t.at) < cutoff).slice(0, 50);
+      if (stale.length) await Promise.all(stale.map((t: any) => db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelReason: 'never fired' }, { merge: true }).catch(() => {})));
+      const unfired = unfiredAll.filter((t: any) => String(t.at) >= cutoff);
       // The items they use: a picture and what each is made of (for the label), nothing about cost.
-      const ids = Array.from(new Set(tickets.map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 100);
+      const ids = Array.from(new Set([...tickets, ...unfired].map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 150);
       const docs = ids.length ? await db.getAll(...ids.map((i) => db.doc(`${T}/inventory/${i}`))) : [];
+      // Which station makes each (lib/table-service): its own, else worked out from the item, so every screen agrees.
+      const stations = stationsOf(tenant);
+      const raw = new Map<string, any>(docs.map((d: any) => [d.id, d.data() || {}]));
+      for (const t of [...tickets, ...unfired]) if (!t.madeAt || !stations.includes(t.madeAt)) t.madeAt = stationOfItem(raw.get(String(t.itemId || '')) || {}, stations);
       const items: Record<string, any> = {};
       for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => ({ id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
       const today = [...lt.docs, ...kt.docs].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
@@ -264,7 +279,7 @@ export async function POST(req: NextRequest) {
       const holdable = holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x) && holdMinutesOf(r.x) > 0)
         .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').slice(0, 80), holdMinutes: holdMinutesOf(r.x), batchSize: batchSizeOf(r.x) })).sort((a: any, c: any) => a.name.localeCompare(c.name));
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
-      return ok({ screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
+      return ok({ screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {

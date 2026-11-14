@@ -553,7 +553,8 @@ export const CheckoutHub = ({
   };
   const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));
-    else onCartChange(cart.map((item: any) => item.id === itemId ? { ...item, quantity: newQuantity } : item));
+    // A comped item from a table's tab is one item: its count doesn't change (api/checkout/complete charges it once).
+    else onCartChange(cart.map((item: any) => item.id === itemId && !item.compLineId ? { ...item, quantity: newQuantity } : item));
   };
 
   const cartServiceIds = useMemo(() => {

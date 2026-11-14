@@ -177,6 +177,8 @@ export async function POST(req: NextRequest) {
     } else if (R.depositCreditId) batch.set(db.doc(`${T}/depositCredits/${R.depositCreditId}`), { status: 'available', consumedAt: null, appointmentId: null, restoredByVoid: receiptId }, { merge: true });
     // A membership perk given back (a package session is above).
     // A sale counted at a pop-up table (lib/popup): what it sold goes back into what the table has left.
+    // Comps from a table's tab the sale spent: free again for the reopened table's next checkout (api/checkout/complete).
+    for (const id of (Array.isArray(R.comps) ? R.comps : []).map(String).filter((x: string) => /^[A-Za-z0-9_-]{1,160}$/.test(x)).slice(0, 60)) batch.set(db.doc(`${T}/approvals/${id}`), { compSaleId: null, compSaleAt: null }, { merge: true });
     if (R.popup?.id && /^[A-Za-z0-9_-]{1,120}$/.test(String(R.popup.id))) {
       const back = Object.entries(R.popup.items || {}).filter(([pid, q]) => /^[A-Za-z0-9_-]{1,120}$/.test(pid) && num(q) > 0);
       // (Only to a pop-up that's still on file: never one made up from the count alone.)

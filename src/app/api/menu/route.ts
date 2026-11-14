@@ -9,6 +9,10 @@
 //             lib/menu-stock; [] takes it off, and the item is counted by itself again)
 //   ingredients { tenantId } → managers: what a recipe can use (the business's stock, by name, with what's left and what
 //             it's counted in; never cost or supplier)
+//   service { tenantId, courses?, stations?, compAllowanceCents?, compReasons? } → managers: table service (lib/table-
+//             service): the courses (name, held until fired or not), the stations things are made at, how much a server
+//             can comp in a night on their own say, and the comp reasons offered. list returns them as `service`.
+//   (save also takes station: one of the stations or null, and course: a course number, 0 for right away, or null.)
 //   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
 //             aims to be handed over in (list returns them)
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
@@ -28,6 +32,7 @@ import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
+import { compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
 import { accountOf } from '@/lib/reader-sale';
 import { linkOrigin } from '@/lib/app-origin';
 
@@ -38,6 +43,9 @@ const bad = (error: string, status = 400) => NextResponse.json({ ok: false, erro
 /** This app's storage, where the Menu page uploads photos. */
 const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET, process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET].map((b) => String(b || '').trim()).filter((b) => /^[A-Za-z0-9._-]{3,222}$/.test(b))));
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+/** Table service as the Menu page edits it (lib/table-service). */
+const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -51,8 +59,8 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -63,7 +71,7 @@ export async function POST(req: NextRequest) {
       // Each item's recipe (what goes into one), for the Menu page's editor.
       const recipes: Record<string, any[]> = {};
       for (const d of items.docs) { const r = recipeOf(d.data() || {}, d.id); if (r.length) recipes[d.id] = r; }
-      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -149,6 +157,33 @@ export async function POST(req: NextRequest) {
       return ok({ targets: targetsOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}) });
     }
 
+    if (action === 'service') {
+      const tRef = db.doc(`tenants/${tenantId}`); const td: any = ((await tRef.get()).data() as any) || {};
+      const next: Record<string, any> = {};
+      if (b.courses !== undefined) {
+        if (!Array.isArray(b.courses) || b.courses.length < 1 || b.courses.length > MAX_COURSES) return bad(`Between 1 and ${MAX_COURSES} courses.`);
+        const list = b.courses.map((c: any) => ({ name: words(c?.name, 24), hold: c?.hold === true }));
+        if (list.some((c: any) => !c.name)) return bad('Each course needs a name.');
+        if (new Set(list.map((c: any) => c.name.toLowerCase())).size !== list.length) return bad('Two courses have the same name.');
+        next.courses = list;
+      }
+      if (b.stations !== undefined) {
+        if (!Array.isArray(b.stations) || b.stations.length < 1 || b.stations.length > MAX_STATIONS) return bad(`Between 1 and ${MAX_STATIONS} stations.`);
+        const list = b.stations.map((x: any) => words(x, 24));
+        if (list.some((x: string) => !x)) return bad('Each station needs a name.');
+        if (new Set(list.map((x: string) => x.toLowerCase())).size !== list.length) return bad('Two stations have the same name.');
+        next.stations = list;
+      }
+      if (b.compAllowanceCents !== undefined) { const n = Math.round(Number(b.compAllowanceCents)); if (!Number.isFinite(n) || n < 0 || n > MAX_COMP_ALLOWANCE_CENTS) return bad('Pick an allowance up to $500.'); next.compAllowanceCents = n; }
+      if (b.compReasons !== undefined) {
+        if (!Array.isArray(b.compReasons) || b.compReasons.length > 8) return bad('Up to 8 reasons.');
+        next.compReasons = Array.from(new Set(b.compReasons.map((r: any) => words(r, 40)).filter(Boolean)));
+      }
+      if (!Object.keys(next).length) return bad('Nothing to change.');
+      await tRef.set({ kitchenSettings: next }, { merge: true });
+      return ok({ service: serviceOf({ ...td, kitchenSettings: { ...(td.kitchenSettings || {}), ...next } }) });
+    }
+
     if (action === 'ingredients') {
       // What a recipe can use: anything the business stocks but equipment, and never a menu item that's made from its own
       // recipe (one level of recipe only).
@@ -190,6 +225,14 @@ export async function POST(req: NextRequest) {
     if (x.makeSeconds !== undefined && x.makeSeconds !== null) { const n = Math.floor(Number(x.makeSeconds)); if (!Number.isFinite(n) || n < 10 || n > 3600) return bad('How long it takes to make: between 10 seconds and an hour.'); timing.makeSeconds = n; }
     if (x.holdMinutes !== undefined && x.holdMinutes !== null) { const n = Math.floor(Number(x.holdMinutes)); if (!Number.isFinite(n) || n < 0 || n > 240) return bad('How long it can be held: up to 4 hours.'); timing.holdMinutes = n; }
     if (x.batchSize !== undefined && x.batchSize !== null) { const n = Math.floor(Number(x.batchSize)); if (!Number.isFinite(n) || n < 1 || n > 200) return bad('A batch is between 1 and 200.'); timing.batchSize = n; }
+    // Table service, when given (lib/table-service): the station it's made at (one of the business's, or null to work it
+    // out from its section) and its course (a course number, 0 for always right away, or null for its section's course).
+    const service: Record<string, any> = {};
+    if (x.station !== undefined || x.course !== undefined) {
+      const td: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      if (x.station !== undefined) { const st = words(x.station, 24); if (st && !stationsOf(td).some((y) => y.toLowerCase() === st.toLowerCase())) return bad('Pick one of your stations.'); service.station = st || null; }
+      if (x.course !== undefined) { if (x.course === null || x.course === '') service.course = null; else { const n = Math.floor(Number(x.course)); if (!(n === 0 || coursesOf(td).some((c) => c.n === n))) return bad('Pick one of your courses.'); service.course = n; } }
+    }
     // The menu board, when given: shown big up front, a New or Limited time tag, and its calories.
     const board: Record<string, any> = {};
     if (x.featured !== undefined) board.boardFeatured = x.featured === true;
@@ -248,7 +291,7 @@ export async function POST(req: NextRequest) {
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });

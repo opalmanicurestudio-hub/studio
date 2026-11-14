@@ -20,6 +20,7 @@ import { allergyFlags, groupTickets, kitchenOrder, type KitchenTicket, type Kitc
 import { binFor, binState, type HoldBin } from '@/lib/holding';
 import { timeLeft } from '@/lib/counter-orders';
 import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
+import { ExpoView } from '@/components/kitchen/ExpoView';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import type { MenuItem } from '@/lib/menu-server';
 
@@ -28,11 +29,11 @@ const AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
 const POLL_MS = 4000;
 const WARM_S = 5 * 60, LATE_S = 8 * 60;
 
-type View = 'lanes' | 'order' | 'course' | 'dish';
+type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number };
+type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number };
 type Staff = { id: string; name: string; pass: string };
 
 const keyName = (t: string) => `cf.kitchen.${t}`;
@@ -432,6 +433,8 @@ export default function KitchenScreen() {
   const [lastOk, setLastOk] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState<View>('lanes');
+  // Which station this screen is for (lib/table-service): '' shows every station's tickets. Kept on this tablet.
+  const [station, setStation] = useState('');
   const [eventId, setEventId] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
@@ -452,7 +455,8 @@ export default function KitchenScreen() {
   // What this tablet remembers: its key, the view, sound, and who's working (this browser tab only).
   useEffect(() => {
     setKey(read(keyName(tenantId)));
-    const v = read('cf.kitchen.view'); if (v === 'course' || v === 'dish' || v === 'lanes' || v === 'order') setView(v);
+    const v = read('cf.kitchen.view'); if (v === 'course' || v === 'dish' || v === 'lanes' || v === 'order' || v === 'expo') setView(v);
+    const st = read('cf.kitchen.station'); if (st) setStation(st);
     if (read('cf.kitchen.sound') === 'off') setSoundOn(false);
     try { const s = JSON.parse(sessionStorage.getItem('cf.kitchen.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     try { const e = new URLSearchParams(window.location.search).get('event'); if (e && /^[A-Za-z0-9_-]{1,160}$/.test(e)) setEventId(e); } catch { /* */ }
@@ -578,7 +582,12 @@ export default function KitchenScreen() {
   const showAll = () => { setEventId(null); seen.current = null; try { window.history.replaceState(null, '', window.location.pathname); } catch { /* */ } };
 
   // Orders placed ahead for later wait under Later until it's time to start (or the guest says they're here).
-  const allTickets = data?.tickets || [];
+  // A station's screen shows what that station makes; expo sees the whole pass.
+  const stations = data?.stations || [];
+  const myStation = station && stations.includes(station) ? station : '';
+  const allTickets = (data?.tickets || []).filter((t) => view === 'expo' || !myStation || t.madeAt === myStation);
+  const comingHere = (data?.unfired || []).filter((t) => !myStation || t.madeAt === myStation);
+  const pickStation = (v: string) => { setStation(v); write('cf.kitchen.station', v || null); };
   const isHeld = (t: KitchenTicket) => t.status === 'pending' && !!t.holdUntil && Date.parse(t.holdUntil) > now;
   // (Worked out again only when one starts waiting or stops, not every second.)
   const heldKey = allTickets.filter(isHeld).map((t) => t.id).join('|');
@@ -599,7 +608,7 @@ export default function KitchenScreen() {
     making: tickets.filter((t) => t.status === 'in_progress').sort(kitchenOrder),
     ready: tickets.filter((t) => t.status === 'ready').sort(byTime),
   }), [tickets]);
-  const groups = useMemo(() => view === 'lanes' ? [] : groupTickets(tickets, view), [tickets, view]);
+  const groups = useMemo(() => view === 'lanes' || view === 'expo' ? [] : groupTickets(tickets, view), [tickets, view]);
   const lateCount = tickets.filter((t) => t.status !== 'ready' && t.dueAt && Date.parse(t.dueAt) < now).length;
   const holdCall = async (k: string, body: any) => {
     acted.current++; setHoldBusy(k);
@@ -654,17 +663,23 @@ export default function KitchenScreen() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-[20px] font-semibold leading-tight truncate">{data?.business.name || 'Kitchen'}</h1>
-            <p className="text-[13.5px]" style={{ color: MUTED }}>{data?.screen || 'Kitchen screen'} · {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'} up</p>
+            <p className="text-[13.5px]" style={{ color: MUTED }}>{view === 'expo' ? 'Expo, every station' : myStation || data?.screen || 'Kitchen screen'}, {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'} up</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl p-1" style={{ background: SOFT }} role="tablist" aria-label="How tickets are shown">
-              {([['lanes', 'Lanes'], ['order', 'By order'], ['course', 'By course'], ['dish', 'By dish']] as [View, string][]).map(([v, label]) => (
+              {([['lanes', 'Lanes'], ['order', 'By order'], ['course', 'By course'], ['dish', 'By dish'], ['expo', 'Expo']] as [View, string][]).map(([v, label]) => (
                 <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[44px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{label}</button>
               ))}
             </div>
             {staff
               ? <span className="inline-flex items-center gap-2 rounded-xl pl-3 bg-white" style={{ border: `1px solid ${LINE}` }}><span className="text-[14px]">Working: <b className="font-semibold">{staff.name.split(' ')[0]}</b></span><button type="button" onClick={() => pickStaff(null)} className="min-h-[42px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: MUTED }}>Done</button></span>
               : <button type="button" onClick={() => setPinOpen(true)} className={btn} style={quiet}>Who’s working?</button>}
+            {stations.length > 1 && view !== 'expo' && (
+              <select value={myStation} onChange={(e) => pickStation(e.target.value)} aria-label="Which station this screen is for" className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold bg-[#fff]" style={{ border: `1px solid ${LINE}`, color: INK }}>
+                <option value="">Every station</option>
+                {stations.map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
+            )}
             <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
             <div className="relative">
@@ -685,6 +700,7 @@ export default function KitchenScreen() {
           <span>Average wait <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : 'none yet'}</b></span>
           {lateCount > 0 && <span style={{ color: AMBER }}>Past their time <b className="font-semibold tabular-nums">{lateCount}</b></span>}
           {later.length > 0 && <span>Later {later.slice(0, 4).map((l, i) => <b key={i} className="ml-1.5 font-semibold" style={{ color: INK }}>{l.number}{l.who ? ` · ${l.who}` : ''} starts {new Date(l.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{i < Math.min(later.length, 4) - 1 ? ',' : ''}</b>)}{later.length > 4 ? ` and ${later.length - 4} more` : ''}</span>}
+          {view !== 'expo' && comingHere.length > 0 && <span>Held for later <b className="font-semibold tabular-nums" style={{ color: INK }}>{comingHere.length}</b></span>}
           {stats.top && <span>Most ordered <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
         </div>
       </header>
@@ -722,6 +738,8 @@ export default function KitchenScreen() {
               {lane('Ready to go out', lanes.ready, 'Nothing ready yet.')}
             </div>
           </div>
+        ) : view === 'expo' ? (
+          <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} />
         ) : groups.length === 0 ? (
           <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No tickets up.</p>
         ) : (

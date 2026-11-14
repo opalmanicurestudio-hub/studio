@@ -18,6 +18,7 @@ import { outWords, type RecipeLine } from '@/lib/menu-stock';
 import { uploadImage } from '@/lib/upload-image';
 import { ImagePlus } from 'lucide-react';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
+import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -52,6 +53,7 @@ export default function MenuPage() {
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [targets, setTargets] = useState<Record<string, number> | null>(null);
+  const [service, setService] = useState<Service | null>(null);
   const [spots, setSpots] = useState<number | null>(null);
   const [ahead, setAhead] = useState<AheadSettings | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
@@ -63,7 +65,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -121,6 +123,7 @@ export default function MenuPage() {
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>
         {canEdit && ahead && <OrderAheadCard start={ahead} call={call} />}
+        {canEdit && service && <TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} />}
         {canEdit && targets && (
           <section aria-labelledby="times-title" className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
             <button type="button" onClick={() => setTimesOpen((v) => !v)} aria-expanded={timesOpen} className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-3xl px-5 text-left ${RING}`}>
@@ -204,7 +207,7 @@ export default function MenuPage() {
             </section>
           ))}
       </div>
-      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} onClose={() => setEditing(null)} call={call}
+      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
         onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null); return null; } return d.error || 'That didn’t save.'; }} />}
     </div>
@@ -279,7 +282,7 @@ function RecipeEditor({ lines, onChange, stock, item }: { lines: EditLine[]; onC
   );
 }
 
-function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onSoldOut, call }: { item: MenuItem; recipe: RecipeLine[]; tenantId: string | null; canEdit: boolean; busy: string | null; onClose: () => void;
+function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call }: { item: MenuItem; recipe: RecipeLine[]; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
   onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any> }) {
   const startLines = useMemo<EditLine[]>(() => recipe.map((l) => ({ id: l.id, name: l.name, unit: l.unit, q: amount(l.quantityUsed) })), [recipe]);
   const [lines, setLines] = useState<EditLine[]>(startLines);
@@ -290,6 +293,7 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
   // The menu board: shown big up front, a tag, and calories (optional).
   const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
+  const [station, setStation] = useState(item.station || ''); const [course, setCourse] = useState(item.course === null ? '' : String(item.course));
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
   const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
@@ -333,7 +337,7 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
     setSaving(true); setErr('');
     const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, featured, badge: badge || null, calories: calories.trim() === '' ? null : Number(calories), ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
       // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
-      ...(makeTouched ? { makeSeconds } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
+      ...(makeTouched ? { makeSeconds } : {}), ...(station !== (item.station || '') ? { station: station || null } : {}), ...(course !== (item.course === null ? '' : String(item.course)) ? { course: course === '' ? null : Number(course) } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
       ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}) });
     setSaving(false); if (e) setErr(e);
   };
@@ -376,6 +380,23 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, onClose, onSave, onS
           <RecipeEditor lines={lines} onChange={setLines} stock={stock} item={item} />
           <div className="space-y-3">
             <h3 className="text-[16px] font-semibold">Kitchen timing</h3>
+            {service && <>
+              <label className="flex flex-wrap items-center justify-between gap-3">
+                <span><span className="block text-[15px] font-medium">Made at</span><span className="block text-[13px]" style={{ color: MUTED }}>Shows on that station’s screen. Drinks go to the bar unless set.</span></span>
+                <select value={station} onChange={(e) => setStation(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
+                  <option value="">Worked out from its section</option>
+                  {service.stations.map((x) => <option key={x} value={x}>{x}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-wrap items-center justify-between gap-3">
+                <span><span className="block text-[15px] font-medium">Course at a table</span><span className="block text-[13px]" style={{ color: MUTED }}>A held course waits until the server fires it.</span></span>
+                <select value={course} onChange={(e) => setCourse(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
+                  <option value="">From its section</option>
+                  <option value="0">Always right away</option>
+                  {service.courses.map((c) => <option key={c.n} value={String(c.n)}>{c.name}{c.hold ? ', held until fired' : ''}</option>)}
+                </select>
+              </label>
+            </>}
             <label className="flex flex-wrap items-center justify-between gap-3">
               <span><span className="block text-[15px] font-medium">Takes to make</span><span className="block text-[13px]" style={{ color: MUTED }}>An order is never due sooner than its slowest item.</span></span>
               <select value={makeSeconds} onChange={(e) => { setMakeSeconds(Number(e.target.value)); setMakeTouched(true); }} className={pickField} style={{ borderColor: LINE }}>

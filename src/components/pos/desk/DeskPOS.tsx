@@ -151,7 +151,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       const go = () => { const a = (e.appointmentsFromInventory || []).find((x: any) => x.id === id);
         if (!a && tries++ < 16) { t = setTimeout(go, 500); return; }
         if (withTab && a && Array.isArray(a.tab)) for (const l of a.tab) { const src = l.itemType === 'service' ? (e.services || []) : (e.inventory || []); const item = src.find((x: any) => x.id === l.itemId);
-          if (item) for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) e.handleAddToCart?.(item); }
+          if (item) { if (l.comp && Number(l.comp.amount) > 0) { e.handleAddToCart?.(item, 1, undefined, { lineId: String(l.lineId), visitId: id, cents: Math.round(Number(l.comp.amount) * 100) }); continue; }
+            for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) e.handleAddToCart?.(item); } }
         actRef.current.checkout(id); };
       t = setTimeout(go, 600); return () => clearTimeout(t); }
     if (vid) { const t = setTimeout(() => openVisit(vid), 500); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); } } catch { /* */ } }, []);

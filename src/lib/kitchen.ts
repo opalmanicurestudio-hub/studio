@@ -82,6 +82,14 @@ export function ticketFrom(d: any, col: KitchenCol) {
     // An order placed ahead for later: not started before this (it waits under Later on the kitchen screen).
     holdUntil: typeof r.holdUntil === 'string' && Number.isFinite(Date.parse(r.holdUntil)) ? r.holdUntil : null,
     line: Number.isFinite(Number(r.line)) && r.line ? Number(r.line) : null, lines: Number.isFinite(Number(r.lines)) && r.lines ? Number(r.lines) : null,
+    // A table's tab (lib/table-tab): its visit and line, its course (held ones wait as 'unfired' until fired), the station
+    // that makes it (lib/table-service; worked out from the item when it isn't set), and whether it's a remake.
+    visitId: typeof r.visitId === 'string' ? r.visitId : null,
+    course: Number.isInteger(Number(r.course)) && Number(r.course) > 0 ? Number(r.course) : null,
+    courseName: r.courseName ? String(r.courseName).slice(0, 24) : null,
+    madeAt: r.madeAt ? String(r.madeAt).slice(0, 24) as string | null : null,
+    firedAt: typeof r.firedAt === 'string' ? r.firedAt : null,
+    remake: typeof r.remakeOf === 'string' && !!r.remakeOf,
   };
 }
 
