@@ -229,6 +229,18 @@ const iso = (t: number) => new Date(t).toISOString();
   const tabOff: any = await Tab.POST(req({ tenantId: 't1', action: 'usual', visitId: 'apt-party-okafor' }));
   check('regulars off: nobody suggested, nothing remembered on the floor or the tab', r.body.ok && Object.keys(r.body.guests).length === 0 && !(await get(`${T}/parties/newcomer`)).guestSuggest && tabOff.body.usual.length === 0, r.body.guests);
 
+  console.log('a long history');
+  const GS = await import('../../src/lib/guest-memory-server');
+  await client('mix', { name: 'Mo Ito', phone: '555 121 2121' });
+  for (let i = 0; i < 70; i++) await db.doc(`${T}/appointments/mx-a${String(i).padStart(3, '0')}`).set({ clientId: 'mix', status: 'completed', startTime: iso(now - i * DAY), completedAt: iso(now - i * DAY), services: [{ name: 'Class' }] });
+  for (let i = 0; i < 5; i++) await db.doc(`${T}/appointments/mx-b${String(i).padStart(3, '0')}`).set({ clientId: 'mix', isTable: true, status: 'completed', startTime: iso(now - (80 + i) * DAY), completedAt: iso(now - (80 + i) * DAY), tableName: '7', tab: [line('lat', 'Latte')] });
+  const mm = await GS.memoryFor(db, T, {}, 'mix', { fresh: true });
+  check('a business that also takes other appointments: their table visits are still found past the others', !!mm && mm.visits === 5 && mm.usual[0]?.id === 'lat' && mm.table === '7' && !mm.more, mm);
+  await client('long', { name: 'Lou Grant', phone: '555 343 4343' });
+  for (let i = 0; i < 70; i++) await db.doc(`${T}/appointments/lg-${String(i).padStart(3, '0')}`).set({ clientId: 'long', isTable: true, status: 'completed', startTime: iso(now - (i + 1) * DAY), completedAt: iso(now - (i + 1) * DAY), tableName: '2', tab: [line('esp', 'Espresso')] });
+  const ml = await GS.memoryFor(db, T, {}, 'long', { fresh: true });
+  check('…and every table visit is counted, not just the ones read', !!ml && ml.visits === 70 && !ml.more && G.visitWords(ml).head === 'Regular, 71st visit.', ml && { visits: ml.visits, more: ml.more });
+
   console.log('the screens');
   const host = src('src/app/(app)/host/page.tsx'); const tab = src('src/components/host/TableTab.tsx'); const wait = src('src/app/wait/[tenantId]/[token]/page.tsx'); const set = src('src/components/settings/HostStandSettings.tsx');
   check('the host stand: their memory on waiting, booked and seated parties; “Been here before?”, “Not …?”, a note for next time', /guestBlock\(p\)/.test(host) && /guestBlock\(openParty, /.test(host) && /Been here before\?/.test(host) && /Not \{name1\}\?/.test(host) && /Is this \{m\.name\}\?/.test(host) && /Yes, it’s \{name1\}/.test(host) && /A note for next time/.test(host) && /That’s them/.test(host) && /function GuestBlock/.test(host));

@@ -40,7 +40,8 @@ export const RECENT = 10;
 export const NOTE_MAX = 200;
 /** Usual items kept (the host's line names the first three; the wait link looks through them all for a drink). */
 export const USUAL_MAX = 6;
-const DONE = new Set(['completed', 'checked_out', 'paid']);
+export const DONE_STATUSES = ['completed', 'checked_out', 'paid'];
+const DONE = new Set(DONE_STATUSES);
 const clip = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const timeOf = (v: any) => { const t = Date.parse(String(v?.completedAt || v?.checkedOutAt || v?.startTime || v?.createdAt || '')); return Number.isFinite(t) ? t : 0; };
 
@@ -64,7 +65,8 @@ export function matchGuest(clients: any[], p: { phone?: unknown; email?: unknown
 }
 
 /** Their memory, from their profile and their table visits (any order; tonight's is left out). */
-export function memoryOf(clientId: string, client: any, visits: any[], s: MemorySettings, o: { exclude?: string | null; at?: string } = {}): GuestMemory {
+/** `total`: their finished table visits counted in all, when the server could count them (otherwise the ones read). */
+export function memoryOf(clientId: string, client: any, visits: any[], s: MemorySettings, o: { exclude?: string | null; at?: string; total?: number | null } = {}): GuestMemory {
   const past = (Array.isArray(visits) ? visits : []).filter((v) => v && v.isTable === true && DONE.has(String(v.status || '')) && (!o.exclude || v.id !== o.exclude))
     .sort((a, b) => timeOf(b) - timeOf(a));
   const recent = past.slice(0, RECENT);
@@ -88,7 +90,9 @@ export function memoryOf(clientId: string, client: any, visits: any[], s: Memory
   const note = n && clip(n.text, NOTE_MAX) ? { text: clip(n.text, NOTE_MAX), by: clip(n.by, 60), at: String(n.at || '') } : null;
   const name = clip(client?.name || [client?.firstName, client?.lastName].filter(Boolean).join(' '), 80) || 'Guest';
   const last = past[0] ? timeOf(past[0]) : 0;
-  return { clientId, name, visits: past.length, more: visits.length >= MAX_VISITS, lastAt: last ? new Date(last).toISOString() : null, regular: past.length >= s.regularAfter,
+  const counted = typeof o.total === 'number' && Number.isFinite(o.total) ? Math.max(o.total, past.length) : null;
+  const count = counted ?? past.length;
+  return { clientId, name, visits: count, more: counted === null && visits.length >= MAX_VISITS, lastAt: last ? new Date(last).toISOString() : null, regular: count >= s.regularAfter,
     usual, table, allergy: profileAllergy(client, '', o.at || new Date().toISOString()), note };
 }
 

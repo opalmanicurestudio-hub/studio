@@ -15,7 +15,7 @@ import { searchTermKey, matchesSearch } from '@/lib/client-search';
 import { emailHint, phoneHint } from '@/lib/privacy';
 import { visitIdForParty } from '@/lib/table-service';
 import { profileAllergy, tableAllergies, ticketAllergyPatch } from '@/lib/allergens';
-import { digitsKey, emailKey, matchGuest, matchSig, MAX_VISITS, memoryOf, memorySettingsOf, NOTE_MAX, usableGuest, type GuestMemory } from '@/lib/guest-memory';
+import { digitsKey, DONE_STATUSES, emailKey, matchGuest, matchSig, MAX_VISITS, memoryOf, memorySettingsOf, NOTE_MAX, RECENT, usableGuest, type GuestMemory } from '@/lib/guest-memory';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class GuestStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
@@ -23,6 +23,9 @@ const LIVE = new Set(['waiting', 'notified', 'expected', 'seated']);
 const nowIso = () => new Date().toISOString();
 
 const MEM_MS = 5 * 60000;
+/** Visits read a page at a time, a few pages at most. */
+const PAGE = 60, PAGES = 4;
+const doneTable = (v: any) => v?.isTable === true && DONE_STATUSES.includes(String(v.status || ''));
 const memCache = new Map<string, { at: number; v: GuestMemory | null }>();
 /** Something about this guest changed here: the next read is fresh. */
 export function forgetGuest(T: string, clientId: string) { memCache.delete(`${T}|${clientId}`); }
@@ -35,12 +38,27 @@ export async function memoryFor(db: any, T: string, tenant: any, clientId: strin
   const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data() || null;
   let v: GuestMemory | null = null;
   if (usableGuest(c)) {
-    // Their latest visits first (the same read as a client's visit history). Without that index, their table visits in
-    // no particular order.
-    const col = db.collection(`${T}/appointments`);
-    const snap = await col.where('clientId', '==', clientId).orderBy('startTime', 'desc').limit(MAX_VISITS).get()
-      .catch(() => col.where('clientId', '==', clientId).where('isTable', '==', true).limit(MAX_VISITS).get());
-    v = memoryOf(clientId, c, snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), memorySettingsOf(tenant));
+    // Their latest visits first (the same read as a client's visit history), a page at a time until their last few
+    // table visits are in hand: a business that also takes other appointments may have those in between. Without that
+    // index, their table visits in no particular order. And how many table visits they've had in all, counted.
+    const col = db.collection(`${T}/appointments`); const mine = col.where('clientId', '==', clientId);
+    // Counted first: a guest with no table visits (only other appointments) needs nothing more read.
+    let total: number | null = null;
+    try { const n = Number((await mine.where('isTable', '==', true).where('status', '==', 'completed').count().get()).data().count); if (Number.isFinite(n)) total = n; } catch { /* counted from what's read */ }
+    let rows: any[] = [];
+    if (total !== 0) {
+      try {
+        let q = mine.orderBy('startTime', 'desc').limit(PAGE);
+        for (let page = 0; page < PAGES; page++) {
+          const snap = await q.get(); rows.push(...snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })));
+          if (snap.size < PAGE || rows.filter(doneTable).length >= Math.min(RECENT, total ?? RECENT)) break;
+          q = mine.orderBy('startTime', 'desc').startAfter(snap.docs[snap.docs.length - 1]).limit(PAGE);
+        }
+      } catch {
+        rows = (await col.where('clientId', '==', clientId).where('isTable', '==', true).limit(MAX_VISITS).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      }
+    }
+    v = memoryOf(clientId, c, rows, memorySettingsOf(tenant), { total });
   }
   if (memCache.size > 3000) { const now = Date.now(); for (const [k, x] of memCache) if (now - x.at >= MEM_MS) memCache.delete(k); if (memCache.size > 3000) memCache.clear(); }
   memCache.set(key, { at: Date.now(), v });
