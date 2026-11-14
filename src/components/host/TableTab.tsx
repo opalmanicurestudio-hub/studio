@@ -9,7 +9,8 @@
 // Allergies (lib/allergens): a regular's come from their profile; the table is asked once before its first order (unless
 // the business turns that off); each is on a seat or the whole table. Ringing in a dish that contains one warns first,
 // and every ticket for that seat tells the kitchen. Counted dishes (lib/dish-counts) show what's left, and can't be rung
-// in once sold out.
+// in once sold out. A regular's usual (lib/guest-memory, design canvas GuestMemory) is a tap away, through the same
+// checks as the menu, when the business shows regulars.
 import * as React from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -77,13 +78,21 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
   React.useEffect(() => { getDoc(doc(firestore, 'tenants', tenantId)).then((s) => setTenant(s.data() || {})).catch(() => setTenant({})); }, [firestore, tenantId]);
   // A regular's allergies come from their profile (read by the server), once per visit, for the whole table until the
   // server puts them on a seat. A profile that couldn't be read is tried again the next time the table is opened.
-  const seeding = React.useRef(false); const [seedFailed, setSeedFailed] = React.useState(false);
+  // Kept by visit and guest: a table linked to a regular after it opened (the host stand) takes their profile's too.
+  const seeding = React.useRef(''); const [seedFailed, setSeedFailed] = React.useState(false);
   const seed = React.useCallback(async () => { if (!visitId) return; setSeedFailed(false);
     const d = await tabCall({ tenantId, action: 'allergies', op: 'seed', visitId }); if (!d.ok) setSeedFailed(true); }, [tenantId, visitId]);
   React.useEffect(() => {
-    if (!visitId || !visit || visit.allergiesSeeded || seeding.current) return;
-    seeding.current = true; void seed();
+    const key = `${visitId}|${visit?.clientId || ''}`;
+    if (!visitId || !visit || visit.allergiesSeeded || seeding.current === key) return;
+    seeding.current = key; void seed();
   }, [visitId, visit]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A regular's usual and what the team knows (api/tab 'usual'), read again when the table's guest changes.
+  const [usual, setUsual] = React.useState<{ items: { id: string; name: string }[]; words: string; note: string }>({ items: [], words: '', note: '' });
+  const guestId = String(visit?.clientId || '');
+  React.useEffect(() => { if (!visitId || !guestId || guestId === 'guest-walkin') { setUsual({ items: [], words: '', note: '' }); return; } let live = true;
+    void tabCall({ tenantId, action: 'usual', visitId }).then((d) => { if (live && d?.ok) setUsual({ items: Array.isArray(d.usual) ? d.usual : [], words: String(d.words || ''), note: String(d.note || '') }); });
+    return () => { live = false; }; }, [tenantId, visitId, guestId]);
   const takeCounts = (d: any) => { if (!d?.ok) return null; const m: Record<string, CountRow> = Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r])); setCounts(m);
     if (Array.isArray(d.soldOut)) setOutNow(new Set(d.soldOut.map(String))); return m; };
   const loadCounts = React.useCallback(() => { void tabCall({ tenantId, action: 'counts' }, '/api/menu').then(takeCounts); }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -129,6 +138,8 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     setMsg(d.ok ? `${c.name} fired. The kitchen has it now.` : d.error || 'That didn’t go through.'); };
   const moveSeat = async (l: TabLine, s: string) => { if (!visitId) return; const d = await tabCall({ tenantId, action: 'seat', visitId, lineId: l.lineId, seat: s || null }); if (!d.ok) setMsg(d.error || 'That didn’t move.'); };
 
+  // Their usual, as the menu has it now (an item no longer on the menu isn't offered).
+  const usualItems = usual.items.map((u) => catalog.find((x) => x.type === 'product' && x.id === u.id)).filter(Boolean) as any[];
   const t = q.trim().toLowerCase(); const shown = t ? catalog.filter((x) => x.name.toLowerCase().includes(t) || String(x.category).toLowerCase().includes(t)).slice(0, 24) : catalog.slice(0, 12);
   const seats = Array.from({ length: Math.max(1, Math.min(20, Number(party.size) || 1)) }, (_, i) => String(i + 1));
   // The tab by course: what goes right away first, then each course in order.
@@ -237,6 +248,12 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
           {seats.map((s) => <button key={s} type="button" aria-pressed={seat === s} onClick={() => setSeat(s)} className="min-h-[44px] min-w-[44px] rounded-full px-3 text-[13px] font-semibold" style={seat === s ? dark : { background: SOFT }}>Seat {s}</button>)}
         </div>
         <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 80))} placeholder="Note for the kitchen, like no onions" aria-label="Note for the kitchen" className="h-11 w-full rounded-xl px-3 text-[15px] outline-none bg-[#fff]" style={{ border: `1px solid ${LINE}` }} />
+        {(usual.words || usual.note || usualItems.length > 0) && <div className="space-y-1.5 pt-1">
+          {usualItems.length > 0 && <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Their usual</p>}
+          {usualItems.length > 0 && <div className="flex flex-wrap gap-2">{usualItems.map((it) => (
+            <button key={it.id} type="button" disabled={busy || !visitId || outOf(it)} onClick={() => add(it)} className="min-h-[44px] rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ border: `1px solid ${LINE}` }}>+ {it.name}</button>))}</div>}
+          {(usual.words || usual.note) && <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{usual.words}{usual.note ? `${usual.words ? ' ' : ''}Note: ${usual.note}` : ''}</p>}
+        </div>}
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className="h-11 w-full rounded-xl px-3 text-[15px] outline-none bg-[#fff]" style={{ border: `1px solid ${LINE}` }} />
         <div className="grid grid-cols-2 gap-2">{shown.map((it) => { const out = outOf(it); const cnt = counts[it.id]; const hit = it.type === 'product' && conflicts(it.allergens || [], allergies, seat || null).keys.length > 0;
           return <button key={`${it.type}:${it.id}`} type="button" disabled={busy || !visitId || out} onClick={() => add(it)} className="rounded-2xl p-3 text-left disabled:opacity-40" style={{ background: SOFT, ...(hit ? { boxShadow: `inset 0 0 0 1.5px ${AMBER}` } : {}) }}>

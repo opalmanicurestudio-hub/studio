@@ -12,14 +12,20 @@
 //   left     { tenantId, partyId, noShow? } → a waiting party isn't here any more (or never came back after the text):
 //            off the list, and drinks already at the bar for them come off (when that fails, the party says so and
 //            `unring` tries again).
-//   settings { tenantId, floor?, wait?, booking? } → the business's floor, wait-list and online booking settings (a
-//            manager).
+//   settings { tenantId, floor?, wait?, booking?, memory? } → the business's floor, wait-list, online booking and
+//            regulars settings (a manager).
 //   booking_charge { tenantId, bookingId } → a manager charges a booking's no-show or late-cancel fee, the one the guest
 //            agreed to (lib/table-booking-server). booking_letgo: not charged (a no-show marked as one, or a late cancel
 //            let go). booking_cancel { bookingId, guestAsked? }: cancelled from the host stand (late, and the fee can be
 //            charged, only when the guest asked).
+//   guest_link { tenantId, partyId, clientId|null } → who a party is (a guest the business has), or "not them"
+//            (lib/guest-memory-server). guest_note { tenantId, partyId, clientId, note }: the team's note for next time,
+//            for the guest a party on tonight's floor is linked to. guest_find { tenantId, term }: "Been here before?",
+//            guests by name, number or email (a hint of their contact details only), a few a minute.
 // The floor read also puts today's online bookings on the host stand as parties still to come, and says which late
-// cancels could be charged.
+// cancels could be charged. When the business shows regulars, it suggests who tonight's parties are (an exact mobile
+// number or email of a guest it already has; only the host's yes links them) and gives each one's memory: visits,
+// usuals, usual table, allergies and the team's note.
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -32,18 +38,22 @@ import { cleanWait, waitSettingsOf } from '@/lib/wait-line';
 import { FloorStop, forgetFloor, readFloor, ringPreorder, stagesByUnit, tablesOf, voidPreorderOrFlag } from '@/lib/floor-server';
 import { cleanTableBooking, tableBookingOf } from '@/lib/table-booking';
 import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '@/lib/table-booking-server';
+import { cleanMemory, memorySettingsOf } from '@/lib/guest-memory';
+import { findGuests, GuestStop, linkGuest, memoriesFor, recognize, saveGuestNote, tableTakesGuest } from '@/lib/guest-memory-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
+/** "Been here before?" looks, by person, in the last minute. */
+const finds = new Map<string, number[]>();
 const firstName = (v: unknown) => String(v || '').trim().split(/\s+/)[0]?.slice(0, 40) || 'Hi';
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'floor');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel'].includes(action)) return bad('Unknown action.');
+  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' ? 'manager' : 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return bad('The floor is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -57,10 +67,12 @@ export async function POST(req: NextRequest) {
       if (b.floor && typeof b.floor === 'object') patch['hostingSettings.floor'] = cleanFloor(b.floor);
       if (b.wait && typeof b.wait === 'object') patch['hostingSettings.wait'] = cleanWait(b.wait);
       if (b.booking && typeof b.booking === 'object') patch['hostingSettings.booking'] = cleanTableBooking(b.booking);
+      if (b.memory && typeof b.memory === 'object') patch['hostingSettings.memory'] = cleanMemory(b.memory);
       if (!Object.keys(patch).length) return bad('Nothing to save.');
       await db.doc(T).update(patch);
       forgetFloor(tenantId);
-      return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant), booking: patch['hostingSettings.booking'] || tableBookingOf(tenant) });
+      return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant), booking: patch['hostingSettings.booking'] || tableBookingOf(tenant),
+        memory: patch['hostingSettings.memory'] || memorySettingsOf(tenant) });
     }
 
     if (action === 'floor') {
@@ -68,7 +80,20 @@ export async function POST(req: NextRequest) {
       // Today's online bookings on the host stand (made once each), and late cancels that could be charged.
       const lateCancels = read.session ? await bookingsOnFloor(db, T, tenant, read.session).catch((e) => { console.warn('[host/floor] bookings', e); return []; }) : [];
       const manager = !!g.actor?.isTenantOwner || !!g.actor?.isManager || ['owner', 'admin', 'manager'].includes(String(g.actor?.role || '').toLowerCase());
-      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager });
+      // Regulars: tonight's parties linked to guests the business has, and what it knows about each (lib/guest-memory).
+      const memory = memorySettingsOf(tenant); let guests: Record<string, any> = {};
+      if (memory.on && read.session) {
+        const live = read.parties.filter((p: any) => ['waiting', 'notified', 'expected', 'seated'].includes(String(p.status)));
+        const suggested = await recognize(db, T, live).catch((e) => { console.warn('[host/floor] guests', e); return {} as Record<string, string>; });
+        await tableTakesGuest(db, T, live, by).catch(() => 0);
+        const ids = [...live.flatMap((p: any) => [p.clientId, suggested[p.id] || p.guestSuggest]), ...read.lobby.map((m: any) => m.clientId)].filter((x) => x && x !== 'guest-walkin').map(String);
+        guests = await memoriesFor(db, T, tenant, ids).catch(() => ({}));
+        // A guest only suggested by a number or email someone typed: their name and how often they've been, nothing more,
+        // until the host says it's them.
+        const linkedIds = new Set([...live.map((p: any) => p.clientId), ...read.lobby.map((m: any) => m.clientId)].filter(Boolean).map(String));
+        for (const [id, m] of Object.entries(guests)) if (!linkedIds.has(id)) guests[id] = { ...m, usual: [], table: null, allergy: null, note: null, lastAt: null };
+      }
+      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager, memory, guests });
     }
 
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {
@@ -78,6 +103,26 @@ export async function POST(req: NextRequest) {
         if (action === 'booking_cancel') return ok(await cancelBooking(db, T, tenant, tenantId, bookingId, by, { guestAsked: b.guestAsked === true }));
         return ok(await letGo(db, T, tenant, bookingId, by));
       } catch (e: any) { if (e instanceof BookStop) return NextResponse.json({ ok: false, error: e.msg, code: e.code || null }, { status: e.status }); throw e; }
+    }
+
+    if (action === 'guest_link' || action === 'guest_note' || action === 'guest_find') {
+      try {
+        if (action === 'guest_find') {
+          const k = `${tenantId}|${g.actor?.uid || by}`; const now = Date.now(); const list = (finds.get(k) || []).filter((t) => now - t < 60000);
+          if (list.length >= 20) return bad('One moment, then look again.', 429);
+          list.push(now); finds.set(k, list); if (finds.size > 2000) finds.clear();
+          return ok({ guests: await findGuests(db, T, String(b.term || '')) });
+        }
+        if (action === 'guest_note') {
+          // Only for a guest someone on tonight's floor is linked to.
+          const partyId = String(b.partyId || ''); const p: any = ID.test(partyId) ? (await db.doc(`${T}/parties/${partyId}`).get()).data() : null;
+          if (!p || !p.clientId || String(p.clientId) !== String(b.clientId || '') || !['waiting', 'notified', 'expected', 'seated'].includes(String(p.status))) return bad('Link them first, then add a note.', 409);
+          return ok(await saveGuestNote(db, T, String(b.clientId || ''), b.note, by));
+        }
+        const r = await linkGuest(db, T, String(b.partyId || ''), b.clientId ? String(b.clientId) : null, by);
+        forgetFloor(tenantId);
+        return ok(r);
+      } catch (e: any) { if (e instanceof GuestStop) return bad(e.msg, e.status); throw e; }
     }
 
     if (action === 'ring') {

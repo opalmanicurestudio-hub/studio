@@ -4,6 +4,9 @@
 //          host sees), whether their table is ready (and held for how long), their drinks, and the drinks they can add.
 //   add    { tenantId, token, itemId } → one more of a drink for when they sit (priced from the menu here).
 //   remove { tenantId, token, itemId } → one fewer, until the bar has it.
+//   usual  { tenantId, token } → a regular's usual drinks (lib/guest-memory), one of each, when the business offers it
+//          and the host has said who they are (a typed number or email alone never shows anyone's usual). The view names
+//          them only (never anything else about the guest), and only the ones on the drinks list now.
 //   later  { tenantId, token } → "Need more time": back in line later by the business's time, as often as it allows.
 //          A table held for them is let go, so it goes to the next party.
 //   leave  { tenantId, token } → off the list. The host stand sees they left, and drinks already at the bar come off.
@@ -16,6 +19,8 @@ import { addPreorder, minutesWords, moreTime, placeWords, preorderTotal, removeP
 import { forgetFloor, readFloor, voidPreorderOrFlag, waitDrinks, waitNow } from '@/lib/floor-server';
 import { wordsList } from '@/lib/allergens';
 import { tableLabel } from '@/lib/table-service';
+import { memorySettingsOf, usualDrinks } from '@/lib/guest-memory';
+import { memoryFor } from '@/lib/guest-memory-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -58,7 +63,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const token = String(b.token || ''); const action = String(b.action || 'view');
   if (!ID.test(tenantId) || !TOKEN.test(token)) return bad('This link isn’t complete. Open it from your text again.');
-  if (!['view', 'add', 'remove', 'later', 'leave'].includes(action)) return bad('Unknown action.');
+  if (!['view', 'add', 'remove', 'later', 'leave', 'usual'].includes(action)) return bad('Unknown action.');
   const ip = callerOf(req); const missKey = `miss|${ip}|${tenantId}`;
   if (tooMany(`ip|${ip}`, 400) || tooMany(`${tenantId}|${token}`, action === 'view' ? 40 : 20) || (!isKnown(`${tenantId}|${token}`) && tooMany(missKey, 30, false))) return bad('One moment, then try again.', 429);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -77,7 +82,16 @@ export async function POST(req: NextRequest) {
       const first = (await pRef.get()).data() || {};
       if (!(await sessionOpen(first))) return bad('The list has closed for today.');
       const now = Date.now(); const nowIso = new Date(now).toISOString();
-      let item: any = null;
+      let item: any = null; let usual: any[] = [];
+      if (action === 'usual') {
+        const mem = memorySettingsOf(tenant);
+        if (!s.preorder || !mem.on || !mem.offerUsual || !first.clientId || first.guestMatch !== 'host') return bad('Pick a drink below, or order at your table.');
+        const counts = await liveCounts(db, tenantId, tenant).catch(() => ({ soldOut: [] as string[] }));
+        const list = await waitDrinks(db, T, tenant, new Set(counts.soldOut || []));
+        const m = await memoryFor(db, T, tenant, String(first.clientId)).catch(() => null);
+        usual = usualDrinks(m, list, (Array.isArray(first.preorder) ? first.preorder : []).map((l: any) => String(l?.itemId || ''))).map((id) => list.find((d) => d.id === id)).filter(Boolean);
+        if (!usual.length) return bad('Your usual isn’t on the list right now. Pick a drink below, or order it at your table.');
+      }
       if (action === 'add') {
         if (!s.preorder) return bad('Drinks can be ordered at your table.');
         const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which drink?');
@@ -102,6 +116,13 @@ export async function POST(req: NextRequest) {
         }
         if (!waiting) throw new Stop(p.status === 'seated' ? 'You’re seated now. Order at your table.' : 'You’re not on the list now.');
         if (p.preorderRungAt) throw new Stop('The bar has your drinks already. Anything else, order at your table.');
+        if (action === 'usual') {
+          if (p.clientId !== first.clientId || p.guestMatch !== 'host') throw new Stop('Pick a drink below, or order at your table.');
+          let lines = Array.isArray(p.preorder) ? p.preorder : [];
+          for (const d of usual) { if (lines.some((l: any) => l?.itemId === d.id)) continue; const r = addPreorder(lines, { id: d.id, name: d.name, price: d.price }, nowIso); if (!r.ok) throw new Stop(r.error); lines = r.lines; }
+          tx.set(pRef, { preorder: lines, preorderAt: nowIso }, { merge: true });
+          return { lines };
+        }
         if (action === 'add') {
           const r = addPreorder(p.preorder || [], { id: item.id, name: item.name, price: item.price }, nowIso);
           if (!r.ok) throw new Stop(r.error);
@@ -143,9 +164,17 @@ export async function POST(req: NextRequest) {
       const counts = await liveCounts(db, tenantId, tenant).catch(() => ({ soldOut: [] as string[] }));
       drinks = (await waitDrinks(db, T, tenant, new Set(counts.soldOut || []))).map((d) => ({ id: d.id, name: d.name, price: d.price, section: d.section, contains: d.contains.length ? `Contains ${wordsList(d.contains)}` : '' }));
     }
+    // A regular's usual drinks, when the business offers them: named here, nothing else about them.
+    let usual: any[] = [];
+    const mem = memorySettingsOf(tenant);
+    if (drinks.length && mem.on && mem.offerUsual && p.clientId && p.guestMatch === 'host') {
+      const gm = await memoryFor(db, T, tenant, String(p.clientId)).catch(() => null);
+      usual = usualDrinks(gm, drinks, (Array.isArray(p.preorder) ? p.preorder : []).map((l: any) => String(l?.itemId || ''))).map((id) => drinks.find((d) => d.id === id)).filter(Boolean)
+        .map((d: any) => ({ id: d.id, name: d.name, price: d.price }));
+    }
     return ok({ ...base, place: place.place, ahead: place.ahead, minutes: place.minutes, placeWords: placeWords(place), minutesWords: minutesWords(place.minutes),
       notifiedAt: p.notifiedAt || null, holdUntil, holdTable, laterUntil: p.laterUntil && Date.parse(p.laterUntil) > now ? p.laterUntil : null,
-      canLater: m.ok, moreMin: s.moreMin, preorderOn: s.preorder, drinks });
+      canLater: m.ok, moreMin: s.moreMin, preorderOn: s.preorder, drinks, usual });
   } catch (e: any) {
     if (e instanceof Stop) return bad(e.msg, e.status);
     console.error('[wait]', e);

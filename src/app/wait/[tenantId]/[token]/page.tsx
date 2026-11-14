@@ -4,6 +4,7 @@
 // while the page is open. When their table's ready it says so, and how long it's held. They can ask for more time (as
 // often as the business allows), leave the list, and, when the business offers it, pick a drink for when they sit: it
 // goes on their table's check, and the bar makes it when they sit down or when we text them, as the business chose.
+// A regular is offered their usual drink first (design canvas GuestMemory), when the business offers it.
 // Never shows anyone else on the list. /api/wait.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
@@ -51,6 +52,7 @@ export default function WaitPage() {
   const lines: Line[] = Array.isArray(v.preorder) ? v.preorder : [];
   const qty = (id: string) => lines.find((l) => l.itemId === id)?.qty || 0;
   const drinks: Drink[] = Array.isArray(v.drinks) ? v.drinks : [];
+  const usual: { id: string; name: string; price: number }[] = Array.isArray(v.usual) ? v.usual : [];
   const picked = drinks.filter((d) => qty(d.id) > 0);
   const shown = all ? drinks : [...picked, ...drinks.filter((d) => qty(d.id) === 0)].slice(0, Math.max(5, picked.length));
   const placeBig = v.ahead === 0 ? 'Next' : v.placeWords.replace(/ in line$/, '');
@@ -76,6 +78,13 @@ export default function WaitPage() {
         : drinks.length > 0 && <section aria-label="A drink for when you sit" className="space-y-2">
           <div className="px-1"><p className="text-[17px] font-semibold">A drink for when you sit?</p>
             <p className="text-[14px] leading-snug" style={{ color: 'var(--muted)' }}>{v.drinksWhen === 'ready' ? 'The bar makes it when we call you, and it goes on your table’s check.' : 'The bar makes it when you sit down, and it goes on your table’s check.'}</p></div>
+          {usual.length > 0 && <VisitCard>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-[180px] flex-1"><p className="text-[17px] font-semibold">Your usual?</p>
+                <p className="text-[14px] leading-snug" style={{ color: 'var(--muted)' }}>{usual.map((d) => `${d.name}, ${money(d.price)}`).join('. ')}.</p></div>
+              <button type="button" disabled={!!busy} onClick={() => act('usual')} className="v-btn pub-press" style={{ width: 'auto' }}>{busy === 'usual:' ? 'Adding…' : usual.length > 1 ? 'Add both' : 'Add my usual'}</button>
+            </div>
+          </VisitCard>}
           <div className="v-grp">
             {shown.map((d) => { const n = qty(d.id); const b = busy.endsWith(`:${d.id}`);
               return (

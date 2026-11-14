@@ -13,6 +13,13 @@
  * capacity and holds are RULES here, with the reason shown, and an explicit
  * "seat anyway" for the times the human knows better.
  *
+ * Regulars are known on arrival (design canvas GuestMemory, lib/guest-memory):
+ * a party whose mobile number or email belongs to a guest the business has
+ * asks "Is this Dana?" (a typed number proves nothing, so only the host's yes
+ * links them), then shows their visits, usuals, usual table, allergies and the
+ * team's note. The host can also find someone ("Been here before?") or say a
+ * linked party isn't them.
+ *
  * The session opens itself: loading this screen is a front-of-house action,
  * so if today's session doesn't exist it is created from the floor-plan
  * template, and a stale one from yesterday is closed at its last activity.
@@ -45,6 +52,8 @@ import { linePlace, minutesWords, ordinal, preorderWords, waitSettingsOf, type W
 import { getAuth } from 'firebase/auth';
 import { money } from '@/lib/table-booking';
 import type { LateCancel } from '@/lib/table-booking-server';
+import { allergyWords, usualWords, visitWords, type GuestMemory, type MemorySettings } from '@/lib/guest-memory';
+import type { FoundGuest } from '@/lib/guest-memory-server';
 import { AlertCircle, Bell, Link2, Plus, Sparkles } from 'lucide-react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
@@ -86,7 +95,11 @@ export default function HostScreen() {
   }, [tenantId]);
   // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
-  const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean } | null>(null);
+  const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean;
+    memory: MemorySettings | null; guests: Record<string, GuestMemory> } | null>(null);
+  // Regulars: "Been here before?" for one party, and the team's note for one guest.
+  const [findFor, setFindFor] = useState<any>(null); const [term, setTerm] = useState(''); const [found, setFound] = useState<FoundGuest[] | null>(null);
+  const [noteFor, setNoteFor] = useState<{ clientId: string; name: string; partyId: string } | null>(null); const [noteText, setNoteText] = useState('');
   const [acting, setActing] = useState<string | null>(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -183,7 +196,8 @@ export default function HostScreen() {
   const loadFloor = useCallback(async () => {
     if (!tenantId) return;
     const r = await api('/api/host/floor', { action: 'floor' });
-    if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager });
+    if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager,
+      memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {} });
   }, [api, tenantId]);
   const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
   useEffect(() => {
@@ -453,6 +467,29 @@ export default function HostScreen() {
     toast({ title: noShow ? `${who} marked as not coming. Nothing charged.` : 'Let go. Nothing charged.' });
     void loadFloor();
   };
+  /** Who a party is: a guest the business has (clientId), or not who we thought (null). */
+  const linkGuest = async (p: any, clientId: string | null) => {
+    setActing(`guest:${p.id}`);
+    const r = await api('/api/host/floor', { action: 'guest_link', partyId: p.id, clientId });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    toast({ title: clientId ? `${p.name} linked to their profile` : `${p.name} isn’t linked to anyone now` });
+    setFindFor(null); setFound(null); setTerm('');
+    void loadFloor();
+  };
+  const findGuests = async () => {
+    if (term.trim().length < 2) return;
+    setActing('find'); const r = await api('/api/host/floor', { action: 'guest_find', term: term.trim() }); setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    setFound(Array.isArray(r.guests) ? r.guests : []);
+  };
+  const saveNote = async () => {
+    if (!noteFor) return;
+    setActing('note'); const r = await api('/api/host/floor', { action: 'guest_note', clientId: noteFor.clientId, partyId: noteFor.partyId, note: noteText }); setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t save.' }); return; }
+    toast({ title: r.note ? `Note saved for ${noteFor.name}` : `Note taken off for ${noteFor.name}` });
+    setNoteFor(null); void loadFloor();
+  };
   /** Drinks still at the bar for someone who left: try taking them off again. */
   const unring = async (p: any) => {
     const r = await api('/api/host/floor', { action: 'unring', partyId: p.id });
@@ -548,6 +585,23 @@ export default function HostScreen() {
   const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
   /** "Table 11" for a numbered one, in the business's own word; a named one as it's named. */
   const unitLabel = (n: string) => (/^\d+[a-z]?$/i.test(String(n).trim()) ? `${cap(V.unit)} ${n}` : n);
+  // What the host stand knows about a party's guest, when the business shows regulars (lib/guest-memory).
+  const memOn = floor?.memory?.on !== false;
+  const memOf = (p: any): GuestMemory | null => (memOn && p?.clientId ? floor?.guests?.[String(p.clientId)] || null : null);
+  /** Who their mobile number or email suggests, until the host says yes or no. */
+  const suggestOf = (p: any): GuestMemory | null => (memOn && !p?.clientId && p?.guestSuggest ? floor?.guests?.[String(p.guestSuggest)] || null : null);
+  // A party from a booked visit is that booking's guest: changed on the booking, not here.
+  const canLink = (p: any) => memOn && !!floor && !String(p.id).includes(':') && !(p.guestIds || []).some((g: string) => String(g).startsWith('appt:'));
+  const first = (n: unknown) => String(n || '').trim().split(/\s+/)[0] || 'them';
+  const guestBlock = (p: any, wrap = '') => {
+    const m = memOf(p); const sg = m ? null : suggestOf(p); if (!m && !(sg && canLink(p))) return null;
+    const b = m ? <GuestBlock m={m} zone={tz} label={unitLabel} busy={acting === `guest:${p.id}`} onNote={() => { setNoteFor({ clientId: m.clientId, name: m.name, partyId: p.id }); setNoteText(m.note?.text || ''); }}
+      onNotThem={canLink(p) ? () => linkGuest(p, null) : null} />
+      : <GuestBlock m={sg!} zone={tz} label={unitLabel} busy={acting === `guest:${p.id}`} ask={p.guestSuggestBy === 'email' ? 'email' : 'phone'} onYes={() => linkGuest(p, sg!.clientId)} onNotThem={() => linkGuest(p, null)} />;
+    return wrap ? <div className={wrap}>{b}</div> : b; };
+  // Someone not linked yet: the host can say who they are.
+  const beenBefore = (p: any) => (!canLink(p) || p.clientId || suggestOf(p) ? null
+    : <button type="button" onClick={() => { setFindFor(p); setTerm(String(p.name || '').trim().split(/\s+/).slice(-1)[0] || ''); setFound(null); }} className={`min-h-[44px] rounded-xl px-1.5 text-[14px] font-semibold ${RING}`} style={{ color: MUTED }}>Been here before?</button>);
   const openTable = tableFor ? state.tables.find((t) => t.tableId === tableFor) || null : null;
   const openParty = openTable ? seatedAt(openTable.tableId) : null;
   const pick = (id: string) => { setSelected(selected === id ? null : id); setTableFor(null); };
@@ -695,12 +749,14 @@ export default function HostScreen() {
                   {notBack && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Told it’s ready {texted} min ago, not back yet{holdName ? `. ${holdName} isn’t held now` : ''}</p>}
                   {later && <p className="text-[13.5px]" style={{ color: MUTED }}>Asked for more time from their phone. Back in line at {at12(later)}</p>}
                   {drinks && <p className="text-[13.5px]" style={{ color: MUTED }}>{x.preorderRungAt ? 'At the bar' : 'Drinks for when they sit'}: {drinks}</p>}
+                  {guestBlock(p)}
                   {ws.link && x.phone && !p.id.includes(':') && <p className="text-[13px]" style={{ color: MUTED }}>{x.linkSentAt ? 'Has their link to follow the line' : 'No link sent yet'}</p>}
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
                     {p.status === 'waiting' && !p.id.startsWith('walkin:') && <button type="button" onClick={() => notifyParty(p)} className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Bell className="h-4 w-4" aria-hidden />Text: ready</button>}
                     {!p.id.includes(':') && <button type="button" disabled={acting === `left:${p.id}`} onClick={() => leftList(p, notBack)} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{notBack ? 'Didn’t come back' : 'They left'}</button>}
                     {ws.link && x.phone && !x.linkSentAt && !p.id.includes(':') && <button type="button" disabled={acting === `link:${p.id}`} onClick={() => sendLink(p.id, p.name)} className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Link2 className="h-4 w-4" aria-hidden />Send link</button>}
+                    {beenBefore(p)}
                   </div>
                 </article>);
             })}
@@ -728,6 +784,7 @@ export default function HostScreen() {
                         {asks.map((a) => <span key={a} className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: a === 'Allergy' ? AMBER_TINT : SOFT, color: a === 'Allergy' ? AMBER : INK }}>{a}</span>)}
                         {x.note && <span className="rounded-full px-2.5 py-1 text-[12px] font-medium" style={{ background: SOFT }}>{String(x.note)}</span>}
                       </div>}
+                      {guestBlock(p, 'mt-2')}
                     </div>
                     <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
                   </div>
@@ -778,7 +835,9 @@ export default function HostScreen() {
           <div><p className="text-[18px] font-semibold">{openParty.name}, {openParty.size}</p>
             <p className="text-[14px]" style={{ color: MUTED }}>Seated {at12(openParty.seatedAt)}{minsSince(openParty.seatedAt) !== null ? `, ${minsSince(openParty.seatedAt)} min ago` : ''}</p>
             {floor?.stages?.[openTable.tableId] && <p className="pt-1 text-[14.5px] font-semibold">{floor.stages[openTable.tableId].words}<span className="font-normal" style={{ color: MUTED }}>{floor.stages[openTable.tableId].freeIn !== null ? `. ${freeWords(floor.stages[openTable.tableId].freeIn, now.getTime(), tz)}` : ''}</span></p>}
-            {(openParty as any).preorder?.length > 0 && <p className="pt-1 text-[13.5px]" style={{ color: MUTED }}>Ordered while waiting: {preorderWords((openParty as any).preorder)}</p>}</div>
+            {(openParty as any).preorder?.length > 0 && <p className="pt-1 text-[13.5px]" style={{ color: MUTED }}>Ordered while waiting: {preorderWords((openParty as any).preorder)}</p>}
+            {guestBlock(openParty, 'pt-2')}
+            {beenBefore(openParty) && <div className="pt-1">{beenBefore(openParty)}</div>}</div>
           <div className="flex flex-col gap-2">
             <button type="button" onClick={() => { setTabFor(openParty); setTableFor(null); }} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>Open their tab</button>
             {(openParty as any).checkAt
@@ -788,9 +847,62 @@ export default function HostScreen() {
           </div>
         </div>}
       </Drawer>
+      <Drawer accent={null} open={!!findFor} onClose={() => { setFindFor(null); setFound(null); }} title={findFor ? `Has ${first(findFor.name)} been here before?` : ''}>
+        {findFor && <form onSubmit={(e) => { e.preventDefault(); void findGuests(); }} className="space-y-3" style={{ color: INK }}>
+          <label className="block"><span className="text-[14px] font-medium">Their name, mobile number or email</span>
+            <div className="mt-1.5 flex gap-2">
+              <input value={term} onChange={(e) => { setTerm(e.target.value); setFound(null); }} autoComplete="off" autoFocus className="min-h-[44px] w-full rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
+              <button type="submit" disabled={term.trim().length < 2 || acting === 'find'} className={BTN} style={{ background: INK, color: '#fff' }}>{acting === 'find' ? 'Looking…' : 'Look'}</button>
+            </div></label>
+          {found && (found.length === 0
+            ? <p className="text-[14px]" style={{ color: MUTED }}>Nobody by that name, number or email yet. Their visit tonight can be linked another time.</p>
+            : <ul>{found.map((g) => (
+              <li key={g.id} className="flex min-h-[56px] items-center gap-3 border-t py-2" style={{ borderColor: LINE }}>
+                <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{g.name}</span><span className="block text-[13.5px]" style={{ color: MUTED }}>{g.hint}</span></span>
+                <button type="button" disabled={acting === `guest:${findFor.id}`} onClick={() => linkGuest(findFor, g.id)} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>That’s them</button>
+              </li>))}</ul>)}
+        </form>}
+      </Drawer>
+      <Drawer accent={null} open={!!noteFor} onClose={() => setNoteFor(null)} title={noteFor ? `A note for next time, ${first(noteFor.name)}` : ''}>
+        {noteFor && <form onSubmit={(e) => { e.preventDefault(); void saveNote(); }} className="space-y-3" style={{ color: INK }}>
+          <label className="block"><span className="text-[14px] font-medium">What the team should know when they’re back</span>
+            <span className="block text-[13px]" style={{ color: MUTED }}>Where they like to sit, how they take their coffee. Allergies go on their profile, so the kitchen sees them too.</span>
+            <textarea value={noteText} onChange={(e) => setNoteText(e.target.value.slice(0, 200))} rows={3} className="mt-1.5 w-full rounded-xl border px-3 py-2.5 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
+          <div className="flex gap-2">
+            <button type="submit" disabled={acting === 'note'} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{acting === 'note' ? 'Saving…' : noteText.trim() ? 'Save note' : 'Take the note off'}</button>
+          </div>
+        </form>}
+      </Drawer>
       <Drawer accent={null} open={!!tabFor} onClose={() => setTabFor(null)} title="Tab">
         {tabFor && firestore && tenantId ? <TableTab key={tabFor.id} firestore={firestore as any} tenantId={tenantId} party={tabFor} tableName={(tabFor.unitIds || []).map((u: string) => state.byTable[u]?.name || u).join(' + ') || 'Table'} by={String(user?.displayName || 'Host').slice(0, 60)} /> : null}
       </Drawer>
+    </div>
+  );
+}
+
+/** What the host stand knows about a regular (design canvas GuestMemory): their visits, usuals, usual table, their
+ *  profile's allergies and the team's note. Asked first ("Is this Dana Okafor?") when only their number or email
+ *  matched: nothing is theirs, and nothing more about them shows, until the host says yes. */
+function GuestBlock({ m, zone, label, busy, onNote, onNotThem, ask, onYes }: { m: GuestMemory; zone: string; label: (n: string) => string; busy: boolean;
+  onNote?: () => void; onNotThem: (() => void) | null; ask?: 'phone' | 'email'; onYes?: () => void }) {
+  const w = visitWords(m, zone, Date.now(), label); const u = usualWords(m); const a = allergyWords(m.allergy); const name1 = m.name.split(' ')[0];
+  const link = `-my-2.5 min-h-[44px] px-1.5 text-[13px] font-semibold disabled:opacity-50 ${RING}`;
+  return (
+    <div className="space-y-1.5 rounded-xl px-3 py-2.5 text-[14px] leading-snug" style={{ background: SOFT }}>
+      {ask && <div className="flex flex-wrap items-center gap-2 pb-1">
+        <p className="min-w-[160px] flex-1"><b className="font-semibold">Is this {m.name}?</b> <span style={{ color: MUTED }}>Their {ask === 'email' ? 'email' : 'mobile number'} matches. Ask before you rely on it.</span></p>
+        <button type="button" disabled={busy} onClick={onYes} className={`min-h-[44px] rounded-xl px-3 text-[13.5px] font-semibold disabled:opacity-50 ${RING}`} style={{ background: INK, color: '#fff' }}>Yes, it’s {name1}</button>
+        <button type="button" disabled={busy} onClick={onNotThem || undefined} className={`min-h-[44px] rounded-xl bg-[#fff] px-3 text-[13.5px] font-semibold disabled:opacity-50 ${RING}`} style={{ border: `1px solid ${LINE}` }}>No</button>
+      </div>}
+      {ask ? (m.visits > 0 && <p style={{ color: MUTED }}>{m.visits === 1 ? 'Been in once before.' : `Been in ${m.more ? `${m.visits}+` : m.visits} times.`} Their usuals, allergies and notes show once you say yes.</p>)
+        : (w.head || w.rest) && <p>{w.head && <b className="font-semibold">{w.head}</b>}{w.head && w.rest ? ' ' : ''}{w.rest}</p>}
+      {!ask && u && <p>{u}</p>}
+      {!ask && <div className="flex flex-wrap items-center gap-1.5">
+        {a && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{a}</span>}
+        {m.note && <span className="rounded-full bg-[#fff] px-2.5 py-1 text-[12.5px] font-semibold">{m.note.text}</span>}
+        {!ask && onNote && <button type="button" onClick={onNote} className={link} style={{ color: MUTED }}>{m.note ? 'Edit note' : 'Add a note'}</button>}
+        {!ask && onNotThem && <button type="button" disabled={busy} onClick={onNotThem} className={link} style={{ color: MUTED }}>Not {name1}?</button>}
+      </div>}
     </div>
   );
 }

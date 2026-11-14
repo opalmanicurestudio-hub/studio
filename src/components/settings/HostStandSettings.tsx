@@ -7,7 +7,9 @@
 // whether the bar makes it when they sit down or when we text them). And tables booked online (lib/table-booking,
 // design canvas TableBookSettings): off until the business turns it on; the days and times, the seats online bookings
 // can fill, the largest party, how far ahead and how late, and a card to hold big tables (the party size, the fee a
-// guest for a no-show or a late cancel, and until when cancelling is free). Saved by api/host/floor (a manager).
+// guest for a no-show or a late cancel, and until when cancelling is free). And regulars (lib/guest-memory, design
+// canvas GuestMemory): shown at the host stand and on the server's tab, how many visits make a regular, and whether the
+// wait link offers their usual drink. Saved by api/host/floor (a manager).
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, query, where, type Firestore } from 'firebase/firestore';
@@ -15,6 +17,7 @@ import { DEFAULT_FLOOR, type FloorSettings } from '@/lib/table-stage';
 import { DEFAULT_WAIT, MAX_SECTIONS, sectionKey, type WaitSettings } from '@/lib/wait-line';
 import { isDrinkItem } from '@/lib/table-service';
 import { DEFAULT_TABLE_BOOKING, type TableBookingSettings } from '@/lib/table-booking';
+import { cleanMemory, type MemorySettings } from '@/lib/guest-memory';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', RED = '#b42318';
 const field = 'h-11 rounded-xl border px-3 text-[15px] outline-none bg-[#fff]';
@@ -44,15 +47,16 @@ const Label = ({ title, hint }: { title: string; hint?: string }) => (
 
 export function HostStandSettings({ firestore, tenantId, tenant }: { firestore: Firestore | null; tenantId: string | null; tenant: any }) {
   const start = React.useMemo(() => ({ floor: { ...DEFAULT_FLOOR, ...(tenant?.hostingSettings?.floor || {}) } as FloorSettings, wait: { ...DEFAULT_WAIT, ...(tenant?.hostingSettings?.wait || {}) } as WaitSettings,
-    booking: { ...DEFAULT_TABLE_BOOKING, ...(tenant?.hostingSettings?.booking || {}) } as TableBookingSettings }), [tenant]);
+    booking: { ...DEFAULT_TABLE_BOOKING, ...(tenant?.hostingSettings?.booking || {}) } as TableBookingSettings, memory: cleanMemory(tenant?.hostingSettings?.memory || {}) }), [tenant]);
   const [floor, setFloor] = React.useState<FloorSettings>(start.floor);
   const [wait, setWait] = React.useState<WaitSettings>(start.wait);
   const [booking, setBooking] = React.useState<TableBookingSettings>(start.booking);
+  const [memory, setMemory] = React.useState<MemorySettings>(start.memory);
   const [planSeats, setPlanSeats] = React.useState<number | null>(null); const [copied, setCopied] = React.useState(false);
   const [saved, setSaved] = React.useState(JSON.stringify(start));
   const [sections, setSections] = React.useState<string[]>([]);
   const [busy, setBusy] = React.useState(false); const [note, setNote] = React.useState(''); const [err, setErr] = React.useState('');
-  React.useEffect(() => { setFloor(start.floor); setWait(start.wait); setBooking(start.booking); setSaved(JSON.stringify(start)); }, [start]);
+  React.useEffect(() => { setFloor(start.floor); setWait(start.wait); setBooking(start.booking); setMemory(start.memory); setSaved(JSON.stringify(start)); }, [start]);
   // The floor plan's seats, for "Seats online bookings can fill".
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -69,7 +73,8 @@ export function HostStandSettings({ firestore, tenantId, tenant }: { firestore: 
       setSections(Array.from(seen.values()).sort((a, b) => Number(b.drink) - Number(a.drink) || a.name.localeCompare(b.name)).map((x) => x.name).slice(0, 30));
     }).catch(() => {});
   }, [firestore, tenantId]);
-  const changed = JSON.stringify({ floor, wait, booking }) !== saved;
+  const changed = JSON.stringify({ floor, wait, booking, memory }) !== saved;
+  const R = <K extends keyof MemorySettings>(k: K, v: MemorySettings[K]) => setMemory((x) => ({ ...x, [k]: v }));
   const B = <K extends keyof TableBookingSettings>(k: K, v: TableBookingSettings[K]) => setBooking((x) => ({ ...x, [k]: v }));
   const pageUrl = typeof window !== 'undefined' && tenantId ? `${window.location.origin}/table/${tenantId}` : '';
   const copy = async () => { try { await navigator.clipboard.writeText(pageUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* the address is on screen to copy */ } };
@@ -81,11 +86,11 @@ export function HostStandSettings({ firestore, tenantId, tenant }: { firestore: 
   const save = async () => {
     if (!tenantId) return; setBusy(true); setErr(''); setNote('');
     const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-    const r = await fetch('/api/host/floor', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'settings', floor, wait, booking }) })
+    const r = await fetch('/api/host/floor', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, action: 'settings', floor, wait, booking, memory }) })
       .then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' }));
     setBusy(false);
     if (!r?.ok) { setErr(r?.error || 'That didn’t save.'); return; }
-    setFloor(r.floor); setWait(r.wait); setBooking(r.booking); setSaved(JSON.stringify({ floor: r.floor, wait: r.wait, booking: r.booking }));
+    setFloor(r.floor); setWait(r.wait); setBooking(r.booking); setMemory(r.memory); setSaved(JSON.stringify({ floor: r.floor, wait: r.wait, booking: r.booking, memory: r.memory }));
     setNote('Saved. The host stand picks it up within a few seconds.');
   };
 
@@ -187,6 +192,19 @@ export function HostStandSettings({ firestore, tenantId, tenant }: { firestore: 
             <label className="block"><select value={booking.cancelHours} onChange={(e) => B('cancelHours', Number(e.target.value))} className={`${field} w-full`} style={{ borderColor: LINE }}>{mins([2, 4, 12, 24, 48, 72], booking.cancelHours).map((n) => <option key={n} value={n}>{n} hours before</option>)}</select>
               <span className="mt-1 block text-[12.5px]" style={{ color: MUTED }}>Free to cancel until</span></label>
           </div>}
+        </>}
+      </section>
+
+      <section aria-labelledby="hs-regulars" className="rounded-3xl border bg-[#fff] p-5" style={{ borderColor: LINE }}>
+        <h2 id="hs-regulars" className="text-[18px] font-semibold">Regulars</h2>
+        <p className="mb-2 text-[13.5px] leading-snug" style={{ color: MUTED }}>When a party’s mobile number or email matches a guest you already have, the host stand asks “Is this them?”. Nothing is linked until the host says yes.</p>
+        <div className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="Show regulars at the host stand" hint="Their visits, usuals, usual table, allergies and your team’s notes. Their usual is a tap away on their tab too." />
+          <Switch label="Show regulars at the host stand" on={memory.on} onChange={(v) => R('on', v)} /></div>
+        {memory.on && <>
+          <label className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="A regular after" hint="Visits at a table before tonight" />
+            <select value={memory.regularAfter} onChange={(e) => R('regularAfter', Number(e.target.value))} className={field} style={{ borderColor: LINE }}>{mins([2, 3, 4, 5, 6, 8, 10], memory.regularAfter).map((n) => <option key={n} value={n}>{n} visits</option>)}</select></label>
+          <div className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="Offer their usual drink on the wait link" hint={wait.preorder ? 'Once the host has said who they are. One tap adds it, on their table’s check. Nothing else about them shows there.' : 'Needs “A drink while they wait” on.'} />
+            <Switch label="Offer their usual drink on the wait link" on={memory.offerUsual} onChange={(v) => R('offerUsual', v)} /></div>
         </>}
       </section>
 

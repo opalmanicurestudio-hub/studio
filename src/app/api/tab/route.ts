@@ -24,6 +24,8 @@
 //   pay_status { tenantId, visitId } → pay at the table: the check's link for the guests, what's paid, by what, and what's
 //          left (lib/table-pay-server).
 //   pay_cash   { tenantId, visitId, given? } → the rest of the check paid in cash to the server.
+//   usual  { tenantId, visitId } → a regular's usual items (lib/guest-memory), for the server to ring in with one tap
+//          (the same allergy check as the menu), when the business shows regulars.
 //   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
 //          takes that seat's allergies (lib/allergens), and asks for "Allergy noted" again if they're different.
 // Every comp, void and remake is kept as an approval record (tenants/{t}/approvals, which no browser can write): who
@@ -108,6 +110,18 @@ export async function POST(req: NextRequest) {
       if (action === 'pay_cash') { const r = await P.cashRest(db, T, tenant, tenantId, visitId, me.name, b.given ?? null); forgetTables(tenantId); return ok(r); }
       return ok(await P.checkStatus(db, T, tenant, tenantId, visitId, linkOrigin(tenant, req.nextUrl?.origin || '')));
     } catch (e: any) { if (e instanceof P.PayStop) return bad(e.msg, e.status); throw e; }
+  }
+  // GUEST MEMORY (lib/guest-memory): a regular's usual, to ring in with one tap, when the business shows regulars.
+  if (action === 'usual') {
+    const G = await import('@/lib/guest-memory-server'); const M = await import('@/lib/guest-memory');
+    if (!M.memorySettingsOf(tenant).on) return ok({ usual: [], words: '' });
+    const v: any = (await vRef.get()).data();
+    if (!v || v.isTable !== true) return bad('That table’s visit wasn’t found.', 404);
+    const m = v.clientId ? await G.memoryFor(db, T, tenant, String(v.clientId)).catch(() => null) : null;
+    if (!m) return ok({ usual: [], words: '' });
+    const { tenantTimeZone } = await import('@/lib/tenant-time');
+    const w = M.visitWords(m, tenantTimeZone(tenant));
+    return ok({ usual: m.usual.slice(0, 4).map((u) => ({ id: u.id, name: u.name })), words: [w.head, w.rest].filter(Boolean).join(' '), name: m.name, note: m.note?.text || '' });
   }
   // The night it belongs to, the same as the night's report counts it (lib/night-close-server).
   const day = tonight(tenant);

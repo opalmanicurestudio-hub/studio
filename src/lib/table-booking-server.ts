@@ -320,7 +320,7 @@ export async function bookingsOnFloor(db: any, T: string, tenant: any, session: 
         if (cur.status === 'booked' && !p) {
           tx.set(pRef, { id: pRef.id, sessionId: session.id, name: String(cur.name || 'Booking').slice(0, 80), size: Math.max(1, num(cur.size)), needs: [], source: 'booking', status: 'expected',
             arrivesAt: cur.arrivesAt, joinedAt: null, quotedMinutes: null, notifiedAt: null, seatedAt: null, finishedAt: null, turnMinutes: null, unitIds: [], guestIds: [`tbook:${b.id}`],
-            ...(cur.phone ? { phone: String(cur.phone) } : {}), bookingId: b.id, asks: Array.isArray(cur.asks) ? cur.asks : [], note: cur.note || '', cardHeld: !!cur.card?.paymentMethodId,
+            ...(cur.phone ? { phone: String(cur.phone) } : {}), ...(cur.email ? { email: String(cur.email) } : {}), bookingId: b.id, asks: Array.isArray(cur.asks) ? cur.asks : [], note: cur.note || '', cardHeld: !!cur.card?.paymentMethodId,
             fee: num(cur.fee), lateBy: num(cur.lateBy) || null, createdAt: nowIso() });
         } else if (cur.status === 'cancelled' && p && p.status === 'expected') {
           tx.set(pRef, { status: 'cancelled', finishedAt: nowIso() }, { merge: true });
