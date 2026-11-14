@@ -46,6 +46,7 @@ const DAILY_HUB = [
   { href: '/host',        icon: ConciergeBell,   label: 'Host stand'     },
   { href: '/tables',      icon: BellRing,        label: 'My tables'      },
   { href: '/close',       icon: Moon,            label: 'Close the night' },
+  { href: '/prep',        icon: ClipboardList,   label: 'Prep list'      },
   { href: '/voice',       icon: Bot,             label: 'Phone assistant'},
   { href: '/inbox',       icon: Inbox,           label: 'Inbox'          },
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
