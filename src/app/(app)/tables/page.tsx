@@ -3,8 +3,10 @@
 // (lib/nudges, worked out by the server: api/tab 'nudges'), most pressing first: food waiting at the pass, a course
 // running late, the next course to fire, checking back, a table that hasn't ordered, an allergy to keep in mind. Each
 // nudge has its own step (fire the course, mark it done, or "Not yet" for five minutes). Below, their tables; tapping
-// one opens its tab. "My tables" are the ones in the person's section on the host stand's floor; with no section set,
-// every table shows. The phone buzzes for a new nudge that can't wait, where the phone allows it.
+// one opens its tab, where the server can mark that the table asked for the check (the host stand then knows it's
+// nearly free). Each table shows where it is in its meal (lib/table-stage). "My tables" are the ones in the person's
+// section on the host stand's floor; with no section set, every table shows. The phone buzzes for a new nudge that
+// can't wait, where the phone allows it.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
@@ -20,7 +22,7 @@ const dark = { background: INK, color: '#fff' } as const;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 const ago = (since: number, now: number) => { const m = Math.max(0, Math.floor((now - since) / 60000)); return m < 1 ? 'now' : `${m} min`; };
 
-type Row = { visitId: string; table: string; staffIds: string[]; total: number; party: any };
+type Row = { visitId: string; table: string; staffIds: string[]; total: number; party: any; stage?: { words: string; step: number; freeIn: number | null }; checkAt?: string | null };
 type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null };
 
 async function call(body: any): Promise<any> {
@@ -70,6 +72,15 @@ export default function MyTablesPage() {
     void load();
   };
 
+  // The table asked for the check, so the host stand sees it's nearly free (or that was a mistake).
+  const checkAsked = async (row: Row) => {
+    if (!tenantId || !row.party?.id) return; setBusy(`check:${row.party.id}`);
+    const r = await call({ tenantId, action: 'check', partyId: row.party.id, op: row.checkAt ? 'undo' : 'asked' });
+    setBusy(null);
+    if (!r.ok) { setMsg(r.error || 'That didn’t go through.'); return; }
+    setMsg(r.checkAt ? `The host stand knows ${row.table} asked for the check.` : `${row.table} isn’t asking for the check.`);
+    setOpen((o) => (o && o.visitId === row.visitId ? { ...o, checkAt: r.checkAt || null } : o)); void load();
+  };
   const tables = d?.tables || [];
   const guests = tables.reduce((s, t) => s + (Number(t.party?.size) || 0), 0);
   const actions = (n: Nudge) => {
@@ -94,7 +105,7 @@ export default function MyTablesPage() {
           {d?.hasSection && (
             <div role="radiogroup" aria-label="Which tables" className="flex rounded-xl p-1 gap-1 bg-[#fff]" style={{ border: `1px solid ${LINE}` }}>
               {([[true, 'Mine'], [false, 'Every table']] as [boolean, string][]).map(([v, label]) => (
-                <button key={label} type="button" role="radio" aria-checked={mine === v} onClick={() => pick(v)} className="min-h-[40px] rounded-lg px-3 text-[13.5px] font-semibold" style={mine === v ? dark : { color: MUTED }}>{label}</button>))}
+                <button key={label} type="button" role="radio" aria-checked={mine === v} onClick={() => pick(v)} className="min-h-[44px] rounded-lg px-3 text-[13.5px] font-semibold" style={mine === v ? dark : { color: MUTED }}>{label}</button>))}
             </div>
           )}
         </header>
@@ -117,7 +128,7 @@ export default function MyTablesPage() {
           <section aria-label="Tables" className="rounded-2xl bg-[#fff] p-2">
             {tables.map((t, i) => (
               <button key={t.visitId} type="button" onClick={() => setOpen(t)} className="flex w-full items-center gap-3 rounded-xl px-3 min-h-[56px] text-left" style={i ? { borderTop: `1px solid ${LINE}` } : undefined}>
-                <span className="flex-1 min-w-0"><span className="block text-[16px] font-semibold truncate">{t.table}</span><span className="block text-[13px] truncate" style={{ color: MUTED }}>{t.party?.name}, {t.party?.size} {Number(t.party?.size) === 1 ? 'guest' : 'guests'}</span></span>
+                <span className="flex-1 min-w-0"><span className="block text-[16px] font-semibold truncate">{t.table}</span><span className="block text-[13px] truncate" style={{ color: MUTED }}>{t.party?.name}, {t.party?.size} {Number(t.party?.size) === 1 ? 'guest' : 'guests'}{t.stage ? `. ${t.stage.words}` : ''}</span></span>
                 <span className="text-[15px] font-semibold tabular-nums">{money(t.total)}</span>
               </button>
             ))}
@@ -128,7 +139,10 @@ export default function MyTablesPage() {
       {open && firestore && tenantId && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label={`${open.table} tab`}>
           <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-4" style={{ background: SOFT }}>
-            <div className="flex justify-end pb-2"><button type="button" onClick={() => { setOpen(null); void load(); }} className={btn} style={quiet}>Done</button></div>
+            <div className="flex flex-wrap justify-end gap-2 pb-2">
+              <button type="button" disabled={busy === `check:${open.party?.id}`} onClick={() => checkAsked(open)} className={btn} style={quiet}>{open.checkAt ? 'Not asking for the check' : 'They asked for the check'}</button>
+              <button type="button" onClick={() => { setOpen(null); void load(); }} className={btn} style={quiet}>Done</button>
+            </div>
             <TableTab key={open.visitId} firestore={firestore} tenantId={tenantId} party={open.party} tableName={open.table} by={d?.meName || 'A server'} />
           </div>
         </div>

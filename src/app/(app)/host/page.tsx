@@ -39,7 +39,11 @@ import {
   type HostedParty, type ServiceSession,
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
-import { AlertCircle, Bell, Plus, Sparkles } from 'lucide-react';
+import { floorSettingsOf, freeWords, STAGE_STEPS, type FloorSettings } from '@/lib/table-stage';
+import { floorTables, seatNext, staffLoads, waitHolds, type Suggestion } from '@/lib/seat-next';
+import { linePlace, minutesWords, ordinal, preorderWords, waitSettingsOf, type WaitSettings } from '@/lib/wait-line';
+import { getAuth } from 'firebase/auth';
+import { AlertCircle, Bell, Link2, Plus, Sparkles } from 'lucide-react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -69,6 +73,17 @@ export default function HostScreen() {
   const V = resolveVocabulary(hs.vocabulary);
   const tz = tenantTimeZone(selectedTenant as any);
   const holdOpts = { holdBeforeMinutes: hs.holdBeforeMinutes, holdGraceMinutes: hs.holdGraceMinutes };
+
+  // The steps that need the server, signed in as this person.
+  const api = useCallback(async (path: string, body: any): Promise<any> => {
+    const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, ...body }) })
+      .then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' }));
+  }, [tenantId]);
+  // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
+  // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
+  const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings } | null>(null);
+  const [acting, setActing] = useState<string | null>(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
@@ -158,12 +173,38 @@ export default function HostScreen() {
           (_, i) => ({ id: `${p.id}+${i}`, tableId: p.unitIds?.[0] || '' })).filter((g) => g.tableId))),
     [parties]);
   const state = useMemo(() => seatingState(units, seatedGuests), [units, seatedGuests]);
-  const held: HeldMap = useMemo(() => heldUnits(parties, now, holdOpts), [parties, now, hs.holdBeforeMinutes, hs.holdGraceMinutes]);
+  // Held: a booking arriving soon, or a waiting party texted that their table's nearly ready (the booking wins a clash).
+  const held: HeldMap = useMemo(() => ({ ...waitHolds(parties, now.getTime()), ...heldUnits(parties, now, holdOpts) }), [parties, now, hs.holdBeforeMinutes, hs.holdGraceMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadFloor = useCallback(async () => {
+    if (!tenantId) return;
+    const r = await api('/api/host/floor', { action: 'floor' });
+    if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait });
+  }, [api, tenantId]);
+  const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
+  useEffect(() => {
+    if (!session?.id) return;
+    void loadFloor();
+    const i = setInterval(() => { if (document.visibilityState === 'visible') void loadFloor(); }, 15000);
+    return () => clearInterval(i);
+  }, [loadFloor, session?.id, seatedKey]);
+  const fs: FloorSettings = floor?.floor || floorSettingsOf(selectedTenant);
+  const ws: WaitSettings = floor?.wait || waitSettingsOf(selectedTenant);
+  // Every table: how soon it's ready to seat, being cleared, and who it's held for (lib/seat-next).
+  const floorT = useMemo(() => floorTables(units, parties, floor?.stages || {}, fs, now.getTime(), holdOpts), [units, parties, floor, now, fs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tById = useMemo(() => new Map(floorT.map((t) => [t.id, t])), [floorT]);
+  const loads = useMemo(() => staffLoads(units, parties, floor?.staff || {}), [units, parties, floor]);
   const seatedRows = useMemo(
     () => parties.filter((p) => p.status === 'seated' && p.seatedAt && p.unitIds?.length)
       .map((p) => ({ tableId: p.unitIds[0], seatedAt: p.seatedAt, turnMinutes: p.turnMinutes ?? undefined })),
     [parties]);
-  const alerts = floorAlerts(state, [], V ? hs.vocabulary : undefined);
+  const alerts: { text: string; act?: { label: string; run: () => void } }[] = [
+    ...floorAlerts(state, [], V ? hs.vocabulary : undefined).map((text) => ({ text })),
+    // Someone who left the list from their own link, for ten minutes, so the host isn't looking for them.
+    ...parties.filter((p: any) => p.status === 'left' && p.leftBy === 'guest' && now.getTime() - Date.parse(p.leftAt || '') < 10 * 60000).map((p) => ({ text: `${p.name}, ${p.size} left the list from their phone.` })),
+    // Drinks for someone who left that couldn't be taken off the bar's screen.
+    ...parties.filter((p: any) => p.drinksStuckAt && p.status !== 'seated').map((p) => ({ text: `${p.name} left, but their drinks are still on the bar’s screen.`, act: { label: 'Take them off', run: () => { void unring(p); } } })),
+  ];
 
   const write = useCallback(async (id: string, patch: any) => {
     if (!firestore || !tenantId) return;
@@ -282,12 +323,8 @@ export default function HostScreen() {
    *  queue rows never reach this — the walk-in queue keeps its own SMS. */
   const notifyParty = async (p: HostedParty) => {
     try {
-      const res = await fetch('/api/host/notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, partyId: p.id }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok || d?.ok !== true) throw new Error(d?.error || 'Notify failed');
+      const d = await api('/api/host/notify', { partyId: p.id });
+      if (d?.ok !== true) throw new Error(d?.error || 'Notify failed');
       toast({ title: d.sent ? `Text sent to ${p.name}` : (d.message || 'Marked as notified') });
     } catch {
       await write(p.id, { status: 'notified', notifiedAt: new Date().toISOString() });
@@ -361,10 +398,56 @@ export default function HostScreen() {
       quotedMinutes: null, notifiedAt: null, seatedAt: null, finishedAt: null,
       turnMinutes: null, unitIds: [], guestIds: [],
       ...(phone.trim() ? { phone: phone.trim() } : {}),
-    }).then(() => true, () => false);
+    }).then((r) => r.id, () => null);
     if (!added) { toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }); return false; }
+    // Their own link: their place in line, more time, leaving, a drink (lib/wait-line), when the business sends them.
+    if (!isRes && phone.trim() && ws.link) void sendLink(added, name.trim());
     setName(''); setAt(''); setPhone('');
     return true;
+  };
+  const sendLink = async (partyId: string, who: string, resend = false) => {
+    setActing(`link:${partyId}`);
+    const r = await api('/api/host/floor', { action: 'link', partyId, resend });
+    setActing(null);
+    if (!r?.ok) toast({ variant: 'destructive', title: r?.error || 'Their link didn’t go through.' });
+    else toast({ title: r.sent ? `Link sent to ${who}` : (r.message || 'Their link is ready') });
+  };
+  /** Hold a nearly-ready table for them and text them to head back (api/host/floor). */
+  const holdFor = async (sg: Suggestion) => {
+    setActing(`hold:${sg.partyId}`);
+    const r = await api('/api/host/floor', { action: 'hold', partyId: sg.partyId, unitId: sg.tableId });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    toast({ title: r.sent ? `${sg.tableName} held. Text sent to ${sg.partyName}` : (r.message || `${sg.tableName} held for ${sg.partyName}`) });
+    void loadFloor();
+  };
+  /** A waiting party isn't here any more (or never came back after the text): off the list. */
+  const leftList = async (p: any, noShow = false) => {
+    setActing(`left:${p.id}`);
+    const r = await api('/api/host/floor', { action: 'left', partyId: p.id, noShow });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    toast(r.stuck ? { variant: 'destructive', title: `${p.name} is off the list, but their drinks are still on the bar’s screen`, description: 'Try again from the note at the top.' }
+      : { title: `${p.name} is off the list${r.off ? `. ${r.off === 1 ? 'Their drink came' : `${r.off} drinks came`} off the bar’s screen` : ''}` });
+    if (selected === p.id) setSelected(null);
+  };
+  /** Drinks still at the bar for someone who left: try taking them off again. */
+  const unring = async (p: any) => {
+    const r = await api('/api/host/floor', { action: 'unring', partyId: p.id });
+    toast(r?.ok ? { title: `${r.off ? `${r.off === 1 ? 'Their drink' : `${r.off} drinks`} taken off` : 'Nothing left to take off'}` } : { variant: 'destructive', title: r?.error || 'That didn’t go through.' });
+  };
+  /** A table being cleared is ready to seat now. */
+  const markReady = async (unitId: string) => {
+    const left = parties.filter((p: any) => p.status === 'finished' && !p.clearedAt && (p.unitIds || []).includes(unitId));
+    await Promise.all(left.map((p) => write(p.id, { clearedAt: new Date().toISOString() }))).catch(() => toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }));
+  };
+  /** The table asked for the check (or not after all). */
+  const checkAsked = async (p: any, undo = false) => {
+    setActing(`check:${p.id}`);
+    const r = await api('/api/tab', { action: 'check', partyId: p.id, op: undo ? 'undo' : 'asked' });
+    setActing(null);
+    if (!r?.ok) toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' });
+    void loadFloor();
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
@@ -388,8 +471,14 @@ export default function HostScreen() {
       setForceFor(`${party.id}:${unitId}`); setTimeout(() => setForceFor(null), 5000);
       return;
     }
-    await write(party.id, { status: 'seated', seatedAt: new Date().toISOString(), unitIds: [unitId] });
+    await write(party.id, { status: 'seated', seatedAt: new Date().toISOString(), unitIds: [unitId], holdUnitId: null, holdUntil: null, laterUntil: null });
     await syncQueueSeated(party);
+    // Drinks they ordered while waiting go on the table's tab (or, already at the bar, are pointed at this table).
+    // (Asked every time: a drink they added a moment ago from their link isn't in this screen's copy yet.)
+    const live: any = parties.find((x) => x.id === party.id) || party;
+    const r = await api('/api/host/floor', { action: 'ring', partyId: party.id, tableName: units.find((u) => u.id === unitId)?.name || unitId });
+    if (!r?.ok) { if ((Array.isArray(live.preorder) && live.preorder.length) || live.preorderRungAt) toast({ variant: 'destructive', title: 'Seated. Their drinks didn’t go to the bar', description: 'Open their tab and add them there.' }); }
+    else if (r.rung) toast({ title: `Seated. ${r.rung === 1 ? 'Their drink is' : `${r.rung} drinks are`} on the way from the bar` });
     /* SEAT → GUEST DOC WRITE-BACK (the last one-way seam). When the party
      * came from the event, the seat the host just gave is written back to
      * each guest's own doc as the unit NAME — the same convention
@@ -422,12 +511,21 @@ export default function HostScreen() {
   const expected = [...parties, ...mirroredExpected].filter((p) => p.status === 'expected')
     .sort((a, b) => String(a.arrivesAt || '').localeCompare(String(b.arrivesAt || '')));
   const sel = [...parties, ...mirrored, ...mirroredExpected].find((p) => p.id === selected) || null;
+  // WHO TO SEAT NEXT (lib/seat-next): tables free now or nearly, paired with the list, each with its reasons.
+  const asSeat = (p: any) => ({ id: p.id, name: p.name, size: Math.max(1, Number(p.size) || 1), needs: p.needs || [], status: p.status, joinedAt: p.joinedAt || null,
+    quotedMinutes: p.quotedMinutes ?? null, notifiedAt: p.notifiedAt || null, laterUntil: p.laterUntil || null, mirrored: /^(walkin|booth|event):/.test(p.id) });
+  const waitingSeat = waiting.map(asSeat);
+  const next = seatNext(floorT, waitingSeat, loads, fs, now.getTime());
+  const placeOf = (p: any) => (floor ? linePlace(asSeat(p), floorT, waitingSeat, fs, now.getTime()) : null);
+  const partyOf = (id: string) => [...parties, ...mirrored].find((x) => x.id === id) || null;
   const at12 = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }) : '');
   const minsSince = (iso: string | null | undefined) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? Math.max(0, Math.floor((now.getTime() - t) / 60000)) : null; };
   const seatedAt = (tableId: string) => parties.find((p) => p.status === 'seated' && (p.unitIds || []).includes(tableId)) || null;
   const nextFree = quoteWait(units, seatedGuests, seatedRows, { id: '__next', size: 2, needs: [] }, { now, held, vocabulary: hs.vocabulary });
   const Unit = V.units.charAt(0).toUpperCase() + V.units.slice(1);
   const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+  /** "Table 11" for a numbered one, in the business's own word; a named one as it's named. */
+  const unitLabel = (n: string) => (/^\d+[a-z]?$/i.test(String(n).trim()) ? `${cap(V.unit)} ${n}` : n);
   const openTable = tableFor ? state.tables.find((t) => t.tableId === tableFor) || null : null;
   const openParty = openTable ? seatedAt(openTable.tableId) : null;
   const pick = (id: string) => { setSelected(selected === id ? null : id); setTableFor(null); };
@@ -453,7 +551,8 @@ export default function HostScreen() {
       </header>
 
       {alerts.length > 0 && <div className="px-4 pt-4 sm:px-6"><div className="space-y-1 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT, color: AMBER }}>
-        {alerts.map((a, i) => <p key={i} className="flex items-start gap-2 text-[14px] font-medium"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{a}</p>)}
+        {alerts.map((a, i) => <p key={i} className="flex flex-wrap items-center gap-2 text-[14px] font-medium"><AlertCircle className="h-4 w-4 shrink-0" aria-hidden /><span className="flex-1">{a.text}</span>
+          {a.act && <button type="button" onClick={a.act.run} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{a.act.label}</button>}</p>)}
       </div></div>}
 
       <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -467,6 +566,8 @@ export default function HostScreen() {
               <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: AMBER }} />Over</span>
             </div>
           </div>
+          {Object.keys(loads).length > 1 && <p className="flex flex-wrap gap-x-4 gap-y-1 text-[13.5px]" style={{ color: MUTED }} aria-label="Guests in each section">
+            {Object.values(loads).sort((x, y) => y.guests - x.guests).map((l, i) => <span key={i}><b className="font-semibold" style={{ color: INK }}>{l.name}</b> {l.guests} {l.guests === 1 ? V.person : V.people}</span>)}</p>}
           {sel && <div className="flex items-center gap-3 rounded-2xl py-1.5 pl-4 pr-1.5" style={{ background: INK, color: '#fff' }}>
             <p className="flex-1 text-[15px] font-medium">Tap a {V.unit} for {sel.name}, {sel.size}</p>
             <button type="button" onClick={() => setSelected(null)} className={`${BTN} px-3`} style={{ background: 'rgba(255,255,255,0.14)' }}>Cancel</button>
@@ -477,22 +578,35 @@ export default function HostScreen() {
               {state.tables.map((t) => {
                 const hold = held[t.tableId]; const holder = hold ? [...parties, ...mirroredExpected].find((p) => p.id === hold.partyId) : null;
                 const who = seatedAt(t.tableId); const m = minsSince(who?.seatedAt);
-                const fits = !!sel && t.free >= sel.size && !hold;
+                const fits = !!sel && t.free >= sel.size && (!hold || hold.partyId === sel.id);
                 const free = t.seated === 0;
+                const ft = tById.get(t.tableId); const st = who ? floor?.stages?.[t.tableId] : null;
+                const clearing = free && !!ft?.clearing;
+                const server = ((units.find((u) => u.id === t.tableId) as any)?.staffIds || []).map((id: string) => floor?.staff?.[id]).filter(Boolean)[0] || '';
                 const tone = t.overfilled ? { border: `2px solid ${AMBER}`, background: AMBER_TINT }
                   : hold && free ? { border: `2px dashed ${INK}`, background: '#fff' }
+                  : clearing ? { border: `1px dashed ${MUTED}`, background: SOFT }
                   : free ? { border: `1px solid ${GREEN}`, background: GREEN_TINT }
                   : { border: `1px solid ${LINE}`, background: '#fff' };
-                const line = t.overfilled ? `More than it ${V.seats === 'seats' ? 'seats' : 'holds'}` : who ? `${who.name}${m !== null ? `, seated ${m} min` : ''}`
-                  : hold ? `Held${holder ? ` for ${holder.name}${holder.arrivesAt ? ` at ${at12(holder.arrivesAt)}` : ''}` : ''}` : 'Free';
+                const line = t.overfilled ? `More than it ${V.seats === 'seats' ? 'seats' : 'holds'}` : who ? `${who.name}, ${who.size}${m !== null ? `, seated ${m} min` : ''}`
+                  : hold ? `Held${holder ? ` for ${holder.name}${holder.arrivesAt ? ` at ${at12(holder.arrivesAt)}` : ''}` : ''}`
+                  : clearing ? `Being cleared, ready in about ${ft?.freeIn} min` : 'Free';
+                const late = !!st && (st.lingering || (!['paid', 'check'].includes(st.key) && st.over > 0));
                 return (
-                  <button key={t.tableId} type="button" aria-disabled={!sel && !who}
-                    onClick={() => (sel ? seatAt(sel, t.tableId, forceFor === `${sel.id}:${t.tableId}`) : who ? setTableFor(t.tableId) : undefined)}
-                    aria-label={`${t.name}: ${line}, ${t.seated} of ${t.capacity}`}
-                    className={`flex min-h-[96px] flex-col justify-between gap-2 rounded-2xl p-3 text-left ${RING}`}
+                  <button key={t.tableId} type="button" aria-disabled={!sel && !who && !clearing}
+                    onClick={() => (sel ? seatAt(sel, t.tableId, forceFor === `${sel.id}:${t.tableId}`) : who ? setTableFor(t.tableId) : clearing ? markReady(t.tableId) : undefined)}
+                    aria-label={`${t.name}: ${line}${st ? `, ${st.words}` : ''}, ${t.seated} of ${t.capacity}${clearing ? '. Tap when it’s ready to seat' : ''}`}
+                    className={`flex min-h-[96px] flex-col justify-between gap-1.5 rounded-2xl p-3 text-left ${RING}`}
                     style={{ ...tone, ...(sel ? { opacity: fits ? 1 : 0.5, outline: fits ? `2px solid ${GREEN}` : undefined, outlineOffset: 2 } : {}) }}>
                     <span className="flex items-baseline justify-between gap-2"><span className="truncate text-[16px] font-semibold">{t.name}</span><span className="shrink-0 text-[13px] tabular-nums" style={{ color: MUTED }}>{free ? `${cap(V.seats)} ${t.capacity}` : `${t.seated} of ${t.capacity}`}</span></span>
-                    <span className="text-[13.5px] leading-snug" style={{ color: t.overfilled ? AMBER : free && !hold ? GREEN : MUTED, fontWeight: t.overfilled ? 600 : 400 }}>{line}</span>
+                    {server && <span className="-mt-1 text-[12.5px]" style={{ color: MUTED }}>{server}</span>}
+                    <span className="text-[13.5px] leading-snug" style={{ color: t.overfilled ? AMBER : free && !hold && !clearing ? GREEN : MUTED, fontWeight: t.overfilled ? 600 : 400 }}>{line}</span>
+                    {st && <>
+                      <span className="text-[14px] font-semibold leading-snug" style={{ color: late ? AMBER : INK }}>{st.words}</span>
+                      <span className="flex gap-[3px]" aria-hidden>{Array.from({ length: STAGE_STEPS }, (_, i) => <i key={i} className="h-[5px] flex-1 rounded-full" style={{ background: i < st.step ? INK : LINE }} />)}</span>
+                      {st.freeIn !== null && <span className="text-[12.5px]" style={{ color: MUTED }}>{freeWords(st.freeIn, now.getTime(), tz)}</span>}
+                    </>}
+                    {clearing && !sel && <span className="text-[12.5px] font-semibold" style={{ color: INK }}>Tap when it’s ready</span>}
                   </button>
                 );
               })}
@@ -517,20 +631,54 @@ export default function HostScreen() {
         <div className="min-w-0 space-y-5">
           {firestore && tenantId && readyToRun.length > 0 && <section className="rounded-3xl border bg-[#fff] p-4" style={{ borderColor: LINE }}><ReadyToRun tenantId={tenantId} list={readyToRun} /></section>}
 
+          {waiting.length > 0 && <section aria-labelledby="next" className="space-y-3">
+            <div className="flex items-baseline justify-between gap-3"><h2 id="next" className="text-[17px] font-semibold">Seat next</h2>
+              <span className="text-[13.5px]" style={{ color: MUTED }}>{next.freeSoon === 0 ? `No ${V.units} free in the next 10 min` : `${next.freeSoon} ${next.freeSoon === 1 ? V.unit : V.units} free in the next 10 min`}</span></div>
+            {next.now.length === 0 && <p className="rounded-2xl border border-dashed bg-[#fff] px-4 py-4 text-[14.5px]" style={{ borderColor: LINE, color: MUTED }}>Nothing fits anyone waiting yet.{next.later[0]?.freeIn != null ? ` The next likely ${V.unit} is ${next.later[0].tables[0]}, in about ${next.later[0].freeIn} min.` : ''}</p>}
+            {next.now.slice(0, 4).map((sg) => {
+              const p: any = partyOf(sg.partyId); const busy = acting === `hold:${sg.partyId}`;
+              return (
+                <article key={sg.partyId} className="space-y-2 rounded-2xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
+                  <div className="flex items-baseline justify-between gap-3"><p className="text-[16px] font-semibold">{sg.partyName}, {sg.size}</p>{sg.waited !== null && <span className="text-[13px] tabular-nums" style={{ color: MUTED }}>waited {sg.waited} min</span>}</div>
+                  <p className="text-[14.5px] font-medium">{unitLabel(sg.tableName)}{sg.action === 'seat' ? ', free now' : `, ready in about ${Math.max(1, sg.freeIn)} min`}{sg.alts.length ? <span className="font-normal" style={{ color: MUTED }}>. {sg.alts.map(unitLabel).join(' or ')} also {sg.alts.length === 1 ? 'fits' : 'fit'}</span> : null}</p>
+                  {sg.reasons.length > 0 && <ul className="space-y-1">{sg.reasons.map((r) => <li key={r} className="flex gap-2 text-[13.5px] leading-snug" style={{ color: MUTED }}><span aria-hidden className="mt-[7px] h-1 w-1 shrink-0 rounded-full" style={{ background: MUTED }} />{r}</li>)}</ul>}
+                  {sg.action === 'seat' && p && <button type="button" onClick={() => seatAt(p, sg.tableId)} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>Seat at {unitLabel(sg.tableName)}</button>}
+                  {sg.action === 'hold' && p && <button type="button" disabled={busy} onClick={() => holdFor(sg)} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>{busy ? 'Holding…' : p.phone ? `Hold ${unitLabel(sg.tableName)} and text ${String(sg.partyName).split(' ')[0]}` : `Hold ${unitLabel(sg.tableName)} for them`}</button>}
+                  {sg.action === 'soon' && <p className="text-[13.5px]" style={{ color: MUTED }}>Ready in about {sg.freeIn} min. The lobby list texts them.</p>}
+                </article>);
+            })}
+            {next.later.slice(0, 3).map((l) => (
+              <p key={l.partyId} className="px-1 text-[14px]" style={{ color: MUTED }}><b className="font-semibold" style={{ color: INK }}>{l.partyName}, {l.size}</b>{l.tables.length ? `: ${l.tables.map(unitLabel).join(' or ')}${l.freeIn !== null ? `, about ${l.freeIn} min` : ''}` : `: no ${V.unit} fits yet`}</p>
+            ))}
+          </section>}
+
           <section aria-labelledby="waiting" className="space-y-3">
             <div className="flex items-center justify-between"><h2 id="waiting" className="text-[17px] font-semibold">Waiting</h2><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{waiting.length}</span></div>
             {waiting.length === 0 && <p className="rounded-2xl border border-dashed bg-[#fff] px-4 py-5 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nobody waiting.</p>}
             {waiting.map((p) => {
               const q = quoteWait(units, seatedGuests, seatedRows, { id: p.id, size: p.size, needs: p.needs }, { now, held, vocabulary: hs.vocabulary });
+              const lp = placeOf(p); const x: any = p;
+              const quote = lp && lp.minutes !== null ? `${lp.ahead === 0 ? 'Next in line' : `${ordinal(lp.place)} in line`}. ${minutesWords(lp.minutes)}.` : q.text;
               const waited = minsSince(p.joinedAt); const texted = minsSince(p.notifiedAt);
+              const holdLive = !!x.holdUntil && Date.parse(x.holdUntil) > now.getTime();
+              const holdName = x.holdUnitId ? (units.find((u) => u.id === x.holdUnitId)?.name || '') : '';
+              const notBack = p.status === 'notified' && texted !== null && texted >= ws.holdMin && !holdLive;
+              const later = x.laterUntil && Date.parse(x.laterUntil) > now.getTime() ? x.laterUntil : null;
+              const drinks = Array.isArray(x.preorder) ? preorderWords(x.preorder) : '';
               return (
                 <article key={p.id} className="space-y-2 rounded-2xl bg-[#fff] p-4" style={{ border: selected === p.id ? `2px solid ${INK}` : `1px solid ${LINE}` }}>
                   <div className="flex items-baseline justify-between gap-3"><p className="text-[16px] font-semibold">{p.name}, {p.size}</p>{waited !== null && <span className="text-[13.5px] tabular-nums" style={{ color: MUTED }}>{waited} min</span>}</div>
-                  <p className="text-[14px]" style={{ color: q.immediate ? GREEN : MUTED }}>{q.text}</p>
-                  {p.status === 'notified' && <p className="text-[13.5px] font-medium" style={{ color: GREEN }}>Told it’s ready{texted !== null ? `, ${texted} min ago` : ''}</p>}
-                  <div className="flex gap-2">
+                  <p className="text-[14px]" style={{ color: q.immediate || (lp && lp.minutes !== null && lp.minutes <= 2) ? GREEN : MUTED }}>{quote}</p>
+                  {p.status === 'notified' && !notBack && <p className="text-[13.5px] font-medium" style={{ color: GREEN }}>{holdLive && holdName ? `${holdName} held for them until ${at12(x.holdUntil)}` : `Told it’s ready${texted !== null ? `, ${texted} min ago` : ''}`}</p>}
+                  {notBack && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Told it’s ready {texted} min ago, not back yet{holdName ? `. ${holdName} isn’t held now` : ''}</p>}
+                  {later && <p className="text-[13.5px]" style={{ color: MUTED }}>Asked for more time from their phone. Back in line at {at12(later)}</p>}
+                  {drinks && <p className="text-[13.5px]" style={{ color: MUTED }}>{x.preorderRungAt ? 'At the bar' : 'Drinks for when they sit'}: {drinks}</p>}
+                  {ws.link && x.phone && !p.id.includes(':') && <p className="text-[13px]" style={{ color: MUTED }}>{x.linkSentAt ? 'Has their link to follow the line' : 'No link sent yet'}</p>}
+                  <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
                     {p.status === 'waiting' && !p.id.startsWith('walkin:') && <button type="button" onClick={() => notifyParty(p)} className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Bell className="h-4 w-4" aria-hidden />Text: ready</button>}
+                    {!p.id.includes(':') && <button type="button" disabled={acting === `left:${p.id}`} onClick={() => leftList(p, notBack)} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{notBack ? 'Didn’t come back' : 'They left'}</button>}
+                    {ws.link && x.phone && !x.linkSentAt && !p.id.includes(':') && <button type="button" disabled={acting === `link:${p.id}`} onClick={() => sendLink(p.id, p.name)} className={`${BTN} inline-flex items-center gap-2`} style={{ background: '#fff', border: `1px solid ${LINE}` }}><Link2 className="h-4 w-4" aria-hidden />Send link</button>}
                   </div>
                 </article>);
             })}
@@ -566,18 +714,23 @@ export default function HostScreen() {
             </div></div>
           <label className="block"><span className="text-[14px] font-medium">Coming later? The time</span><span className="block text-[13px]" style={{ color: MUTED }}>Leave it empty for someone here now.</span>
             <input type="time" value={at} onChange={(e) => setAt(e.target.value)} className="mt-1.5 w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
-          <label className="block"><span className="text-[14px] font-medium">Mobile number</span><span className="block text-[13px]" style={{ color: MUTED }}>So you can text them when their {V.unit} is ready.</span>
+          <label className="block"><span className="text-[14px] font-medium">Mobile number</span><span className="block text-[13px]" style={{ color: MUTED }}>{ws.link ? `They get a link to follow their place in line, and a text when their ${V.unit} is ready.` : `So you can text them when their ${V.unit} is ready.`}</span>
             <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1.5 w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
           <button type="submit" disabled={!name.trim() || !session} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>{at.trim() ? `Book for ${at.trim()}` : 'Add to the waiting list'}</button>
         </form>
       </Drawer>
 
-      <Drawer accent={null} open={!!openTable && !!openParty} onClose={() => setTableFor(null)} title={openTable?.name || ''}>
+      <Drawer accent={null} open={!!openTable && !!openParty} onClose={() => setTableFor(null)} title={openTable ? unitLabel(openTable.name) : ''}>
         {openTable && openParty && <div className="space-y-4" style={{ color: INK }}>
           <div><p className="text-[18px] font-semibold">{openParty.name}, {openParty.size}</p>
-            <p className="text-[14px]" style={{ color: MUTED }}>Seated {at12(openParty.seatedAt)}{minsSince(openParty.seatedAt) !== null ? `, ${minsSince(openParty.seatedAt)} min ago` : ''}</p></div>
+            <p className="text-[14px]" style={{ color: MUTED }}>Seated {at12(openParty.seatedAt)}{minsSince(openParty.seatedAt) !== null ? `, ${minsSince(openParty.seatedAt)} min ago` : ''}</p>
+            {floor?.stages?.[openTable.tableId] && <p className="pt-1 text-[14.5px] font-semibold">{floor.stages[openTable.tableId].words}<span className="font-normal" style={{ color: MUTED }}>{floor.stages[openTable.tableId].freeIn !== null ? `. ${freeWords(floor.stages[openTable.tableId].freeIn, now.getTime(), tz)}` : ''}</span></p>}
+            {(openParty as any).preorder?.length > 0 && <p className="pt-1 text-[13.5px]" style={{ color: MUTED }}>Ordered while waiting: {preorderWords((openParty as any).preorder)}</p>}</div>
           <div className="flex flex-col gap-2">
             <button type="button" onClick={() => { setTabFor(openParty); setTableFor(null); }} className={`${BTN} w-full`} style={{ background: INK, color: '#fff' }}>Open their tab</button>
+            {(openParty as any).checkAt
+              ? <button type="button" disabled={acting === `check:${openParty.id}`} onClick={() => checkAsked(openParty, true)} className={`${BTN} w-full`} style={{ background: '#fff', border: `1px solid ${LINE}` }}>Not asking for the check after all</button>
+              : <button type="button" disabled={acting === `check:${openParty.id}`} onClick={() => checkAsked(openParty)} className={`${BTN} w-full`} style={{ background: '#fff', border: `1px solid ${LINE}` }}>They asked for the check</button>}
             <button type="button" onClick={() => { void finishParty(openParty); setTableFor(null); }} className={`${BTN} w-full`} style={{ background: '#fff', border: `1px solid ${LINE}` }}>They’ve left, free the {V.unit}</button>
           </div>
         </div>}

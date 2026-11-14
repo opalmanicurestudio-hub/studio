@@ -11,7 +11,7 @@
 // later (a remake waiting at the pass). Every timing is the business's own (0 turns one off). Done and put off are kept
 // on the party (it's there before the table has a tab).
 
-import { prepMinutes, type Course } from '@/lib/table-service';
+import { prepMinutes, PREORDER_NOTE, type Course } from '@/lib/table-service';
 import { allergyLine, type TableAllergy } from '@/lib/allergens';
 
 export type NudgeSettings = { fireAfterMin: number; checkBackMin: number; passWaitMin: number; noOrderMin: number; lateMin: number };
@@ -27,7 +27,7 @@ export function nudgeSettingsOf(tenant: any): NudgeSettings {
 
 export type NudgeKind = 'at_pass' | 'late' | 'fire' | 'check_back' | 'no_order' | 'allergy';
 export type Nudge = { key: string; kind: NudgeKind; visitId: string; partyId: string; table: string; text: string; since: number; urgent: boolean; course: { n: number; name: string } | null };
-export type NudgeLine = { lineId: string; name: string; course?: number | null; courseName?: string | null; firedAt?: string | null; kdsId?: string | null; makeSeconds?: number | null; at?: string | null };
+export type NudgeLine = { lineId: string; name: string; course?: number | null; courseName?: string | null; firedAt?: string | null; kdsId?: string | null; makeSeconds?: number | null; at?: string | null; note?: string | null };
 export type NudgeTicket = { status: string; readyAt?: string | null; deliveredAt?: string | null };
 export type NudgeTable = { visitId: string; partyId: string; table: string; seatedAt: string | null; tab: NudgeLine[]; tickets: Record<string, NudgeTicket>; allergies: TableAllergy[];
   done: Record<string, { at?: string; until?: string | null }>; courses: Course[] };
@@ -50,10 +50,12 @@ export function nudgesFor(t: NudgeTable, s: NudgeSettings, now: number): Nudge[]
   const add = (n: Omit<Nudge, 'visitId' | 'partyId' | 'table'>) => { if (!nudgeHidden(t.done, n.key, now, n.since)) out.push({ ...n, visitId: t.visitId, partyId: t.partyId, table: t.table }); };
   const lines = (Array.isArray(t.tab) ? t.tab : []).filter((l) => !!l);
   const seated = ms(t.seatedAt);
-  if (!lines.length) {
-    if (s.noOrderMin > 0 && Number.isFinite(seated) && now - seated >= s.noOrderMin * 60000) add({ key: 'order', kind: 'no_order', text: `Seated ${mins(now - seated)} min ago. Nothing ordered yet.`, since: seated, urgent: false, course: null });
+  // Drinks they ordered from their wait link aren't the table ordering: it still needs taking.
+  const ordered = lines.some((l) => l.note !== PREORDER_NOTE);
+  if (!ordered) {
+    if (s.noOrderMin > 0 && Number.isFinite(seated) && now - seated >= s.noOrderMin * 60000) add({ key: 'order', kind: 'no_order', text: `Seated ${mins(now - seated)} min ago. Nothing ordered yet${lines.length ? ' (just drinks from the wait list)' : ''}.`, since: seated, urgent: false, course: null });
     if (t.allergies.length) add({ key: 'allergy', kind: 'allergy', text: `${t.allergies.slice(0, 3).map(allergyLine).join('. ')}. It goes on every ticket, and the kitchen notes it.`, since: Number.isFinite(seated) ? seated : now, urgent: false, course: null });
-    return out;
+    if (!lines.length) return out;
   }
   // Each course as it stands: its lines, their tickets, when it was fired, made and taken out.
   type G = { n: number; name: string; hold: boolean; lines: NudgeLine[]; live: NudgeTicket[]; unfired: boolean; held: NudgeLine[]; firedAt: number; readyAt: number; servedAt: number };

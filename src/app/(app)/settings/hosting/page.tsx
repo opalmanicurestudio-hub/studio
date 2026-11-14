@@ -27,6 +27,7 @@ import {
   type PartyFormation,
 } from '@/lib/floor-plans';
 import { Button } from '@/components/ui/button';
+import { HostStandSettings } from '@/components/settings/HostStandSettings';
 import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,6 +88,7 @@ export default function HostingSettingsPage() {
   const [loaded, setLoaded] = useState(false);
   const [events, setEvents] = useState<Array<{ id: string; name: string; count: number }>>([]);
   const [planStatus, setPlanStatus] = useState<string>('');
+  const [hostTenant, setHostTenant] = useState<any>(selectedTenant || null);   // as read here, for the host stand's settings
 
   // Load current settings + which events have a floor to import.
   useEffect(() => {
@@ -97,6 +99,7 @@ export default function HostingSettingsPage() {
         const t = await getDoc(doc(firestore, 'tenants', tenantId));
         const hs = resolveHostingSettings((t.data() as any)?.hostingSettings);
         if (cancelled) return;
+        setHostTenant(t.data() || null);
         setWords(resolveVocabulary(hs.vocabulary));
         setPreset(hs.vocabularyPreset || '');
         setFormation(hs.partyFormation);
@@ -142,16 +145,15 @@ export default function HostingSettingsPage() {
         const n = Math.floor(Number(v));
         return Number.isFinite(n) && n >= lo && n <= hi ? n : d;
       };
+      // Field by field, so the host stand's own settings (hostingSettings.floor and .wait, saved below) are kept.
       await updateDoc(doc(firestore, 'tenants', tenantId), {
-        hostingSettings: {
-          vocabulary: words,
-          vocabularyPreset: preset || null,
-          partyFormation: formation,
-          holdBeforeMinutes: clamp(holdBefore, 30, 0, 240),
-          holdGraceMinutes: clamp(holdGrace, 15, 0, 120),
-          dayCutoverHour: clamp(cutover, 4, 0, 12),
-          escalateAfterMinutes: clamp(escalate, 5, 1, 60),
-        },
+        'hostingSettings.vocabulary': words,
+        'hostingSettings.vocabularyPreset': preset || null,
+        'hostingSettings.partyFormation': formation,
+        'hostingSettings.holdBeforeMinutes': clamp(holdBefore, 30, 0, 240),
+        'hostingSettings.holdGraceMinutes': clamp(holdGrace, 15, 0, 120),
+        'hostingSettings.dayCutoverHour': clamp(cutover, 4, 0, 12),
+        'hostingSettings.escalateAfterMinutes': clamp(escalate, 5, 1, 60),
       });
       toast({ title: 'Hosting settings saved' });
     } catch (e) {
@@ -187,6 +189,8 @@ export default function HostingSettingsPage() {
     <SettingsPage title="Hosting & floor" help="How you host guests — tables, seating and the host screen.">
       <div className="space-y-6">
       {!loaded && <p className="text-sm text-muted-foreground">Loading…</p>}
+
+      {loaded && <HostStandSettings firestore={firestore as any} tenantId={tenantId} tenant={hostTenant} />}
 
       {loaded && (
         <>

@@ -41,6 +41,7 @@ export default function robots(): MetadataRoute.Robots {
           '/appt/',
           '/kiosk/',
           '/card-setup/',
+          '/wait/',
         ],
       },
     ],

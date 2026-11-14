@@ -19,6 +19,8 @@
 //          (lib/nudges): only the tables the person looks after when `mine` and they have some.
 //   nudge  { tenantId, partyId, key, op: 'done' | 'later' } → a nudge marked done, or put off five minutes, kept on the
 //          seated party (there before the table has a tab).
+//   check  { tenantId, partyId, op?: 'undo' } → the table asked for the check, so the host stand knows it's nearly free
+//          (lib/table-stage); 'undo' takes it back.
 //   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
 //          takes that seat's allergies (lib/allergens), and asks for "Allergy noted" again if they're different.
 // Every comp, void and remake is kept as an approval record (tenants/{t}/approvals, which no browser can write): who
@@ -32,8 +34,8 @@ import { consumeApproval, isApprover } from '@/lib/approvals';
 import { tonight } from '@/lib/night-close-server';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
-import { allNudges, nudgeSettingsOf, NUDGE_KEY, type NudgeTable } from '@/lib/nudges';
-import { coursesOf, tableLabel, visitIdForParty } from '@/lib/table-service';
+import { NUDGE_KEY } from '@/lib/nudges';
+import { forgetFloor, tablesNow } from '@/lib/floor-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''), action = String(b.action || '');
   const visitId = String(b.visitId || ''), lineId = String(b.lineId || '');
-  if (!ID.test(tenantId) || (!['nudges', 'nudge'].includes(action) && !ID.test(visitId))) return bad('Missing details.');
+  if (!ID.test(tenantId) || (!['nudges', 'nudge', 'check'].includes(action) && !ID.test(visitId))) return bad('Missing details.');
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
   const me = { id: String(auth.actor.uid), name: String(auth.actor.name || 'A team member') };
@@ -76,6 +78,17 @@ export async function POST(req: NextRequest) {
     await pRef.set({ nudges: { [key]: { at, by: me.name, until: later ? new Date(Date.now() + 5 * 60000).toISOString() : null } } }, { merge: true });
     forgetTables(tenantId);
     return ok({ key, later });
+  }
+  // The table asked for the check (or that was a mistake): the host stand sees it's nearly free (lib/table-stage).
+  if (action === 'check') {
+    const partyId = String(b.partyId || ''); if (!ID.test(partyId)) return bad('Which table?');
+    const pRef = db.doc(`${T}/parties/${partyId}`); const p: any = (await pRef.get()).data();
+    if (!p) return bad('That table wasn’t found.', 404);
+    if (p.status !== 'seated') return bad('That table isn’t seated now.', 409);
+    const undo = b.op === 'undo'; const at = new Date().toISOString();
+    await pRef.set({ checkAt: undo ? null : (p.checkAt || at), checkBy: undo ? null : me.name }, { merge: true });
+    forgetTables(tenantId);
+    return ok({ checkAt: undo ? null : (p.checkAt || at) });
   }
   if (action === 'nudges') {
     try { return ok({ ...(await tablesNow(db, T, (auth.tenant && Object.keys(auth.tenant).length ? auth.tenant : ((await db.doc(T).get()).data() || {})), me.id, b.mine === true)), meName: me.name }); }
@@ -318,53 +331,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// What tonight's tables were read as, for a few seconds a business: every server's phone asks every 15 seconds, and only
-// which tables are theirs differs. Changing a nudge forgets it.
-const TABLES_MS = 5000;
-const tablesCache = new Map<string, { at: number; v: any }>();
-function forgetTables(tenantId: string) { tablesCache.delete(tenantId); }
-
-/** Tonight's seated tables (the host stand's open session), each with its party, who looks after it, and what it needs
- *  next (lib/nudges). `mine`: only the tables in the person's section, when they have one. */
-async function tablesNow(db: any, T: string, tenant: any, meId: string, mine: boolean) {
-  const tenantId = T.split('/')[1];
-  const hit = tablesCache.get(tenantId);
-  const read = hit && Date.now() - hit.at < TABLES_MS ? hit.v : await readTables(db, T, tenant);
-  if (!hit || hit.v !== read) tablesCache.set(tenantId, { at: Date.now(), v: read });
-  const settings = nudgeSettingsOf(tenant);
-  if (!read.session) return { tables: [], nudges: [], settings, me: meId, mineOnly: false, hasSection: false, session: null };
-  const minePick = read.tables.filter((t: any) => t.row.staffIds.includes(meId));
-  const shown = mine && minePick.length ? minePick : read.tables;
-  return { tables: shown.map((t: any) => t.row), nudges: allNudges(shown.map((t: any) => t.nt), settings, Date.now()), settings, me: meId, mineOnly: mine && minePick.length > 0, hasSection: minePick.length > 0, session: read.session };
-}
-
-async function readTables(db: any, T: string, tenant: any): Promise<{ session: string | null; tables: { nt: NudgeTable; row: any }[] }> {
-  const sessions = (await db.collection(`${T}/serviceSessions`).where('status', '==', 'open').limit(20).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-    .sort((a: any, b: any) => String(b.opensAt || '').localeCompare(String(a.opensAt || '')));
-  const session: any = sessions[0] || null;
-  if (!session) return { session: null, tables: [] };
-  const units = new Map<string, any>((Array.isArray(session.units) ? session.units : []).map((u: any) => [String(u.id), u]));
-  const parties = (await db.collection(`${T}/parties`).where('sessionId', '==', session.id).where('status', '==', 'seated').limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-  const vids = parties.map((p: any) => visitIdForParty(p)).filter((x: string) => ID.test(x));
-  const visits = vids.length ? await db.getAll(...vids.map((v: string) => db.doc(`${T}/appointments/${v}`))) : [];
-  const vById = new Map<string, any>(visits.map((d: any) => [d.id, d.exists ? d.data() || {} : null]));
-  const tickets = new Map<string, any>();
-  for (let i = 0; i < vids.length; i += 30) {
-    const snap = await db.collection(`${T}/kdsTickets`).where('visitId', 'in', vids.slice(i, i + 30)).get();
-    for (const d of snap.docs) tickets.set(d.id, d.data() || {});
-  }
-  const courses = coursesOf(tenant);
-  const tables = parties.map((p: any) => {
-    const vid = visitIdForParty(p); const v: any = vById.get(vid) || {};
-    const us = (Array.isArray(p.unitIds) ? p.unitIds : []).map((u: string) => units.get(String(u))).filter(Boolean);
-    const label = us.length ? us.map((u: any) => tableLabel(u.name)).join(' + ') : tableLabel(v.tableName);
-    const staffIds = Array.from(new Set(us.flatMap((u: any) => (Array.isArray(u.staffIds) ? u.staffIds : []).map(String))));
-    const tab = Array.isArray(v.tab) ? v.tab : [];
-    const tk: Record<string, any> = {};
-    for (const l of tab) if (l?.kdsId && tickets.has(l.kdsId)) { const k = tickets.get(l.kdsId); tk[l.kdsId] = { status: String(k.status || ''), readyAt: k.readyAt || null, deliveredAt: k.deliveredAt || null }; }
-    const nt: NudgeTable = { visitId: vid, partyId: p.id, table: label, seatedAt: p.seatedAt || null, tab, tickets: tk, allergies: tableAllergies(v), done: p.nudges && typeof p.nudges === 'object' ? p.nudges : {}, courses };
-    return { nt, row: { visitId: vid, table: label, staffIds, total: Math.round(tab.reduce((s2: number, l: any) => s2 + (Number(l?.price) || 0) * (Number(l?.quantity) || 1), 0) * 100) / 100,
-      party: { id: p.id, name: String(p.name || 'Table').slice(0, 80), size: Number(p.size) || 1, guestIds: Array.isArray(p.guestIds) ? p.guestIds : [], clientId: p.clientId || v.clientId || null, unitIds: Array.isArray(p.unitIds) ? p.unitIds : [], seatedAt: p.seatedAt || null } } };
-  });
-  return { session: session.id, tables };
-}
+const forgetTables = (tenantId: string) => forgetFloor(tenantId);

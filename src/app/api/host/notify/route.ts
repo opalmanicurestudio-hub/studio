@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendTenantSms } from '@/lib/sms';
 import { toolLocked } from '@/lib/tool-lock';
+import { requireRole } from '@/lib/route-guard';
+import { waitSettingsOf } from '@/lib/wait-line';
+import { forgetFloor, ringPreorder } from '@/lib/floor-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +28,10 @@ export const dynamic = 'force-dynamic';
  * The message itself uses no niche nouns. "We're ready for you" is true at a
  * restaurant, a salon, a clinic and a workshop, so the vocabulary layer has
  * nothing to leak here.
+ *
+ * Only someone on the team, signed in, can call a party forward. When the
+ * business has the bar make a waiting guest's drinks "when we text them"
+ * (lib/wait-line), they go to the bar now (lib/floor-server).
  */
 
 const str = (v: any, max: number): string => {
@@ -53,9 +60,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing tenant or party.' }, { status: 400 });
     }
 
+    const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
     const db = getAdminDb();
+    const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     // Texting a party their table is ready is part of Lounge & hospitality (the host stand): off, nothing is sent.
-    { const locked = toolLocked((await db.doc(`tenants/${tenantId}`).get()).data() || {}, ['hospitality']); if (locked) return locked; }
+    { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
 
     if (!(await rateLimit(db, tenantId, 'hostNotifyRate', 240))) {
       return NextResponse.json({ ok: false, error: 'Too many requests. Please try again shortly.' }, { status: 429 });
@@ -96,6 +105,12 @@ export async function POST(req: NextRequest) {
         ok: true, alreadyNotified: true,
         message: 'This party has already been called forward.',
       });
+    }
+    forgetFloor(tenantId);
+    // Their drinks, when the bar makes them as we call the party forward.
+    const wait = waitSettingsOf(tenant);
+    if (wait.preorder && wait.drinksWhen === 'ready' && Array.isArray(party.preorder) && party.preorder.length) {
+      await ringPreorder(db, `tenants/${tenantId}`, tenant, partyId, `${String(party.name || 'Guest').trim().split(/\s+/)[0].slice(0, 30)} (waiting)`, String(g.actor?.name || 'Host').slice(0, 60)).catch(() => null);
     }
 
     const phone = str(party.phone || party.clientPhone, 40);

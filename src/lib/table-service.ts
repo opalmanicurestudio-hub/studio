@@ -89,6 +89,15 @@ export function stationOfItem(item: any, stations: string[]): string {
   return stations[0] || DEFAULT_STATIONS[0];
 }
 
+/** The note on a drink a guest ordered from their wait link (lib/wait-line): it's on the tab, but the table hasn't
+ *  ordered yet as far as the floor and the server's nudges go. */
+export const PREORDER_NOTE = 'Ordered while waiting';
+
+/** Whether an item is a drink, by its section's name (Drinks, Cocktails, Coffee, Wine…). */
+export function isDrinkItem(item: any): boolean {
+  return DRINKISH.test(`${item?.section || ''} ${item?.menuSection || ''} ${item?.category || ''}`);
+}
+
 /** How much a server may comp in a night on their own say, in cents. */
 export function compAllowanceCents(tenant: any): number {
   const n = Math.round(Number(tenant?.kitchenSettings?.compAllowanceCents));
