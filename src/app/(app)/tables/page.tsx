@@ -6,8 +6,9 @@
 // one opens its tab, where the server can mark that the table asked for the check (the host stand then knows it's
 // nearly free). Each table shows where it is in its meal (lib/table-stage). "My tables" are the ones in the person's
 // section on the host stand's floor; with no section set, every table shows. The phone buzzes for a new nudge that
-// can't wait, where the phone allows it.
+// can't wait, where the phone allows it. Tables waiting to be cleared link to Clear and reset (design canvas ClearReset).
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -23,7 +24,7 @@ const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 const ago = (since: number, now: number) => { const m = Math.max(0, Math.floor((now - since) / 60000)); return m < 1 ? 'now' : `${m} min`; };
 
 type Row = { visitId: string; table: string; staffIds: string[]; total: number; party: any; stage?: { words: string; step: number; freeIn: number | null }; checkAt?: string | null };
-type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null };
+type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null; toClear?: number };
 
 async function call(body: any): Promise<any> {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -110,6 +111,8 @@ export default function MyTablesPage() {
             </div>
           )}
         </header>
+        {(d?.toClear || 0) > 0 && <Link href="/clear" className="flex min-h-[52px] items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 text-[15px] font-semibold" style={{ border: `1px solid ${LINE}` }}>
+          <span>{d!.toClear} {d!.toClear === 1 ? 'table' : 'tables'} to clear</span><span className="text-[13.5px]" style={{ color: MUTED }}>Clear and reset</span></Link>}
         {d && !d.hasSection && tables.length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>No section is set for you on the floor tonight, so every table shows. The host sets sections on the floor plan.</p>}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {msg && <p role="status" className="rounded-2xl bg-[#fff] px-4 py-3 text-[14.5px]" style={{ border: `1px solid ${LINE}` }}>{msg}</p>}

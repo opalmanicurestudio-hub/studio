@@ -348,7 +348,7 @@ const ago = (min: number, from = NOW) => new Date(from - min * 60000).toISOStrin
   console.log('screens');
   const host = src('src/app/(app)/host/page.tsx');
   check('the host stand: each table’s stage, progress and free time; being cleared (tap when ready); who looks after it',
-    /st\.words/.test(host) && /STAGE_STEPS/.test(host) && /freeWords\(st\.freeIn/.test(host) && /Being cleared, ready in about/.test(host) && /markReady\(t\.tableId\)/.test(host) && /floor\?\.staff\?\.\[id\]/.test(host));
+    /st\.words/.test(host) && /STAGE_STEPS/.test(host) && /freeWords\(st\.freeIn/.test(host) && /Being cleared\$\{/.test(host) && /ready in about \$\{ft\?\.freeIn\} min/.test(host) && /markReady\(t\.tableId\)/.test(host) && /floor\?\.staff\?\.\[id\]/.test(host));
   check('…seat next with its reasons: seat, or hold and text; the rest of the list with their likely tables', /Seat next/.test(host) && /Hold \$\{unitLabel\(sg\.tableName\)\} and text/.test(host) && /sg\.reasons\.map/.test(host) && /next\.later\.slice/.test(host));
   check('…waiting cards: place and wait from the same floor; more time, drinks, link, not back yet; they left / didn’t come back', /linePlace\(asSeat/.test(host) && /Asked for more time from their phone/.test(host)
     && /Drinks for when they sit/.test(host) && /Send link/.test(host) && /not back yet/.test(host) && /Didn’t come back/.test(host) && /leftList\(p, notBack\)/.test(host));

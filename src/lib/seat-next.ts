@@ -17,6 +17,8 @@ export type SeatTable = {
   freeIn: number | null;
   /** Someone's at it right now (seated, or just left and it's being cleared). */
   occupied: boolean; clearing: boolean;
+  /** Being cleared: who said they're on it, and minutes past its usual time when the business waits to be told. */
+  clearBy?: string | null; clearOver?: number;
   /** Where its meal is, when someone's at it ("Paid, leaving soon"). */
   words?: string | null;
   /** Held for this party (a booking arriving soon, or a waiting party who's been texted). */
@@ -58,6 +60,9 @@ export function waitHolds(parties: any[], now: number): Record<string, WaitHold>
 
 /** Every table on tonight's floor, as the host stand and the guest's link both see it: who's at it, how soon it's ready,
  *  and who it's held for. `stages` are the seated tables' stages by table (lib/floor-server). */
+/** A party that left this table, and nobody has said this table is ready (joined tables are each said ready). */
+export const leftUncleared = (p: any, unitId: string) => !!p && p.status === 'finished' && !p.clearedAt && (p.unitIds || []).map(String).includes(unitId)
+  && !(Array.isArray(p.clearedUnits) ? p.clearedUnits : []).map(String).includes(unitId);
 export function floorTables(units: any[], parties: HostedParty[] | any[], stages: Record<string, Stage | undefined>, s: FloorSettings, now: number,
   holdOpts: { holdBeforeMinutes?: number; holdGraceMinutes?: number } = {}): SeatTable[] {
   const list = (Array.isArray(parties) ? parties : []).filter(Boolean) as any[];
@@ -66,7 +71,7 @@ export function floorTables(units: any[], parties: HostedParty[] | any[], stages
   return (Array.isArray(units) ? units : []).filter((u) => u && u.id).map((u: any) => {
     const id = String(u.id);
     const at = list.find((p) => p.status === 'seated' && (p.unitIds || []).includes(id));
-    let freeIn: number | null = 0; let clearing = false; let occupied = false; let words: string | null = null;
+    let freeIn: number | null = 0; let clearing = false; let occupied = false; let words: string | null = null; let clearBy: string | null = null; let clearOver = 0;
     if (at) {
       occupied = true;
       const st = stages[id];
@@ -75,13 +80,13 @@ export function floorTables(units: any[], parties: HostedParty[] | any[], stages
       else { const sat = ms(at.seatedAt); freeIn = Number.isFinite(sat) ? Math.max(0, Math.ceil((sat + turnFor(at.size, s) * 60000 - now) / 60000)) + s.clearMin : null; }
     } else {
       // Just left: being cleared (the latest party to leave it, unless someone said it's ready).
-      const left = list.filter((p) => p.status === 'finished' && !p.clearedAt && (p.unitIds || []).includes(id)).sort((a, b) => ms(b.finishedAt) - ms(a.finishedAt))[0];
+      const left = list.filter((p) => leftUncleared(p, id)).sort((a, b) => ms(b.finishedAt) - ms(a.finishedAt))[0];
       const c = left ? clearingStage(left.finishedAt, s, now) : null;
-      if (c) { clearing = true; occupied = true; freeIn = c.freeIn; }
+      if (c) { clearing = true; occupied = true; freeIn = c.freeIn; clearOver = c.over; clearBy = left?.clearOn?.by ? String(left.clearOn.by).slice(0, 60) : null; }
     }
     const heldFor = booked[id]?.partyId || waitHeld[id]?.partyId || null;
     return { id, name: String(u.name || id), capacity: Math.max(0, Math.floor(Number(u.seatCount ?? u.capacity) || 0)), tags: (Array.isArray(u.tags) ? u.tags : []).map(String),
-      staffIds: (Array.isArray(u.staffIds) ? u.staffIds : []).map(String), freeIn, occupied, clearing, heldFor, words };
+      staffIds: (Array.isArray(u.staffIds) ? u.staffIds : []).map(String), freeIn, occupied, clearing, heldFor, words, ...(clearing ? { clearBy, clearOver } : {}) };
   });
 }
 
@@ -98,7 +103,8 @@ export function staffLoads(units: any[], parties: any[], names: Record<string, s
   return out;
 }
 
-const fits = (t: SeatTable, p: SeatParty) => t.capacity >= p.size && (p.needs || []).every((n) => t.tags.includes(n));
+/** A table seats them and has what they asked for (step-free access, room for a stroller…). */
+export const fits = (t: SeatTable, p: { size: number; needs?: string[] }) => t.capacity >= p.size && (p.needs || []).every((n) => t.tags.includes(n));
 const loadOf = (t: SeatTable, loads: StaffLoad) => (t.staffIds.length ? Math.min(...t.staffIds.map((id) => loads[id]?.guests ?? 0)) : null);
 const serverOf = (t: SeatTable, loads: StaffLoad) => { const id = t.staffIds.slice().sort((a, b) => (loads[a]?.guests ?? 0) - (loads[b]?.guests ?? 0))[0]; return id ? loads[id] : null; };
 const first = (name: string) => String(name || '').split(' ')[0] || name;

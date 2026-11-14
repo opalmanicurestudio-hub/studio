@@ -13,7 +13,7 @@
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { collection, doc, getDoc, getDocs, query, where, type Firestore } from 'firebase/firestore';
-import { DEFAULT_FLOOR, type FloorSettings } from '@/lib/table-stage';
+import { DEFAULT_FLOOR, RESET_STEP_LEN, RESET_STEPS_MAX, type FloorSettings } from '@/lib/table-stage';
 import { DEFAULT_WAIT, MAX_SECTIONS, sectionKey, type WaitSettings } from '@/lib/wait-line';
 import { isDrinkItem } from '@/lib/table-service';
 import { DEFAULT_TABLE_BOOKING, type TableBookingSettings } from '@/lib/table-booking';
@@ -21,6 +21,7 @@ import { cleanMemory, type MemorySettings } from '@/lib/guest-memory';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', RED = '#b42318';
 const field = 'h-11 rounded-xl border px-3 text-[15px] outline-none bg-[#fff]';
+const USUAL_STEPS = ['Clear and wipe the table', 'Reset cutlery and glasses', 'Seats pushed in, floor checked'];
 const row = 'flex flex-wrap items-center justify-between gap-3 min-h-[60px] py-2';
 const mins = (list: number[], cur: number) => Array.from(new Set([...list, cur])).sort((a, b) => a - b);
 const WEEK: [number, string][] = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
@@ -112,8 +113,22 @@ export function HostStandSettings({ firestore, tenantId, tenant }: { firestore: 
         </div>
         <label className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="From asking for the check to leaving" hint="Used once a table asks for the check" />
           <select value={floor.payMin} onChange={(e) => F('payMin', Number(e.target.value))} className={field} style={{ borderColor: LINE }}>{mins([3, 5, 8, 10, 15, 20, 30], floor.payMin).map((n) => <option key={n} value={n}>{n} min</option>)}</select></label>
-        <label className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="Clearing and resetting a table" hint="The table shows “Being cleared” this long after guests leave. Off if it’s ready right away." />
-          <select value={floor.clearMin} onChange={(e) => F('clearMin', Number(e.target.value))} className={field} style={{ borderColor: LINE }}>{mins([0, 1, 2, 3, 5, 8, 10, 15], floor.clearMin).map((n) => <option key={n} value={n}>{n ? `${n} min` : 'Off'}</option>)}</select></label>
+        <div className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="A table that’s been left is ready again" hint={floor.clearUntil === 'ready' ? 'Only when someone clearing it taps “Ready to seat” (or the host taps the table)' : 'Once the time below has passed, or sooner when someone taps “Ready to seat”'} />
+          <Seg label="A table that’s been left is ready again" value={floor.clearUntil} onChange={(v) => F('clearUntil', v)} options={[['time', 'After the time'], ['ready', 'When someone says so']]} /></div>
+        <label className={`${row} border-t`} style={{ borderColor: LINE }}><Label title={floor.clearUntil === 'ready' ? 'How long clearing usually takes' : 'Clearing and resetting a table'} hint={floor.clearUntil === 'ready' ? 'Past this, the host stand and Clear and reset show it in amber' : 'The table shows “Being cleared” this long after guests leave. Off if it’s ready right away.'} />
+          <select value={floor.clearMin} onChange={(e) => F('clearMin', Number(e.target.value))} className={field} style={{ borderColor: LINE }}>{mins(floor.clearUntil === 'ready' ? [1, 2, 3, 5, 8, 10, 15] : [0, 1, 2, 3, 5, 8, 10, 15], floor.clearMin).map((n) => <option key={n} value={n}>{n ? `${n} min` : 'Off'}</option>)}</select></label>
+        <div className="space-y-2 border-t py-3" style={{ borderColor: LINE }}>
+          <Label title="Reset steps" hint="Shown to whoever clears a table, as a reminder. Nothing waits for them to be ticked." />
+          {floor.resetSteps.map((st, n) => (
+            <div key={n} className="flex items-center gap-2">
+              <input value={st} aria-label={`Reset step ${n + 1}`} maxLength={RESET_STEP_LEN} onChange={(e) => F('resetSteps', floor.resetSteps.map((x, i) => (i === n ? e.target.value : x)))} className={`${field} min-w-0 flex-1`} style={{ borderColor: LINE }} />
+              <button type="button" onClick={() => F('resetSteps', floor.resetSteps.filter((_, i) => i !== n))} className="min-h-[44px] rounded-xl px-3 text-[13.5px] font-semibold" style={{ color: MUTED }}>Take off</button>
+            </div>))}
+          <div className="flex flex-wrap gap-2">
+            {floor.resetSteps.length < RESET_STEPS_MAX && <button type="button" onClick={() => F('resetSteps', [...floor.resetSteps, ''])} className="min-h-[44px] rounded-xl border bg-[#fff] px-4 text-[14px] font-semibold" style={{ borderColor: LINE }}>Add a step</button>}
+            {floor.resetSteps.length === 0 && <button type="button" onClick={() => F('resetSteps', USUAL_STEPS)} className="min-h-[44px] rounded-xl border bg-[#fff] px-4 text-[14px] font-semibold" style={{ borderColor: LINE }}>Start from the usual steps</button>}
+          </div>
+        </div>
         <div className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="Who to seat next" hint="Anyone waiting past the time they were told always comes first" />
           <Seg label="Who to seat next" value={floor.seatOrder} onChange={(v) => F('seatOrder', v)} options={[['longest', 'Longest wait'], ['fit', 'Best fit']]} /></div>
         <div className={`${row} border-t`} style={{ borderColor: LINE }}><Label title="Spread tables across servers" hint="When two tables fit, suggest the one in the section with the fewest guests" />

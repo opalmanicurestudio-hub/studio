@@ -47,7 +47,7 @@ import {
 } from '@/lib/hosting-sessions';
 import { resolveHostingSettings, starterTemplate } from '@/lib/floor-plans';
 import { floorSettingsOf, freeWords, STAGE_STEPS, type FloorSettings } from '@/lib/table-stage';
-import { floorTables, seatNext, staffLoads, waitHolds, type Suggestion } from '@/lib/seat-next';
+import { floorTables, leftUncleared, seatNext, staffLoads, waitHolds, type Suggestion } from '@/lib/seat-next';
 import { linePlace, minutesWords, ordinal, preorderWords, waitSettingsOf, type WaitSettings } from '@/lib/wait-line';
 import { getAuth } from 'firebase/auth';
 import { money } from '@/lib/table-booking';
@@ -495,10 +495,12 @@ export default function HostScreen() {
     const r = await api('/api/host/floor', { action: 'unring', partyId: p.id });
     toast(r?.ok ? { title: `${r.off ? `${r.off === 1 ? 'Their drink' : `${r.off} drinks`} taken off` : 'Nothing left to take off'}` } : { variant: 'destructive', title: r?.error || 'That didn’t go through.' });
   };
-  /** A table being cleared is ready to seat now. */
+  /** A table being cleared is ready to seat now (joined tables are each said ready; the party is done with once all are). */
   const markReady = async (unitId: string) => {
-    const left = parties.filter((p: any) => p.status === 'finished' && !p.clearedAt && (p.unitIds || []).includes(unitId));
-    await Promise.all(left.map((p) => write(p.id, { clearedAt: new Date().toISOString() }))).catch(() => toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }));
+    const left = parties.filter((p: any) => leftUncleared(p, unitId));
+    await Promise.all(left.map((p: any) => { const done = Array.from(new Set([...(p.clearedUnits || []).map(String), unitId]));
+      return write(p.id, { clearedUnits: done, clearedBy: 'The host stand', ...((p.unitIds || []).every((u: string) => done.includes(String(u))) ? { clearedAt: new Date().toISOString() } : {}) }); }))
+      .catch(() => toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }));
   };
   /** The table asked for the check (or not after all). */
   const checkAsked = async (p: any, undo = false) => {
@@ -657,16 +659,18 @@ export default function HostScreen() {
                 const fits = !!sel && t.free >= sel.size && (!hold || hold.partyId === sel.id);
                 const free = t.seated === 0;
                 const ft = tById.get(t.tableId); const st = who ? floor?.stages?.[t.tableId] : null;
-                const clearing = free && !!ft?.clearing;
+                const clearing = free && !!ft?.clearing; const notReady = clearing && (ft?.clearOver || 0) > 0;
                 const server = ((units.find((u) => u.id === t.tableId) as any)?.staffIds || []).map((id: string) => floor?.staff?.[id]).filter(Boolean)[0] || '';
                 const tone = t.overfilled ? { border: `2px solid ${AMBER}`, background: AMBER_TINT }
                   : hold && free ? { border: `2px dashed ${INK}`, background: '#fff' }
+                  : notReady ? { border: `2px solid ${AMBER}`, background: AMBER_TINT }
                   : clearing ? { border: `1px dashed ${MUTED}`, background: SOFT }
                   : free ? { border: `1px solid ${GREEN}`, background: GREEN_TINT }
                   : { border: `1px solid ${LINE}`, background: '#fff' };
                 const line = t.overfilled ? `More than it ${V.seats === 'seats' ? 'seats' : 'holds'}` : who ? `${who.name}, ${who.size}${m !== null ? `, seated ${m} min` : ''}`
                   : hold ? `Held${holder ? ` for ${holder.name}${holder.arrivesAt ? ` at ${at12(holder.arrivesAt)}` : ''}` : ''}`
-                  : clearing ? `Being cleared, ready in about ${ft?.freeIn} min` : 'Free';
+                  : notReady ? `Not ready yet, ${(ft?.clearOver || 0) + (fs.clearMin || 0)} min since they left${ft?.clearBy ? `. ${ft.clearBy} is on it` : ''}`
+                  : clearing ? `Being cleared${ft?.clearBy ? `, ${ft.clearBy} is on it` : fs.clearUntil === 'ready' ? '' : `, ready in about ${ft?.freeIn} min`}` : 'Free';
                 const late = !!st && (st.lingering || (!['paid', 'check'].includes(st.key) && st.over > 0));
                 return (
                   <button key={t.tableId} type="button" aria-disabled={!sel && !who && !clearing}
@@ -676,7 +680,7 @@ export default function HostScreen() {
                     style={{ ...tone, ...(sel ? { opacity: fits ? 1 : 0.5, outline: fits ? `2px solid ${GREEN}` : undefined, outlineOffset: 2 } : {}) }}>
                     <span className="flex items-baseline justify-between gap-2"><span className="truncate text-[16px] font-semibold">{t.name}</span><span className="shrink-0 text-[13px] tabular-nums" style={{ color: MUTED }}>{free ? `${cap(V.seats)} ${t.capacity}` : `${t.seated} of ${t.capacity}`}</span></span>
                     {server && <span className="-mt-1 text-[12.5px]" style={{ color: MUTED }}>{server}</span>}
-                    <span className="text-[13.5px] leading-snug" style={{ color: t.overfilled ? AMBER : free && !hold && !clearing ? GREEN : MUTED, fontWeight: t.overfilled ? 600 : 400 }}>{line}</span>
+                    <span className="text-[13.5px] leading-snug" style={{ color: t.overfilled || notReady ? AMBER : free && !hold && !clearing ? GREEN : MUTED, fontWeight: t.overfilled || notReady ? 600 : 400 }}>{line}</span>
                     {st && <>
                       <span className="text-[14px] font-semibold leading-snug" style={{ color: late ? AMBER : INK }}>{st.words}</span>
                       <span className="flex gap-[3px]" aria-hidden>{Array.from({ length: STAGE_STEPS }, (_, i) => <i key={i} className="h-[5px] flex-1 rounded-full" style={{ background: i < st.step ? INK : LINE }} />)}</span>

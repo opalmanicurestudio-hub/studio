@@ -11,6 +11,9 @@
 import { PREORDER_NOTE, type Course } from '@/lib/table-service';
 
 export type SeatOrder = 'longest' | 'fit';
+export type ClearUntil = 'time' | 'ready';
+export const RESET_STEPS_MAX = 6;
+export const RESET_STEP_LEN = 60;
 export type FloorSettings = {
   /** How long a table usually stays, in minutes: 1 or 2 guests, 3 or 4, 5 or more. */
   turnSmall: number; turnMid: number; turnLarge: number;
@@ -18,6 +21,11 @@ export type FloorSettings = {
   payMin: number;
   /** Clearing and resetting a table after guests leave (0: ready right away). */
   clearMin: number;
+  /** When a table that's been left is ready to seat again: once that time has passed, or only when someone clearing it
+   *  says so (lib/table-reset; past the time it shows as not ready yet). */
+  clearUntil: ClearUntil;
+  /** The business's reset steps, shown to whoever clears a table as a reminder (a few short lines). */
+  resetSteps: string[];
   /** Who to seat next: whoever has waited longest, or the party that fits the table best. */
   seatOrder: SeatOrder;
   /** When two tables fit, suggest the one in the section with the fewest guests. */
@@ -25,8 +33,8 @@ export type FloorSettings = {
   /** Suggest holding a table and texting the party this long before it's free (0: only once it's free). */
   textAheadMin: number;
 };
-export const DEFAULT_FLOOR: FloorSettings = { turnSmall: 50, turnMid: 65, turnLarge: 80, payMin: 10, clearMin: 3, seatOrder: 'longest', balance: true, textAheadMin: 5 };
-const RANGES: Record<Exclude<keyof FloorSettings, 'seatOrder' | 'balance'>, [number, number]> = {
+export const DEFAULT_FLOOR: FloorSettings = { turnSmall: 50, turnMid: 65, turnLarge: 80, payMin: 10, clearMin: 3, clearUntil: 'time', resetSteps: [], seatOrder: 'longest', balance: true, textAheadMin: 5 };
+const RANGES: Record<Exclude<keyof FloorSettings, 'seatOrder' | 'balance' | 'clearUntil' | 'resetSteps'>, [number, number]> = {
   turnSmall: [10, 300], turnMid: [10, 300], turnLarge: [10, 300], payMin: [1, 60], clearMin: [0, 30], textAheadMin: [0, 20],
 };
 /** Food still to come: at least this long to finish it, before the check. */
@@ -47,6 +55,8 @@ export function cleanFloor(raw: any): FloorSettings {
   }
   if (raw?.seatOrder === 'fit' || raw?.seatOrder === 'longest') out.seatOrder = raw.seatOrder;
   if (typeof raw?.balance === 'boolean') out.balance = raw.balance;
+  if (raw?.clearUntil === 'ready' || raw?.clearUntil === 'time') out.clearUntil = raw.clearUntil;
+  if (Array.isArray(raw?.resetSteps)) out.resetSteps = raw.resetSteps.map((x: unknown) => String(x ?? '').replace(/\s+/g, ' ').trim().slice(0, RESET_STEP_LEN)).filter(Boolean).slice(0, RESET_STEPS_MAX);
   return out;
 }
 
@@ -150,14 +160,18 @@ export function tableStage(t: StageInput, s: FloorSettings, now: number): Stage 
 }
 
 /** A table the guests have just left: being cleared and reset, and ready in a few minutes. Null once it's ready (or
- *  when the business doesn't clear between tables). */
+ *  when the business doesn't clear between tables). When the business waits for someone to say it's ready, it stays
+ *  being cleared until they do, and past its usual time it's "Not ready yet" (`over`: minutes past). */
 export function clearingStage(leftAt: string | null | undefined, s: FloorSettings, now: number): Stage | null {
-  if (s.clearMin <= 0) return null;
+  const wait = s.clearUntil === 'ready';
+  if (s.clearMin <= 0 && !wait) return null;
   const left = ms(leftAt); if (!Number.isFinite(left)) return null;
   const gone = Math.floor((now - left) / 60000);
-  if (gone >= s.clearMin || gone < -2) return null;
-  const freeIn = Math.max(0, s.clearMin - Math.max(0, gone));
-  return { key: 'clearing', words: 'Being cleared', freeIn, step: 0, seatedMin: null, over: 0, turn: 0, lingering: false };
+  if (gone < -2 || (!wait && gone >= s.clearMin)) return null;
+  const over = wait ? Math.max(0, gone - s.clearMin) : 0;
+  // Past its usual time with nobody saying it's ready: nobody knows, so a guess that grows (never "any minute").
+  const freeIn = over > 0 ? Math.min(10, 2 + over) : Math.max(0, s.clearMin - Math.max(0, gone));
+  return { key: 'clearing', words: over > 0 ? 'Not ready yet' : 'Being cleared', freeIn, step: 0, seatedMin: null, over, turn: 0, lingering: false };
 }
 
 /** "Free about 9:05" (or "Free any minute"): when it's likely ready to seat, in the business's time. */

@@ -105,7 +105,7 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
       paidAt: paidHere };
     const stage = tableStage({ seatedAt: p.seatedAt || null, size: Number(p.size) || 1, tab, tickets: tk, courses, checkAt: p.checkAt || null, paidAt }, fs, now);
     const row = { visitId: vid, table: label, staffIds: ids, total: Math.round(tab.reduce((s2: number, l: any) => s2 + (Number(l?.price) || 0) * (Number(l?.quantity) || 1), 0) * 100) / 100,
-      stage: { key: stage.key, words: stage.words, step: stage.step, freeIn: stage.freeIn }, checkAt: p.checkAt || null,
+      stage: { key: stage.key, words: stage.words, step: stage.step, freeIn: stage.freeIn }, checkAt: p.checkAt || null, paidAt: paidAt || null, closed: v.status === 'completed',
       party: { id: p.id, name: String(p.name || 'Table').slice(0, 80), size: Number(p.size) || 1, guestIds: Array.isArray(p.guestIds) ? p.guestIds : [], clientId: p.clientId || v.clientId || null, unitIds, seatedAt: p.seatedAt || null } };
     return { partyId: p.id, unitIds, nt, row, stage };
   });
@@ -117,10 +117,12 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
 export async function tablesNow(db: any, T: string, tenant: any, meId: string, mine: boolean) {
   const read = await readFloor(db, T, tenant);
   const settings = nudgeSettingsOf(tenant);
-  if (!read.session) return { tables: [], nudges: [], settings, me: meId, mineOnly: false, hasSection: false, session: null };
+  if (!read.session) return { tables: [], nudges: [], settings, me: meId, mineOnly: false, hasSection: false, session: null, toClear: 0 };
   const minePick = read.seated.filter((t) => t.row.staffIds.includes(meId));
   const shown = mine && minePick.length ? minePick : read.seated;
-  return { tables: shown.map((t) => t.row), nudges: allNudges(shown.map((t) => t.nt), settings, Date.now()), settings, me: meId, mineOnly: mine && minePick.length > 0, hasSection: minePick.length > 0, session: read.session.id };
+  // Tables being cleared, for the link to Clear and reset (lib/table-reset).
+  const toClear = tablesOf(read, tenant, Date.now()).filter((t) => t.clearing).length;
+  return { tables: shown.map((t) => t.row), nudges: allNudges(shown.map((t) => t.nt), settings, Date.now()), settings, me: meId, mineOnly: mine && minePick.length > 0, hasSection: minePick.length > 0, session: read.session.id, toClear };
 }
 
 /** Each seated table's stage by table, for the host stand. */

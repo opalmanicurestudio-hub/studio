@@ -24,6 +24,8 @@
 //   pay_status { tenantId, visitId } → pay at the table: the check's link for the guests, what's paid, by what, and what's
 //          left (lib/table-pay-server).
 //   pay_cash   { tenantId, visitId, given? } → the rest of the check paid in cash to the server.
+//   clearing { tenantId } → tables to clear and leaving soon (lib/table-reset). left { tenantId, partyId }: a paid table
+//          has gone. clear_on { tenantId, unitId, on }: "On it". clear_done { tenantId, unitId }: "Ready to seat".
 //   usual  { tenantId, visitId } → a regular's usual items (lib/guest-memory), for the server to ring in with one tap
 //          (the same allergy check as the menu), when the business shows regulars.
 //   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''), action = String(b.action || '');
   const visitId = String(b.visitId || ''), lineId = String(b.lineId || '');
-  if (!ID.test(tenantId) || (!['nudges', 'nudge', 'check'].includes(action) && !ID.test(visitId))) return bad('Missing details.');
+  if (!ID.test(tenantId) || (!['nudges', 'nudge', 'check', 'clearing', 'left', 'clear_on', 'clear_done'].includes(action) && !ID.test(visitId))) return bad('Missing details.');
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return bad(auth.error || 'Sign in to do that.', auth.status || 401);
   const me = { id: String(auth.actor.uid), name: String(auth.actor.name || 'A team member') };
@@ -99,6 +101,18 @@ export async function POST(req: NextRequest) {
   if (action === 'nudges') {
     try { return ok({ ...(await tablesNow(db, T, (auth.tenant && Object.keys(auth.tenant).length ? auth.tenant : ((await db.doc(T).get()).data() || {})), me.id, b.mine === true)), meName: me.name }); }
     catch (e) { console.error('[tab nudges]', e); return bad('The tables couldn’t be read. Try again.', 500); }
+  }
+  // CLEAR AND RESET (lib/table-reset-server): the tables to clear and leaving soon, "They've left", "On it" and
+  // "Ready to seat", for anyone on the team.
+  if (action === 'clearing' || action === 'left' || action === 'clear_on' || action === 'clear_done') {
+    const R = await import('@/lib/table-reset-server');
+    const tenantNow: any = ((await db.doc(T).get()).data() as any) || {};
+    try {
+      if (action === 'clearing') return ok({ ...(await R.clearingFor(db, T, tenantNow)), meName: me.name });
+      if (action === 'left') return ok(await R.markLeft(db, T, tenantId, String(b.partyId || ''), me.name));
+      if (action === 'clear_on') return ok(await R.clearOn(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name, b.on !== false));
+      return ok(await R.clearDone(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name));
+    } catch (e: any) { if (e instanceof R.ResetStop) return bad(e.msg, e.status); console.error('[tab clearing]', e); return bad('That didn’t go through. Try again.', 500); }
   }
   const vRef = db.doc(`${T}/appointments/${visitId}`);
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
