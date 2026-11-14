@@ -201,7 +201,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     lines.forEach((l, i) => {
       const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}`);
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: l.itemId, menuItemName: l.name, quantity: l.quantity,
-        choicesText: l.choicesText || null, guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due,
+        choicesText: l.choicesText || null, guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due, makeSeconds: Number(l.makeSeconds) || null,
         line: i + 1, lines: lines.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;

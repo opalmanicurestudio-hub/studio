@@ -2,12 +2,22 @@
 // src/components/menu/TableServiceSettings.tsx — TABLES, KITCHEN AND BAR on the Menu page (managers): the stations
 // things are made at (each gets its own kitchen screen), the courses (and which wait until the server fires them), how
 // much a server can comp in a night on their own say, the comp reasons offered, and whether each table is asked about
-// allergies before its first order (lib/allergens). Saved through api/menu 'service';
+// allergies before its first order (lib/allergens), whether a table's plates are timed to finish together, and when a
+// server's phone nudges them (lib/nudges). Saved through api/menu 'service';
 // the rules themselves are lib/table-service.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', RED = '#b42318';
-export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean };
+export type Nudges = { fireAfterMin: number; checkBackMin: number; passWaitMin: number; noOrderMin: number; lateMin: number };
+export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges };
+const NUDGE_DEFAULTS: Nudges = { fireAfterMin: 12, checkBackMin: 2, passWaitMin: 3, noOrderMin: 8, lateMin: 5 };
+const NUDGE_ROWS: [keyof Nudges, string, string, number[], (n: number) => string][] = [
+  ['fireAfterMin', 'Fire the next course', 'This long after the last course went out, while the next one is still held', [5, 8, 10, 12, 15, 20, 25, 30], (n) => `After ${n} min`],
+  ['checkBackMin', 'Check back on the table', 'After a course lands', [1, 2, 3, 4, 5], (n) => `After ${n} min`],
+  ['passWaitMin', 'Food waiting at the pass', 'Ready and not taken out yet', [1, 2, 3, 4, 5, 8], (n) => `After ${n} min`],
+  ['noOrderMin', 'Nothing ordered yet', 'After the table is seated', [5, 8, 10, 15, 20], (n) => `After ${n} min`],
+  ['lateMin', 'A course running late', 'Longer than its slowest dish usually takes, so the server can tell the table', [3, 5, 8, 10, 15], (n) => `${n} min over`],
+];
 const ALLOWANCES = [0, 500, 1000, 1500, 2000, 2500, 5000, 10000];
 const dollars = (c: number) => (c === 0 ? 'Nothing, always a manager' : `Up to $${(c / 100).toFixed(0)}`);
 
@@ -17,12 +27,14 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
   const [allow, setAllow] = useState(service.compAllowanceCents);
   const [reasons, setReasons] = useState<string[]>(service.compReasons);
   const [ask, setAsk] = useState(service.askAllergies !== false);
+  const [together, setTogether] = useState(service.finishTogether !== false);
+  const [nudges, setNudges] = useState<Nudges>({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) });
   const [newStation, setNewStation] = useState(''); const [newReason, setNewReason] = useState('');
   const [busy, setBusy] = useState(false); const [note, setNote] = useState(''); const [err, setErr] = useState('');
-  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); }, [service]);
-  const changed = JSON.stringify([stations, courses, allow, reasons, ask]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false]);
+  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); }, [service]);
+  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }]);
   const save = async () => { setBusy(true); setErr(''); setNote('');
-    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask });
+    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges });
     setBusy(false); if (e) setErr(e); else setNote('Saved. Screens pick it up within a few seconds.'); };
   const chip = 'inline-flex min-h-[40px] items-center gap-1 rounded-full pl-3 pr-1 text-[13.5px] font-medium';
   const x = (label: string, onClick: () => void) => <button type="button" onClick={onClick} aria-label={label} className="h-9 w-9 rounded-full grid place-items-center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>;
@@ -83,6 +95,24 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
           <span className="flex-1"><span className="block text-[14.5px] font-medium">Ask each table before its first order</span><span className="block text-[13px]" style={{ color: MUTED }}>The table’s screen asks once: anyone with an allergy? A regular’s allergies come from their profile either way, and the kitchen always taps Allergy noted.</span></span>
           <input type="checkbox" checked={ask} onChange={(e) => setAsk(e.target.checked)} className="h-6 w-6" style={{ accentColor: INK }} />
         </label>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-[15px] font-semibold">Timing and nudges</h3>
+        <label className="flex items-center gap-3 min-h-[44px]">
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">Finish a table’s plates together</span><span className="block text-[13px]" style={{ color: MUTED }}>Each station sees when to start, so the quick dish isn’t sitting while the slow one cooks. Uses each dish’s make time; counter orders too.</span></span>
+          <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
+        <p className="text-[13px] pt-1" style={{ color: MUTED }}>A server’s phone (My tables) nudges them about their own tables:</p>
+        {NUDGE_ROWS.map(([k, label, hint, opts, word]) => (
+          <label key={k} className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">{label}</span><span className="block text-[13px]" style={{ color: MUTED }}>{hint}</span></span>
+            <select value={nudges[k]} onChange={(e) => setNudges({ ...nudges, [k]: Number(e.target.value) })} className={field} style={{ borderColor: LINE }}>
+              {Array.from(new Set([...opts, nudges[k]])).filter((n) => n > 0).sort((a, b) => a - b).map((n) => <option key={n} value={n}>{word(n)}</option>)}
+              <option value={0}>Off</option>
+            </select>
+          </label>
+        ))}
       </div>
 
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }} role="alert">{err}</p>}

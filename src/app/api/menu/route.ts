@@ -14,7 +14,8 @@
 //             can comp in a night on their own say, and the comp reasons offered. list returns them as `service`.
 //   (save also takes station: one of the stations or null, and course: a course number, 0 for right away, or null;
 //   allergens: what it contains, from lib/allergens; and dailyCount: how many it starts each night with, or null.)
-//   (service also takes askAllergies: whether a table is asked about allergies before its first order.)
+//   (service also takes askAllergies: whether a table is asked about allergies before its first order; finishTogether:
+//   whether a table's plates are timed to finish together; and nudges: the server's nudge timings, lib/nudges.)
 //   counts  { tenantId, fresh? }                          → tonight's counted dishes and what each has left, and which
 //             menu items are sold out now (anyone on the team); one at zero is sold out on every menu as this is read
 //             (lib/dish-counts-server). fresh: read again now, not what was read a few seconds ago.
@@ -39,7 +40,8 @@ import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
-import { askAllergiesOf, compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
+import { nudgeSettingsOf, NUDGE_KEYS } from '@/lib/nudges';
+import { askAllergiesOf, finishTogetherOn, compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
 import { ALLERGENS, cleanKeys } from '@/lib/allergens';
 import { MAX_COUNT } from '@/lib/dish-counts';
 import { forgetCounts, liveCounts, setTonightCount } from '@/lib/dish-counts-server';
@@ -55,7 +57,7 @@ const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Table service as the Menu page edits it (lib/table-service). */
-const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t) });
+const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), nudges: nudgeSettingsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -201,6 +203,13 @@ export async function POST(req: NextRequest) {
         next.compReasons = Array.from(new Set(b.compReasons.map((r: any) => words(r, 40)).filter(Boolean)));
       }
       if (b.askAllergies !== undefined) { if (typeof b.askAllergies !== 'boolean') return bad('Ask about allergies: on or off.'); next.askAllergies = b.askAllergies; }
+      if (b.finishTogether !== undefined) { if (typeof b.finishTogether !== 'boolean') return bad('Finish together: on or off.'); next.finishTogether = b.finishTogether; }
+      if (b.nudges !== undefined) {
+        if (!b.nudges || typeof b.nudges !== 'object') return bad('Check the nudge timings.');
+        const n: Record<string, number> = { ...nudgeSettingsOf(td) };
+        for (const k of NUDGE_KEYS) if (b.nudges[k] !== undefined) { const v = Math.round(Number(b.nudges[k])); if (!Number.isFinite(v) || v < 0 || v > 60) return bad('Each nudge: up to 60 minutes, or off.'); n[k] = v; }
+        next.nudges = n;
+      }
       if (!Object.keys(next).length) return bad('Nothing to change.');
       await tRef.set({ kitchenSettings: next }, { merge: true });
       return ok({ service: serviceOf({ ...td, kitchenSettings: { ...(td.kitchenSettings || {}), ...next } }) });

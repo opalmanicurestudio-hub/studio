@@ -7,6 +7,8 @@
 // - Comps and voids: a comp is served and kept, at no charge or part off; a void comes off the check. A comp within the
 //   server's own nightly allowance needs no PIN; over it, a manager's. A void before the kitchen starts needs only a
 //   reason; after it starts, a manager's PIN, and what it cost to make counts as waste. A manager acts on their own say.
+// - Finishing together: a table's course (or a counter order) is timed so its plates are done at once. The slowest
+//   dish starts when it's fired; each quicker one starts later, by the difference in make times.
 
 export type Course = { n: number; name: string; hold: boolean };
 export const DEFAULT_COURSES: Course[] = [
@@ -183,3 +185,52 @@ export function unfiredGroups(tickets: ExpoTicket[]): { key: string; label: stri
   }
   return Array.from(m.values()).sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
+
+/** The visit a party's tab lives on: their booking's, their walk-in's, or a new table visit. */
+export function visitIdForParty(p: any): string {
+  const g: string[] = Array.isArray(p?.guestIds) ? p.guestIds : [];
+  const appt = g.find((x) => String(x).startsWith('appt:')); if (appt) return appt.slice(5);
+  const w = g.find((x) => String(x).startsWith('walkin:')); if (w) return `apt-walkin-${w.slice(7)}`;
+  return `apt-party-${p.id}`;
+}
+
+// ── Finishing a table's plates together ──────────────────────────────────────────────────────────────────────────────
+/** Whether the kitchen times a table's plates to finish together: on unless the business turns it off. */
+export const finishTogetherOn = (tenant: any): boolean => tenant?.kitchenSettings?.finishTogether !== false;
+
+export type StartTicket = { id: string; status: string; source: string; item: string; at: string; visitId?: string | null; course?: number | null; orderId?: string | null;
+  makeSeconds?: number | null; firedAt?: string | null; remake?: boolean };
+export type StartAt = { startAt: number; slowest: string; waitSeconds: number };
+/** Plates fired within this of each other go out together (a later addition to the course is its own). */
+const TOGETHER_MS = 60000;
+
+/** When each waiting ticket should be started so its table's course (or its order) is done at once: the slowest dish
+ *  still to make, fired with it, when it's fired; each quicker one later by the difference. A plate already made, a
+ *  remake (someone's waiting for it) and a dish added later to the course aren't timed against, and a ticket on its
+ *  own, or one already started, has no plan (start it now, as always). */
+export function startPlan(tickets: StartTicket[]): Map<string, StartAt> {
+  const groups = new Map<string, StartTicket[]>();
+  for (const t of tickets) {
+    if (!['pending', 'in_progress'].includes(t.status) || t.remake || !(Number(t.makeSeconds) > 0)) continue;
+    const k = t.source === 'tab' && t.visitId ? `tab|${t.visitId}|${t.course ?? '-'}` : t.orderId ? `order|${t.orderId}` : null;
+    if (!k) continue;
+    const g = groups.get(k) || []; g.push(t); groups.set(k, g);
+  }
+  const fired = (t: StartTicket) => Date.parse(String(t.firedAt || t.at));
+  const out = new Map<string, StartAt>();
+  for (const g of groups.values()) {
+    for (const t of g) {
+      if (t.status !== 'pending') continue;
+      const from = fired(t); if (!Number.isFinite(from)) continue;
+      const mates = g.filter((x) => Math.abs(fired(x) - from) <= TOGETHER_MS);
+      if (mates.length < 2) continue;
+      const slow = mates.reduce((a, b2) => (Number(b2.makeSeconds) > Number(a.makeSeconds) ? b2 : a));
+      if (slow.id === t.id) continue;
+      const wait = Number(slow.makeSeconds) - Number(t.makeSeconds); if (wait <= 0) continue;
+      out.set(t.id, { startAt: Math.max(from, fired(slow)) + wait * 1000, slowest: slow.item, waitSeconds: wait });
+    }
+  }
+  return out;
+}
+/** "in 4 min", "now" */
+export const startWords = (startAt: number, now: number) => { const s = Math.ceil((startAt - now) / 1000); return s <= 0 ? 'now' : s < 60 ? 'in under a minute' : `in ${Math.ceil(s / 60)} min`; };

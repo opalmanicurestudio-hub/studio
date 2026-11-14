@@ -9,6 +9,7 @@
 // (lib/allergens) go on each of its tickets, with what the menu says the dish contains of them.
 import { arrayUnion, doc, getDoc, setDoc, writeBatch, type Firestore } from 'firebase/firestore';
 import { ticketAllergyFields, type TableAllergy } from '@/lib/allergens';
+import { visitIdForParty } from '@/lib/table-service';
 
 export interface TabComp { approvalId: string; amount: number; reason: string; by: string; approvedBy: string; at: string }
 export interface TabLine {
@@ -24,13 +25,8 @@ export interface TabLine {
   allergens?: string[];
 }
 
-/** The visit a party's tab lives on: their booking's, their walk-in's, or a new table visit. */
-export function visitIdForParty(p: any): string {
-  const g: string[] = p?.guestIds || [];
-  const appt = g.find((x) => x.startsWith('appt:')); if (appt) return appt.slice(5);
-  const w = g.find((x) => x.startsWith('walkin:')); if (w) return `apt-walkin-${w.slice(7)}`;
-  return `apt-party-${p.id}`;
-}
+/** The visit a party's tab lives on (lib/table-service, where the server finds it too). */
+export { visitIdForParty } from '@/lib/table-service';
 
 export async function ensureTableVisit(fs: Firestore, tenantId: string, p: any, tableName: string, by: string): Promise<string> {
   const id = visitIdForParty(p); const ref = doc(fs, 'tenants', tenantId, 'appointments', id); const now = new Date().toISOString();

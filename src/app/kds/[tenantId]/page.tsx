@@ -7,6 +7,8 @@
 //   Allergies are shown big on every ticket, including ones only typed into a note (lib/kitchen allergyFlags). A kitchen
 //   ticket with one needs "Allergy noted" before it can be marked ready or served (checked by the server too).
 //   Counts (lib/dish-counts): counted dishes show what's left tonight; the kitchen sets tonight's number under Counts.
+//   Finishing together (lib/table-service startPlan): a quicker dish in a table's course, or a counter order, says when
+//   to start it so it's done with the slowest one, and waits below what to start now.
 //   A sound plays for every new ticket, the first one too, once the screen has been tapped (browsers need a tap).
 //   ?event=<id> shows one event's tickets (linked from the event screen).
 //   Drive-thru and counter orders carry a time they must be ready by: they're worked first (drive-thru on top), each
@@ -21,6 +23,7 @@ import { useFirebase } from '@/firebase';
 import { allergyFlags, groupTickets, kitchenOrder, needsAllergyNote, type KitchenTicket, type KitchenStep } from '@/lib/kitchen';
 import { leftWords, lowCount, MAX_COUNT, type CountRow } from '@/lib/dish-counts';
 import { allergySig } from '@/lib/allergens';
+import { startPlan, startWords, type StartAt } from '@/lib/table-service';
 import { binFor, binState, type HoldBin } from '@/lib/holding';
 import { timeLeft } from '@/lib/counter-orders';
 import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
@@ -38,7 +41,7 @@ type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[] };
+type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean };
 type Staff = { id: string; name: string; pass: string };
 
 const keyName = (t: string) => `cf.kitchen.${t}`;
@@ -123,11 +126,13 @@ function AllergyBanner({ t, compact = false }: { t: KitchenTicket; compact?: boo
 }
 
 // ─── One ticket, in a lane ───────────────────────────────────────────────────────────────────────────────────────────
-function TicketCard({ t, item, now, tz, busy, bin, onStep, onCancel, onPrint, onFromHold, onNote }: {
-  t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean; bin: HoldBin | null;
+function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPrint, onFromHold, onNote }: {
+  t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean; bin: HoldBin | null; start?: StartAt;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onCancel: (t: KitchenTicket) => void; onPrint: (t: KitchenTicket) => void; onFromHold: (t: KitchenTicket, b: HoldBin) => void; onNote: (t: KitchenTicket) => void;
 }) {
   const mustNote = needsAllergyNote(t);
+  // Timed to finish with the slowest dish on its table or order: not started before then.
+  const later = !!start && t.status === 'pending' && start.startAt > now;
   const s = secondsSince(t.at, now);
   // A quick-service ticket counts down to the time it has to be ready by; anything else counts up from when it came in.
   const due = t.dueAt && t.status !== 'ready' ? timeLeft(Date.parse(t.dueAt), now) : null;
@@ -148,11 +153,14 @@ function TicketCard({ t, item, now, tz, busy, bin, onStep, onCancel, onPrint, on
           </h3>
           {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
         </div>
-        {due
+        {later
+          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={{ background: SOFT, color: MUTED }} aria-label={`Start ${startWords(start!.startAt, now)}`}>Start {startWords(start!.startAt, now)}</span>
+          : due
           ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={due.text}>{due.text}</span>
           : <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Waiting ${waited(s)}`}>{waited(s)}</span>}
       </div>
       <AllergyBanner t={t} />
+      {start && t.status === 'pending' && <p className="text-[14px] leading-snug" style={{ color: later ? MUTED : INK }}>{later ? `So it’s ready with the ${start.slowest}.` : `Start now, to be ready with the ${start.slowest}.`}</p>}
       {t.collect > 0 && <p className="rounded-xl px-3 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>Collect ${t.collect.toFixed(2)} when it’s handed over</p>}
       {(!quick || t.lookFor || plainNote) && <div className="text-[15px] leading-snug" style={{ color: INK }}>
         {!quick && <p className="font-medium">{t.name}</p>}
@@ -197,8 +205,8 @@ function TicketCard({ t, item, now, tz, busy, bin, onStep, onCancel, onPrint, on
 }
 
 // ─── A course or a dish: its tickets in rows, moved along together or one by one ─────────────────────────────────────
-function GroupPanel({ g, by, now, busyIds, onStep, onBump, onNote }: {
-  g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>;
+function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
+  g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>; plan: Map<string, StartAt>;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void; onNote: (t: KitchenTicket) => void;
 }) {
   // A plate with an allergy nobody has noted yet stays out of "All ready" until someone has.
@@ -240,7 +248,7 @@ function GroupPanel({ g, by, now, busyIds, onStep, onBump, onNote }: {
                     {by === 'order' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</> : by === 'course' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}<span style={{ color: MUTED }}> · {t.name}</span></> : <>{t.name}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</>}
                   </p>
                   {t.choices && <p className="text-[15px] font-semibold" style={{ color: INK }}>{t.choices}</p>}
-                  <p className="text-[13.5px]" style={{ color: MUTED }}>{by === 'order' ? '' : `${where(t)} · `}{t.status === 'pending' ? 'Waiting' : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
+                  <p className="text-[13.5px]" style={{ color: MUTED }}>{by === 'order' ? '' : `${where(t)} · `}{t.status === 'pending' ? (plan.get(t.id) && plan.get(t.id)!.startAt > now ? `Start ${startWords(plan.get(t.id)!.startAt, now)}, with the ${plan.get(t.id)!.slowest}` : 'Waiting') : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
                 </div>
                 <div className="flex gap-2">
                   {t.status === 'pending' && <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={btn} style={quiet}>Start</button>}
@@ -566,7 +574,7 @@ export default function KitchenScreen() {
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [] };
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
       // A sound for every ticket not seen before (the first one after a quiet spell too), never for what was already up.
@@ -683,11 +691,16 @@ export default function KitchenScreen() {
   }, [allTickets, heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const byTime = (a: KitchenTicket, b: KitchenTicket) => String(a.at).localeCompare(String(b.at));
   // What to make next: drive-thru first, then whatever is due soonest (lib/kitchen kitchenOrder).
+  // Finishing together: what each quicker dish waits for (worked out across every station, then shown on each).
+  const plan = useMemo(() => (data?.finishTogether === false ? new Map<string, StartAt>() : startPlan((data?.tickets || []) as any)), [data]);
+  const startLater = (t: KitchenTicket) => { const p = plan.get(t.id); return !!p && p.startAt > now; };
+  const laterKey = tickets.filter(startLater).map((t) => t.id).join('|');
   const lanes = useMemo(() => ({
-    waiting: tickets.filter((t) => t.status === 'pending').sort(kitchenOrder),
+    // What to start now first; a dish timed to finish with a slower one waits below, soonest first.
+    waiting: tickets.filter((t) => t.status === 'pending').sort((a, b) => Number(startLater(a)) - Number(startLater(b)) || (startLater(a) ? plan.get(a.id)!.startAt - plan.get(b.id)!.startAt : 0) || kitchenOrder(a, b)),
     making: tickets.filter((t) => t.status === 'in_progress').sort(kitchenOrder),
     ready: tickets.filter((t) => t.status === 'ready').sort(byTime),
-  }), [tickets]);
+  }), [tickets, laterKey, plan]); // eslint-disable-line react-hooks/exhaustive-deps
   const groups = useMemo(() => view === 'lanes' || view === 'expo' ? [] : groupTickets(tickets, view), [tickets, view]);
   const lateCount = tickets.filter((t) => t.status !== 'ready' && t.dueAt && Date.parse(t.dueAt) < now).length;
   const holdCall = async (k: string, body: any) => {
@@ -733,7 +746,7 @@ export default function KitchenScreen() {
       </div>
       {list.length === 0
         ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{empty}</p>
-        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} bin={binFor(data?.holds || [], t.itemId ? String(t.itemId) : null, t.quantity, now)} onStep={step} onCancel={setCancelFor} onPrint={print} onFromHold={fromHold} onNote={noteAllergy} />)}
+        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} bin={binFor(data?.holds || [], t.itemId ? String(t.itemId) : null, t.quantity, now)} start={plan.get(t.id)} onStep={step} onCancel={setCancelFor} onPrint={print} onFromHold={fromHold} onNote={noteAllergy} />)}
     </section>
   );
 
@@ -827,7 +840,7 @@ export default function KitchenScreen() {
           <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No tickets up.</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} onStep={step} onBump={bump} onNote={noteAllergy} />)}
+            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} plan={plan} onStep={step} onBump={bump} onNote={noteAllergy} />)}
           </div>
         )}
       </main>

@@ -46,7 +46,7 @@ const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] foc
 const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`;
 
 export default function HostScreen() {
-  const { firestore } = useFirebase();
+  const { firestore, user } = useFirebase() as any;
   const { selectedTenant } = useTenant();
   const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
   const [tableFor, setTableFor] = useState<string | null>(null);   // a seated table tapped: its party, tab and "they've left"
@@ -583,7 +583,7 @@ export default function HostScreen() {
         </div>}
       </Drawer>
       <Drawer accent={null} open={!!tabFor} onClose={() => setTabFor(null)} title="Tab">
-        {tabFor && firestore && tenantId ? <TableTab key={tabFor.id} firestore={firestore as any} tenantId={tenantId} party={tabFor} tableName={(tabFor.unitIds || []).map((u: string) => state.byTable[u]?.name || u).join(' + ') || 'Table'} by="Host" /> : null}
+        {tabFor && firestore && tenantId ? <TableTab key={tabFor.id} firestore={firestore as any} tenantId={tenantId} party={tabFor} tableName={(tabFor.unitIds || []).map((u: string) => state.byTable[u]?.name || u).join(' + ') || 'Table'} by={String(user?.displayName || 'Host').slice(0, 60)} /> : null}
       </Drawer>
     </div>
   );

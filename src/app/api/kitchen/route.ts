@@ -64,7 +64,7 @@ import { toolLocked } from '@/lib/tool-lock';
 import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
 import { binState, batchSizeOf } from '@/lib/holding';
 import { holdMinutesOf } from '@/lib/counter-orders';
-import { stationsOf, stationOfItem } from '@/lib/table-service';
+import { finishTogetherOn, stationsOf, stationOfItem } from '@/lib/table-service';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
       // Tonight's counts (lib/dish-counts), from the menu just read: one at zero is sold out on every menu now.
       const counts = (await liveCounts(db, tenantId, tenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
-      return ok({ counts, screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
+      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {

@@ -94,6 +94,8 @@ export function ticketFrom(d: any, col: KitchenCol) {
     madeAt: r.madeAt ? String(r.madeAt).slice(0, 24) as string | null : null,
     firedAt: typeof r.firedAt === 'string' ? r.firedAt : null,
     remake: typeof r.remakeOf === 'string' && !!r.remakeOf,
+    // How long it takes to make (seconds), so a table's or an order's plates can be timed to finish together.
+    makeSeconds: Number(r.makeSeconds) > 0 ? Math.round(Number(r.makeSeconds)) : null,
   };
 }
 
