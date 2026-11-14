@@ -561,7 +561,9 @@ export const EditProductDialog: React.FC<{
           ...data,
           costPerUnit,
           batches: updatedBatches,
-          supplierUrl: data.purchaseLink
+          supplierUrl: data.purchaseLink,
+          // A cost changed here is the business's own, no longer a starter menu's typical price (lib/food-starters).
+          ...((product as any).typicalCost === true && Math.abs((Number(costPerUnit) || 0) - (Number(product.costPerUnit) || 0)) > 0.0001 ? { typicalCost: false } : {}),
       }));
       if (ok !== false) onOpenChange(false);
     } finally { setSaving(false); }

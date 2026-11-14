@@ -1,6 +1,7 @@
 // /api/getting-started — SET UP YOUR BUSINESS (settings/setup, steps in lib/setup-guide). Managers only.
 //   guide           → what the guide needs to know: services on the booking page, starter services still to price and
-//                     team size, plus the booking link and starter menus
+//                     team size, plus the booking link and starter menus; for a food business (lib/food-setup) its menu
+//                     items on the menu and still to price, how it set up, and its order-ahead page
 //   starter { menu } → adds a starter menu (lib/starter-menus): hidden, no prices, until the business checks them
 //   fresh           → "I'm starting fresh": hides the moving-in card (the dashboard then shows how far setup has got)
 //   page-seen       → they've opened their booking page from the setup page
@@ -11,7 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { STARTER_MENUS, suggestMenu } from '@/lib/starter-menus';
-import { GUIDE_STEPS } from '@/lib/setup-guide';
+import { ALL_GUIDE_STEP_IDS } from '@/lib/setup-guide';
+import { foodAnswersOf, isFoodBusiness, kindLabel } from '@/lib/food-setup';
 import { FieldValue } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
       return j({ ok: true });
     }
     if (!['done', 'skipped', 'undo'].includes(as)) return j({ ok: false, error: 'Mark it done, skipped or not done.' }, 400);
-    if (!GUIDE_STEPS.some((x) => x.id === step)) return j({ ok: false, error: 'Unknown step.' }, 400);
+    if (!ALL_GUIDE_STEP_IDS.has(step)) return j({ ok: false, error: 'Unknown step.' }, 400);
     const patch: any = as === 'undo' ? { done: { [step]: FieldValue.delete() }, skipped: { [step]: FieldValue.delete() } }
       : as === 'done' ? { done: { [step]: now }, skipped: { [step]: FieldValue.delete() } } : { skipped: { [step]: now } };
     await db.doc(T).set({ setupGuide: patch }, { merge: true });
@@ -65,7 +67,16 @@ export async function POST(req: NextRequest) {
     { key: 'services', done: live > 0, note: live ? `${live} on your booking page${toPrice ? ` · ${toPrice} still need a price` : ''}` : toPrice ? `${toPrice} ready for your prices` : null },
     { key: 'hours', done: hours }, { key: 'team', done: team > 1, note: team > 1 ? `${team} people` : null }, { key: 'payments', done: pays },
     { key: 'page', done: page }, { key: 'clients', done: (cl?.size || 0) > 0 } ];
-  if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice }, toPrice, suggest: suggestMenu(t), starterMenu: t.movingIn?.starterMenu || null,
+  // A food business: menu items on the menu with a price, and ones from the starter menu still waiting for one.
+  let menuLive = 0, menuToPrice = 0; const food = guide && isFoodBusiness(t);
+  if (food) {
+    const m = await db.collection(`${T}/inventory`).where('type', '==', 'refreshment').select('price', 'showInConcierge', 'archived', 'isActive', 'createdVia').limit(400).get();
+    for (const d of m.docs) { const x: any = d.data() || {}; if (x.archived === true || x.isActive === false) continue;
+      if (Number(x.price) > 0 && x.showInConcierge !== false) menuLive++; else if (x.createdVia === 'food-starter' && !(Number(x.price) > 0)) menuToPrice++; }
+  }
+  const fa = food ? foodAnswersOf(t) : null;
+  if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice, ...(food ? { menuLive, menuToPrice } : {}) }, toPrice,
+    food: food ? { set: !!fa, kind: fa?.kind || null, label: fa ? kindLabel(fa.kind) : null, ways: fa?.ways || [], orderPath: `/order/${encodeURIComponent(tenantId)}` } : null, suggest: suggestMenu(t), starterMenu: t.movingIn?.starterMenu || null,
     menus: STARTER_MENUS.map((m) => ({ id: m.id, label: m.label, count: m.services.length })), bookingPath: `/book/${encodeURIComponent(tenantId)}` });
   return j({ ok: true, steps, done: steps.filter((x) => x.done).length, fresh: !!t.movingIn?.fresh, suggest: suggestMenu(t), starterMenu: t.movingIn?.starterMenu || null,
     menus: STARTER_MENUS.map((m) => ({ id: m.id, label: m.label, count: m.services.length })), bookingPath: `/book/${encodeURIComponent(tenantId)}` });

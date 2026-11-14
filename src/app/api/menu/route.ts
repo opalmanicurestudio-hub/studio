@@ -343,6 +343,8 @@ export async function POST(req: NextRequest) {
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
       // The desk and a table's tab charge an item's Inventory price (lib/variants deskPrice): set to the menu's when the
       // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
+      // An item from a starter menu goes on the menu only once it has a price (it came in at none, lib/food-starters).
+      if (cur.createdVia === 'food-starter' && x.onMenu !== false && !(price > 0)) return { error: 'Give it a price first, then put it on the menu.', status: 400 };
       const deskToo = !(Number(cur.msrp) > 0) || Math.round(Number(cur.price) * 100) !== Math.round(price * 100);
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept,
         showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };

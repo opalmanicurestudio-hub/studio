@@ -124,6 +124,9 @@ export function QuickReceiveDialog({
           txn.update(ref, JSON.parse(JSON.stringify({
             batches: [...(item.batches || []), batch],
             costPerUnit: cost || (Number(item.costPerUnit) || 0),
+            // A delivery starts the count of a starter ingredient, and a cost typed in is the business's own.
+            ...(item.countStock === false ? { countStock: true } : {}),
+            ...(item.typicalCost === true && l.unitCost.trim() !== '' ? { typicalCost: false } : {}),
           })));
           applyStockDelta(firestore as Firestore, tenantId, {
             productId: l.productId,

@@ -6,6 +6,7 @@
 // first, so the line that can't wait doesn't.
 import { priceChoices, choicesText, itemSoldOut, type PickedChoice } from '@/lib/menu-choices';
 import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
+import { offeredOnMenu } from '@/lib/menu-stock';
 
 export type Channel = 'drive-thru' | 'counter' | 'kiosk' | 'ahead';
 export const CHANNELS: Channel[] = ['drive-thru', 'counter', 'kiosk', 'ahead'];
@@ -57,7 +58,8 @@ export const photoOf = (item: any): string | null => {
 
 /** One line, from the menu item itself (never a price from a screen). */
 export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string): { ok: true; line: OrderLine } | { ok: false; error: string } {
-  if (!item || item.type !== 'refreshment' || item.archived === true || item.isActive === false) return { ok: false, error: 'That isn’t on the menu.' };
+  // Off the menu (never priced yet, or taken off): not sold, even from a screen that still shows it.
+  if (!item || item.type !== 'refreshment' || item.archived === true || item.isActive === false || !offeredOnMenu(item)) return { ok: false, error: 'That isn’t on the menu.' };
   if (itemSoldOut(item)) return { ok: false, error: `${String(item.name || 'That')} is sold out right now.` };
   const q = Math.floor(Number(quantity));
   if (!Number.isFinite(q) || q < 1 || q > 20) return { ok: false, error: 'How many? Between 1 and 20.' };

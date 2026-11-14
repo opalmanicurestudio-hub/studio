@@ -54,7 +54,9 @@ export async function recordCount(db: any, tenantId: string, productId: string, 
     if (openGiven && (Number(openRaw) < 0 || (per > 0 && Number(openRaw) > per))) return { ok: false, error: `What’s left in the open one has to be between 0 and ${per || 'a full container'}.` };
     const openNow = openGiven ? Math.round(Number(openRaw) * 1000) / 1000 : openWas;
     // A count that matches is still a count: when, and by whom.
-    tx.update(ref, JSON.parse(JSON.stringify({ totalStock: next.totalStock, ...(next.batches ? { batches: next.batches } : {}), ...(openGiven ? { [pk as string]: openNow } : {}), lastCountedAt: new Date().toISOString(), lastCountedBy: actor.name })));
+    tx.update(ref, JSON.parse(JSON.stringify({ totalStock: next.totalStock, ...(next.batches ? { batches: next.batches } : {}), ...(openGiven ? { [pk as string]: openNow } : {}), lastCountedAt: new Date().toISOString(), lastCountedBy: actor.name,
+      // Counted now: from here it's counted, and runs out on the menu when it runs out (lib/menu-stock).
+      ...(item.countStock === false ? { countStock: true } : {}) })));
     const doseDelta = per > 0 ? Math.round(((n * per + openNow) - (Math.max(0, Number(item.totalStock) || 0) * per + openWas)) * 1000) / 1000 : 0;
     // A count that matches is still recorded for whole-unit products: it's where the history starts adding up from again.
     if (per > 0 && doseDelta === 0) return { ok: true, delta: next.delta, totalStock: n, changed: next.delta !== 0 };

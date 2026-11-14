@@ -4,11 +4,14 @@
 // steps that come with good choices already made (hours, how clients book, cancellations, messages, the shop's ways
 // and returns), when the owner has looked and pressed Next. The guide is finished when every step is done or put off;
 // it leaves Settings once every step is really done, or when the owner hides it (and it's always under Your business).
-// Progress is kept on the business (tenant.setupGuide). Pure.
+// Progress is kept on the business (tenant.setupGuide). A food business (lib/food-setup) has its own steps: its menu and
+// prices instead of services, how guests order, its tables, its kitchen screens and printers, and closing the night.
+// Pure.
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
+import { foodAnswersOf, isFoodBusiness } from '@/lib/food-setup';
 
 export interface GuideStepDef { id: string; title: string; meaning: string; href: string; module?: ModuleId; checked?: true }
-export interface GuideFacts { livePriced: number; teamCount: number; toPrice?: number }
+export interface GuideFacts { livePriced: number; teamCount: number; toPrice?: number; menuLive?: number; menuToPrice?: number }
 export interface GuideStep extends GuideStepDef { done: boolean; skipped: boolean; note?: string }
 
 export const GUIDE_STEPS: GuideStepDef[] = [
@@ -24,6 +27,22 @@ export const GUIDE_STEPS: GuideStepDef[] = [
   { id: 'team', title: 'Your team', meaning: 'Add the people clients book with. If you see clients yourself too, turn on your own hours on your card.', href: '/staff', checked: true },
 ];
 
+/** A food business's steps (lib/food-setup): the same details, hours, payments and team, with its menu in place of
+ *  services and the steps that run service. "ordering" shows when it takes orders ahead or at a drive-thru, "tables"
+ *  when it has table service. */
+const stepOf = (id: string) => GUIDE_STEPS.find((s) => s.id === id)!;
+export const FOOD_GUIDE_STEPS: GuideStepDef[] = [
+  stepOf('details'), stepOf('hours'),
+  { id: 'menu', title: 'Your menu and prices', meaning: 'What you sell, what goes into each, and its price', href: '/menu', checked: true },
+  stepOf('payments'),
+  { id: 'ordering', title: 'Ordering ahead', meaning: 'Guests order and pay on their phone, then pick up', href: '/menu#order-ahead', module: 'hospitality' },
+  { id: 'tables', title: 'Your tables', meaning: 'The floor plan the host stand seats from', href: '/settings/hosting', module: 'hospitality' },
+  { id: 'kitchen', title: 'Kitchen screens and printers', meaning: 'A screen or a printer at each station, so orders reach them', href: '/settings/printers', module: 'hospitality' },
+  { id: 'closing', title: 'Closing the night', meaning: 'Your closing checklist and fridge temperatures', href: '/settings/closing', module: 'hospitality' },
+  stepOf('team'),
+];
+export const ALL_GUIDE_STEP_IDS = new Set([...GUIDE_STEPS, ...FOOD_GUIDE_STEPS].map((s) => s.id));
+
 /** What a checked step needs to be done, read from the business and a few counts. */
 function isReallyDone(id: string, t: any, f: GuideFacts): boolean {
   switch (id) {
@@ -31,6 +50,7 @@ function isReallyDone(id: string, t: any, f: GuideFacts): boolean {
     case 'services': return f.livePriced > 0;
     case 'payments': return !!(t?.stripeAccountId && t?.stripeChargesEnabled !== false);
     case 'team': return f.teamCount > 1;
+    case 'menu': return (f.menuLive || 0) > 0;
     default: return false;
   }
 }
@@ -39,6 +59,7 @@ function noteFor(id: string, t: any, f: GuideFacts): string | undefined {
   if (id === 'details') { const miss = [!t?.phone && 'phone', !t?.address && 'address'].filter(Boolean) as string[]; return miss.length ? `Add your ${miss.join(' and ')}` : !t?.logoUrl ? 'Add a logo if you have one' : undefined; }
   if (id === 'services') { const toPrice = f.toPrice || 0; if (f.livePriced) return `${f.livePriced} on your booking page${toPrice ? ` · ${toPrice} still need a price` : ''}`; if (toPrice) return `${toPrice} ready for your prices`; }
   if (id === 'team' && f.teamCount > 1) return `${f.teamCount} people`;
+  if (id === 'menu') { const live = f.menuLive || 0, toPrice = f.menuToPrice || 0; if (live) return `${live} on your menu${toPrice ? `, ${toPrice} still need a price` : ''}`; if (toPrice) return `${toPrice} ready for your prices`; }
   return undefined;
 }
 
@@ -54,7 +75,14 @@ export function teamStepShown(t: any, f?: GuideFacts): boolean {
 /** The steps this business sees, in order, each done, skipped or still to do. */
 export function guideSteps(t: any, f: GuideFacts): GuideStep[] {
   const g = t?.setupGuide || {}; const done = g.done || {}; const skipped = g.skipped || {};
-  return GUIDE_STEPS.filter((s) => (s.id === 'team' ? teamStepShown(t, f) : !s.module || moduleEnabled(t, s.module))).map((s) => {
+  // How guests order, when the business has said (food setup); before that, ordering ahead and tables both show.
+  const food = isFoodBusiness(t); const ways = foodAnswersOf(t)?.ways || null;
+  const shown = (s: GuideStepDef) => s.id === 'team' ? teamStepShown(t, f)
+    : s.module && !moduleEnabled(t, s.module) ? false
+    : s.id === 'ordering' ? !ways || ways.includes('ahead') || ways.includes('drivethru')
+    : s.id === 'tables' ? !ways || ways.includes('table')
+    : true;
+  return (food ? FOOD_GUIDE_STEPS : GUIDE_STEPS).filter(shown).map((s) => {
     const really = s.checked ? isReallyDone(s.id, t, f) : !!done[s.id];
     return { ...s, done: really, skipped: !really && !!skipped[s.id], note: noteFor(s.id, t, f) };
   });

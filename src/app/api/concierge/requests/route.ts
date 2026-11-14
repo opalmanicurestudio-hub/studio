@@ -62,6 +62,7 @@ import { stockNow } from '@/lib/menu-server';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
 import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
+import { offeredOnMenu } from '@/lib/menu-stock';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -76,7 +77,7 @@ const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0
 const clean = (v: any, max: number) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
 /** On the station menu: a lounge item the business shows there, not put away or switched off. */
-const onMenu = (i: any) => !!i && i.type === 'refreshment' && i.showInConcierge !== false && i.archived !== true && i.isActive !== false;
+const onMenu = (i: any) => !!i && i.type === 'refreshment' && offeredOnMenu(i) && i.archived !== true && i.isActive !== false;
 const KQ = (tenantId: string, orderKey: string) => `kq_${createHash('sha256').update(`${tenantId}|${orderKey}`).digest('hex').slice(0, 24)}`;
 
 async function findClientByPhone(db: FirebaseFirestore.Firestore, tenantId: string, phone: string) {

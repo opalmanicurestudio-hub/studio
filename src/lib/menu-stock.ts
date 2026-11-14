@@ -28,10 +28,15 @@ export function recipeOf(item: any, itemId?: string): RecipeLine[] {
   return out;
 }
 export const hasRecipe = (item: any, itemId?: string) => recipeOf(item, itemId).length > 0;
+/** Offered to guests and sold: on the menu, and never a starter menu item still at no price (lib/food-starters), however
+ *  it was switched on. */
+export const offeredOnMenu = (item: any) => !!item && item.showInConcierge !== false && !(item.createdVia === 'food-starter' && !(Number(item.price) > 0));
 
 /** How much of an ingredient is left, in what a recipe uses of it (each, uses, ml...); null when it can't be counted. */
 export function ingredientLeft(part: any): number | null {
   if (!part || part.archived === true || part.status === 'archived') return null;
+  // Not counted yet (a starter ingredient before its first count or delivery, lib/food-starters): never holds an item back.
+  if (part.countStock === false) return null;
   // A menu item made from its own recipe has no count of its own to go by.
   if (part.type === 'refreshment' && recipeOf(part).length) return null;
   return usesLeft(part);

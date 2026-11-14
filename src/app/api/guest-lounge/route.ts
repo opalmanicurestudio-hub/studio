@@ -42,7 +42,7 @@ import { closedReplyFor } from '@/lib/tenant-open-server';
 import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
 import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
-import { stockOf, recipeOf } from '@/lib/menu-stock';
+import { offeredOnMenu, stockOf, recipeOf } from '@/lib/menu-stock';
 import { stockNow } from '@/lib/menu-server';
 
 const MAX_AMENITIES = 60;
@@ -276,7 +276,7 @@ export async function GET(req: NextRequest) {
     const amenities = invSnap.docs
       .map((d: any) => ({ id: d.id, ...(d.data() as any), _stock: stockOf(d.data() || {}, d.id, stockById) }))
       .filter((i: any) => i.type === 'refreshment')
-      .filter((i: any) => i.showInConcierge !== false)
+      .filter((i: any) => offeredOnMenu(i))
       .filter((i: any) => i._stock.inStock)
       .filter((i: any) => orderable(i))   // sold out tonight (the kitchen's one tap), or a choice they must make with nothing left: off the list until it's back
       .filter((i: any) => !i.isMembersOnly || isMember)
@@ -650,7 +650,7 @@ export async function POST(req: NextRequest) {
     const apt = aptSnap.exists ? (aptSnap.data() as any) : null;
     const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : null;
 
-    if (item.type !== 'refreshment' || item.showInConcierge === false) {
+    if (item.type !== 'refreshment' || !offeredOnMenu(item)) {
       return NextResponse.json({ ok: false, error: 'That item is not available to order.' }, { status: 403 });
     }
     if (itemSoldOut(item)) return NextResponse.json({ ok: false, error: 'That’s sold out right now, sorry.' }, { status: 409 });

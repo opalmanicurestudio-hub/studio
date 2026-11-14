@@ -15,6 +15,7 @@ import { CopyButton, safeDate } from '@/components/visit/VisitStages';
 import { wallDate } from '@/lib/tenant-time';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { defaultPicks, orderable, priceChoices, type Picks } from '@/lib/menu-choices';
+import { offeredOnMenu } from '@/lib/menu-stock';
 
 // ── What the lounge offers, as /api/guest-lounge hands it back ──────────────
 // Deliberately narrower than an inventory item: a guest never receives cost, supplier, margin or stock counts, only
@@ -114,7 +115,7 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
   // The menu: the server's first (the only one a guest can get), the inventory on a studio device.
   const amenities: LoungeAmenity[] = React.useMemo(() => {
     if (Array.isArray(lounge?.amenities) && lounge.amenities.length) return lounge.amenities;
-    return (inventory || []).filter((i: any) => i.type === 'refreshment' && i.showInConcierge !== false && num(i.totalStock) > 0 && orderable(i) && (!i.isMembersOnly || isMember)).map(toAmenity);
+    return (inventory || []).filter((i: any) => i.type === 'refreshment' && offeredOnMenu(i) && num(i.totalStock) > 0 && orderable(i) && (!i.isMembersOnly || isMember)).map(toAmenity);
   }, [lounge, inventory, isMember]);
   // Grouped: members' things first, then comforts, then the rest by category. Labels only when there's more than one.
   const groups = React.useMemo(() => {

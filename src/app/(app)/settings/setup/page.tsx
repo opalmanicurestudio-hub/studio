@@ -2,7 +2,8 @@
 // src/app/(app)/settings/setup/page.tsx — SET UP YOUR BUSINESS. The steps a new owner goes through, chosen from the
 // tools the business uses (lib/setup-guide), each opening the real page with a Skip / Next bar at the bottom. Beside
 // them: the booking link (copy, QR code) and a starter menu of common services for the kind of business. This page
-// replaces Getting started.
+// replaces Getting started. A food business (lib/food-setup) sees "Set up for food and drink" instead of the services
+// menu (settings/setup/food), its order-ahead page when it takes orders ahead, and the booking link only with tables.
 import * as React from 'react';
 import Link from 'next/link';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -56,6 +57,9 @@ export default function SetupPage() {
   const forTenant = React.useRef(tenantId); forTenant.current = tenantId;
   const showQr = async () => { if (qr) { setQr(null); return; } const was = tenantId; try { const QR: any = await import('qrcode'); const url = await QR.toDataURL(link, { margin: 1, width: 360 }); if (forTenant.current === was) setQr(url); } catch { setQr(null); } };
   const p = g.progress;
+  const food = g.data?.food || null;
+  const showBooking = !food || food.ways.includes('table');
+  const orderLink = food && food.ways.includes('ahead') && typeof window !== 'undefined' ? `${window.location.origin}${food.orderPath}` : '';
 
   return (
     <div className="cf-settings min-h-full">
@@ -78,7 +82,16 @@ export default function SetupPage() {
               {hideErr && <p role="alert" className="text-[13px] font-semibold" style={{ color: C.warn }}>{hideErr}</p>}
             </div>
             <div className="min-w-0 space-y-4">
-              {g.data && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
+              {food && <div className="space-y-3 rounded-2xl p-5" style={{ background: food.set ? C.soft : C.paper, boxShadow: food.set ? undefined : `inset 0 0 0 2px ${C.ink}` }}>
+                <p className="text-[15px]"><b>{food.set ? `Set up as ${String(food.label || '').toLowerCase()}` : 'Set up for food and drink'}.</b> {food.set ? 'Change what you run, how guests order or your stations, or add the starter menu.' : 'Three questions, then a plan with your stations and a starter menu with recipes and costs.'}</p>
+                <Link href="/settings/setup/food" className="inline-flex h-11 w-full items-center justify-center rounded-full text-[14.5px] font-semibold" style={food.set ? { background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` } : { background: C.ink, color: C.paper }}>{food.set ? 'Change your setup' : 'Start'}</Link>
+              </div>}
+              {orderLink && <div className="space-y-2 rounded-2xl p-5" style={{ background: C.soft }}>
+                <p className="text-[13px] font-semibold" style={{ color: C.muted }}>Your order-ahead page</p>
+                <p className="break-all text-[16px] font-semibold">{orderLink.replace(/^https?:\/\//, '')}</p>
+                <p className="text-[13px]" style={{ color: C.muted }}>Guests order and pay here once ordering ahead is on.</p>
+              </div>}
+              {g.data && showBooking && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
                 <p className="text-[13px] font-semibold" style={{ color: C.muted }}>Your booking link</p>
                 <p className="break-all text-[16px] font-semibold">{link.replace(/^https?:\/\//, '')}</p>
                 <div className="flex flex-wrap gap-2">
@@ -88,7 +101,7 @@ export default function SetupPage() {
                 </div>
                 {qr && <div className="space-y-2"><img src={qr} alt="QR code for your booking link" className="mx-auto h-44 w-44" /><a href={qr} download="booking-qr.png" className="flex min-h-11 items-center justify-center text-[13px] font-semibold underline underline-offset-4">Download the QR code</a></div>}
               </div>}
-              {g.data && g.data.facts.livePriced === 0 && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
+              {g.data && !food && g.data.facts.livePriced === 0 && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
                 <p className="text-[14px]"><b>Start from a menu.</b> Common services for your kind of business, with typical lengths. Prices are left to you: each one goes on your booking page when you give it a price.</p>
                 <select value={menu} onChange={(e) => setMenu(e.target.value)} aria-label="Starter menu" className="h-11 w-full rounded-xl px-3 text-[14.5px]" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
                   {!menu && <option value="" disabled>Choose a starter menu</option>}
@@ -96,6 +109,7 @@ export default function SetupPage() {
                 </select>
                 <button type="button" disabled={busy || !menu} onClick={addMenu} className="h-11 w-full rounded-full text-[14.5px] font-semibold disabled:opacity-50" style={{ background: C.ink, color: C.paper }}>{busy ? 'Adding…' : g.data.starterMenu ? 'Add any that are missing' : 'Add these services'}</button>
                 {msg && <p className="text-[13.5px] font-semibold" style={{ color: C.ok }}>{msg}{msg.includes('added') && <> <Link href="/services" className="underline underline-offset-4">Open services</Link></>}</p>}
+                <p className="text-[13px]" style={{ color: C.muted }}>Food and drink instead? <Link href="/settings/setup/food" className="inline-flex min-h-11 items-center underline underline-offset-4">Set up for food</Link></p>
               </div>}
             </div>
           </div>

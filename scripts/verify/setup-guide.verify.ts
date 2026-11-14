@@ -94,13 +94,13 @@ ok(page.includes("if (!ok) setHideErr('That didn’t save. Try again.')") && pag
 
 // Kept on the business
 const api = src('src/app/api/getting-started/route.ts');
-ok(api.includes("requireRole(req, tenantId, 'manager')") && api.includes("GUIDE_STEPS.some((x) => x.id === step)") && api.includes("['done', 'skipped', 'undo'].includes(as)"), 'only managers can mark a step, and only a real step');
+ok(api.includes("requireRole(req, tenantId, 'manager')") && api.includes("ALL_GUIDE_STEP_IDS.has(step)") && api.includes("['done', 'skipped', 'undo'].includes(as)"), 'only managers can mark a step, and only a real step');
 ok(api.includes('FieldValue.delete()') && api.includes('{ setupGuide: patch }, { merge: true }'), 'marking one step never touches the others');
 ok(api.includes("['hide', 'show', 'finished'].includes(as)") && api.includes("{ finishedAt: now }") && api.includes("as === 'show' ? { hidden: FieldValue.delete(), finishedAt: FieldValue.delete() }"), 'hiding, showing and finishing are kept on the business, and Show brings back a finished guide too');
 ok(api.includes("guide ? null : db.collection(`${T}/clients`)") && api.includes("guide ? null : db.collection(`${T}/scheduleProfiles`)"), 'the guide reads only what its counts need');
 ok(api.includes("String(b.tenantId || '').trim().slice(0, 120)"), 'the business id is read the same way the sign-in check reads it');
 ok(api.includes("x.isActive !== false && x.type !== 'addon'") && api.includes(".select('status', 'isPrivate', 'price', 'type', 'isActive', 'createdVia')"), 'services count only what the booking page shows, reading only the fields needed');
-ok(api.includes("const guide = action === 'guide';") && api.includes('if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice }'), 'the guide gets the counts it needs from the server');
+ok(api.includes("const guide = action === 'guide';") && api.includes('if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice,'), 'the guide gets the counts it needs from the server');
 
 // Old links
 const moving = src('src/components/import/MovingInCard.tsx');

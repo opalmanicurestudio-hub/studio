@@ -45,6 +45,8 @@ export function makeDb() {
   const q = (c: string, f: [string, string, any][] = [], lim = 1e9, after = '', byId = false): any => ({
     where: (k: string, op: string, v: any) => q(c, [...f, [k, op, v]], lim, after, byId), limit: (l: number) => q(c, f, l, after, byId),
     orderBy: (k?: any) => q(c, f, lim, after, byId || k === '__name__'),
+    // (A field mask, as Firestore's select(): every field comes back here, which is all a test needs.)
+    select: (..._fields: string[]) => q(c, f, lim, after, byId),
     startAfter: (x: any) => q(c, f, lim, typeof x === 'string' ? x : String(x?.id || ''), true),
     // (An aggregate count, as Firestore's count(): the documents the query would return.)
     count: () => ({ get: async () => { const r = await q(c, f, lim, after, byId).get(); return { data: () => ({ count: r.size }) }; } }),

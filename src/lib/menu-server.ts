@@ -6,8 +6,8 @@ import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/li
 import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
-import { stockOf, ingredientIds, recipeOf, type MenuStock } from '@/lib/menu-stock';
-import { allergensKnown, itemAllergens, type AllergenKey } from '@/lib/allergens';
+import { offeredOnMenu, stockOf, ingredientIds, recipeOf, type MenuStock } from '@/lib/menu-stock';
+import { allergensKnown, cleanKeys, itemAllergens, type AllergenKey } from '@/lib/allergens';
 import { dailyCountOf } from '@/lib/dish-counts';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -28,7 +28,11 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   station: string | null; course: number | null;
   /** What it contains of the major allergens (lib/allergens; allergensSet false: nobody has said yet, which isn't the
    *  same as none), and how many it starts each night with (lib/dish-counts; null: not counted). */
-  allergens: AllergenKey[]; allergensSet: boolean; dailyCount: number | null };
+  allergens: AllergenKey[]; allergensSet: boolean; dailyCount: number | null;
+  /** From a starter menu (lib/food-starters): what it likely contains, until someone says (never used as what it does
+   *  contain), ingredients the business has that its recipe couldn't use as they're measured, and whether it still
+   *  needs its first price. */
+  allergensLikely: AllergenKey[]; recipeGaps: string[]; starter: boolean };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -40,13 +44,15 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
   return {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
-    choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: i.showInConcierge !== false, membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
+    choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
     short: stock.short, canMake: stock.canMake, byRecipe: stock.byRecipe,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
     featured: i.boardFeatured === true, badge: i.boardBadge === 'new' || i.boardBadge === 'limited' ? i.boardBadge : null,
     calories: Number.isFinite(Number(i.calories)) && i.calories !== null && i.calories !== '' && Number(i.calories) >= 0 && Number(i.calories) <= 5000 ? Math.round(Number(i.calories)) : null,
     station: words(i.station, 24) || null, course: Number.isInteger(Number(i.course)) && i.course !== null && i.course !== '' && Number(i.course) >= 0 && Number(i.course) <= 9 ? Number(i.course) : null,
     allergens: itemAllergens(i), allergensSet: allergensKnown(i), dailyCount: dailyCountOf(i),
+    allergensLikely: allergensKnown(i) ? [] : cleanKeys(Array.isArray(i.allergensLikely) ? i.allergensLikely : []),
+    recipeGaps: (Array.isArray(i.recipeGaps) ? i.recipeGaps : []).map((g: unknown) => words(g, 60)).filter(Boolean).slice(0, 10), starter: i.createdVia === 'food-starter',
   };
 }
 

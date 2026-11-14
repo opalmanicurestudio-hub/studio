@@ -128,7 +128,7 @@ export default function MenuPage() {
           </div>
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>
-        {canEdit && ahead && <OrderAheadCard start={ahead} call={call} />}
+        {canEdit && ahead && <div id="order-ahead" className="scroll-mt-6"><OrderAheadCard start={ahead} call={call} /></div>}
         {canEdit && service && <div id="table-service" className="scroll-mt-6"><TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && targets && (
           <section aria-labelledby="times-title" className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
@@ -194,7 +194,8 @@ export default function MenuPage() {
                       <button type="button" onClick={() => setEditing(m)} className={`min-w-0 flex-1 rounded-xl py-1 text-left ${RING}`} aria-label={`${m.name}: ${canEdit ? 'edit' : 'see'} its price and choices`}>
                         <span className="flex flex-wrap items-baseline gap-x-2">
                           <span className="text-[16px] font-semibold" style={{ opacity: m.soldOut ? 0.5 : 1 }}>{m.name}</span>
-                          <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? `from ${money(m.startPrice)}` : money(m.price)}</span>
+                          {!m.from && !(m.price > 0) ? <span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Needs a price</span>
+                            : <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? `from ${money(m.startPrice)}` : money(m.price)}</span>}
                           {!m.onMenu && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Not on the menu</span>}
                           {m.membersOnly && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Members</span>}
                           {!m.inStock && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{outWords(m)}</span>}
@@ -391,13 +392,18 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
             <div className="flex flex-wrap gap-2">{ALLERGENS.map((a) => { const on = !!allergens?.includes(a.key);
               return <button key={a.key} type="button" aria-pressed={on} onClick={() => { const cur = allergens || []; setAllergens(cleanKeys(on ? cur.filter((x) => x !== a.key) : [...cur, a.key])); }} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{a.label}</button>; })}
               <button type="button" aria-pressed={allergens !== null && allergens.length === 0} onClick={() => setAllergens([])} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={allergens !== null && allergens.length === 0 ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>None of these</button></div>
-            {allergens === null && <p className="text-[13px] font-semibold" style={{ color: AMBER }}>Not said yet.</p>}
+            {allergens === null && (item.allergensLikely || []).length > 0
+              ? <div className="flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2" style={{ background: AMBER_TINT }}>
+                  <p className="min-w-0 flex-1 text-[13.5px] font-semibold" style={{ color: AMBER }}>Likely contains {item.allergensLikely.map((k) => (ALLERGENS.find((a) => a.key === k)?.label || k).toLowerCase()).join(', ')}, from the starter menu. Anything not listed may still be in it: check your own products’ labels, then change these to match.</p>
+                  <button type="button" onClick={() => setAllergens(cleanKeys(item.allergensLikely))} className={`min-h-[44px] rounded-full bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>Start from these</button></div>
+              : allergens === null && <p className="text-[13px] font-semibold" style={{ color: AMBER }}>Not said yet.</p>}
           </fieldset>
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">Choices</h3>
             <ChoicesEditor groups={groups} onChange={setGroups} />
           </div>
           <RecipeEditor lines={lines} onChange={setLines} stock={stock} item={item} />
+          {(item.recipeGaps || []).length > 0 && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Add {item.recipeGaps.join(', ')} to its recipe yourself: {item.recipeGaps.length === 1 ? 'yours is' : 'yours are'} measured differently from the starter recipe.</p>}
           <div className="space-y-3">
             <h3 className="text-[16px] font-semibold">Kitchen timing</h3>
             {service && <>
@@ -440,6 +446,7 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
           </div>
           <div className="space-y-2">
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={onMenu} onChange={(e) => setOnMenu(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />On the menu guests see</label>
+            {item.starter && !item.onMenu && <p className="text-[13px]" style={{ color: MUTED }}>From your starter menu: give it a price, then tick this to put it on the menu.</p>}
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Members only</label>
           </div>
           <fieldset className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>

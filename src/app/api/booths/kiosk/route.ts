@@ -36,6 +36,7 @@ import { inPersonFromDb } from '@/lib/business-shape';
 import { onAccount, renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { reservationHolds, stationHolds } from '@/lib/space-clash';
 import { itemSoldOut, priceChoices } from '@/lib/menu-choices';
+import { offeredOnMenu } from '@/lib/menu-stock';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -391,7 +392,7 @@ export async function POST(req: NextRequest) {
       }
       const iSnap = await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get();
       const item: any = iSnap.exists ? iSnap.data() : null;
-      if (!item || item.type !== 'refreshment' || item.showInConcierge === false || !(Number(item.totalStock) > 0)) {
+      if (!item || item.type !== 'refreshment' || !offeredOnMenu(item) || !(Number(item.totalStock) > 0)) {
         return NextResponse.json({ ok: false, error: 'That isn’t on the menu right now.' }, { status: 404 });
       }
       if (itemSoldOut(item)) return NextResponse.json({ ok: false, error: 'That’s sold out right now, sorry.' }, { status: 409 });
