@@ -176,6 +176,12 @@ export async function POST(req: NextRequest) {
       for (const d of R.depositsUsed) if (d?.id && Number(d.cents) > 0) batch.set(db.doc(`${T}/depositCredits/${String(d.id)}`), { status: 'available', consumedAt: null, usedCents: FieldValue.increment(-Math.round(Number(d.cents))), restoredByVoid: receiptId }, { merge: true });
     } else if (R.depositCreditId) batch.set(db.doc(`${T}/depositCredits/${R.depositCreditId}`), { status: 'available', consumedAt: null, appointmentId: null, restoredByVoid: receiptId }, { merge: true });
     // A membership perk given back (a package session is above).
+    // A sale counted at a pop-up table (lib/popup): what it sold goes back into what the table has left.
+    if (R.popup?.id && /^[A-Za-z0-9_-]{1,120}$/.test(String(R.popup.id))) {
+      const back = Object.entries(R.popup.items || {}).filter(([pid, q]) => /^[A-Za-z0-9_-]{1,120}$/.test(pid) && num(q) > 0);
+      // (Only to a pop-up that's still on file: never one made up from the count alone.)
+      if (back.length && (await db.doc(`${T}/popups/${String(R.popup.id)}`).get()).exists) batch.set(db.doc(`${T}/popups/${String(R.popup.id)}`), { soldAtTable: Object.fromEntries(back.map(([pid, q]) => [pid, FieldValue.increment(-num(q))])), updatedAt: now }, { merge: true });
+    }
     if (R.redeemed?.clientId && R.redeemed.type !== 'package') batch.set(db.doc(`${T}/clients/${R.redeemed.clientId}`), { subscription: { perkUsage: { [String(R.redeemed.itemId)]: FieldValue.increment(-1) } } }, { merge: true });
     // This month's team / family discount use given back.
     if (R.groupDiscount?.clientId && num(R.groupDiscount.amount) > 0) { const gc: any = ((await db.doc(`${T}/clients/${R.groupDiscount.clientId}`).get()).data() as any) || {};

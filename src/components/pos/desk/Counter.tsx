@@ -98,7 +98,7 @@ export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) =
           <div className="mb-3 flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">Add to the sale</p>
             <Btn quiet onClick={() => { e.setScanMode?.('retail'); e.setIsCameraScanOpen?.(true); }}>Scan with camera</Btn></div>
           <PosCatalog services={e.services || []} inventory={retailOn ? e.inventory || [] : []} memberships={membershipsOn ? e.memberships || [] : []} packages={membershipsOn ? e.packages || [] : []}
-            cart={e.checkoutHubProps?.cart || []} onAdd={(i: any, ns?: any) => e.addProductChecked(i, 1, ns)} onScan={(c: string) => e.handlePosScan(c)} tenantId={retailOn ? e.selectedTenant?.id || null : null} />
+            cart={e.checkoutHubProps?.cart || []} onAdd={(i: any, ns?: any) => e.addProductChecked(i, 1, ns)} onScan={(c: string) => e.handlePosScan(c)} tenantId={retailOn ? e.selectedTenant?.id || null : null} popupLeft={e.popupLeft || null} />
         </section>}
       </div>
       <section className="rounded-3xl p-4 lg:sticky lg:top-2 lg:self-start" style={{ background: 'var(--card)' }} aria-label="Checkout">

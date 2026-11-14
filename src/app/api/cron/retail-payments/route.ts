@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { forEachTenant } from '@/lib/cron-fanout';
 import { confirmRetailPayment } from '@/lib/retail-payment-check';
-import { expireSwapOffers } from '@/lib/retail-swap-server';
+import { expireSwapOffers, sweepUntoldChanges } from '@/lib/retail-swap-server';
 import { sendRestockAlerts } from '@/lib/restock-alerts';
 import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
     if (tenant.stripeChargesEnabled !== false) { try { const w = await ensureWalletDomains(db, t.id, tenant, null); counts.walletAddressesChecked = (counts.walletAddressesChecked || 0) + w.checked; } catch { /* next run */ } }
     // Swap questions nobody answered in time become refunds, so the order isn't held up.
     try { counts.swapsRefunded += await expireSwapOffers(db, t.id); } catch { /* next run */ }
+    // Orders set aside after something in them was found out: the customer is told, and refunded, in time (lib/pack-changes).
+    try { counts.changesTold = (counts.changesTold || 0) + await sweepUntoldChanges(db, t.id, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')); } catch { /* next run */ }
     // Pickup reminders for ready orders nobody has collected (each sent once).
     try { counts.pickupReminders += await sweepUncollected(db, t.id, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')); } catch { /* next run */ }
     // Downloads bought as gifts whose day has come (each sent once).

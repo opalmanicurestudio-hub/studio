@@ -5,7 +5,7 @@
 // on the order page or the boards can show a step that didn't happen. Screens call this through lib/fulfil-client.
 //   POST { tenantId, action, ...args } → what the step answers ({ ok, message, … })
 import { autoRefund } from '@/lib/auto-refund';
-import { packChanges } from '@/lib/pack-changes';
+import { EVERY_ITEM_OUT, changesKey, everyItemOut, packChanges } from '@/lib/pack-changes';
 import { canChoose, whenInSentence } from '@/lib/delivery-retry';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -152,7 +152,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         if (o.method === 'curbside') {
           if (r.notifyReady) F.notifyCurbside(tenantId, id, 'ready');
           // Already waiting outside, so there's no ready text: what changed while it was packed goes on its own.
-          else if (r.autoArrived && packChanges(o).length) sendMessage('order_changes', { orderId: id });
+          else if (r.autoArrived && packChanges(o).length) sendMessage('order_changes', { orderId: id, key: changesKey(packChanges(o)) });
         }
         // A delivery isn't collected: its customer hears when it's on the way, not that it's ready to pick up.
         else if (o.method !== 'ship' && o.method !== 'delivery') sendMessage('order_ready', { orderId: id });
@@ -208,6 +208,21 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'reopenLine': { const m = need1(orderId, 'order') || need1(lineId, 'item'); if (m) return m; out = await F.reopenShortedLine(db, tenantId, orderId, lineId, actor); break; }
       case 'markPacked': {
         const m = need1(orderId, 'order'); if (m) return m; const rules = await scanSettings(db, tenantId);
+        // EVERY ITEM WAS OUT (lib/pack-changes): nothing to pack, so it isn't put on a shelf or labelled. It's closed
+        // instead: everything they paid comes back (lib/retail-fulfill cancelOrder, the delivery or shipping too), and one
+        // message says so. Not when an order made from it (something sent later) is still to come.
+        const pre: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+        if (['picking', 'paid'].includes(String(pre.stage)) && everyItemOut(pre)
+          && (await db.collection(`tenants/${tenantId}/retailOrders`).where('parentOrderId', '==', orderId).limit(1).get()).empty) {
+          // (Checked again as it's closed: a line put back a moment ago means it's packed as usual below.)
+          const closedOut = await F.cancelOrder(db, tenantId, orderId, actor, EVERY_ITEM_OUT, { onlyIfEveryItemOut: true });
+          if (closedOut?.ok) {
+            sendMessage('order_changes', { orderId, key: 'closed' });
+            await autoRefund(db, tenantId, orderId, ctx()?.base || '').catch(() => null);
+            out = { ok: true, closed: true, message: 'Every item was out, so the order is closed and everything they paid goes back. They’re told. Nothing goes on the shelf.' };
+            break;
+          }
+        }
         out = await F.markPacked(db, tenantId, orderId, actor, { requirePackScan: rules.secondScan, requireScan: rules.required, spotEvery: rules.spotEvery, ...(b.bags != null ? { bags: clampBags(b.bags) } : {}) });
         // ONE REFUND, ONE MESSAGE (lib/pack-changes): what's owed back for items that were out or swapped for less goes
         // back now in one refund (within the shop's automatic amount, lib/auto-refund; a bigger one waits on Problems),
@@ -217,7 +232,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
           const po: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
           // Queued first, so it goes (and is tried again) even if the refund call below runs long; it's sent after this
           // step answers, by when the refund has gone, so it says so.
-          if ((po.method === 'ship' || po.method === 'delivery') && packChanges(po).length) sendMessage('order_changes', { orderId });
+          if ((po.method === 'ship' || po.method === 'delivery') && packChanges(po).length) sendMessage('order_changes', { orderId, key: changesKey(packChanges(po)) });
           if ((Number(po.pendingRefundCents) || 0) > 0) await autoRefund(db, tenantId, orderId, ctx()?.base || '').catch(() => null);
         }
         break;

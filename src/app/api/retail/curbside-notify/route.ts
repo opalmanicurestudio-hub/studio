@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { changesNote } from '@/lib/pack-changes';
+import { changesNote, packChanges } from '@/lib/pack-changes';
+import { FieldValue } from 'firebase-admin/firestore';
 import { staffOrServer } from '@/lib/route-guard';
 import { sendTenantSms } from '@/lib/sms';
 import { tenantPrivate, withPrivate } from '@/lib/tenant-private';
@@ -143,7 +144,8 @@ export async function POST(req: NextRequest) {
     }
 
     // What changed while it was packed (lib/pack-changes), told once, here, with the ready text.
-    const changed = moment === 'ready' ? changesNote((await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {}).short : '';
+    const forChanges: any = moment === 'ready' ? (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {} : null;
+    const changed = forChanges ? changesNote(forChanges).short : '';
     const message = moment === 'ready'
       // Said plainly, because they may be reading it while driving.
       ? `${hi}your order ${num} is ready.${changed ? ` ${changed}` : ''} Please park out front and tap "I'm here" on your order link, or scan the sign at your parking spot.`
@@ -158,6 +160,8 @@ export async function POST(req: NextRequest) {
 
     // The text service didn't take it (and no email did instead): try again later (lib/order-outbox).
     if (!res.ok && !FINAL.test(String(res.error || ''))) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: String(res.error || 'not sent').slice(0, 160) }, { status: 503 }); }
+    // The changes it carried are told: not told again (api/retail/changes-notify, a retried one too).
+    if (res.ok && changed && forChanges) await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).update({ changesToldLines: FieldValue.arrayUnion(...packChanges(forChanges).map((c) => c.lineId).filter(Boolean)) }).catch(() => null);
     return NextResponse.json({ ok: true, sent: res.ok === true, why: res.ok ? undefined : res.error });
   } catch (err: any) {
     console.error('[curbside-notify] failed:', err?.message);

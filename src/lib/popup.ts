@@ -7,8 +7,9 @@
 // line ordered (paid, or being paid now).
 //   tenants/{t}/popups/{id}: { id, name, place, day, status: 'open'|'closed', lineOrders, items: [{ id, qty }],
 //     soldAtTable: { [productId]: n }, nextNumber, createdAt, updatedAt, closedAt? }
-//   One open pop-up a day: the register and the sign each know which one they're for. A sale returned later doesn't
-//   come back to the table's count; change how many came to put it back.
+//   One open pop-up a day: the register and the sign each know which one they're for, and the register shows what's left
+//   on each product's tile. A sale voided at the register goes back into the table's count (api/checkout/void); a
+//   return made later doesn't: change how many came to put it back.
 // Read and written only through the server (firestore.rules keeps it off the team's catch-all).
 export type PopupItem = { id: string; qty: number };
 export type Popup = {

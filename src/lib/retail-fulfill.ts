@@ -25,6 +25,7 @@ import { lineCounts, tappedLines, type Approval } from '@/lib/scan-rule';
 import { bagsToLoad, bagsToScan, bagsToShelve, clampBags, goesInBags, parseBagCode, parseSpot } from '@/lib/bag-tag';
 import { checkBagCode } from '@/lib/order-qr';
 import { pickForSpot, spotDue, spotLines, spotMistakes } from '@/lib/spot-check';
+import { everyItemOut } from '@/lib/pack-changes';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // The fulfillment steps. They run on the server (api/retail/fulfil, with the
@@ -716,6 +717,22 @@ export async function recordPackScan(
   }
 }
 
+/** A packer's batch is closed once no order in it is still being picked (packed, or closed), so it stops counting
+ *  against how many they may pack at once. */
+export async function closeBatchIfDone(fs: Firestore, tenantId: string, batchId: string): Promise<void> {
+  const bRef = doc(batchCol(fs, tenantId), batchId);
+  await runTransaction(fs, async (txn) => {
+    const bSnap = await txn.get(bRef);
+    if (!bSnap.exists() || bSnap.data().active !== true) return;
+    const b = bSnap.data() as FulfillmentBatch;
+    const snaps = await Promise.all(b.orderIds.map((id) => txn.get(doc(orderCol(fs, tenantId), id))));
+    const anyStillPicking = snaps.some((s) => s.exists() && (s.data() as RetailOrder).stage === 'picking');
+    if (!anyStillPicking) {
+      txn.update(bRef, { active: false, completedAt: new Date().toISOString(), releaseType: 'completed' });
+    }
+  });
+}
+
 export async function markPacked(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor,
   opts?: { requirePackScan?: boolean; requireScan?: boolean; bags?: number; spotEvery?: number; roll?: number }
@@ -760,19 +777,7 @@ export async function markPacked(
     });
 
     // Close the batch when every order in it has moved past picking.
-    if (batchId) {
-      const bRef = doc(batchCol(fs, tenantId), batchId);
-      await runTransaction(fs, async (txn) => {
-        const bSnap = await txn.get(bRef);
-        if (!bSnap.exists() || bSnap.data().active !== true) return;
-        const b = bSnap.data() as FulfillmentBatch;
-        const snaps = await Promise.all(b.orderIds.map((id) => txn.get(doc(orderCol(fs, tenantId), id))));
-        const anyStillPicking = snaps.some((s) => s.exists() && (s.data() as RetailOrder).stage === 'picking');
-        if (!anyStillPicking) {
-          txn.update(bRef, { active: false, completedAt: new Date().toISOString(), releaseType: 'completed' });
-        }
-      });
-    }
+    if (batchId) await closeBatchIfDone(fs, tenantId, batchId);
     return { ok: true, message: picked ? 'Packed. Picked for a spot check: someone else scans it before it goes out.' : 'Packed', ...(picked ? { spotCheck: true } : {}) };
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not mark packed.' };
@@ -1514,8 +1519,11 @@ async function followUpIdsOf(fs: Firestore, tenantId: string, rootId: string): P
 }
 
 export async function cancelOrder(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason?: string
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason?: string,
+  opts?: { onlyIfEveryItemOut?: boolean }
 ): Promise<{ ok: boolean; message: string }> {
+  // The packer's batch it was in, closed after if nothing else in it is still being picked.
+  let hadBatch: string | null = null;
   try {
     // Orders made from this one (a backorder, pre-order items sent later) are found first and cancelled with it. For an
     // order made from another, the orders made from the one it was paid on are found instead, so what it gives back is
@@ -1526,11 +1534,14 @@ export async function cancelOrder(
       for (let i = 0; i < 4 && cur && isFollowUp(cur) && cur.parentOrderId; i++) { rootId = String(cur.parentOrderId); cur = (await getDoc(doc(orderCol(fs, tenantId), rootId))).data(); }
     } catch { rootId = orderId; }
     const famIds = await followUpIdsOf(fs, tenantId, rootId);
-    return await runTransaction(fs, async (txn) => {
+    const out = await runTransaction(fs, async (txn) => {
       const orderRef = doc(orderCol(fs, tenantId), orderId);
       const snap = await txn.get(orderRef);
       if (!snap.exists()) return { ok: false, message: 'Order not found.' };
       const order = snap.data() as RetailOrder;
+      // Closed because every item was out (lib/pack-changes): only while that's still so, as this reads it now.
+      if (opts?.onlyIfEveryItemOut && !(['picking', 'paid'].includes(order.stage) && everyItemOut(order))) return { ok: false, message: 'Something on it can still go out, so it’s packed as usual.' };
+      hadBatch = (order as any).batchId || null;
 
       if (['shipped', 'completed'].includes(order.stage)) {
         return { ok: false, message: `Order #${order.orderNumber} has already been ${order.stage.replace('_', ' ')}. Please handle it as a return instead.` };
@@ -1637,6 +1648,8 @@ export async function cancelOrder(
           : `Order #${order.orderNumber} has been cancelled${withThem}.`,
       };
     });
+    if (out.ok && hadBatch) await closeBatchIfDone(fs, tenantId, hadBatch).catch(() => null);
+    return out;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not cancel.' };
   }

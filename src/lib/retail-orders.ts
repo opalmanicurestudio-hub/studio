@@ -637,6 +637,8 @@ export interface OrderLine {
   qtyReturned: number;
   status: LineStatus;
   shortReason?: string;
+  /** When it was marked out (or swapped), so a customer is told in time even if the order is set aside. */
+  shortedAt?: string;
   casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
   caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
   palletPack?: number;         // CASES per pallet (snapshot)
@@ -1621,6 +1623,8 @@ export function shortLine(
     qtyShorted,
     status: resolution === 'refund' ? 'refunded' : 'backordered',
     shortReason: reason,
+    // When: an order set aside after this, unpacked, still tells the customer in time (lib/pack-changes).
+    shortedAt: new Date().toISOString(),
   };
 
   return {

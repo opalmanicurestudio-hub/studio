@@ -49,7 +49,7 @@ export const approveUnit = (tenantId: string, orderId: string, lineId: string, r
 export const resolveShortLine = (_fs: any, tenantId: string, orderId: string, lineId: string, reason: string, resolution: ShortResolution, _actor: Actor) => step(tenantId, 'shortLine', { orderId, lineId, reason, resolution });
 export const reopenShortedLine = (_fs: any, tenantId: string, orderId: string, lineId: string, _actor: Actor) => step(tenantId, 'reopenLine', { orderId, lineId });
 /** The shop's second scan is read by the server itself. */
-export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts?: { requirePackScan?: boolean; bags?: number }) => step<Ans & { spotCheck?: boolean }>(tenantId, 'markPacked', { orderId, ...(opts?.bags != null ? { bags: opts.bags } : {}) });
+export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts?: { requirePackScan?: boolean; bags?: number }) => step<Ans & { spotCheck?: boolean; closed?: boolean }>(tenantId, 'markPacked', { orderId, ...(opts?.bags != null ? { bags: opts.bags } : {}) });
 export const markReady = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { autoArrived?: boolean; notifyReady?: boolean }>(tenantId, 'markReady', { orderId });
 /** The team member's photo is read by the server from their staff record. */
 export const markBringingOut = (_fs: any, tenantId: string, orderId: string, _actor: Actor, _photo?: string) => step(tenantId, 'bringingOut', { orderId });

@@ -136,8 +136,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
     // tap, so the browser allows it, and loads once the order is finished.
     const tagTab = goesInBags(o) && !(o as any).popupId && bagScanOn(rs) && (o as any).qrToken && typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
     const r = await finishPacking(fs, tenantId, o, orders, actor as any, rs);
-    if (tagTab) { if (r.ok) tagTab.location.href = `/print/label/${tenantId}/${o.id}?t=${encodeURIComponent((o as any).qrToken)}`; else tagTab.close(); }
-    say(r.ok && (r as any).spotCheck ? r.message : r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
+    if (tagTab) { if (r.ok && !(r as any).closed) tagTab.location.href = `/print/label/${tenantId}/${o.id}?t=${encodeURIComponent((o as any).qrToken)}`; else tagTab.close(); }
+    say(r.ok && ((r as any).spotCheck || (r as any).closed) ? r.message : r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
     return r.ok;
   };
   // Finishing an order picked at the shelf, with the second scan on, starts its scan into the box instead.

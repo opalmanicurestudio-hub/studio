@@ -1197,6 +1197,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
     reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
+      // Counted at a pop-up table (lib/popup): a void puts these back into what the table has left.
+      ...(popupSale ? { popup: { id: String(popupSale.ref.id), items: Object.fromEntries(items.filter((x) => x.type === 'product' && popupSale!.ids.has(String(x.id))).map((x) => [String(x.id), x.quantity])) } } : {}),
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
       depositCreditId: depositsUsed[0]?.id || null, ...(depositsUsed.length ? { depositsUsed } : {}),
       redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,

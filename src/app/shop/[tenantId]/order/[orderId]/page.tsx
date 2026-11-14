@@ -35,7 +35,7 @@ import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/
 import { formatDay } from '@/lib/tenant-time';
 import { claimWaiting, customerClaimStatus, unitsOpen } from '@/lib/claim-view';
 import { CustomerReturns } from '@/components/shop/CustomerReturns';
-import { changesNote } from '@/lib/pack-changes';
+import { EVERY_ITEM_OUT, changesNote } from '@/lib/pack-changes';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -1490,9 +1490,13 @@ export default function OrderStatusPage() {
             })()}
             {(() => {
               // What changed while it was packed, and the one refund (lib/pack-changes), as their message said it.
-              if (!['packed', 'ready', 'arrived', 'out', 'shipped', 'delivered', 'completed', 'collected'].includes(String(order.stage))) return null;
-              // The refund's timing only while it's still news (two weeks from packing).
-              const note = changesNote(order, { money: Date.now() - Date.parse(String((order as any).packedAt || '')) < 14 * 86400e3 });
+              // Once packed (or closed because every item was out); while it's still being packed, if they've been told.
+              const closedOut = String(order.stage) === 'cancelled' && (order as any).cancelReason === EVERY_ITEM_OUT;
+              const told = Array.isArray((order as any).changesToldLines) && (order as any).changesToldLines.length > 0;
+              if (!closedOut && !told && !['packed', 'ready', 'arrived', 'shipped', 'completed'].includes(String(order.stage))) return null;
+              // Every change, told or not; the refund's timing only while it's still news (two weeks from packing).
+              const when = Date.parse(String((order as any).packedAt || (order as any).cancelledAt || '')) || Date.now();
+              const note = changesNote(order, { all: true, money: !closedOut && Date.now() - when < 14 * 86400e3 });
               if (!note.lines.length) return null;
               return (
                 <div className="rounded-2xl p-3 text-[14px] leading-relaxed" style={{ background: '#f5f5f7', color: '#16171a' }}>

@@ -223,7 +223,8 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     const r = await finishPacking(fs, tenantId, order, all, actor, rs, inBags ? bags : undefined);
     setBusy(false);
     if (!r.ok) { tagTab?.close(); setErr(r.message); return; }
-    if (tagTab) tagTab.location.href = `/print/label/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken)}`;
+    // Every item was out: closed and refunded instead, so there's no tag to print.
+    if (tagTab) { if ((r as any).closed) tagTab.close(); else tagTab.location.href = `/print/label/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken)}`; }
     feel(true);
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (reduce) { onFinished(r.message); return; }

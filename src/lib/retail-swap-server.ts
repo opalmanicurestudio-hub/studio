@@ -1,7 +1,7 @@
 // src/lib/retail-swap-server.ts — SWAPS ON THE SERVER. Offering a replacement, applying it, refunding instead, and
 // the customer's answer (from their order page or a YES/NO text) all run here in transactions, so the stock, the order
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
-import { shrinkStock } from './retail-orders';
+import { isClaimStale, shrinkStock } from './retail-orders';
 import { choiceFor, variantIdsOf, variantPriceCents } from './variants';
 import { discountedCents } from './retail-wholesale';
 import { ensureCodeIndex } from './code-index';
@@ -12,6 +12,7 @@ import { brandedEmailHtml } from './email-template';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { autoRefund, refundWords } from './auto-refund';
 import { queueAndSend } from './order-outbox';
+import { TELL_AFTER_MS, changesKey, packChanges, untoldSince } from './pack-changes';
 
 type Actor = { id: string; name: string };
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
@@ -257,6 +258,31 @@ export async function expireSwapOffers(db: any, t: string): Promise<number> {
     await autoRefund(db, t, d.id, base);
     // Queued, so it's tried again if it doesn't go (lib/order-outbox).
     await queueAndSend(db, t, 'order_short', { orderId: d.id, lineId: o.swapOffer.lineId }, { base }).catch(() => 'none');
+  }
+  return n;
+}
+
+/** AN ORDER SET ASIDE AFTER SOMETHING IN IT WAS FOUND OUT (lib/pack-changes): still waiting to be packed TELL_AFTER_MS
+ *  after the first change the customer hasn't heard about, what's owed back goes in one refund (within the shop's
+ *  automatic amount, lib/auto-refund) and they're told what changed, once (api/retail/changes-notify); when it's packed
+ *  later, only anything new is told. From the payments timer (cron/retail-payments). How many were told. */
+export async function sweepUntoldChanges(db: any, t: string, base: string): Promise<number> {
+  const snap = await db.collection(`tenants/${t}/retailOrders`).where('stage', 'in', ['paid', 'picking']).limit(300).get();
+  let n = 0;
+  for (const d of snap.docs) {
+    const o: any = d.data() || {};
+    const since = untoldSince(o);
+    if (!since || Date.now() - since < TELL_AFTER_MS) continue;
+    // Still being packed by someone (a claim that isn't stale): they hear when it's packed, with nothing sent mid-pack.
+    if (o.batchId) {
+      const bs = await db.doc(`tenants/${t}/fulfillmentBatches/${String(o.batchId)}`).get().catch(() => null);
+      const bd: any = bs?.exists ? bs.data() : null;
+      if (bd && bd.active === true && !isClaimStale(bd)) continue;
+    }
+    if ((Number(o.pendingRefundCents) || 0) > 0) await autoRefund(db, t, d.id, base).catch(() => null);
+    // Named for these changes, so a later message about new ones is its own (lib/order-outbox messageId).
+    await queueAndSend(db, t, 'order_changes', { orderId: d.id, key: changesKey(packChanges(o)) }, { base, orderId: d.id }).catch(() => null);
+    n++;
   }
   return n;
 }

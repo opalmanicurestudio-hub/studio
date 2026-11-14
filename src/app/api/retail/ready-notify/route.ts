@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { changesNote } from '@/lib/pack-changes';
+import { changesNote, packChanges } from '@/lib/pack-changes';
+import { FieldValue } from 'firebase-admin/firestore';
+
 import { getAdminDb } from '@/lib/firebase-admin';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { sendNotification } from '@/lib/notify';
+
+/** The changes the ready message carried are told: not told again (api/retail/changes-notify, a retried one too). */
+const markTold = (ref: any, o: any) => ref.update({ changesToldLines: FieldValue.arrayUnion(...packChanges(o).map((c) => c.lineId).filter(Boolean)) }).catch(() => null);
 
 // ─── /api/retail/ready-notify ────────────────────────────────────────────────
 // "Your order is ready" for counter pickup (curbside has its own text in curbside-notify). One text, falling back to
@@ -54,6 +59,7 @@ export async function POST(req: NextRequest) {
       if (o.customerPhone) { const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `${text} ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); texted = r.ok === true; if (r.status === 'failed') failed = true; }
       if (o.customerEmail) { const brand = await getEmailBrand(db, tenantId); const r = await sendNotification(db, { tenantId, channel: 'email', to: String(o.customerEmail), subject: `No. ${popupNo} is ready`, text: `${text} ${link}`, html: brandedEmail(brand, `<p style="font-size:14px;color:#16171a;margin:0 0 8px">${esc(text)}</p>${emailButton(link, 'Open my order', brand)}`), kind: 'order_ready', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId } as any); emailed = r.ok === true; if (r.status === 'failed') failed = true; }
       if (!texted && !emailed && failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text and email services didn’t take it.' }, { status: 503 }); }
+      if ((texted || emailed) && ch) await markTold(ref, o);
       return NextResponse.json({ ok: true, sent: texted || emailed, texted });
     }
     // What changed while it was packed (lib/pack-changes): told once, here, with the ready message.
@@ -80,6 +86,7 @@ export async function POST(req: NextRequest) {
     // Neither reached them because a service failed (not because the shop switched it off or it's waiting for quiet
     // hours to end): try again later.
     if (!texted && !emailed && failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text and email services didn’t take it.' }, { status: 503 }); }
+    if ((texted || emailed) && changed.short) await markTold(ref, o);
     return NextResponse.json({ ok: true, sent: texted || emailed, texted });
   } catch (e: any) {
     console.error('[ready-notify]', e?.message);

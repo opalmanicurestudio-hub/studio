@@ -17,10 +17,18 @@ import { spokenNumber } from '@/lib/menu-numbers';
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 type Dept = 'products' | 'services' | 'memberships' | 'packages';
 
-export function PosCatalog({ inventory, services, memberships, packages, cart, onAdd, onScan, compact, tenantId }: {
+export function PosCatalog({ inventory, services, memberships, packages, cart, onAdd, onScan, compact, tenantId, popupLeft }: {
   inventory: any[]; services?: any[]; memberships?: any[]; packages?: any[]; cart?: any[];
   onAdd: (item: any, noScan?: NoScan) => void; onScan?: (code: string) => void; compact?: boolean; tenantId?: string | null;
+  /** Selling at a pop-up: what's left at the table, by product (lib/popup). */
+  popupLeft?: Record<string, number> | null;
 }) {
+  // What the table has left of a product, when this register sells at a pop-up and the product came along.
+  const leftPill = (i: any) => {
+    const n = popupLeft ? popupLeft[String(i?.id)] : undefined;
+    if (n == null) return null;
+    return <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums" style={n > 0 ? { background: 'var(--soft)' } : { background: '#fff7ed', color: '#b45309' }}>{n > 0 ? `${n} left at the table` : 'None left at the table'}</span>;
+  };
   // The window's numbers (read once; none when it has no window or this can't be read).
   const [nums, setNums] = React.useState<Record<string, number>>({});
   React.useEffect(() => {
@@ -100,7 +108,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
                   <p className="line-clamp-2 text-[14px] font-semibold leading-snug">{dept === 'products' && nums[String(i.id)] ? <span aria-hidden className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12px] font-bold tabular-nums" style={{ background: 'var(--soft)' }}>{nums[String(i.id)]}</span> : null}{i.name}</p>
                   <p className="text-[14px] tabular-nums">{parent && vs.length ? (() => { const ps = vs.map((v: any) => priceOf(v)).filter((x: number) => x > 0); return ps.length ? `${new Set(ps).size > 1 ? 'from ' : ''}${money(Math.min(...ps))}` : 'No price yet'; })() : priceText(i)}{dept === 'memberships' && i.interval ? <span style={{ color: 'var(--muted)' }}> / {i.interval === 'monthly' ? 'month' : 'year'}</span> : null}{dept === 'packages' && i.sessions ? <span style={{ color: 'var(--muted)' }}> · {i.sessions} visits</span> : null}</p>
                   <div className="flex flex-wrap items-center gap-1">
-                    {dept === 'products' && (parent ? <span className="text-[11px] font-semibold">{vs.length} {vs.length === 1 ? 'variant' : 'variants'}</span> : stockPill(i))}
+                    {dept === 'products' && (parent ? <span className="text-[11px] font-semibold">{vs.length} {vs.length === 1 ? 'variant' : 'variants'}</span> : (leftPill(i) || stockPill(i)))}
                     {i.isMembersOnly && <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ background: 'var(--soft)' }}>Members</span>}
                   </div>
                 </div>
@@ -109,7 +117,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
               {opened && <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {vs.map((v: any) => <button key={v.id} type="button" onClick={() => add(v)} className="rounded-2xl p-3 text-left" style={{ background: 'var(--soft)', border: inCart(v.id) ? '1px solid var(--accent)' : '1px solid transparent' }}>
                   <span className="block text-[14px] font-semibold">{choiceFor(i, String(v.id))?.choice.label || v.name}</span>
-                  <span className="block text-[13px] tabular-nums">{priceText(v)}</span>{stockPill(v)}{inCart(v.id) ? <span className="block text-[12px] font-semibold">{inCart(v.id)} in this sale</span> : null}
+                  <span className="block text-[13px] tabular-nums">{priceText(v)}</span>{leftPill(v) || stockPill(v)}{inCart(v.id) ? <span className="block text-[12px] font-semibold">{inCart(v.id)} in this sale</span> : null}
                 </button>)}
               </div>}
             </div>;

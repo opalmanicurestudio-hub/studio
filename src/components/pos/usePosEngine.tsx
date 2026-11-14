@@ -1150,6 +1150,22 @@ export function usePosEngine() {
     else { try { sessionStorage.removeItem(key); } catch { /* nothing kept */ } setPopup(null); }
   }, [tenantId]);
   const stopPopup = useCallback(() => { try { sessionStorage.removeItem(`cf-popup-${tenantId}`); } catch { /* nothing kept */ } setPopup(null); }, [tenantId]);
+  // What's left at the table, product by product (api/retail/popup 'left'), shown on the register's tiles: read when
+  // the pop-up starts, every half minute, and after each sale. None when it isn't on today.
+  const [popupLeft, setPopupLeft] = useState<Record<string, number> | null>(null);
+  const refreshPopupLeft = useCallback(async () => {
+    if (!popup?.id || !tenantId) { setPopupLeft(null); return; }
+    try {
+      const r = await fetch('/api/retail/popup', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'left', id: popup.id }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d?.ok) setPopupLeft(d.left && typeof d.left === 'object' ? d.left : null);
+    } catch { /* kept as it was until the next read */ }
+  }, [popup?.id, tenantId]);
+  useEffect(() => {
+    if (!popup?.id) { setPopupLeft(null); return; }
+    void refreshPopupLeft(); const t = setInterval(() => void refreshPopupLeft(), 30000);
+    return () => clearInterval(t);
+  }, [popup?.id, refreshPopupLeft]);
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, popupId: popup?.id || null, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
@@ -1274,6 +1290,7 @@ export function usePosEngine() {
       }
       if (!res.ok || !out?.ok) throw new Error(out?.error || 'save failed');
       finishSale(out, payload);
+      if (payload.popupId) void refreshPopupLeft();
       // At a pop-up: a sale that didn't count against the table is said, and a pop-up that's over stops here.
       if (payload.popupId && out?.popupCounted === false) {
         if (out.popupMiss === 'off') { stopPopup(); toast({ variant: 'destructive', duration: 15000, title: 'The pop-up isn’t on today', description: 'The sale is saved, but it wasn’t counted at the pop-up. This screen has stopped selling for it.' }); }
@@ -1691,7 +1708,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, packChoice, setPackChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
+    onAddItem: addProductChecked, onPosScan: handlePosScan, popupLeft, variantChoice, setVariantChoice, packChoice, setPackChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
     heldShort, heldApproval: heldApproval && heldCovered(heldApproval.ref, heldShort) ? heldApproval : null, setHeldApproval,
     ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale, otherPaid, saveOtherPaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
@@ -1773,7 +1790,7 @@ export function usePosEngine() {
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
     handleCheckout, recoveryApprovalRef, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
-    handlePosScan, addProductChecked, variantChoice, setVariantChoice, packChoice, setPackChoice, popup, stopPopup,
+    handlePosScan, addProductChecked, variantChoice, setVariantChoice, packChoice, setPackChoice, popup, stopPopup, popupLeft,
     resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };

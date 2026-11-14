@@ -28,8 +28,8 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'save', 'lineOrders', 'close', 'catalog'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, action === 'list' ? 'staff' : 'manager'); if (g.deny) return g.deny;
+    if (!['list', 'left', 'save', 'lineOrders', 'close', 'catalog'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, action === 'list' || action === 'left' ? 'staff' : 'manager'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('Pop-ups are the business’s own.', 403);
     const db = getAdminDb();
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
@@ -71,6 +71,15 @@ export async function POST(req: NextRequest) {
       return ok({ popups, today, canEdit: manager });
     }
 
+    // WHAT'S LEFT AT THE TABLE, for the register selling at it: today's pop-up only, product by product (what came, less
+    // what the table sold and what the line ordered).
+    if (action === 'left') {
+      const id = String(b.id || '').trim(); if (!ID.test(id)) return bad('Which pop-up?');
+      const ps = await popupsOf(db, tenantId).doc(id).get(); const p: any = ps.exists ? { ...(ps.data() || {}), id } : null;
+      if (!p || !popupToday(p, today)) return ok({ left: null });
+      const orders = (await db.collection(`tenants/${tenantId}/retailOrders`).where('popupId', '==', id).get()).docs.map((d: any) => d.data() || {});
+      return ok({ left: leftAt(p, lineOrdered(orders, Date.now())) });
+    }
     if (action === 'catalog') return ok({ products: (await popupCatalog(db, tenantId)).map(({ id, name, priceCents, imageUrl, onHand }) => ({ id, name, priceCents, imageUrl, onHand })) });
 
     const id = String(b.id || '');

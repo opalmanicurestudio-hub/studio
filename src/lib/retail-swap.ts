@@ -89,7 +89,7 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
   if (qty <= 0) throw new Error('Nothing left to swap on that item.');
   // What each unit was paid, after any promo code: never more back than that, and never more charged.
   const orig = effectiveUnitCents(line); const price = Math.max(0, Math.round(Number(sub.unitPriceCents) || 0));
-  const closed = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: 'Swapped', swappedToLineId: newLineId, swappedToName: sub.name };
+  const closed = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: 'Swapped', swappedToLineId: newLineId, swappedToName: sub.name, shortedAt: new Date().toISOString() };
   const newLine = {
     lineId: newLineId, productId: sub.productId, sku: sub.sku || '', barcode: sub.barcode || '', name: sub.name, optionsLabel: sub.optionsLabel || '', ...(sub.listingId ? { listingId: sub.listingId } : {}),
     unitPriceCents: price, qtyOrdered: qty, qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending',

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { EVERY_ITEM_OUT } from '@/lib/pack-changes';
 import { brandOf } from '@/lib/shop-site';
 import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
 import { proofNeeded } from '@/lib/delivery-run';
@@ -395,7 +396,18 @@ export async function GET(req: NextRequest) {
         swappedToName: l.swappedToName || '',
         swapForName: l.swapForName || '',
         lineDiscountCents: Number(l.lineDiscountCents) || 0,
+        // What changed while it was packed (lib/pack-changes), said on the page as their message said it: why it was
+        // out (a swap, or not), what it was swapped to, whether that was their own backup, and what each unit was paid.
+        shortReason: l.shortReason === 'Swapped' ? 'Swapped' : l.status === 'refunded' && (Number(l.qtyShorted) || 0) > 0 ? 'Out' : '',
+        swappedToLineId: l.swappedToLineId || '',
+        ...(l.ifOut?.how === 'backup' && l.ifOut?.backupId ? { ifOut: { how: 'backup', backupId: String(l.ifOut.backupId) } } : {}),
+        promoCents: Number(l.promoCents) || 0,
+        ...(l.unitPaidCents != null ? { unitPaidCents: Number(l.unitPaidCents) || 0 } : {}),
       })),
+      // Closed because every item was out (lib/pack-changes), and whether they've been told what changed while it's
+      // still being packed: never the shop's own words for a cancellation.
+      ...(order.stage === 'cancelled' && order.cancelReason === EVERY_ITEM_OUT ? { cancelReason: EVERY_ITEM_OUT } : {}),
+      ...(Array.isArray(order.changesToldLines) && order.changesToldLines.length ? { changesToldLines: order.changesToldLines.map(String).slice(0, 100) } : {}),
       /* A question waiting for the customer: can we swap an out-of-stock item? Only what they need to answer, only
        * while it still applies (an order still being packed, an item still to send), and the refund it would give is
        * the one the swap itself works out (lib/retail-swap): what they paid after any promo, with its tax. */
