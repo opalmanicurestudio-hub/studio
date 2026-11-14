@@ -455,6 +455,11 @@ export default function PracticePage() {
             <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>Behind the desk: work the register</b><span style={{ fontSize: 12.5, color: MUTED }}>Scan products (a real scanner works too), fix slips, take payment while the line grows. About 3 minutes.</span></span>
             <Pill tone="green">New</Pill>
           </a>
+          <a href="/practice/rush" style={{ ...choiceStyle, flexDirection: 'row', alignItems: 'center', gap: 12, textDecoration: 'none', color: INK }}>
+            <span style={{ width: 38, height: 38, borderRadius: 19, background: '#fdf1e3', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="seat" color={AMBER} size={20} /></span>
+            <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>At the host stand: a Friday rush</b><span style={{ fontSize: 12.5, color: MUTED }}>For cafés and restaurants. Seat each party at a table that fits, and keep food moving. Nothing real is sent or charged.</span></span>
+            <Pill tone="green">New</Pill>
+          </a>
           <a href="/practice/desk" style={{ ...choiceStyle, flexDirection: 'row', alignItems: 'center', gap: 12, textDecoration: 'none', color: INK }}>
             <span style={{ width: 38, height: 38, borderRadius: 19, background: '#eaf6ef', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="bell" color={GREEN} size={20} /></span>
             <span style={{ flex: 1 }}><b style={{ display: 'block', fontSize: 14.5 }}>At the desk: refunds and the waitlist</b><span style={{ fontSize: 12.5, color: MUTED }}>Short scenes: what to refund and where it goes, and who gets a cancelled time. Nothing real is touched.</span></span>
