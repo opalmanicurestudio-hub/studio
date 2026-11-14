@@ -7,9 +7,14 @@
 // nearly free). Each table shows where it is in its meal (lib/table-stage). "My tables" are the ones in the person's
 // section on the host stand's floor; with no section set, every table shows. The phone buzzes for a new nudge that
 // can't wait, where the phone allows it. Tables waiting to be cleared link to Clear and reset (design canvas ClearReset).
+// Through a Wi-Fi drop (lib/outbox, lib/last-seen): the tables it last had, with their time; firing a course and the
+// nudges' steps are kept on the phone and sent when the connection's back.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { getAuth } from 'firebase/auth';
+import { send } from '@/lib/outbox';
+import { keepLast, lastOf } from '@/lib/last-seen';
+import { ConnectionBar } from '@/components/shared/ConnectionBar';
+import { useKeepPage } from '@/components/pwa/keep-page';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { TableTab } from '@/components/host/TableTab';
@@ -26,10 +31,11 @@ const ago = (since: number, now: number) => { const m = Math.max(0, Math.floor((
 type Row = { visitId: string; table: string; staffIds: string[]; total: number; party: any; stage?: { words: string; step: number; freeIn: number | null }; checkAt?: string | null };
 type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null; toClear?: number };
 
-async function call(body: any): Promise<any> {
-  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-  return fetch('/api/tab', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) })
-    .then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' }));
+/** A step through api/tab: kept on the phone when there's no connection and `keep` names it. */
+async function call(body: any, keep?: string): Promise<any> {
+  // Kept for 20 minutes at most: a course fired later than that, or a nudge, is no longer right to send.
+  const r = await send('/api/tab', body, { label: keep || 'A tap', auth: 'user', keep: !!keep, tenantId: String(body.tenantId || ''), afterWrites: body.action === 'fire', maxAgeMs: 20 * 60000 });
+  return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
 }
 const readMine = () => { try { return localStorage.getItem('cf.tables.mine') !== 'all'; } catch { return true; } };
 
@@ -43,14 +49,21 @@ export default function MyTablesPage() {
   const [open, setOpen] = useState<Row | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const seen = useRef<Set<string> | null>(null);
+  // No connection: what the phone last had, and when (null while the server answers).
+  const [asOf, setAsOf] = useState<number | null>(null); const good = useRef(0);
+  useKeepPage();
   useEffect(() => { setMine(readMine()); }, []);
   useEffect(() => { const i = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(i); }, []);
 
   const load = useCallback(async () => {
     if (!tenantId) return;
     const r = await call({ tenantId, action: 'nudges', mine });
+    if (r.offline) {
+      if (!good.current) { const last = lastOf<Data>(`tables.${tenantId}.${mine ? 'mine' : 'all'}`); if (last) { good.current = last.at; setD(last.data); } }
+      setAsOf(good.current || Date.now()); return;
+    }
     if (!r.ok) { setErr(r.error || 'Your tables couldn’t be read.'); return; }
-    setErr(''); setD(r); setNow(Date.now());
+    good.current = Date.now(); setErr(''); setD(r); setNow(Date.now()); setAsOf(null); keepLast(`tables.${tenantId}.${mine ? 'mine' : 'all'}`, r);
     // A buzz for a new nudge that can't wait (food at the pass, a course running late), where the phone allows it.
     const keys = (r.nudges || []).map((n: Nudge) => `${n.visitId}|${n.key}`);
     if (seen.current && (r.nudges || []).some((n: Nudge) => n.urgent && !seen.current!.has(`${n.visitId}|${n.key}`))) { try { navigator.vibrate?.(200); } catch { /* no buzz here */ } }
@@ -66,8 +79,12 @@ export default function MyTablesPage() {
   const step = async (n: Nudge, op: 'fire' | 'done' | 'later') => {
     if (!tenantId) return; setBusy(`${n.visitId}|${n.key}`); setMsg('');
     // Firing the course is enough: once it's fired the nudge has nothing left to say.
-    const r = op === 'fire' && n.course ? await call({ tenantId, action: 'fire', visitId: n.visitId, course: n.course.n }) : await call({ tenantId, action: 'nudge', partyId: n.partyId, key: n.key, op });
+    const r = op === 'fire' && n.course ? await call({ tenantId, action: 'fire', visitId: n.visitId, course: n.course.n }, `${n.table}: fire ${n.course.name.toLowerCase()}`)
+      : await call({ tenantId, action: 'nudge', partyId: n.partyId, key: n.key, op }, `${n.table}: ${op === 'later' ? 'not yet' : 'done'}`);
     setBusy(null);
+    // Kept on the phone: off the list here, sent when the connection's back.
+    if (r.kept) { setD((x) => (x ? { ...x, nudges: x.nudges.filter((y) => !(y.visitId === n.visitId && y.key === n.key)) } : x));
+      setMsg(op === 'fire' ? `${n.course?.name} fires for ${n.table} when the connection’s back. Open the table to print a paper ticket if it’s a while.` : 'Saved. It’s sent when the connection’s back.'); return; }
     if (!r.ok) setMsg(r.error || 'That didn’t go through.');
     else if (op === 'fire') setMsg(`${n.course?.name} fired for ${n.table}. The kitchen has it now.`);
     void load();
@@ -114,6 +131,7 @@ export default function MyTablesPage() {
         {(d?.toClear || 0) > 0 && <Link href="/clear" className="flex min-h-[52px] items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 text-[15px] font-semibold" style={{ border: `1px solid ${LINE}` }}>
           <span>{d!.toClear} {d!.toClear === 1 ? 'table' : 'tables'} to clear</span><span className="text-[13.5px]" style={{ color: MUTED }}>Clear and reset</span></Link>}
         {d && !d.hasSection && tables.length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>No section is set for you on the floor tonight, so every table shows. The host sets sections on the floor plan.</p>}
+        {tenantId && <ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} />}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {msg && <p role="status" className="rounded-2xl bg-[#fff] px-4 py-3 text-[14.5px]" style={{ border: `1px solid ${LINE}` }}>{msg}</p>}
 

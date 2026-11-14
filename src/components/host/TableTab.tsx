@@ -12,11 +12,17 @@
 // in once sold out. A regular's usual (lib/guest-memory, design canvas GuestMemory) is a tap away, through the same
 // checks as the menu, when the business shows regulars. "Print the check" prints at the business's check printer
 // (lib/printing-server), or through this device's own print dialog when it has none.
+// Through a Wi-Fi drop (lib/outbox; design canvas "When the Wi-Fi drops"): items added are kept by the database on the
+// device and marked "Not sent yet" until they reach the server; firing a course is kept and sent when the connection's
+// back (after the items). Until then a paper ticket of what hasn't reached the kitchen prints from here. Allergies,
+// comps, voids and payments need the connection, and say so.
 import * as React from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { addToTab, ensureTableVisit, tabComps, tabTotal, type TabLine } from '@/lib/table-tab';
-import { ALLERGENS, allergensKnown, allergyLine, allergyPhrase, cleanKeys, conflicts, itemAllergens, reaching, tableAllergies, whoWords, wordsList, type AllergenKey, type TableAllergy } from '@/lib/allergens';
+import { addToTab, ensureTableVisit, newLineId, tabComps, tabTotal, type TabLine } from '@/lib/table-tab';
+import { ALLERGENS, allergensKnown, allergyLine, allergyPhrase, cleanKeys, conflicts, itemAllergens, reaching, tableAllergies, ticketAllergyFields, whoWords, wordsList, type AllergenKey, type TableAllergy } from '@/lib/allergens';
+import { keptNow, landed, send, useOutbox } from '@/lib/outbox';
+import { ticketFrom } from '@/lib/kitchen';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { itemSoldOut } from '@/lib/menu-choices';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
@@ -25,7 +31,7 @@ import { makeSecondsOf } from '@/lib/counter-orders';
 import { approveWithPin } from '@/lib/approve-client';
 import { tablePayOf } from '@/lib/table-bill';
 import { TablePayCard } from '@/components/host/TablePayCard';
-import { renderHtml } from '@/lib/printing';
+import { paperDoc, renderHtml } from '@/lib/printing';
 import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { askAllergiesOf, compReasonsOf, courseOfItem, courseStage, coursesOf, kitchenStarted, listPriceOf, prepMinutes, stationOfItem, stationsOf, OTHER_REASON, REMAKE_REASONS, VOID_REASONS, type Course } from '@/lib/table-service';
 
@@ -36,10 +42,22 @@ const btn = 'min-h-[44px] px-4 rounded-xl text-[14px] font-semibold disabled:opa
 const quiet: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, color: INK };
 const dark: React.CSSProperties = { background: INK, color: '#fff' };
 
-async function tabCall(body: any, path = '/api/tab'): Promise<any> {
-  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-  return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) })
-    .then((r) => r.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
+/** A step through the server, signed in as this person: kept on the device when there's no connection and `keep`
+ *  names it (only firing a course); anything else says it needs the connection (`offline`). */
+async function tabCall(body: any, path = '/api/tab', keep?: string): Promise<any> {
+  // A course fired more than 20 minutes late is no longer right to send.
+  const r = await send(path, body, { label: keep || 'A tap', auth: 'user', keep: !!keep, tenantId: String(body.tenantId || ''), afterWrites: body.action === 'fire', maxAgeMs: 20 * 60000 });
+  return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
+}
+// Items added with no connection, by visit, until the database says the tab has reached the server.
+const UNSENT = 'cf.tab.unsent';
+const unsentAll = (): Record<string, Record<string, number>> => { try { const v = JSON.parse(localStorage.getItem(UNSENT) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
+function markUnsent(visitId: string, lineId: string | null, on: boolean): Set<string> {
+  const all = unsentAll(); const v = { ...(all[visitId] || {}) };
+  if (!lineId) { for (const k of Object.keys(v)) delete v[k]; } else if (on) v[lineId] = Date.now(); else delete v[lineId];
+  if (Object.keys(v).length) all[visitId] = v; else delete all[visitId];
+  try { if (Object.keys(all).length) localStorage.setItem(UNSENT, JSON.stringify(all)); else localStorage.removeItem(UNSENT); } catch { /* storage blocked */ }
+  return new Set(Object.keys(v));
 }
 
 type Sheet = { kind: 'comp' | 'void' | 'remake'; line: TabLine };
@@ -67,12 +85,18 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
   // Sold out by hand since the menu was read (the counts read brings them), so a dish sold out mid-service can't be rung in.
   const [outNow, setOutNow] = React.useState<Set<string>>(new Set());
   const allergies = React.useMemo(() => tableAllergies(visit), [visit]);
+  // No connection: items added here that haven't reached the server, and courses fired that are waiting to be sent.
+  const [unsent, setUnsent] = React.useState<Set<string>>(new Set());
+  const outbox = useOutbox(tenantId);
   const courses: Course[] = React.useMemo(() => coursesOf(tenant), [tenant]);
   const stations = React.useMemo(() => stationsOf(tenant), [tenant]);
 
   React.useEffect(() => { let un: any = null; let un2: any = null; let un3: any = null;
     ensureTableVisit(firestore, tenantId, party, tableName, by).then((id) => { setVisitId(id);
-      un = onSnapshot(doc(firestore, 'tenants', tenantId, 'appointments', id), (s) => { const v: any = s.data() || {}; setVisit(v); setTab((v.tab || []) as TabLine[]); }, () => {});
+      setUnsent(new Set(Object.keys(unsentAll()[id] || {})));
+      // Every save of the tab reached the server: nothing on it is "Not sent yet" any more.
+      un = onSnapshot(doc(firestore, 'tenants', tenantId, 'appointments', id), { includeMetadataChanges: true }, (s) => { const v: any = s.data() || {}; setVisit(v); setTab((v.tab || []) as TabLine[]);
+        if (!s.metadata.hasPendingWrites && Object.keys(unsentAll()[id] || {}).length) setUnsent(markUnsent(id, null, false)); }, () => {});
       un2 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'kdsTickets'), where('visitId', '==', id)), (s) => { const m: Record<string, string> = {}; const full: Record<string, any> = {};
         s.docs.forEach((d) => { const x: any = d.data() || {}; m[d.id] = String(x.status || 'pending'); full[d.id] = x; }); setStatuses(m); setTickets(full); }, () => {});
       un3 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'approvals'), where('visitId', '==', id)), (s) => setRecords(s.docs.map((d) => d.data()).filter((r: any) => ['comp', 'void_item', 'remake'].includes(r.kind)).sort((a: any, b: any) => String(a.usedAt || a.createdAt).localeCompare(String(b.usedAt || b.createdAt)))), () => {});
@@ -128,17 +152,42 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     if (severe.length) { setWarn({ it, keys: [], who: severe, unknown: true }); return; }
     await ringIn(it); };
   const ringIn = async (it: any) => { if (!visitId) return; setBusy(true); setMsg(null);
+    const lineId = newLineId(); const vid = visitId;
     try { const sendNow = !!it.course?.hold && fired(it.course.n);
-      await addToTab(firestore, tenantId, visitId, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies }); setNote('');
-      setMsg(`${it.name} added${it.type !== 'product' ? '' : it.course?.hold && !sendNow ? `, held with ${it.course.name.toLowerCase()}` : `, sent to ${it.station || 'the kitchen'}`}.`); } catch { setMsg('That didn’t save.'); }
+      setUnsent(markUnsent(vid, lineId, true));
+      const saving = addToTab(firestore, tenantId, vid, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies, lineId })
+        .then((l) => { setUnsent(markUnsent(vid, lineId, false)); return l; });
+      // No answer in a few seconds: the database keeps it on this device and sends it when the connection's back.
+      const went = await landed(saving); setNote('');
+      const held = it.type === 'product' && it.course?.hold && !sendNow;
+      if (!went) setMsg(`${it.name} added${held ? `, held with ${it.course.name.toLowerCase()}` : ''}. It reaches ${it.type !== 'product' ? 'the tab' : it.station || 'the kitchen'} when the connection’s back.`);
+      else setMsg(`${it.name} added${it.type !== 'product' ? '' : held ? `, held with ${it.course.name.toLowerCase()}` : `, sent to ${it.station || 'the kitchen'}`}.`); }
+    catch { setUnsent(markUnsent(vid, lineId, false)); setMsg('That didn’t save.'); }
     setBusy(false); if (counts[it.id]) loadCounts(); };
   // The table's allergies change on the server, one at a time, with every ticket not yet out (api/tab 'allergies').
   const allergyCall = async (op: 'save' | 'remove' | 'asked', x: any = {}): Promise<string | null> => { if (!visitId) return 'The table isn’t open yet.';
-    const d = await tabCall({ tenantId, action: 'allergies', op, visitId, ...x }); return d.ok ? null : d.error || 'That didn’t save. Try again.'; };
+    const d = await tabCall({ tenantId, action: 'allergies', op, visitId, ...x });
+    // An allergy never waits on this device: the kitchen has to know now.
+    return d.ok ? null : d.offline ? 'No connection, so the allergy didn’t change. Tell the kitchen in person, and change it here when the connection’s back.' : d.error || 'That didn’t save. Try again.'; };
   const askFirst = askAllergiesOf(tenant) && !!visit && !visit.allergiesAsked;
   const fire = async (c: { n: number; name: string }) => { if (!visitId) return; setBusy(true); setMsg(null);
-    const d = await tabCall({ tenantId, action: 'fire', visitId, course: c.n }); setBusy(false);
-    setMsg(d.ok ? `${c.name} fired. The kitchen has it now.` : d.error || 'That didn’t go through.'); };
+    const d = await tabCall({ tenantId, action: 'fire', visitId, course: c.n }, '/api/tab', `${tableName}: fire ${c.name.toLowerCase()}`); setBusy(false);
+    setMsg(d.kept ? `${c.name} fires when the connection’s back. If it’s a while, print a paper ticket.` : d.ok ? `${c.name} fired. The kitchen has it now.` : d.error || 'That didn’t go through.'); };
+  // PAPER TICKET (lib/printing paperDoc): what hasn't reached the kitchen's screens with no connection, by station.
+  const firesWaiting = React.useMemo(() => new Set(keptNow().filter((k) => k.tenantId === tenantId && k.body?.action === 'fire' && k.body?.visitId === visitId).map((k) => Number(k.body.course))),
+    [tenantId, visitId, outbox.waiting]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onPaper = tab.filter((l) => !!l.kdsId && ((unsent.has(l.lineId) && !!l.firedAt) || (!l.firedAt && !!l.course && firesWaiting.has(Number(l.course)))));
+  const printPaper = () => {
+    const raws = onPaper.map((l) => { const al = ticketAllergyFields(allergies, l.seat || null, l.allergens || []);
+      return ticketFrom({ id: l.kdsId, itemName: l.name, quantity: l.quantity, seatNumber: l.seat || null, note: l.note || null, tableNumber: tableName, guestName: party.name || 'Table', course: l.course, courseName: l.courseName,
+        madeAt: l.station || null, visitId, status: 'pending', allergies: al.allergies, contains: al.contains, createdAt: l.at }, 'kdsTickets'); });
+    const per = new Map<string, any[]>(); for (const t of raws) { const k = String((t as any).madeAt || ''); per.set(k, [...(per.get(k) || []), t]); }
+    const d = paperDoc(Array.from(per.entries()).map(([station, list]) => ({ station: station || null, tickets: list })), { tz: tenantTimeZone(tenant), at: new Date().toISOString(), by: String(by || '') });
+    const w = window.open('', '_blank', 'width=420,height=620');
+    if (!w) { setMsg('Allow pop-ups here to print the paper ticket.'); return; }
+    w.document.open(); w.document.write(renderHtml(d, { font: PRINT_FONT_STACK, fontHref: PRINT_FONT_HREF })); w.document.close();
+    w.onload = () => { const go = () => { w.focus(); w.print(); w.close(); }; const f = (w.document as any).fonts; if (f?.ready) f.ready.then(go, go); else go(); };
+  };
   const moveSeat = async (l: TabLine, s: string) => { if (!visitId) return; const d = await tabCall({ tenantId, action: 'seat', visitId, lineId: l.lineId, seat: s || null }); if (!d.ok) setMsg(d.error || 'That didn’t move.'); };
 
   // PRINT THE CHECK (lib/printing-server): at the business's check printer, or this device's own print dialog without one.
@@ -179,8 +228,11 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
         {comps > 0 && <p className="text-[13px]" style={{ color: MUTED }}>{money(comps)} comped</p>}
         {!tab.length && <p className="text-[14px] pt-1" style={{ color: MUTED }}>Nothing on the tab yet.</p>}
         {groups.map((g) => {
-          const stage = courseStage(g.lines, statuses); const st = STAGE[stage];
-          const unfired = g.course && stage === 'unfired';
+          const stage = courseStage(g.lines, statuses);
+          // No connection: a course fired here that's waiting to be sent, or items that haven't reached the server.
+          const fireKept = !!g.course && firesWaiting.has(g.course.n); const notSent = g.lines.some((l) => unsent.has(l.lineId));
+          const st = fireKept ? { text: 'Fire waiting to send', bg: AMBER_TINT, fg: AMBER } : notSent ? { text: 'Not sent yet', bg: AMBER_TINT, fg: AMBER } : STAGE[stage];
+          const unfired = g.course && stage === 'unfired' && !fireKept;
           return (
             <div key={g.key} className="pt-3 mt-2" style={{ borderTop: `1px solid ${LINE}` }}>
               <div className="flex flex-wrap items-center gap-2 min-h-[44px]">
@@ -197,6 +249,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
                     <button type="button" onClick={() => setPicked(open ? null : l.lineId)} aria-expanded={open} className="w-full grid items-center gap-2 min-h-[48px] text-left" style={{ gridTemplateColumns: '32px 1fr auto' }}>
                       <span className="h-7 w-7 rounded-full grid place-items-center text-[13px] font-semibold" style={{ background: open ? '#fff' : SOFT }}>{l.seat || 'T'}</span>
                       <span className="min-w-0"><span className="block text-[15px] font-medium truncate">{l.name}</span>
+                        {unsent.has(l.lineId) && <span className="block text-[12.5px] font-semibold" style={{ color: AMBER }}>Not sent yet</span>}
                         <span className="block text-[12.5px] truncate" style={{ color: l.comp ? GREEN : MUTED }}>{l.comp ? `Comped: ${l.comp.reason}. ${l.comp.approvedBy !== l.comp.by ? `${l.comp.approvedBy} approved.` : ''}` : [l.station, l.note, status === 'ready' ? 'Ready' : status === 'delivered' ? 'Out' : null].filter(Boolean).join(', ')}</span>
                         {l.kdsId && Array.isArray(tickets[l.kdsId]?.allergies) && tickets[l.kdsId].allergies.length > 0 && <span className="block text-[12.5px] font-semibold truncate" style={{ color: AMBER }}>{tickets[l.kdsId].allergyNotedAt ? `Allergy noted${tickets[l.kdsId].allergyNotedBy ? ` by ${tickets[l.kdsId].allergyNotedBy}` : ''}` : `Allergy: ${tickets[l.kdsId].allergies.map((a: any) => String(a?.name || a)).join(', ').toLowerCase()}`}</span>}</span>
                       <span className="text-right tabular-nums"><span className="block text-[15px] font-semibold">{money(l.price)}</span>{l.comp && <span className="block text-[12px] line-through" style={{ color: MUTED }}>{money(listPriceOf(l))}</span>}</span>
@@ -219,6 +272,13 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
           );
         })}
       </section>
+
+      {onPaper.length > 0 && (
+        <section role="status" className="rounded-3xl p-4 space-y-3" style={{ background: AMBER_TINT, color: AMBER }} aria-label="Not at the kitchen yet">
+          <p className="text-[14.5px] leading-snug"><b className="font-semibold">{onPaper.length === 1 ? '1 item hasn’t' : `${onPaper.length} items haven’t`} reached the kitchen.</b> {onPaper.length === 1 ? 'It goes' : 'They go'} by {onPaper.length === 1 ? 'itself' : 'themselves'} when the connection’s back. If it’s down for a while, print a paper ticket or walk it over.</p>
+          <button type="button" onClick={printPaper} className={btn} style={dark}>Print a paper ticket</button>
+        </section>
+      )}
 
       {visitId && (
         <section className="rounded-3xl bg-[#fff] p-4 space-y-2" style={{ border: `1px solid ${LINE}` }} aria-label="Allergies">

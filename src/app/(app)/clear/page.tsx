@@ -4,11 +4,17 @@
 // the business's reset steps as a reminder, "On it" so nobody doubles up, and "Ready to seat", which frees the table on
 // the host stand at once. Below, tables leaving soon: one that's paid can be marked as gone, which starts its clearing.
 // Reads and acts through api/tab (lib/table-reset-server). Anyone on the team can use it, servers included.
-import { useCallback, useEffect, useState } from 'react';
+// Through a Wi-Fi drop (lib/outbox, lib/last-seen): the list it last had, with its time; "On it" and "Ready to seat"
+// are kept on the phone and sent when the connection's back. "They’ve left" needs the connection.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { leavingWords, leftWords, type ClearItem, type LeavingItem } from '@/lib/table-reset';
+import { send } from '@/lib/outbox';
+import { keepLast, lastOf } from '@/lib/last-seen';
+import { ConnectionBar } from '@/components/shared/ConnectionBar';
+import { useKeepPage } from '@/components/pwa/keep-page';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const POLL_MS = 15000;
@@ -18,10 +24,12 @@ const dark = { background: INK, color: '#fff' } as const;
 
 type Data = { session: string | null; toClear: ClearItem[]; leaving: LeavingItem[]; steps: string[]; waitForReady: boolean; clearMin: number; meName: string };
 
-async function call(body: any): Promise<any> {
-  const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-  return fetch('/api/tab', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) })
-    .then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' }));
+/** A step through api/tab: kept on the phone when there's no connection and `keep` names it. */
+async function call(body: any, keep?: string): Promise<any> {
+  // Kept for 20 minutes at most, and a kept one says when it was tapped: arriving late, "Ready to seat" never clears
+  // guests who sat down and left after it.
+  const r = await send('/api/tab', body, { label: keep || 'A tap', auth: 'user', keep: !!keep, tenantId: String(body.tenantId || ''), maxAgeMs: 20 * 60000, stamp: 'at' });
+  return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
 }
 
 export default function ClearPage() {
@@ -31,12 +39,19 @@ export default function ClearPage() {
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState('');
   // Steps ticked on this phone, by table: a reminder only, never saved.
   const [ticks, setTicks] = useState<Record<string, number[]>>({});
+  // No connection: what the phone last had, and when (null while the server answers).
+  const [asOf, setAsOf] = useState<number | null>(null); const good = useRef(0);
+  useKeepPage();
 
   const load = useCallback(async () => {
     if (!tenantId) return;
     const r = await call({ tenantId, action: 'clearing' });
+    if (r.offline) {
+      if (!good.current) { const last = lastOf<Data>(`clear.${tenantId}`); if (last) { good.current = last.at; setD(last.data); } }
+      setAsOf(good.current || Date.now()); return;
+    }
     if (!r.ok) { setErr(r.error || 'The tables couldn’t be read.'); return; }
-    setErr(''); setD(r);
+    good.current = Date.now(); setErr(''); setD(r); setAsOf(null); keepLast(`clear.${tenantId}`, r);
     setTicks((t) => Object.fromEntries(Object.entries(t).filter(([u]) => (r.toClear || []).some((i: ClearItem) => i.unitId === u))));
   }, [tenantId]);
   useEffect(() => {
@@ -45,15 +60,19 @@ export default function ClearPage() {
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
   }, [load]);
 
-  const act = async (key: string, body: any, done: (r: any) => string) => {
+  const act = async (key: string, body: any, done: (r: any) => string, keep?: { label: string; local: (x: Data) => Data; kept: string }) => {
     if (!tenantId) return; setBusy(key); setMsg('');
-    const r = await call({ tenantId, ...body });
+    const r = await call({ tenantId, ...body }, keep?.label);
     setBusy(null);
+    // Kept on the phone: shown as done here, sent when the connection's back.
+    if (r.kept && keep) { setD((x) => (x ? keep.local(x) : x)); setMsg(keep.kept); return r; }
     if (!r.ok) { setMsg(r.error || 'That didn’t go through.'); void load(); return null; }
     setMsg(done(r)); void load(); return r;
   };
-  const ready = (i: ClearItem) => act(`ready:${i.unitId}`, { action: 'clear_done', unitId: i.unitId }, () => `${i.table} is ready to seat. The host stand has it.`);
-  const onIt = (i: ClearItem, on: boolean) => act(`on:${i.unitId}`, { action: 'clear_on', unitId: i.unitId, on }, () => (on ? `You’re on ${i.table}.` : `You’re off ${i.table}.`));
+  const ready = (i: ClearItem) => act(`ready:${i.unitId}`, { action: 'clear_done', unitId: i.unitId }, () => `${i.table} is ready to seat. The host stand has it.`,
+    { label: `${i.table}: ready to seat`, local: (x) => ({ ...x, toClear: x.toClear.filter((y) => y.unitId !== i.unitId) }), kept: `${i.table} is marked ready. The host stand gets it when the connection’s back.` });
+  const onIt = (i: ClearItem, on: boolean) => act(`on:${i.unitId}`, { action: 'clear_on', unitId: i.unitId, on }, () => (on ? `You’re on ${i.table}.` : `You’re off ${i.table}.`),
+    { label: `${i.table}: ${on ? 'on it' : 'not me'}`, local: (x) => ({ ...x, toClear: x.toClear.map((y) => (y.unitId === i.unitId ? { ...y, by: on ? x.meName || 'You' : null } : y)) }), kept: on ? `You’re on ${i.table}. The others see it when the connection’s back.` : `You’re off ${i.table}.` });
   const gone = async (l: LeavingItem) => {
     const r = await act(`left:${l.partyId}`, { action: 'left', partyId: l.partyId }, () => `${l.table} is yours to clear.`);
     // They came from the walk-in line: close their row there too (the line's own step, as the host stand does).
@@ -81,6 +100,7 @@ export default function ClearPage() {
           </div>
           <Link href="/tables" className={`${btn} inline-flex items-center`} style={quiet}>My tables</Link>
         </header>
+        {tenantId && <ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} />}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {msg && <p role="status" className="rounded-2xl bg-[#fff] px-4 py-3 text-[14.5px]" style={{ border: `1px solid ${LINE}` }}>{msg}</p>}
 

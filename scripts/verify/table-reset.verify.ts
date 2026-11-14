@@ -126,6 +126,13 @@ const iso = (t: number) => new Date(t).toISOString();
   check('…and once both are, the party is done with', !fl.find((t) => t.id === 'u8')!.clearing && !!(await get(`${T}/parties/joined`)).clearedAt);
   r = await Tab.POST(req({ tenantId: 't1', action: 'clear_done', unitId: 'u4' }));
   check('…twice: it’s ready already', r.status === 409);
+  r = await Tab.POST(req({ tenantId: 't1', action: 'clear_done', unitId: 'u4', at: new Date().toISOString() }));
+  check('…sent again from a phone whose answer was lost (it says when it was tapped): fine, nothing to do', r.body.ok && r.body.already === true);
+  await party('later', { status: 'finished', unitIds: ['u5'], finishedAt: ago(1), name: 'Later' }); F.forgetFloor('t1');
+  r = await Tab.POST(req({ tenantId: 't1', action: 'clear_done', unitId: 'u5', at: ago(10) }));
+  check('a “Ready to seat” kept on a phone through a Wi-Fi drop never clears guests who sat down and left after it', r.body.ok && r.body.cleared === 0 && !(await get(`${T}/parties/later`)).clearedAt);
+  r = await Tab.POST(req({ tenantId: 't1', action: 'clear_on', unitId: 'u5', at: ago(10) }));
+  check('…nor “On it”', r.body.ok && !(await get(`${T}/parties/later`)).clearOn);
 
   console.log('they’ve left');
   r = await Tab.POST(req({ tenantId: 't1', action: 'left', partyId: 'fox' }));

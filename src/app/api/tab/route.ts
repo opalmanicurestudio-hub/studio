@@ -25,7 +25,8 @@
 //          left (lib/table-pay-server).
 //   pay_cash   { tenantId, visitId, given? } → the rest of the check paid in cash to the server.
 //   clearing { tenantId } → tables to clear and leaving soon (lib/table-reset). left { tenantId, partyId }: a paid table
-//          has gone. clear_on { tenantId, unitId, on }: "On it". clear_done { tenantId, unitId }: "Ready to seat".
+//          has gone. clear_on { tenantId, unitId, on, at? }: "On it". clear_done { tenantId, unitId, at? }: "Ready to seat".
+//          `at`: when it was tapped (a tap kept through a Wi-Fi drop arrives later); only guests who'd left by then count.
 //   print_check { tenantId, visitId } → the guest check to the business's check printer (lib/printing-server), or back
 //          as paper for the tablet's own print dialog when it has none.
 //   usual  { tenantId, visitId } → a regular's usual items (lib/guest-memory), for the server to ring in with one tap
@@ -112,8 +113,16 @@ export async function POST(req: NextRequest) {
     try {
       if (action === 'clearing') return ok({ ...(await R.clearingFor(db, T, tenantNow)), meName: me.name });
       if (action === 'left') return ok(await R.markLeft(db, T, tenantId, String(b.partyId || ''), me.name));
-      if (action === 'clear_on') return ok(await R.clearOn(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name, b.on !== false));
-      return ok(await R.clearDone(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name));
+      // When it was tapped (a tap kept on a phone with no connection arrives later): only guests who'd left by then count.
+      const tapped = Date.parse(String(b.at || '')); const tappedAt = Number.isFinite(tapped) && tapped <= Date.now() + 120000 ? tapped : null;
+      try {
+        if (action === 'clear_on') return ok(await R.clearOn(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name, b.on !== false, tappedAt));
+        return ok(await R.clearDone(db, T, tenantNow, tenantId, String(b.unitId || ''), me.name, tappedAt));
+      } catch (e: any) {
+        // Sent again after it went through (its answer was lost to a weak connection): nothing left to do is fine.
+        if (tappedAt !== null && e instanceof R.ResetStop && /ready already/.test(e.msg)) return ok({ already: true, cleared: 0, by: null });
+        throw e;
+      }
     } catch (e: any) { if (e instanceof R.ResetStop) return bad(e.msg, e.status); console.error('[tab clearing]', e); return bad('That didn’t go through. Try again.', 500); }
   }
   const vRef = db.doc(`${T}/appointments/${visitId}`);

@@ -29,7 +29,11 @@
 import { Drawer } from '@/components/pos/desk/kit';
 import { TableTab } from '@/components/host/TableTab';
 import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { connectionDown, landed, send } from '@/lib/outbox';
+import { keepLast, lastOf } from '@/lib/last-seen';
+import { ConnectionBar } from '@/components/shared/ConnectionBar';
+import { useKeepPage } from '@/components/pwa/keep-page';
 import {
   addDoc, collection, doc, getDoc, getDocs, limit, onSnapshot, query, setDoc, updateDoc, where,
 } from 'firebase/firestore';
@@ -87,12 +91,15 @@ export default function HostScreen() {
   const tz = tenantTimeZone(selectedTenant as any);
   const holdOpts = { holdBeforeMinutes: hs.holdBeforeMinutes, holdGraceMinutes: hs.holdGraceMinutes };
 
-  // The steps that need the server, signed in as this person.
+  // The steps that need the server, signed in as this person: with no connection they say so (lib/outbox), and the floor
+  // shows what it last had (lib/last-seen). Adding to the wait list works with none (the database keeps it); seating
+  // doesn't (two stands could seat the same table).
   const api = useCallback(async (path: string, body: any): Promise<any> => {
-    const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, ...body }) })
-      .then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' }));
+    const r = await send(path, { tenantId, ...body }, { label: 'Host stand', auth: 'user', keep: false, tenantId: String(tenantId || '') });
+    return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
   }, [tenantId]);
+  const [asOf, setAsOf] = useState<number | null>(null); const good = useRef(0);
+  useKeepPage();
   // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
   const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean;
@@ -195,7 +202,11 @@ export default function HostScreen() {
 
   const loadFloor = useCallback(async () => {
     if (!tenantId) return;
-    const r = await api('/api/host/floor', { action: 'floor' });
+    let r = await api('/api/host/floor', { action: 'floor' });
+    if (r?.offline) {
+      if (good.current) { setAsOf(good.current); return; }
+      const last = lastOf<any>(`floor.${tenantId}`); setAsOf(last?.at || Date.now()); if (!last) return; good.current = last.at; r = last.data;
+    } else if (r?.ok) { good.current = Date.now(); setAsOf(null); keepLast(`floor.${tenantId}`, r); }
     if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager,
       memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {} });
   }, [api, tenantId]);
@@ -226,7 +237,9 @@ export default function HostScreen() {
 
   const write = useCallback(async (id: string, patch: any) => {
     if (!firestore || !tenantId) return;
-    await updateDoc(doc(firestore, `tenants/${tenantId}/parties`, id), patch);
+    // With no connection the database keeps it and sends it when it's back: the stand carries on meanwhile (seating
+    // itself needs the connection, seatAt).
+    await landed(updateDoc(doc(firestore, `tenants/${tenantId}/parties`, id), patch), 4000, { label: 'Host stand: a change to the list', tenantId: String(tenantId) });
   }, [firestore, tenantId]);
 
   /** OPAL BECOMES A HOSTING TENANT HERE. Pull today's appointment book onto
@@ -372,13 +385,13 @@ export default function HostScreen() {
     if (!meta || meta.appointmentOwned || !meta.open) return;
     try {
       const nowIso = new Date().toISOString();
-      await setDoc(doc(firestore, `tenants/${tenantId}/walkIns`, wid),
+      await landed(setDoc(doc(firestore, `tenants/${tenantId}/walkIns`, wid),
         { status: 'servicing', serviceStartTime: nowIso, needsFrontDesk: false, updatedAt: nowIso },
-        { merge: true });
+        { merge: true }));
       if (meta.token) {
         const st = { status: 'servicing', tenantId, updatedAt: nowIso };
-        await setDoc(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, meta.token), st, { merge: true });
-        await setDoc(doc(firestore, 'appointmentCheckIns', meta.token), st, { merge: true });
+        await landed(Promise.all([setDoc(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, meta.token), st, { merge: true }),
+          setDoc(doc(firestore, 'appointmentCheckIns', meta.token), st, { merge: true })]));
       }
     } catch {
       toast({ title: 'Seated — the lobby queue could not be updated' });
@@ -406,7 +419,9 @@ export default function HostScreen() {
     if (!firestore || !tenantId || !session || !name.trim()) return false;
     const isRes = /^\d{2}:\d{2}$/.test(at.trim());
     const arrives = isRes ? new Date(`${session.businessDay}T${at.trim()}:00`) : null;
-    const added = await addDoc(collection(firestore, `tenants/${tenantId}/parties`), {
+    // With no connection the database keeps it (and sends it when it's back): the party is on the list meanwhile.
+    const ref = doc(collection(firestore, `tenants/${tenantId}/parties`));
+    const added = await landed(setDoc(ref, {
       sessionId: session.id, name: name.trim(),
       size: Math.max(1, Math.floor(Number(size) || 1)), needs: [],
       source: isRes ? 'reservation' : 'walk_in',
@@ -416,7 +431,7 @@ export default function HostScreen() {
       quotedMinutes: null, notifiedAt: null, seatedAt: null, finishedAt: null,
       turnMinutes: null, unitIds: [], guestIds: [],
       ...(phone.trim() ? { phone: phone.trim() } : {}),
-    }).then((r) => r.id, () => null);
+    }).then(() => ref.id, () => null), 4000, { label: `Host stand: adding ${name.trim().slice(0, 40)}`, tenantId: String(tenantId) }).then((x) => (x === undefined ? ref.id : x));
     if (!added) { toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }); return false; }
     // Their own link: their place in line, more time, leaving, a drink (lib/wait-line), when the business sends them.
     if (!isRes && phone.trim() && ws.link) void sendLink(added, name.trim());
@@ -512,6 +527,8 @@ export default function HostScreen() {
   };
 
   const seatAt = async (party: HostedParty, unitId: string, force = false) => {
+    // Seating needs the connection: with none, two stands could seat the same table from what each last had.
+    if (connectionDown() || asOf !== null) { toast({ variant: 'destructive', title: 'Seating needs the connection.', description: 'Seat them by hand, and tap it in here when it’s back.' }); return; }
     // Seating ANY mirrored row (walk-in, booth, event) materialises it as a
     // real party first — skipped if a prior touch already did (the dedupe
     // keys are the source ids carried in guestIds).
@@ -628,6 +645,7 @@ export default function HostScreen() {
         <button type="button" onClick={() => setAdding(true)} disabled={!session} className={`${BTN} inline-flex items-center gap-2`} style={{ background: INK, color: '#fff' }}><Plus className="h-4 w-4" aria-hidden />Add a {V.party}</button>
       </header>
 
+      {tenantId && <div className="space-y-2 px-4 pt-4 empty:hidden sm:px-6"><ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} /></div>}
       {alerts.length > 0 && <div className="px-4 pt-4 sm:px-6"><div className="space-y-1 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT, color: AMBER }}>
         {alerts.map((a, i) => <p key={i} className="flex flex-wrap items-center gap-2 text-[14px] font-medium"><AlertCircle className="h-4 w-4 shrink-0" aria-hidden /><span className="flex-1">{a.text}</span>
           {a.act && <button type="button" onClick={a.act.run} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{a.act.label}</button>}</p>)}

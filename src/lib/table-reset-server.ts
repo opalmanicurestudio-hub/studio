@@ -74,8 +74,12 @@ async function leftAt(db: any, T: string, tenant: any, unitId: string): Promise<
 }
 
 /** "On it" (on), or not after all. */
-export async function clearOn(db: any, T: string, tenant: any, tenantId: string, unitId: string, by: string, on: boolean): Promise<{ by: string | null }> {
-  const [p] = await leftAt(db, T, tenant, unitId);
+// A tap kept on a phone through a Wi-Fi drop says when it was tapped: guests who left after that (a minute's grace for
+// the phone's clock) aren't what it meant.
+const leftBy = (p: any, tappedAt: number | null) => tappedAt === null || (Date.parse(p.finishedAt || '') || 0) <= tappedAt + 60000;
+export async function clearOn(db: any, T: string, tenant: any, tenantId: string, unitId: string, by: string, on: boolean, tappedAt: number | null = null): Promise<{ by: string | null }> {
+  const [p] = (await leftAt(db, T, tenant, unitId)).filter((x: any) => leftBy(x, tappedAt));
+  if (!p) throw new ResetStop('That table is ready already.');
   const ref = db.doc(`${T}/parties/${p.id}`);
   const out = await db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data();
@@ -92,8 +96,8 @@ export async function clearOn(db: any, T: string, tenant: any, tenantId: string,
 }
 
 /** "Ready to seat": the table is free again. */
-export async function clearDone(db: any, T: string, tenant: any, tenantId: string, unitId: string, by: string): Promise<{ cleared: number }> {
-  const list = await leftAt(db, T, tenant, unitId);
+export async function clearDone(db: any, T: string, tenant: any, tenantId: string, unitId: string, by: string, tappedAt: number | null = null): Promise<{ cleared: number }> {
+  const list = (await leftAt(db, T, tenant, unitId)).filter((x: any) => leftBy(x, tappedAt));
   const at = nowIso(); let cleared = 0;
   await db.runTransaction(async (tx: any) => {
     const refs = list.slice(0, 10).map((p: any) => db.doc(`${T}/parties/${p.id}`));

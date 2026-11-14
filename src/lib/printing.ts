@@ -157,6 +157,21 @@ export function ticketDoc(tickets: any[], o: { tz: string | null; at: string; st
   return { blocks, buzz: o.buzz };
 }
 
+/** A paper ticket from a server's phone, for what couldn't reach the kitchen's screens (no connection): each
+ *  station's items on its own part, as a ticket would print there. */
+export function paperDoc(groups: { station: string | null; tickets: any[] }[], o: { tz: string | null; at: string; by: string }): PrintDoc {
+  const blocks: Block[] = [{ k: 'text', text: 'Paper ticket: not on the screens yet', center: true, bold: true },
+    { k: 'text', text: 'It shows on the screens too once the connection’s back. Make it once.', center: true }, { k: 'rule' }];
+  groups.filter((g) => g.tickets.length).forEach((g, i) => {
+    const d = ticketDoc(g.tickets, { tz: o.tz, at: o.at, station: g.station ? `For the ${g.station}` : null, buzz: false });
+    // The slip's own footer names a ticket number the kitchen can't see yet: the server's name instead, once at the end.
+    if (i) blocks.push({ k: 'rule' }, { k: 'rule' });
+    blocks.push(...d.blocks.slice(0, -2));
+  });
+  blocks.push({ k: 'rule' }, { k: 'text', text: o.by });
+  return { blocks, buzz: false };
+}
+
 /** The allergy lines for a slip: each seat's allergies picked from the list (and how serious), and anything typed by
  *  hand that mentions one. The same line is printed once. */
 export function allergyLines(tickets: any[]): string[] {

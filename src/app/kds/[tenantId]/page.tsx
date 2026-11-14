@@ -15,6 +15,9 @@
 //   ticket counts down to its time, and "By order" keeps an order's items together for bagging.
 //   Holding (lib/holding): batches cooked ahead show along the top with how long each has left; a ticket for something
 //   held is made from the batch in one tap, and a batch past its time says to throw it out.
+//   Through a Wi-Fi drop (lib/outbox, lib/last-seen; design canvas "When the Wi-Fi drops"): the tickets it last had, with
+//   their time; Start, Ready, Served and Allergy noted are kept on the tablet and sent when the connection's back (a
+//   ticket shows "Sends when it’s back" meanwhile). Cancelling needs the connection.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -31,6 +34,10 @@ import { ExpoView } from '@/components/kitchen/ExpoView';
 import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { renderHtml, ticketDoc } from '@/lib/printing';
+import { flush, keptNow, noteNetwork, send, type Kept } from '@/lib/outbox';
+import { keepLast, lastOf } from '@/lib/last-seen';
+import { ConnectionBar } from '@/components/shared/ConnectionBar';
+import { useKeepPage } from '@/components/pwa/keep-page';
 import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -48,6 +55,22 @@ type Data = { screen: string; business: { name: string; timeZone: string | null 
 type Staff = { id: string; name: string; pass: string };
 
 const keyName = (t: string) => `cf.kitchen.${t}`;
+// A tap kept on the tablet with no connection (lib/outbox), as the screen shows it until it's sent.
+const STEP_AFTER: Record<KitchenStep, string> = { claim: 'in_progress', release: 'pending', ready: 'ready', carry: 'ready', drop: 'ready', deliver: 'delivered', cancel: 'cancelled' };
+const STEP_WORD: Record<KitchenStep, string> = { claim: 'start', release: 'not started', ready: 'ready', carry: 'ready', drop: 'ready', deliver: 'served', cancel: 'cancel' };
+const LIVE_STATUS = ['pending', 'in_progress', 'ready'];
+function withKept(tickets: KitchenTicket[], kept: Kept[], tenantId: string): KitchenTicket[] {
+  let out = tickets;
+  for (const k of kept) {
+    if (k.url !== '/api/kitchen' || k.tenantId !== tenantId) continue;
+    const b = k.body || {};
+    const ids: { col: string; id: string }[] = b.action === 'bump' ? (Array.isArray(b.tickets) ? b.tickets : []) : [{ col: b.col, id: b.id }];
+    const hit = (t: KitchenTicket) => ids.some((x) => x.id === t.id && x.col === t.col);
+    if (b.action === 'act' || b.action === 'bump') { const st = STEP_AFTER[b.step as KitchenStep]; if (st) out = out.map((t) => (hit(t) ? ({ ...t, status: st, keptHere: true } as any) : t)); }
+    if (b.action === 'allergyNoted') out = out.map((t) => (hit(t) ? ({ ...t, allergyNotedAt: k.at, keptHere: true } as any) : t));
+  }
+  return out.filter((t) => LIVE_STATUS.includes(t.status));
+}
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 
@@ -168,6 +191,7 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
             {t.item}{t.quantity > 1 && <span style={{ color: MUTED }}> × {t.quantity}</span>}
           </h3>
           {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
+          {(t as any).keptHere && <p className="mt-2"><span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Sends when it’s back</span></p>}
         </div>
         {later
           ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={{ background: SOFT, color: MUTED }} aria-label={`Start ${startWords(start!.startAt, now)}`}>Start {startWords(start!.startAt, now)}</span>
@@ -516,6 +540,9 @@ export default function KitchenScreen() {
   const [key, setKey] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [data, setData] = useState<Data | null>(null);
+  // What's on screen, for a refresh that can't reach the server (it keeps it, or brings back the last one kept here).
+  const dataRef = useRef<Data | null>(null); useEffect(() => { dataRef.current = data; }, [data]);
+  useKeepPage();
   const [stopped, setStopped] = useState('');
   const [closed, setClosed] = useState('');
   const [lastOk, setLastOk] = useState(0);
@@ -600,8 +627,12 @@ export default function KitchenScreen() {
   const load = useCallback(async () => {
     if (!key || inFlight.current) return;
     inFlight.current = true; const at = acted.current;
+    const lastKey = `kds.${tenantId}.${eventId || 'all'}`;
     try {
+      // Taps kept with no connection go first, so the tickets read next already have them.
+      if (keptNow().some((k) => k.url === '/api/kitchen' && k.tenantId === tenantId)) await flush();
       const { status, d } = await post({ action: 'tickets', ...(eventId ? { eventId } : {}) });
+      noteNetwork(true);
       if (at !== acted.current) return;   // a tap happened meanwhile: the next refresh has it
       if (status === 401) { forgetHere(d.error || 'This screen was stopped. A manager can set it up again.'); return; }
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
@@ -621,8 +652,17 @@ export default function KitchenScreen() {
         if (fresh.length && autoPrint) printHere(fresh, next);
         for (const i of ids) seen.current.add(i);
       } else seen.current = new Set(ids);
-      setData(next); setLastOk(Date.now());
-    } catch { /* offline: keep what's on screen and try again */ } finally { inFlight.current = false; }
+      keepLast(lastKey, next, { screen: true });
+      // Any still kept (the connection dropped again mid-way) stay as tapped here.
+      setData({ ...next, tickets: withKept(next.tickets, keptNow(), tenantId) }); setLastOk(Date.now());
+    } catch {
+      // No connection: keep what's on screen and try again; opened with none, what this tablet last had, as tapped here.
+      noteNetwork(false);
+      if (!dataRef.current) { const last = lastOf<Data>(lastKey, { screen: true }); if (last?.data?.tickets) {
+        // What was up then counts as seen: a ticket that arrives meanwhile still rings when the connection's back.
+        if (!seen.current) seen.current = new Set(last.data.tickets.map((t) => `${t.col}/${t.id}`));
+        setData({ ...last.data, tickets: withKept(last.data.tickets, keptNow(), tenantId) }); setLastOk(last.at); } }
+    } finally { inFlight.current = false; }
   }, [key, eventId, post, forgetHere, soundOn, autoPrint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -635,13 +675,19 @@ export default function KitchenScreen() {
   }, [key, load]);
 
   const setBusy = (ids: string[], on: boolean) => setBusyIds((prev) => { const n = new Set(prev); for (const i of ids) { if (on) n.add(i); else n.delete(i); } return n; });
-  const local = (list: KitchenTicket[], status: string) => setData((d) => d ? { ...d, tickets: d.tickets.map((t) => list.some((x) => x.id === t.id && x.col === t.col) ? { ...t, status, ...(status === 'in_progress' && staff ? { claimedBy: { staffId: staff.id, name: staff.name } } : {}) } : t).filter((t) => ['pending', 'in_progress', 'ready'].includes(t.status)) } : d);
-  const after: Record<KitchenStep, string> = { claim: 'in_progress', release: 'pending', ready: 'ready', carry: 'ready', drop: 'ready', deliver: 'delivered', cancel: 'cancelled' };
+  const local = (list: KitchenTicket[], status: string, kept = false) => setData((d) => d ? { ...d, tickets: d.tickets.map((t) => list.some((x) => x.id === t.id && x.col === t.col) ? { ...t, status, ...(kept ? { keptHere: true } : {}), ...(status === 'in_progress' && staff ? { claimedBy: { staffId: staff.id, name: staff.name } } : {}) } : t).filter((t) => LIVE_STATUS.includes(t.status)) } : d);
+  const after = STEP_AFTER;
+  // A tap through the server: kept on the tablet with no connection (lib/outbox) when `keep`, sent when it's back.
+  // The cook's pass is held for this session only, never in the tablet's lasting storage.
+  const tap = (body: any, label: string, keep: boolean) => send('/api/kitchen', { tenantId, key, ...body, ...(staff ? { staffPass: staff.pass } : {}) }, { label, auth: 'none', keep, tenantId, hold: ['staffPass'] });
+  const keptWords = 'Saved on this tablet. It’s sent when the connection’s back.';
 
   const step = async (t: KitchenTicket, s: KitchenStep) => {
     acted.current++; setBusy([t.id], true);
     try {
-      const { status, d } = await post({ action: 'act', col: t.col, id: t.id, step: s, ...(staff ? { staffPass: staff.pass } : {}) });
+      const { status, d, kept } = await tap({ action: 'act', col: t.col, id: t.id, step: s }, `${t.station}: ${t.item}, ${STEP_WORD[s]}`, s !== 'cancel');
+      if (kept) { local([t], after[s], true); setNotice(keptWords); return; }
+      if (d.offline) { setNotice(s === 'cancel' ? 'No connection. Cancelling needs the connection: try again when it’s back.' : 'No connection. Try again.'); return; }
       if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
       if (d.staffOk === false) staffGone();
       if (d.ok && d.already) setNotice(`${t.item} for ${t.name} was already moved on, maybe on another screen.`);
@@ -654,7 +700,10 @@ export default function KitchenScreen() {
   const bump = async (list: KitchenTicket[], s: 'ready' | 'deliver') => {
     const ids = list.map((t) => t.id); acted.current++; setBusy(ids, true);
     try {
-      const { status, d } = await post({ action: 'bump', step: s, tickets: list.map((t) => ({ col: t.col, id: t.id })), ...(staff ? { staffPass: staff.pass } : {}) });
+      const { status, d, kept } = await tap({ action: 'bump', step: s, tickets: list.map((t) => ({ col: t.col, id: t.id })) },
+        list.length === 1 ? `${list[0].station}: ${list[0].item}, ${STEP_WORD[s]}` : `${list.length} tickets at ${list[0].station}, ${STEP_WORD[s]}`, true);
+      // Kept: an allergy still to note holds its ticket back, as the server would.
+      if (kept) { local(list.filter((t) => !needsAllergyNote(t)), after[s], true); setNotice(list.some(needsAllergyNote) ? 'Tap Allergy noted on each with an allergy first. The rest are saved on this tablet and sent when the connection’s back.' : keptWords); return; }
       if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
       if (d.staffOk === false) staffGone();
       if (d.ok) {
@@ -671,7 +720,8 @@ export default function KitchenScreen() {
   const noteAllergy = async (t: KitchenTicket) => {
     acted.current++; setBusy([t.id], true);
     try {
-      const { status, d } = await post({ action: 'allergyNoted', col: t.col, id: t.id, seen: allergySig(t), ...(staff ? { staffPass: staff.pass } : {}) });
+      const { status, d, kept } = await tap({ action: 'allergyNoted', col: t.col, id: t.id, seen: allergySig(t) }, `${t.station}: ${t.item}, allergy noted`, true);
+      if (kept) { setData((x) => x ? { ...x, tickets: x.tickets.map((y) => (y.id === t.id && y.col === t.col ? ({ ...y, allergyNotedAt: new Date().toISOString(), allergyNotedBy: staff?.name || null, keptHere: true } as any) : y)) } : x); setNotice(keptWords); return; }
       if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
       if (d.staffOk === false) staffGone();
       if (d.ok) setData((x) => x ? { ...x, tickets: x.tickets.map((y) => (y.id === t.id && y.col === t.col ? { ...y, allergyNotedAt: d.at || new Date().toISOString(), allergyNotedBy: d.by || staff?.name || null } : y)) } : x);
@@ -841,7 +891,7 @@ export default function KitchenScreen() {
 
       <div className="px-4 sm:px-6 pt-3 space-y-2">
         {closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{closed}</div>}
-        {stale && !closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The screen can’t reach the server. Tickets may be out of date; it keeps trying.</div>}
+        {!closed && <ConnectionBar tenantId={tenantId} down={stale} asOf={lastOk || null} kitchen />}
         {!stale && (data?.printers || []).filter((p) => !p.ok && (!myStation || !p.stations.length || p.stations.includes(myStation))).map((p) => (
           <div key={p.name} role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}><b className="font-semibold">{p.name} isn’t printing.</b> {p.words}. New tickets are on this screen. Check its paper and that it’s on the Wi-Fi.</div>))}
         {justPaired && (
