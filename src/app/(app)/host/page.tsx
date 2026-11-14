@@ -43,10 +43,14 @@ import { floorSettingsOf, freeWords, STAGE_STEPS, type FloorSettings } from '@/l
 import { floorTables, seatNext, staffLoads, waitHolds, type Suggestion } from '@/lib/seat-next';
 import { linePlace, minutesWords, ordinal, preorderWords, waitSettingsOf, type WaitSettings } from '@/lib/wait-line';
 import { getAuth } from 'firebase/auth';
+import { money } from '@/lib/table-booking';
+import type { LateCancel } from '@/lib/table-booking-server';
 import { AlertCircle, Bell, Link2, Plus, Sparkles } from 'lucide-react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+/** "7:30 pm" from "19:30". */
+const hm12 = (t: string) => { const [h, m] = String(t || '').split(':').map(Number); return Number.isFinite(h) ? `${((h + 11) % 12) + 1}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}` : t; };
 const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`;
 
 export default function HostScreen() {
@@ -82,7 +86,7 @@ export default function HostScreen() {
   }, [tenantId]);
   // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
-  const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings } | null>(null);
+  const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean } | null>(null);
   const [acting, setActing] = useState<string | null>(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -179,7 +183,7 @@ export default function HostScreen() {
   const loadFloor = useCallback(async () => {
     if (!tenantId) return;
     const r = await api('/api/host/floor', { action: 'floor' });
-    if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait });
+    if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager });
   }, [api, tenantId]);
   const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
   useEffect(() => {
@@ -430,6 +434,24 @@ export default function HostScreen() {
     toast(r.stuck ? { variant: 'destructive', title: `${p.name} is off the list, but their drinks are still on the bar’s screen`, description: 'Try again from the note at the top.' }
       : { title: `${p.name} is off the list${r.off ? `. ${r.off === 1 ? 'Their drink came' : `${r.off} drinks came`} off the bar’s screen` : ''}` });
     if (selected === p.id) setSelected(null);
+  };
+  /** A booking that didn't come, or cancelled after the free time: a manager charges the fee the guest agreed to
+   *  (api/host/floor booking_charge), or it's let go (a no-show marked as one, nothing charged). */
+  const chargeBooking = async (bookingId: string, who: string) => {
+    setActing(`charge:${bookingId}`);
+    const r = await api('/api/host/floor', { action: 'booking_charge', bookingId });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); void loadFloor(); return; }
+    toast({ title: r.already ? `${who} was charged already` : `${money(r.amount)} charged to ${who}’s card. They get a receipt.` });
+    void loadFloor();
+  };
+  const letGoBooking = async (bookingId: string, who: string, noShow: boolean) => {
+    setActing(`letgo:${bookingId}`);
+    const r = await api('/api/host/floor', { action: 'booking_letgo', bookingId });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    toast({ title: noShow ? `${who} marked as not coming. Nothing charged.` : 'Let go. Nothing charged.' });
+    void loadFloor();
   };
   /** Drinks still at the bar for someone who left: try taking them off again. */
   const unring = async (p: any) => {
@@ -688,17 +710,48 @@ export default function HostScreen() {
             <div className="flex items-center justify-between"><h2 id="expected" className="text-[17px] font-semibold">Booked, still to come</h2><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{expected.length}</span></div>
             {expected.length === 0 && <p className="rounded-2xl border border-dashed bg-[#fff] px-4 py-5 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nothing else booked today.</p>}
             {expected.map((p) => {
+              // A booking that said it's running late is held that much longer (lib/table-booking-server).
+              const x: any = p; const lateBy = Number(x.lateBy) || 0;
               const late = lateVerdict(p, now, holdOpts);
+              const held = lateBy ? lateVerdict({ ...p, arrivesAt: new Date(Date.parse(String(p.arrivesAt)) + lateBy * 60000).toISOString() }, now, holdOpts) : late;
+              const asks: string[] = Array.isArray(x.asks) ? x.asks : [];
+              const fee = x.cardHeld ? Number(x.fee) || 0 : 0;
+              const missed = !!x.bookingId && held.holdReleased;
               return (
-                <article key={p.id} className="flex items-center gap-3 rounded-2xl bg-[#fff] p-3 pl-4" style={{ border: selected === p.id ? `2px solid ${INK}` : `1px solid ${LINE}` }}>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15.5px] font-semibold">{p.name}, {p.size}</p>
-                    <p className="text-[13.5px]" style={{ color: late.holdReleased ? AMBER : late.late ? AMBER : MUTED, fontWeight: late.late ? 600 : 400 }}>{at12(p.arrivesAt)}{late.holdReleased ? `, ${late.minutesLate} min late. Their ${V.unit} isn’t held now` : late.late ? `, ${late.minutesLate} min late` : ''}</p>
+                <article key={p.id} className="rounded-2xl bg-[#fff] p-3 pl-4" style={{ border: selected === p.id ? `2px solid ${INK}` : `1px solid ${LINE}` }}>
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15.5px] font-semibold">{p.name}, {p.size}</p>
+                      <p className="text-[13.5px]" style={{ color: held.holdReleased || late.late ? AMBER : MUTED, fontWeight: late.late ? 600 : 400 }}>{at12(p.arrivesAt)}{held.holdReleased ? `, ${late.minutesLate} min late. Their ${V.unit} isn’t held now` : late.late ? `, ${late.minutesLate} min late` : ''}{lateBy ? `. They said they’d be about ${lateBy} min late` : ''}</p>
+                      {(fee > 0 || asks.length > 0 || x.note) && <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {fee > 0 && <span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Card on file</span>}
+                        {asks.map((a) => <span key={a} className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={{ background: a === 'Allergy' ? AMBER_TINT : SOFT, color: a === 'Allergy' ? AMBER : INK }}>{a}</span>)}
+                        {x.note && <span className="rounded-full px-2.5 py-1 text-[12px] font-medium" style={{ background: SOFT }}>{String(x.note)}</span>}
+                      </div>}
+                    </div>
+                    <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
                   </div>
-                  <button type="button" onClick={() => pick(p.id)} aria-pressed={selected === p.id} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{selected === p.id ? 'Choosing…' : 'Seat'}</button>
+                  {missed && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl p-3" style={{ background: SOFT }}>
+                    <p className="min-w-[200px] flex-1 text-[14px] leading-snug">{fee > 0 ? (floor?.manager ? `Charge ${p.name} ${money(fee)} for not coming? They agreed to it when they booked.` : `${p.name} agreed to ${money(fee)} for not coming. A manager can charge it.`) : `${p.name} hasn’t come.`}</p>
+                    {fee > 0 && floor?.manager && <button type="button" disabled={acting === `charge:${x.bookingId}`} onClick={() => chargeBooking(String(x.bookingId), p.name)} className={BTN} style={{ background: INK, color: '#fff' }}>{acting === `charge:${x.bookingId}` ? 'Charging…' : `Charge ${money(fee)}`}</button>}
+                    <button type="button" disabled={acting === `letgo:${x.bookingId}`} onClick={() => letGoBooking(String(x.bookingId), p.name, true)} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{fee > 0 ? 'Didn’t come, don’t charge' : 'Didn’t come'}</button>
+                  </div>}
                 </article>);
             })}
           </section>
+
+          {(floor?.lateCancels || []).length > 0 && <section aria-labelledby="late-cancels" className="space-y-3">
+            <h2 id="late-cancels" className="text-[17px] font-semibold">Cancelled late</h2>
+            {(floor?.lateCancels || []).map((c) => (
+              <article key={c.bookingId} className="flex flex-wrap items-center gap-3 rounded-2xl bg-[#fff] p-3 pl-4" style={{ border: `1px solid ${LINE}` }}>
+                <div className="min-w-[200px] flex-1">
+                  <p className="text-[15.5px] font-semibold">{c.name}, {c.size}</p>
+                  <p className="text-[13.5px] leading-snug" style={{ color: MUTED }}>Booked for {c.day && c.day !== session?.businessDay ? `${new Date(`${c.day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} at ` : ''}{hm12(c.time)}, cancelled after the free time. They agreed to {money(c.fee)}{floor?.manager ? '.' : '. A manager can charge it.'}</p>
+                </div>
+                {floor?.manager && <button type="button" disabled={acting === `charge:${c.bookingId}`} onClick={() => chargeBooking(c.bookingId, c.name)} className={BTN} style={{ background: INK, color: '#fff' }}>{acting === `charge:${c.bookingId}` ? 'Charging…' : `Charge ${money(c.fee)}`}</button>}
+                <button type="button" disabled={acting === `letgo:${c.bookingId}`} onClick={() => letGoBooking(c.bookingId, c.name, false)} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}` }}>Let it go</button>
+              </article>))}
+          </section>}
         </div>
       </div>
 

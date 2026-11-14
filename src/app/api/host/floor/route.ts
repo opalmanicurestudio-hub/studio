@@ -12,7 +12,14 @@
 //   left     { tenantId, partyId, noShow? } → a waiting party isn't here any more (or never came back after the text):
 //            off the list, and drinks already at the bar for them come off (when that fails, the party says so and
 //            `unring` tries again).
-//   settings { tenantId, floor?, wait? } → the business's floor and wait-list settings (a manager).
+//   settings { tenantId, floor?, wait?, booking? } → the business's floor, wait-list and online booking settings (a
+//            manager).
+//   booking_charge { tenantId, bookingId } → a manager charges a booking's no-show or late-cancel fee, the one the guest
+//            agreed to (lib/table-booking-server). booking_letgo: not charged (a no-show marked as one, or a late cancel
+//            let go). booking_cancel { bookingId, guestAsked? }: cancelled from the host stand (late, and the fee can be
+//            charged, only when the guest asked).
+// The floor read also puts today's online bookings on the host stand as parties still to come, and says which late
+// cancels could be charged.
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -23,6 +30,8 @@ import { linkOrigin } from '@/lib/app-origin';
 import { cleanFloor, floorSettingsOf } from '@/lib/table-stage';
 import { cleanWait, waitSettingsOf } from '@/lib/wait-line';
 import { FloorStop, forgetFloor, readFloor, ringPreorder, stagesByUnit, tablesOf, voidPreorderOrFlag } from '@/lib/floor-server';
+import { cleanTableBooking, tableBookingOf } from '@/lib/table-booking';
+import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '@/lib/table-booking-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -34,8 +43,8 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'floor');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings'].includes(action)) return bad('Unknown action.');
-  const g: any = await requireRole(req, tenantId, action === 'settings' ? 'manager' : 'staff'); if (g.deny) return g.deny;
+  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel'].includes(action)) return bad('Unknown action.');
+  const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' ? 'manager' : 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return bad('The floor is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = g.tenant && Object.keys(g.tenant).length ? g.tenant : ((await db.doc(T).get()).data() || {});
@@ -47,15 +56,28 @@ export async function POST(req: NextRequest) {
       const patch: Record<string, any> = {};
       if (b.floor && typeof b.floor === 'object') patch['hostingSettings.floor'] = cleanFloor(b.floor);
       if (b.wait && typeof b.wait === 'object') patch['hostingSettings.wait'] = cleanWait(b.wait);
+      if (b.booking && typeof b.booking === 'object') patch['hostingSettings.booking'] = cleanTableBooking(b.booking);
       if (!Object.keys(patch).length) return bad('Nothing to save.');
       await db.doc(T).update(patch);
       forgetFloor(tenantId);
-      return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant) });
+      return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant), booking: patch['hostingSettings.booking'] || tableBookingOf(tenant) });
     }
 
     if (action === 'floor') {
       const read = await readFloor(db, T, tenant);
-      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at });
+      // Today's online bookings on the host stand (made once each), and late cancels that could be charged.
+      const lateCancels = read.session ? await bookingsOnFloor(db, T, tenant, read.session).catch((e) => { console.warn('[host/floor] bookings', e); return []; }) : [];
+      const manager = !!g.actor?.isTenantOwner || !!g.actor?.isManager || ['owner', 'admin', 'manager'].includes(String(g.actor?.role || '').toLowerCase());
+      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager });
+    }
+
+    if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {
+      const bookingId = String(b.bookingId || ''); if (!/^tb[0-9a-f]{16}$/.test(bookingId)) return bad('Which booking?');
+      try {
+        if (action === 'booking_charge') return ok(await chargeBooking(db, T, tenant, tenantId, bookingId, by));
+        if (action === 'booking_cancel') return ok(await cancelBooking(db, T, tenant, tenantId, bookingId, by, { guestAsked: b.guestAsked === true }));
+        return ok(await letGo(db, T, tenant, bookingId, by));
+      } catch (e: any) { if (e instanceof BookStop) return NextResponse.json({ ok: false, error: e.msg, code: e.code || null }, { status: e.status }); throw e; }
     }
 
     if (action === 'ring') {
