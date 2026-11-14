@@ -26,6 +26,8 @@
 //   pay_cash   { tenantId, visitId, given? } → the rest of the check paid in cash to the server.
 //   clearing { tenantId } → tables to clear and leaving soon (lib/table-reset). left { tenantId, partyId }: a paid table
 //          has gone. clear_on { tenantId, unitId, on }: "On it". clear_done { tenantId, unitId }: "Ready to seat".
+//   print_check { tenantId, visitId } → the guest check to the business's check printer (lib/printing-server), or back
+//          as paper for the tablet's own print dialog when it has none.
 //   usual  { tenantId, visitId } → a regular's usual items (lib/guest-memory), for the server to ring in with one tap
 //          (the same allergy check as the menu), when the business shows regulars.
 //   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
@@ -136,6 +138,12 @@ export async function POST(req: NextRequest) {
     const { tenantTimeZone } = await import('@/lib/tenant-time');
     const w = M.visitWords(m, tenantTimeZone(tenant));
     return ok({ usual: m.usual.slice(0, 4).map((u) => ({ id: u.id, name: u.name })), words: [w.head, w.rest].filter(Boolean).join(' '), name: m.name, note: m.note?.text || '' });
+  }
+  // PRINTERS (lib/printing-server): the guest check to the business's check printer, or back as paper for the tablet.
+  if (action === 'print_check') {
+    const PS = await import('@/lib/printing-server');
+    try { return ok(await PS.printCheck(db, T, tenant, tenantId, visitId, linkOrigin(tenant, req.nextUrl?.origin || ''))); }
+    catch (e: any) { if (e instanceof PS.PrintStop || (e?.msg && e?.status)) return bad(e.msg, e.status); console.error('[tab print_check]', e); return bad('The check couldn’t be printed. Try again.', 500); }
   }
   // The night it belongs to, the same as the night's report counts it (lib/night-close-server).
   const day = tonight(tenant);
@@ -335,6 +343,15 @@ export async function POST(req: NextRequest) {
         tx.set(rRef, recordOf(rRef, 'void_item', token, extra), { merge: true });
       }));
       await logAuditAdmin(db, tenantId, { action: 'tab.void', targetType: 'appointment', targetId: visitId, amount, summary: `${me.name} voided ${line.name} (${money(amount)}) at ${v.tableName || 'a table'}: ${reason}${started ? `. The kitchen had started it${waste !== null ? `; ${money(waste)} counts as waste` : ''}.` : ''}${approvedBy !== me.name ? ` ${approvedBy} approved.` : ''}`, actor: { type: 'user', id: me.id, name: me.name } } as any).catch(() => {});
+      // Already on paper at a station's printer: a "Taken off" slip there too (lib/printing-server). Read again now it's
+      // off, so a printer that printed it a moment ago is told as well; one the kitchen carries on with isn't.
+      if (line.kdsId && ID.test(String(line.kdsId))) {
+        const k: any = (await db.doc(`${T}/kdsTickets/${line.kdsId}`).get().catch(() => null))?.data();
+        if (k?.status === 'cancelled' && k.printed && typeof k.printed === 'object' && Object.values(k.printed).some(Boolean)) {
+          const PS = await import('@/lib/printing-server');
+          await PS.queueVoids(db, T, tenant, [{ ...k, id: line.kdsId }], me.name).catch((e) => console.warn('[tab void] print', e));
+        }
+      }
       return ok({ amount, started, waste, approvedBy });
     }
 

@@ -10,7 +10,8 @@
 // the business turns that off); each is on a seat or the whole table. Ringing in a dish that contains one warns first,
 // and every ticket for that seat tells the kitchen. Counted dishes (lib/dish-counts) show what's left, and can't be rung
 // in once sold out. A regular's usual (lib/guest-memory, design canvas GuestMemory) is a tap away, through the same
-// checks as the menu, when the business shows regulars.
+// checks as the menu, when the business shows regulars. "Print the check" prints at the business's check printer
+// (lib/printing-server), or through this device's own print dialog when it has none.
 import * as React from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -24,6 +25,8 @@ import { makeSecondsOf } from '@/lib/counter-orders';
 import { approveWithPin } from '@/lib/approve-client';
 import { tablePayOf } from '@/lib/table-bill';
 import { TablePayCard } from '@/components/host/TablePayCard';
+import { renderHtml } from '@/lib/printing';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { askAllergiesOf, compReasonsOf, courseOfItem, courseStage, coursesOf, kitchenStarted, listPriceOf, prepMinutes, stationOfItem, stationsOf, OTHER_REASON, REMAKE_REASONS, VOID_REASONS, type Course } from '@/lib/table-service';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -138,6 +141,20 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     setMsg(d.ok ? `${c.name} fired. The kitchen has it now.` : d.error || 'That didn’t go through.'); };
   const moveSeat = async (l: TabLine, s: string) => { if (!visitId) return; const d = await tabCall({ tenantId, action: 'seat', visitId, lineId: l.lineId, seat: s || null }); if (!d.ok) setMsg(d.error || 'That didn’t move.'); };
 
+  // PRINT THE CHECK (lib/printing-server): at the business's check printer, or this device's own print dialog without one.
+  const [printing, setPrinting] = React.useState(false); const [printMsg, setPrintMsg] = React.useState('');
+  const printCheck = async () => {
+    if (!visitId) return; setPrinting(true); setPrintMsg('');
+    const r = await tabCall({ tenantId, action: 'print_check', visitId });
+    setPrinting(false);
+    if (!r?.ok) { setPrintMsg(r?.error || 'The check couldn’t be printed.'); return; }
+    if (r.printer) { setPrintMsg(`Printing at ${r.printer}.`); return; }
+    const w = window.open('', '_blank', 'width=420,height=620');
+    if (r.down) setPrintMsg(`${r.down} isn’t answering, so the check opens here to print.`);
+    if (!w) { setPrintMsg(`${r.down ? `${r.down} isn’t answering. ` : ''}Allow pop-ups here to print the check.`); return; }
+    w.document.open(); w.document.write(renderHtml(r.doc, { font: PRINT_FONT_STACK, fontHref: PRINT_FONT_HREF })); w.document.close();
+    w.onload = () => { const go = () => { w.focus(); w.print(); w.close(); }; const f = (w.document as any).fonts; if (f?.ready) f.ready.then(go, go); else go(); };
+  };
   // Their usual, as the menu has it now (an item no longer on the menu isn't offered).
   const usualItems = usual.items.map((u) => catalog.find((x) => x.type === 'product' && x.id === u.id)).filter(Boolean) as any[];
   const t = q.trim().toLowerCase(); const shown = t ? catalog.filter((x) => x.name.toLowerCase().includes(t) || String(x.category).toLowerCase().includes(t)).slice(0, 24) : catalog.slice(0, 12);
@@ -264,6 +281,10 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
       {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
       {waiting.length > 0 && tab.length > 0 && <p className="text-[13px]" style={{ color: AMBER }}>{waiting.map((g, i) => (i ? g.course!.name.toLowerCase() : g.course!.name)).join(' and ')} {waiting.length === 1 ? 'hasn’t' : 'haven’t'} been fired. Fire {waiting.length === 1 ? 'it' : 'them'} or void what they didn’t want before checking out.</p>}
       {visitId && tab.length > 0 && tablePayOf(tenant).on && <TablePayCard tenantId={tenantId} visitId={visitId} table={tableName} poke={`${visit?.payPaidSoFar || 0}|${tab.length}`} onPaid={(paid) => setPaidHere(paid)} />}
+      {visitId && tab.length > 0 && <div className="flex flex-wrap items-center gap-2">
+        <button type="button" disabled={printing} onClick={printCheck} className="min-h-[44px] rounded-xl border bg-[#fff] px-4 text-[14px] font-semibold disabled:opacity-50" style={{ borderColor: LINE }}>{printing ? 'Printing…' : 'Print the check'}</button>
+        {printMsg && <p role="status" className="text-[13.5px]" style={{ color: MUTED }}>{printMsg}</p>}
+      </div>}
       {paidHere > 0
         ? <p className="text-[13px]" style={{ color: MUTED }}>Part of this check was paid at the table, so it’s finished there, not at the desk.</p>
         : <a href={visitId ? `/pos?checkout=${encodeURIComponent(visitId)}&tab=1` : '#'} aria-disabled={!visitId || !tab.length || waiting.length > 0}

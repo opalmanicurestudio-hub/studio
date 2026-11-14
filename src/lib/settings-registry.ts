@@ -48,6 +48,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     { id: 'hosting', title: 'Hosting and floor', meaning: 'Tables, seating and the host screen', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties', module: 'hospitality' },
     { id: 'tableservice', title: 'Tables, kitchen and bar', meaning: 'Stations, courses and what a server can comp', href: '/menu#table-service', words: 'courses fire stations bar kitchen expo comp void allowance reasons', module: 'hospitality', inShell: false },
     { id: 'closing', title: 'Closing the night', meaning: 'The closing checklist, temperatures and who gets the night’s report', href: '/settings/closing', words: 'closing checklist temperature fridge freezer report end of night tips close', module: 'hospitality' },
+    { id: 'printers', title: 'Printers', meaning: 'Kitchen tickets that print by themselves, and printed checks', href: '/settings/printers', words: 'printer printing print tickets kitchen bar receipt check star epson cloudprnt server direct print', module: 'hospitality' },
   ] },
   { id: 'messages', title: 'Client messages', meaning: 'The words clients get, replies, links and what was sent', pages: [
     { id: 'wording', title: 'Messages clients get', meaning: 'Confirmations, reminders and receipts, and quiet hours', href: '/settings/messages', words: 'message wording text sms email template confirmation reminder quiet hours' },

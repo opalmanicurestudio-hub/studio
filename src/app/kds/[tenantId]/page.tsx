@@ -30,6 +30,7 @@ import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { ExpoView } from '@/components/kitchen/ExpoView';
 import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
+import { renderHtml, ticketDoc } from '@/lib/printing';
 import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -41,7 +42,9 @@ type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean };
+type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean;
+  /** The printers that print tickets, and whether each is answering (lib/printing-server). */
+  printers?: { name: string; stations: string[]; ok: boolean; words: string }[] };
 type Staff = { id: string; name: string; pass: string };
 
 const keyName = (t: string) => `cf.kitchen.${t}`;
@@ -87,6 +90,19 @@ function printTicket(t: KitchenTicket, item: Item | undefined, staff: Staff | nu
   w.document.open(); w.document.write(html); w.document.close();
   w.onload = () => { const go = () => { w.focus(); w.print(); w.close(); }; const f = (w.document as any).fonts; if (f?.ready) f.ready.then(go, go); else go(); };
   return true;
+}
+
+// A page printed from a hidden frame (no new window, so nothing is held back as a pop-up). One after another.
+let frameQueue: Promise<void> = Promise.resolve();
+function printFrame(html: string) {
+  frameQueue = frameQueue.then(() => new Promise<void>((done) => {
+    const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
+    document.body.appendChild(f);
+    const w = f.contentWindow; if (!w) { f.remove(); done(); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+    const go = () => { try { w.focus(); w.print(); } catch { /* the tablet can't print */ } setTimeout(() => { f.remove(); done(); }, 1500); };
+    const fonts = (w.document as any).fonts; if (fonts?.ready) fonts.ready.then(go, go); else setTimeout(go, 300);
+  }));
 }
 
 // ─── A short two-note chime ──────────────────────────────────────────────────────────────────────────────────────────
@@ -507,6 +523,8 @@ export default function KitchenScreen() {
   const [view, setView] = useState<View>('lanes');
   // Which station this screen is for (lib/table-service): '' shows every station's tickets. Kept on this tablet.
   const [station, setStation] = useState('');
+  // Printing new tickets on this tablet's own printer (no networked printer): kept on this tablet.
+  const [autoPrint, setAutoPrint] = useState(false);
   const [eventId, setEventId] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
@@ -532,6 +550,7 @@ export default function KitchenScreen() {
     const v = read('cf.kitchen.view'); if (v === 'course' || v === 'dish' || v === 'lanes' || v === 'order' || v === 'expo') setView(v);
     const st = read('cf.kitchen.station'); if (st) setStation(st);
     if (read('cf.kitchen.sound') === 'off') setSoundOn(false);
+    if (read('cf.kitchen.autoprint') === 'on') setAutoPrint(true);
     try { const s = JSON.parse(sessionStorage.getItem('cf.kitchen.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     try { const e = new URLSearchParams(window.location.search).get('event'); if (e && /^[A-Za-z0-9_-]{1,160}$/.test(e)) setEventId(e); } catch { /* */ }
     setReady(true);
@@ -564,6 +583,20 @@ export default function KitchenScreen() {
 
   const forgetHere = useCallback((why: string) => { write(keyName(tenantId), null); setKey(null); setData(null); seen.current = null; setStopped(why); }, [tenantId]);
 
+  // New tickets for this screen's station, printed on this tablet: one slip a table's course or an order, through the
+  // tablet's print dialog (with Chrome set to print without asking, straight to its printer). Each ticket once, even
+  // after the screen reloads.
+  const printHere = (fresh: KitchenTicket[], d: Data) => {
+    const st = station && (d.stations || []).includes(station) ? station : '';
+    const mine = fresh.filter((t) => t.col === 'kdsTickets' && (!st || (t.madeAt || (d.stations || [])[0]) === st));
+    let done: string[] = []; try { done = JSON.parse(read('cf.kitchen.printed') || '[]'); } catch { done = []; }
+    const todo = mine.filter((t) => !done.includes(t.id)); if (!todo.length) return;
+    const groups = new Map<string, KitchenTicket[]>();
+    for (const t of todo) { const k = t.visitId ? `v:${t.visitId}|${t.course || 0}` : t.orderId ? `o:${t.orderId}` : `t:${t.id}`; groups.set(k, [...(groups.get(k) || []), t]); }
+    for (const g of groups.values()) printFrame(renderHtml(ticketDoc(g, { tz: d.business.timeZone || null, at: new Date().toISOString(), station: st ? null : g[0].madeAt || null, buzz: false }), { font: PRINT_FONT_STACK, fontHref: PRINT_FONT_HREF }));
+    write('cf.kitchen.printed', JSON.stringify([...done, ...todo.map((t) => t.id)].slice(-400)));
+  };
+
   const load = useCallback(async () => {
     if (!key || inFlight.current) return;
     inFlight.current = true; const at = acted.current;
@@ -574,7 +607,7 @@ export default function KitchenScreen() {
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false };
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [] };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
       // A sound for every ticket not seen before (the first one after a quiet spell too), never for what was already up.
@@ -585,11 +618,12 @@ export default function KitchenScreen() {
       if (seen.current) {
         const fresh = showing.filter((t) => t.status === 'pending' && !seen.current!.has(`${t.col}/${t.id}`));
         if (fresh.length && soundOn && audio.current && audio.current.state === 'running') chime(audio.current);
+        if (fresh.length && autoPrint) printHere(fresh, next);
         for (const i of ids) seen.current.add(i);
       } else seen.current = new Set(ids);
       setData(next); setLastOk(Date.now());
     } catch { /* offline: keep what's on screen and try again */ } finally { inFlight.current = false; }
-  }, [key, eventId, post, forgetHere, soundOn]);
+  }, [key, eventId, post, forgetHere, soundOn, autoPrint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!key) return;
@@ -780,8 +814,12 @@ export default function KitchenScreen() {
             <div className="relative">
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-white p-2 z-40 space-y-1" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
-                  <p className="px-3 pt-2 pb-1 text-[13px]" style={{ color: MUTED }}>Printing uses this tablet’s print dialog. A receipt printer set up on the tablet works.</p>
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#fff] p-2 z-40 space-y-1" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
+                  <button type="button" role="switch" aria-checked={autoPrint} onClick={() => { const v = !autoPrint; setAutoPrint(v); write('cf.kitchen.autoprint', v ? 'on' : null); if (v) { try { write('cf.kitchen.printed', JSON.stringify((data?.tickets || []).map((t) => t.id).slice(-400))); } catch { /* */ } } }}
+                    className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: INK }}>{autoPrint ? 'Printing new tickets here: on' : 'Print new tickets here'}</button>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>For a receipt printer set up on this tablet. Each new ticket opens the print dialog; with Chrome set to print without asking, it prints straight away. Tickets that come in while this screen is closed don’t print here. A printer on the network is set up in Settings, under Printers.</p>
+                  {(data?.printers || []).filter((p) => p.ok && (!myStation || !p.stations.length || p.stations.includes(myStation))).slice(0, 1).map((p) => (
+                    <p key={p.name} className="px-3 pb-1 text-[13px] font-medium" style={{ color: AMBER }}>{p.name} already prints {myStation ? myStation : p.stations.length ? p.stations.slice(0, 3).join(', ') : 'every station’s'} tickets, so with this on those would print twice.</p>))}
                   <button type="button" onClick={stopScreen} className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-medium" style={{ color: RED }}>Stop this screen</button>
                 </div>
               )}
@@ -804,6 +842,8 @@ export default function KitchenScreen() {
       <div className="px-4 sm:px-6 pt-3 space-y-2">
         {closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{closed}</div>}
         {stale && !closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The screen can’t reach the server. Tickets may be out of date; it keeps trying.</div>}
+        {!stale && (data?.printers || []).filter((p) => !p.ok && (!myStation || !p.stations.length || p.stations.includes(myStation))).map((p) => (
+          <div key={p.name} role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}><b className="font-semibold">{p.name} isn’t printing.</b> {p.words}. New tickets are on this screen. Check its paper and that it’s on the Wi-Fi.</div>))}
         {justPaired && (
           <div className="rounded-2xl px-4 py-3 text-[15px] flex flex-wrap items-center justify-between gap-2" style={{ background: GREEN_TINT, color: GREEN }}>
             <span>This screen is set up and keeps working on its own.{user ? ' You can sign out of your account on this tablet now.' : ''}</span>

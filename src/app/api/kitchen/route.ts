@@ -314,7 +314,10 @@ export async function POST(req: NextRequest) {
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
       // Tonight's counts (lib/dish-counts), from the menu just read: one at zero is sold out on every menu now.
       const counts = (await liveCounts(db, tenantId, tenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
-      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
+      // The printers that print tickets, and whether each is answering (lib/printing-server): the screen says when one isn't.
+      const PS = await import('@/lib/printing-server');
+      const printers = PS.printerSummary(await PS.printersCached(db, T).catch(() => []), Date.now(), tz).filter((p) => p.tickets).map((p) => ({ name: p.name, stations: p.stations, ok: p.ok, words: p.words }));
+      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, printers, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {
