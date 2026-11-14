@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tenant: any = (await db.doc(T).get()).data() || {}; const isMgr = !!(auth.actor.isManager || auth.actor.isTenantOwner);
   if (b.action === 'mine') {
     const { staffIdForLogin } = await import('@/lib/owner-staff'); const sid = await staffIdForLogin(db, tenantId, auth.actor.uid).catch(() => null); if (!sid) return NextResponse.json({ ok: true, rows: [], mode: tipPolicy(tenant).mode });
-    const runs = (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs.map((d: any) => d.data() || {}).sort((a: any, b2: any) => String(b2.start).localeCompare(String(a.start))).slice(0, 12);
+    const runs = (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs.map((d: any) => d.data() || {}).sort((a: any, b2: any) => String(b2.start).localeCompare(String(a.start))).slice(0, 60);   // nightly runs too (closing the night)
     return NextResponse.json({ ok: true, mode: tipPolicy(tenant).mode, rows: runs.map((r: any) => { const me = (r.rows || []).find((x: any) => x.staffId === sid); return me ? { start: r.start, end: r.end, mode: r.mode, earnedCents: me.earnedCents, shareCents: me.shareCents, hours: me.hours, inCents: me.inCents, outCents: me.outCents, potCents: r.totalCents, people: (r.rows || []).filter((x: any) => !x.note).length } : null; }).filter(Boolean) });
   }
   if (!isMgr) return NextResponse.json({ ok: false, error: 'Managers only.' }, { status: 403 });
@@ -26,6 +26,10 @@ export async function POST(req: NextRequest) {
   const result = await computeTipShares(db, tenantId, tenant, start, end);
   if (b.action === 'preview') return NextResponse.json({ ok: true, ...result, existing: (await db.doc(`${T}/tipShareRuns/${key(start, end)}`).get()).data()?.status || null });
   if (b.action === 'approve') { const now = new Date().toISOString();
+    // Never two approved runs over the same tips (payroll pays every approved run), such as a night approved at close.
+    const { approvedTipRunOver } = await import('@/lib/night-close-server');
+    const over = await approvedTipRunOver(db, T, start, end, key(start, end));
+    if (over) return NextResponse.json({ ok: false, error: `Part of this is already approved (${over.start.slice(0, 10)} to ${over.end.slice(0, 10)}). Pick a period that doesn’t overlap it.` }, { status: 409 });
     await db.doc(`${T}/tipShareRuns/${key(start, end)}`).set({ ...result, status: 'approved', approvedBy: auth.actor.name || 'Manager', approvedAt: now }, { merge: false });
     return NextResponse.json({ ok: true, ...result, status: 'approved' }); }
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });

@@ -19,8 +19,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { consumeApproval, isApprover } from '@/lib/approvals';
-import { tenantTimeZone } from '@/lib/tenant-time';
-import { businessDayFor } from '@/lib/hosting-sessions';
+import { tonight } from '@/lib/night-close-server';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
 
 export const dynamic = 'force-dynamic';
@@ -56,7 +55,8 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const vRef = db.doc(`${T}/appointments/${visitId}`);
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
-  const day = businessDayFor(new Date(), tenantTimeZone(tenant));
+  // The night it belongs to, the same as the night's report counts it (lib/night-close-server).
+  const day = tonight(tenant);
   const now = new Date().toISOString();
 
   const readLine = async () => {

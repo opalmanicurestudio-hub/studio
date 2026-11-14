@@ -78,7 +78,8 @@ export async function statementFor(db: any, tenantId: string, staffId: string, f
   // Shared tips: their approved share for runs inside the period.
   let tips: number | undefined;
   if (String(tenant.tipSharing?.mode || 'direct') !== 'direct') { tips = 0;
-    for (const d of (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs) { const r: any = d.data() || {}; if (String(r.start || '') < from || String(r.end || '') > to) continue; for (const x of r.rows || []) if (x.staffId === staffId) tips += (Number(x.shareCents) || 0) / 100; } }
+    // A tip run is paid in the period it starts in: a night's run (closing the night) ends after midnight.
+    for (const d of (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs) { const r: any = d.data() || {}; if (String(r.start || '') < from || String(r.start || '') > to) continue; for (const x of r.rows || []) if (x.staffId === staffId) tips += (Number(x.shareCents) || 0) / 100; } }
   // Fees that name only the visit: whose visit it was.
   const apptStaff: Record<string, string> = {};
   if (Number(tenant.payExtras?.noShowPct) > 0) for (const t of income) if (!t.staffId && t.appointmentId && ['No-Show Revenue', 'Cancellation Fee', 'Cancellation Fees'].includes(String(t.category))) { const a: any = (await db.doc(`${T}/appointments/${t.appointmentId}`).get()).data(); if (a?.staffId) apptStaff[t.appointmentId] = String(a.staffId); }

@@ -82,7 +82,8 @@ export async function buildPayrollDraft(
   // Tip sharing (tip-outs / pool): payroll pays each person's APPROVED share for the periods inside this pay period.
   const sharing = String(tenant.tipSharing?.mode || 'direct'); const approvedTips = new Map<string, number>();
   if (sharing !== 'direct') { const runs = await db.collection(`tenants/${tenantId}/tipShareRuns`).where('status', '==', 'approved').get();
-    for (const d of runs.docs) { const r: any = d.data() || {}; if (String(r.start || '') < periodStart.toISOString() || String(r.end || '') > periodEnd.toISOString()) continue;
+    // A tip run is paid in the period it starts in: a night's run (closing the night) ends after midnight.
+    for (const d of runs.docs) { const r: any = d.data() || {}; if (String(r.start || '') < periodStart.toISOString() || String(r.start || '') > periodEnd.toISOString()) continue;
       for (const x of r.rows || []) approvedTips.set(x.staffId, (approvedTips.get(x.staffId) || 0) + (Number(x.shareCents) || 0) / 100); } }
   // ── A BOOTH RENTER IS NOT ON YOUR PAYROLL ──────────────────────────────
   // Renters share the staff collection because the booking engine needs one

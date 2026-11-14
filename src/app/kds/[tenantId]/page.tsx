@@ -21,6 +21,7 @@ import { binFor, binState, type HoldBin } from '@/lib/holding';
 import { timeLeft } from '@/lib/counter-orders';
 import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { ExpoView } from '@/components/kitchen/ExpoView';
+import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import type { MenuItem } from '@/lib/menu-server';
 
@@ -445,6 +446,7 @@ export default function KitchenScreen() {
   const [cancelFor, setCancelFor] = useState<KitchenTicket | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [soldOpen, setSoldOpen] = useState(false);
+  const [closingOpen, setClosingOpen] = useState(false);
   const [justPaired, setJustPaired] = useState(false);
   const [holdBusy, setHoldBusy] = useState<string | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -681,6 +683,7 @@ export default function KitchenScreen() {
               </select>
             )}
             <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
+            <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>Closing</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
             <div className="relative">
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
@@ -755,6 +758,7 @@ export default function KitchenScreen() {
       )}
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the tickets you move. The screen works without it." />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
+      {closingOpen && <ClosingSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setClosingOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">
           <div className="w-full max-w-sm rounded-3xl bg-white p-5 space-y-3">

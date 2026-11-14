@@ -15,6 +15,8 @@
 //                                                    live (lib/kitchen), the items they use, and today's for the numbers;
 //                                                    each with the station that makes it, the business's stations, and
 //                                                    the tables' courses not fired yet (lib/table-service)
+//   closing { tenantId, key }, closingCheck { tenantId, key, itemId, done?, value?, note? } → tonight's closing checklist,
+//                                                    the kitchen's and bar's items (lib/night-close)
 //   pin     { tenantId, key, pin }                 → who's working, checked here (lib/pin, with its lockout): a pass for
 //                                                    this screen for 12 hours, so what they move carries their name
 //   act     { tenantId, key, col, id, step, staffPass? } → one ticket moved along, once (lib/kitchen canStep).
@@ -308,6 +310,17 @@ export async function POST(req: NextRequest) {
     const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
 
     if (action === 'menu') return ok({ menu: await readMenu(db, tenantId), staffOk });
+    // Closing the night (lib/night-close): the kitchen's and the bar's items on tonight's checklist, ticked or read here.
+    if (action === 'closing' || action === 'closingCheck') {
+      const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');
+      const T = `tenants/${tenantId}`; const day = tonight(tenant);
+      if (action === 'closingCheck') {
+        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, ['kitchen', 'bar', 'anyone']);
+        return r.ok ? ok({ mark: r.mark }) : bad(r.error, r.status || 400);
+      }
+      const cur: any = (await db.doc(`${T}/nightCloses/${day}`).get()).data() || {};
+      return ok({ day, closed: cur.status === 'closed', items: closeSettingsOf(tenant).items.filter((i) => i.area !== 'front'), checks: cur.checks || {} });
+    }
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, staff?.name || screen.name);
       return r.ok ? ok({ item: r.item, staffOk }) : bad(r.error, r.status);

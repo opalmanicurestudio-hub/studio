@@ -82,7 +82,7 @@ export const MODULES: Record<ModuleId, {
   // One switch for the shop's pickup tools (Shop setup): the pickup window and its board, the Pickups tablet screen and
   // pop-up tables. It comes with the shop (lib/module-catalog), and is on only while the shop is (moduleEnabled).
   pickup: { label: 'Pickup and drive-thru', pages: ['/window', '/popup', '/retail-orders/pickups'], messageKinds: [] },
-  hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/drive-thru', '/settings/hosting'], messageKinds: [] },
+  hospitality: { label: 'Lounge & hospitality', pages: ['/host', '/floor', '/concierge', '/kds', '/drive-thru', '/settings/hosting', '/close', '/settings/closing'], messageKinds: [] },
   academy: { label: 'Online academy', pages: ['/academy'], messageKinds: [] },
 };
 

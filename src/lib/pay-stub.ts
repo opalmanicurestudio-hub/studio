@@ -34,7 +34,8 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
   const punches = pSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((p: any) => p.staffId === staffId);
   let tips: number | undefined; let tipRuns: { id: string; start: string; end: string; share: number }[] | undefined;
   if (String(tenant.tipSharing?.mode || 'direct') !== 'direct') { tips = 0; tipRuns = [];
-    for (const d of (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs) { const r: any = d.data() || {}; if (String(r.start || '') < fromIso || String(r.end || '') > toIso) continue;
+    // A tip run is paid in the period it starts in: a night's run (closing the night) ends after midnight.
+    for (const d of (await db.collection(`${T}/tipShareRuns`).where('status', '==', 'approved').get()).docs) { const r: any = d.data() || {}; if (String(r.start || '') < fromIso || String(r.start || '') > toIso) continue;
       for (const x of r.rows || []) if (x.staffId === staffId) { const v = (Number(x.shareCents) || 0) / 100; tips += v; tipRuns.push({ id: d.id, start: String(r.start).slice(0, 10), end: String(r.end).slice(0, 10), share: v }); } } }
   const apptStaff: Record<string, string> = {};
   if (Number(tenant.payExtras?.noShowPct) > 0) for (const t of income) if (!t.staffId && t.appointmentId && ['No-Show Revenue', 'Cancellation Fee', 'Cancellation Fees'].includes(String(t.category))) { const a: any = (await db.doc(`${T}/appointments/${t.appointmentId}`).get()).data(); if (a?.staffId) apptStaff[t.appointmentId] = String(a.staffId); }

@@ -46,6 +46,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     { id: 'comforts', title: 'Guest comforts', meaning: 'Wi-Fi, drinks and little extras', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },
     { id: 'aftercare', title: 'Aftercare', meaning: 'What’s sent after a visit, and when', href: '/settings/aftercare', words: 'aftercare after visit follow up check in care instructions' },
     { id: 'hosting', title: 'Hosting and floor', meaning: 'Tables, seating and the host screen', href: '/settings/hosting', words: 'hosting host tables seating floor plan parties', module: 'hospitality' },
+    { id: 'tableservice', title: 'Tables, kitchen and bar', meaning: 'Stations, courses and what a server can comp', href: '/menu#table-service', words: 'courses fire stations bar kitchen expo comp void allowance reasons', module: 'hospitality', inShell: false },
+    { id: 'closing', title: 'Closing the night', meaning: 'The closing checklist, temperatures and who gets the night’s report', href: '/settings/closing', words: 'closing checklist temperature fridge freezer report end of night tips close', module: 'hospitality' },
   ] },
   { id: 'messages', title: 'Client messages', meaning: 'The words clients get, replies, links and what was sent', pages: [
     { id: 'wording', title: 'Messages clients get', meaning: 'Confirmations, reminders and receipts, and quiet hours', href: '/settings/messages', words: 'message wording text sms email template confirmation reminder quiet hours' },

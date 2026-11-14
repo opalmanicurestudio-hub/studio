@@ -23,7 +23,7 @@ async function main() {
   const inShell = SETTINGS_GROUPS.flatMap((g) => g.pages.filter((p) => p.inShell !== false).map((p) => `${g.id}/${p.id}`));
   // Pages that are mostly a list of the business's own things (locations, roles, readers) or one picker, so they have few
   // settings of their own: named here so a page losing its rows by accident still fails.
-  const FEW_ON_PURPOSE = ['payments/reader', 'bookings/page', 'business/locations', 'business/setup', 'shop/alerts', 'shop/offers', 'rooms/cleaning', 'team/roles'];
+  const FEW_ON_PURPOSE = ['payments/reader', 'bookings/page', 'business/locations', 'business/setup', 'shop/alerts', 'shop/offers', 'rooms/cleaning', 'team/roles', 'checkin/closing'];
   const thin = inShell.filter((k) => !FEW_ON_PURPOSE.includes(k) && rowsOf(k).length < 5);
   ok(thin.length === 0, `every page lists its settings (pages with only a few rows are named on purpose)${thin.length ? ': too few on ' + thin.join(', ') : ''}`);
   ok(Object.values(SETTINGS_ROWS).reduce((a, r) => a + r.length, 0) > 650, 'hundreds of single settings are searchable, not just page names');

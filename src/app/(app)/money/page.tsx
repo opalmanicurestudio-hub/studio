@@ -1525,7 +1525,7 @@ const PaydayTab = () => {
   const tipMode = String((selectedTenant as any)?.tipSharing?.mode || 'direct');
   const { data: tipRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && tipMode !== 'direct' ? query(collection(firestore, 'tenants', tenantId, 'tipShareRuns'), where('status', '==', 'approved')) : null), [firestore, tenantId, tipMode]));
   const sharedTips = useMemo(() => { if (tipMode === 'direct') return null; const m = new Map<string, number>(); const a = dateRange.from.toISOString(), b = dateRange.to.toISOString();
-    for (const r of tipRuns || []) { if (String(r.start || '') < a || String(r.end || '') > b) continue; for (const x of r.rows || []) m.set(x.staffId, (m.get(x.staffId) || 0) + (Number(x.shareCents) || 0) / 100); } return m; }, [tipRuns, tipMode, dateRange]);
+    for (const r of tipRuns || []) { if (String(r.start || '') < a || String(r.start || '') > b) continue; for (const x of r.rows || []) m.set(x.staffId, (m.get(x.staffId) || 0) + (Number(x.shareCents) || 0) / 100); } return m; }, [tipRuns, tipMode, dateRange]);
 
   const filteredTransactions = useMemo(() => {
       if (!transactions) return [];

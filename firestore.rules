@@ -228,6 +228,16 @@ service cloud.firestore {
       allow read: if isStaff(tenantId);
       allow write: if false;
     }
+    // Closing the night (api/close): the checklist marks and the night's kept report, written only by the server; read by
+    // managers. Tip shares (api/tips/share, api/close): payroll pays every approved run, so only the server approves one.
+    match /tenants/{tenantId}/nightCloses/{day} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/tipShareRuns/{runId} {
+      allow read: if isManager(tenantId) || (inDirectory(tenantId) && 'money.view' in dirEntry().data.get('caps', []));
+      allow write: if false;
+    }
     match /tenants/{tenantId}/pendingCheckouts/{pendingId} {
       allow read: if isStaff(tenantId);
       allow write: if false;
@@ -877,7 +887,7 @@ service cloud.firestore {
           'transactions',
           'rentInvoices',
           'payrollDrafts',
-          'payrollRuns',
+          'payrollRuns', 'nightCloses', 'tipShareRuns',
           'payStubs', 'payQuestions', 'payAdjustments', 'staffPay', 'cases', 'counters', 'renterSettings', 'conductReports', 'refundPayouts', 'refundCodes', 'externalReviews', 'imports', 'giftCards', 'giftOrders', 'giftGroups', 'giftBulk', 'salesHistory', 'documents', 'inspectorLinks', 'certifications', 'renterDocs', 'oneOnOnes', 'opportunities', 'opportunityTexts', 'results', 'heldTexts', 'renterInbox', 'referrals', 'creatorCampaigns', 'tasks', 'notifications', 'openings', 'tidyAsks',
           'lifestyleProfiles',
           'businessProfiles',
