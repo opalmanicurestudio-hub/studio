@@ -42,6 +42,7 @@ export default function robots(): MetadataRoute.Robots {
           '/kiosk/',
           '/card-setup/',
           '/wait/',
+          '/bill/',
         ],
       },
     ],

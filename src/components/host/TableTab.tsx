@@ -4,7 +4,8 @@
 // it, void it, have it made again, or move it to another seat: each goes through the server (api/tab), with a reason,
 // and a manager's PIN only when it's needed (over the server's comp allowance, or a void the kitchen has started).
 // Every comp and void on the table is listed with who asked and who approved. "Check out" fills the normal checkout with
-// the tab (split by seat or item, tip on the whole meal), once nothing is waiting to be fired.
+// the tab (split by seat or item, tip on the whole meal), once nothing is waiting to be fired. With pay at the table on,
+// the guests can pay on their own phones instead (TablePayCard); once any of it is paid there, it's finished there.
 // Allergies (lib/allergens): a regular's come from their profile; the table is asked once before its first order (unless
 // the business turns that off); each is on a seat or the whole table. Ringing in a dish that contains one warns first,
 // and every ticket for that seat tells the kitchen. Counted dishes (lib/dish-counts) show what's left, and can't be rung
@@ -20,6 +21,8 @@ import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
 import { kitchenScreenOn } from '@/lib/kitchen';
 import { makeSecondsOf } from '@/lib/counter-orders';
 import { approveWithPin } from '@/lib/approve-client';
+import { tablePayOf } from '@/lib/table-bill';
+import { TablePayCard } from '@/components/host/TablePayCard';
 import { askAllergiesOf, compReasonsOf, courseOfItem, courseStage, coursesOf, kitchenStarted, listPriceOf, prepMinutes, stationOfItem, stationsOf, OTHER_REASON, REMAKE_REASONS, VOID_REASONS, type Course } from '@/lib/table-service';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -54,6 +57,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
   const [allergySheet, setAllergySheet] = React.useState<{ edit: TableAllergy | null } | null>(null);
   const [warn, setWarn] = React.useState<{ it: any; keys: AllergenKey[]; who: TableAllergy[]; unknown?: boolean } | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
+  // Paid at the table so far (on the guests' phones, or cash the server took): the check is then finished here, not at
+  // the desk, so nobody pays twice.
+  const [paidHere, setPaidHere] = React.useState(0);
   // Sold out by hand since the menu was read (the counts read brings them), so a dish sold out mid-service can't be rung in.
   const [outNow, setOutNow] = React.useState<Set<string>>(new Set());
   const allergies = React.useMemo(() => tableAllergies(visit), [visit]);
@@ -240,8 +246,11 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
       </section>
       {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
       {waiting.length > 0 && tab.length > 0 && <p className="text-[13px]" style={{ color: AMBER }}>{waiting.map((g, i) => (i ? g.course!.name.toLowerCase() : g.course!.name)).join(' and ')} {waiting.length === 1 ? 'hasn’t' : 'haven’t'} been fired. Fire {waiting.length === 1 ? 'it' : 'them'} or void what they didn’t want before checking out.</p>}
-      <a href={visitId ? `/pos?checkout=${encodeURIComponent(visitId)}&tab=1` : '#'} aria-disabled={!visitId || !tab.length || waiting.length > 0}
-        className={`flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold ${!visitId || !tab.length || waiting.length > 0 ? 'pointer-events-none opacity-40' : ''}`} style={dark}>Check out {tableName}, {money(tabTotal(tab))}</a>
+      {visitId && tab.length > 0 && tablePayOf(tenant).on && <TablePayCard tenantId={tenantId} visitId={visitId} table={tableName} poke={`${visit?.payPaidSoFar || 0}|${tab.length}`} onPaid={(paid) => setPaidHere(paid)} />}
+      {paidHere > 0
+        ? <p className="text-[13px]" style={{ color: MUTED }}>Part of this check was paid at the table, so it’s finished there, not at the desk.</p>
+        : <a href={visitId ? `/pos?checkout=${encodeURIComponent(visitId)}&tab=1` : '#'} aria-disabled={!visitId || !tab.length || waiting.length > 0}
+            className={`flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold ${!visitId || !tab.length || waiting.length > 0 ? 'pointer-events-none opacity-40' : ''}`} style={dark}>Check out {tableName}, {money(tabTotal(tab))}</a>}
       {allergySheet && <AllergySheet edit={allergySheet.edit} seats={seats} by={by} onClose={() => setAllergySheet(null)}
         onSave={async (a) => { const e = await allergyCall('save', { allergy: a }); if (!e) { setAllergySheet(null); setMsg('Allergy saved. The kitchen sees it on every dish for that seat.'); } return e; }} />}
       {warn && <AllergyWarn it={warn.it} keys={warn.keys} who={warn.who} unknown={!!warn.unknown} onClose={() => setWarn(null)} onRing={() => { const it = warn.it; setWarn(null); void ringIn(it); }} />}

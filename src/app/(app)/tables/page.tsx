@@ -90,6 +90,7 @@ export default function MyTablesPage() {
     if (n.kind === 'at_pass') return <><button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={dark}>I’ll take it</button>{openIt}</>;
     if (n.kind === 'late') return <><button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={dark}>Told them</button>{openIt}</>;
     if (n.kind === 'check_back') return <button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={quiet}>Checked</button>;
+    if (n.kind === 'paid') return <>{row ? <button type="button" onClick={() => setOpen(row)} className={btn} style={dark}>Close the check</button> : null}<button type="button" disabled={b} onClick={() => step(n, 'later')} className={btn} style={quiet}>Not yet</button></>;
     if (n.kind === 'no_order') return <>{row ? <button type="button" onClick={() => setOpen(row)} className={btn} style={dark}>Take their order</button> : null}<button type="button" disabled={b} onClick={() => step(n, 'later')} className={btn} style={quiet}>Not yet</button></>;
     return <button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={quiet}>Got it</button>;
   };

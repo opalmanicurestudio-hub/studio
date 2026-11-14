@@ -94,6 +94,8 @@ export function deskPaymentOf(pi: any, tenantId: string): { pendingId: string; v
   if (m.source === 'client_screen' && safeId(m.pendingCheckoutId)) return { pendingId: safeId(m.pendingCheckoutId), via: 'client_screen', share };
   if (m.kind === 'pos_cof' && safeId(m.pendingId)) return { pendingId: safeId(m.pendingId), via: 'card_on_file', share };
   if (m.source === 'pos_embedded' && safeId(m.pendingId)) return { pendingId: safeId(m.pendingId), via: 'card', share: false };
+  // A guest paying their share of a table's check on their own phone (lib/table-pay-server): always one share of a split.
+  if (m.source === 'table_phone' && safeId(m.pendingCheckoutId)) return { pendingId: safeId(m.pendingCheckoutId), via: 'table_phone', share: true };
   return null;
 }
 

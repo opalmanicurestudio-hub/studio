@@ -7,6 +7,7 @@
 // - Check back: a course just landed.
 // - Nothing ordered yet: seated a while with an empty tab.
 // - An allergy at a table that hasn't ordered: so the server has it in mind before the first order.
+// - Paid in full at the table (on their phones): the check is ready to close.
 // Each can be marked done (or put off a few minutes); a nudge marked done comes back if the same thing happens again
 // later (a remake waiting at the pass). Every timing is the business's own (0 turns one off). Done and put off are kept
 // on the party (it's there before the table has a tab).
@@ -25,16 +26,18 @@ export function nudgeSettingsOf(tenant: any): NudgeSettings {
   return out;
 }
 
-export type NudgeKind = 'at_pass' | 'late' | 'fire' | 'check_back' | 'no_order' | 'allergy';
+export type NudgeKind = 'at_pass' | 'late' | 'fire' | 'check_back' | 'no_order' | 'allergy' | 'paid';
 export type Nudge = { key: string; kind: NudgeKind; visitId: string; partyId: string; table: string; text: string; since: number; urgent: boolean; course: { n: number; name: string } | null };
 export type NudgeLine = { lineId: string; name: string; course?: number | null; courseName?: string | null; firedAt?: string | null; kdsId?: string | null; makeSeconds?: number | null; at?: string | null; note?: string | null };
 export type NudgeTicket = { status: string; readyAt?: string | null; deliveredAt?: string | null };
 export type NudgeTable = { visitId: string; partyId: string; table: string; seatedAt: string | null; tab: NudgeLine[]; tickets: Record<string, NudgeTicket>; allergies: TableAllergy[];
-  done: Record<string, { at?: string; until?: string | null }>; courses: Course[] };
+  done: Record<string, { at?: string; until?: string | null }>; courses: Course[];
+  /** Paid in full by the guests at the table (lib/table-pay-server) and not closed yet. */
+  paidAt?: string | null };
 
 const ms = (v: unknown) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
 const mins = (n: number) => Math.max(0, Math.floor(n / 60000));
-const ORDER: Record<NudgeKind, number> = { at_pass: 0, late: 1, fire: 2, check_back: 3, no_order: 4, allergy: 5 };
+const ORDER: Record<NudgeKind, number> = { at_pass: 0, late: 1, paid: 2, fire: 3, check_back: 4, no_order: 5, allergy: 6 };
 
 /** Is this nudge put away: put off and not back yet, or marked done since this happened (`since`)? */
 export function nudgeHidden(done: NudgeTable['done'], key: string, now: number, since: number): boolean {
@@ -50,6 +53,9 @@ export function nudgesFor(t: NudgeTable, s: NudgeSettings, now: number): Nudge[]
   const add = (n: Omit<Nudge, 'visitId' | 'partyId' | 'table'>) => { if (!nudgeHidden(t.done, n.key, now, n.since)) out.push({ ...n, visitId: t.visitId, partyId: t.partyId, table: t.table }); };
   const lines = (Array.isArray(t.tab) ? t.tab : []).filter((l) => !!l);
   const seated = ms(t.seatedAt);
+  // Paid in full on their phones: the check just needs closing.
+  const paidAt = ms(t.paidAt);
+  if (Number.isFinite(paidAt)) add({ key: 'paid', kind: 'paid', text: 'Paid in full at the table. Close the check.', since: paidAt, urgent: false, course: null });
   // Drinks they ordered from their wait link aren't the table ordering: it still needs taking.
   const ordered = lines.some((l) => l.note !== PREORDER_NOTE);
   if (!ordered) {
@@ -121,4 +127,4 @@ export function allNudges(tables: NudgeTable[], s: NudgeSettings, now: number): 
   return tables.flatMap((t) => nudgesFor(t, s, now)).sort((a, b) => Number(b.urgent) - Number(a.urgent) || ORDER[a.kind] - ORDER[b.kind] || a.since - b.since);
 }
 /** A nudge key as the server accepts it. */
-export const NUDGE_KEY = /^(order|allergy|(pass|late|check|fire):\d{1,2})$/;
+export const NUDGE_KEY = /^(order|allergy|paid|(pass|late|check|fire):\d{1,2})$/;

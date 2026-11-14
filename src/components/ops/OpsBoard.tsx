@@ -319,7 +319,10 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
     setMsg((m) => ({ ...m, [k]: r?.ok ? (r.state === 'refunded' ? `Refunded $${(x.cents / 100).toFixed(2)} to the card.` : r.state === 'kept' ? 'Kept.' : 'Already done.') : r?.error || 'That didn’t go through.' }));
   };
   // A discard that stopped partway (its connection dropped) shows after a few minutes, to finish or record.
-  const list = (data || []).filter((p: any) => p.status === 'discarding' ? now - (Date.parse(p.discardingAt || p.updatedAt) || 0) > 3 * 60000 : p.status === 'failed' || (p.status === 'partial' && now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000) || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
+  // A table's check paid at the table (lib/table-pay-server) is a meal still going on: it shows once it's been left two
+  // hours, and only when someone has paid on it.
+  const tableIdle = (p: any) => p.source === 'table' && p.status !== 'failed' && (!(Array.isArray(p.tenders) && p.tenders.some((x: any) => x && !x.refundedAt)) || now - Date.parse(p.updatedAt || p.preparedAt) < 2 * 3600000);
+  const list = (data || []).filter((p: any) => !tableIdle(p) || p.status === 'discarding').filter((p: any) => p.status === 'discarding' ? now - (Date.parse(p.discardingAt || p.updatedAt) || 0) > 3 * 60000 : p.status === 'failed' || (p.status === 'partial' && now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000) || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
     .sort((x: any, y: any) => Number(y.status === 'failed') - Number(x.status === 'failed') || Date.parse(y.preparedAt) - Date.parse(x.preparedAt));
   if (!list.length && !extras.length) return null;
   const act = async (p: any, action: 'record' | 'discard', paidAs?: 'cash' | 'other') => {

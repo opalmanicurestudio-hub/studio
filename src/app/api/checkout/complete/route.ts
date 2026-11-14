@@ -308,6 +308,56 @@ export async function POST(req: NextRequest) {
   //    already paid at the desk, which the desk saves as it was paid ("Save the paid sale"); its payment is checked with
   //    Stripe again as it's saved. Card reader payments still open on it are settled first, so a sale is never recorded
   //    without the payment that went through for it, nor discarded with a hold left to complete later. ──
+  // ── PAY AT THE TABLE: the check, paid in full by the guests on their phones (and any cash the server took), recorded
+  //    as one sale from the table, exactly as the desk would finish a split bill (lib/table-pay-server). Anyone on the
+  //    team can close a table that's all paid; one with anything left is finished here only once it's paid. ──
+  if (action === 'table_close') {
+    const P = await import('@/lib/table-pay-server');
+    const visitId = safeId(b.visitId);
+    const t0: any = ((await db.doc(T).get()).data() as any) || {};
+    let pendingId = '';
+    try {
+      const ck = await P.checkOf(db, T, t0, visitId);
+      if (ck.visit.status === 'completed' && ck.visit.checkoutSessionId) return NextResponse.json({ ok: true, already: true });
+      if (!ck.pendingId) return NextResponse.json({ ok: false, error: 'Nobody has paid at the table yet. Check out at the desk instead.' }, { status: 409 });
+      if (ck.bill.unfired.length) return NextResponse.json({ ok: false, error: `${ck.bill.unfired.slice(0, 3).join(', ')} ${ck.bill.unfired.length === 1 ? 'hasn’t' : 'haven’t'} been sent to the kitchen. Fire or void ${ck.bill.unfired.length === 1 ? 'it' : 'them'} first.` }, { status: 409 });
+      // Brought up to date with the tab first: the sale is recorded as the check stands now.
+      pendingId = await P.ensureTicket(db, T, tenantId, ck);
+      // A phone payment that went through and isn't on the check yet goes on it first; one still going through waits.
+      const g = await P.letGoStale(db, T, t0, pendingId);
+      if (g.unsettled) return NextResponse.json({ ok: false, code: 'settling', error: 'A payment on someone’s phone is still going through. Close the check in a minute.' }, { status: 409 });
+    } catch (e: any) { if (e instanceof P.PayStop) return NextResponse.json({ ok: false, error: e.msg }, { status: e.status }); throw e; }
+    const ref = db.doc(`${T}/pendingCheckouts/${pendingId}`); const pc: any = (await ref.get()).data();
+    if (!pc || pc.source !== 'table') return NextResponse.json({ ok: false, error: 'That check wasn’t found.' }, { status: 404 });
+    if (pc.status === 'completed') return NextResponse.json({ ok: true, already: true, receiptId: pc.receiptId || null });
+    if (['discarded', 'discarding'].includes(String(pc.status || ''))) return NextResponse.json({ ok: false, error: 'A manager discarded this check. Check out at the desk.' }, { status: 409 });
+    const shares = liveShares(pc).filter((x: any) => !removing(x));
+    const paid = Math.round(shares.reduce((s2: number, x: any) => s2 + num(x.amount), 0) * 100) / 100; const total = num(pc.expectedTotal);
+    if (paid + 0.009 < total) {
+      const paying = P.claimsOf(pc).some((c) => !c.paid && !c.stuck && !!c.until && Date.parse(c.until) > Date.now());
+      return NextResponse.json({ ok: false, code: paying ? 'paying' : 'not_paid', left: Math.round((total - paid) * 100) / 100, error: paying ? 'Someone at the table is paying on their phone right now. Close the check once it’s through.' : `$${(total - paid).toFixed(2)} is still to pay. When it’s paid, close the table again.` }, { status: 409 });
+    }
+    // Paid more than the check comes to now (something came off it after they paid): recorded all the same, the extra
+    // flagged on the receipt to give back, the same as the desk's split bill.
+    const tips = Math.round(shares.reduce((s2: number, x: any) => s2 + num(x.tip), 0) * 100) / 100;
+    // Cash the server took goes into the one drawer that's open (two open, or none: it's on the receipt, for the count).
+    let tillId: string | null = null;
+    if (shares.some((x: any) => x.method === 'cash')) { const tills = await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2).get(); if (tills.size === 1) tillId = tills.docs[0].id; }
+    // The table's tips go to its server: the one person whose section it's in, or whoever closes it.
+    { const v: any = (await db.doc(`${T}/appointments/${visitId}`).get()).data() || {};
+      if (!v.staffId) {
+        let server = String(auth.actor.uid || '');
+        const party: any = v.partyId && /^[A-Za-z0-9_-]{1,160}$/.test(String(v.partyId)) ? (await db.doc(`${T}/parties/${v.partyId}`).get()).data() : null;
+        const ses: any = party?.sessionId && /^[A-Za-z0-9_-]{1,160}$/.test(String(party.sessionId)) ? (await db.doc(`${T}/serviceSessions/${party.sessionId}`).get()).data() : null;
+        const ids = Array.from(new Set(((ses?.units || []) as any[]).filter((u: any) => (party?.unitIds || []).includes(String(u.id))).flatMap((u: any) => (Array.isArray(u.staffIds) ? u.staffIds : []).map(String))));
+        if (ids.length === 1) server = ids[0];
+        if (server) await db.doc(`${T}/appointments/${visitId}`).set({ staffId: server }, { merge: true });
+      } }
+    const replay = { ...(pc.payload || {}), clientId: pc.clientId || pc.payload?.clientId || '', tenantId, pendingId, deskId: 'table', tillId,
+      expectedTotal: Math.round((total + tips) * 100) / 100, payment: { ...(pc.payload?.payment || {}), method: 'split', stripePaymentIntentId: null } };
+    const r = await runCheckout(db, tenantId, replay, auth, req);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   if (action === 'record' || action === 'discard') {
     const isMgr = MGR.includes(String(auth.actor.role || '').toLowerCase());
     const ref = db.doc(`${T}/pendingCheckouts/${safeId(b.pendingId)}`); let pc: any = (await ref.get()).data();
@@ -660,6 +710,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     if (!a) return json({ ok: false, error: 'One of these visits wasn’t found — refresh and try again.' }, 404);
     if (a.status === 'completed' && a.checkoutSessionId) return json({ ok: false, error: `${a.clientName || 'This visit'} has already been checked out.` }, 409);
     visits.push({ appointment: { ...a, id }, service: svc(a.serviceId) || { id: a.serviceId, name: a.serviceName || 'Service', price: num(a.price) }, addOnServices: addOnIdsOf(a).map((x: string) => svc(x)).filter(Boolean) });   // agreed counts (lib/prep-checkout)
+  }
+  // A table guests have started paying for on their phones (lib/table-pay-server) is finished there ("Close the
+  // check"), never rung up again at the desk, so nobody pays twice.
+  for (const v of visits) {
+    const pt = String(v.appointment?.payTicketId || '');
+    if (!/^[A-Za-z0-9_-]{1,160}$/.test(pt) || pt === askedId) continue;
+    const t: any = (await db.doc(`${T}/pendingCheckouts/${pt}`).get()).data();
+    if (t && !['completed', 'discarded'].includes(String(t.status || '')) && liveShares(t).length)
+      return json({ ok: false, code: 'paid_at_table', error: `Part of the check for ${v.appointment.tableName || 'this table'} was paid at the table, so it’s finished there: open the table and close the check.` }, 409);
   }
   // A table's held course that was never fired (api/tab 'fire'): fired or voided first, so nobody pays for food the
   // kitchen was never asked to make, and no ticket waits forever.
@@ -1112,11 +1171,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // up to the tip exactly, and anything unassigned goes to the main provider. A student whose program keeps tips is
   // paid to the school whatever the screen sent. Tips added on split-bill shares follow the same split.
   const { checkTipSplit, splitTip, SCHOOL } = await import('@/lib/tip-split');
-  const mainTip = visits[0] ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned');
+  // (A visit with nobody on it, like a table with no server set, gives its tips to whoever took the payment.)
+  const mainTip = visits[0] && calc.visits[0].mainStaffId ? calc.visits[0].mainStaffId : (auth.actor.uid || 'unassigned');
   const tipKey = (sid: string) => { const st: any = staff.find((x: any) => x.id === sid); return st?.isStudent && ['school', 'none'].includes(String(st.tipPolicy || 'school')) ? SCHOOL : sid; };
   const allowedTip = [...new Set<string>([...calc.visits.flatMap((v: any) => [v.mainStaffId, ...v.addOns.map((x: any) => x.staffId)]), ...visits.map((v: any) => v.appointment.staffId)].filter(Boolean) as string[])];
   const asked = Object.fromEntries(Object.entries(tipAllocations || {}).map(([k, v]) => [k === SCHOOL ? k : tipKey(k), v]));
-  const alloc: Record<string, number> = tip > 0 ? checkTipSplit(tip, asked, allowedTip.map(tipKey), tipKey(mainTip)) : {};
+  // The tip given with the sale itself is split as asked; tips added on split shares then follow the same split (so they're
+  // counted once, not again on top).
+  const baseTip = Math.max(0, Math.round((tip - (split ? splitTips : 0)) * 100) / 100);
+  const alloc: Record<string, number> = baseTip > 0 ? checkTipSplit(baseTip, asked, allowedTip.map(tipKey), tipKey(mainTip)) : {};
   if (split && splitTips > 0) {
     const extra = Object.keys(alloc).length ? splitTip(splitTips, Object.entries(alloc).map(([id, a]) => ({ id, name: id, weight: Number(a) })), 'value') : { [tipKey(mainTip)]: splitTips };
     for (const [k, v] of Object.entries(extra)) alloc[k] = Math.round((num(alloc[k]) + num(v)) * 100) / 100;

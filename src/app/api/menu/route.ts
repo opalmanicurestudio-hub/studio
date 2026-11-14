@@ -41,6 +41,7 @@ import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
 import { nudgeSettingsOf, NUDGE_KEYS } from '@/lib/nudges';
+import { cleanTablePay, tablePayOf } from '@/lib/table-bill';
 import { askAllergiesOf, finishTogetherOn, compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
 import { ALLERGENS, cleanKeys } from '@/lib/allergens';
 import { MAX_COUNT } from '@/lib/dish-counts';
@@ -57,7 +58,7 @@ const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Table service as the Menu page edits it (lib/table-service). */
-const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), nudges: nudgeSettingsOf(t) });
+const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), tablePay: tablePayOf(t), nudges: nudgeSettingsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -204,6 +205,12 @@ export async function POST(req: NextRequest) {
       }
       if (b.askAllergies !== undefined) { if (typeof b.askAllergies !== 'boolean') return bad('Ask about allergies: on or off.'); next.askAllergies = b.askAllergies; }
       if (b.finishTogether !== undefined) { if (typeof b.finishTogether !== 'boolean') return bad('Finish together: on or off.'); next.finishTogether = b.finishTogether; }
+      if (b.tablePay !== undefined) {
+        if (!b.tablePay || typeof b.tablePay !== 'object') return bad('Check the pay at the table settings.');
+        const tp = cleanTablePay({ ...tablePayOf(td), ...b.tablePay });
+        if (tp.on && !tp.ways.length) return bad('Pick at least one way to split.');
+        next.tablePay = tp;
+      }
       if (b.nudges !== undefined) {
         if (!b.nudges || typeof b.nudges !== 'object') return bad('Check the nudge timings.');
         const n: Record<string, number> = { ...nudgeSettingsOf(td) };

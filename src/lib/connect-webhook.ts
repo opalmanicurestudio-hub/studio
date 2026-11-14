@@ -686,7 +686,13 @@ export async function handleConnectWebhook(req: NextRequest) {
             const cents = Math.round(Number(charge.amount_captured || charge.amount) || 0);
             const tipCents = Math.max(0, Math.round(Number(meta.tipCents) || 0));
             const tipSplit = (() => { try { const x = meta.tipAllocations ? JSON.parse(String(meta.tipAllocations)) : null; return x && typeof x === 'object' ? x : null; } catch { return null; } })();
-            if (desk && desk.share) {
+            if (desk && desk.share && meta.source === 'table_phone') {
+              // A guest's share of a table's check, paid on their phone: on the check, and the table marked paid when
+              // that's all of it (lib/table-pay-server; once, whichever hears first).
+              const { settleShare } = await import('@/lib/table-pay-server');
+              const td: any = (await db.doc(`tenants/${tenant.id}`).get()).data() || {};
+              await settleShare(db, `tenants/${tenant.id}`, td, desk.pendingId, piId);
+            } else if (desk && desk.share) {
               // One share of a split bill: on its split as it's paid (or kept apart if the sale was finished meanwhile).
               const { recordCardShare } = await import('@/lib/screen-pay');
               await recordCardShare(db, tenant.id, desk.pendingId, { id: piId }, { amount: (cents - tipCents) / 100, tip: tipCents / 100, label: meta.shareLabel || null, via: desk.via === 'card_on_file' ? 'saved_card' : desk.via, payerClientId: meta.clientId || null, by: 'Card payment' });

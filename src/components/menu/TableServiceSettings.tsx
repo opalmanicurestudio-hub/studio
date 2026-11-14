@@ -2,14 +2,19 @@
 // src/components/menu/TableServiceSettings.tsx — TABLES, KITCHEN AND BAR on the Menu page (managers): the stations
 // things are made at (each gets its own kitchen screen), the courses (and which wait until the server fires them), how
 // much a server can comp in a night on their own say, the comp reasons offered, and whether each table is asked about
-// allergies before its first order (lib/allergens), whether a table's plates are timed to finish together, and when a
-// server's phone nudges them (lib/nudges). Saved through api/menu 'service';
+// allergies before its first order (lib/allergens), whether a table's plates are timed to finish together, when a
+// server's phone nudges them (lib/nudges), and paying at the table (lib/table-bill: off until it's turned on, the ways
+// to split, the tip choices and how they're worked out). Saved through api/menu 'service';
 // the rules themselves are lib/table-service.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', RED = '#b42318';
 export type Nudges = { fireAfterMin: number; checkBackMin: number; passWaitMin: number; noOrderMin: number; lateMin: number };
-export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges };
+export type TablePay = { on: boolean; ways: ('seat' | 'item' | 'even')[]; tips: number[]; tipBase: 'pre' | 'post'; suggest: number | null };
+export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges; tablePay?: TablePay }
+const PAY_DEFAULTS: TablePay = { on: false, ways: ['seat', 'item', 'even'], tips: [18, 20, 22], tipBase: 'pre', suggest: 20 };
+const WAY_ROWS: ['seat' | 'item' | 'even', string][] = [['seat', 'By seat'], ['item', 'By item'], ['even', 'Evenly']];
+const TIP_OPTS = [10, 12, 15, 18, 20, 22, 25, 30];
 const NUDGE_DEFAULTS: Nudges = { fireAfterMin: 12, checkBackMin: 2, passWaitMin: 3, noOrderMin: 8, lateMin: 5 };
 const NUDGE_ROWS: [keyof Nudges, string, string, number[], (n: number) => string][] = [
   ['fireAfterMin', 'Fire the next course', 'This long after the last course went out, while the next one is still held', [5, 8, 10, 12, 15, 20, 25, 30], (n) => `After ${n} min`],
@@ -29,12 +34,13 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
   const [ask, setAsk] = useState(service.askAllergies !== false);
   const [together, setTogether] = useState(service.finishTogether !== false);
   const [nudges, setNudges] = useState<Nudges>({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) });
+  const [pay, setPay] = useState<TablePay>({ ...PAY_DEFAULTS, ...(service.tablePay || {}) });
   const [newStation, setNewStation] = useState(''); const [newReason, setNewReason] = useState('');
   const [busy, setBusy] = useState(false); const [note, setNote] = useState(''); const [err, setErr] = useState('');
-  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); }, [service]);
-  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }]);
+  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); setPay({ ...PAY_DEFAULTS, ...(service.tablePay || {}) }); }, [service]);
+  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges, pay]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }, { ...PAY_DEFAULTS, ...(service.tablePay || {}) }]);
   const save = async () => { setBusy(true); setErr(''); setNote('');
-    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges });
+    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges, tablePay: pay });
     setBusy(false); if (e) setErr(e); else setNote('Saved. Screens pick it up within a few seconds.'); };
   const chip = 'inline-flex min-h-[40px] items-center gap-1 rounded-full pl-3 pr-1 text-[13.5px] font-medium';
   const x = (label: string, onClick: () => void) => <button type="button" onClick={onClick} aria-label={label} className="h-9 w-9 rounded-full grid place-items-center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>;
@@ -113,6 +119,41 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
             </select>
           </label>
         ))}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-[15px] font-semibold">Pay at the table</h3>
+        <label className="flex items-center gap-3 min-h-[44px]">
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">Let guests pay at the table</span><span className="block text-[13px]" style={{ color: MUTED }}>Off until you turn it on. The server shows a code on the table’s tab; each guest splits the check their way, tips and pays on their own phone.</span></span>
+          <input type="checkbox" checked={pay.on} onChange={(e) => setPay({ ...pay, on: e.target.checked })} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
+        {pay.on && <>
+          <div className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">Ways to split</span><span className="block text-[13px]" style={{ color: MUTED }}>The first payment sets it for the table</span></span>
+            <span className="flex flex-wrap gap-2">{WAY_ROWS.map(([w, label]) => { const on = pay.ways.includes(w);
+              return <button key={w} type="button" aria-pressed={on} disabled={on && pay.ways.length === 1} onClick={() => setPay({ ...pay, ways: on ? pay.ways.filter((x) => x !== w) : WAY_ROWS.map(([x]) => x).filter((x) => x === w || pay.ways.includes(x)) })}
+                className="min-h-[44px] rounded-full px-4 text-[14px] font-semibold" style={on ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{label}</button>; })}</span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">Tip choices</span><span className="block text-[13px]" style={{ color: MUTED }}>Shown as buttons, with Other and No tip</span></span>
+            <span className="flex flex-wrap gap-2">{[0, 1, 2].map((i) => (
+              <select key={i} aria-label={`Tip choice ${i + 1}`} value={pay.tips[i] ?? ''} onChange={(e) => { const t = [...pay.tips]; if (e.target.value === '') t.splice(i, 1); else t[i] = Number(e.target.value); const tips = Array.from(new Set(t.filter((n) => n > 0))).sort((a, b) => a - b); setPay({ ...pay, tips, suggest: pay.suggest !== null && tips.includes(pay.suggest) ? pay.suggest : tips.includes(20) ? 20 : tips[0] ?? null }); }} className={field} style={{ borderColor: LINE }}>
+                {i > 0 && <option value="">None</option>}
+                {TIP_OPTS.map((n) => <option key={n} value={n}>{n}%</option>)}
+              </select>))}</span>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">Work tips out</span></span>
+            <span role="radiogroup" aria-label="Work tips out" className="flex gap-1 rounded-xl border p-1" style={{ borderColor: LINE }}>
+              {([['pre', 'Before tax'], ['post', 'After tax']] as ['pre' | 'post', string][]).map(([v, label]) => <button key={v} type="button" role="radio" aria-checked={pay.tipBase === v} onClick={() => setPay({ ...pay, tipBase: v })} className="min-h-[44px] rounded-lg px-3 text-[14px] font-semibold" style={pay.tipBase === v ? { background: INK, color: '#fff' } : { color: MUTED }}>{label}</button>)}</span>
+          </div>
+          <label className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">Suggest a tip</span><span className="block text-[13px]" style={{ color: MUTED }}>The choice already picked when the page opens</span></span>
+            <select value={pay.suggest ?? ''} onChange={(e) => setPay({ ...pay, suggest: e.target.value === '' ? null : Number(e.target.value) })} className={field} style={{ borderColor: LINE }}>
+              <option value="">None</option>{pay.tips.map((n) => <option key={n} value={n}>{n}%</option>)}
+            </select>
+          </label>
+        </>}
       </div>
 
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }} role="alert">{err}</p>}

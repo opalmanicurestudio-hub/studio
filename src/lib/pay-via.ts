@@ -8,6 +8,7 @@ export function viaWords(via: any): string {
   if (v === 'client_screen') return 'on the client screen';
   if (v === 'card_on_file' || v === 'saved_card') return 'on their saved card';
   if (v === 'split') return 'in a split';
+  if (v === 'table_phone') return 'on their phone at the table';
   return 'by card';
 }
 

@@ -21,6 +21,9 @@
 //          seated party (there before the table has a tab).
 //   check  { tenantId, partyId, op?: 'undo' } → the table asked for the check, so the host stand knows it's nearly free
 //          (lib/table-stage); 'undo' takes it back.
+//   pay_status { tenantId, visitId } → pay at the table: the check's link for the guests, what's paid, by what, and what's
+//          left (lib/table-pay-server).
+//   pay_cash   { tenantId, visitId, given? } → the rest of the check paid in cash to the server.
 //   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
 //          takes that seat's allergies (lib/allergens), and asks for "Allergy noted" again if they're different.
 // Every comp, void and remake is kept as an approval record (tenants/{t}/approvals, which no browser can write): who
@@ -35,6 +38,7 @@ import { tonight } from '@/lib/night-close-server';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
 import { NUDGE_KEY } from '@/lib/nudges';
+import { linkOrigin } from '@/lib/app-origin';
 import { forgetFloor, tablesNow } from '@/lib/floor-server';
 
 export const dynamic = 'force-dynamic';
@@ -96,6 +100,15 @@ export async function POST(req: NextRequest) {
   }
   const vRef = db.doc(`${T}/appointments/${visitId}`);
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
+  // PAY AT THE TABLE (lib/table-pay-server): the check's link to show the guests, what's paid and how, and the rest
+  // taken in cash by the server.
+  if (action === 'pay_status' || action === 'pay_cash') {
+    const P = await import('@/lib/table-pay-server');
+    try {
+      if (action === 'pay_cash') { const r = await P.cashRest(db, T, tenant, tenantId, visitId, me.name, b.given ?? null); forgetTables(tenantId); return ok(r); }
+      return ok(await P.checkStatus(db, T, tenant, tenantId, visitId, linkOrigin(tenant, req.nextUrl?.origin || '')));
+    } catch (e: any) { if (e instanceof P.PayStop) return bad(e.msg, e.status); throw e; }
+  }
   // The night it belongs to, the same as the night's report counts it (lib/night-close-server).
   const day = tonight(tenant);
   const now = new Date().toISOString();
@@ -222,6 +235,7 @@ export async function POST(req: NextRequest) {
       const reason = reasonOf(); if (!reason) return bad('Say why it’s comped.');
       const { line, v } = await readLine();
       if (line.comp) return bad(`${line.name} is already comped. Void it instead, or ask a manager.`);
+      { const P = await import('@/lib/table-pay-server'); const why = await P.payLockOf(db, T, v, lineId); if (why) return bad(why, 409); }
       if (line.itemType !== 'product') return bad('Only food and drink can be comped here.');
       const list = listPriceOf(line); const price = round2(Number(line.price) || 0);
       const cents = b.all === true ? Math.round(price * 100) : Math.round(Number(b.cents) || 0);
@@ -262,6 +276,7 @@ export async function POST(req: NextRequest) {
     if (action === 'void') {
       const reason = reasonOf(); if (!reason) return bad('Say why it’s coming off.');
       const { line, ticket, started, v } = await readLine();
+      { const P = await import('@/lib/table-pay-server'); const why = await P.payLockOf(db, T, v, lineId); if (why) return bad(why, 409); }
       const need = needsManager({ kind: 'void', actorIsManager: manager, started });
       let approvedBy = me.name; let token: string | null = null;
       if (need.pin) {
