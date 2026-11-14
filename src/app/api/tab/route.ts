@@ -10,7 +10,13 @@
 //   remake { tenantId, visitId, lineId, reason } → a started item made again (dropped, not right): the first counts as
 //          waste, the line stays on the check once, and a fresh ticket goes to its station.
 //   fire   { tenantId, visitId, course } → a held course goes to the kitchen now.
-//   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null).
+//   allergies { tenantId, visitId, op: 'save' | 'remove' | 'asked' | 'seed', allergy?, id? } → the table's allergies
+//          (lib/allergens), changed one at a time by id in a single save that also brings every ticket the kitchen
+//          hasn't sent out up to date (a change asks the station for "Allergy noted" again, a plate at the pass too).
+//          'asked': the table was asked and nobody else has one. 'seed': a regular's profile allergies, once per visit
+//          (only when the profile could be read).
+//   seat   { tenantId, visitId, lineId, seat } → the item moves to another seat (or the table: seat null). Its ticket
+//          takes that seat's allergies (lib/allergens), and asks for "Allergy noted" again if they're different.
 // Every comp, void and remake is kept as an approval record (tenants/{t}/approvals, which no browser can write): who
 // asked, who approved, why, the item, the night it belongs to, and the waste. The night's report reads them; checkout
 // checks a comp against its record before charging less.
@@ -21,6 +27,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { tonight } from '@/lib/night-close-server';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
+import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -104,6 +111,48 @@ export async function POST(req: NextRequest) {
       return ok({ fired });
     }
 
+    if (action === 'allergies') {
+      const op = String(b.op || '');
+      if (!['save', 'remove', 'asked', 'seed'].includes(op)) return bad('What should change?');
+      // A regular's profile, read before the save; a profile that couldn't be read leaves the visit unseeded, to try again.
+      let profile: any = null;
+      if (op === 'seed') {
+        const v0: any = (await vRef.get()).data();
+        if (!v0) return bad('That table’s visit wasn’t found.', 404);
+        if (v0.allergiesSeeded) return ok({ allergies: tableAllergies(v0), seeded: false });
+        const cid = String(v0.clientId || '');
+        if (ID.test(cid) && cid !== 'guest-walkin') {
+          let c: any; try { c = (await db.doc(`${T}/clients/${cid}`).get()).data() || null; } catch { return bad('Their profile couldn’t be read. Try again.', 503); }
+          profile = c ? profileAllergy(c, me.name, now) : null;
+        }
+      }
+      const fresh = op === 'save' ? cleanAllergy(b.allergy, me.name, now) : null;
+      if (op === 'save' && !fresh) return bad('Pick what they’re allergic to, or write it in.');
+      const list = await db.runTransaction(async (tx: any) => {
+        const v: any = (await tx.get(vRef)).data();
+        if (!v) throw new Stop('That table’s visit wasn’t found.', 404);
+        if (v.status === 'completed' && v.checkoutSessionId) throw new Stop('That table has already paid.');
+        const tab: any[] = Array.isArray(v.tab) ? v.tab : [];
+        const lines = tab.filter((l) => l?.kdsId && ID.test(String(l.kdsId)));
+        const snaps = lines.length ? await Promise.all(lines.map((l) => tx.get(db.doc(`${T}/kdsTickets/${l.kdsId}`)))) : [];
+        let next = tableAllergies(v);
+        if (op === 'seed') { if (v.allergiesSeeded) return next; if (profile && !next.some((a) => a.from === 'profile')) next = [...next, profile]; }
+        if (op === 'remove') next = next.filter((a) => a.id !== String(b.id || ''));
+        if (op === 'save' && fresh) {
+          const i = next.findIndex((a) => a.id === fresh.id);
+          if (i >= 0) next = next.map((a, j) => (j === i ? { ...fresh, from: a.from, by: a.by, at: a.at } : a));
+          else { if (next.length >= MAX_TABLE_ALLERGIES) throw new Stop(`Up to ${MAX_TABLE_ALLERGIES} allergies a table.`, 400); next = [...next, fresh]; }
+        }
+        tx.set(vRef, { allergies: next, ...(op === 'seed' ? { allergiesSeeded: true } : { allergiesAsked: true }), updatedAt: now }, { merge: true });
+        // Every ticket not yet out, for the seat it's for (and the whole table's), in the same save.
+        snaps.forEach((sn: any, i: number) => { const k: any = sn.exists ? sn.data() || {} : null; if (!k) return;
+          const p = ticketAllergyPatch(k, next, lines[i].seat || null, Array.isArray(lines[i].allergens) ? lines[i].allergens : []);
+          if (p) tx.set(db.doc(`${T}/kdsTickets/${lines[i].kdsId}`), p, { merge: true }); });
+        return next;
+      });
+      return ok({ allergies: list });
+    }
+
     if (!ID.test(lineId)) return bad('Pick an item on the tab.');
 
     if (action === 'seat') {
@@ -113,8 +162,11 @@ export async function POST(req: NextRequest) {
         const v: any = (await tx.get(vRef)).data(); const tab: any[] = Array.isArray(v?.tab) ? v.tab : [];
         if (v?.status === 'completed' && v?.checkoutSessionId) throw new Stop('That table has already paid.');
         const l = tab.find((x) => x?.lineId === lineId); if (!l) throw new Stop('That item isn’t on the tab any more.', 404);
+        const kRef = l.kdsId && ID.test(String(l.kdsId)) ? db.doc(`${T}/kdsTickets/${l.kdsId}`) : null;
+        const k: any = kRef ? (await tx.get(kRef)).data() : null;
         tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, seat } : x)), updatedAt: now }, { merge: true });
-        if (l.kdsId && ID.test(String(l.kdsId))) tx.set(db.doc(`${T}/kdsTickets/${l.kdsId}`), { seatNumber: seat }, { merge: true });
+        // The new seat's allergies go with it (and the whole table's), so the kitchen never makes it for the old seat.
+        if (kRef && k) tx.set(kRef, { seatNumber: seat, ...(ticketAllergyPatch(k, tableAllergies(v), seat, Array.isArray(l.allergens) ? l.allergens : []) || {}) }, { merge: true });
       });
       return ok({ seat });
     }
@@ -222,8 +274,11 @@ export async function POST(req: NextRequest) {
         const k: any = (await tx.get(oldRef)).data() || {};
         const l = tab.find((x) => x?.lineId === lineId);
         if (!l || l.kdsId !== line.kdsId) throw new Stop('That item changed while this was being done. Try again.', 409);
-        const keep = Object.fromEntries(Object.entries(k).filter(([f]) => !['claimedBy', 'readyAt', 'deliveredAt', 'carriedBy', 'bringingOutBy', 'cancelledAt', 'voided', 'voidReason', 'remadeAs'].includes(f)));
-        tx.set(newRef, { ...keep, id: newId, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, remakeOf: line.kdsId, remakeReason: reason, note: [`Remake: ${reason}`, k.note].filter(Boolean).join('. ').slice(0, 200) });
+        // Its allergies go with it; the station says "Allergy noted" again for the new plate.
+        const keep = Object.fromEntries(Object.entries(k).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy'].includes(f)));
+        // The table's allergies as they stand now (one may have been added since the first plate).
+        const al = ticketAllergyFields(tableAllergies(cur), l.seat || null, Array.isArray(l.allergens) ? l.allergens : []);
+        tx.set(newRef, { ...keep, allergies: al.allergies, contains: al.contains, id: newId, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, remakeOf: line.kdsId, remakeReason: reason, note: [`Remake: ${reason}`, k.note].filter(Boolean).join('. ').slice(0, 200) });
         if (String(k.status) !== 'delivered') tx.set(oldRef, { status: 'cancelled', cancelledAt: now, remadeAs: newId }, { merge: true });
         else tx.set(oldRef, { remadeAs: newId }, { merge: true });
         tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, kdsId: newId } : x)), updatedAt: now }, { merge: true });

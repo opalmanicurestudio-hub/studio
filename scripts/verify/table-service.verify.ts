@@ -182,7 +182,7 @@ const soon = () => new Date(Date.now() + 5 * 60000).toISOString();
   const kds = src('src/app/kds/[tenantId]/page.tsx');
   check('a station’s screen shows only its own; expo sees the whole pass', /view === 'expo' \|\| !myStation \|\| t\.madeAt === myStation/.test(kds) && /<ExpoView /.test(kds) && /cf\.kitchen\.station/.test(kds));
   const ex = src('src/components/kitchen/ExpoView.tsx');
-  check('expo runs a table only when every plate is ready', /disabled=\{!g\.allReady \|\| busy\}/.test(ex) && /onBump\(list, 'deliver'\)/.test(ex));
+  check('expo runs a table only when every plate is ready (and every allergy on it noted)', /const canRun = g\.allReady && !unnoted\.length/.test(ex) && /disabled=\{!canRun \|\| busy\}/.test(ex) && /onBump\(list, 'deliver'\)/.test(ex));
   const tt = src('src/components/host/TableTab.tsx');
   check('the tab won’t check out with a course still waiting to be fired', /waiting\.length > 0/.test(tt) && /pointer-events-none/.test(tt));
   check('new screens keep to the house style', ![tt, ex, src('src/components/menu/TableServiceSettings.tsx')].some((x) => /\{\/\*|uppercase|font-black| · /.test(x)));

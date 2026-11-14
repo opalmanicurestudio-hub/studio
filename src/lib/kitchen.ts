@@ -70,6 +70,10 @@ export function ticketFrom(d: any, col: KitchenCol) {
     accessNote: String(r.accessNote || '').trim() || null,
     allergies: Array.isArray(r.allergies) ? r.allergies : [],
     allergyNote: String(r.allergyNote || '').trim() || null,
+    // What the menu says the dish contains of this guest's allergens (lib/allergens), and the station's "Allergy noted".
+    contains: (Array.isArray(r.contains) ? r.contains : []).map((x: any) => String(x || '').slice(0, 30)).filter(Boolean).slice(0, 10) as string[],
+    allergyNotedAt: typeof r.allergyNotedAt === 'string' ? r.allergyNotedAt : null,
+    allergyNotedBy: r.allergyNotedBy ? String(r.allergyNotedBy).slice(0, 60) : null,
     isRedemption: r.isRedemption === true,
     collect: col === 'refreshmentRequests' ? collectAtHandover(r) : 0,
     readyAt: r.readyAt || null, deliveredAt: r.deliveredAt || null,
@@ -119,6 +123,13 @@ export function allergyFlags(t: Pick<KitchenTicket, 'allergies' | 'allergyNote' 
   const notes = [t.allergyNote, t.note, t.accessNote].map((x) => String(x || '').trim()).filter(Boolean);
   const mentions = notes.filter((n) => ALLERGY_WORDS.test(n));
   return { listed, mentions, any: listed.length > 0 || mentions.length > 0, severe: listed.some((a) => a.severe) || mentions.some((m) => /anaphyla|epi-?pen|severe|life/i.test(m)) };
+}
+
+/** A kitchen ticket with an allergy (picked, or in a note) that the station hasn't said it's seen: it can't be marked
+ *  ready or served until someone taps "Allergy noted" (api/kitchen). Always on. Lounge orders the desk hands over keep
+ *  their own way; this is the kitchen's tickets (tables, events, café and counter orders). */
+export function needsAllergyNote(t: Pick<KitchenTicket, 'col' | 'allergies' | 'allergyNote' | 'note' | 'accessNote' | 'allergyNotedAt'>): boolean {
+  return t.col === 'kdsTickets' && !t.allergyNotedAt && allergyFlags(t).any;
 }
 
 /** Tickets in groups for a busy service: by event course ("Spring dinner, course 2"), or by dish across everyone

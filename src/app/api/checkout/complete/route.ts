@@ -40,6 +40,7 @@ import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 import { kitchenScreenOn } from '@/lib/kitchen';
+import { itemAllergens, profileAllergy, ticketAllergyFields } from '@/lib/allergens';
 
 export const dynamic = 'force-dynamic';
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -1045,8 +1046,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         const kKey = `${String(checkoutSessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}_${String(it.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}`;
         kitchenLines[kKey] = (kitchenLines[kKey] || 0) + 1;   // the same item on two lines: two tickets
         const kRef = db.doc(`${T}/kdsTickets/pos_${kKey}${kitchenLines[kKey] > 1 ? `_${kitchenLines[kKey]}` : ''}`);
+        // A regular's allergies (their profile, lib/allergens) go with what's made for them, and what the menu says the
+        // item contains of them: the station taps Allergy noted before it's ready.
+        const prof = client ? profileAllergy(client, String(auth.actor.name || 'The desk'), now) : null;
+        const al = prof ? ticketAllergyFields([prof], null, itemAllergens(inv)) : null;
         batch.set(kRef, clean({ id: kRef.id, source: 'pos', menuItemId: it.id, menuItemName: it.name, quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
-          status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId }), { merge: true });
+          status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true });
       }
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });

@@ -7,6 +7,8 @@ import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
 import { stockOf, ingredientIds, recipeOf, type MenuStock } from '@/lib/menu-stock';
+import { allergensKnown, itemAllergens, type AllergenKey } from '@/lib/allergens';
+import { dailyCountOf } from '@/lib/dish-counts';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -23,7 +25,10 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   featured: boolean; badge: 'new' | 'limited' | null; calories: number | null;
   /** Table service (lib/table-service): the station it's made at and its course, as set on it (null: worked out from
    *  its section; course 0: always right away). */
-  station: string | null; course: number | null };
+  station: string | null; course: number | null;
+  /** What it contains of the major allergens (lib/allergens; allergensSet false: nobody has said yet, which isn't the
+   *  same as none), and how many it starts each night with (lib/dish-counts; null: not counted). */
+  allergens: AllergenKey[]; allergensSet: boolean; dailyCount: number | null };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -41,6 +46,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     featured: i.boardFeatured === true, badge: i.boardBadge === 'new' || i.boardBadge === 'limited' ? i.boardBadge : null,
     calories: Number.isFinite(Number(i.calories)) && i.calories !== null && i.calories !== '' && Number(i.calories) >= 0 && Number(i.calories) <= 5000 ? Math.round(Number(i.calories)) : null,
     station: words(i.station, 24) || null, course: Number.isInteger(Number(i.course)) && i.course !== null && i.course !== '' && Number(i.course) >= 0 && Number(i.course) <= 9 ? Number(i.course) : null,
+    allergens: itemAllergens(i), allergensSet: allergensKnown(i), dailyCount: dailyCountOf(i),
   };
 }
 

@@ -12,7 +12,14 @@
 //   service { tenantId, courses?, stations?, compAllowanceCents?, compReasons? } → managers: table service (lib/table-
 //             service): the courses (name, held until fired or not), the stations things are made at, how much a server
 //             can comp in a night on their own say, and the comp reasons offered. list returns them as `service`.
-//   (save also takes station: one of the stations or null, and course: a course number, 0 for right away, or null.)
+//   (save also takes station: one of the stations or null, and course: a course number, 0 for right away, or null;
+//   allergens: what it contains, from lib/allergens; and dailyCount: how many it starts each night with, or null.)
+//   (service also takes askAllergies: whether a table is asked about allergies before its first order.)
+//   counts  { tenantId, fresh? }                          → tonight's counted dishes and what each has left, and which
+//             menu items are sold out now (anyone on the team); one at zero is sold out on every menu as this is read
+//             (lib/dish-counts-server). fresh: read again now, not what was read a few seconds ago.
+//   count   { tenantId, itemId, value }                   → managers: tonight's number for a dish (0 to 999), 'off' for
+//             not counted tonight, or 'menu' for the menu's own number
 //   targets { tenantId, targets: { 'drive-thru'?, counter?, kiosk?, ahead? } } → managers: seconds each kind of order
 //             aims to be handed over in (list returns them)
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
@@ -32,7 +39,10 @@ import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
-import { compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
+import { askAllergiesOf, compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
+import { ALLERGENS, cleanKeys } from '@/lib/allergens';
+import { MAX_COUNT } from '@/lib/dish-counts';
+import { forgetCounts, liveCounts, setTonightCount } from '@/lib/dish-counts-server';
 import { accountOf } from '@/lib/reader-sale';
 import { linkOrigin } from '@/lib/app-origin';
 
@@ -45,7 +55,7 @@ const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Table service as the Menu page edits it (lib/table-service). */
-const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t) });
+const serviceOf = (t: any) => ({ courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -59,8 +69,8 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action)) return bad('Unknown action.');
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count'].includes(action)) return bad('Unknown action.');
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -71,10 +81,21 @@ export async function POST(req: NextRequest) {
       // Each item's recipe (what goes into one), for the Menu page's editor.
       const recipes: Record<string, any[]> = {};
       for (const d of items.docs) { const r = recipeOf(d.data() || {}, d.id); if (r.length) recipes[d.id] = r; }
-      return ok({ menu, recipes, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      // Tonight's counts, for "3 left" beside each counted dish (lib/dish-counts).
+      const counts = (await liveCounts(db, tenantId, td, items.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
+      // One the count just sold out (or brought back) shows that way here too.
+      for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut; }
+      return ok({ menu, recipes, counts, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
+    }
+
+    if (action === 'counts' || action === 'count') {
+      const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      if (action === 'count') { const r = await setTonightCount(db, tenantId, td, b.itemId, b.value, String(g.actor?.name || 'A manager')); if (!r.ok) return bad(r.error, r.status); }
+      const c = await liveCounts(db, tenantId, td, undefined, { fresh: b.fresh === true || action === 'count' });
+      return ok({ day: c.day, counts: c.rows, soldOut: c.soldOut });
     }
 
     if (action === 'voiceSetup') {
@@ -179,6 +200,7 @@ export async function POST(req: NextRequest) {
         if (!Array.isArray(b.compReasons) || b.compReasons.length > 8) return bad('Up to 8 reasons.');
         next.compReasons = Array.from(new Set(b.compReasons.map((r: any) => words(r, 40)).filter(Boolean)));
       }
+      if (b.askAllergies !== undefined) { if (typeof b.askAllergies !== 'boolean') return bad('Ask about allergies: on or off.'); next.askAllergies = b.askAllergies; }
       if (!Object.keys(next).length) return bad('Nothing to change.');
       await tRef.set({ kitchenSettings: next }, { merge: true });
       return ok({ service: serviceOf({ ...td, kitchenSettings: { ...(td.kitchenSettings || {}), ...next } }) });
@@ -232,6 +254,19 @@ export async function POST(req: NextRequest) {
       const td: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       if (x.station !== undefined) { const st = words(x.station, 24); if (st && !stationsOf(td).some((y) => y.toLowerCase() === st.toLowerCase())) return bad('Pick one of your stations.'); service.station = st || null; }
       if (x.course !== undefined) { if (x.course === null || x.course === '') service.course = null; else { const n = Math.floor(Number(x.course)); if (!(n === 0 || coursesOf(td).some((c) => c.n === n))) return bad('Pick one of your courses.'); service.course = n; } }
+    }
+    // What it contains (lib/allergens), when given: only the allergens on the list, each once.
+    const safety: Record<string, any> = {};
+    if (x.allergens !== undefined) {
+      if (!Array.isArray(x.allergens) || x.allergens.length > ALLERGENS.length) return bad('Pick what it contains from the list.');
+      if (x.allergens.some((k: unknown) => !cleanKeys([k]).length)) return bad('Pick what it contains from the list.');
+      safety.allergens = cleanKeys(x.allergens);
+    }
+    // How many it starts each night with (lib/dish-counts), or null to not count it.
+    if (x.dailyCount !== undefined) {
+      if (x.dailyCount === null || String(x.dailyCount).trim() === '') safety.dailyCount = null;
+      else { const n = typeof x.dailyCount === 'number' ? x.dailyCount : /^\s*\d{1,3}\s*$/.test(String(x.dailyCount)) ? Number(String(x.dailyCount).trim()) : NaN;
+        if (!Number.isInteger(n) || n < 0 || n > MAX_COUNT) return bad(`Made each night: a number up to ${MAX_COUNT}, or leave it empty.`); safety.dailyCount = n; }
     }
     // The menu board, when given: shown big up front, a New or Limited time tag, and its calories.
     const board: Record<string, any> = {};
@@ -290,12 +325,17 @@ export async function POST(req: NextRequest) {
       const nowOut = new Map<string, string | null>();
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
       const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
-      const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+      // The desk and a table's tab charge an item's Inventory price (lib/variants deskPrice): set to the menu's when the
+      // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
+      const deskToo = !(Number(cur.msrp) > 0) || Math.round(Number(cur.price) * 100) !== Math.round(price * 100);
+      const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept,
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });
     if (r.error) return bad(r.error, r.status);
+    // A nightly count just changed: counts are read fresh next time.
+    if (safety.dailyCount !== undefined) forgetCounts(tenantId);
     // As every menu shows it now: with its recipe's ingredients counted.
     const item = await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item);
     return ok({ item, recipe: recipeOf(r.raw, itemId) });

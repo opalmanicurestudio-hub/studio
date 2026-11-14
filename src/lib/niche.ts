@@ -82,7 +82,8 @@ const ALLERGIES: Partial<Record<Niche, string[]>> = {
   spa: ['Nuts', 'Essential Oils', 'Fragrance', 'Latex'],
   medspa: ['Lidocaine', 'Latex', 'Aspirin', 'Fragrance'],
   tattoo: ['Latex', 'Nickel', 'Red Ink'],
-  hospitality: ['Nuts', 'Gluten', 'Shellfish', 'Dairy'],
+  // The nine major allergens, plus gluten (lib/allergens): a table's allergies are read from these.
+  hospitality: ['Peanuts', 'Tree nuts', 'Shellfish', 'Fish', 'Milk', 'Eggs', 'Wheat', 'Gluten', 'Soy', 'Sesame'],
 };
 const OLD_MEDICAL = ['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure'];
 const OLD_ALLERGIES = ['Latex', 'Fragrance', 'Nuts', 'Aspirin'];

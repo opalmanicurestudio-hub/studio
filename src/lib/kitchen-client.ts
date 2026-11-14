@@ -5,12 +5,12 @@
 import { getAuth } from 'firebase/auth';
 import type { KitchenCol, KitchenStep } from '@/lib/kitchen';
 
-export async function kitchenStep(tenantId: string, col: KitchenCol, id: string, step: KitchenStep): Promise<{ ok: boolean; already?: boolean; error?: string }> {
+export async function kitchenStep(tenantId: string, col: KitchenCol, id: string, step: KitchenStep): Promise<{ ok: boolean; already?: boolean; error?: string; allergy?: boolean }> {
   try {
     const tk = await getAuth().currentUser?.getIdToken();
     const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
       body: JSON.stringify({ action: 'act', tenantId, col, id, step }) });
     const d = await r.json().catch(() => ({}));
-    return d.ok ? { ok: true, already: !!d.already } : { ok: false, error: d.error || 'That didn’t go through. Try again.' };
+    return d.ok ? { ok: true, already: !!d.already } : { ok: false, error: d.error || 'That didn’t go through. Try again.', allergy: d.allergy === true };
   } catch { return { ok: false, error: 'No connection. Try again.' }; }
 }

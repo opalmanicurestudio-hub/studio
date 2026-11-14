@@ -166,9 +166,12 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow write: if false;
     }
+    // A table's allergies on its visit (lib/allergens) change only through the server (api/tab), which brings the
+    // kitchen's tickets up to date in the same save.
     match /tenants/{tenantId}/appointments/{appointmentId} {
       allow read, create, delete: if isTeam(tenantId);
       allow update: if isTeam(tenantId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['allergies', 'allergiesSeeded', 'allergiesAsked'])
         && request.resource.data.get('clinicCheckoff', null) == resource.data.get('clinicCheckoff', null)
         && !(request.resource.data.get('status', '') == 'completed'
              && resource.data.get('status', '') != 'completed'
@@ -236,6 +239,21 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/tipShareRuns/{runId} {
       allow read: if isManager(tenantId) || (inDirectory(tenantId) && 'money.view' in dirEntry().data.get('caps', []));
+      allow write: if false;
+    }
+    // KITCHEN TICKETS (lib/kitchen): the team's screens read them; a table's tab or an event's course makes them in the
+    // browser, waiting to be made and with no allergy marked as seen. Every step after that (started, ready, served,
+    // "Allergy noted", a seat change, a void, a table's allergies) goes through the server (api/kitchen, api/tab), so no
+    // browser can mark a dish ready, or its allergy seen, around the kitchen's checks.
+    match /tenants/{tenantId}/kdsTickets/{ticketId} {
+      allow read: if isTeam(tenantId);
+      allow create: if isTeam(tenantId) && request.resource.data.get('status', '') in ['pending', 'unfired']
+        && request.resource.data.get('allergyNotedAt', null) == null && request.resource.data.get('allergyNotedBy', null) == null;
+      allow update, delete: if false;
+    }
+    // TONIGHT'S COUNTS per dish (lib/dish-counts): the team reads them; only the server changes them.
+    match /tenants/{tenantId}/dishCounts/{day} {
+      allow read: if isTeam(tenantId);
       allow write: if false;
     }
     match /tenants/{tenantId}/pendingCheckouts/{pendingId} {
@@ -911,7 +929,8 @@ service cloud.firestore {
           'feeCharges', 'feePayments', 'cardAttempts', 'membershipRenewals', 'stationSlots', 'tuitionCardUpdates',
           'collectionAttempts', 'checkoutKeys', 'refundNotices', 'chargeFlags',
           'visitFormAnswers', 'visitPhotoMarks', 'clientPhotoRecords',
-          'driveThruCars', 'counterOrders', 'orderCounters', 'holdingBins'
+          'driveThruCars', 'counterOrders', 'orderCounters', 'holdingBins',
+          'kdsTickets', 'dishCounts'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

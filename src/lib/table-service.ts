@@ -101,6 +101,10 @@ export function compReasonsOf(tenant: any): string[] {
   return Array.from(new Set(list.length ? list : COMP_REASONS));
 }
 
+/** Whether a table is asked about allergies before its first order (lib/allergens): on unless the business turns it off
+ *  (a bar that only pours, say). A regular's profile allergies are brought to the table either way. */
+export const askAllergiesOf = (tenant: any): boolean => tenant?.kitchenSettings?.askAllergies !== false;
+
 /** A kitchen ticket's status: has the kitchen started it? Waiting, not fired and cancelled haven't; being made, ready
  *  and served have. */
 export const kitchenStarted = (status: unknown) => ['in_progress', 'ready', 'delivered', 'served'].includes(String(status || ''));

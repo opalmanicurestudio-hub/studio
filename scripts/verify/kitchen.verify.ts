@@ -288,7 +288,10 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
 
   console.log('a whole course at once');
   r = await POST(req({ action: 'bump', tenantId: 't1', key, step: 'ready', tickets: [{ col: 'kdsTickets', id: 'k1' }, { col: 'kdsTickets', id: 'k2' }, { col: 'kdsTickets', id: 'k3' }] }));
-  check('a course marked ready together', r.body.ok && r.body.moved === 3 && (await all(`${T}/kdsTickets`)).filter((t: any) => t.eventId === 'e1' && t.status === 'ready').length === 3, r.body);
+  check('a course marked ready together, except a plate with an allergy nobody has noted (said apart, never a failure)', r.body.ok && r.body.moved === 2 && r.body.allergy === 1 && r.body.failed === 0 && (await get(`${T}/kdsTickets/k2`)).status === 'pending', r.body);
+  r = await POST(req({ action: 'allergyNoted', tenantId: 't1', key, col: 'kdsTickets', id: 'k2', seen: (await import('../../src/lib/allergens')).allergySig(await get(`${T}/kdsTickets/k2`)) }));
+  r = await POST(req({ action: 'bump', tenantId: 't1', key, step: 'ready', tickets: [{ col: 'kdsTickets', id: 'k2' }] }));
+  check('…once its allergy is noted, it goes too', r.body.moved === 1 && (await all(`${T}/kdsTickets`)).filter((t: any) => t.eventId === 'e1' && t.status === 'ready').length === 3 && (await get(`${T}/kdsTickets/k2`)).allergyNotedBy === 'Pass', r.body);
   r = await POST(req({ action: 'bump', tenantId: 't1', key, step: 'ready', tickets: [{ col: 'kdsTickets', id: 'k1' }] }));
   check('…again, nothing moves (and nothing is called a failure)', r.body.moved === 0 && r.body.of === 1 && r.body.failed === 0);
   r = await POST(req({ action: 'bump', tenantId: 't1', key, step: 'ready', tickets: [{ col: 'kdsTickets', id: 'deleted-one' }] }));

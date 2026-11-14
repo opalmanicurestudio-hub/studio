@@ -69,7 +69,8 @@ export function ReadyToRun({ tenantId, list, title = 'Ready to run' }: { tenantI
     setBusy(null);
     // A lounge guest is texted that it's on its way, as the desk's "Bringing it" does.
     if (r.ok && !r.already && step === 'carry' && t.col === 'refreshmentRequests') void fetch('/api/retail/lounge-notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, requestId: t.id, moment: 'out' }), keepalive: true }).catch(() => undefined);
-    if (!r.ok) setMsg(r.error || 'That didn’t go through.');
+    // Held for "Allergy noted" (an allergy was added after it was plated): the kitchen or the pass taps that, not here.
+    if (!r.ok) setMsg(r.allergy ? `${t.item} for ${t.name} has an allergy to check. Ask the kitchen or the pass to note it, then hand it over.` : r.error || 'That didn’t go through.');
     else if (r.already) setMsg(step === 'carry' ? `Someone already has ${t.item} for ${t.name}.` : step === 'deliver' ? `${t.item} for ${t.name} was already handed over.` : null);
   };
 

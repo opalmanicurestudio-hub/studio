@@ -30,6 +30,14 @@
 //   menu    { tenantId, key }                      → the menu, for "Sold out" (lib/menu-server)
 //   soldout { tenantId, key, itemId, groupId?, optionId?, out, staffPass? } → an item, or one of its choices, sold out
 //                                                    or back, in one tap, under the name of whoever's working
+// Allergies (lib/allergens, lib/kitchen needsAllergyNote): a kitchen ticket with an allergy can't be marked ready or
+// served, one at a time or in a bump, until the station says it's seen it. Always on.
+//   allergyNoted { tenantId, key, col, id, seen, staffPass? } → "Allergy noted" on that ticket, with who and when; `seen`
+//                                                    is what the screen showed (lib/allergens allergySig): if the ticket
+//                                                    says something else by now, it's refused, to be looked at again
+// Counts (lib/dish-counts): 'tickets' also returns tonight's counted dishes with what's left (one at zero is sold out
+// on every menu as it's read).
+//   count   { tenantId, key, itemId, value, staffPass? } → tonight's number for a dish (0 to 999), 'off' or 'menu'
 // Holding (lib/holding): a batch cooked ahead and kept for the menu's set time. 'tickets' also returns what's held and
 // what can be. Nothing past its time is ever taken from.
 //   hold     { tenantId, key, itemId, quantity? }  → a batch started now (the menu's batch size unless given)
@@ -46,7 +54,9 @@ import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/
 import { moveStock } from '@/lib/usage';
 import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
-import { ticketFrom, canStep, collectAtHandover, loungeMaker, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
+import { ticketFrom, canStep, collectAtHandover, loungeMaker, needsAllergyNote, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
+import { liveCounts, setTonightCount } from '@/lib/dish-counts-server';
+import { allergySig, tableAllergies, ticketAllergyPatch } from '@/lib/allergens';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { accessLockOf } from '@/lib/tenant-access';
 import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
@@ -67,6 +77,17 @@ const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const PASS_MS = 12 * 3600000, MAX_PASSES = 40;
 export const maxDuration = 60;   // a whole course or a run of lounge orders moved at once
 
+/** A table's ticket checked against the table's allergies as they stand now (a tablet that hadn't yet heard of a new
+ *  one may have made it): the change to make to it, or null. Read inside the caller's transaction, before it writes. */
+async function tableAllergyCheck(tx: any, db: any, T: string, t: any): Promise<Record<string, any> | null> {
+  if (t?.source !== 'tab' || !ID.test(String(t.visitId || ''))) return null;
+  const v: any = (await tx.get(db.doc(`${T}/appointments/${t.visitId}`))).data(); if (!v) return null;
+  const line = (Array.isArray(v.tab) ? v.tab : []).find((l: any) => l && (l.kdsId === t.id || (t.lineId && l.lineId === t.lineId)));
+  if (!line) return null;
+  return ticketAllergyPatch(t, tableAllergies(v), line.seat || null, Array.isArray(line.allergens) ? line.allergens : []);
+}
+const CHANGED = 'An allergy for this seat just changed. Read the ticket again, then tap Allergy noted.';
+
 /** One ticket moved along, in one step and once. */
 async function act(db: any, tenantId: string, screen: { name: string }, col: KitchenCol, id: string, step: KitchenStep, staff: { id: string | null; name: string } | null) {
   const T = `tenants/${tenantId}`;
@@ -79,6 +100,16 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     if (!snap.exists) return { error: 'That ticket is gone.', status: 404 };
     const r: any = snap.data() || {};
     if (!canStep(r.status, step)) return { already: true, status: r.status };
+    // A table's ticket made before its tablet heard of a new allergy: brought up to date now, and asked about again (when
+    // it's started, too, so nobody begins it without seeing the allergy).
+    if (col === 'kdsTickets' && (step === 'claim' || step === 'ready' || step === 'deliver')) {
+      const p = await tableAllergyCheck(tx, db, T, { ...r, id });
+      if (p) { tx.set(ref, p, { merge: true }); return { error: CHANGED, status: 409, allergy: true }; }
+    }
+    // An allergy the station hasn't said it's seen: not ready, and not served, until it has (a plate already at the pass
+    // when an allergy was added is looked at again too).
+    if ((step === 'ready' || step === 'deliver') && needsAllergyNote(ticketFrom({ ...r, id }, col)))
+      return { error: `${String(r.menuItemName || r.itemName || 'This dish')} has an allergy on it. Tap Allergy noted first.`, status: 409, allergy: true };
     // A drive-thru or counter order is paid for as a whole: it's voided on its own screen (lib/counter-server), which
     // gives back what wasn't made, never by cancelling one ticket here.
     if (step === 'cancel' && col === 'kdsTickets' && r.channel) return { error: `That’s part of ${String(r.channel) === 'drive-thru' ? 'a drive-thru' : 'a counter'} order. Void it on the ${String(r.channel) === 'drive-thru' ? 'drive-thru' : 'counter'} screen instead.`, status: 409 };
@@ -281,7 +312,9 @@ export async function POST(req: NextRequest) {
       const holdable = holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x) && holdMinutesOf(r.x) > 0)
         .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').slice(0, 80), holdMinutes: holdMinutesOf(r.x), batchSize: batchSizeOf(r.x) })).sort((a: any, c: any) => a.name.localeCompare(c.name));
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
-      return ok({ screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
+      // Tonight's counts (lib/dish-counts), from the menu just read: one at zero is sold out on every menu now.
+      const counts = (await liveCounts(db, tenantId, tenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
+      return ok({ counts, screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {
@@ -348,6 +381,9 @@ export async function POST(req: NextRequest) {
           const t: any = (await tx.get(tRef)).data(); const bin: any = (await tx.get(bRef)).data();
           if (!t) return { error: 'That ticket is gone.', status: 404 };
           if (!canStep(String(t.status), 'ready')) return { already: true };
+          if (needsAllergyNote(ticketFrom({ ...t, id }, col))) return { error: 'This one has an allergy on it. Tap Allergy noted first.', status: 409 };
+          const check = col === 'kdsTickets' ? await tableAllergyCheck(tx, db, T, { ...t, id }) : null;
+          if (check) { tx.set(tRef, check, { merge: true }); return { error: CHANGED, status: 409 }; }
           if (!bin || bin.status !== 'held') return { error: 'That batch is gone. Make it fresh.', status: 409 };
           if (binState(bin, nowMs).state === 'expired') return { error: 'That batch is past its holding time. Throw it out and make it fresh.', status: 409 };
           const qty = Math.max(1, Math.round(num(t.quantity) || 1));
@@ -379,11 +415,43 @@ export async function POST(req: NextRequest) {
       return ok({ already: !!r.already, left: r.left ?? null, staffOk });
     }
 
+    // "Allergy noted": the station has seen the allergy on this ticket and will make it safe. Kept with who and when; a
+    // ticket whose allergy changes after that asks again (lib/allergens ticketAllergyPatch).
+    if (action === 'allergyNoted') {
+      const col = String(b.col || '') as KitchenCol; const id = String(b.id || '');
+      if (col !== 'kdsTickets' || !ID.test(id)) return bad('That isn’t a kitchen ticket.');
+      if (typeof b.seen !== 'string') return bad('Refresh the screen, then tap Allergy noted again.');
+      const tRef = db.doc(`tenants/${tenantId}/kdsTickets/${id}`); const who = staff?.name || screen.name; const at = new Date().toISOString();
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const t: any = (await tx.get(tRef)).data();
+        if (!t) return { error: 'That ticket is gone.', status: 404 };
+        if (!['unfired', 'pending', 'in_progress', 'ready'].includes(String(t.status || ''))) return { already: true };
+        if (t.allergyNotedAt) return { already: true, by: t.allergyNotedBy || null };
+        const check = await tableAllergyCheck(tx, db, `tenants/${tenantId}`, { ...t, id });
+        if (check) { tx.set(tRef, check, { merge: true }); return { error: CHANGED, status: 409, changed: true }; }
+        // The allergy changed since the screen showed it (a server added one): look again before saying it's seen.
+        if (allergySig(t) !== b.seen) return { error: 'The allergy on this ticket just changed. Read it again, then tap Allergy noted.', status: 409, changed: true };
+        tx.set(tRef, { allergyNotedAt: at, allergyNotedBy: who }, { merge: true });
+        return { ok: true, by: who };
+      });
+      if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
+      return ok({ already: !!r.already, by: r.by || null, at, staffOk });
+    }
+
+    // Tonight's number for a dish (lib/dish-counts): the kitchen knows how many it made.
+    if (action === 'count') {
+      const r = await setTonightCount(db, tenantId, tenant, b.itemId, b.value, staff?.name || screen.name);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status });
+      const c = await liveCounts(db, tenantId, tenant, undefined, { fresh: true }).catch(() => ({ rows: [] as any[] }));
+      return ok({ counts: c.rows, staffOk });
+    }
+
     if (action === 'act') {
       const col = String(b.col || '') as KitchenCol; const id = String(b.id || ''); const step = String(b.step || '') as KitchenStep;
       if (!COLS.includes(col) || !ID.test(id) || !STEPS.includes(step)) return bad('That isn’t a ticket.');
       const r: any = await act(db, tenantId, screen, col, id, step, staff);
-      if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
+      // `allergy`: held for "Allergy noted", so a screen without that button (the floor, the desk) can say who to ask.
+      if (r.error) return NextResponse.json({ ok: false, error: r.error, ...(r.allergy ? { allergy: true } : {}), staffOk }, { status: r.status || 400 });
       return ok({ ...r, staffOk });
     }
 
@@ -391,15 +459,16 @@ export async function POST(req: NextRequest) {
       const step = String(b.step || '') as KitchenStep;
       if (!['ready', 'deliver'].includes(step)) return bad('Ready or served only.');
       const list = (Array.isArray(b.tickets) ? b.tickets : []).slice(0, 120).filter((t: any) => COLS.includes(t?.col) && ID.test(String(t?.id || '')));
-      let moved = 0, failed = 0;
-      const tally = (r: any) => { if (!r || (r.error && r.status !== 404)) failed++; else if (r.ok && !r.already) moved++; };   // a ticket that's gone isn't a failure
+      let moved = 0, failed = 0, allergy = 0;
+      // A ticket that's gone isn't a failure; one waiting on "Allergy noted" is counted on its own, so the screen says so.
+      const tally = (r: any) => { if (r?.allergy) allergy++; else if (!r || (r.error && r.status !== 404)) failed++; else if (r.ok && !r.already) moved++; };
       const run = (t: any) => act(db, tenantId, screen, t.col, String(t.id), step, staff).catch(() => null);
       // Event and table tickets a few at a time, so a big course is quick. Lounge orders one by one: they share the
       // shelf, and several at once on the same item would only wait on each other (or give up).
       const kitchen = list.filter((t: any) => t.col === 'kdsTickets'), lounge = list.filter((t: any) => t.col === 'refreshmentRequests');
       for (let i = 0; i < kitchen.length; i += 8) (await Promise.all(kitchen.slice(i, i + 8).map(run))).forEach(tally);
       for (const t of lounge) tally(await run(t));
-      return ok({ moved, failed, of: list.length, staffOk });
+      return ok({ moved, failed, allergy, of: list.length, staffOk });
     }
 
     return bad('Unknown action.');

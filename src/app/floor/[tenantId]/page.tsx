@@ -320,7 +320,8 @@ export default function FloorBoard() {
     setBusy(`${t.id}${s}`); setNotice('');
     const { status, d } = await act(() => post('/api/kitchen', { action: 'act', col: t.col, id: t.id, step: s, ...pass() }));
     setBusy(null);
-    if (!d.ok) setNotice(status === 0 ? 'No connection. Try again in a moment.' : d.error || 'That didn’t go through.');
+    // Held for "Allergy noted" (an allergy was added after it was plated): the kitchen or the pass taps that, not the floor.
+    if (!d.ok) setNotice(status === 0 ? 'No connection. Try again in a moment.' : d.allergy ? `${t.item} has an allergy to check. Ask the kitchen or the pass to note it, then serve it.` : d.error || 'That didn’t go through.');
     else if (d.already && s === 'carry') setNotice(`Someone already has ${t.item} for ${first(t.name)}.`);
     void load(true);
   };

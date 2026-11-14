@@ -120,7 +120,7 @@ const iso = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOStrin
   await fr('q-ancient', { createdAt: iso(60 * 40) });
   await fr('q-noone', { createdAt: iso(1.5), tableId: 'tc', tableNumber: 'Ash', seatId: 'c1', seatNumber: '1' });
   await db.doc(`${T}/eventGuests/g4`).set({ eventId: 'e1', name: 'Walk In', tableNumber: null, checkedIn: false });
-  await db.doc(`${T}/kdsTickets/k1`).set({ id: 'k1', source: 'event', eventId: 'e1', eventTitle: 'Spring dinner', courseNumber: 1, guestName: 'June Park', menuItemName: 'Soup', tableNumber: 'Oak', seatNumber: '1', status: 'ready', readyAt: iso(1), createdAt: iso(12), allergies: [{ label: 'Peanuts', severity: 'critical' }] });
+  await db.doc(`${T}/kdsTickets/k1`).set({ id: 'k1', source: 'event', eventId: 'e1', eventTitle: 'Spring dinner', courseNumber: 1, guestName: 'June Park', menuItemName: 'Soup', tableNumber: 'Oak', seatNumber: '1', status: 'ready', readyAt: iso(1), createdAt: iso(12), allergies: [{ label: 'Peanuts', severity: 'critical' }], allergyNotedAt: iso(3), allergyNotedBy: 'Kai Park' });
   await db.doc(`${T}/kdsTickets/k2`).set({ id: 'k2', source: 'event', eventId: 'e1', guestName: 'Ines Mora', menuItemName: 'Soup', tableNumber: 'Elm', seatNumber: '1', status: 'pending', createdAt: iso(12) });
   await db.doc(`${T}/kdsTickets/k3`).set({ id: 'k3', source: 'event', eventId: 'e2', guestName: 'Someone Else', menuItemName: 'Soup', status: 'ready', readyAt: iso(1), createdAt: iso(12) });
   await db.doc(`${T}/kdsTickets/k4`).set({ id: 'k4', source: 'tab', guestName: 'Table 9', menuItemName: 'Fries', status: 'ready', readyAt: iso(1), createdAt: iso(5) });

@@ -8,6 +8,9 @@
 //   Kitchen timing: how long each item takes to make (a drive-thru order is due no sooner than its slowest item), and
 //   whether it's cooked ahead in batches and held (the kitchen screen's holding timers). Managers also set the time each
 //   kind of order aims to be handed over in (the drive-thru's 3:30 unless they change it).
+//   Allergens: what each dish contains of the major allergens (lib/allergens), so a server is warned before ringing it
+//   in for a guest who can't have it. Made each night: a dish counted down as it's ordered (lib/dish-counts), sold out by
+//   itself at zero; what's left tonight shows beside it.
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
@@ -19,6 +22,8 @@ import { uploadImage } from '@/lib/upload-image';
 import { ImagePlus } from 'lucide-react';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
+import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
+import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -47,6 +52,7 @@ export default function MenuPage() {
   const tenantId: string | null = selectedTenant?.id || null;
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
   const [recipes, setRecipes] = useState<Record<string, RecipeLine[]>>({});
+  const [counts, setCounts] = useState<Record<string, CountRow>>({});
   const [canEdit, setCanEdit] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -65,7 +71,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -192,6 +198,7 @@ export default function MenuPage() {
                           {!m.onMenu && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Not on the menu</span>}
                           {m.membersOnly && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Members</span>}
                           {!m.inStock && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{outWords(m)}</span>}
+                          {counts[m.id] && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium tabular-nums" style={lowCount(counts[m.id]) ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: MUTED }}>{leftWords(counts[m.id])} tonight</span>}
                         </span>
                         <span className="mt-0.5 block text-[13.5px]" style={{ color: outOpts.length ? AMBER : MUTED }}>
                           {outOpts.length ? `Sold out: ${outOpts.join(', ')}` : m.choices.length ? m.choices.map((g) => g.name).join(', ') : 'No choices'}
@@ -209,7 +216,8 @@ export default function MenuPage() {
       </div>
       {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
-        onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null); return null; } return d.error || 'That didn’t save.'; }} />}
+        onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null);
+          void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />}
     </div>
   );
 }
@@ -294,6 +302,8 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
   const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
   const [station, setStation] = useState(item.station || ''); const [course, setCourse] = useState(item.course === null ? '' : String(item.course));
+  // What it contains (lib/allergens) and how many it starts each night with (lib/dish-counts).
+  const [allergens, setAllergens] = useState<AllergenKey[] | null>(item.allergensSet ? item.allergens || [] : null); const [daily, setDaily] = useState(item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount));
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
   const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
@@ -338,7 +348,9 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
     const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, featured, badge: badge || null, calories: calories.trim() === '' ? null : Number(calories), ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
       // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
       ...(makeTouched ? { makeSeconds } : {}), ...(station !== (item.station || '') ? { station: station || null } : {}), ...(course !== (item.course === null ? '' : String(item.course)) ? { course: course === '' ? null : Number(course) } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
-      ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}) });
+      ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}),
+      ...(allergens !== null && JSON.stringify(allergens) !== JSON.stringify(item.allergensSet ? item.allergens || [] : null) ? { allergens } : {}),
+      ...(daily !== (item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount)) ? { dailyCount: daily === '' ? null : Number(daily) } : {}) });
     setSaving(false); if (e) setErr(e);
   };
   return (
@@ -371,8 +383,16 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
               <span className="relative block"><span aria-hidden className="pointer-events-none absolute left-3 top-[calc(50%+3px)] -translate-y-1/2 text-[16px]" style={{ color: MUTED }}>$</span>
                 <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))} className={`${field} pl-6`} style={{ borderColor: LINE }} /></span></label>
           </div>
-          <label className="block"><span className="text-[14px] font-medium">What it is</span><span className="block text-[13px]" style={{ color: MUTED }}>A line guests read. Name anything people are often allergic to.</span>
+          <label className="block"><span className="text-[14px] font-medium">What it is</span><span className="block text-[13px]" style={{ color: MUTED }}>A line guests read. Name anything people are often allergic to, and tick it under Contains.</span>
             <textarea value={words} onChange={(e) => setWords(e.target.value.slice(0, 240))} rows={2} className={`${field} py-2.5`} style={{ borderColor: LINE }} /></label>
+          <fieldset className="space-y-2">
+            <legend className="text-[16px] font-semibold">Contains</legend>
+            <p className="text-[13px]" style={{ color: MUTED }}>A server ringing it in for a guest with one of these is warned, and the kitchen ticket says so. The nine major allergens, plus gluten. Until you say, a server is warned for any guest with a severe allergy.</p>
+            <div className="flex flex-wrap gap-2">{ALLERGENS.map((a) => { const on = !!allergens?.includes(a.key);
+              return <button key={a.key} type="button" aria-pressed={on} onClick={() => { const cur = allergens || []; setAllergens(cleanKeys(on ? cur.filter((x) => x !== a.key) : [...cur, a.key])); }} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{a.label}</button>; })}
+              <button type="button" aria-pressed={allergens !== null && allergens.length === 0} onClick={() => setAllergens([])} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={allergens !== null && allergens.length === 0 ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>None of these</button></div>
+            {allergens === null && <p className="text-[13px] font-semibold" style={{ color: AMBER }}>Not said yet.</p>}
+          </fieldset>
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">Choices</h3>
             <ChoicesEditor groups={groups} onChange={setGroups} />
@@ -402,6 +422,10 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
               <select value={makeSeconds} onChange={(e) => { setMakeSeconds(Number(e.target.value)); setMakeTouched(true); }} className={pickField} style={{ borderColor: LINE }}>
                 {Array.from(new Set([...MAKE_TIMES, makeSeconds])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{t < 60 ? `${t} seconds` : mmss(t)}</option>)}
               </select>
+            </label>
+            <label className="flex flex-wrap items-center justify-between gap-3">
+              <span><span className="block text-[15px] font-medium">Made each night</span><span className="block text-[13px]" style={{ color: MUTED }}>Counts down as it’s ordered, and sells out by itself at zero. The kitchen can change tonight’s number. Leave empty to not count it.</span></span>
+              <input inputMode="numeric" value={daily} onChange={(e) => setDaily(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="Not counted" aria-label="How many are made each night" className={pickField} style={{ borderColor: LINE }} />
             </label>
             <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={held} onChange={(e) => setHeld(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Cooked ahead in batches and held</label>
             {held && <div className="grid gap-3 rounded-2xl p-4 sm:grid-cols-2" style={{ background: SOFT }}>

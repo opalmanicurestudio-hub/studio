@@ -1,12 +1,13 @@
 'use client';
 // src/components/menu/TableServiceSettings.tsx — TABLES, KITCHEN AND BAR on the Menu page (managers): the stations
 // things are made at (each gets its own kitchen screen), the courses (and which wait until the server fires them), how
-// much a server can comp in a night on their own say, and the comp reasons offered. Saved through api/menu 'service';
+// much a server can comp in a night on their own say, the comp reasons offered, and whether each table is asked about
+// allergies before its first order (lib/allergens). Saved through api/menu 'service';
 // the rules themselves are lib/table-service.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', RED = '#b42318';
-export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[] };
+export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean };
 const ALLOWANCES = [0, 500, 1000, 1500, 2000, 2500, 5000, 10000];
 const dollars = (c: number) => (c === 0 ? 'Nothing, always a manager' : `Up to $${(c / 100).toFixed(0)}`);
 
@@ -15,12 +16,13 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
   const [courses, setCourses] = useState(service.courses.map((c) => ({ name: c.name, hold: c.hold })));
   const [allow, setAllow] = useState(service.compAllowanceCents);
   const [reasons, setReasons] = useState<string[]>(service.compReasons);
+  const [ask, setAsk] = useState(service.askAllergies !== false);
   const [newStation, setNewStation] = useState(''); const [newReason, setNewReason] = useState('');
   const [busy, setBusy] = useState(false); const [note, setNote] = useState(''); const [err, setErr] = useState('');
-  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); }, [service]);
-  const changed = JSON.stringify([stations, courses, allow, reasons]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons]);
+  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); }, [service]);
+  const changed = JSON.stringify([stations, courses, allow, reasons, ask]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false]);
   const save = async () => { setBusy(true); setErr(''); setNote('');
-    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons });
+    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask });
     setBusy(false); if (e) setErr(e); else setNote('Saved. Screens pick it up within a few seconds.'); };
   const chip = 'inline-flex min-h-[40px] items-center gap-1 rounded-full pl-3 pr-1 text-[13.5px] font-medium';
   const x = (label: string, onClick: () => void) => <button type="button" onClick={onClick} aria-label={label} className="h-9 w-9 rounded-full grid place-items-center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>;
@@ -73,6 +75,14 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
             <button type="submit" disabled={!newReason.trim()} className="min-h-[44px] rounded-xl border px-4 text-[14px] font-semibold disabled:opacity-40" style={{ borderColor: LINE }}>Add</button></form>}
         </div>
         <p className="text-[13px]" style={{ color: MUTED }}>“Something else” is always offered too, with a few words.</p>
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-[15px] font-semibold">Allergies</h3>
+        <label className="flex items-center gap-3 min-h-[44px]">
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">Ask each table before its first order</span><span className="block text-[13px]" style={{ color: MUTED }}>The table’s screen asks once: anyone with an allergy? A regular’s allergies come from their profile either way, and the kitchen always taps Allergy noted.</span></span>
+          <input type="checkbox" checked={ask} onChange={(e) => setAsk(e.target.checked)} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
       </div>
 
       {err && <p className="text-[14px] font-semibold" style={{ color: RED }} role="alert">{err}</p>}
