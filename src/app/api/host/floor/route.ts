@@ -24,6 +24,13 @@
 //            guests by name, number or email (a hint of their contact details only), a few a minute.
 //   make_right { tenantId, partyId } → a Making it right case for a seated table (lib/table-recovery-server): its food
 //            is late or something isn't right. The one already open for the visit when there is one.
+//   sections { tenantId } → tonight's sections for the host stand's chart (lib/sections-server): each table with its
+//            people and whether it's seated, the floor's people with who's on tonight, and who can change them.
+//   section_tap { tenantId, unitId, staffId } → that table is theirs tonight (or back to nobody if it was theirs alone).
+//   call_out { tenantId, staffId, to } → someone called out: their tables go to one person, or 'share' (to whoever's on
+//            tonight with the fewest, a table at a time). hand { tenantId, partyId, to }: a seated table handed to
+//            someone (its own server can, or whoever runs the floor). Whoever is given a seated table hears it.
+//   usual    { tenantId } → a manager keeps tonight's sections as the floor plan's usual ones.
 // The floor read says which seated tables need someone (lib/table-recovery): a table that told us something isn't right
 // from its page, and food later than the business's minutes, each with its case when there is one.
 // The floor read also puts today's online bookings on the host stand as parties still to come, and says which late
@@ -47,6 +54,7 @@ import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '
 import { cleanMemory, memorySettingsOf } from '@/lib/guest-memory';
 import { findGuests, GuestStop, linkGuest, memoriesFor, recognize, saveGuestNote, tableTakesGuest } from '@/lib/guest-memory-server';
 import { tellSeated } from '@/lib/floor-buzz';
+import { handTable, keepAsUsual, runsFloor, SectionStop, sectionCallOut, sectionsNow, sectionTap, tellGiven } from '@/lib/sections-server';
 
 /** Seated tables that need someone (lib/table-recovery): one that told us something isn't right, and food later than
  *  the business's minutes. Each with its case when there is one. */
@@ -83,8 +91,8 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'floor');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find', 'make_right', 'event'].includes(action)) return bad('Unknown action.');
-  const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' ? 'manager' : 'staff'); if (g.deny) return g.deny;
+  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find', 'make_right', 'event', 'sections', 'section_tap', 'call_out', 'hand', 'usual'].includes(action)) return bad('Unknown action.');
+  const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' || action === 'usual' ? 'manager' : 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return bad('The floor is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = g.tenant && Object.keys(g.tenant).length ? g.tenant : ((await db.doc(T).get()).data() || {});
@@ -113,6 +121,29 @@ export async function POST(req: NextRequest) {
       const e: any = q.docs[0].data() || {};
       const tables = Array.isArray(e.seatingTables) ? e.seatingTables.slice(0, 200) : null;
       return ok({ event: { id: q.docs[0].id, name: String(e.name || e.title || 'Tonight’s event').slice(0, 80), seatingTables: tables } });
+    }
+
+    // TONIGHT'S SECTIONS (lib/sections-server). Changing them is for whoever runs the floor; a server hands over their own.
+    if (['sections', 'section_tap', 'call_out', 'hand', 'usual'].includes(action)) {
+      try {
+        if (action === 'sections') {
+          const r = await sectionsNow(db, T);
+          return ok({ ...r, canEdit: runsFloor(g.actor), canUsual: !!g.actor?.isTenantOwner || !!g.actor?.isManager, me: String(g.actor?.uid || '') });
+        }
+        if (action === 'usual') { const r = await keepAsUsual(db, T); forgetFloor(tenantId); return ok(r); }
+        if (action === 'hand') {
+          const r = await handTable(db, T, g.actor, String(b.partyId || ''), String(b.to || ''));
+          forgetFloor(tenantId);
+          const told = await tellGiven(db, tenantId, tenant, r.moves, [String(g.actor?.uid || '') || null]);
+          return ok({ moved: r.moves.length, told });
+        }
+        if (!runsFloor(g.actor)) return bad('Tonight’s sections are set at the host stand, or by a manager.', 403);
+        const r = action === 'section_tap' ? await sectionTap(db, T, String(b.unitId || ''), String(b.staffId || ''))
+          : await sectionCallOut(db, T, String(b.staffId || ''), String(b.to || 'share'));
+        forgetFloor(tenantId);
+        const told = await tellGiven(db, tenantId, tenant, r.moves, [String(g.actor?.uid || '') || null, action === 'call_out' ? String(b.staffId || '') : null]);
+        return ok({ moved: r.moves.length, told, ...('staffIds' in r ? { staffIds: r.staffIds } : {}), ...('words' in r ? { words: r.words } : {}) });
+      } catch (e: any) { if (e instanceof SectionStop) return bad(e.message, e.status); throw e; }
     }
 
     if (action === 'make_right') {

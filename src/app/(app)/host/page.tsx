@@ -28,6 +28,7 @@
 
 import { Drawer } from '@/components/pos/desk/kit';
 import { TableTab } from '@/components/host/TableTab';
+import { SectionsSheet } from '@/components/host/SectionsSheet';
 import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { connectionDown, landed, send } from '@/lib/outbox';
@@ -72,6 +73,7 @@ export default function HostScreen() {
   const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
   const [tableFor, setTableFor] = useState<string | null>(null);   // a seated table tapped: its party, tab and "they've left"
   const [adding, setAdding] = useState(false);
+  const [sections, setSections] = useState(false);
   const tenantId = selectedTenant?.id ?? null;
   const readyToRun = useReadyToRun(firestore, tenantId);   // "Order up": food and drink ready to carry to a table
   const { toast } = useToast();
@@ -122,7 +124,8 @@ export default function HostScreen() {
           collection(firestore, `tenants/${tenantId}/serviceSessions`),
           where('status', '==', 'open'), limit(5),
         ));
-        const open = openSnap.docs[0];
+        // The newest open one, as the server picks it (lib/floor-server, lib/sections-server).
+        const open = openSnap.docs.slice().sort((a: any, b: any) => String(b.data()?.opensAt || '').localeCompare(String(a.data()?.opensAt || '')))[0];
         const d = sessionDecision(open ? (open.data() as any) : null, new Date(), tz, hs.dayCutoverHour);
         if (d.action === 'reuse' && open) {
           if (!cancelled) setSession({ id: open.id, ...(open.data() as any) });
@@ -191,6 +194,13 @@ export default function HostScreen() {
   }, [firestore, tenantId, session?.id]);
 
   const units: TableLike[] = session?.units || [];
+  // Tonight's service, kept live: a section moved on another phone, or on this stand's chart, shows here at once.
+  useEffect(() => {
+    if (!firestore || !tenantId || !session?.id) return;
+    return onSnapshot(doc(firestore, `tenants/${tenantId}/serviceSessions`, session.id), (s) => {
+      if (s.exists()) setSession((x) => (x && x.id === s.id ? { ...x, ...(s.data() as any), id: s.id } : x));
+    }, () => undefined);
+  }, [firestore, tenantId, session?.id]);
   const seatedGuests = useMemo(
     () => parties.filter((p) => p.status === 'seated')
       .flatMap((p) => (p.unitIds || []).map((u, i) => ({ id: `${p.id}:${i}`, tableId: u }))
@@ -679,7 +689,8 @@ export default function HostScreen() {
       <div className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <section aria-labelledby="units" className="min-w-0 space-y-4 self-start rounded-3xl border bg-[#fff] p-4 sm:p-5" style={{ borderColor: LINE }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="units" className="text-[17px] font-semibold">{Unit}</h2>
+            <div className="flex items-center gap-3"><h2 id="units" className="text-[17px] font-semibold">{Unit}</h2>
+              {session && <button type="button" onClick={() => setSections(true)} className={`${BTN} px-3`} style={{ background: SOFT, color: INK }}>Sections</button>}</div>
             <div className="flex flex-wrap gap-4 text-[13px]" style={{ color: '#4b4e54' }} aria-hidden>
               <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: GREEN }} />Free</span>
               <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full" style={{ background: INK }} />Seated</span>
@@ -859,6 +870,7 @@ export default function HostScreen() {
         </div>
       </div>
 
+      {sections && <SectionsSheet api={api} onClose={() => setSections(false)} onChanged={() => { void loadFloor(); }} />}
       <Drawer accent={null} open={adding} onClose={() => setAdding(false)} title={`Add a ${V.party}`}>
         <form onSubmit={(e) => { e.preventDefault(); void addParty().then((ok) => { if (ok) setAdding(false); }); }} className="space-y-4" style={{ color: INK }}>
           <label className="block"><span className="text-[14px] font-medium">Name</span>

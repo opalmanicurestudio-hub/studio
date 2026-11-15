@@ -9,6 +9,8 @@
 // can't wait, where the phone allows it. Tables waiting to be cleared link to Clear and reset (design canvas ClearReset).
 // Through a Wi-Fi drop (lib/outbox, lib/last-seen): the tables it last had, with their time; firing a course and the
 // nudges' steps are kept on the phone and sent when the connection's back.
+// A table can be handed to someone else (a break, a big party next door; design canvas "Tonight's sections"): theirs
+// alone tonight, and their phone buzzes with the table and where its meal is (api/host/floor 'hand').
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { send } from '@/lib/outbox';
@@ -37,6 +39,12 @@ async function call(body: any, keep?: string): Promise<any> {
   const r = await send('/api/tab', body, { label: keep || 'A tap', auth: 'user', keep: !!keep, tenantId: String(body.tenantId || ''), afterWrites: body.action === 'fire', maxAgeMs: 20 * 60000 });
   return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
 }
+/** A step on tonight's floor (api/host/floor): never kept for later, since sections change by the minute. */
+async function floorCall(body: any): Promise<any> {
+  const r = await send('/api/host/floor', body, { label: 'My tables', auth: 'user', keep: false, tenantId: String(body.tenantId || '') });
+  return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through.' };
+}
+type Mate = { id: string; name: string; on: boolean };
 const readMine = () => { try { return localStorage.getItem('cf.tables.mine') !== 'all'; } catch { return true; } };
 
 export default function MyTablesPage() {
@@ -47,6 +55,8 @@ export default function MyTablesPage() {
   const [d, setD] = useState<Data | null>(null); const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState('');
   const [open, setOpen] = useState<Row | null>(null);
+  // Handing the open table to someone: who's on the floor's team (tonight's first), and who's picked.
+  const [mates, setMates] = useState<Mate[] | null>(null); const [handTo, setHandTo] = useState<string | null>(null); const [handErr, setHandErr] = useState(''); const [matesIn, setMatesIn] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const seen = useRef<Set<string> | null>(null);
   // No connection: what the phone last had, and when (null while the server answers).
@@ -99,6 +109,20 @@ export default function MyTablesPage() {
     setMsg(r.checkAt ? `The host stand knows ${row.table} asked for the check.` : `${row.table} isn’t asking for the check.`);
     setOpen((o) => (o && o.visitId === row.visitId ? { ...o, checkAt: r.checkAt || null } : o)); void load();
   };
+  const startHand = async () => {
+    if (!tenantId) return; setHandTo(null); setHandErr(''); setMates([]); setMatesIn(false);
+    const r = await floorCall({ tenantId, action: 'sections' });
+    if (!r.ok) { setMates(null); setMsg(r.error || 'Tonight’s team couldn’t be read.'); return; }
+    setMates((r.people || []).filter((p: Mate) => p.id !== r.me)); setMatesIn(true);
+  };
+  const hand = async (row: Row) => {
+    if (!tenantId || !handTo || !row.party?.id) return; setBusy(`hand:${row.party.id}`); setHandErr('');
+    const r = await floorCall({ tenantId, action: 'hand', partyId: row.party.id, to: handTo });
+    setBusy(null);
+    if (!r.ok) { setHandErr(r.error || 'That didn’t go through.'); return; }
+    const who = (mates || []).find((m) => m.id === handTo)?.name.split(' ')[0] || 'They';
+    setMates(null); setOpen(null); setMsg(`${row.table} is ${who}’s now. ${r.told ? 'Their phone buzzed.' : 'Let them know.'}`); void load();
+  };
   const tables = d?.tables || [];
   const guests = tables.reduce((s, t) => s + (Number(t.party?.size) || 0), 0);
   const actions = (n: Nudge) => {
@@ -132,7 +156,7 @@ export default function MyTablesPage() {
         </header>
         {(d?.toClear || 0) > 0 && <Link href="/clear" className="flex min-h-[52px] items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 text-[15px] font-semibold" style={{ border: `1px solid ${LINE}` }}>
           <span>{d!.toClear} {d!.toClear === 1 ? 'table' : 'tables'} to clear</span><span className="text-[13.5px]" style={{ color: MUTED }}>Clear and reset</span></Link>}
-        {d && !d.hasSection && tables.length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>No section is set for you on the floor tonight, so every table shows. The host sets sections on the floor plan.</p>}
+        {d && !d.hasSection && tables.length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>No section is set for you tonight, so every table shows. The host sets tonight’s sections at the host stand.</p>}
         {tenantId && <ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} />}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {msg && <p role="status" className="rounded-2xl bg-[#fff] px-4 py-3 text-[14.5px]" style={{ border: `1px solid ${LINE}` }}>{msg}</p>}
@@ -165,8 +189,23 @@ export default function MyTablesPage() {
           <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-4" style={{ background: SOFT }}>
             <div className="flex flex-wrap justify-end gap-2 pb-2">
               <button type="button" disabled={busy === `check:${open.party?.id}`} onClick={() => checkAsked(open)} className={btn} style={quiet}>{open.checkAt ? 'Not asking for the check' : 'They asked for the check'}</button>
-              <button type="button" onClick={() => { setOpen(null); void load(); }} className={btn} style={quiet}>Done</button>
+              {d?.session && <button type="button" onClick={() => (mates ? setMates(null) : startHand())} className={btn} style={quiet} aria-expanded={!!mates}>Hand to someone</button>}
+              <button type="button" onClick={() => { setOpen(null); setMates(null); void load(); }} className={btn} style={quiet}>Done</button>
             </div>
+            {mates && <div className="mb-3 space-y-3 rounded-2xl bg-[#fff] p-4" role="group" aria-labelledby="hand-title">
+              <div><p id="hand-title" className="text-[17px] font-semibold">Hand {open.table} to someone</p>
+                <p className="text-[14px]" style={{ color: MUTED }}>The table, its check and anything the guests asked for go with it.</p></div>
+              {handErr && <p role="alert" className="rounded-xl px-3 py-2 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{handErr}</p>}
+              {!matesIn ? <p className="text-[14px]" style={{ color: MUTED }}>Reading tonight’s team…</p> : mates.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>Nobody else is on the floor’s team yet.</p>
+                : <div role="radiogroup" aria-label="Who takes it" className="flex flex-wrap gap-2">
+                  {mates.map((m) => <button key={m.id} type="button" role="radio" aria-checked={handTo === m.id} onClick={() => setHandTo(m.id)} className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold"
+                    style={handTo === m.id ? dark : { background: SOFT, color: INK }}>{m.name.split(' ')[0]}{m.on ? '' : <span className="font-normal" style={{ color: handTo === m.id ? '#fff' : MUTED }}>, not on tonight</span>}</button>)}
+                </div>}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!handTo || busy === `hand:${open.party?.id}`} onClick={() => hand(open)} className={`${btn} flex-1`} style={dark}>{handTo ? `Hand it to ${(mates.find((m) => m.id === handTo)?.name || '').split(' ')[0]}` : 'Pick who takes it'}</button>
+                <button type="button" onClick={() => setMates(null)} className={btn} style={quiet}>Cancel</button>
+              </div>
+            </div>}
             <TableTab key={open.visitId} firestore={firestore} tenantId={tenantId} party={open.party} tableName={open.table} by={d?.meName || 'A server'} />
           </div>
         </div>
