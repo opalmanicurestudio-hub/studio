@@ -75,7 +75,7 @@ export function declineWords(msg: unknown): string {
 }
 
 /** What went wrong sending a payment to a reader, in plain words. */
-function readerTrouble(e: any): string {
+export function readerTrouble(e: any): string {
   const code = String(e?.code || e?.raw?.code || '');
   if (code === 'terminal_reader_offline') return 'The card reader is offline. Check it’s on and connected to the internet, then try again.';
   if (code === 'terminal_reader_busy') return 'The card reader is busy with another payment. Finish or cancel it on the reader, then try again.';
@@ -109,7 +109,7 @@ async function getPi(stripe: any, acct: string, id: string): Promise<{ pi?: any;
 const ours = (pi: any, tenantId: string, orderId: string) => String(pi?.metadata?.tenantId || '') === tenantId && String(pi?.metadata?.orderId || '') === orderId && String(pi?.metadata?.source || '') === 'drive_thru';
 const approved = (pi: any) => pi?.status === 'requires_capture' || pi?.status === 'succeeded';
 /** Whether a reader is asking for this payment right now, and how that's going. */
-async function readerOn(stripe: any, acct: string, readerId: string | null, piId: string): Promise<{ mine: boolean; status?: string; message?: string | null } | null> {
+export async function readerOn(stripe: any, acct: string, readerId: string | null, piId: string): Promise<{ mine: boolean; status?: string; message?: string | null } | null> {
   if (!readerId || !READER.test(readerId)) return { mine: false };
   try {
     const rd: any = await stripe.terminal.readers.retrieve(readerId, {}, { stripeAccount: acct });
@@ -119,7 +119,7 @@ async function readerOn(stripe: any, acct: string, readerId: string | null, piId
   } catch { return null; }
 }
 /** The reader stops asking for this payment (only if it's this one it's asking for). */
-async function readerLetGo(stripe: any, acct: string, readerId: string | null, piId: string) {
+export async function readerLetGo(stripe: any, acct: string, readerId: string | null, piId: string) {
   const on = await readerOn(stripe, acct, readerId, piId);
   if (on?.mine && on.status === 'in_progress') { try { await stripe.terminal.readers.cancelAction(readerId, {}, { stripeAccount: acct }); } catch { /* the payment itself is canceled after */ } }
 }

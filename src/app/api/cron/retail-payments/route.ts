@@ -15,6 +15,7 @@ import { sendRestockAlerts } from '@/lib/restock-alerts';
 import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepCounterCards } from '@/lib/counter-card';
+import { sweepBarHolds } from '@/lib/bar-tab-server';
 import { ensureWalletDomains } from '@/lib/wallet-domains';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { sweepRetryPays } from '@/lib/delivery-retry-server';
@@ -55,6 +56,9 @@ export async function GET(req: NextRequest) {
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
     // …and the drive-thru window's: approved ones pay their order, ones left waiting are stopped (lib/counter-card).
     try { const r = await sweepCounterCards(db, t.id, tenant); counts.windowCardsChecked = (counts.windowCardsChecked || 0) + r.checked; counts.windowCardsPaid = (counts.windowCardsPaid || 0) + r.paid; counts.windowCardsStopped = (counts.windowCardsStopped || 0) + r.stopped; } catch { /* next run */ }
+    // …and the bar's tabs with a card held: let go once the tab's paid another way, a charge whose answer was lost
+    // recorded, a long-open tab told to the managers (lib/bar-tab-server).
+    try { const r = await sweepBarHolds(db, t.id, tenant); counts.barHoldsChecked = (counts.barHoldsChecked || 0) + r.checked; counts.barHoldsReleased = (counts.barHoldsReleased || 0) + r.released; } catch { /* next run */ }
     // Apple Pay and Google Pay on the business's pay pages: its addresses registered on its payments account (only
     // what's due: nothing is asked of the card company otherwise; lib/wallet-domains).
     if (tenant.stripeChargesEnabled !== false) { try { const w = await ensureWalletDomains(db, t.id, tenant, null); counts.walletAddressesChecked = (counts.walletAddressesChecked || 0) + w.checked; } catch { /* next run */ } }

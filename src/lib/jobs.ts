@@ -27,7 +27,7 @@ export const SCREEN_PAGES = ['/kds', '/dish', '/barback', '/floor', '/drive-thru
 const EVERYONE = ['/messages', '/my-schedule'];
 
 /** What managers and shift leads run the night from, and the station screens they look in on. */
-export const TONIGHT = ['/briefing', '/host', '/menu', '/prep', '/close'];
+export const TONIGHT = ['/briefing', '/host', '/bar-tabs', '/menu', '/prep', '/close'];
 export const STATION_SCREENS = ['/kds', '/dish', '/barback', '/floor', '/drive-thru', '/host-stand'];
 
 export const JOBS: JobDef[] = [
@@ -35,7 +35,7 @@ export const JOBS: JobDef[] = [
     line: 'Opens on My tables: their tables, what’s ready at the pass, and guests asking for them.' },
   { id: 'host', name: 'Host', counts: 'host', station: null, home: '/host', menu: ['/host', '/tables', ...EVERYONE], role: 'front_desk',
     line: 'Opens on the host stand: who’s waiting, who’s booked, and which tables are free.' },
-  { id: 'bartender', name: 'Bartender', counts: 'bar', station: 'bar', home: '/kds', menu: ['/kds', '/tables', ...EVERYONE], role: 'staff',
+  { id: 'bartender', name: 'Bartender', counts: 'bar', station: 'bar', home: '/kds', menu: ['/kds', '/bar-tabs', '/tables', ...EVERYONE], role: 'staff',
     line: 'Opens on the bar’s kitchen screen. On the bar tablet, they sign in with their PIN.' },
   { id: 'barback', name: 'Barback', counts: 'support', station: null, home: '/barback', menu: ['/barback', ...EVERYONE], role: 'assistant',
     line: 'Opens on the barback screen: what the bar is asking for, and what’s running low.' },

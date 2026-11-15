@@ -888,6 +888,26 @@ export const CheckoutHub = ({
     if (result.code === 'ticket_split') { setCardMode('select'); setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: result.error || 'Finish it in Split the bill.' }); return; }
     if (result.unknown && result.paymentIntentId) setReaderPending({ id: result.paymentIntentId, pendingId });
   };
+  // A bar tab with a card held (lib/bar-tab, api/bar 'charge'): the check is taken from that card, no tap needed, never
+  // more than what's held. It's the sale's own card reader payment, named on its ticket first, like any reader payment.
+  const heldTab: any = (appointmentsData || []).map((d: any) => d.appointment).find((a: any) => a?.barTab && a?.cardHold?.state === 'held' && a?.cardHold?.id) || null;
+  const heldCents = Math.round(Number(heldTab?.cardHold?.cents) || 0);
+  const [heldBusy, setHeldBusy] = useState(false);
+  const chargeHeldCard = async () => {
+    if (!heldTab || heldBusy || payBlockedNow()) return;
+    setHeldBusy(true);
+    try {
+      const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'terminal', amountTendered: amountToCharge, cardSurcharge }) : null) || getPendingId?.() || null;
+      if (!pendingId) { toast({ variant: 'destructive', title: 'The sale couldn’t be started', description: 'Check the internet connection and try again. Nothing was charged.' }); return; }
+      if (getTicketPaid?.()) { paidAlready(); return; }
+      const res = await fetch('/api/bar', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body: JSON.stringify({ tenantId, action: 'charge', visitId: heldTab.id, pendingId, amountCents: Math.round(amountToCharge * 100) }) }).catch(() => null);
+      const d: any = res ? await res.json().catch(() => ({})) : {};
+      if (d?.ok && d.paymentIntentId) { await afterReaderPaid({ paymentIntentId: d.paymentIntentId, amountCents: d.amountCents, already: !!d.already, sale: d.sale }); return; }
+      if (d?.code === 'ticket_paid' && d.paidWith) { setTicketPaid?.({ pendingId, ...d.paidWith }); paidAlready(); return; }
+      toast({ variant: 'destructive', title: 'The held card wasn’t charged', description: d?.error || 'Check the internet connection and try again, or take the payment another way.' });
+    } finally { setHeldBusy(false); }
+  };
   const checkReaderAgain = async () => {
     if (!terminal || !readerPending) return;
     setReaderBusy('check');
@@ -1463,6 +1483,8 @@ export const CheckoutHub = ({
                   <span><span className="block text-[15px] font-semibold">Send to {firstOf(selectedClient?.name) ? `${firstOf(selectedClient?.name)}’s` : 'their'} phone</span><span className="block text-[13px]" style={muted}>{sendingVia === 'visit' ? 'Sending their total…' : sendingVia === 'cancel' ? 'Calling off the open payment…' : `${reachBy === 'text' ? 'We text them their visit link' : reachBy === 'email' ? 'We email them their visit link' : 'It opens on their visit link'}: they add a tip, then pay with Apple Pay, Google Pay or a card${csSet.offerSaveCard !== false ? ' · they can save their card' : ''}`}</span></span><DIcon name="chevron" size={17} /></button>}
                 {hasCardOnFile && <button type="button" onClick={() => { if (!payBlockedNow()) setCardMode('cof_tip'); }} className={rowBtn} style={{ background: 'var(--soft)' }}>
                   <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><DIcon name="chevron" size={17} /></button>}
+                {heldTab && <button type="button" onClick={chargeHeldCard} disabled={heldBusy || isCartEmpty || amountToCharge <= 0 || Math.round(amountToCharge * 100) > heldCents} aria-busy={heldBusy} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
+                  <span><span className="block text-[15px] font-semibold">{heldBusy ? 'Charging the held card…' : 'Charge the held card'}</span><span className="block text-[13px]" style={muted}>{String(heldTab.cardHold.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(heldTab.cardHold.last4 || '••••')}, up to {usd(heldCents / 100)}{Math.round(amountToCharge * 100) > heldCents ? '. The check is more than that: take it on the card reader' : '. No tap needed'}</span></span><DIcon name="chevron" size={17} /></button>}
                 <button type="button" onClick={readerConnected ? handleTerminalPayment : () => setCardMode('reader')} disabled={!terminal} className={rowBtn} style={{ background: 'var(--soft)', opacity: terminal ? 1 : 0.55 }}>
                   <span><span className="block text-[15px] font-semibold">{readerConnected ? terminal?.connectedReader?.label || 'Card reader' : 'Card reader'}</span><span className="block text-[13px]" style={muted}>{readerConnected ? 'Tap, insert or swipe' : terminal ? 'Connect a reader' : 'Connect your payments account in Settings to use a reader'}</span></span><DIcon name="chevron" size={17} /></button>
                 <button type="button" onClick={() => { if (!payBlockedNow()) setCardMode('new_card'); }} className={rowBtn} style={{ background: 'var(--soft)' }}>

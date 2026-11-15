@@ -43,6 +43,10 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { tonight } from '@/lib/night-close-server';
+import { readCalls } from '@/lib/back-calls-server';
+import { callLine, callsFor } from '@/lib/back-calls';
+import { floorWordNow } from '@/lib/floor-word-server';
+import { jobDef } from '@/lib/jobs';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
 import { logTableFix } from '@/lib/table-recovery-server';
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
@@ -115,7 +119,19 @@ export async function POST(req: NextRequest) {
     return ok({ checkAt: undo ? null : (p.checkAt || at) });
   }
   if (action === 'nudges') {
-    try { return ok({ ...(await tablesNow(db, T, (auth.tenant && Object.keys(auth.tenant).length ? auth.tenant : ((await db.doc(T).get()).data() || {})), me.id, b.mine === true)), meName: me.name }); }
+    try {
+      const tenantNow: any = auth.tenant && Object.keys(auth.tenant).length ? auth.tenant : ((await db.doc(T).get()).data() || {});
+      // With the tables: the kitchen's calls for this person (a run, "Come to the pass") and what the kitchen tells the
+      // floor (lib/floor-word), so the phone asks once.
+      const [tables, calls, word, mine] = await Promise.all([
+        tablesNow(db, T, tenantNow, me.id, b.mine === true),
+        readCalls(db, T).catch(() => [] as any[]),
+        floorWordNow(db, tenantId, tenantNow).catch(() => ({ eightySix: [], note: null })),
+        /^[A-Za-z0-9_-]{1,160}$/.test(me.id) ? db.doc(`${T}/staff/${me.id}`).get().then((x: any) => x.data() || {}).catch(() => ({})) : Promise.resolve({}),
+      ]);
+      const forMe = callsFor(calls, { id: me.id, runner: jobDef((mine as any).job)?.id === 'runner', manager });
+      return ok({ ...tables, meName: me.name, calls: forMe.map((c) => ({ id: c.id, to: c.to, line: callLine(c), from: c.from, at: c.at, status: c.status, run: c.to === 'runner' && c.what === 'run' })), word });
+    }
     catch (e) { console.error('[tab nudges]', e); return bad('The tables couldn’t be read. Try again.', 500); }
   }
   // CLEAR AND RESET (lib/table-reset-server): the tables to clear and leaving soon, "They've left", "On it" and

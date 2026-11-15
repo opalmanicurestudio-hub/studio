@@ -54,6 +54,7 @@ import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '
 import { cleanMemory, memorySettingsOf } from '@/lib/guest-memory';
 import { findGuests, GuestStop, linkGuest, memoriesFor, recognize, saveGuestNote, tableTakesGuest } from '@/lib/guest-memory-server';
 import { tellSeated } from '@/lib/floor-buzz';
+import { floorWordNow } from '@/lib/floor-word-server';
 import { handTable, keepAsUsual, runsFloor, SectionStop, sectionCallOut, sectionsNow, sectionTap, tellGiven } from '@/lib/sections-server';
 
 /** Seated tables that need someone (lib/table-recovery): one that told us something isn't right, and food later than
@@ -181,7 +182,9 @@ export async function POST(req: NextRequest) {
         // How far behind the kitchen is (lib/kitchen-pace): already counted in the likely free times above.
         pace: read.pace && read.pace.level !== 'calm' ? read.pace : null,
         // Tables that need someone: something isn't right, or food later than the business's minutes (lib/table-recovery).
-        troubles: troublesOf(read, tenant, Date.now()) });
+        troubles: troublesOf(read, tenant, Date.now()),
+        // What the kitchen tells the floor: tonight's 86 list and its message (lib/floor-word).
+        word: await floorWordNow(db, tenantId, tenant).catch(() => ({ eightySix: [], note: null })) });
     }
 
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {

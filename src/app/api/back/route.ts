@@ -10,7 +10,10 @@
 //                                                    It moves stock, so on a shared tablet it needs a PIN first (code 'pin')
 //   undoChange { tenantId, key?, staffPass?, id }  → a change tapped by mistake, put back (within a few minutes)
 //   calls      { tenantId, key?, staffPass? }      → this screen's own calls (still going, or done in the last minutes)
-//   call       { tenantId, key?, staffPass?, to, what, note?, station? } → ask the dish pit or the barback
+//   call       { tenantId, key?, staffPass?, to, what, note?, station?, visitId?, ticketIds? } → ask the dish pit or the
+//                                                    barback, or call people (lib/back-calls PEOPLE): a runner (a run
+//                                                    from expo names its table's visit and its plates), a table's server
+//                                                    (its visit), a manager. Their phones buzz; they take it from My tables
 //   callStep   { tenantId, key?, staffPass?, id, step: 'coming'|'done'|'cancel'|'release' } (cancel: only the station
 //                                                    that asked; release: only whoever took it)
 //   machine    { tenantId, key?, staffPass?, value, note? } → a machine reading (lib/dish). On a shared tablet it needs
@@ -30,8 +33,9 @@ import { limitPublic } from '@/lib/rate-limit';
 import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
-import { callQueue, cleanCall, myCalls } from '@/lib/back-calls';
-import { CallStop, makeCall, readCalls, stepCall, sweepOld, tellLate } from '@/lib/back-calls-server';
+import { callQueue, cleanCall, myCalls, PEOPLE } from '@/lib/back-calls';
+import { CallStop, makeCall, readCalls, stepCall, sweepOld, tellLate, tellPeople, whoFor } from '@/lib/back-calls-server';
+import { tonight } from '@/lib/night-close-server';
 import { BarStop, barbackFor, changePart, undoChange } from '@/lib/barback-server';
 import { cleanDishSettings } from '@/lib/dish';
 import { DishStop, dishFor, machineLog, recordBreak, recordMachine } from '@/lib/dish-server';
@@ -119,7 +123,10 @@ export async function POST(req: NextRequest) {
     if (action === 'call') {
       const c = cleanCall(b); if ('error' in c) return bad(c.error);
       const from = clip(b.station, 40) || screen.name;
-      const r = await makeCall(db, T, c, { id: fromId, name: from }, staff?.name || null);
+      // To people (a runner, a table's server, a manager): who it goes to, and its table; their phones buzz.
+      const people = PEOPLE.includes(c.to) ? await whoFor(db, tenantId, tenant, c.to, c.what, { visitId: b.visitId, ticketIds: b.ticketIds }, tonight(tenant)) : null;
+      const r = await makeCall(db, T, c, { id: fromId, name: from }, staff?.name || null, people);
+      if (people && !r.already) await tellPeople(db, tenantId, r.call);
       return ok({ call: r.call, already: r.already });
     }
     if (action === 'callStep') {

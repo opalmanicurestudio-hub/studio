@@ -174,9 +174,14 @@ export async function checkDeskPayment(stripe: any, acct: string, id: string, te
 /** Settle one reader payment: capture it if the reader approved the card and it isn't captured yet. Safe to repeat,
  *  and the answer says whether the card was charged. `requires_capture` / `unknown` in the answer: not settled yet
  *  (ask again); a refunded payment says so and can't pay for anything. */
+/** A bar tab's held card (lib/bar-tab-server): only its own steps take it (for the check, never in full) or let it go. */
+export const isBarHold = (pi: any) => String(pi?.metadata?.kind || '') === 'bar_hold' || String(pi?.metadata?.barHold || '') === '1';
+const BAR_HOLD: ReaderCheck = { ok: false, status: 'bar_hold', charged: false, error: 'That card is held for a bar tab. Close the tab at the desk to charge it, or let it go from the bar’s tabs.' };
+
 export async function captureReaderPayment(stripe: any, acct: string, id: string, tenantId: string): Promise<ReaderCheck> {
   const l = await load(stripe, acct, id, tenantId); if (l.err) return l.err;
   let pi = l.pi;
+  if (isBarHold(pi) && pi.status !== 'succeeded') return { ...BAR_HOLD, pi };
   if (pi.status === 'succeeded') {
     if (refundedOf(pi)) return { ok: false, status: 'refunded', pi, refunded: true, error: 'That card payment was refunded, so it can’t pay for this sale. Take the payment again.' };
     return { ok: true, status: 'succeeded', pi, already: true, charged: true };
@@ -200,9 +205,10 @@ export async function captureReaderPayment(stripe: any, acct: string, id: string
 /** Call off a reader payment that hasn't gone through, so it never can: a hold on the card is released. One that
  *  already went through isn't touched, and the answer says so. `readerOnly`: refuse anything not started on the reader
  *  (a client-screen payment or a typed card is never cancelled from here). */
-export async function releaseReaderPayment(stripe: any, acct: string, id: string, tenantId: string, o: { readerOnly?: boolean } = {}): Promise<ReaderCheck> {
+export async function releaseReaderPayment(stripe: any, acct: string, id: string, tenantId: string, o: { readerOnly?: boolean; barHold?: boolean } = {}): Promise<ReaderCheck> {
   const l = await load(stripe, acct, id, tenantId); if (l.err) return l.err;
   const pi = l.pi;
+  if (isBarHold(pi) && !o.barHold && pi.status !== 'canceled') return { ...BAR_HOLD, pi };
   if (o.readerOnly && String(pi.metadata?.source || '') !== 'terminal') return { ok: false, status: 'other', pi, error: 'That isn’t a card reader payment.' };
   if (pi.status === 'succeeded') return { ok: false, status: 'succeeded', pi, charged: true, refunded: refundedOf(pi), error: 'This card payment already went through.' };
   if (pi.status === 'canceled') return { ok: true, status: 'canceled', pi, already: true, charged: false };
@@ -587,6 +593,10 @@ export async function sweepReaderPayments(db: any, tenantId: string, tenant: any
         if (refundedOf(pi)) { await noteState(db, tenantId, pendingId, id, 'refunded'); continue; }
         const m = await markReaderSalePaid(db, tenantId, pendingId, pi);
         if (m.fresh && (m.result === 'waiting' || m.result === 'paid_twice')) { await tellDeskReader(db, tenantId, m.result === 'waiting' ? 'unrecorded' : 'paid_twice', pc, centsOf(pi), pendingId).catch(() => {}); out.told++; }
+      } else if (pi.status === 'requires_capture' && isBarHold(pi)) {
+        // A bar tab's held card being charged at the desk (lib/bar-tab-server): only ever taken for the check, by its
+        // own step, never in full here. Not taken: it's still the tab's hold, so it's off this ticket.
+        await noteState(db, tenantId, pendingId, id, 'not_charged');
       } else if (pi.status === 'requires_capture') {
         if (paidOtherwise) { const r = await releaseReaderPayment(stripe, acct, id, tenantId); if (r.ok) { await noteState(db, tenantId, pendingId, id, 'released'); out.released++; } else open = true; }
         else {

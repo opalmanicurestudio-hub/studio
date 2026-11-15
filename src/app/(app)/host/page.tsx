@@ -29,6 +29,8 @@
 import { Drawer } from '@/components/pos/desk/kit';
 import { TableTab } from '@/components/host/TableTab';
 import { SectionsSheet } from '@/components/host/SectionsSheet';
+import { FloorWord } from '@/components/host/FloorWord';
+import type { FloorWord as FloorWordData } from '@/lib/floor-word';
 import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { connectionDown, landed, send } from '@/lib/outbox';
@@ -106,7 +108,7 @@ export default function HostScreen() {
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
   const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean;
     memory: MemorySettings | null; guests: Record<string, GuestMemory>; pace: { behindMin: number; level: string } | null;
-    troubles: { partyId: string; table: string; kind: 'report' | 'late'; text: string; caseId: string | null; seen: boolean; safety: boolean }[] } | null>(null);
+    troubles: { partyId: string; table: string; kind: 'report' | 'late'; text: string; caseId: string | null; seen: boolean; safety: boolean }[]; word?: FloorWordData } | null>(null);
   // Regulars: "Been here before?" for one party, and the team's note for one guest.
   const [findFor, setFindFor] = useState<any>(null); const [term, setTerm] = useState(''); const [found, setFound] = useState<FoundGuest[] | null>(null);
   const [noteFor, setNoteFor] = useState<{ clientId: string; name: string; partyId: string } | null>(null); const [noteText, setNoteText] = useState('');
@@ -220,7 +222,7 @@ export default function HostScreen() {
     } else if (r?.ok) { good.current = Date.now(); setAsOf(null); keepLast(`floor.${tenantId}`, r); }
     if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager,
       memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {}, pace: r.pace && r.pace.level !== 'calm' ? r.pace : null,
-      troubles: Array.isArray(r.troubles) ? r.troubles.slice(0, 8) : [] });
+      troubles: Array.isArray(r.troubles) ? r.troubles.slice(0, 8) : [], word: r.word || undefined });
   }, [api, tenantId]);
   const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
   useEffect(() => {
@@ -681,6 +683,7 @@ export default function HostScreen() {
       </header>
 
       {tenantId && <div className="space-y-2 px-4 pt-4 empty:hidden sm:px-6"><ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} /></div>}
+      {(floor?.word?.eightySix?.length || floor?.word?.note) ? <div className="px-4 pt-4 sm:px-6"><FloorWord word={floor?.word} tight /></div> : null}
       {alerts.length > 0 && <div className="px-4 pt-4 sm:px-6"><div className="space-y-1 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT, color: AMBER }}>
         {alerts.map((a, i) => <p key={i} className="flex flex-wrap items-center gap-2 text-[14px] font-medium"><AlertCircle className="h-4 w-4 shrink-0" aria-hidden /><span className="flex-1">{a.text}</span>
           {a.act && <button type="button" onClick={a.act.run} className={BTN} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{a.act.label}</button>}</p>)}

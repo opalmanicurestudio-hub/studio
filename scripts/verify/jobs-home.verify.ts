@@ -55,7 +55,7 @@ const at = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOString
   check('a manager and a shift lead open on the pre-shift briefing; something else on the dashboard', home('manager') === '/briefing' && home('shift_lead') === '/briefing' && home('other') === null);
   check('everyone’s short menu has their messages and schedule; something else has none of its own', J.JOBS.filter((j) => j.id !== 'other').every((j) => j.menu.includes('/messages') && j.menu.includes('/my-schedule') && (!j.home || j.menu.includes(j.home))) && J.jobDef('other')!.menu.length === 0);
   check('managers and shift lead run the night: briefing, host stand, menu, prep and close, then every station screen', J.runsTheNight(J.jobDef('manager')) && J.runsTheNight(J.jobDef('shift_lead')) && !J.runsTheNight(J.jobDef('cook'))
-    && J.TONIGHT.join() === '/briefing,/host,/menu,/prep,/close' && J.STATION_SCREENS.join() === '/kds,/dish,/barback,/floor,/drive-thru,/host-stand');
+    && J.TONIGHT.join() === '/briefing,/host,/bar-tabs,/menu,/prep,/close' && J.STATION_SCREENS.join() === '/kds,/dish,/barback,/floor,/drive-thru,/host-stand');
   check('a page in a menu that isn’t a station screen is opened as it is', J.pageHref('/tables', 't1', { job: J.jobDef('server') }) === '/tables' && J.pageHref('/kds', 't1') === '/kds/t1');
   check('the kitchen side: cook, bartender, expo, shift lead, manager', J.KITCHEN_SIDE.join() === 'cook,bartender,expo,shift_lead,manager');
 

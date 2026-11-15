@@ -27,6 +27,7 @@
 //                                                    station; cancelling one whose item was taken at ordering puts it back.
 //   bump    { tenantId, key, tickets: [{col,id}], step, staffPass? } → a whole course or dish moved along at once
 //   forget  { tenantId, key }                      → this screen stops working (set it up again to use it)
+//   floorNote { tenantId, key?, text|null }        → the kitchen tells the floor (lib/floor-word-server), or clears it
 //   menu    { tenantId, key }                      → the menu, for "Sold out" (lib/menu-server)
 //   soldout { tenantId, key, itemId, groupId?, optionId?, out, staffPass? } → an item, or one of its choices, sold out
 //                                                    or back, in one tap, under the name of whoever's working
@@ -51,6 +52,9 @@ import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { KITCHEN_SIDE, jobDef } from '@/lib/jobs';
 import { tellPassReady, tellPassReadyMany } from '@/lib/floor-buzz';
+import { runsDone } from '@/lib/back-calls-server';
+import { floorWordNow, forgetWord, setFloorNote } from '@/lib/floor-word-server';
+const noteSent = new Map<string, number>();
 import { jobOf } from '@/lib/briefing';
 import { limitPublic } from '@/lib/rate-limit';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
@@ -303,7 +307,7 @@ export async function POST(req: NextRequest) {
     // its counts and closing checks, and saying an allergy was seen. Those two stay with the kitchen side (their job, or
     // with no job set, a title that says cook or bartender) or a manager; the kitchen's and bar's closing checks too.
     let teamMember: { id: string; name: string } | null = null; let kitchenSide = false; let teamJob = '';
-    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck'].includes(action)) {
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck', 'floorNote'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -313,7 +317,7 @@ export async function POST(req: NextRequest) {
       teamMember = { id: String(g.actor?.uid || ''), name: String(g.actor?.name || 'A team member').slice(0, 60) };
       teamJob = jobDef(me?.job)?.id || '';
       kitchenSide = !!g.actor?.isTenantOwner || !!g.actor?.isManager || KITCHEN_SIDE.includes(teamJob as any) || (!teamJob && ['kitchen', 'bar'].includes(jobOf(me)));
-      if ((action === 'allergyNoted' || action === 'count') && !kitchenSide) return bad(action === 'count' ? 'Tonight’s counts are set by the kitchen. Ask a cook or a manager.' : 'Allergy noted is for the kitchen: a cook or expo taps it. Ask them, or a manager.', 403);
+      if ((action === 'allergyNoted' || action === 'count' || action === 'floorNote') && !kitchenSide) return bad(action === 'count' ? 'Tonight’s counts are set by the kitchen. Ask a cook or a manager.' : action === 'floorNote' ? 'Telling the floor is for the kitchen: a cook, expo or a manager.' : 'Allergy noted is for the kitchen: a cook or expo taps it. Ask them, or a manager.', 403);
       screen = { ref: null, name: teamMember.name, passes: {} };
     }
     if (!screen) {
@@ -394,7 +398,9 @@ export async function POST(req: NextRequest) {
       // How far behind the kitchen is (lib/kitchen-pace): the host stand and ordering ahead are counting it.
       const pace = await paceNow(db, T, tenant);
       return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, printers,
-        pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level }, now: new Date().toISOString() });
+        pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level },
+        // What the kitchen told the floor, still up (lib/floor-word), so the screen can change or clear it.
+        floorNote: (await floorWordNow(db, tenantId, tenant).catch(() => ({ note: null }))).note, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {
@@ -441,6 +447,7 @@ export async function POST(req: NextRequest) {
     }
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, staff?.name || screen.name);
+      if (r.ok) forgetWord(tenantId);
       return r.ok ? ok({ item: r.item, staffOk }) : bad(r.error, r.status);
     }
 
@@ -541,7 +548,18 @@ export async function POST(req: NextRequest) {
       const r = await setTonightCount(db, tenantId, tenant, b.itemId, b.value, staff?.name || screen.name);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status });
       const c = await liveCounts(db, tenantId, tenant, undefined, { fresh: true }).catch(() => ({ rows: [] as any[] }));
+      forgetWord(tenantId);
       return ok({ counts: c.rows, staffOk });
+    }
+
+    // The kitchen tells the floor (lib/floor-word-server): every phone on the floor tonight buzzes once. `text: null` clears it.
+    if (action === 'floorNote') {
+      // A new message buzzes the whole floor: one every 20 seconds a business at most.
+      if (b.text !== null && Date.now() - (noteSent.get(tenantId) || 0) < 20000) return NextResponse.json({ ok: false, error: 'The floor just heard from the kitchen. Wait a few seconds before sending another.', staffOk }, { status: 429 });
+      const r = await setFloorNote(db, tenantId, tenant, b.text === null ? null : b.text, staff?.name || screen.name);
+      if (r.ok && b.text !== null) { noteSent.set(tenantId, Date.now()); if (noteSent.size > 2000) noteSent.clear(); }
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: 400 });
+      return ok({ note: r.note, told: r.told, staffOk });
     }
 
     if (action === 'act') {
@@ -551,6 +569,7 @@ export async function POST(req: NextRequest) {
       // `allergy`: held for "Allergy noted", so a screen without that button (the floor, the desk) can say who to ask.
       if (r.error) return NextResponse.json({ ok: false, error: r.error, ...(r.allergy ? { allergy: true } : {}), staffOk }, { status: r.status || 400 });
       if (step === 'ready' && col === 'kdsTickets' && !r.already) await tellPassReady(db, tenantId, id);
+      if (step === 'deliver' && col === 'kdsTickets' && !r.already) await runsDone(db, `tenants/${tenantId}`, [id], staff?.name || screen.name);
       return ok({ ...r, staffOk });
     }
 
@@ -570,6 +589,8 @@ export async function POST(req: NextRequest) {
       for (const t of lounge) tally(await run(t));
       // A table's course all ready at the pass: its server hears (lib/floor-buzz), once.
       await tellPassReadyMany(db, tenantId, readied);
+      // Plates sent out: a run called for them is done (lib/back-calls-server).
+      if (step === 'deliver' && kitchen.length) await runsDone(db, `tenants/${tenantId}`, kitchen.map((t: any) => String(t.id)), staff?.name || screen.name);
       return ok({ moved, failed, allergy, of: list.length, staffOk });
     }
 

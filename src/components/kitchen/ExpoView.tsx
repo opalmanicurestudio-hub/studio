@@ -4,10 +4,13 @@
 // gets its mains one plate at a time. Beside it, what tables have held and not fired yet (lib/table-service), so the
 // pass sees what's coming. It moves tickets with the screen's own bump (api/kitchen), the same as everywhere else. Each
 // plate with an allergy says whether its station has noted it; a run with one not noted waits until someone has (the
-// pass can tap it here).
+// pass can tap it here). A table's run can go to a runner (design canvas "The bar and the pass"; api/back 'call' to a
+// runner): the runners' phones buzz with the table and its plates, and the card says who's coming. Sending the plates
+// out closes the run.
 import { useMemo } from 'react';
 import { allergyFlags, needsAllergyNote, type KitchenTicket } from '@/lib/kitchen';
 import { expoGroups, unfiredGroups, type ExpoTicket } from '@/lib/table-service';
+import type { Call } from '@/lib/back-calls';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
 const GREEN_TINT = '#eaf6ef', AMBER_TINT = '#fff7ed';
@@ -15,9 +18,10 @@ const LATE_S = 8 * 60;
 
 const mins = (s: number) => (s < 60 ? 'just now' : `${Math.floor(s / 60)} min`);
 
-export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote }: {
+export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote, runs, onRunner, runBusy }: {
   tickets: KitchenTicket[]; unfired: KitchenTicket[]; now: number; busyIds: Set<string>;
   onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void; onNote: (t: KitchenTicket) => void;
+  runs?: Call[]; onRunner?: (r: { visitId: string; ticketIds: string[]; label: string }) => void; runBusy?: string | null;
 }) {
   const groups = useMemo(() => expoGroups(tickets as unknown as ExpoTicket[]), [tickets]);
   const coming = useMemo(() => unfiredGroups(unfired as unknown as ExpoTicket[]), [unfired]);
@@ -38,6 +42,10 @@ export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote }: {
               const busy = list.some((t) => busyIds.has(t.id));
               const allergy = list.some((t) => allergyFlags(t).any);
               const unnoted = toNote(g); const canRun = g.allReady && !unnoted.length;
+              // A table's run: whether a runner's been called for these plates, and who's coming.
+              const visitId = g.key.startsWith('tab|') ? String((list[0] as any)?.visitId || '') : '';
+              const run = visitId ? (runs || []).find((c) => c.to === 'runner' && c.what === 'run' && c.visitId === visitId && c.status !== 'cancelled' && c.ticketIds.some((id) => list.some((t) => t.id === id))) : null;
+              const runWords = run ? (run.status === 'coming' ? `${String(run.takenBy || 'A runner').split(' ')[0]} is coming for it` : run.status === 'done' ? `${String(run.doneBy || run.takenBy || 'A runner').split(' ')[0]} ran it` : `Runner called, ${mins(Math.max(0, Math.round((now - Date.parse(run.at)) / 1000)))}`) : null;
               return (
                 <article key={g.key} className="rounded-3xl bg-[#fff] p-4 flex flex-col gap-1" style={canRun ? { boxShadow: `inset 0 0 0 2px ${GREEN}` } : undefined}>
                   <div className="flex items-start gap-2 pb-2 mb-1" style={{ borderBottom: `1px solid ${LINE}` }}>
@@ -61,11 +69,16 @@ export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote }: {
                         : <span className="text-[13px] font-semibold" style={{ color: t.status === 'ready' ? GREEN : t.status === 'in_progress' ? INK : AMBER }}>{t.status === 'ready' ? 'Ready' : t.status === 'in_progress' ? 'Making' : 'Waiting'}</span>}
                     </div>
                   ))}
-                  <button type="button" disabled={!canRun || busy} onClick={() => onBump(list, 'deliver')}
-                    className="mt-2 min-h-[48px] rounded-2xl text-[15px] font-semibold disabled:cursor-not-allowed"
-                    style={canRun ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: MUTED }}>
-                    {canRun ? `Run ${g.label}` : g.allReady ? 'Note the allergy first' : `Runs when all ${g.total} are ready`}
-                  </button>
+                  {runWords && <p className="mt-1 text-[13px] font-semibold" role="status" style={{ color: run?.status === 'open' ? AMBER : GREEN }}>{runWords}</p>}
+                  <div className={canRun && visitId && onRunner && !run ? 'mt-2 grid grid-cols-2 gap-2' : 'mt-2 grid'}>
+                    {canRun && visitId && onRunner && !run && <button type="button" disabled={busy || runBusy === visitId} onClick={() => onRunner({ visitId, ticketIds: list.map((t) => t.id), label: g.label })}
+                      className="min-h-[48px] rounded-2xl text-[15px] font-semibold disabled:opacity-50" style={{ background: INK, color: '#fff' }}>{runBusy === visitId ? 'Calling…' : 'Send a runner'}</button>}
+                    <button type="button" disabled={!canRun || busy} onClick={() => onBump(list, 'deliver')}
+                      className="min-h-[48px] rounded-2xl text-[15px] font-semibold disabled:cursor-not-allowed"
+                      style={canRun && !(visitId && onRunner && !run) ? { background: INK, color: '#fff' } : canRun ? { background: SOFT, color: INK } : { background: '#fff', border: `1px solid ${LINE}`, color: MUTED }}>
+                      {canRun ? (visitId && onRunner && !run ? 'We’ll run it' : `Run ${g.label}`) : g.allReady ? 'Note the allergy first' : `Runs when all ${g.total} are ready`}
+                    </button>
+                  </div>
                 </article>
               );
             })}

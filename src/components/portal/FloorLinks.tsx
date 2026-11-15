@@ -11,11 +11,15 @@ const PAGES = [
   { href: '/tables', label: 'My tables', line: 'Your tables, what’s at the pass, guests asking' },
   { href: '/clear', label: 'Clear tables', line: 'Which tables just left, and resetting them' },
   { href: '/host', label: 'Host stand', line: 'Who’s waiting, who’s booked, which tables are free' },
+  { href: '/bar-tabs', label: 'Bar tabs', line: 'Tabs at the bar, and the cards held on them', bar: true },
 ];
 
 export function FloorLinks({ job }: { job?: string | null }) {
   const home = jobDef(job)?.home || null;
-  const pages = [...PAGES].sort((a, b) => (a.href === home ? -1 : b.href === home ? 1 : 0));
+  // The bar's tabs for whoever works the bar (a bartender, a barback, a shift lead or a manager).
+  const bar = ['bartender', 'barback', 'shift_lead', 'manager'].includes(String(jobDef(job)?.id || ''));
+  const first = jobDef(job)?.id === 'bartender' ? '/bar-tabs' : home;
+  const pages = PAGES.filter((p) => !(p as any).bar || bar).sort((a, b) => (a.href === first ? -1 : b.href === first ? 1 : 0));
   return (
     <section aria-labelledby="floor-links" className="space-y-2">
       <h2 id="floor-links" className="px-1 text-[13px] font-semibold" style={{ color: MUTED }}>The floor</h2>

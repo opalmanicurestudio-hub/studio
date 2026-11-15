@@ -11,6 +11,9 @@
 // nudges' steps are kept on the phone and sent when the connection's back.
 // A table can be handed to someone else (a break, a big party next door; design canvas "Tonight's sections"): theirs
 // alone tonight, and their phone buzzes with the table and where its meal is (api/host/floor 'hand').
+// What the kitchen tells the floor shows at the top (tonight's 86 list and its message; components/host/FloorWord), and
+// the kitchen's calls for this person (a run of plates for a runner, "Come to the pass" for a table's server) with "I'm
+// on it" and "Done" (api/back 'callStep'; design canvas "The bar and the pass").
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { send } from '@/lib/outbox';
@@ -20,6 +23,8 @@ import { useKeepPage } from '@/components/pwa/keep-page';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { TableTab } from '@/components/host/TableTab';
+import { FloorWord } from '@/components/host/FloorWord';
+import type { FloorWord as Word } from '@/lib/floor-word';
 import type { Nudge } from '@/lib/nudges';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -31,7 +36,8 @@ const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 const ago = (since: number, now: number) => { const m = Math.max(0, Math.floor((now - since) / 60000)); return m < 1 ? 'now' : `${m} min`; };
 
 type Row = { visitId: string; table: string; staffIds: string[]; total: number; party: any; stage?: { words: string; step: number; freeIn: number | null }; checkAt?: string | null };
-type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null; toClear?: number };
+type CallRow = { id: string; to: string; line: string; from: string; at: string; status: 'open' | 'coming'; run: boolean };
+type Data = { tables: Row[]; nudges: Nudge[]; mineOnly: boolean; hasSection: boolean; meName: string; session: string | null; toClear?: number; calls?: CallRow[]; word?: Word };
 
 /** A step through api/tab: kept on the phone when there's no connection and `keep` names it. */
 async function call(body: any, keep?: string): Promise<any> {
@@ -123,6 +129,16 @@ export default function MyTablesPage() {
     const who = (mates || []).find((m) => m.id === handTo)?.name.split(' ')[0] || 'They';
     setMates(null); setOpen(null); setMsg(`${row.table} is ${who}’s now. ${r.told ? 'Their phone buzzed.' : 'Let them know.'}`); void load();
   };
+  // A call from the kitchen: "I'm on it" (so nobody doubles up), then "Done" (api/back, as themselves).
+  const callStep = async (c: CallRow, step: 'coming' | 'done' | 'release') => {
+    if (!tenantId) return; setBusy(`call:${c.id}`); setMsg('');
+    const r = await send('/api/back', { tenantId, action: 'callStep', id: c.id, step }, { label: 'My tables', auth: 'user', keep: false, tenantId });
+    setBusy(null);
+    const out: any = r.d && typeof r.d === 'object' ? r.d : { ok: false };
+    if (!out.ok) { setMsg(out.error || 'That didn’t go through.'); return; }
+    if (out.already && step === 'coming') setMsg(`${String(out.call?.takenBy || 'Someone').split(' ')[0]} already has it.`);
+    void load();
+  };
   const tables = d?.tables || [];
   const guests = tables.reduce((s, t) => s + (Number(t.party?.size) || 0), 0);
   const actions = (n: Nudge) => {
@@ -158,6 +174,18 @@ export default function MyTablesPage() {
           <span>{d!.toClear} {d!.toClear === 1 ? 'table' : 'tables'} to clear</span><span className="text-[13.5px]" style={{ color: MUTED }}>Clear and reset</span></Link>}
         {d && !d.hasSection && tables.length > 0 && <p className="text-[13.5px]" style={{ color: MUTED }}>No section is set for you tonight, so every table shows. The host sets tonight’s sections at the host stand.</p>}
         {tenantId && <ConnectionBar tenantId={tenantId} down={asOf !== null} asOf={asOf} />}
+        <FloorWord word={d?.word} />
+        {(d?.calls || []).length > 0 && <section aria-label="Calls for you" className="space-y-2">
+          {(d?.calls || []).map((c) => (
+            <article key={c.id} className="flex items-center gap-3 rounded-2xl bg-[#fff] p-4" style={c.status === 'open' ? { boxShadow: `inset 0 0 0 2px ${INK}` } : undefined}>
+              <div className="min-w-0 flex-1"><p className="text-[16px] font-semibold leading-snug">{c.run ? `Food to run: ${c.line}` : c.line}</p>
+                <p className="text-[13px]" style={{ color: MUTED }}>{c.from}, {ago(Date.parse(c.at), now)}{c.status === 'coming' ? '. You’re on it' : ''}</p></div>
+              {c.status === 'open'
+                ? <button type="button" disabled={busy === `call:${c.id}`} onClick={() => callStep(c, 'coming')} className={btn} style={dark}>{c.run ? 'I’m on it' : 'On my way'}</button>
+                : <button type="button" disabled={busy === `call:${c.id}`} onClick={() => callStep(c, 'done')} className={btn} style={quiet}>Done</button>}
+            </article>
+          ))}
+        </section>}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {msg && <p role="status" className="rounded-2xl bg-[#fff] px-4 py-3 text-[14.5px]" style={{ border: `1px solid ${LINE}` }}>{msg}</p>}
 

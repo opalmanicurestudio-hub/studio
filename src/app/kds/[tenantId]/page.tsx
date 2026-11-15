@@ -33,6 +33,8 @@ import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { ExpoView } from '@/components/kitchen/ExpoView';
 import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
 import { CallSheet, CallStrip } from '@/components/kitchen/CallSheet';
+import { FloorNoteSheet } from '@/components/kitchen/FloorNoteSheet';
+import { tableLabel } from '@/lib/table-service';
 import type { Call } from '@/lib/back-calls';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { renderHtml, ticketDoc } from '@/lib/printing';
@@ -575,6 +577,8 @@ export default function KitchenScreen() {
   const [countsOpen, setCountsOpen] = useState(false);
   // Calls to the dish pit and the barback from this screen (components/kitchen/CallSheet, api/back), and who's coming.
   const [callOpen, setCallOpen] = useState(false); const [myCalls, setMyCalls] = useState<Call[]>([]); const [callTick, setCallTick] = useState(0);
+  // Telling the floor (components/kitchen/FloorNoteSheet), and a runner called from expo for a table's plates.
+  const [floorOpen, setFloorOpen] = useState(false); const [runBusy, setRunBusy] = useState<string | null>(null);
   const [justPaired, setJustPaired] = useState(false);
   const [holdBusy, setHoldBusy] = useState<string | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -805,6 +809,20 @@ export default function KitchenScreen() {
   // (Worked out again only when one starts waiting or stops, not every second.)
   const heldKey = allTickets.filter(isHeld).map((t) => t.id).join('|');
   const tickets = useMemo(() => allTickets.filter((t) => !isHeld(t)), [allTickets, heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tables with food on the go, for calling a table's server (components/kitchen/CallSheet).
+  const callTables = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of allTickets as any[]) if (t?.source === 'tab' && t.visitId && !m.has(t.visitId)) m.set(t.visitId, tableLabel(t.tableNumber));
+    return Array.from(m.entries()).map(([visitId, label]) => ({ visitId, label })).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })).slice(0, 40);
+  }, [allTickets]);
+  // A table's plates are up: the runners' phones buzz with the table and what's on it (api/back 'call').
+  const sendRunner = async (r: { visitId: string; ticketIds: string[]; label: string }) => {
+    setRunBusy(r.visitId);
+    const { status, d } = await postBack({ action: 'call', to: 'runner', what: 'run', visitId: r.visitId, ticketIds: r.ticketIds, station: 'Expo' });
+    setRunBusy(null);
+    setNotice(d?.ok ? (d.already ? `A runner’s already called for ${r.label}.` : `Runner called for ${r.label}. Their phones buzzed.`) : status === 0 ? 'No connection. Try again in a moment.' : d?.error || 'That didn’t go through.');
+    setCallTick((n) => n + 1);
+  };
   const later = useMemo(() => {
     const by = new Map<string, { number: string; who: string | null; start: number; due: number | null; count: number }>();
     for (const t of allTickets) {
@@ -903,6 +921,7 @@ export default function KitchenScreen() {
             <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
             <button type="button" onClick={() => setCountsOpen(true)} className={btn} style={quiet}>Counts</button>
             <button type="button" onClick={() => setCallOpen(true)} className={btn} style={quiet}>Call</button>
+            <button type="button" onClick={() => setFloorOpen(true)} className={btn} style={(data as any)?.floorNote ? { ...quiet, borderColor: INK } : quiet}>Tell the floor</button>
             <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>Closing</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
             <div className="relative">
@@ -971,7 +990,7 @@ export default function KitchenScreen() {
             </div>
           </div>
         ) : view === 'expo' ? (
-          <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} onNote={noteAllergy} />
+          <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} onNote={noteAllergy} runs={myCalls} onRunner={sendRunner} runBusy={runBusy} />
         ) : groups.length === 0 ? (
           <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No tickets up.</p>
         ) : (
@@ -988,7 +1007,8 @@ export default function KitchenScreen() {
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the tickets you move. The screen works without it." />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {countsOpen && <CountsSheet rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
-      {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
+      {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} people tables={callTables} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
+      {floorOpen && <FloorNoteSheet post={post} note={(data as any)?.floorNote || null} onClose={() => setFloorOpen(false)} onSent={(m) => { setNotice(m); void load(); }} />}
       {closingOpen && <ClosingSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setClosingOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">

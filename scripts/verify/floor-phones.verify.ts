@@ -125,8 +125,8 @@ const notes = async (type: string) => (await all(`${T}/notifications`)).filter((
   console.log('buzzing the table’s server');
   const FB = await import('../../src/lib/floor-buzz');
   await db.doc(`${T}/serviceSessions/ss1`).set({ status: 'open', units: [{ id: 'u12', name: '12', staffIds: ['s1'] }, { id: 'u7', name: '7', staffIds: [] }] });
-  await db.doc(`${T}/parties/p1`).set({ name: 'Marsh', size: 4, status: 'seated', seatedAt: '2026-11-15T20:00:00Z', unitIds: ['u12'], sessionId: 'ss1', needs: ['high chair'] });
-  await db.doc(`${T}/parties/p2`).set({ name: 'Okafor', size: 2, status: 'seated', seatedAt: '2026-11-15T20:05:00Z', unitIds: ['u7'], sessionId: 'ss1' });
+  await db.doc(`${T}/parties/p1`).set({ name: 'Marsh', size: 4, status: 'seated', seatedAt: new Date(Date.now() - 2 * 60000).toISOString(), unitIds: ['u12'], sessionId: 'ss1', needs: ['high chair'] });
+  await db.doc(`${T}/parties/p2`).set({ name: 'Okafor', size: 2, status: 'seated', seatedAt: new Date(Date.now() - 60000).toISOString(), unitIds: ['u7'], sessionId: 'ss1' });
   const sec = await FB.sectionOf(db, T, 'p1');
   check('a seated party’s table and its people, from tonight’s service', sec?.table === 'Table 12' && sec?.staffIds.join() === 's1');
   let n = await FB.tellSeated(db, 't1', 'p1');
@@ -182,9 +182,9 @@ const notes = async (type: string) => (await all(`${T}/notifications`)).filter((
   console.log('the team app reaches the floor');
   const tc = src('src/context/TenantContext.tsx'), scope = src('src/components/shared/PortalScope.tsx'), side = src('src/components/shared/AppSidebar.tsx'), lay = src('src/app/(app)/layout.tsx'), portal = src('src/app/staff-portal/[tenantId]/StaffPortalPage.tsx'), links = src('src/components/portal/FloorLinks.tsx');
   check('a PIN sign-in is recognized by its own claims (business, team record, never a renter), with its role', /getIdTokenResult\(\)/.test(tc) && /c\.portal === true && typeof c\.tenantId === 'string'/.test(tc) && /c\.isRenter !== true/.test(tc) && /viaPortal \? portal!\.staffId/.test(tc) && /screen: viaPortal && !!portal\?\.screen/.test(tc));
-  check('…kept to My tables, Clear tables and the host stand; anywhere else goes back to the team app (a tablet, to the host stand)', /FLOOR_PAGES = \['\/tables', '\/clear', '\/host'\]/.test(scope) && /router\.replace\(screen \? '\/host' : `\/staff-portal\/\$\{selectedTenant\.id\}`\)/.test(scope) && /<PortalScope>\n          <SidebarProvider>/.test(lay));
+  check('…kept to My tables, Clear tables, the host stand and the bar’s tabs; anywhere else goes back to the team app (a tablet, to the host stand)', /FLOOR_PAGES = \['\/tables', '\/clear', '\/host', '\/bar-tabs'\]/.test(scope) && /router\.replace\(screen \? '\/host' : `\/staff-portal\/\$\{selectedTenant\.id\}`\)/.test(scope) && /<PortalScope>\n          <SidebarProvider>/.test(lay));
   check('…the menu shows only the floor, with the way back to the team app', /label="The floor" items=\{floorItems\}/.test(side) && /Back to the team app/.test(side) && /!viaPortal && <NavSection key=/.test(side) && /isAdmin && !isOwner && !viaPortal/.test(side));
-  check('the team app’s Today has the floor at a food business, their job’s page first', /isFoodBusiness\(portalTenant\) && <FloorLinks job=/.test(portal) && /a\.href === home \? -1/.test(links) && /href=\{p\.href\}/.test(links) && !/uppercase|font-black/.test(links) && /min-h-\[64px\]/.test(links));
+  check('the team app’s Today has the floor at a food business, their job’s page first', /isFoodBusiness\(portalTenant\) && <FloorLinks job=/.test(portal) && /a\.href === first \? -1/.test(links) && /href=\{p\.href\}/.test(links) && !/uppercase|font-black/.test(links) && /min-h-\[64px\]/.test(links));
   const hf2 = () => src('src/app/api/host/floor/route.ts');
   const rules = src('firestore.rules');
   check('the database: the team (PIN sign-ins included, never a renter) runs tonight’s service and its parties; the host stand’s tablet is not the team', /request\.auth\.token\.get\('isRenter', false\) != true && request\.auth\.token\.get\('screen', false\) != true\);/.test(rules)
