@@ -253,7 +253,7 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
   const cc: any = (calc as any).computeCheckout || (calc as any).checkoutTotals || null;
   const memberSrc = src('src/lib/checkout-calc.ts');
   check('a membership discount on a listing covers its variants at the desk (screen and server)', /eligible\.includes\(String\(\(it as any\)\.listingId\)\)/.test(memberSrc) && /eligibleProductIds\.includes\(String\(\(item as any\)\.listingId\)\)/.test(src('src/components/pos/usePosEngine.tsx')), !!cc);
-  check('the host stand’s tab prices products as the desk sells them (variants in their listing’s place, nothing without a price)', /price: deskPrice\(x, listings\)/.test(src('src/components/host/TableTab.tsx')) && /name: saleName\(x, listings\)/.test(src('src/components/host/TableTab.tsx')) && /\.filter\(\(x: any\) => x\.price > 0\)/.test(src('src/components/host/TableTab.tsx')));
+  check('the host stand’s tab prices products as the desk sells them (variants in their listing’s place, nothing without a price)', /price: deskPrice\(x, listings\)/.test(src('src/components/host/TableTab.tsx')) && /name: saleName\(x, listings\)/.test(src('src/components/host/TableTab.tsx')) && /\.filter\(\(x: any\) => x\.price > 0 &&/.test(src('src/components/host/TableTab.tsx')));
 
   // ── Pre-order runs, the shop's pages, the sitemap ──
   const inRun = V.inRunOf('kit', new Set(['own']));

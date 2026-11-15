@@ -44,6 +44,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
 import { offeredOnMenu, stockOf, recipeOf } from '@/lib/menu-stock';
 import { stockNow } from '@/lib/menu-server';
+import { servedNow } from '@/lib/menu-time';
 
 const MAX_AMENITIES = 60;
 const MAX_UPSELL = 8;
@@ -277,6 +278,8 @@ export async function GET(req: NextRequest) {
       .map((d: any) => ({ id: d.id, ...(d.data() as any), _stock: stockOf(d.data() || {}, d.id, stockById) }))
       .filter((i: any) => i.type === 'refreshment')
       .filter((i: any) => offeredOnMenu(i))
+      // (A combo is ordered at the counter; an item outside its menus by time of day isn't offered: lib/menu-time.)
+      .filter((i: any) => i.combo !== true && servedNow(i, tenantDoc).ok)
       .filter((i: any) => i._stock.inStock)
       .filter((i: any) => orderable(i))   // sold out tonight (the kitchen's one tap), or a choice they must make with nothing left: off the list until it's back
       .filter((i: any) => !i.isMembersOnly || isMember)
@@ -650,9 +653,10 @@ export async function POST(req: NextRequest) {
     const apt = aptSnap.exists ? (aptSnap.data() as any) : null;
     const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : null;
 
-    if (item.type !== 'refreshment' || !offeredOnMenu(item)) {
+    if (item.type !== 'refreshment' || !offeredOnMenu(item) || item.combo === true) {
       return NextResponse.json({ ok: false, error: 'That item is not available to order.' }, { status: 403 });
     }
+    { const on = servedNow(item, tenant); if (!on.ok) return NextResponse.json({ ok: false, error: `That’s on the ${on.when.replace(', from', ' menu, from')}.` }, { status: 409 }); }
     if (itemSoldOut(item)) return NextResponse.json({ ok: false, error: 'That’s sold out right now, sorry.' }, { status: 409 });
     // Its choices, worked out from the item itself (never a price from the browser).
     const picked = priceChoices(item, body?.choices);

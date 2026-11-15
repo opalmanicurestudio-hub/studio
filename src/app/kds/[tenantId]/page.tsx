@@ -42,6 +42,8 @@ import { flush, keptNow, noteNetwork, send, type Kept } from '@/lib/outbox';
 import { keepLast, lastOf } from '@/lib/last-seen';
 import { ConnectionBar } from '@/components/shared/ConnectionBar';
 import { useKeepPage } from '@/components/pwa/keep-page';
+import { LangToggle, ScreenLangProvider, useT } from '@/components/kitchen/ScreenLang';
+import { tr } from '@/lib/screen-lang';
 import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -82,7 +84,10 @@ const secondsSince = (iso: string, now: number) => { const t = Date.parse(iso); 
 const waited = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
 const clock = (iso: string, tz: string | null) => { const d = new Date(iso); if (isNaN(d.getTime())) return ''; try { return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) }).replace(' AM', 'am').replace(' PM', 'pm'); } catch { return ''; } };
 const amount = (n: number) => String(Math.round(n * 10) / 10);
-const where = (t: KitchenTicket) => t.source === 'event' ? `${t.eventTitle || 'Event'}${t.courseNumber !== null ? `, course ${t.courseNumber}` : ''}${t.tableNumber ? `, table ${t.tableNumber}` : ''}${t.seatNumber ? `, seat ${t.seatNumber}` : ''}` : t.station;
+// The screen's words in its language (components/kitchen/ScreenLang); printing and anything outside a screen use English.
+type Say = (en: string, vars?: Record<string, string | number>) => string;
+const plain: Say = (en, vars) => tr('en', en, vars);
+const where = (t: KitchenTicket, say: Say = plain) => t.source === 'event' ? `${t.eventTitle || say('Event')}${t.courseNumber !== null ? `, ${say('course {n}', { n: t.courseNumber })}` : ''}${t.tableNumber ? `, ${say('table {n}', { n: t.tableNumber })}` : ''}${t.seatNumber ? `, ${say('seat {n}', { n: t.seatNumber })}` : ''}` : say(t.station);
 const CHANNEL_WORD: Record<string, string> = { 'drive-thru': 'Drive-thru', counter: 'Counter', kiosk: 'Kiosk', ahead: 'Ordered ahead' };
 const sourceWord = (t: KitchenTicket) => t.channel ? CHANNEL_WORD[t.channel] : t.source === 'lounge' ? 'Lounge' : t.source === 'tab' ? 'Table' : t.source === 'pos' ? 'Desk' : t.source === 'event' ? 'Event' : 'Order';
 
@@ -149,21 +154,22 @@ const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as
 
 // ─── Allergy banner: big enough to read across a kitchen ─────────────────────────────────────────────────────────────
 function AllergyBanner({ t, compact = false }: { t: KitchenTicket; compact?: boolean }) {
+  const say = useT();
   const f = allergyFlags(t);
   if (!f.any) return null;
   const strong = f.severe;
   return (
-    <div className="rounded-xl px-3 py-2.5 space-y-1" style={{ background: strong ? AMBER : AMBER_TINT, color: strong ? '#fff' : AMBER, border: `1px solid ${strong ? AMBER : '#f3d9b8'}` }} role="note" aria-label="Allergy">
+    <div className="rounded-xl px-3 py-2.5 space-y-1" style={{ background: strong ? AMBER : AMBER_TINT, color: strong ? '#fff' : AMBER, border: `1px solid ${strong ? AMBER : '#f3d9b8'}` }} role="note" aria-label={say('Allergy')}>
       {f.listed.length > 0 && (
         <p className={compact ? 'text-[15px] font-semibold leading-snug' : 'text-[18px] font-semibold leading-snug'}>
-          {strong ? 'Severe allergy: ' : 'Allergy: '}{f.listed.map((a) => `${a.name}${a.severe && f.listed.length > 1 ? ' (severe)' : ''}`).join(', ')}
+          {strong ? `${say('Severe allergy:')} ` : `${say('Allergy:')} `}{f.listed.map((a) => `${say(a.name)}${a.severe && f.listed.length > 1 ? ` ${say('(severe)')}` : ''}`).join(', ')}
         </p>
       )}
       {f.mentions.map((m, i) => (
-        <p key={i} className={compact ? 'text-[14px] font-medium leading-snug' : 'text-[15px] font-medium leading-snug'}>{f.listed.length ? 'Their note: ' : 'Allergy in their note: '}{m}</p>
+        <p key={i} className={compact ? 'text-[14px] font-medium leading-snug' : 'text-[15px] font-medium leading-snug'}>{f.listed.length ? `${say('Their note:')} ` : `${say('Allergy in their note:')} `}{m}</p>
       ))}
-      {t.contains.length > 0 && <p className={compact ? 'text-[14px] font-semibold leading-snug' : 'text-[15px] font-semibold leading-snug'}>The menu lists {t.contains.join(', ').toLowerCase()} in this dish.</p>}
-      {t.allergyNotedAt && <p className="text-[13.5px] font-medium leading-snug">Allergy noted{t.allergyNotedBy ? ` by ${t.allergyNotedBy}` : ''}</p>}
+      {t.contains.length > 0 && <p className={compact ? 'text-[14px] font-semibold leading-snug' : 'text-[15px] font-semibold leading-snug'}>{say('The menu lists {what} in this dish.', { what: t.contains.map((x) => say(x)).join(', ').toLowerCase() })}</p>}
+      {t.allergyNotedAt && <p className="text-[13.5px] font-medium leading-snug">{t.allergyNotedBy ? say('Allergy noted by {name}', { name: t.allergyNotedBy }) : say('Allergy noted')}</p>}
     </div>
   );
 }
@@ -173,6 +179,7 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
   t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean; bin: HoldBin | null; start?: StartAt;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onCancel: (t: KitchenTicket) => void; onPrint: (t: KitchenTicket) => void; onFromHold: (t: KitchenTicket, b: HoldBin) => void; onNote: (t: KitchenTicket) => void;
 }) {
+  const say = useT();
   const mustNote = needsAllergyNote(t);
   // Timed to finish with the slowest dish on its table or order: not started before then.
   const later = !!start && t.status === 'pending' && start.startAt > now;
@@ -189,28 +196,28 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium" style={{ color: MUTED }}>
             {t.orderNumber && <span className="rounded-lg px-2 py-0.5 text-[17px] font-semibold tabular-nums" style={t.channel === 'drive-thru' ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{t.orderNumber}</span>}
-            <span>{sourceWord(t)} · {clock(t.at, tz)}{t.lines && t.lines > 1 ? ` · ${t.line} of ${t.lines}` : ''}{t.isRedemption ? ' · Member perk' : ''}</span>
+            <span>{say(sourceWord(t))} · {clock(t.at, tz)}{t.lines && t.lines > 1 ? ` · ${say('{a} of {b}', { a: t.line ?? '', b: t.lines })}` : ''}{t.isRedemption ? ` · ${say('Member perk')}` : ''}</span>
           </p>
           <h3 className="text-[22px] font-semibold leading-tight mt-1" style={{ color: INK }}>
             {t.item}{t.quantity > 1 && <span style={{ color: MUTED }}> × {t.quantity}</span>}
           </h3>
           {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
-          {(t as any).keptHere && <p className="mt-2"><span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Sends when it’s back</span></p>}
+          {(t as any).keptHere && <p className="mt-2"><span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{say('Sends when it’s back')}</span></p>}
         </div>
         {later
-          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={{ background: SOFT, color: MUTED }} aria-label={`Start ${startWords(start!.startAt, now)}`}>Start {startWords(start!.startAt, now)}</span>
+          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={{ background: SOFT, color: MUTED }} aria-label={say('Start {when}', { when: say(startWords(start!.startAt, now)) })}>{say('Start {when}', { when: say(startWords(start!.startAt, now)) })}</span>
           : due
-          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={due.text}>{due.text}</span>
-          : <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={`Waiting ${waited(s)}`}>{waited(s)}</span>}
+          ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={say(due.text)}>{say(due.text)}</span>
+          : <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={say('Waiting {time}', { time: waited(s) })}>{waited(s)}</span>}
       </div>
       <AllergyBanner t={t} />
-      {start && t.status === 'pending' && <p className="text-[14px] leading-snug" style={{ color: later ? MUTED : INK }}>{later ? `So it’s ready with the ${start.slowest}.` : `Start now, to be ready with the ${start.slowest}.`}</p>}
-      {t.collect > 0 && <p className="rounded-xl px-3 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>Collect ${t.collect.toFixed(2)} when it’s handed over</p>}
+      {start && t.status === 'pending' && <p className="text-[14px] leading-snug" style={{ color: later ? MUTED : INK }}>{later ? say('So it’s ready with the {dish}.', { dish: start.slowest }) : say('Start now, to be ready with the {dish}.', { dish: start.slowest })}</p>}
+      {t.collect > 0 && <p className="rounded-xl px-3 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>{say('Collect {amount} when it’s handed over', { amount: `$${t.collect.toFixed(2)}` })}</p>}
       {(!quick || t.lookFor || plainNote) && <div className="text-[15px] leading-snug" style={{ color: INK }}>
         {!quick && <p className="font-medium">{t.name}</p>}
-        {!quick && <p style={{ color: MUTED }}>{where(t)}</p>}
-        {t.lookFor && <p className="mt-1">Look for: {t.lookFor}</p>}
-        {t.accessNote && !flags.mentions.includes(t.accessNote) && <p className="mt-1">How to reach them: {t.accessNote}</p>}
+        {!quick && <p style={{ color: MUTED }}>{where(t, say)}</p>}
+        {t.lookFor && <p className="mt-1">{say('Look for: {what}', { what: t.lookFor })}</p>}
+        {t.accessNote && !flags.mentions.includes(t.accessNote) && <p className="mt-1">{say('How to reach them: {how}', { how: t.accessNote })}</p>}
         {plainNote && <p className="mt-1" style={{ color: MUTED }}>{plainNote}</p>}
       </div>}
       {item?.formula?.length ? (
@@ -220,29 +227,29 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
           ))}
         </div>
       ) : null}
-      {t.claimedBy && t.status !== 'pending' && <p className="text-[13px]" style={{ color: MUTED }}>Started by {t.claimedBy.name}</p>}
+      {t.claimedBy && t.status !== 'pending' && <p className="text-[13px]" style={{ color: MUTED }}>{say('Started by {name}', { name: t.claimedBy.name })}</p>}
       {mustNote && (
-        <button type="button" disabled={busy} onClick={() => onNote(t)} className={`${btn} w-full`} style={{ background: AMBER, color: '#fff' }}>Allergy noted</button>
+        <button type="button" disabled={busy} onClick={() => onNote(t)} className={`${btn} w-full`} style={{ background: AMBER, color: '#fff' }}>{say('Allergy noted')}</button>
       )}
       {bin && !mustNote && (t.status === 'pending' || t.status === 'in_progress') && (
         <button type="button" disabled={busy} onClick={() => onFromHold(t, bin)} className={`${btn} w-full`} style={{ background: GREEN_TINT, color: GREEN, border: `1px solid #cfe8da` }}>
-          Take from holding, {bin.quantity} held
+          {say('Take from holding, {n} held', { n: bin.quantity })}
         </button>
       )}
       <div className="flex flex-wrap gap-2 pt-1">
         {t.status === 'pending' && <>
-          <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Start</button>
-          {!mustNote && <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={btn} style={quiet}>Ready</button>}
+          <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{say('Start')}</button>
+          {!mustNote && <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={btn} style={quiet}>{say('Ready')}</button>}
         </>}
         {t.status === 'in_progress' && <>
-          {!mustNote && <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={`${btn} flex-1`} style={{ background: GREEN, color: '#fff' }}>Ready</button>}
-          <button type="button" disabled={busy} onClick={() => onStep(t, 'release')} className={btn} style={quiet}>Not started</button>
+          {!mustNote && <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={`${btn} flex-1`} style={{ background: GREEN, color: '#fff' }}>{say('Ready')}</button>}
+          <button type="button" disabled={busy} onClick={() => onStep(t, 'release')} className={btn} style={quiet}>{say('Not started')}</button>
         </>}
         {t.status === 'ready' && !mustNote && (
-          <button type="button" disabled={busy} onClick={() => onStep(t, 'deliver')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Served</button>
+          <button type="button" disabled={busy} onClick={() => onStep(t, 'deliver')} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{say('Served')}</button>
         )}
-        <button type="button" onClick={() => onPrint(t)} className={btn} style={quiet}>Print</button>
-        {!quick && <button type="button" disabled={busy} onClick={() => onCancel(t)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: RED }}>Cancel</button>}
+        <button type="button" onClick={() => onPrint(t)} className={btn} style={quiet}>{say('Print')}</button>
+        {!quick && <button type="button" disabled={busy} onClick={() => onCancel(t)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: RED }}>{say('Cancel')}</button>}
       </div>
     </article>
   );
@@ -253,6 +260,7 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
   g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>; plan: Map<string, StartAt>;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void; onNote: (t: KitchenTicket) => void;
 }) {
+  const say = useT();
   // A plate with an allergy nobody has noted yet stays out of "All ready" until someone has.
   const unnoted = g.tickets.filter((t) => (t.status === 'pending' || t.status === 'in_progress' || t.status === 'ready') && needsAllergyNote(t));
   const toReady = g.tickets.filter((t) => (t.status === 'pending' || t.status === 'in_progress') && !needsAllergyNote(t));
@@ -270,15 +278,15 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
     <section className="rounded-2xl bg-[#fff] overflow-hidden" style={{ border: `1px solid ${late ? AMBER : LINE}` }}>
       <div className="p-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="min-w-0">
-          <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{g.label}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
+          <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{by === 'dish' ? g.label : say(g.label)}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
           <p className="text-[14px] mt-0.5" style={{ color: MUTED }}>
-            {by === 'order' ? `${g.count} ${g.count === 1 ? 'item' : 'items'}` : `${g.tickets.length} ${g.tickets.length === 1 ? 'ticket' : 'tickets'}`} · {due ? <b className="font-semibold tabular-nums" style={{ color: due.over ? AMBER : INK }}>{due.text}</b> : `oldest ${waited(s)}`}
-            {withAllergy > 0 && <span style={{ color: AMBER }} className="font-semibold"> · {withAllergy} with {withAllergy === 1 ? 'an allergy' : 'allergies'}{unnoted.length ? `, ${unnoted.length} to note` : ''}</span>}
+            {by === 'order' ? say(g.count === 1 ? '{n} item' : '{n} items', { n: g.count }) : say(g.tickets.length === 1 ? '{n} ticket' : '{n} tickets', { n: g.tickets.length })} · {due ? <b className="font-semibold tabular-nums" style={{ color: due.over ? AMBER : INK }}>{say(due.text)}</b> : say('oldest {time}', { time: waited(s) })}
+            {withAllergy > 0 && <span style={{ color: AMBER }} className="font-semibold"> · {say(withAllergy === 1 ? '{n} with an allergy' : '{n} with allergies', { n: withAllergy })}{unnoted.length ? `, ${say('{n} to note', { n: unnoted.length })}` : ''}</span>}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {toReady.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toReady, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>{unnoted.length ? `Mark ${toReady.length} ready` : toReady.length === 1 ? 'Ready' : `All ${toReady.length} ready`}</button>}
-          {toServe.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toServe, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>{by === 'order' && !toReady.length && g.tickets.some((t) => t.channel) ? 'Bagged and out' : toServe.length === 1 ? 'Served' : `Serve the ${toServe.length} ready`}</button>}
+          {toReady.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toReady, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>{unnoted.length ? say('Mark {n} ready', { n: toReady.length }) : toReady.length === 1 ? say('Ready') : say('All {n} ready', { n: toReady.length })}</button>}
+          {toServe.length > 0 && <button type="button" disabled={anyBusy} onClick={() => onBump(toServe, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>{by === 'order' && !toReady.length && g.tickets.some((t) => t.channel) ? say('Bagged and out') : toServe.length === 1 ? say('Served') : say('Serve the {n} ready', { n: toServe.length })}</button>}
         </div>
       </div>
       <ul>
@@ -292,16 +300,16 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
                     {by === 'order' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</> : by === 'course' ? <>{t.item}{t.quantity > 1 ? ` × ${t.quantity}` : ''}<span style={{ color: MUTED }}> · {t.name}</span></> : <>{t.name}{t.quantity > 1 ? ` × ${t.quantity}` : ''}</>}
                   </p>
                   {t.choices && <p className="text-[15px] font-semibold" style={{ color: INK }}>{t.choices}</p>}
-                  <p className="text-[13.5px]" style={{ color: MUTED }}>{by === 'order' ? '' : `${where(t)} · `}{t.status === 'pending' ? (plan.get(t.id) && plan.get(t.id)!.startAt > now ? `Start ${startWords(plan.get(t.id)!.startAt, now)}, with the ${plan.get(t.id)!.slowest}` : 'Waiting') : t.status === 'in_progress' ? 'Being made' : 'Ready'}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
+                  <p className="text-[13.5px]" style={{ color: MUTED }}>{by === 'order' ? '' : `${where(t, say)} · `}{t.status === 'pending' ? (plan.get(t.id) && plan.get(t.id)!.startAt > now ? say('Start {when}, with the {dish}', { when: say(startWords(plan.get(t.id)!.startAt, now)), dish: plan.get(t.id)!.slowest }) : say('Waiting')) : t.status === 'in_progress' ? say('Being made') : say('Ready')}{t.note && !allergyFlags(t).mentions.includes(t.note) ? ` · ${t.note}` : ''}</p>
                 </div>
                 <div className="flex gap-2">
-                  {t.status === 'pending' && <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={btn} style={quiet}>Start</button>}
+                  {t.status === 'pending' && <button type="button" disabled={busy} onClick={() => onStep(t, 'claim')} className={btn} style={quiet}>{say('Start')}</button>}
                   {(t.status === 'pending' || t.status === 'in_progress') && (needsAllergyNote(t)
-                    ? <button type="button" disabled={busy} onClick={() => onNote(t)} className={btn} style={{ background: AMBER, color: '#fff' }}>Allergy noted</button>
-                    : <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>Ready</button>)}
+                    ? <button type="button" disabled={busy} onClick={() => onNote(t)} className={btn} style={{ background: AMBER, color: '#fff' }}>{say('Allergy noted')}</button>
+                    : <button type="button" disabled={busy} onClick={() => onStep(t, 'ready')} className={btn} style={{ background: GREEN, color: '#fff' }}>{say('Ready')}</button>)}
                   {t.status === 'ready' && (needsAllergyNote(t)
-                    ? <button type="button" disabled={busy} onClick={() => onNote(t)} className={btn} style={{ background: AMBER, color: '#fff' }}>Allergy noted</button>
-                    : <button type="button" disabled={busy} onClick={() => onStep(t, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>Served</button>)}
+                    ? <button type="button" disabled={busy} onClick={() => onNote(t)} className={btn} style={{ background: AMBER, color: '#fff' }}>{say('Allergy noted')}</button>
+                    : <button type="button" disabled={busy} onClick={() => onStep(t, 'deliver')} className={btn} style={{ background: INK, color: '#fff' }}>{say('Served')}</button>)}
                 </div>
               </div>
               <AllergyBanner t={t} compact />
@@ -427,17 +435,18 @@ function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, 
   holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; now: number; busy: string | null;
   onHold: (h: Holdable) => void; onUse: (b: HoldBin) => void; onToss: (b: HoldBin) => void;
 }) {
+  const say = useT();
   return (
-    <section aria-label="Holding" className="space-y-2.5">
+    <section aria-label={say('Holding')} className="space-y-2.5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
-        <h2 className="text-[16px] font-semibold" style={{ color: INK }}>Holding</h2>
-        <p className="text-[13.5px]" style={{ color: MUTED }}>{tossedToday > 0 ? `${tossedToday} thrown out today` : 'Nothing thrown out today'}</p>
+        <h2 className="text-[16px] font-semibold" style={{ color: INK }}>{say('Holding')}</h2>
+        <p className="text-[13.5px]" style={{ color: MUTED }}>{tossedToday > 0 ? say('{n} thrown out today', { n: tossedToday }) : say('Nothing thrown out today')}</p>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-1">
         {holds.map((b) => {
           const st = binState(b, now); const expired = st.state === 'expired'; const soon = st.state === 'soon';
           return (
-            <article key={b.id} className="w-[236px] shrink-0 space-y-2.5 rounded-2xl p-3.5" style={{ background: expired ? AMBER : '#fff', color: expired ? '#fff' : INK, border: `1px solid ${expired ? AMBER : soon ? '#f3d9b8' : LINE}` }} aria-label={`${b.name}: ${b.quantity} held, ${st.text}`}>
+            <article key={b.id} className="w-[236px] shrink-0 space-y-2.5 rounded-2xl p-3.5" style={{ background: expired ? AMBER : '#fff', color: expired ? '#fff' : INK, border: `1px solid ${expired ? AMBER : soon ? '#f3d9b8' : LINE}` }} aria-label={`${b.name}: ${say('{n} held', { n: b.quantity })}, ${say(st.text)}`}>
               <div className="flex items-baseline justify-between gap-2">
                 <p className="truncate text-[16px] font-semibold">{b.name}</p>
                 <p className="text-[26px] font-semibold leading-none tabular-nums">{b.quantity}</p>
@@ -445,19 +454,19 @@ function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, 
               <div className="h-2 overflow-hidden rounded-full" style={{ background: expired ? 'rgba(255,255,255,0.3)' : SOFT }} aria-hidden>
                 <div className="h-full rounded-full" style={{ width: `${Math.round(st.share * 100)}%`, background: soon ? AMBER : GREEN, transition: 'width 1s linear' }} />
               </div>
-              <p className="text-[14px] font-semibold tabular-nums" style={{ color: expired ? '#fff' : soon ? AMBER : MUTED }}>{expired ? 'Past its time. Throw it out.' : st.text}</p>
+              <p className="text-[14px] font-semibold tabular-nums" style={{ color: expired ? '#fff' : soon ? AMBER : MUTED }}>{expired ? say('Past its time. Throw it out.') : say(st.text)}</p>
               <div className="flex gap-2">
-                {!expired && <button type="button" disabled={busy === b.id} onClick={() => onUse(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={quiet}>Use 1</button>}
-                <button type="button" disabled={busy === b.id} onClick={() => onToss(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={expired ? { background: '#fff', color: AMBER } : { background: '#fff', border: `1px solid ${LINE}`, color: RED }}>Throw out</button>
+                {!expired && <button type="button" disabled={busy === b.id} onClick={() => onUse(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={quiet}>{say('Use 1')}</button>}
+                <button type="button" disabled={busy === b.id} onClick={() => onToss(b)} className={`${btn} flex-1 whitespace-nowrap px-2`} style={expired ? { background: '#fff', color: AMBER } : { background: '#fff', border: `1px solid ${LINE}`, color: RED }}>{say('Throw out')}</button>
               </div>
             </article>
           );
         })}
         {holdable.map((h) => (
           <button key={h.id} type="button" disabled={busy === `hold-${h.id}`} onClick={() => onHold(h)} className="flex min-h-[44px] w-[160px] shrink-0 flex-col items-start justify-center gap-1 rounded-2xl px-3.5 py-3 text-left disabled:opacity-50" style={{ border: '1px dashed #c9cbd0', background: 'transparent', color: INK }}
-            aria-label={`Start a batch of ${h.batchSize} ${h.name}, held ${h.holdMinutes} minutes`}>
+            aria-label={say('Start a batch of {n} {name}, held {m} minutes', { n: h.batchSize, name: h.name, m: h.holdMinutes })}>
             <span className="text-[15px] font-semibold">+ {h.name}</span>
-            <span className="text-[13px]" style={{ color: MUTED }}>Batch of {h.batchSize}, {h.holdMinutes} min</span>
+            <span className="text-[13px]" style={{ color: MUTED }}>{say('Batch of {n}, {m} min', { n: h.batchSize, m: h.holdMinutes })}</span>
           </button>
         ))}
       </div>
@@ -542,6 +551,11 @@ function Setup({ tenantId, stopped, closed, onPaired, onMe }: { tenantId: string
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 export default function KitchenScreen() {
+  return <ScreenLangProvider><KitchenScreenInner /></ScreenLangProvider>;
+}
+
+function KitchenScreenInner() {
+  const say = useT();
   const { tenantId } = useParams() as { tenantId: string };
   const { user, isUserLoading } = useFirebase() as any;
   const retried = useRef(false);
@@ -898,34 +912,35 @@ export default function KitchenScreen() {
       <header className="bg-white px-4 sm:px-6 py-3 space-y-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-[20px] font-semibold leading-tight truncate">{data?.business.name || 'Kitchen'}</h1>
-            <p className="text-[13.5px]" style={{ color: MUTED }}>{view === 'expo' ? 'Expo, every station' : myStation || data?.screen || 'Kitchen screen'}, {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'} up</p>
+            <h1 className="text-[20px] font-semibold leading-tight truncate">{data?.business.name || say('Kitchen')}</h1>
+            <p className="text-[13.5px]" style={{ color: MUTED }}>{view === 'expo' ? say('Expo, every station') : myStation || data?.screen || say('Kitchen screen')}, {say(tickets.length === 1 ? '{n} ticket up' : '{n} tickets up', { n: tickets.length })}</p>
           </div>
-          {data?.pace && <p role="status" className="rounded-2xl px-3 py-1.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>About {data.pace.behindMin} min behind. The host stand and pickup times know.</p>}
+          {data?.pace && <p role="status" className="rounded-2xl px-3 py-1.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{say('About {n} min behind. The host stand and pickup times know.', { n: data.pace.behindMin })}</p>}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-xl p-1" style={{ background: SOFT }} role="tablist" aria-label="How tickets are shown">
+            <div className="inline-flex rounded-xl p-1" style={{ background: SOFT }} role="tablist" aria-label={say('How tickets are shown')}>
               {([['lanes', 'Lanes'], ['order', 'By order'], ['course', 'By course'], ['dish', 'By dish'], ['expo', 'Expo']] as [View, string][]).map(([v, label]) => (
-                <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[44px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{label}</button>
+                <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[44px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{say(label)}</button>
               ))}
             </div>
-            {!key ? <span className="inline-flex min-h-[44px] items-center rounded-xl px-3 text-[14px] bg-white" style={{ border: `1px solid ${LINE}` }}>As you, on this device</span>
+            {!key ? <span className="inline-flex min-h-[44px] items-center rounded-xl px-3 text-[14px] bg-white" style={{ border: `1px solid ${LINE}` }}>{say('As you, on this device')}</span>
               : staff
-              ? <span className="inline-flex items-center gap-2 rounded-xl pl-3 bg-white" style={{ border: `1px solid ${LINE}` }}><span className="text-[14px]">Working: <b className="font-semibold">{staff.name.split(' ')[0]}</b></span><button type="button" onClick={() => pickStaff(null)} className="min-h-[42px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: MUTED }}>Done</button></span>
-              : <button type="button" onClick={() => setPinOpen(true)} className={btn} style={quiet}>Who’s working?</button>}
+              ? <span className="inline-flex items-center gap-2 rounded-xl pl-3 bg-white" style={{ border: `1px solid ${LINE}` }}><span className="text-[14px]">{say('Working:')} <b className="font-semibold">{staff.name.split(' ')[0]}</b></span><button type="button" onClick={() => pickStaff(null)} className="min-h-[42px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: MUTED }}>{say('Done')}</button></span>
+              : <button type="button" onClick={() => setPinOpen(true)} className={btn} style={quiet}>{say('Who’s working?')}</button>}
             {stations.length > 1 && view !== 'expo' && (
-              <select value={myStation} onChange={(e) => pickStation(e.target.value)} aria-label="Which station this screen is for" className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold bg-[#fff]" style={{ border: `1px solid ${LINE}`, color: INK }}>
-                <option value="">Every station</option>
+              <select value={myStation} onChange={(e) => pickStation(e.target.value)} aria-label={say('Which station this screen is for')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold bg-[#fff]" style={{ border: `1px solid ${LINE}`, color: INK }}>
+                <option value="">{say('Every station')}</option>
                 {stations.map((x) => <option key={x} value={x}>{x}</option>)}
               </select>
             )}
-            <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
-            <button type="button" onClick={() => setCountsOpen(true)} className={btn} style={quiet}>Counts</button>
-            <button type="button" onClick={() => setCallOpen(true)} className={btn} style={quiet}>Call</button>
-            <button type="button" onClick={() => setFloorOpen(true)} className={btn} style={(data as any)?.floorNote ? { ...quiet, borderColor: INK } : quiet}>Tell the floor</button>
-            <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>Closing</button>
-            <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
+            <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>{say('Sold out')}</button>
+            <button type="button" onClick={() => setCountsOpen(true)} className={btn} style={quiet}>{say('Counts')}</button>
+            <button type="button" onClick={() => setCallOpen(true)} className={btn} style={quiet}>{say('Call')}</button>
+            <button type="button" onClick={() => setFloorOpen(true)} className={btn} style={(data as any)?.floorNote ? { ...quiet, borderColor: INK } : quiet}>{say('Tell the floor')}</button>
+            <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>{say('Closing')}</button>
+            <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? say('Sound on') : say('Sound off')}</button>
+            <LangToggle />
             <div className="relative">
-              <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
+              <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>{say('Screen')}</button>
               {menuOpen && (
                 <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#fff] p-2 z-40 space-y-1" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
                   <button type="button" role="switch" aria-checked={autoPrint} onClick={() => { const v = !autoPrint; setAutoPrint(v); write('cf.kitchen.autoprint', v ? 'on' : null); if (v) { try { write('cf.kitchen.printed', JSON.stringify((data?.tickets || []).map((t) => t.id).slice(-400))); } catch { /* */ } } }}
@@ -941,15 +956,15 @@ export default function KitchenScreen() {
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-[14px]" style={{ color: MUTED }}>
-          <span>Today <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.total}</b></span>
-          <span>Served <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served}</b></span>
-          <span>Waiting <b className="font-semibold tabular-nums" style={{ color: INK }}>{lanes.waiting.length}</b></span>
-          <span>Average wait <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : 'none yet'}</b></span>
-          {lateCount > 0 && <span style={{ color: AMBER }}>Past their time <b className="font-semibold tabular-nums">{lateCount}</b></span>}
-          {later.length > 0 && <span>Later {later.slice(0, 4).map((l, i) => <b key={i} className="ml-1.5 font-semibold" style={{ color: INK }}>{l.number}{l.who ? ` · ${l.who}` : ''} starts {new Date(l.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{i < Math.min(later.length, 4) - 1 ? ',' : ''}</b>)}{later.length > 4 ? ` and ${later.length - 4} more` : ''}</span>}
-          {view !== 'expo' && comingHere.length > 0 && <span>Held for later <b className="font-semibold tabular-nums" style={{ color: INK }}>{comingHere.length}</b></span>}
-          {stats.top && <span>Most ordered <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
-          {(data?.counts || []).length > 0 && <span>Left tonight {(data?.counts || []).slice(0, 6).map((c, i, a) => <b key={c.id} className="ml-1.5 font-semibold" style={{ color: lowCount(c) ? AMBER : INK }}>{c.name} {c.left > 0 ? c.left : 'sold out'}{i < a.length - 1 ? ',' : ''}</b>)}{(data?.counts || []).length > 6 ? ` and ${(data?.counts || []).length - 6} more` : ''}</span>}
+          <span>{say('Today')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.total}</b></span>
+          <span>{say('Served')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served}</b></span>
+          <span>{say('Waiting')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{lanes.waiting.length}</b></span>
+          <span>{say('Average wait')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : say('none yet')}</b></span>
+          {lateCount > 0 && <span style={{ color: AMBER }}>{say('Past their time')} <b className="font-semibold tabular-nums">{lateCount}</b></span>}
+          {later.length > 0 && <span>{say('Later')} {later.slice(0, 4).map((l, i) => <b key={i} className="ml-1.5 font-semibold" style={{ color: INK }}>{l.number}{l.who ? ` · ${l.who}` : ''} {say('starts')} {new Date(l.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{i < Math.min(later.length, 4) - 1 ? ',' : ''}</b>)}{later.length > 4 ? ` ${say('and {n} more', { n: later.length - 4 })}` : ''}</span>}
+          {view !== 'expo' && comingHere.length > 0 && <span>{say('Held for later')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{comingHere.length}</b></span>}
+          {stats.top && <span>{say('Most ordered')} <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
+          {(data?.counts || []).length > 0 && <span>{say('Left tonight')} {(data?.counts || []).slice(0, 6).map((c, i, a) => <b key={c.id} className="ml-1.5 font-semibold" style={{ color: lowCount(c) ? AMBER : INK }}>{c.name} {c.left > 0 ? c.left : say('sold out')}{i < a.length - 1 ? ',' : ''}</b>)}{(data?.counts || []).length > 6 ? ` ${say('and {n} more', { n: (data?.counts || []).length - 6 })}` : ''}</span>}
         </div>
       </header>
 
@@ -970,8 +985,8 @@ export default function KitchenScreen() {
         )}
         {eventId && (
           <div className="rounded-2xl px-4 py-2 text-[15px] flex flex-wrap items-center justify-between gap-2 bg-white" style={{ border: `1px solid ${LINE}` }}>
-            <span>Showing {eventTitle || 'one event'} only.</span>
-            <button type="button" onClick={showAll} className={btn} style={quiet}>Show every ticket</button>
+            <span>{say('Showing {name} only.', { name: eventTitle || say('one event') })}</span>
+            <button type="button" onClick={showAll} className={btn} style={quiet}>{say('Show every ticket')}</button>
           </div>
         )}
         {notice && <div className="rounded-2xl px-4 py-3 text-[15px] bg-white" style={{ border: `1px solid ${LINE}` }} role="status">{notice}</div>}
@@ -979,20 +994,20 @@ export default function KitchenScreen() {
 
       <main className="flex-1 px-4 sm:px-6 py-4">
         {!data ? (
-          <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading tickets" /></div>
+          <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={say('Loading tickets')} /></div>
         ) : view === 'lanes' ? (
           <div className="space-y-4">
             {(data.holds.length > 0 || data.holdable.length > 0) && <HoldingStrip holds={data.holds} holdable={data.holdable} tossedToday={data.tossedToday} now={now} busy={holdBusy} onHold={startHold} onUse={(b) => holdStep(b, 'holdUse')} onToss={(b) => holdStep(b, 'holdToss')} />}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-              {lane('Waiting', lanes.waiting, 'Nothing waiting.')}
-              {lane('Being made', lanes.making, 'Nothing being made.')}
-              {lane('Ready to go out', lanes.ready, 'Nothing ready yet.')}
+              {lane(say('Waiting'), lanes.waiting, say('Nothing waiting.'))}
+              {lane(say('Being made'), lanes.making, say('Nothing being made.'))}
+              {lane(say('Ready to go out'), lanes.ready, say('Nothing ready yet.'))}
             </div>
           </div>
         ) : view === 'expo' ? (
           <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} onNote={noteAllergy} runs={myCalls} onRunner={sendRunner} runBusy={runBusy} />
         ) : groups.length === 0 ? (
-          <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>No tickets up.</p>
+          <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{say('No tickets up.')}</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} plan={plan} onStep={step} onBump={bump} onNote={noteAllergy} />)}
@@ -1002,22 +1017,22 @@ export default function KitchenScreen() {
 
       {soundOn && !audioOk && (
         // Floats over the screen, so it going away after the first tap never moves a button under someone's finger.
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">Tap anywhere to turn on the sound for new tickets</div>
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">{say('Tap anywhere to turn on the sound for new tickets')}</div>
       )}
-      {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the tickets you move. The screen works without it." />}
+      {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line={say('Your PIN puts your name on the tickets you move. The screen works without it.')} />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {countsOpen && <CountsSheet rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
       {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} people tables={callTables} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
       {floorOpen && <FloorNoteSheet post={post} note={(data as any)?.floorNote || null} onClose={() => setFloorOpen(false)} onSent={(m) => { setNotice(m); void load(); }} />}
       {closingOpen && <ClosingSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setClosingOpen(false)} />}
       {cancelFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label={say('Cancel this ticket')}>
           <div className="w-full max-w-sm rounded-3xl bg-white p-5 space-y-3">
-            <h2 className="text-[20px] font-semibold">Cancel {cancelFor.item} for {cancelFor.name}?</h2>
-            <p className="text-[15px]" style={{ color: MUTED }}>It comes off every screen.{cancelFor.source === 'lounge' ? ' Anything taken off the shelf when it was ordered is put back.' : cancelFor.source === 'tab' ? ' It stays on the table’s bill until it’s taken off there.' : cancelFor.source === 'pos' ? ' The sale isn’t changed: refund it at the desk if it won’t be made.' : ''}</p>
+            <h2 className="text-[20px] font-semibold">{say('Cancel {item} for {name}?', { item: cancelFor.item, name: cancelFor.name })}</h2>
+            <p className="text-[15px]" style={{ color: MUTED }}>{say('It comes off every screen.')}{cancelFor.source === 'lounge' ? ` ${say('Anything taken off the shelf when it was ordered is put back.')}` : cancelFor.source === 'tab' ? ` ${say('It stays on the table’s bill until it’s taken off there.')}` : cancelFor.source === 'pos' ? ` ${say('The sale isn’t changed: refund it at the desk if it won’t be made.')}` : ''}</p>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setCancelFor(null)} className={btn} style={quiet}>Keep it</button>
-              <button type="button" onClick={confirmCancel} className={btn} style={{ background: RED, color: '#fff' }}>Cancel ticket</button>
+              <button type="button" onClick={() => setCancelFor(null)} className={btn} style={quiet}>{say('Keep it')}</button>
+              <button type="button" onClick={confirmCancel} className={btn} style={{ background: RED, color: '#fff' }}>{say('Cancel ticket')}</button>
             </div>
           </div>
         </div>

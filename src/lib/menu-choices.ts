@@ -7,7 +7,7 @@
 // anything that isn't on it, and gives back the lines kept on the order (so a later menu change never rewrites what
 // someone ordered), the amount they add, and the words the kitchen reads ("Large, oat milk, extra shot").
 
-export type ChoiceOption = { id: string; name: string; price: number; soldOut: boolean };
+export type ChoiceOption = { id: string; name: string; price: number; soldOut: boolean; itemId?: string };
 export type ChoiceGroup = { id: string; name: string; pick: 'one' | 'any'; required: boolean; max: number; options: ChoiceOption[] };
 export type PickedChoice = { groupId: string; group: string; optionId: string; option: string; price: number };
 export type Picks = Record<string, string[]>;
@@ -40,7 +40,9 @@ export function choiceGroups(item: any): ChoiceGroup[] {
     for (const o of (Array.isArray(g?.options) ? g.options : []).slice(0, MAX_OPTIONS)) {
       const oid = String(o?.id || ''); const oname = words(o?.name, 40);
       if (!ID.test(oid) || !oname || seenO.has(oid)) continue;
-      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: outNow(o) });
+      // An option that is another menu item (a combo's side or drink): made and counted as that item (lib/counter-orders).
+      const itemId = typeof o?.itemId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(o.itemId) ? o.itemId : null;
+      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: outNow(o), ...(itemId ? { itemId } : {}) });
     }
     if (!options.length) continue;
     const pick: 'one' | 'any' = g?.pick === 'any' ? 'any' : 'one';

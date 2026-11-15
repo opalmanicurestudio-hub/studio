@@ -18,6 +18,7 @@ import { BREAK_KINDS, MAX_BROKEN, brokenWords } from '@/lib/dish';
 import type { Call } from '@/lib/back-calls';
 import { CallList, type QueueCall } from '@/components/back/CallList';
 import { esc, printPage, PRINT } from '@/lib/print-style';
+import { LangToggle, ScreenLangProvider, useLang, useT } from '@/components/kitchen/ScreenLang';
 
 type Check = { id: string; at: string; value: number; unit: string; ok: boolean; note: string | null; by: string };
 type Dish = {
@@ -35,11 +36,12 @@ function printFrame(html: string) {
 }
 
 function Flow({ flow }: { flow: Dish['flow'] }) {
+  const say = useT();
   const top = Math.max(1, ...flow.blocks.map((b) => b.plates + b.glasses));
-  const said = flow.blocks.map((b) => `${clockOf(b.start)}: ${b.plates} plates, ${b.glasses} glasses`).join('; ');
+  const said = flow.blocks.map((b) => `${clockOf(b.start)}: ${say('{n} plates', { n: b.plates })}, ${say('{n} glasses', { n: b.glasses })}`).join('; ');
   return (
     <div className="flex items-end gap-4">
-      <div className="flex items-end gap-2.5 h-[96px]" role="img" aria-label={`Every 15 minutes: ${said}`}>
+      <div className="flex items-end gap-2.5 h-[96px]" role="img" aria-label={say('Every 15 minutes: {what}', { what: said })}>
         {flow.blocks.map((b, i) => {
           const last = i === flow.blocks.length - 1; const h = (n: number) => Math.round((n / top) * 80);
           return (
@@ -55,15 +57,23 @@ function Flow({ flow }: { flow: Dish['flow'] }) {
         })}
       </div>
       <div className="min-w-0">
-        <p className="text-[24px] font-semibold leading-tight tabular-nums">{flow.lastHalf.plates} {flow.lastHalf.plates === 1 ? 'plate' : 'plates'}</p>
-        <p className="text-[13.5px]" style={{ color: MUTED }}>and {flow.lastHalf.glasses} {flow.lastHalf.glasses === 1 ? 'glass' : 'glasses'} went out in the last 30 minutes</p>
+        <p className="text-[24px] font-semibold leading-tight tabular-nums">{say(flow.lastHalf.plates === 1 ? '{n} plate' : '{n} plates', { n: flow.lastHalf.plates })}</p>
+        <p className="text-[13.5px]" style={{ color: MUTED }}>{say(flow.lastHalf.glasses === 1 ? 'and {n} glass went out in the last 30 minutes' : 'and {n} glasses went out in the last 30 minutes', { n: flow.lastHalf.glasses })}</p>
       </div>
     </div>
   );
 }
 
+/** What broke today, said in Spanish: "Vaso: 3, Plato: 1". */
+function brokenEs(list: Dish['broken'], say: (en: string) => string): string {
+  const by = new Map<string, number>();
+  for (const b of list) { const k = b.kind === 'other' ? String(b.note || say('Something else')) : say(BREAK_KINDS.find((x) => x.id === b.kind)?.label || b.kind); by.set(k, (by.get(k) || 0) + Math.max(0, Number(b.count) || 0)); }
+  return Array.from(by.entries()).filter(([, n]) => n > 0).map(([k, n]) => `${k}: ${n}`).join(', ');
+}
+
 function MachineCard({ m, onSave, onLog, busy }: { m: Dish['machine']; onSave: (value: string, note: string) => Promise<string | null>; onLog: () => void; busy: boolean }) {
   const [value, setValue] = useState(''); const [note, setNote] = useState(''); const [err, setErr] = useState('');
+  const say = useT();
   if (!m.on) return null;
   const n = Number(value); const typed = value.trim() !== '' && Number.isFinite(n);
   const out = typed && (m.machine === 'hot' ? n < m.min : n < m.min || (m.max !== null && n > m.max));
@@ -72,26 +82,26 @@ function MachineCard({ m, onSave, onLog, busy }: { m: Dish['machine']; onSave: (
   return (
     <section className="rounded-2xl border p-4 space-y-2" style={m.due ? { background: AMBER_TINT, borderColor: '#f3c99a' } : { background: '#fff', borderColor: LINE }} aria-labelledby="machine-title">
       <div className="flex items-center justify-between gap-2">
-        <h2 id="machine-title" className="text-[15.5px] font-semibold">{m.due ? 'Machine check due' : 'Machine check'}</h2>
-        {last && !m.due && <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Good</span>}
+        <h2 id="machine-title" className="text-[15.5px] font-semibold">{m.due ? say('Machine check due') : say('Machine check')}</h2>
+        {last && !m.due && <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>{say('Good')}</span>}
       </div>
-      {last ? <p className="text-[13.5px]" style={{ color: last.ok ? MUTED : AMBER }}>{clockOf(last.at)}, {m.word.toLowerCase()} {last.value}{m.unit === '°F' ? '°F' : ` ${m.unit}`}, {first(last.by)}{last.ok ? '' : `. ${(last.note || '').replace(/\.$/, '')}`}{m.due ? (last.ok ? '. Time for the next one.' : '. Check it again once it’s put right.') : m.nextAt ? `. Next by ${clockOf(m.nextAt)}.` : '. Done for today.'}</p>
-        : <p className="text-[13.5px]" style={{ color: MUTED }}>Check it before the first rack goes through: {m.limit}.</p>}
+      {last ? <p className="text-[13.5px]" style={{ color: last.ok ? MUTED : AMBER }}>{clockOf(last.at)}, {say(m.word).toLowerCase()} {last.value}{m.unit === '°F' ? '°F' : ` ${m.unit}`}, {first(last.by)}{last.ok ? '' : `. ${(last.note || '').replace(/\.$/, '')}`}. {m.due ? (last.ok ? say('Time for the next one.') : say('Check it again once it’s put right.')) : m.nextAt ? say('Next by {time}.', { time: clockOf(m.nextAt) }) : say('Done for today.')}</p>
+        : <p className="text-[13.5px]" style={{ color: MUTED }}>{say('Check it before the first rack goes through: {limit}.', { limit: m.limit })}</p>}
       {m.due && (
         <form onSubmit={save} className="space-y-2">
           <div className="flex gap-2">
-            <label className="flex-1"><span className="sr-only">{m.word}, {m.unit}</span>
-              <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} placeholder={`${m.word}, ${m.unit}`}
+            <label className="flex-1"><span className="sr-only">{say(m.word)}, {m.unit}</span>
+              <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} placeholder={`${say(m.word)}, ${m.unit}`}
                 className="w-full min-h-[52px] rounded-2xl border bg-[#fff] px-4 text-[17px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
-            <button type="submit" disabled={busy || !typed || (out && !note.trim())} className={`${big} px-5`} style={{ background: INK, color: '#fff' }}>Save</button>
+            <button type="submit" disabled={busy || !typed || (out && !note.trim())} className={`${big} px-5`} style={{ background: INK, color: '#fff' }}>{say('Save')}</button>
           </div>
-          {out && <label className="block"><span className="text-[13.5px] font-medium" style={{ color: AMBER }}>That’s outside {m.limit}. What did you do?</span>
-            <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder="Ran it again, called for service, washing by hand"
+          {out && <label className="block"><span className="text-[13.5px] font-medium" style={{ color: AMBER }}>{say('That’s outside {limit}. What did you do?', { limit: m.limit })}</span>
+            <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} placeholder={say('Ran it again, called for service, washing by hand')}
               className="mt-1 w-full min-h-[48px] rounded-2xl border bg-[#fff] px-4 text-[15px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>}
           {err && <p role="alert" className="text-[13.5px]" style={{ color: AMBER }}>{err}</p>}
         </form>
       )}
-      <button type="button" onClick={onLog} className={`${ring} min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4`}>The log, to print</button>
+      <button type="button" onClick={onLog} className={`${ring} min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4`}>{say('The log, to print')}</button>
     </section>
   );
 }
@@ -99,29 +109,35 @@ function MachineCard({ m, onSave, onLog, busy }: { m: Dish['machine']; onSave: (
 function BreakSheet({ onClose, onSave }: { onClose: () => void; onSave: (kind: string, count: number, note: string) => Promise<string | null> }) {
   const [kind, setKind] = useState(''); const [count, setCount] = useState(1); const [note, setNote] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const save = async () => { setBusy(true); setErr(''); const e = await onSave(kind, count, note); setBusy(false); if (e) setErr(e); else onClose(); };
+  const say = useT();
   return (
-    <Sheet label="Broke something" onClose={onClose}>
-      <SheetHead title="Broke something" line="It happens. Logged so the business can reorder." onClose={onClose} />
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="What broke">
+    <Sheet label={say('Broke something')} onClose={onClose}>
+      <SheetHead title={say('Broke something')} line={say('It happens. Logged so the business can reorder.')} onClose={onClose} />
+      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={say('What broke')}>
         {BREAK_KINDS.map((k) => <button key={k.id} type="button" role="radio" aria-checked={kind === k.id} onClick={() => setKind(k.id)} className={`min-h-[56px] rounded-2xl px-3 text-[15px] font-semibold ${ring}`}
-          style={kind === k.id ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{k.label}</button>)}
+          style={kind === k.id ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{say(k.label)}</button>)}
       </div>
-      {kind === 'other' && <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 60))} placeholder="What was it?" aria-label="What was it" className="w-full min-h-[48px] rounded-2xl border px-4 text-[15px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />}
+      {kind === 'other' && <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 60))} placeholder={say('What was it?')} aria-label={say('What was it?')} className="w-full min-h-[48px] rounded-2xl border px-4 text-[15px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />}
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[15px] font-medium">How many</span>
+        <span className="text-[15px] font-medium">{say('How many')}</span>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setCount((c) => Math.max(1, c - 1))} aria-label="One fewer" className={`h-12 w-12 rounded-2xl text-[20px] font-semibold ${ring}`} style={{ background: SOFT }}>−</button>
+          <button type="button" onClick={() => setCount((c) => Math.max(1, c - 1))} aria-label={say('One fewer')} className={`h-12 w-12 rounded-2xl text-[20px] font-semibold ${ring}`} style={{ background: SOFT }}>−</button>
           <span className="w-10 text-center text-[20px] font-semibold tabular-nums" aria-live="polite">{count}</span>
-          <button type="button" onClick={() => setCount((c) => Math.min(MAX_BROKEN, c + 1))} aria-label="One more" className={`h-12 w-12 rounded-2xl text-[20px] font-semibold ${ring}`} style={{ background: SOFT }}>+</button>
+          <button type="button" onClick={() => setCount((c) => Math.min(MAX_BROKEN, c + 1))} aria-label={say('One more')} className={`h-12 w-12 rounded-2xl text-[20px] font-semibold ${ring}`} style={{ background: SOFT }}>+</button>
         </div>
       </div>
       {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
-      <button type="button" onClick={save} disabled={busy || !kind || (kind === 'other' && !note.trim())} className={`${big} w-full`} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : 'Log it'}</button>
+      <button type="button" onClick={save} disabled={busy || !kind || (kind === 'other' && !note.trim())} className={`${big} w-full`} style={{ background: INK, color: '#fff' }}>{busy ? say('Saving…') : say('Log it')}</button>
     </Sheet>
   );
 }
 
 export default function DishScreen() {
+  return <ScreenLangProvider><Dish /></ScreenLangProvider>;
+}
+
+function Dish() {
+  const say = useT(); const { lang } = useLang();
   const { tenantId } = useParams() as { tenantId: string };
   const s = useBackScreen<Data>(tenantId, 'dish', (d) => d.calls.filter((c) => c.status === 'open').map((c) => c.id));
   const [pinOpen, setPinOpen] = useState(false); const [breakOpen, setBreakOpen] = useState(false); const [closingOpen, setClosingOpen] = useState(false);
@@ -139,8 +155,8 @@ export default function DishScreen() {
     setBusy(`${c.id}${st}`); setNotice('');
     const { status, d: r } = await s.act({ action: 'callStep', id: c.id, step: st });
     setBusy(null);
-    if (!r.ok) setNotice(status === 0 ? 'No connection. Try again in a moment.' : r.error || 'That didn’t go through.');
-    else if (r.already && st === 'coming' && r.call?.takenById !== d.me) setNotice(`${first(r.call?.takenBy) || 'Someone'} is already on the way.`);
+    if (!r.ok) setNotice(status === 0 ? say('No connection. Try again in a moment.') : r.error || say('That didn’t go through.'));
+    else if (r.already && st === 'coming' && r.call?.takenById !== d.me) setNotice(say('{name} is already on the way.', { name: first(r.call?.takenBy) || say('Someone') }));
   };
   const saveCheck = async (value: string, note: string) => {
     setBusy('machine'); const { status, d: r } = await s.act({ action: 'machine', value, note }); setBusy(null);
@@ -162,35 +178,36 @@ export default function DishScreen() {
       <header className="bg-[#fff] px-4 sm:px-6 py-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-[22px] font-semibold leading-tight">Dish</h1>
-            <p className="text-[13.5px]" style={{ color: MUTED }}>{working ? `${first(working)} is working.` : d.business.name}{d.dish.rush ? ` The rush: ${d.dish.rush}.` : ''}</p>
+            <h1 className="text-[22px] font-semibold leading-tight">{say('Dish')}</h1>
+            <p className="text-[13.5px]" style={{ color: MUTED }}>{working ? say('{name} is working.', { name: first(working) }) : d.business.name}{d.dish.rush ? ` ${say('The rush: {when}.', { when: d.dish.rush })}` : ''}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {s.mode === 'key' && <button type="button" onClick={() => (s.staff ? s.setStaff(null) : setPinOpen(true))} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{s.staff ? `Not ${first(s.staff.name)}?` : 'Who’s working?'}</button>}
-            <button type="button" onClick={() => setBreakOpen(true)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>Broke something</button>
-            <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>Closing</button>
+            {s.mode === 'key' && <button type="button" onClick={() => (s.staff ? s.setStaff(null) : setPinOpen(true))} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{s.staff ? say('Not {name}?', { name: first(s.staff.name) }) : say('Who’s working?')}</button>}
+            <button type="button" onClick={() => setBreakOpen(true)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{say('Broke something')}</button>
+            <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}` }}>{say('Closing')}</button>
+            <LangToggle />
           </div>
         </div>
-        {(!s.soundOk || (s.lastOk && Date.now() - s.lastOk > 30000)) && <p className="mt-2 text-[13px]" style={{ color: AMBER }} role="status">{s.lastOk && Date.now() - s.lastOk > 30000 ? `No connection since ${clockOf(new Date(s.lastOk).toISOString())}. It keeps trying.` : 'Tap anywhere to turn the sound on.'}</p>}
+        {(!s.soundOk || (s.lastOk && Date.now() - s.lastOk > 30000)) && <p className="mt-2 text-[13px]" style={{ color: AMBER }} role="status">{s.lastOk && Date.now() - s.lastOk > 30000 ? say('No connection since {time}. It keeps trying.', { time: clockOf(new Date(s.lastOk).toISOString()) }) : say('Tap anywhere to turn the sound on.')}</p>}
         {notice && <p role="alert" className="mt-2 rounded-xl px-3 py-2 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{notice}</p>}
       </header>
 
       <main className="mx-auto grid max-w-6xl gap-4 p-4 sm:p-6 lg:grid-cols-2">
         <section aria-labelledby="asked-title" className="space-y-2">
-          <h2 id="asked-title" className="text-[17px] font-semibold">Asked for</h2>
-          <CallList calls={d.calls} me={{ id: d.me, name: working || null }} busy={!!busy} onStep={(c, st) => void step(c, st)} empty="Nothing asked for. What the line and the bar call for shows here, with a chime." />
-          {d.mine.length > 0 && <div className="pt-2"><p className="mb-1.5 text-[13.5px] font-semibold" style={{ color: MUTED }}>You asked</p><CallStrip calls={d.mine} post={(b) => s.act(b)} now={now} onChanged={() => void s.load(true)} /></div>}
+          <h2 id="asked-title" className="text-[17px] font-semibold">{say('Asked for')}</h2>
+          <CallList calls={d.calls} me={{ id: d.me, name: working || null }} busy={!!busy} onStep={(c, st) => void step(c, st)} empty={say('Nothing asked for. What the line and the bar call for shows here, with a chime.')} />
+          {d.mine.length > 0 && <div className="pt-2"><p className="mb-1.5 text-[13.5px] font-semibold" style={{ color: MUTED }}>{say('You asked')}</p><CallStrip calls={d.mine} post={(b) => s.act(b)} now={now} onChanged={() => void s.load(true)} /></div>}
         </section>
 
         <div className="space-y-4">
           <section aria-labelledby="way-title" className="rounded-2xl bg-[#fff] p-4 space-y-3 border" style={{ borderColor: LINE }}>
-            <div><h2 id="way-title" className="text-[17px] font-semibold">Heading your way</h2><p className="text-[13.5px]" style={{ color: MUTED }}>Plates and glasses that went out, every 15 minutes. They come back within the hour.</p></div>
+            <div><h2 id="way-title" className="text-[17px] font-semibold">{say('Heading your way')}</h2><p className="text-[13.5px]" style={{ color: MUTED }}>{say('Plates and glasses that went out, every 15 minutes. They come back within the hour.')}</p></div>
             <Flow flow={d.dish.flow} />
-            {d.dish.clearing.length > 0 && <div className="pt-1"><h3 className="text-[15px] font-semibold">Being cleared now</h3>
-              <ul className="mt-1 space-y-1">{d.dish.clearing.map((c, i) => <li key={i} className="flex justify-between gap-3 text-[14.5px]"><span>{c.table}, {c.size} {c.size === 1 ? 'guest' : 'guests'}</span><span style={{ color: MUTED }}>{c.minutes < 1 ? 'just left' : `left ${c.minutes} min ago`}</span></li>)}</ul></div>}
+            {d.dish.clearing.length > 0 && <div className="pt-1"><h3 className="text-[15px] font-semibold">{say('Being cleared now')}</h3>
+              <ul className="mt-1 space-y-1">{d.dish.clearing.map((c, i) => <li key={i} className="flex justify-between gap-3 text-[14.5px]"><span>{say(c.table)}, {say(c.size === 1 ? '{n} guest' : '{n} guests', { n: c.size })}</span><span style={{ color: MUTED }}>{c.minutes < 1 ? say('just left') : say('left {n} min ago', { n: c.minutes })}</span></li>)}</ul></div>}
           </section>
           <MachineCard m={m} busy={busy === 'machine'} onSave={saveCheck} onLog={() => void printLog()} />
-          {d.dish.broken.length > 0 && <p className="text-[14px]" style={{ color: MUTED }}>Broken today: {brokenWords(d.dish.broken)}.</p>}
+          {d.dish.broken.length > 0 && <p className="text-[14px]" style={{ color: MUTED }}>{say('Broken today: {what}.', { what: lang === 'es' ? brokenEs(d.dish.broken, say) : brokenWords(d.dish.broken) })}</p>}
         </div>
       </main>
 

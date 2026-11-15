@@ -7,9 +7,13 @@
 import { priceChoices, choicesText, itemSoldOut, type PickedChoice } from '@/lib/menu-choices';
 import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 import { offeredOnMenu } from '@/lib/menu-stock';
+import { priceNow, servedNow } from '@/lib/menu-time';
 
 export type Channel = 'drive-thru' | 'counter' | 'kiosk' | 'ahead';
 export const CHANNELS: Channel[] = ['drive-thru', 'counter', 'kiosk', 'ahead'];
+/** Whether a place in line (a car, or a guest at the counter) is the drive-thru's: everything before the counter had its own
+ *  line is. The drive-thru's screens (the order board, the windows, the voice assistant) only ever see these. */
+export const atDriveThru = (c: any) => (c?.channel || 'drive-thru') === 'drive-thru';
 export const isChannel = (v: unknown): v is Channel => typeof v === 'string' && (CHANNELS as string[]).includes(v);
 
 /** What the number starts with: B for a drive-thru car, C at the counter, K from a kiosk, A for ordered ahead. */
@@ -48,7 +52,7 @@ export const makeSecondsOf = (item: any) => { const n = Math.floor(Number(item?.
 /** How long a cooked batch of it can be held before it's thrown out, in minutes (0: it isn't held). */
 export const holdMinutesOf = (item: any) => { const n = Math.floor(Number(item?.holdMinutes)); return Number.isFinite(n) && n >= 1 && n <= 240 ? n : 0; };
 
-export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number; imageUrl?: string | null };
+export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number; imageUrl?: string | null; happy?: boolean };
 
 /** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
 export const photoOf = (item: any): string | null => {
@@ -56,17 +60,20 @@ export const photoOf = (item: any): string | null => {
   return /^https:\/\/[^\s"'<>]+$/.test(u) && u.length <= 1500 ? u : null;
 };
 
-/** One line, from the menu item itself (never a price from a screen). */
-export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string): { ok: true; line: OrderLine } | { ok: false; error: string } {
+/** One line, from the menu item itself (never a price from a screen). With the business (`at`: when it's ordered), an item
+ *  in a menu by time of day is sold only while that's on, and happy hour prices it (lib/menu-time). */
+export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string, ctx?: { tenant: any; at?: Date }): { ok: true; line: OrderLine } | { ok: false; error: string } {
   // Off the menu (never priced yet, or taken off): not sold, even from a screen that still shows it.
   if (!item || item.type !== 'refreshment' || item.archived === true || item.isActive === false || !offeredOnMenu(item)) return { ok: false, error: 'That isn’t on the menu.' };
   if (itemSoldOut(item)) return { ok: false, error: `${String(item.name || 'That')} is sold out right now.` };
+  if (ctx) { const sv = servedNow(item, ctx.tenant, ctx.at); if (!sv.ok) return { ok: false, error: `${String(item.name || 'That')} isn’t on now: ${sv.when}.` }; }
   const q = Math.floor(Number(quantity));
   if (!Number.isFinite(q) || q < 1 || q > 20) return { ok: false, error: 'How many? Between 1 and 20.' };
   const c = priceChoices(item, picks);
   if (!c.ok) return { ok: false, error: c.error };
-  const unit = Math.max(0, Math.round((Number(item.price || 0) + c.extra) * 100) / 100);
-  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item) } };
+  const base = ctx ? priceNow(item, ctx.tenant, ctx.at) : { price: Number(item.price || 0), happy: false };
+  const unit = Math.max(0, Math.round((base.price + c.extra) * 100) / 100);
+  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item), ...(base.happy ? { happy: true } : {}) } };
 }
 
 /** The order's money: subtotal, the business's sales tax on food and drink, and the total. */
@@ -106,3 +113,22 @@ export function readBack(lines: Pick<OrderLine, 'name' | 'quantity' | 'choicesTe
 }
 
 export { choicesText };
+
+// ── COMBOS (design canvas "The counter and the menus") ──────────────────────────────────────────────────────────────
+/** What a line is made as. A combo ("Burger meal": a burger, plus a side and a drink chosen) is made as its parts: the
+ *  ones it always has (`comboParts`) and the ones picked (a choice whose option is another menu item), each its own ticket
+ *  at its own station and its own stock. Anything else is made as itself. */
+export function partsOfLine(l: Pick<OrderLine, 'itemId' | 'choices'>, item: any): string[] {
+  if (item?.combo !== true) return [l.itemId];
+  const ok = (x: string) => /^[A-Za-z0-9_-]{1,160}$/.test(x);
+  const fixed = (Array.isArray(item.comboParts) ? item.comboParts : []).map((p: any) => String(p?.itemId || '')).filter(ok);
+  const picked = (Array.isArray(l.choices) ? l.choices : []).map((c) => {
+    const g = (Array.isArray(item.choices) ? item.choices : []).find((x: any) => String(x?.id) === c.groupId);
+    const o = (Array.isArray(g?.options) ? g.options : []).find((x: any) => String(x?.id) === c.optionId);
+    return String(o?.itemId || '');
+  }).filter(ok);
+  const ids = [...fixed, ...picked].slice(0, 8);
+  return ids.length ? ids : [l.itemId];
+}
+/** "Burger, fries and iced tea": a combo's parts in words. */
+export const partsWords = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);

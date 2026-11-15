@@ -56,7 +56,8 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
     setScanFor(null); onAdd(a.item, a.how === 'approved' && a.token ? { token: a.token, by: a.approver?.name || '', reason: a.reason || '' } : undefined);
     setSaid(a.note || (a.how === 'approved' ? `${nameFor(a.item)} added without a scan, approved by ${a.approver?.name || 'a manager'}.` : ''));
   };
-  const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !listings.has(String(i.id))), [inventory, listings]);
+  // (A combo is rung up on the Counter page, where each part goes to its own station: it isn't sold here.)
+  const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !listings.has(String(i.id)) && (i as any).combo !== true), [inventory, listings]);
   const isListing = (i: any) => dept === 'products' && variantIdsOf(i).length > 0;
   const depts = ([['products', 'Products', products.length], ['services', 'Services', (services || []).length], ['memberships', 'Memberships', (memberships || []).filter((m: any) => !m.isPrivate).length], ['packages', 'Packages', (packages || []).filter((p: any) => !p.isPrivate).length]] as [Dept, string, number][]).filter(([, , n]) => n > 0);
   const [dept, setDept] = React.useState<Dept>('products'); const [cat, setCat] = React.useState('All'); const [q, setQ] = React.useState(''); const [openParent, setOpenParent] = React.useState<string | null>(null);

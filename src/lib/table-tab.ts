@@ -16,6 +16,8 @@ import type { PickedChoice, Picks } from '@/lib/menu-choices';
 export interface TabComp { approvalId: string; amount: number; reason: string; by: string; approvedBy: string; at: string }
 export interface TabLine {
   lineId: string; itemId: string; itemType: 'product' | 'service'; name: string; price: number; quantity: number; seat: string | null; note: string | null; at: string; by: string; kdsId: string | null;
+  /** Rung in during happy hour at its happy-hour price (lib/menu-time): checkout keeps that price. */
+  happy?: boolean;
   /** What it sells for before a comp (price is what it costs now). Older lines don't have it: their price is the list. */
   listPrice?: number;
   /** Its course (lib/table-service), and when that course was fired (null: not fired yet). */
@@ -54,7 +56,7 @@ export async function ensureTableVisit(fs: Firestore, tenantId: string, p: any, 
   return id;
 }
 
-export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[]; choices?: any[] };
+export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; happy?: boolean; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[]; choices?: any[] };
 /** The choices made for one line (lib/menu-choices priceChoices, worked out from the item as the menu has it). */
 export type TabChoice = { picks: Picks; lines: PickedChoice[]; text: string; extra: number };
 
@@ -72,7 +74,7 @@ export async function addToTab(fs: Firestore, tenantId: string, visitId: string,
   const price = Math.round(((Number(item.price) || 0) + (ch ? Number(ch.extra) || 0 : 0)) * 100) / 100;
   const line: TabLine = { lineId, itemId: item.id, itemType: item.type, name: item.name, price, listPrice: price, quantity: 1, seat: o.seat || null, note: o.note || null, at: now, by: o.by,
     kdsId: item.type === 'product' ? kds.id : null, course: c ? c.n : null, courseName: c ? c.name : null, firedAt: waits ? null : now, station: item.station || null, makeSeconds: Number(item.makeSeconds) || null, comp: null,
-    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [], ...(ch ? { picks: ch.picks, choices: ch.lines, choicesText: ch.text } : {}) };
+    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [], ...(ch ? { picks: ch.picks, choices: ch.lines, choicesText: ch.text } : {}), ...(item.happy ? { happy: true } : {}) };
   const al = ticketAllergyFields(o.allergies || [], o.seat || null, line.allergens || []);
   b.set(doc(fs, 'tenants', tenantId, 'appointments', visitId), { tab: arrayUnion(line), updatedAt: now }, { merge: true });
   // Food and drink go to the station that makes it (a service on the tab doesn't).

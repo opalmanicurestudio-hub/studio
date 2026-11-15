@@ -119,7 +119,7 @@ const latte = {
   const kds = src('src/app/kds/[tenantId]/page.tsx');
   check('…shown big on the kitchen screen, on a printed ticket and in course and dish groups', /\{t\.choices && <p className="mt-1 text-\[18px\] font-semibold/.test(kds) && /\.\.\.\(t\.choices \? \[\{ text: t\.choices, size: 'mid'/.test(kds) && /\{t\.choices && <p className="text-\[15px\] font-semibold"/.test(kds));
   check('…and to whoever runs it (floor board, ready to run)', /\{t\.choices && <p className="text-\[15px\] font-semibold">\{t\.choices\}<\/p>\}/.test(src('src/app/floor/[tenantId]/page.tsx')) && /\{t\.choices && <p/.test(src('src/components/kitchen/ReadyToRun.tsx')));
-  check('the kitchen screen has “Sold out” for every item and each of its choices', kds.includes('function SoldOutSheet') && kds.includes("action: 'soldout'") && kds.includes("action: 'menu'") && kds.includes('>Sold out</button>'));
+  check('the kitchen screen has “Sold out” for every item and each of its choices', kds.includes('function SoldOutSheet') && kds.includes("action: 'soldout'") && kds.includes("action: 'menu'") && kds.includes(">{say('Sold out')}</button>"));
   check('…and its sound starts on an iPad (a real tap, not a pointer down)', /const evs = \['click', 'touchend', 'keydown'\]/.test(kds) && kds.includes('webkitAudioContext'));
 
   console.log('every place a guest orders');

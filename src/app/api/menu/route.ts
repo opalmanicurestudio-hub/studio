@@ -26,9 +26,12 @@
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
 //             and whether it asks each car for a first name; list says whether it's set up, on, asking, and up to date
 //   voiceUpdate { tenantId } → managers: bring this business's assistant up to date (lib/drive-thru-voice-setup)
+//   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
+//             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts.
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 // Nothing about cost or suppliers is read or written here. `list` also gives each item's recipe.
+import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
 import { cleanSlotItems, SLOT_ITEMS_MAX, SLOT_ITEMS_MIN } from '@/lib/ahead-slots';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -78,10 +81,10 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count'].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times'].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -106,7 +109,7 @@ export async function POST(req: NextRequest) {
         const target = targetOf(td); costs = {};
         for (const d of items.docs) { const x: any = d.data() || {}; if (!isMenuItem(x)) continue; const c = itemCost(d.id, x, parts, target); costs[d.id] = { cost: c.cost, share: c.share, over: c.over, typical: c.typical, target }; }
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs } : {}), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -180,6 +183,13 @@ export async function POST(req: NextRequest) {
       return ok({ ahead: aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null) });
     }
 
+    // Menus by time of day and happy hour (lib/menu-time): the windows; each item says which it's in, and its price then.
+    if (action === 'times') {
+      const dayparts = cleanDayparts(b.dayparts); const happyHour = cleanHappyHour(b.happyHour);
+      if (Array.isArray(b.dayparts) && b.dayparts.length !== dayparts.length) return bad('Each menu by time of day needs a name, and a start and end that differ.');
+      await db.doc(`tenants/${tenantId}`).set({ menuSettings: { dayparts, happyHour } }, { merge: true });
+      return ok({ dayparts, happyHour });
+    }
     if (action === 'laneSettings') {
       const n = typeof b.spots === 'number' ? Math.floor(b.spots) : NaN;
       if (!(n >= 1 && n <= 8)) return bad('Between 1 and 8 spots.');
@@ -316,6 +326,34 @@ export async function POST(req: NextRequest) {
       else { const n = typeof x.calories === 'number' ? Math.round(x.calories) : typeof x.calories === 'string' && /^\s*\d{1,4}\s*$/.test(x.calories) ? Number(x.calories.trim()) : NaN; if (!Number.isFinite(n) || n < 0 || n > 5000) return bad('Calories: a number up to 5000, or leave it empty.'); board.calories = n; }
     }
     // The photo, when given: shown on the drive-thru's buttons and its order board, and on the lounge menu.
+    // Menus by time of day it's in, its happy-hour price, and as a combo, the parts it always has (lib/menu-time,
+    // lib/counter-orders partsOfLine).
+    const timed: Record<string, any> = {};
+    if (x.dayparts !== undefined) {
+      const td0: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const known = daypartsOf(td0).map((d) => d.id);
+      const ids: string[] = Array.isArray(x.dayparts) ? Array.from(new Set<string>(x.dayparts.map(String))) : [];
+      if (ids.some((id) => !known.includes(id))) return bad('Pick from your menus by time of day.');
+      timed.dayparts = ids;
+    }
+    if (x.happyPrice !== undefined) {
+      if (x.happyPrice === null || String(x.happyPrice).trim() === '') timed.happyPrice = null;
+      else { const hp = Math.round(Number(x.happyPrice) * 100) / 100; if (!Number.isFinite(hp) || hp < 0 || hp >= price) return bad('The happy-hour price is less than its price (or leave it empty).'); timed.happyPrice = hp; }
+    }
+    if (x.combo !== undefined) {
+      timed.combo = x.combo === true;
+      const parts = Array.isArray(x.comboParts) ? x.comboParts.map((p: any) => String(p?.itemId || p || '')).filter((id: string) => ID.test(id) && id !== itemId).slice(0, 6) : [];
+      timed.comboParts = timed.combo ? parts.map((id: string) => ({ itemId: id })) : [];
+      if (timed.combo && !parts.length && !choices.some((cg) => cg.options.some((o) => o.itemId))) return bad('A combo needs what’s in it: the items it always has, or a choice of items.');
+    }
+    if (choices.some((cg) => cg.options.some((o) => o.itemId === itemId))) return bad('A combo can’t have itself in it.');
+    // Each part (always in it, or made as a choice) is one of the business's own menu items, and not a combo itself.
+    const partIds = Array.from(new Set<string>([...(timed.comboParts || []).map((p: any) => String(p.itemId)), ...choices.flatMap((cg) => cg.options.map((o) => String(o.itemId || ''))).filter(Boolean)]));
+    if (partIds.length) {
+      const docs = await Promise.all(partIds.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`).get()));
+      const bad1 = docs.findIndex((d: any) => { const x: any = d.data(); return !x || x.type !== 'refreshment' || x.archived === true || x.combo === true; });
+      if (bad1 >= 0) { const x: any = docs[bad1].data(); return bad(x?.combo === true ? `${String(x.name || 'That item')} is a combo itself. Pick the items it’s made of.` : 'One of its parts isn’t on the menu any more. Pick another.'); }
+    }
     const photo: Record<string, string | null> = {};
     if (x.imageUrl !== undefined) {
       if (x.imageUrl === null || String(x.imageUrl).trim() === '') photo.imageUrl = null;
@@ -370,7 +408,7 @@ export async function POST(req: NextRequest) {
       if (cur.createdVia === 'food-starter' && x.onMenu !== false && !(price > 0)) return { error: 'Give it a price first, then put it on the menu.', status: 400 };
       const deskToo = !(Number(cur.msrp) > 0) || Math.round(Number(cur.price) * 100) !== Math.round(price * 100);
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept,
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...timed, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });

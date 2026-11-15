@@ -48,7 +48,7 @@ const at = (minAgo: number) => new Date(Date.now() - minAgo * 60000).toISOString
   check('…a business with no bar station leaves a bartender’s station for them to pick', J.stationFor(J.jobDef('bartender'), ['Kitchen']) === null && J.stationFor(J.jobDef('cook'), ['Bar']) === 'Bar');
   check('a station kept on someone’s record counts only while the business still has it', J.keptStation('grill', stations) === 'Grill' && J.keptStation('Pizza', stations) === null);
   const home = (id: string, st?: string) => J.homeOf(J.jobDef(id), 't1', st || null);
-  check('a server opens on My tables, a host on the host stand, a busser on Clear tables, the counter on the front desk', home('server') === '/tables' && home('host') === '/host' && home('busser') === '/clear' && home('counter') === '/pos');
+  check('a server opens on My tables, a host on the host stand, a busser on Clear tables, the counter on the counter screen', home('server') === '/tables' && home('host') === '/host' && home('busser') === '/clear' && home('counter') === '/counter' && !!J.jobDef('counter')?.menu.includes('/pos'));
   check('a cook opens on the kitchen screen at their station, as themselves', home('cook', 'Grill') === '/kds/t1?station=Grill&me=1', home('cook', 'Grill'));
   check('…a bartender at the bar, expo on the expo view', home('bartender', 'Bar') === '/kds/t1?station=Bar&me=1' && home('expo') === '/kds/t1?view=expo&me=1', [home('bartender', 'Bar'), home('expo')]);
   check('a dishwasher opens on the dish screen, a barback on the barback’s, the drive-thru on its lane', home('dishwasher') === '/dish/t1' && home('barback') === '/barback/t1' && home('drive_thru') === '/drive-thru/t1');

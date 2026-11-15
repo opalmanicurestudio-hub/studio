@@ -48,6 +48,8 @@ export const ingredientUnit = (part: any) => unitLabel(part);
  *  count that's at none). `canMake`: how many could be made from what's counted (null: nothing counted). `parts`: the
  *  ingredients by id, as read. */
 export function stockOf(item: any, itemId: string, parts: Map<string, any>): MenuStock {
+  // A combo has no count of its own: it's made from its parts, each counted as itself (lib/menu-server readMenu).
+  if (item?.combo === true) return { inStock: true, short: null, canMake: null, byRecipe: false };
   const recipe = recipeOf(item, itemId);
   if (!recipe.length) { const own = num(item?.totalStock); return { inStock: own > 0, short: null, canMake: Math.max(0, Math.floor(own)), byRecipe: false }; }
   let canMake: number | null = null; let short: string | null = null;

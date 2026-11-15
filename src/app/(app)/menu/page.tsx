@@ -22,6 +22,8 @@ import { uploadImage } from '@/lib/upload-image';
 import { ImagePlus } from 'lucide-react';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
+import { MenuTimesCard } from '@/components/menu/MenuTimesCard';
+import type { Daypart, HappyHour } from '@/lib/menu-time';
 import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 
@@ -64,6 +66,7 @@ export default function MenuPage() {
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [targets, setTargets] = useState<Record<string, number> | null>(null);
   const [service, setService] = useState<Service | null>(null);
+  const [times, setTimes] = useState<{ dayparts: Daypart[]; happyHour: HappyHour } | null>(null);
   const [spots, setSpots] = useState<number | null>(null);
   const [ahead, setAhead] = useState<AheadSettings | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
@@ -75,7 +78,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -133,6 +136,7 @@ export default function MenuPage() {
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>
         {canEdit && ahead && <div id="order-ahead" className="scroll-mt-6"><OrderAheadCard start={ahead} call={call} /></div>}
+        {canEdit && times && <div id="menu-times" className="scroll-mt-6"><MenuTimesCard start={times} onSave={async (next) => { const d = await call({ action: 'times', ...next }); if (d.ok) { setTimes({ dayparts: d.dayparts, happyHour: d.happyHour }); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && service && <div id="table-service" className="scroll-mt-6"><TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && targets && (
           <section aria-labelledby="times-title" className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
@@ -221,7 +225,7 @@ export default function MenuPage() {
             </section>
           ))}
       </div>
-      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call}
+      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call} dayparts={times?.dayparts || []} allItems={menu || []}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
         onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null);
           void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />}
@@ -297,8 +301,8 @@ function RecipeEditor({ lines, onChange, stock, item }: { lines: EditLine[]; onC
   );
 }
 
-function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call }: { item: MenuItem; recipe: RecipeLine[]; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
-  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any> }) {
+function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call, dayparts, allItems }: { item: MenuItem; recipe: RecipeLine[]; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
+  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any>; dayparts: Daypart[]; allItems: MenuItem[] }) {
   const startLines = useMemo<EditLine[]>(() => recipe.map((l) => ({ id: l.id, name: l.name, unit: l.unit, q: amount(l.quantityUsed) })), [recipe]);
   const [lines, setLines] = useState<EditLine[]>(startLines);
   const [stock, setStock] = useState<Ingredient[] | null>(null);
@@ -314,6 +318,10 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
   const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
+  // Its menus by time of day and happy-hour price (lib/menu-time), and as a combo, what's in it (lib/counter-orders).
+  const [parts, setParts] = useState<string[]>(item.dayparts || []); const [happy, setHappy] = useState(item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2));
+  const [combo, setCombo] = useState(!!item.combo); const [inIt, setInIt] = useState<string[]>(item.comboParts || []);
+  const others = allItems.filter((x) => x.id !== item.id && !x.combo);
   const [photo, setPhoto] = useState<string | null>(item.imageUrl || null); const [uploading, setUploading] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
   // A photo is made smaller on this device before it's uploaded (a phone photo becomes a few hundred KB), then kept with
@@ -357,7 +365,10 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
       ...(makeTouched ? { makeSeconds } : {}), ...(station !== (item.station || '') ? { station: station || null } : {}), ...(course !== (item.course === null ? '' : String(item.course)) ? { course: course === '' ? null : Number(course) } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
       ...(recipeChanged ? { recipe: lines.map((l) => ({ id: l.id, name: l.name, quantityUsed: Number(l.q) })) } : {}),
       ...(allergens !== null && JSON.stringify(allergens) !== JSON.stringify(item.allergensSet ? item.allergens || [] : null) ? { allergens } : {}),
-      ...(daily !== (item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount)) ? { dailyCount: daily === '' ? null : Number(daily) } : {}) });
+      ...(daily !== (item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount)) ? { dailyCount: daily === '' ? null : Number(daily) } : {}),
+      ...(JSON.stringify(parts) !== JSON.stringify(item.dayparts || []) ? { dayparts: parts } : {}),
+      ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
+      ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}) });
     setSaving(false); if (e) setErr(e);
   };
   return (
@@ -407,6 +418,31 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">Choices</h3>
             <ChoicesEditor groups={groups} onChange={setGroups} />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-[16px] font-semibold">When it’s sold</h3>
+            {dayparts.length > 0 ? <div className="flex flex-wrap gap-2" role="group" aria-label="Menus by time of day it’s in">{dayparts.map((d) => { const on = parts.includes(d.id);
+              return <button key={d.id} type="button" aria-pressed={on} onClick={() => setParts((xs) => (on ? xs.filter((x) => x !== d.id) : [...xs, d.id]))} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{d.name}</button>; })}
+              <span className="self-center text-[13px]" style={{ color: MUTED }}>{parts.length ? 'Only while one of these is on.' : 'All day.'}</span></div>
+              : <p className="text-[13px]" style={{ color: MUTED }}>All day. Add menus by time of day (Breakfast, Lunch) above to sell it only then.</p>}
+            <label className="flex flex-wrap items-center justify-between gap-3"><span><span className="block text-[15px] font-medium">Happy-hour price</span><span className="block text-[13px]" style={{ color: MUTED }}>During happy hour (set above). Empty: its price.</span></span>
+              <span className="relative block w-32"><span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[16px]" style={{ color: MUTED }}>$</span>
+                <input inputMode="decimal" value={happy} onChange={(e) => setHappy(e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))} aria-label="Happy-hour price" className={`${field} mt-0 pl-6`} style={{ borderColor: LINE }} /></span></label>
+          </div>
+          <div className="space-y-2">
+            <button type="button" role="switch" aria-checked={combo} onClick={() => setCombo((v) => !v)} className={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left ${RING}`} style={{ background: SOFT }}>
+              <span><span className="block text-[15px] font-semibold">A combo</span><span className="block text-[13px]" style={{ color: MUTED }}>A meal deal at the counter and drive-thru: the items it always has, and a choice of others (in Choices, “Made as”). Each part goes to its own station and comes off its own stock.</span></span>
+              <span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={combo ? { background: INK, color: '#fff' } : { background: '#fff', color: MUTED }}>{combo ? 'On' : 'Off'}</span></button>
+            {combo && <>
+              <p className="text-[14px] font-medium">Always has</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Items it always has">{others.map((x) => { const on = inIt.includes(x.id);
+                return <button key={x.id} type="button" aria-pressed={on} onClick={() => setInIt((xs) => (on ? xs.filter((y) => y !== x.id) : [...xs, x.id].slice(0, 6)))} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{x.name}</button>; })}</div>
+              {groups.length > 0 && <div className="space-y-2"><p className="text-[14px] font-medium">Made as</p>
+                {groups.flatMap((g, gi) => g.options.map((o, oi) => (
+                  <label key={`${g.id}/${o.id}`} className="flex flex-wrap items-center justify-between gap-2 text-[14px]"><span>{g.name}: {o.name}</span>
+                    <select value={(o as any).itemId || ''} onChange={(e) => setGroups((gs) => gs.map((x, k) => (k !== gi ? x : { ...x, options: x.options.map((y, m) => (m !== oi ? y : { ...y, itemId: e.target.value || undefined } as any)) })))} className={pickField} style={{ borderColor: LINE }}>
+                      <option value="">Nothing more (a note on the ticket)</option>{others.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>)))}</div>}
+            </>}
           </div>
           <RecipeEditor lines={lines} onChange={setLines} stock={stock} item={item} />
           {(item.recipeGaps || []).length > 0 && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Add {item.recipeGaps.join(', ')} to its recipe yourself: {item.recipeGaps.length === 1 ? 'yours is' : 'yours are'} measured differently from the starter recipe.</p>}

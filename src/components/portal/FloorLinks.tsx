@@ -12,6 +12,7 @@ const PAGES = [
   { href: '/clear', label: 'Clear tables', line: 'Which tables just left, and resetting them' },
   { href: '/host', label: 'Host stand', line: 'Who’s waiting, who’s booked, which tables are free' },
   { href: '/bar-tabs', label: 'Bar tabs', line: 'Tabs at the bar, and the cards held on them', bar: true },
+  { href: '/counter', label: 'Counter', line: 'Orders and payments at the counter, and calling names out', counter: true },
 ];
 
 export function FloorLinks({ job }: { job?: string | null }) {
@@ -19,7 +20,9 @@ export function FloorLinks({ job }: { job?: string | null }) {
   // The bar's tabs for whoever works the bar (a bartender, a barback, a shift lead or a manager).
   const bar = ['bartender', 'barback', 'shift_lead', 'manager'].includes(String(jobDef(job)?.id || ''));
   const first = jobDef(job)?.id === 'bartender' ? '/bar-tabs' : home;
-  const pages = PAGES.filter((p) => !(p as any).bar || bar).sort((a, b) => (a.href === first ? -1 : b.href === first ? 1 : 0));
+  // The counter for whoever works it (and a shift lead or a manager).
+  const counter = ['counter', 'shift_lead', 'manager'].includes(String(jobDef(job)?.id || ''));
+  const pages = PAGES.filter((p) => (!(p as any).bar || bar) && (!(p as any).counter || counter)).sort((a, b) => (a.href === first ? -1 : b.href === first ? 1 : 0));
   return (
     <section aria-labelledby="floor-links" className="space-y-2">
       <h2 id="floor-links" className="px-1 text-[13px] font-semibold" style={{ color: MUTED }}>The floor</h2>

@@ -140,8 +140,8 @@ const ago = (min: number) => new Date(NOW - min * 60000).toISOString();
 
   console.log('where it shows');
   const kds = src('src/app/kds/[tenantId]/page.tsx'), pg = src('src/app/(app)/tables/page.tsx'), kr = src('src/app/api/kitchen/route.ts'), cs = src('src/lib/counter-server.ts'), set = src('src/components/menu/TableServiceSettings.tsx');
-  check('the kitchen screen: a quicker dish says when to start and waits below what to start now', /startPlan\(/.test(kds) && /So it’s ready with the/.test(kds) && /Start \{startWords/.test(kds) && /finishTogether: finishTogetherOn\(tenant\)/.test(kr));
-  check('…counter orders carry each dish’s make time', /makeSeconds: Number\(l\.makeSeconds\) \|\| null/.test(cs));
+  check('the kitchen screen: a quicker dish says when to start and waits below what to start now', /startPlan\(/.test(kds) && /So it’s ready with the/.test(kds) && /say\('Start \{when\}', \{ when: say\(startWords/.test(kds) && /finishTogether: finishTogetherOn\(tenant\)/.test(kr));
+  check('…counter orders carry each dish’s make time', /makeSeconds: part \? makeSecondsOf\(part\) : Number\(l\.makeSeconds\) \|\| null/.test(cs));
   check('My tables: each nudge’s own step (fire, done, not yet), the tab one tap away, mine or every table', /action: 'fire'/.test(pg) && /action: 'nudge'/.test(pg) && /Not yet/.test(pg) && /<TableTab /.test(pg) && /Every table/.test(pg) && /navigator\.vibrate/.test(pg));
   check('…in the sidebar and the hospitality pages', /href: '\/tables'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/tables'[,\]]/.test(src('src/lib/modules.ts')) && /'tables'/.test(src('src/lib/app-theme.ts')));
   check('settings: finishing together and each nudge’s timing', /Finish a table’s plates together/.test(set) && /fireAfterMin/.test(set) && /Off<\/option>/.test(set));

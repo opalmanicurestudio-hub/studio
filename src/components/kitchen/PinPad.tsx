@@ -3,6 +3,7 @@
 // digits, checked by the server (api/kitchen 'pin', with its lockout), never here. The screen works without it; a PIN
 // only puts a name on what's done.
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '@/components/kitchen/ScreenLang';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
 
@@ -11,6 +12,7 @@ export type ScreenStaff = { id: string; name: string; pass: string };
 export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name on what you do here. The screen works without it.' }: {
   check: (pin: string) => Promise<{ ok: true; staff: ScreenStaff } | { ok: false; error: string }>; onDone: (s: ScreenStaff) => void; onClose: () => void; line?: string;
 }) {
+  const say = useT();
   const [pin, setPin] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null); const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
@@ -33,19 +35,19 @@ export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="pin-title" className="w-full max-w-xs space-y-4 rounded-3xl bg-[#fff] p-5">
         <div>
-          <h2 id="pin-title" className="text-[20px] font-semibold" style={{ color: INK }}>Who’s working?</h2>
+          <h2 id="pin-title" className="text-[20px] font-semibold" style={{ color: INK }}>{say('Who’s working?')}</h2>
           <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{line}</p>
         </div>
-        <div className="flex justify-center gap-3" role="status" aria-label={`${pin.length} of 4 digits`}>
+        <div className="flex justify-center gap-3" role="status" aria-label={say('{n} of 4 digits', { n: pin.length })}>
           {[0, 1, 2, 3].map((i) => <span key={i} className="h-3.5 w-3.5 rounded-full" style={{ background: i < pin.length ? INK : LINE }} />)}
         </div>
         {err && <p role="alert" className="text-center text-[14px]" style={{ color: AMBER }}>{err}</p>}
         <div className="grid grid-cols-3 gap-2">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'].map((k, i) => k === ''
             ? <span key={i} />
-            : <button key={i} data-k={k} type="button" disabled={busy} onClick={() => press(k)} className="h-14 rounded-2xl text-[20px] font-semibold disabled:opacity-50" style={{ background: SOFT, color: INK }} aria-label={k === 'back' ? 'Delete' : k}>{k === 'back' ? '⌫' : k}</button>)}
+            : <button key={i} data-k={k} type="button" disabled={busy} onClick={() => press(k)} className="h-14 rounded-2xl text-[20px] font-semibold disabled:opacity-50" style={{ background: SOFT, color: INK }} aria-label={k === 'back' ? say('Delete') : k}>{k === 'back' ? '⌫' : k}</button>)}
         </div>
-        <button type="button" onClick={onClose} className="min-h-[44px] w-full rounded-xl px-4 text-[14px] font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Close</button>
+        <button type="button" onClick={onClose} className="min-h-[44px] w-full rounded-xl px-4 text-[14px] font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{say('Close')}</button>
       </div>
     </div>
   );

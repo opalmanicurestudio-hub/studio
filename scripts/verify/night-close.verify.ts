@@ -167,7 +167,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('a business that saves its own checklist has it required unless it says otherwise', /else if \(!Array\.isArray\(tenant\?\.closingSettings\?\.items\)\) next\.requireChecklist = true;/.test(src('src/app/api/close/route.ts')) && /requireChecklist: true \}\); setItems/.test(src('src/app/(app)/settings/closing/page.tsx')));
   check('comps, voids and the night’s report count the same night', /const day = tonight\(tenant\);/.test(src('src/app/api/tab/route.ts')));
   const kds = src('src/app/kds/[tenantId]/page.tsx');
-  check('…behind a Closing button', /setClosingOpen\(true\)\} className=\{btn\} style=\{quiet\}>Closing</.test(kds) && /<ClosingSheet /.test(kds));
+  check('…behind a Closing button', /setClosingOpen\(true\)\} className=\{btn\} style=\{quiet\}>\{say\('Closing'\)\}</.test(kds) && /<ClosingSheet /.test(kds));
   check('Close the night is in the sidebar and part of Lounge & hospitality', /href: '\/close',\s+icon: Moon,\s+label: 'Close the night'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/close', '\/settings\/closing'/.test(src('src/lib/modules.ts')));
   const reg = src('src/lib/settings-registry.ts');
   check('both settings can be found in Settings', /id: 'closing', title: 'Closing the night'/.test(reg) && /id: 'tableservice', title: 'Tables, kitchen and bar'/.test(reg));

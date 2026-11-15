@@ -6,7 +6,7 @@
 // counter-card), and an order voided when a car drives off without paying.
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
-import { lineFor, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
+import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
 import { itemSoldOut, priceChoices, type Picks } from '@/lib/menu-choices';
 import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit } from '@/lib/menu-stock';
@@ -35,9 +35,11 @@ export function cleanName(v: unknown): string {
   if (!/\p{L}/u.test(s)) return '';
   return Array.from(s).slice(0, 24).join('').trim();
 }
-/** Who a kitchen ticket is for: "Sam, car B41" at the drive-thru (or "Car B41" with no name), the name elsewhere. */
+/** Who a kitchen ticket is for: "Sam, car B41" at the drive-thru (or "Car B41" with no name), "Maria, C14" at the
+ *  counter (or "C14"), the name elsewhere. */
 export function ticketWho(o: any): string {
   const name = cleanName(o?.guestName);
+  if (o?.channel === 'counter' && o?.number) return name ? `${name}, ${o.number}` : String(o.number);
   return o?.channel === 'drive-thru' ? (name ? `${name}, car ${o.number}` : `Car ${o.number}`) : String(o?.name || name || o?.number || 'Guest');
 }
 
@@ -67,7 +69,10 @@ export async function setOrderName(db: any, tenantId: string, orderId: string, n
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
 /** A car in the lane, with its empty order. `inLine`: taken by someone walking the line before the speaker (the speaker
  *  never greets it, and the order board by the speaker never shows it), told apart by how it looks. */
-export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+  // A guest at the counter is the same kind of place in line as a car (ordering, paying, waiting, handed over), numbered
+  // as a counter order ("C14").
+  const channel: Channel = opts.channel === 'counter' ? 'counter' : 'drive-thru';
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   const day = todayIn(tenantTimeZone(tenant), now);
   const counterRef = db.doc(`${T}/orderCounters/${day}`);
@@ -78,11 +83,11 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     const had: any = k ? (await tx.get(carRef)).data() : null;
     if (had) return { carId: carRef.id, orderId: had.orderId, number: had.number, already: true };
     const c: any = (await tx.get(counterRef)).data() || {};
-    const n = Math.floor(num(c['drive-thru'])) + 1;
-    const number = orderNumber('drive-thru', n);
-    tx.set(counterRef, { 'drive-thru': n, day }, { merge: true });
-    tx.set(orderRef, { id: orderRef.id, number, channel: 'drive-thru' as Channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day });
-    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day,
+    const n = Math.floor(num(c[channel])) + 1;
+    const number = orderNumber(channel, n);
+    tx.set(counterRef, { [channel]: n, day }, { merge: true });
+    tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day });
+    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel,
       ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}) });
     return { carId: carRef.id, orderId: orderRef.id, number };
   });
@@ -109,7 +114,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
     let line: OrderLine | undefined;
     if (op.action === 'add') {
       if (!itemSnap) return { error: 'Which item?', status: 400 };
-      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'));
+      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant });
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       // The same item with the same choices is one line with more of it.
@@ -141,12 +146,23 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     if (o.status !== 'building') return { ok: true, already: true, due: o.dueAt || null };
     const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) return { error: 'Add something first.', status: 400 };
-    const ids = Array.from(new Set(lines.map((l) => l.itemId)));
+    const lineIds = Array.from(new Set(lines.map((l) => l.itemId)));
+    const lineRefs = lineIds.map((id) => db.doc(`${T}/inventory/${id}`));
+    const lineItems = (await Promise.all(lineRefs.map((ref) => tx.get(ref)))).map((s: any) => s.data());
+    for (const [k, it] of lineItems.entries()) {
+      if (!isMenuItem(it)) return { error: `${lines.find((l) => l.itemId === lineIds[k])?.name || 'Something'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
+      if (itemSoldOut(it)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
+    }
+    // What's made: each line as itself, or a combo as its parts (lib/counter-orders partsOfLine), each its own stock and
+    // its own ticket at its own station.
+    const lineItem = (l: OrderLine) => lineItems[lineIds.indexOf(l.itemId)];
+    const made = lines.flatMap((l) => partsOfLine(l, lineItem(l)).map((itemId, n, all) => ({ l, itemId, n, of: all.length, combo: lineItem(l)?.combo === true })));
+    const ids = Array.from(new Set(made.map((m) => m.itemId)));
     const itemRefs = ids.map((id) => db.doc(`${T}/inventory/${id}`));
-    const items = (await Promise.all(itemRefs.map((ref) => tx.get(ref)))).map((s: any) => s.data());
-    const qtyOf = (id: string) => lines.filter((l) => l.itemId === id).reduce((n, l) => n + l.quantity, 0);
+    const items = (await Promise.all(itemRefs.map((ref, k) => (lineIds.includes(ids[k]) ? Promise.resolve({ data: () => lineItems[lineIds.indexOf(ids[k])] }) : tx.get(ref))))).map((s: any) => s.data());
+    const qtyOf = (id: string) => made.filter((m) => m.itemId === id).reduce((n, m) => n + m.l.quantity, 0);
     for (const [k, it] of items.entries()) {
-      if (!isMenuItem(it)) return { error: `${lines.find((l) => l.itemId === ids[k])?.name || 'Something'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
+      if (!it || it.archived === true || it.isActive === false) return { error: `Part of ${made.find((m) => m.itemId === ids[k])?.l.name || 'an order line'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
       if (itemSoldOut(it)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
       // Made from a recipe: its ingredients are what's counted (below), not the item itself (lib/menu-stock).
       if (recipeOf(it, ids[k]).length) continue;
@@ -156,7 +172,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     for (const l of lines) {
       const picks: Record<string, string[]> = {};
       for (const c of Array.isArray(l.choices) ? l.choices : []) (picks[c.groupId] = picks[c.groupId] || []).push(c.optionId);
-      const still = priceChoices(items[ids.indexOf(l.itemId)], picks);
+      const still = priceChoices(lineItem(l), picks);
       if (!still.ok) return { error: `${l.name}: ${still.error} Change that line, then send it.`, status: 409 };
     }
     // What each line takes: an item without a recipe, its own count; one made from a recipe, its ingredients (the bun
@@ -164,15 +180,24 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     // that. Every stock item is read once, before anything is written, even one that's both sold on its own line and an
     // ingredient of another (a bottled sauce): its own count and the recipe's share come off in one step.
     const docs = new Map<string, { ref: any; data: any }>(); ids.forEach((id, k) => docs.set(id, { ref: itemRefs[k], data: items[k] }));
-    const lineTake: Record<string, { own: number; parts: Record<string, number> }> = {};
+    type PartTake = { item: string; items: Record<string, number>; parts: Record<string, number> };
+    const lineTake: Record<string, { own: number; parts: Record<string, number>; items: Record<string, number>; byPart: Record<string, PartTake> }> = {};
     const ownNeed = new Map<string, number>(); const partNeed = new Map<string, number>(); const partFor = new Map<string, string>();
-    for (const l of lines) {
-      const it = items[ids.indexOf(l.itemId)]; const recipe = recipeOf(it, l.itemId);
-      const take = { own: recipe.length ? 0 : l.quantity, parts: {} as Record<string, number> };
-      if (take.own) ownNeed.set(l.itemId, (ownNeed.get(l.itemId) || 0) + take.own);
+    for (const m of made) {
+      const l = m.l; const it = items[ids.indexOf(m.itemId)]; const recipe = recipeOf(it, m.itemId);
+      const take = lineTake[l.lineId] || { own: 0, parts: {} as Record<string, number>, items: {} as Record<string, number>, byPart: {} as Record<string, PartTake> };
+      // A combo's part: what it took kept part by part too, so a void puts back exactly the parts the kitchen never
+      // started (the drink, when the burger is already on the grill).
+      const pt: PartTake | null = m.combo ? (take.byPart[String(m.n)] = take.byPart[String(m.n)] || { item: m.itemId, items: {}, parts: {} }) : null;
+      // A combo's part without a recipe comes off its own count, kept with the line by item (so a void puts it back).
+      if (!recipe.length) {
+        if (m.combo) take.items[m.itemId] = (take.items[m.itemId] || 0) + l.quantity; else take.own += l.quantity;
+        if (pt) pt.items[m.itemId] = (pt.items[m.itemId] || 0) + l.quantity;
+        ownNeed.set(m.itemId, (ownNeed.get(m.itemId) || 0) + l.quantity);
+      }
       for (const f of recipe) {
         const use = f.quantityUsed * l.quantity; if (!(use > 0)) continue;
-        take.parts[f.id] = (take.parts[f.id] || 0) + use;
+        take.parts[f.id] = (take.parts[f.id] || 0) + use; if (pt) pt.parts[f.id] = (pt.parts[f.id] || 0) + use;
         partNeed.set(f.id, (partNeed.get(f.id) || 0) + use); if (!partFor.has(f.id)) partFor.set(f.id, String(it.name || 'item'));
       }
       lineTake[l.lineId] = take;
@@ -198,11 +223,14 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const due = new Date(Number.isFinite(wanted) && wanted > asap ? wanted : asap).toISOString();
     const hold = Date.parse(String(opts.holdUntil || '')); const holdUntil = Number.isFinite(hold) && hold > now.getTime() ? new Date(hold).toISOString() : null;
     const who2 = ticketWho(o);
-    lines.forEach((l, i) => {
-      const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}`);
-      tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: l.itemId, menuItemName: l.name, quantity: l.quantity,
-        choicesText: l.choicesText || null, ...(Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due, makeSeconds: Number(l.makeSeconds) || null,
-        line: i + 1, lines: lines.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
+    made.forEach((m, i) => {
+      const l = m.l; const part = m.combo ? items[ids.indexOf(m.itemId)] : null;
+      const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}${m.combo ? `_${m.n}` : ''}`);
+      // A combo's part: its own name and make time, with the combo it's part of ("Burger meal"), at its own station.
+      tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: part ? String(part.name || 'Item').slice(0, 80) : l.name, quantity: l.quantity,
+        choicesText: part ? l.name : l.choicesText || null, ...(!part && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
+        guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
+        line: i + 1, lines: made.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
     // Taken: each stock item once (lib/usage moveStock for an ingredient, as the lounge does), with a line in the stock
@@ -224,8 +252,10 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       }
     }
     // What each line took, as taken (an ingredient that couldn't be counted took nothing).
-    const stockTaken: Record<string, { own: number; parts: Record<string, number> }> = {};
-    for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: Object.fromEntries(Object.entries(t.parts).filter(([pid]) => countable(pid))) };
+    const stockTaken: Record<string, { own: number; parts: Record<string, number>; items?: Record<string, number>; byPart?: Record<string, PartTake> }> = {};
+    const counted = (x: Record<string, number>) => Object.fromEntries(Object.entries(x).filter(([pid]) => countable(pid)));
+    for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}),
+      ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts) }])) } : {}) };
     tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
@@ -260,9 +290,24 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     // Lines the kitchen never started go back; the rest was made (or being made) and is waste.
     const back: Record<string, number> = {}; const goesBack = new Set<string>(); let returned = 0, wasted = 0;
     const wastedItems: Record<string, number> = {};   // what was made and thrown away, by item (lib/food-cost wasteOf)
+    const untouched = (t: any) => !t || t.status === 'pending' || t.status === 'cancelled';
+    // A combo's parts the kitchen never started, line by line ("0", "1"…), when what each took was kept part by part.
+    const partsBack = new Map<string, Set<string>>();
     for (const l of lines) {
-      const t: any = tix.find((d: any) => d.id === `${orderId}_${l.lineId}`)?.data();
-      if (!t || t.status === 'pending' || t.status === 'cancelled') { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); }
+      const byPart: Record<string, any> | null = o.stockTaken?.[l.lineId]?.byPart && typeof o.stockTaken[l.lineId].byPart === 'object' ? o.stockTaken[l.lineId].byPart : null;
+      if (byPart) {
+        const ok = new Set<string>(); let made = false;
+        for (const [n, x] of Object.entries<any>(byPart)) {
+          if (untouched(tix.find((d: any) => d.id === `${orderId}_${l.lineId}_${n}`)?.data())) ok.add(n);
+          else { made = true; const pid = String(x?.item || ''); if (ID.test(pid)) wastedItems[pid] = (wastedItems[pid] || 0) + l.quantity; }
+        }
+        partsBack.set(l.lineId, ok);
+        if (made) wasted += l.quantity; else { returned += l.quantity; goesBack.add(l.lineId); }
+        continue;
+      }
+      // (A combo line sent before parts were kept one by one: it goes back only if the kitchen started none of them.)
+      const mine = tix.filter((d: any) => d.id === `${orderId}_${l.lineId}` || String(d.id).startsWith(`${orderId}_${l.lineId}_`)).map((d: any) => d.data() || {});
+      if (mine.every(untouched)) { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); }
       else { wasted += l.quantity; if (ID.test(String(l.itemId || ''))) wastedItems[l.itemId] = (wastedItems[l.itemId] || 0) + l.quantity; }
     }
     const why = `Voided ${CHANNEL_NAME[o.channel as Channel] || ''} order ${o.number}: ${reason}`.replace(/\s+/g, ' ');
@@ -272,9 +317,19 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       // back once.
       const own = new Map<string, number>(); const part = new Map<string, number>();
       for (const l of lines) {
-        if (!goesBack.has(l.lineId)) continue;
         const t: any = o.stockTaken[l.lineId]; if (!t) continue;
+        const ok = partsBack.get(l.lineId);
+        if (ok) {
+          // A combo: each part the kitchen never started, as that part took it.
+          for (const n of ok) { const x: any = t.byPart?.[n] || {};
+            for (const [pid, q] of Object.entries<any>(x.items || {})) if (ID.test(pid) && num(q) > 0) own.set(pid, (own.get(pid) || 0) + num(q));
+            for (const [pid, q] of Object.entries<any>(x.parts || {})) if (ID.test(pid) && num(q) > 0) part.set(pid, (part.get(pid) || 0) + num(q)); }
+          continue;
+        }
+        if (!goesBack.has(l.lineId)) continue;
         if (num(t.own) > 0 && ID.test(l.itemId)) own.set(l.itemId, (own.get(l.itemId) || 0) + num(t.own));
+        // A combo's parts that came off their own counts.
+        for (const [pid, q] of Object.entries<any>(t.items || {})) if (ID.test(pid) && num(q) > 0) own.set(pid, (own.get(pid) || 0) + num(q));
         for (const [pid, q] of Object.entries<any>(t.parts || {})) if (ID.test(pid) && num(q) > 0) part.set(pid, (part.get(pid) || 0) + num(q));
       }
       const idsBack = Array.from(new Set([...own.keys(), ...part.keys()]));

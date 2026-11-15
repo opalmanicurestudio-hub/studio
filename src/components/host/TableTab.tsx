@@ -29,6 +29,7 @@ import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
 import { kitchenScreenOn } from '@/lib/kitchen';
 import { isFoodBusiness } from '@/lib/food-setup';
+import { priceNow, servedNow } from '@/lib/menu-time';
 import { makeSecondsOf } from '@/lib/counter-orders';
 import { approveWithPin } from '@/lib/approve-client';
 import { tablePayOf } from '@/lib/table-bill';
@@ -144,14 +145,21 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
       const c = courseOfItem(raw, courses);
       return { id: x.id, type: 'product', name: saleName(x, listings), price: deskPrice(x, listings), category: raw.category, course: c && !kitchenOn ? { ...c, hold: false } : c, station: stationOfItem(raw, stations), makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null,
         allergens: itemAllergens(x), allergensKnown: x.type !== 'refreshment' || allergensKnown(x), soldOut: x.type === 'refreshment' && itemSoldOut(x),
-        ...(x.type === 'refreshment' && Array.isArray(x.choices) && x.choices.length ? { choices: x.choices } : {}) }; }).filter((x: any) => x.price > 0),
+        // Its menus by time of day and happy-hour price (lib/menu-time), worked out when it's rung in.
+        ...(x.type === 'refreshment' ? { timed: { dayparts: x.dayparts || [], happyPrice: x.happyPrice ?? null } } : {}),
+        ...(x.type === 'refreshment' && Array.isArray(x.choices) && x.choices.length ? { choices: x.choices } : {}) }; })
+        // A combo is a counter order (its parts go to their own stations there).
+        .filter((x: any) => x.price > 0 && !prods.find((p: any) => p.id === x.id)?.combo),
       ...svcs.map((x: any) => ({ id: x.id, type: 'service', name: x.name || 'Service', price: Number(x.price) || 0, category: x.category || '', course: null, station: null, makeSeconds: null }))]); }).catch(() => {}); }, [firestore, tenantId, tenant, courses, stations]);
 
   const fired = (n: number) => tab.some((l) => Number(l.course) === n && !!l.firedAt);
   const outOf = (it: any, m: Record<string, CountRow> = counts) => it.type === 'product' && (it.soldOut || outNow.has(it.id) || (!!m[it.id] && m[it.id].left <= 0));
   // A dish with an allergen someone it reaches can't have is asked about first (lib/allergens conflicts); so is a dish
   // nobody has said the contents of, when someone it reaches has a severe allergy. A counted dish is checked again first.
+  const timedOf = (it: any) => (it.timed ? { ...it.timed, price: it.price } : null);
   const add = async (it: any, choice: TabChoice | null = null) => { if (!visitId) return; setMsg(null);
+    const sv = timedOf(it) ? servedNow(timedOf(it), tenant) : { ok: true as const };
+    if (!sv.ok) { setMsg(`${it.name} isn’t on now: ${sv.when}.`); return; }
     if (!choice && it.type === 'product' && hasChoices(it)) { setChoose(it); return; }
     let m = counts;
     if (counts[it.id]) { setBusy(true); m = takeCounts(await tabCall({ tenantId, action: 'counts', fresh: true }, '/api/menu')) || counts; setBusy(false); }
@@ -165,7 +173,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     const lineId = newLineId(); const vid = visitId;
     try { const sendNow = !!it.course?.hold && fired(it.course.n);
       setUnsent(markUnsent(vid, lineId, true));
-      const saving = addToTab(firestore, tenantId, vid, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies, lineId, choice })
+      // Happy hour prices it as it's rung in, and the line keeps that price to checkout (lib/menu-time).
+      const pn = timedOf(it) ? priceNow(timedOf(it), tenant) : null;
+      const saving = addToTab(firestore, tenantId, vid, { tableName, guestName: party.name || 'Table' }, pn ? { ...it, price: pn.price, happy: pn.happy } : it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies, lineId, choice })
         .then((l) => { setUnsent(markUnsent(vid, lineId, false)); return l; });
       // No answer in a few seconds: the database keeps it on this device and sends it when the connection's back.
       const went = await landed(saving); setNote('');

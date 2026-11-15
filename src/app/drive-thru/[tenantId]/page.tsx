@@ -45,7 +45,11 @@ type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; sta
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
 type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: (MenuItem & { number?: number | null })[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
+// An item as the lane reads it: its price right now (happy hour) and, outside its menus by time of day, when it's back.
+type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
+/** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
+const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -138,7 +142,7 @@ function NameField({ value, onSave }: { value: string; onSave: (v: string) => Pr
 }
 
 // ─── Choosing an item's choices (a size, a milk, extras) ─────────────────────────────────────────────────────────────
-function ChoiceSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
+function ChoiceSheet({ item, onAdd, onClose }: { item: LaneItem; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
   const [picks, setPicks] = useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = useState(1);
   const box = useRef<HTMLDivElement>(null); const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
@@ -147,7 +151,7 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (picks: 
     return () => { document.removeEventListener('keydown', k); opener?.focus?.(); };
   }, []);
   const priced = priceChoices(item, picks);
-  const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
+  const each = Math.max(0, (item.happy && typeof item.priceNow === 'number' ? item.priceNow : item.price) + (priced.ok ? priced.extra : 0));
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="choice-title" className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[#fff] sm:max-w-lg sm:rounded-3xl">
@@ -187,7 +191,7 @@ export default function DriveThru() {
   const [tick, setTick] = useState(() => Date.now());
   const [picked, setPicked] = useState<string | null>(null);
   const [section, setSection] = useState<string | null>(null);
-  const [choiceFor, setChoiceFor] = useState<MenuItem | null>(null);
+  const [choiceFor, setChoiceFor] = useState<LaneItem | null>(null);
   const [staff, setStaff] = useState<ScreenStaff | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -388,7 +392,7 @@ export default function DriveThru() {
     if (!order) return; const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}`;
     void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig) }, undefined, sig);
   };
-  const tapItem = (m: MenuItem) => { if (m.choices.length) setChoiceFor(m); else add(m); };
+  const tapItem = (m: LaneItem) => { if (m.choices.length) setChoiceFor(m); else add(m); };
   const setQty = (l: Line, q: number) => {
     if (!order) return; const sig = `line|${l.lineId}|${q}`;
     void act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: keyFor(sig) } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: keyFor(sig) }, undefined, sig);
@@ -739,8 +743,9 @@ export default function DriveThru() {
                       : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4" role="tabpanel">
                         {menu.filter((m) => m.section === shownSection).map((m) => {
                           // Switched to sold out, an ingredient run out, or none left of it (lib/menu-stock), said as such.
-                          const why = outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
-                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
+                          // (Outside its menus by time of day, it says when it's back: "Breakfast, from 7 AM".)
+                          const why = m.off || outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
+                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.happy ? ', happy hour' : ''}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
                           // The number guests order by, as on the menu board ("number 3"): lib/menu-numbers. (Light, so it isn't
                           // taken for the count on the order, which is dark.)
                           const num = m.number ? <span className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12.5px] font-bold tabular-nums" style={{ background: LINE, color: INK }} aria-hidden>{m.number}</span> : null;
@@ -760,7 +765,7 @@ export default function DriveThru() {
                               <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
                                 <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                                 <span className="flex items-center justify-between gap-2">
-                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
+                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
                                   {!out && m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
                                 </span>
                               </span>
@@ -772,7 +777,7 @@ export default function DriveThru() {
                               style={{ background: out ? SOFT : '#fff', border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 13 : 14 }}>
                               <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                               <span className="mt-2 flex items-center justify-between gap-2">
-                                <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(m.from ? m.startPrice : m.price)}</span>
+                                <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
                                 {why ? <span className="min-w-0 truncate rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>
                                   : m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
                               </span>

@@ -22,7 +22,7 @@ import { limitPublic } from '@/lib/rate-limit';
 import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
-import { RUSH_CARS, inLineNow } from '@/lib/counter-orders';
+import { RUSH_CARS, inLineNow, atDriveThru } from '@/lib/counter-orders';
 import { readMenu } from '@/lib/menu-server';
 import { menuForVoice } from '@/lib/voice-order';
 import { agentOf, voiceOn, markCallEnded } from '@/lib/drive-thru-voice';
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
       // The newest car at the speaker whose order is still being taken: the one to greet.
       const snap = await db.collection(`${T}/driveThruCars`).where('stage', '==', 'speaker').limit(100).get();
       // (A car taken in line, before the speaker, already has someone with it: never greeted.)
-      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
+      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true && atDriveThru(c)).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
       const o: any = car?.orderId && ID.test(String(car.orderId)) ? (await db.doc(`${T}/counterOrders/${car.orderId}`).get()).data() : null;
       return ok({ on: voiceOn(tenant), now: nowIso, car: car ? { id: car.id, number: car.number, orderId: car.orderId || null, arrivedAt: car.arrivedAt, voice: car.voice || null, items: Array.isArray(o?.lines) ? o.lines.length : 0 } : null });
     }
@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
         const car: any = (await tx.get(carRef)).data();
         if (!car || car.stage !== 'speaker') return { error: 'That car isn’t at the speaker.', status: 409 };
         if (car.inLine === true) return { error: 'That car’s order is being taken in line.', status: 409 };
+        // (A guest at the counter is never greeted by the drive-thru’s assistant.)
+        if (!atDriveThru(car)) return { error: 'That order is at the counter, not the drive-thru.', status: 409 };
         const o: any = car.orderId ? (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data() : null;
         if (!o || o.status !== 'building') return { error: 'That order has been taken already.', status: 409 };
         const v = car.voice || {};
@@ -124,7 +126,7 @@ export async function POST(req: NextRequest) {
         const menu = menuForVoice(menuItems);
         // A long line (this many cars in it, counting this one) puts the assistant in rush mode: no suggestions, a short
         // read-back. Only cars that arrived in the last three hours count, so one left behind yesterday never does.
-        const others = inLineNow(laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), Date.now(), carId);
+        const others = inLineNow(laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter(atDriveThru), Date.now(), carId);
         const busy = others + 1 >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),

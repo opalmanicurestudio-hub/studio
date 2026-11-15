@@ -188,7 +188,7 @@ const ago = (min: number, from = NOW) => new Date(from - min * 60000).toISOStrin
   console.log('the screens');
   const host = src('src/app/(app)/host/page.tsx'); const kds = src('src/app/kds/[tenantId]/page.tsx'); const order = src('src/app/order/[tenantId]/page.tsx'); const set = src('src/components/menu/TableServiceSettings.tsx');
   check('the host stand says the kitchen is behind and that the waits count it', /The kitchen is about \$\{floor\.pace\.behindMin\} min behind/.test(host) && host.includes('The waits you quote already count it.') && host.includes('seat slowly if you can'));
-  check('the kitchen screen shows it in its header, kept from each reply', /About \{data\.pace\.behindMin\} min behind\. The host stand and pickup times know\./.test(kds) && /const next: Data = \{[^\n]*\n\s*pace: d\.pace &&/.test(kds));
+  check('the kitchen screen shows it in its header, kept from each reply', /say\('About \{n\} min behind\. The host stand and pickup times know\.', \{ n: data\.pace\.behindMin \}\)/.test(kds) && /const next: Data = \{[^\n]*\n\s*pace: d\.pace &&/.test(kds));
   check('ordering ahead tells the guest, plainly', order.includes('The kitchen is busy right now, so orders are taking about') && /menu\.busy/.test(order));
   check('the settings: on or off, and when it counts as busy', set.includes('Count the kitchen’s pace') && set.includes('min behind') && /pace\.on/.test(set) && /busyMin/.test(set));
   const reg = src('src/lib/settings-registry.ts');

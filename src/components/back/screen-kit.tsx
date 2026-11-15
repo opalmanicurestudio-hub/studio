@@ -7,6 +7,7 @@
 // api/back.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useFirebase } from '@/firebase';
+import { useT } from '@/components/kitchen/ScreenLang';
 
 export const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed', RED = '#b42318';
 export const ring = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -73,9 +74,10 @@ export function Sheet({ label, onClose, wide, children }: { label: string; onClo
     </div>
   );
 }
-export const CloseX = ({ onClose }: { onClose: () => void }) => (
-  <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${ring}`} style={{ borderColor: LINE }}>×</button>
-);
+export function CloseX({ onClose }: { onClose: () => void }) {
+  const say = useT();
+  return <button type="button" onClick={onClose} aria-label={say('Close')} className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${ring}`} style={{ borderColor: LINE }}>×</button>;
+}
 export function SheetHead({ title, line, onClose }: { title: string; line?: string; onClose: () => void }) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -127,6 +129,7 @@ export function Setup({ tenantId, title, line, place, stopped, onPaired, onMe }:
 
 // ─── Who's working ───
 export function PinSheet({ onClose, onPin }: { onClose: () => void; onPin: (pin: string) => Promise<string | null> }) {
+  const say = useT();
   const [pin, setPin] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const press = async (k: string) => {
     if (busy) return;
@@ -135,12 +138,12 @@ export function PinSheet({ onClose, onPin }: { onClose: () => void; onPin: (pin:
     if (next.length === 4) { setBusy(true); const e = await onPin(next); setBusy(false); if (e) { setErr(e); setPin(''); } }
   };
   return (
-    <Sheet label="Who’s working?" onClose={onClose}>
-      <SheetHead title="Who’s working?" line="Your PIN puts your name on what you do." onClose={onClose} />
-      <div className="flex justify-center gap-3" role="img" aria-label={`${pin.length} of 4 digits entered`}>{[0, 1, 2, 3].map((i) => <span key={i} className="h-4 w-4 rounded-full" style={{ background: i < pin.length ? INK : LINE }} />)}</div>
+    <Sheet label={say('Who’s working?')} onClose={onClose}>
+      <SheetHead title={say('Who’s working?')} line={say('Your PIN puts your name on what you do.')} onClose={onClose} />
+      <div className="flex justify-center gap-3" role="img" aria-label={say('{n} of 4 digits entered', { n: pin.length })}>{[0, 1, 2, 3].map((i) => <span key={i} className="h-4 w-4 rounded-full" style={{ background: i < pin.length ? INK : LINE }} />)}</div>
       <p role="alert" className="min-h-5 text-center text-[14px] font-medium" style={{ color: AMBER }}>{err}</p>
       <div className="grid grid-cols-3 gap-2">{['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((k, i) => k === '' ? <span key={i} /> : (
-        <button key={i} type="button" onClick={() => press(k)} disabled={busy} aria-label={k === 'del' ? 'Delete' : k} className={`h-16 rounded-2xl text-[22px] font-semibold ${ring}`} style={{ background: SOFT }}>{k === 'del' ? '⌫' : k}</button>))}</div>
+        <button key={i} type="button" onClick={() => press(k)} disabled={busy} aria-label={k === 'del' ? say('Delete') : k} className={`h-16 rounded-2xl text-[22px] font-semibold ${ring}`} style={{ background: SOFT }}>{k === 'del' ? '⌫' : k}</button>))}</div>
     </Sheet>
   );
 }

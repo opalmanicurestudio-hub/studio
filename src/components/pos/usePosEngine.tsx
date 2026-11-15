@@ -21,6 +21,7 @@ import { identifyPosScan, onHand } from '@/lib/pos-scan';
 import { mustScanAtRegister } from '@/lib/register-scan';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { choiceGroups, cleanPicks, lineChoices, picksKey, priceChoices } from '@/lib/menu-choices';
+import { happyPriceOf, inHappyHour, priceNow } from '@/lib/menu-time';
 import { heldCovered, heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
@@ -638,6 +639,7 @@ export function usePosEngine() {
   // listing's. One with no price yet isn't added (it used to sell at cost).
   const deskListings = useMemo(() => listingsOf(inventory || []), [inventory]);
   const deskListingsRef = useRef(deskListings); deskListingsRef.current = deskListings;
+  const tenantRef = useRef<any>(selectedTenant); tenantRef.current = selectedTenant;
   const handleAddToCart = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }, comp?: { lineId: string; visitId: string; cents: number }): boolean => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
     let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product'; let name = String(item?.name || 'Item'); let listingId: string | null = null;
@@ -654,6 +656,12 @@ export function usePosEngine() {
     // (`__tabLine`, read from that line at checkout). Each set of choices is its own line, at its own price.
     const tabLine = type === 'product' && item?.__tabLine?.lineId ? { lineId: String(item.__tabLine.lineId), visitId: String(item.__tabLine.visitId || '') } : null;
     const picks = type === 'product' && item?.__picks ? cleanPicks(item.__picks) : null;
+    // Happy hour (lib/menu-time): a table's line keeps the price it was rung in at; anything rung up here is priced now.
+    if (type === 'product' && item?.type === 'refreshment') {
+      const ten: any = tenantRef.current;
+      if (tabLine || comp) { const hp = happyPriceOf(item); if (item.__tabLine?.happy === true && hp !== null && inHappyHour(ten, new Date(String(item.__tabLine?.at || '')))) price = hp; }
+      else price = priceNow({ ...item, price }, ten).price;
+    }
     let chosen: { extra: number; text: string } | null = null;
     if (tabLine || comp) {
       // As the table ordered it: priced from the menu now, a choice since gone at what it was (the server does the same).

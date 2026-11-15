@@ -155,7 +155,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           if (item) {
             // Each of the table's food and drink lines is rung up as its own line, with its choices (lib/menu-choices):
             // priced from the menu, and read from this line at checkout.
-            const it2 = l.itemType !== 'service' ? { ...item, __tabLine: { lineId: String(l.lineId), visitId: id, picks: l.picks || null, choices: Array.isArray(l.choices) ? l.choices : [] } } : item;
+            const it2 = l.itemType !== 'service' ? { ...item, __tabLine: { lineId: String(l.lineId), visitId: id, picks: l.picks || null, choices: Array.isArray(l.choices) ? l.choices : [], happy: l.happy === true, at: l.at || null } } : item;
             let added = true;
             if (l.comp && Number(l.comp.amount) > 0) added = e.handleAddToCart?.(it2, 1, undefined, { lineId: String(l.lineId), visitId: id, cents: Math.round(Number(l.comp.amount) * 100) }) !== false;
             else for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) if (e.handleAddToCart?.(it2) === false) added = false;

@@ -38,6 +38,7 @@ import { accountOf, addShareToTicket, checkDeskPayment, clearExtraOnReceipt, cle
 import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
+import { happyPriceOf, inHappyHour, priceNow, servedNow } from '@/lib/menu-time';
 import { choiceGroups, cleanPicks, lineChoices, priceChoices } from '@/lib/menu-choices';
 import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 import { kitchenScreenOn } from '@/lib/kitchen';
@@ -745,6 +746,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // A line from a table's tab with choices (lib/menu-choices) is read from the tab itself, once; choices picked here
   // are checked against the menu.
   const tabLinesUsed = new Set<string>();
+  // A table's line keeps its happy-hour price only when it really was rung in during happy hour: by when its kitchen ticket
+  // was made (the database's own clock), never the time written on the line, which the tablet sets.
+  const rungInAt = async (visitId: string, l: any): Promise<Date | null> => {
+    const kid = `tab_${visitId}_${String(l?.lineId || '')}`;
+    if (String(l?.kdsId || '') !== kid || !/^[A-Za-z0-9_-]{1,200}$/.test(kid)) return null;
+    const s: any = await db.doc(`${T}/kdsTickets/${kid}`).get().catch(() => null);
+    const ms = s?.exists && typeof s.createTime?.toMillis === 'function' ? Number(s.createTime.toMillis()) : NaN; const d = Number.isFinite(ms) ? new Date(ms) : null;
+    return d && !isNaN(d.getTime()) && String((s.data() || {}).menuItemId || '') === String(l.itemId || '') ? d : null;
+  };
   const tabLine = (visitId: string, lineId: string) => { const v = visits.find((x: any) => x.appointment?.id === visitId); return (Array.isArray(v?.appointment?.tab) ? v.appointment.tab : []).find((x: any) => x?.lineId === lineId) || null; };
   for (const it of reqItems) {
     const compLineId = typeof it.compLineId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(it.compLineId) ? it.compLineId : null;
@@ -758,6 +768,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     // listing's. One with no price isn't sold (it used to sell at cost).
     if (type === 'product') { const p = inventory.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: `${name} isn’t in your inventory any more.` }, 400);
       price = deskPrice(p, deskListings); name = saleName(p, deskListings); stock = num(p.totalStock);
+      // A combo is made as its parts, each at its own station from its own stock: rung up at the counter (or the
+      // drive-thru), never here as one item.
+      if (p.combo === true) return json({ ok: false, error: `${name} is a combo. Ring it up on the Counter page, where each part goes to its own station.` }, 409);
+      // Outside its menus by time of day, it isn't sold (a table's line was rung in while it was on).
+      if (!compLineId && !tabLineId && p.type === 'refreshment') { const on = servedNow(p, tenant); if (!on.ok) return json({ ok: false, error: `${name} isn’t on now: ${on.when}.` }, 409); }
       if (!(price > 0)) return json({ ok: false, error: `${name} has no price yet. Give it one in Inventory, then take it off this sale and add it again.` }, 400);
       const lid = deskListings.get(String(p.id))?.id; if (lid) (it as any).__listingId = String(lid);
       // Its choices: as the table ordered them (priced from the menu now), or as picked at the desk.
@@ -768,11 +783,14 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
           if (!l || String(l.itemId || '') !== id || tabLinesUsed.has(tabLineId) || qty > Math.max(1, Math.round(num(l.quantity) || 1))) return json({ ok: false, error: `${name} isn’t on that table’s tab like that any more. Take it off this sale and check out from the table again.` }, 409);
           tabLinesUsed.add(tabLineId);
         }
+        // Rung in during happy hour: its happy-hour price, as it was then (lib/menu-time).
+        if (l && String(l.itemId || '') === id && l.happy === true && happyPriceOf(p) !== null) { const when = await rungInAt(String((compLineId ? it.compVisitId : it.tabVisitId) || ''), l); if (when && inHappyHour(tenant, when)) price = happyPriceOf(p)!; }
         if (l && String(l.itemId || '') === id) chosen = lineChoices(p, l);
-      } else if (picks) {
+      } else if (p.type === 'refreshment') price = priceNow({ ...p, price }, tenant).price;
+      if (!compLineId && !tabLineId && picks) {
         const pc = priceChoices(p, picks); if (!pc.ok) return json({ ok: false, error: `${name}: ${pc.error}` }, 400);
         if (pc.lines.length) chosen = { extra: pc.extra, text: pc.text, lines: pc.lines };
-      } else {
+      } else if (!compLineId && !tabLineId) {
         // An item with a choice that must be made (a size) isn't sold without it.
         const must = choiceGroups(p).find((g) => g.required);
         if (must) return json({ ok: false, error: `${name} needs a ${must.name.toLowerCase()}. Take it off this sale and tap it in the list to choose.` }, 400);

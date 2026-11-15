@@ -2,6 +2,7 @@
 // screen's one-tap "Sold out"). A menu item is an inventory item of the refreshment kind; what guests see of it is its
 // name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier. Whether it can be made
 // now comes from its recipe's ingredients when it has one, else its own count (lib/menu-stock).
+import { happyPriceOf } from '@/lib/menu-time';
 import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
 import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
@@ -34,7 +35,9 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
    *  needs its first price. */
   allergensLikely: AllergenKey[]; recipeGaps: string[]; starter: boolean;
   /** Its recipe's ingredients by name, in the recipe's order (empty: no recipe), for "what's in it?" (lib/klair-menu). */
-  recipe: string[] };
+  recipe: string[] 
+  dayparts: string[]; happyPrice: number | null; combo: boolean; comboParts: string[];
+};
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -56,6 +59,9 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     allergensLikely: allergensKnown(i) ? [] : cleanKeys(Array.isArray(i.allergensLikely) ? i.allergensLikely : []),
     recipeGaps: (Array.isArray(i.recipeGaps) ? i.recipeGaps : []).map((g: unknown) => words(g, 60)).filter(Boolean).slice(0, 10), starter: i.createdVia === 'food-starter',
     recipe: Array.from(new Set((Array.isArray(i.formula) ? i.formula : []).map((f: any) => words(f?.name, 40)).filter(Boolean))).slice(0, 12) as string[],
+    // Its menus by time of day, happy-hour price, and as a combo the parts it always has (lib/menu-time, lib/counter-orders).
+    dayparts: Array.isArray(i.dayparts) ? i.dayparts.map(String).slice(0, 6) : [], happyPrice: happyPriceOf(i),
+    combo: i.combo === true, comboParts: i.combo === true && Array.isArray(i.comboParts) ? i.comboParts.map((p: any) => String(p?.itemId || '')).filter(Boolean).slice(0, 6) : [],
   };
 }
 
@@ -65,8 +71,18 @@ export async function readMenu(db: any, tenantId: string): Promise<MenuItem[]> {
   const all = snap.docs.map((d: any) => ({ id: d.id, i: d.data() || {} }));
   const items = all.filter((x: any) => isMenuItem(x.i));
   const parts = await readIngredients(db, tenantId, ingredientIds(items), new Map(all.map((x: any) => [x.id, x.i])));
-  return items.map((x: any) => menuItemOf(x.id, x.i, parts))
-    .sort((a: MenuItem, b: MenuItem) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name));
+  const menu: MenuItem[] = items.map((x: any) => menuItemOf(x.id, x.i, parts));
+  // A combo can be made while each part it always has can (on the menu, not sold out, in stock); a choice of an item
+  // that can't be made right now shows as sold out.
+  const byId = new Map(menu.map((m) => [m.id, m]));
+  const out = (id: string) => { const p = byId.get(id); return !p || p.soldOut || !p.inStock; };
+  for (const m of menu) {
+    if (!m.combo) continue;
+    const gone = m.comboParts.find(out);
+    if (gone) { m.inStock = false; m.short = byId.get(gone)?.name || 'one of its parts'; }
+    m.choices = m.choices.map((g) => ({ ...g, options: g.options.map((o) => (o.itemId && out(o.itemId) ? { ...o, soldOut: true } : o)) }));
+  }
+  return menu.sort((a: MenuItem, b: MenuItem) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name));
 }
 
 /** Recipe ingredients by id (those already read are used as they are). */
