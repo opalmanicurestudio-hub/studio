@@ -20,7 +20,7 @@ const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null };
-type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?: string[]; asapFull?: boolean; filling?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
 type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
@@ -149,6 +149,20 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
   );
 }
 
+/** The soonest pickup time with room ('' when there's none, so the guest is asked). */
+const firstOpen = (m: Menu) => m.times.find((t) => !(m.full || []).includes(t)) || '';
+
+/** A pickup time to choose; a full one says so and can't be chosen. */
+function TimeButton({ label, full, fullWord, on, onPick, wide }: { label: string; full: boolean; fullWord: string; on: boolean; onPick: () => void; wide?: boolean }) {
+  return (
+    <button type="button" aria-pressed={on} disabled={full} onClick={onPick}
+      className={`flex min-h-[48px] items-center justify-between gap-2 rounded-xl px-3.5 text-left text-[15px] ${wide ? 'col-span-2' : ''} ${RING}`}
+      style={full ? { background: SOFT, color: '#8b8e93', border: `1px solid ${LINE}` } : on ? { background: '#fff', color: INK, border: `1px solid ${INK}`, boxShadow: `inset 0 0 0 1px ${INK}`, fontWeight: 600 } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>
+      <span>{label}</span>{full ? <span className="text-[13px] font-semibold">{fullWord}</span> : on ? <span className="text-[13px] font-semibold" style={{ color: GREEN }}>Chosen</span> : null}
+    </button>
+  );
+}
+
 export default function OrderAhead() {
   const { tenantId } = useParams() as { tenantId: string };
   const [menu, setMenu] = React.useState<Menu | null>(null); const [err, setErr] = React.useState('');
@@ -156,6 +170,10 @@ export default function OrderAhead() {
   const [step, setStep] = React.useState<'menu' | 'review' | 'pay'>('menu');
   const [name, setName] = React.useState(''); const [way, setWay] = React.useState<Way | null>(null); const [at, setAt] = React.useState<string>('');
   const [phone, setPhone] = React.useState(''); const [join, setJoin] = React.useState(false);
+  const [moreTimes, setMoreTimes] = React.useState(false);
+  // The time chosen is full (or, as soon as it's ready, with every time full): paying waits for one with room.
+  const chosenFull = !!menu && (at === '' ? !!menu.asapFull : (menu.full || []).includes(at));
+  const noneOpen = !!menu && !!menu.asapFull && !firstOpen(menu);
   const [placing, setPlacing] = React.useState(false); const [payBusy, setPayBusy] = React.useState(false); const [placeErr, setPlaceErr] = React.useState('');
   const [pay, setPay] = React.useState<{ orderId: string; sig: string; number: string; total: number; clientSecret: string; publishableKey: string; stripeAccount: string } | null>(null);
   const [track, setTrack] = React.useState<{ o: string; s: string } | null>(null);
@@ -166,7 +184,7 @@ export default function OrderAhead() {
     if (o && s) { setTrack({ o, s }); return; }
     try { const c = JSON.parse(read(cartKey) || '[]'); if (Array.isArray(c)) setCart(c.slice(0, 30)); } catch { /* */ }
     setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || '');
-    void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); } else setErr(d.error || 'This page isn’t here.'); });
+    void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); if (d.asapFull) setAt(firstOpen(d)); } else setErr(d.error || 'This page isn’t here.'); });
   }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!track) write(cartKey, cart.length ? JSON.stringify(cart) : null); key.current = ''; }, [cart]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
@@ -187,7 +205,8 @@ export default function OrderAhead() {
     if (!key.current) key.current = rid();
     const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(phone.replace(/\D/g, '').length >= 10 && menu?.points ? { phone: phone.replace(/\D/g, '').slice(-10), join } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks })) });
     setPlacing(false);
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'at') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) setMenu(m); setAt(''); }); return; }
+    // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
+    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'at' || d.code === 'slot_full') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(m.asapFull ? firstOpen(m) : ''); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -267,14 +286,17 @@ export default function OrderAhead() {
               {menu.ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'drive-thru' ? 'Drive-thru' : 'Inside'}</button>)}
             </div></fieldset>)}
         {menu.ways.length === 1 && <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {menu.ways[0] === 'drive-thru' ? 'at the drive-thru' : 'inside'}</p>}
-        <label className="block"><span className="text-[15px] font-semibold">When</span>
-          <select value={at} onChange={(e) => setAt(e.target.value)} className={`mt-2 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
-            <option value="">As soon as it’s ready</option>
-            {menu.times.map((t) => <option key={t} value={t}>{clock(t, menu.timeZone)}</option>)}
-          </select></label>
-        {menu.busy && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual.</p>}
+        <fieldset><legend className="text-[15px] font-semibold">When</legend>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <TimeButton label="As soon as it’s ready" full={!!menu.asapFull} fullWord="Full right now" on={at === ''} onPick={() => setAt('')} wide />
+            {menu.times.slice(0, moreTimes || menu.times.indexOf(at) >= 7 ? undefined : 7).map((t) => <TimeButton key={t} label={clock(t, menu.timeZone)} full={(menu.full || []).includes(t)} fullWord="Full" on={at === t} onPick={() => setAt(t)} />)}
+          </div>
+          {menu.times.length > 7 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`${btn} mt-1 min-h-[44px] px-0 text-[15px] underline underline-offset-4`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
+        </fieldset>
+        {menu.busy && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual{menu.filling ? ', and pickup times fill faster' : ''}.</p>}
         {placeErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{placeErr}</p>}
-        <button type="button" onClick={place} disabled={placing || !cart.length} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : 'Continue to pay'}</button>
+        {noneOpen && <p className="text-[14px]" style={{ color: AMBER }}>The kitchen’s full right now. Please try again in a few minutes.</p>}
+        <button type="button" onClick={place} disabled={placing || !cart.length || chosenFull} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : noneOpen ? 'Full right now' : chosenFull ? 'Pick a pickup time' : 'Continue to pay'}</button>
         <p className="text-center text-[13px]" style={{ color: MUTED }}>You pay now, so it’s ready when you get here.</p>
       </section>
     </div>);

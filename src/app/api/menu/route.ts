@@ -29,6 +29,7 @@
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 // Nothing about cost or suppliers is read or written here. `list` also gives each item's recipe.
+import { cleanSlotItems, SLOT_ITEMS_MAX, SLOT_ITEMS_MIN } from '@/lib/ahead-slots';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -68,7 +69,7 @@ const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySett
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
   const a = t.orderAhead || {}; const A = aheadOf(t);
-  return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, laterHours: A.laterHours, payments: !!accountOf(t),
+  return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
     link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
 }
 
@@ -170,6 +171,8 @@ export async function POST(req: NextRequest) {
       if (typeof b.driveThru === 'boolean') patch.driveThru = b.driveThru;
       if (typeof b.inside === 'boolean') patch.inside = b.inside;
       if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
+      // Most items one pickup time takes (lib/ahead-slots); null for no limit.
+      if (b.slotItems !== undefined) { const n = cleanSlotItems(b.slotItems); if (n === undefined) return bad(`Items for one pickup time: ${SLOT_ITEMS_MIN} to ${SLOT_ITEMS_MAX}, or no limit.`); patch.slotItems = n; }
       const next = { ...cur, ...patch };
       if (next.driveThru === false && next.inside === false) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);

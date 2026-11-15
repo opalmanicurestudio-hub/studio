@@ -21,6 +21,7 @@ import { loyaltyOf } from '@/lib/loyalty';
 import { pickupDelayMin } from '@/lib/kitchen-pace';
 import { paceNow } from '@/lib/kitchen-pace-server';
 import { klairSettings } from '@/lib/klair';
+import { asapSlot, cleanSlotItems, fits, fullTimes, itemCount, itemsBySlot, slotCap, type PaceLevel } from '@/lib/ahead-slots';
 import { menuAnswersOn } from '@/lib/klair-menu';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -39,7 +40,10 @@ export function aheadOf(tenant: any) {
   const a = tenant?.orderAhead || {};
   const hours = Math.floor(num(a.laterHours));
   const ways: AheadWay[] = [...(a.driveThru !== false ? ['drive-thru' as const] : []), ...(a.inside !== false ? ['inside' as const] : [])];
-  return { on: a.on === true && ways.length > 0, ways: ways.length ? ways : (['inside'] as AheadWay[]), laterHours: hours >= 0 && hours <= 12 ? (a.laterHours === undefined ? 3 : hours) : 3 };
+  const cap = cleanSlotItems(a.slotItems);
+  return { on: a.on === true && ways.length > 0, ways: ways.length ? ways : (['inside'] as AheadWay[]), laterHours: hours >= 0 && hours <= 12 ? (a.laterHours === undefined ? 3 : hours) : 3,
+    // Most items one pickup time takes (lib/ahead-slots); null: no limit.
+    slotItems: cap === undefined ? null : cap };
 }
 
 export function aheadSig(tenantId: string, orderId: string): string | null {
@@ -75,6 +79,17 @@ function openDays(tenant: any, now = Date.now()): string[] {
   return today === before ? [today] : [today, before];
 }
 
+/** The orders placed ahead that could be in today's pickup times (placed today, or late yesterday for a time after
+ *  midnight), for how full each time is: read at most every 10 seconds per business. */
+const dayCache = new Map<string, { at: number; day: string; orders: any[] }>();
+async function dayOrders(db: any, tenantId: string, tenant: any, now: number): Promise<any[]> {
+  const tz = tenantTimeZone(tenant); const day = todayIn(tz, new Date(now)); const before = todayIn(tz, new Date(now - 86400000)); const c = dayCache.get(tenantId);
+  if (c && c.day === day && now - c.at < 10000) return c.orders;
+  const orders = (await db.collection(`tenants/${tenantId}/counterOrders`).where('channel', '==', 'ahead').where('day', 'in', day === before ? [day] : [day, before]).limit(3000).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  dayCache.set(tenantId, { at: now, day, orders }); if (dayCache.size > 500) dayCache.delete(dayCache.keys().next().value as string);
+  return orders;
+}
+
 /** The guest's menu: on or off, how they can pick up, the times, and the items by section. The menu itself is read at
  *  most every 15 seconds per business, however many guests open the page. */
 const menuCache = new Map<string, { at: number; menu: MenuItem[] }>();
@@ -94,9 +109,14 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   // The kitchen running behind (lib/kitchen-pace): the first time offered is that much later, and the page says so.
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant);
   const busy = pace.level === 'calm' ? null : { minutes: pace.behindMin };
+  // Pickup times that fill (lib/ahead-slots): the times with no room left, fewer items a time when the kitchen is busy.
+  const now = Date.now(); const times = pickupTimes(tenant, now, pickupDelayMin(pace));
+  const cap = slotCap(A.slotItems, pace.level as PaceLevel);
+  let full: string[] = []; let asapFull = false;
+  if (cap !== null) { const used = itemsBySlot(await dayOrders(db, tenantId, tenant, now), now); full = fullTimes(times, used, cap); asapFull = (used.get(asapSlot(now, pickupDelayMin(pace))) || 0) >= cap; }
   // Klair answering menu questions (lib/klair-menu), when the business turns it on.
   const K = klairSettings(tenant); const klair = menuAnswersOn(tenant, K.on) ? { name: K.name } : null;
-  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant, Date.now(), pickupDelayMin(pace)), busy, klair, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
+  return { ok: true as const, on: payments, business, ways: A.ways, times, full, asapFull, filling: cap !== null && pace.level !== 'calm', busy, klair, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
     points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
 }
 
@@ -146,6 +166,10 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const money = totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
+  // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room
+  // in it is checked in the same step the order is made, so two guests can't both take the last of it.
+  const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
+  const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
   const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone });
@@ -154,6 +178,11 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const made: any = await db.runTransaction(async (tx: any) => {
     const had: any = (await tx.get(orderRef)).data();
     if (had) return { had };
+    if (cap !== null) {
+      // Only the orders for this pickup time, whatever day they were placed (a late order for a time after midnight).
+      const inSlot = (await tx.get(db.collection(`${T}/counterOrders`).where('ahead.slot', '==', slot))).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+      if (!fits(itemsBySlot(inSlot, now, orderId).get(slot) || 0, cap, items)) return { full: true };
+    }
     // A pickup code nobody else has today (tried a few times; 9,000 to choose from).
     let code = ''; const counterRef = db.doc(`${T}/orderCounters/${day}`);
     const c: any = (await tx.get(counterRef)).data() || {};
@@ -163,10 +192,12 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
-      ahead: { state: 'awaiting_pay', way, at, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) } });
+      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) } });
     return { number, code };
   });
   if (made.busy) return fail('Something went wrong. Try again.', 503);
+  if (!made.had) dayCache.delete(tenantId);
+  if (made.full) { dayCache.delete(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
   const cur: any = made.had || (await orderRef.get()).data();
   if (made.had) {
     if (cur.ahead?.state === 'paid') return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, paid: true };

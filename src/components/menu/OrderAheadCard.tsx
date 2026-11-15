@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
-export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; laterHours: number; payments: boolean; link: string };
+export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; laterHours: number; slotItems?: number | null; payments: boolean; link: string };
 
 export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (body: any) => Promise<any> }) {
   const [a, setA] = useState<AheadSettings>(start);
@@ -49,6 +49,12 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
             <option value={0}>As soon as it’s ready only</option>
             {[1, 2, 3, 4, 6, 8, 12].map((h) => <option key={h} value={h}>Up to {h} hour{h === 1 ? '' : 's'} ahead</option>)}
           </select></label>
+        <label className="block sm:col-span-2"><span className="text-[14px] font-semibold">Most items for one pickup time</span>
+          <select value={a.slotItems ?? ''} disabled={!!busy} onChange={(e) => save('slots', { slotItems: e.target.value ? Number(e.target.value) : null })} aria-describedby="ahead-slots-help" className={`mt-2 h-11 w-full rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
+            <option value="">No limit</option>
+            {[4, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50].map((n) => <option key={n} value={n}>{n} items</option>)}
+          </select>
+          <span id="ahead-slots-help" className="mt-1.5 block text-[13px]" style={{ color: MUTED }}>Each 15-minute pickup time takes this many items, then shows as full. When the kitchen is busy it takes three-quarters as many, and half when slammed. A big order can always have a time to itself.</span></label>
       </div>
       {a.on && (
         <div className="flex flex-wrap items-center gap-4 rounded-2xl p-4" style={{ background: SOFT }}>
