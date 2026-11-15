@@ -147,7 +147,9 @@ export function ticketDoc(tickets: any[], o: { tz: string | null; at: string; st
   if (sub) blocks.push({ k: 'text', text: sub });
   blocks.push({ k: 'rule' });
   for (const tk of tickets) {
-    const subs = [tk.choices, tk.seatNumber ? `Seat ${tk.seatNumber}` : null, tk.remake ? 'Remake' : null].filter(Boolean) as string[];
+    // Each choice on its own line, so "No onions" is never lost in a list.
+    const picked: string[] = Array.isArray(tk.choiceList) && tk.choiceList.length ? tk.choiceList : tk.choices ? [tk.choices] : [];
+    const subs = [...picked, tk.seatNumber ? `Seat ${tk.seatNumber}` : null, tk.remake ? 'Remake' : null].filter(Boolean) as string[];
     const note = tk.note && !allergyFlags(tk).mentions.includes(tk.note) ? String(tk.note) : null;
     blocks.push({ k: 'item', qty: Math.max(1, Number(tk.quantity) || 1), name: String(tk.item || 'Item'), sub: note ? [...subs, note] : subs });
   }

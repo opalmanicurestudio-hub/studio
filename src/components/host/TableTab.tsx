@@ -18,12 +18,13 @@
 // comps, voids and payments need the connection, and say so.
 import * as React from 'react';
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
-import { addToTab, ensureTableVisit, newLineId, tabComps, tabTotal, type TabLine } from '@/lib/table-tab';
+import { addToTab, ensureTableVisit, newLineId, tabComps, tabTotal, type TabChoice, type TabLine } from '@/lib/table-tab';
+import { ChoiceSheet } from '@/components/menu/ChoiceSheet';
 import { ALLERGENS, allergensKnown, allergyLine, allergyPhrase, cleanKeys, conflicts, itemAllergens, reaching, tableAllergies, ticketAllergyFields, whoWords, wordsList, type AllergenKey, type TableAllergy } from '@/lib/allergens';
 import { keptNow, landed, send, useOutbox } from '@/lib/outbox';
 import { ticketFrom } from '@/lib/kitchen';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { itemSoldOut } from '@/lib/menu-choices';
+import { hasChoices, itemSoldOut } from '@/lib/menu-choices';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
 import { kitchenScreenOn } from '@/lib/kitchen';
@@ -78,7 +79,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
   const [visit, setVisit] = React.useState<any>(null); const [tickets, setTickets] = React.useState<Record<string, any>>({});
   const [counts, setCounts] = React.useState<Record<string, CountRow>>({});
   const [allergySheet, setAllergySheet] = React.useState<{ edit: TableAllergy | null } | null>(null);
-  const [warn, setWarn] = React.useState<{ it: any; keys: AllergenKey[]; who: TableAllergy[]; unknown?: boolean } | null>(null);
+  const [warn, setWarn] = React.useState<{ it: any; keys: AllergenKey[]; who: TableAllergy[]; unknown?: boolean; choice?: TabChoice | null } | null>(null);
+  // An item with choices (a size, how it's cooked, extras: lib/menu-choices) asks for them before it's rung in.
+  const [choose, setChoose] = React.useState<any | null>(null);
   const [removing, setRemoving] = React.useState<string | null>(null);
   // Paid at the table so far (on the guests' phones, or cash the server took): the check is then finished here, not at
   // the desk, so nobody pays twice.
@@ -140,33 +143,36 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     setCatalog([...prods.map((x: any) => { const raw = { ...x, category: x.category || listings.get(String(x.id))?.category || x.department || '' };
       const c = courseOfItem(raw, courses);
       return { id: x.id, type: 'product', name: saleName(x, listings), price: deskPrice(x, listings), category: raw.category, course: c && !kitchenOn ? { ...c, hold: false } : c, station: stationOfItem(raw, stations), makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null,
-        allergens: itemAllergens(x), allergensKnown: x.type !== 'refreshment' || allergensKnown(x), soldOut: x.type === 'refreshment' && itemSoldOut(x) }; }).filter((x: any) => x.price > 0),
+        allergens: itemAllergens(x), allergensKnown: x.type !== 'refreshment' || allergensKnown(x), soldOut: x.type === 'refreshment' && itemSoldOut(x),
+        ...(x.type === 'refreshment' && Array.isArray(x.choices) && x.choices.length ? { choices: x.choices } : {}) }; }).filter((x: any) => x.price > 0),
       ...svcs.map((x: any) => ({ id: x.id, type: 'service', name: x.name || 'Service', price: Number(x.price) || 0, category: x.category || '', course: null, station: null, makeSeconds: null }))]); }).catch(() => {}); }, [firestore, tenantId, tenant, courses, stations]);
 
   const fired = (n: number) => tab.some((l) => Number(l.course) === n && !!l.firedAt);
   const outOf = (it: any, m: Record<string, CountRow> = counts) => it.type === 'product' && (it.soldOut || outNow.has(it.id) || (!!m[it.id] && m[it.id].left <= 0));
   // A dish with an allergen someone it reaches can't have is asked about first (lib/allergens conflicts); so is a dish
   // nobody has said the contents of, when someone it reaches has a severe allergy. A counted dish is checked again first.
-  const add = async (it: any) => { if (!visitId) return; setMsg(null);
+  const add = async (it: any, choice: TabChoice | null = null) => { if (!visitId) return; setMsg(null);
+    if (!choice && it.type === 'product' && hasChoices(it)) { setChoose(it); return; }
     let m = counts;
     if (counts[it.id]) { setBusy(true); m = takeCounts(await tabCall({ tenantId, action: 'counts', fresh: true }, '/api/menu')) || counts; setBusy(false); }
     if (outOf(it, m)) { setMsg(`${it.name} is sold out tonight.`); return; }
     const c = it.type === 'product' ? conflicts(it.allergens || [], allergies, seat || null) : { keys: [], who: [] };
-    if (c.keys.length) { setWarn({ it, keys: c.keys, who: c.who }); return; }
+    if (c.keys.length) { setWarn({ it, keys: c.keys, who: c.who, choice }); return; }
     const severe = it.type === 'product' && !it.allergensKnown ? reaching(allergies, seat || null).filter((a) => a.severe) : [];
-    if (severe.length) { setWarn({ it, keys: [], who: severe, unknown: true }); return; }
-    await ringIn(it); };
-  const ringIn = async (it: any) => { if (!visitId) return; setBusy(true); setMsg(null);
+    if (severe.length) { setWarn({ it, keys: [], who: severe, unknown: true, choice }); return; }
+    await ringIn(it, choice); };
+  const ringIn = async (it: any, choice: TabChoice | null = null) => { if (!visitId) return; setBusy(true); setMsg(null);
     const lineId = newLineId(); const vid = visitId;
     try { const sendNow = !!it.course?.hold && fired(it.course.n);
       setUnsent(markUnsent(vid, lineId, true));
-      const saving = addToTab(firestore, tenantId, vid, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies, lineId })
+      const saving = addToTab(firestore, tenantId, vid, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by, sendNow, allergies, lineId, choice })
         .then((l) => { setUnsent(markUnsent(vid, lineId, false)); return l; });
       // No answer in a few seconds: the database keeps it on this device and sends it when the connection's back.
       const went = await landed(saving); setNote('');
       const held = it.type === 'product' && it.course?.hold && !sendNow;
-      if (!went) setMsg(`${it.name} added${held ? `, held with ${it.course.name.toLowerCase()}` : ''}. It reaches ${it.type !== 'product' ? 'the tab' : it.station || 'the kitchen'} when the connection’s back.`);
-      else setMsg(`${it.name} added${it.type !== 'product' ? '' : held ? `, held with ${it.course.name.toLowerCase()}` : `, sent to ${it.station || 'the kitchen'}`}.`); }
+      const what = choice?.text ? `${it.name} (${choice.text})` : it.name;
+      if (!went) setMsg(`${what} added${held ? `, held with ${it.course.name.toLowerCase()}` : ''}. It reaches ${it.type !== 'product' ? 'the tab' : it.station || 'the kitchen'} when the connection’s back.`);
+      else setMsg(`${what} added${it.type !== 'product' ? '' : held ? `, held with ${it.course.name.toLowerCase()}` : `, sent to ${it.station || 'the kitchen'}`}.`); }
     catch { setUnsent(markUnsent(vid, lineId, false)); setMsg('That didn’t save.'); }
     setBusy(false); if (counts[it.id]) loadCounts(); };
   // The table's allergies change on the server, one at a time, with every ticket not yet out (api/tab 'allergies').
@@ -184,7 +190,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
   const onPaper = tab.filter((l) => !!l.kdsId && ((unsent.has(l.lineId) && !!l.firedAt) || (!l.firedAt && !!l.course && firesWaiting.has(Number(l.course)))));
   const printPaper = () => {
     const raws = onPaper.map((l) => { const al = ticketAllergyFields(allergies, l.seat || null, l.allergens || []);
-      return ticketFrom({ id: l.kdsId, itemName: l.name, quantity: l.quantity, seatNumber: l.seat || null, note: l.note || null, tableNumber: tableName, guestName: party.name || 'Table', course: l.course, courseName: l.courseName,
+      return ticketFrom({ id: l.kdsId, itemName: l.name, choicesText: l.choicesText || null, choices: l.choices || [], quantity: l.quantity, seatNumber: l.seat || null, note: l.note || null, tableNumber: tableName, guestName: party.name || 'Table', course: l.course, courseName: l.courseName,
         madeAt: l.station || null, visitId, status: 'pending', allergies: al.allergies, contains: al.contains, createdAt: l.at }, 'kdsTickets'); });
     const per = new Map<string, any[]>(); for (const t of raws) { const k = String((t as any).madeAt || ''); per.set(k, [...(per.get(k) || []), t]); }
     const d = paperDoc(Array.from(per.entries()).map(([station, list]) => ({ station: station || null, tickets: list })), { tz: tenantTimeZone(tenant), at: new Date().toISOString(), by: String(by || '') });
@@ -255,6 +261,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
                       <span className="h-7 w-7 rounded-full grid place-items-center text-[13px] font-semibold" style={{ background: open ? '#fff' : SOFT }}>{l.seat || 'T'}</span>
                       <span className="min-w-0"><span className="block text-[15px] font-medium truncate">{l.name}</span>
                         {unsent.has(l.lineId) && <span className="block text-[12.5px] font-semibold" style={{ color: AMBER }}>Not sent yet</span>}
+                        {l.choicesText && <span className="block text-[13px] font-medium" style={{ color: INK }}>{l.choicesText}</span>}
                         <span className="block text-[12.5px] truncate" style={{ color: l.comp ? GREEN : MUTED }}>{l.comp ? `Comped: ${l.comp.reason}. ${l.comp.approvedBy !== l.comp.by ? `${l.comp.approvedBy} approved.` : ''}` : [l.station, l.note, status === 'ready' ? 'Ready' : status === 'delivered' ? 'Out' : null].filter(Boolean).join(', ')}</span>
                         {l.kdsId && Array.isArray(tickets[l.kdsId]?.allergies) && tickets[l.kdsId].allergies.length > 0 && <span className="block text-[12.5px] font-semibold truncate" style={{ color: AMBER }}>{tickets[l.kdsId].allergyNotedAt ? `Allergy noted${tickets[l.kdsId].allergyNotedBy ? ` by ${tickets[l.kdsId].allergyNotedBy}` : ''}` : `Allergy: ${tickets[l.kdsId].allergies.map((a: any) => String(a?.name || a)).join(', ').toLowerCase()}`}</span>}</span>
                       <span className="text-right tabular-nums"><span className="block text-[15px] font-semibold">{money(l.price)}</span>{l.comp && <span className="block text-[12px] line-through" style={{ color: MUTED }}>{money(listPriceOf(l))}</span>}</span>
@@ -356,7 +363,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
             className={`flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold ${!visitId || !tab.length || waiting.length > 0 ? 'pointer-events-none opacity-40' : ''}`} style={dark}>Check out {tableName}, {money(tabTotal(tab))}</a>}
       {allergySheet && <AllergySheet edit={allergySheet.edit} seats={seats} by={by} onClose={() => setAllergySheet(null)}
         onSave={async (a) => { const e = await allergyCall('save', { allergy: a }); if (!e) { setAllergySheet(null); setMsg('Allergy saved. The kitchen sees it on every dish for that seat.'); } return e; }} />}
-      {warn && <AllergyWarn it={warn.it} keys={warn.keys} who={warn.who} unknown={!!warn.unknown} onClose={() => setWarn(null)} onRing={() => { const it = warn.it; setWarn(null); void ringIn(it); }} />}
+      {warn && <AllergyWarn it={warn.it} keys={warn.keys} who={warn.who} unknown={!!warn.unknown} onClose={() => setWarn(null)} onRing={() => { const it = warn.it; const ch = warn.choice || null; setWarn(null); void ringIn(it, ch); }} />}
+      {choose && <ChoiceSheet item={choose} price={choose.price} line={`${tableName}${seat ? `, seat ${seat}` : ''}`} busy={busy} onClose={() => setChoose(null)}
+        onAdd={(ch) => { const it = choose; setChoose(null); void add(it, ch); }} />}
       {sheet && visitId && <ActionSheet sheet={sheet} tenantId={tenantId} visitId={visitId} reasons={compReasonsOf(tenant)} onClose={(done) => { setSheet(null); if (done) { setMsg(done); setPicked(null); } }} />}
     </div>
   );

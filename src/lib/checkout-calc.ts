@@ -88,7 +88,7 @@ export function computeCheckout(i: CalcInput) {
     const pct = num(m?.retailDiscount); const eligible: string[] = m?.applicableProductIds || []; if (pct > 0) memberLabel = `${m?.name || 'Member'} discount (${pct}%)`;
     // A member's RETAIL discount: real products only (never deposits, rent, tuition, memberships or packages). A plan
     // that names a listing covers its variants.
-    if (pct > 0 && !i.skipMemberDiscount) memberDiscount = round2((i.items || []).reduce((s, it) => (it.type === 'product' && (eligible.length === 0 || eligible.includes(it.id) || (!!(it as any).listingId && eligible.includes(String((it as any).listingId)))) ? s + num(it.price) * num(it.quantity) * (pct / 100) : s), 0));
+    if (pct > 0 && !i.skipMemberDiscount) memberDiscount = round2((i.items || []).reduce((s, it) => (it.type === 'product' && (eligible.length === 0 || eligible.includes(String((it as any).itemId || it.id)) || (!!(it as any).listingId && eligible.includes(String((it as any).listingId)))) ? s + num(it.price) * num(it.quantity) * (pct / 100) : s), 0));
   }
   const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));

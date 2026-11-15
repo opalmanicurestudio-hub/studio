@@ -38,6 +38,7 @@ import { accountOf, addShareToTicket, checkDeskPayment, clearExtraOnReceipt, cle
 import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
+import { choiceGroups, cleanPicks, lineChoices, priceChoices } from '@/lib/menu-choices';
 import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 import { kitchenScreenOn } from '@/lib/kitchen';
 import { recipeOf } from '@/lib/menu-stock';
@@ -741,10 +742,17 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     if (String(a.visitId || '') !== visitId || String(a.itemId || '') !== itemId || String(l.itemId || '') !== itemId || a.compSaleId) return null;
     return { amount: Math.max(0, num(c.amount)), approvalId: c.approvalId };
   };
+  // A line from a table's tab with choices (lib/menu-choices) is read from the tab itself, once; choices picked here
+  // are checked against the menu.
+  const tabLinesUsed = new Set<string>();
+  const tabLine = (visitId: string, lineId: string) => { const v = visits.find((x: any) => x.appointment?.id === visitId); return (Array.isArray(v?.appointment?.tab) ? v.appointment.tab : []).find((x: any) => x?.lineId === lineId) || null; };
   for (const it of reqItems) {
     const compLineId = typeof it.compLineId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(it.compLineId) ? it.compLineId : null;
     if (compLineId && Math.round(num(it.quantity) || 1) !== 1) return json({ ok: false, error: 'A comped item is one item. Take it off the sale and check out from the table again.' }, 400);
-    const qty = compLineId ? 1 : ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String((compLineId ? it.itemId : it.id) || '');
+    const tabLineId = !compLineId && typeof it.tabLineId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(it.tabLineId) ? it.tabLineId : null;
+    const picked = !compLineId && !tabLineId && it.picks && typeof it.picks === 'object' ? cleanPicks(it.picks) : null;
+    const picks = picked && Object.keys(picked).length ? picked : null;
+    const qty = compLineId ? 1 : ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String((compLineId || tabLineId || picks ? it.itemId : it.id) || '');
     let price = num(it.price), name = String(it.name || 'Item'), stock: number | null = null;
     // A product sells for the shop's price for it (lib/variants): a variant's own price when it has one, otherwise its
     // listing's. One with no price isn't sold (it used to sell at cost).
@@ -752,6 +760,24 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       price = deskPrice(p, deskListings); name = saleName(p, deskListings); stock = num(p.totalStock);
       if (!(price > 0)) return json({ ok: false, error: `${name} has no price yet. Give it one in Inventory, then take it off this sale and add it again.` }, 400);
       const lid = deskListings.get(String(p.id))?.id; if (lid) (it as any).__listingId = String(lid);
+      // Its choices: as the table ordered them (priced from the menu now), or as picked at the desk.
+      let chosen: { extra: number; text: string; lines: any[] } | null = null;
+      if (compLineId || tabLineId) {
+        const l = tabLine(String((compLineId ? it.compVisitId : it.tabVisitId) || ''), String(compLineId || tabLineId));
+        if (tabLineId) {
+          if (!l || String(l.itemId || '') !== id || tabLinesUsed.has(tabLineId) || qty > Math.max(1, Math.round(num(l.quantity) || 1))) return json({ ok: false, error: `${name} isn’t on that table’s tab like that any more. Take it off this sale and check out from the table again.` }, 409);
+          tabLinesUsed.add(tabLineId);
+        }
+        if (l && String(l.itemId || '') === id) chosen = lineChoices(p, l);
+      } else if (picks) {
+        const pc = priceChoices(p, picks); if (!pc.ok) return json({ ok: false, error: `${name}: ${pc.error}` }, 400);
+        if (pc.lines.length) chosen = { extra: pc.extra, text: pc.text, lines: pc.lines };
+      } else {
+        // An item with a choice that must be made (a size) isn't sold without it.
+        const must = choiceGroups(p).find((g) => g.required);
+        if (must) return json({ ok: false, error: `${name} needs a ${must.name.toLowerCase()}. Take it off this sale and tap it in the list to choose.` }, 400);
+      }
+      if (chosen) { price = Math.max(0, Math.round((price + chosen.extra) * 100) / 100); if (chosen.text) name = `${name}, ${chosen.text}`; (it as any).__choices = chosen; }
       if (compLineId) {
         const c = compsUsed.has(compLineId) ? null : await tabComp(String(it.compVisitId || ''), compLineId, id);
         if (!c) return json({ ok: false, error: `The comp on ${name} couldn’t be checked. Take it off this sale and check out from the table again.` }, 409);
@@ -774,7 +800,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       price = cents / 100; const g = it.gift || {}; name = `Gift card${g.recipientName ? ` for ${String(g.recipientName).slice(0, 60)}` : ''}`;
       (it as any).__gift = { cents, recipientName: g.recipientName ? String(g.recipientName).slice(0, 80) : null, recipientId: g.recipientId ? String(g.recipientId) : null, recipientPhone: g.recipientPhone ? String(g.recipientPhone).slice(0, 30) : null, recipientEmail: g.recipientEmail ? String(g.recipientEmail).slice(0, 120) : null, message: g.message ? String(g.message).slice(0, 400) : null, design: typeof g.design === 'string' && /^[a-z0-9-]{2,30}$/.test(g.design) ? g.design : null, line: g.line ? String(g.line).slice(0, 30) : null, service: g.service && typeof g.service.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(g.service.id) ? { id: g.service.id, name: String(g.service.name || '').slice(0, 80) } : null, sendVia: ['text', 'email', 'print', 'code'].includes(g.sendVia) ? g.sendVia : 'code', sendAt: g.sendAt && Date.parse(g.sendAt) > Date.now() + 60000 ? new Date(g.sendAt).toISOString() : null }; }
     else if (type === 'deposit' && it.depositForAppointmentId) { const ap: any = (await db.doc(`${T}/appointments/${String(it.depositForAppointmentId)}`).get()).data() || {}; const max = num(ap.depositAmountCents) / 100; if (max > 0) price = Math.min(price || max, max); }
-    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__listingId ? { listingId: (it as any).__listingId } : {}), ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}), ...((it as any).__comp ? { comp: (it as any).__comp } : {}) });   // rent carries its renter's account to the payment step
+    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__listingId ? { listingId: (it as any).__listingId } : {}), ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}), ...((it as any).__comp ? { comp: (it as any).__comp } : {}), ...((it as any).__choices ? { choicesText: (it as any).__choices.text || null, choices: (it as any).__choices.lines } : {}), ...(tabLineId ? { tabLineId } : {}), ...(picks ? { picked: true } : {}) });   // rent carries its renter's account to the payment step
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
@@ -1083,7 +1109,27 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Food and drink made from a recipe that isn't sent to a kitchen screen: made here, so its ingredients come off once the
   // sale is saved (lib/recipe-stock-server). One that goes to the kitchen takes them when it's made.
   const madeHere: { id: string; qty: number; name: string }[] = [];
-  for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + Math.max(1, Number(l.quantity) || 1);
+  // Each tab line by its own line (one rung up here by its line, a comped one or one from the tab, takes only its own);
+  // a line with no choices also by item, for one rung up without its line. Something picked at the desk with choices is
+  // new: always made. Lines rung up by their own line are counted first, so a new one at the desk is never mistaken for
+  // one the table already had.
+  const sentByLine: Record<string, { n: number; plain: boolean }> = {};
+  for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) {
+    const n = Math.max(1, Number(l.quantity) || 1);
+    const plain = !((Array.isArray(l.choices) && l.choices.length) || (l.picks && Object.keys(l.picks).length));
+    sentByLine[String(l.lineId)] = { n: (sentByLine[String(l.lineId)]?.n || 0) + n, plain };
+    if (plain) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + n;
+  }
+  const toMakeOf = new Map<any, number>();
+  for (const it of items as any[]) { if (it.type !== 'product') continue; const own = it.comp?.lineId || it.tabLineId; if (!own) continue;
+    const b = sentByLine[String(own)]; const take = b ? Math.min(it.quantity, b.n) : 0;
+    // The whole line is accounted for once it's rung up by its line (fewer than the table had: the rest was still made),
+    // so none of it is left for a new one at the desk.
+    if (b) { if (b.plain) sentFromTab[String(it.id)] = Math.max(0, (sentFromTab[String(it.id)] || 0) - b.n); b.n = 0; }
+    toMakeOf.set(it, it.quantity - take); }
+  for (const it of items as any[]) { if (it.type !== 'product' || toMakeOf.has(it)) continue;
+    const take = it.picked ? 0 : Math.min(it.quantity, sentFromTab[String(it.id)] || 0);
+    if (take) sentFromTab[String(it.id)] -= take; toMakeOf.set(it, it.quantity - take); }
   // The same product can be on two lines (a comped one from a table's tab beside the rest): its stock, lots and pop-up
   // count move once per line, each from where the line before left them.
   const invRead = new Map<string, any>(); const lotsNow = new Map<string, any[]>(); const stockNow = new Map<string, number>();
@@ -1103,8 +1149,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       // Food and drink sold at the desk (a café or lounge item) go to the kitchen screen to be made (app/kds), in the
       // same write as the sale (a sale saved twice is refused whole, ticket and all). Its stock is taken here, so the
       // kitchen doesn't take it again.
-      const toMake = it.quantity - Math.min(it.quantity, sentFromTab[String(it.id)] || 0);
-      if (sentFromTab[String(it.id)]) sentFromTab[String(it.id)] -= it.quantity - toMake;
+      const toMake = toMakeOf.get(it) ?? it.quantity;
       if (inv?.type === 'refreshment' && inv?.sendToKitchen !== false && toMake > 0 && kitchenScreenOn(tenant)) {
         const kKey = `${String(checkoutSessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}_${String(it.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}`;
         kitchenLines[kKey] = (kitchenLines[kKey] || 0) + 1;   // the same item on two lines: two tickets
@@ -1114,7 +1159,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         const prof = client ? profileAllergy(client, String(auth.actor.name || 'The desk'), now) : null;
         const al = prof ? ticketAllergyFields([prof], null, itemAllergens(inv)) : null;
         batch.set(kRef, clean({ id: kRef.id, source: 'pos', menuItemId: it.id, menuItemName: it.name, quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
-          status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true });
+          status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}),
+          ...((it as any).choicesText ? { choicesText: (it as any).choicesText, choices: (it as any).choices || [] } : {}) }), { merge: true });
       } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item') });
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });

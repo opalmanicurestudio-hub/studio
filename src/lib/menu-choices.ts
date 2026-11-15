@@ -116,3 +116,56 @@ export function cleanForSave(groups: unknown, newId: () => string): ChoiceGroup[
   }));
   return choiceGroups({ choices: raw });
 }
+
+/** Whether an item has any choices to make. */
+export const hasChoices = (item: any) => choiceGroups(item).length > 0;
+
+/** Picks as kept on an order line: each group's option ids, nothing else. */
+export function cleanPicks(v: unknown): Picks {
+  const out: Picks = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [g, ids] of Object.entries(v as Record<string, unknown>).slice(0, MAX_GROUPS)) {
+    if (!ID.test(g) || !Array.isArray(ids)) continue;
+    const list = Array.from(new Set(ids.map(String).filter((x) => ID.test(x)))).slice(0, MAX_OPTIONS);
+    if (list.length) out[g] = list;
+  }
+  return out;
+}
+
+/** One key for a set of picks: the same choices in any order are the same line. */
+export function picksKey(picks: unknown): string {
+  const p = cleanPicks(picks);
+  return Object.keys(p).sort().map((g) => `${g}:${[...p[g]].sort().join('+')}`).join('|');
+}
+
+/** What something already ordered comes to now, from the menu as it is: like priceChoices, but a choice that has sold
+ *  out since it was ordered still counts (it was made before it ran out). */
+export function settleChoices(item: any, picks: unknown) {
+  const raw = Array.isArray(item?.choices) ? item.choices : [];
+  return priceChoices({ choices: raw.map((g: any) => ({ ...g, options: (Array.isArray(g?.options) ? g.options : []).map((o: any) => ({ ...o, soldOut: false })) })) }, picks);
+}
+
+/** The picks behind lines kept on an order (each line's group and option). */
+export function picksOf(lines: unknown): Picks {
+  const out: Picks = {};
+  for (const l of (Array.isArray(lines) ? lines : []).slice(0, 40)) {
+    const g = String((l as any)?.groupId || ''); const o = String((l as any)?.optionId || '');
+    if (ID.test(g) && ID.test(o)) out[g] = Array.from(new Set([...(out[g] || []), o]));
+  }
+  return out;
+}
+
+/** The choices on a line already ordered (a table's tab line): priced from the menu as it is now, sold out since or
+ *  not; a choice since taken off the menu goes at what it was when it was ordered. Null when it has none. */
+export function lineChoices(item: any, line: any): { extra: number; text: string; lines: PickedChoice[] } | null {
+  const kept: PickedChoice[] = Array.isArray(line?.choices) ? line.choices : [];
+  const fromPicks = cleanPicks(line?.picks);
+  const picks = Object.keys(fromPicks).length ? fromPicks : picksOf(kept);
+  if (!Object.keys(picks).length) return null;
+  const r = settleChoices(item, picks);
+  if (r.ok) return { extra: r.extra, text: r.text, lines: r.lines };
+  const lines = kept.filter((l) => l && ID.test(String(l.groupId || '')) && ID.test(String(l.optionId || ''))).slice(0, 40)
+    // What the line kept was written by a team member's screen: never less than nothing.
+    .map((l) => ({ groupId: String(l.groupId), group: words(l.group, 40), optionId: String(l.optionId), option: words(l.option, 40), price: Math.max(0, cents(l.price)) }));
+  return { extra: Math.round(lines.reduce((s, l) => s + l.price, 0) * 100) / 100, text: choicesText(lines), lines };
+}

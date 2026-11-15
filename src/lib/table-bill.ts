@@ -11,6 +11,7 @@
 //   the table splits.
 
 import { computeCheckout } from '@/lib/checkout-calc';
+import { hasChoices, lineChoices } from '@/lib/menu-choices';
 
 export type SplitWay = 'seat' | 'item' | 'even';
 export type TipBase = 'pre' | 'post';
@@ -66,19 +67,25 @@ export function billFrom(visitId: string, visit: any, cat: Catalog, ctx: { tenan
     const isService = l.itemType === 'service';
     const x = cat.item(String(l.itemId || ''));
     if (!x) { missing.push(String(l.name || 'An item')); continue; }
-    const each = isService ? num(x.price) : cat.price(x);
-    const name = isService ? String(x.name || l.name || 'Item') : cat.name(x);
+    // A line with choices (lib/menu-choices): their prices from the menu as it is now, and their words on the line.
+    const ch = isService ? null : lineChoices(x, l);
+    const each = isService ? num(x.price) : r2(cat.price(x) + (ch ? ch.extra : 0));
+    const name = isService ? String(x.name || l.name || 'Item') : ch?.text ? `${cat.name(x)}, ${ch.text}` : cat.name(x);
     const qty = Math.max(1, Math.round(num(l.quantity) || 1));
     const seat = Number.isFinite(Number(l.seat)) && Number(l.seat) > 0 ? Number(l.seat) : null;
     const compAmt = l.comp && num(l.comp.amount) > 0 && !isService ? num(l.comp.amount) : 0;
     if (compAmt > 0) {
       const price = Math.max(0, r2(each - compAmt));
-      comps.push({ id: `${x.id}~comp~${l.lineId}`, type: 'product', quantity: 1, price, name: `${name}, comped`, itemId: x.id, compLineId: String(l.lineId), compVisitId: visitId });
+      comps.push({ id: `${x.id}~comp~${l.lineId}`, type: 'product', quantity: 1, price, name: `${name}, comped`, itemId: x.id, compLineId: String(l.lineId), compVisitId: visitId });   // (its choices are read from the same line)
       lines.push({ lineId: String(l.lineId), itemId: x.id, name: `${name}, comped`, seat, price, comped: true, type: 'product' });
       continue;
     }
-    const key = `${isService ? 'service' : 'product'}:${x.id}`;
-    const cur = plain.get(key) || { id: x.id, type: isService ? 'service' : 'product', quantity: 0, price: each, name };
+    // Each line of an item with choices is its own item, checked against its line at the desk (api/checkout/complete);
+    // one rung in before the item had choices too, so it isn't asked for them now.
+    const own = !isService && (!!ch || hasChoices(x));
+    const key = own ? `tab:${l.lineId}` : `${isService ? 'service' : 'product'}:${x.id}`;
+    const cur = plain.get(key) || (own ? { id: `${x.id}~tab~${l.lineId}`, itemId: x.id, tabLineId: String(l.lineId), tabVisitId: visitId, type: 'product', quantity: 0, price: each, name }
+      : { id: x.id, type: isService ? 'service' : 'product', quantity: 0, price: each, name });
     cur.quantity += qty; plain.set(key, cur);
     for (let i = 0; i < qty; i++) lines.push({ lineId: qty > 1 ? `${l.lineId}.${i}` : String(l.lineId), itemId: x.id, name, seat, price: each, comped: false, type: isService ? 'service' : 'product' });
   }

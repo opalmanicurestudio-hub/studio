@@ -5,7 +5,8 @@
 // With `tenantId`, the pickup window's numbers too (lib/pickup-window, api/retail/window 'numbers'): a product on the
 // window shows its number, and typing the number ("3", "#3", "no. 3") finds it, the way a customer orders at the window.
 // While the shop scans at the register (lib/register-scan), tapping a product with a barcode asks for its scan instead of
-// adding it (RegisterScanSheet), so the item in the customer's hand is the one that's sold.
+// adding it (RegisterScanSheet), so the item in the customer's hand is the one that's sold. A menu item with choices (a
+// size, a milk, extras: lib/menu-choices) asks for them first (components/menu/ChoiceSheet); each set is its own line.
 import * as React from 'react';
 import { deskBook, isSellable, onHand, variantsOf } from '@/lib/pos-scan';
 import { useTenant } from '@/context/TenantContext';
@@ -13,6 +14,8 @@ import { mustScanAtRegister } from '@/lib/register-scan';
 import { RegisterScanSheet, type NoScan, type RegisterAdd } from '@/components/pos/RegisterScanSheet';
 import { choiceFor, deskPrice, listingsOf, variantIdsOf } from '@/lib/variants';
 import { spokenNumber } from '@/lib/menu-numbers';
+import { hasChoices } from '@/lib/menu-choices';
+import { ChoiceSheet } from '@/components/menu/ChoiceSheet';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 type Dept = 'products' | 'services' | 'memberships' | 'packages';
@@ -47,7 +50,8 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const [said, setSaid] = React.useState('');
   React.useEffect(() => { if (!said) return; const t = setTimeout(() => setSaid(''), 7000); return () => clearTimeout(t); }, [said]);
   const nameFor = (i: any) => { const l = listings.get(String(i?.id)); const c = l ? choiceFor(l, String(i.id))?.choice.label : ''; return l ? `${l.name}${c ? `, ${c}` : ''}` : String(i?.name || 'this item'); };
-  const add = (i: any) => { if (dept === 'products' && mustScanAtRegister(i, rs)) { setScanFor(i); return; } onAdd(i); };
+  const [chooseFor, setChooseFor] = React.useState<any | null>(null);
+  const add = (i: any) => { if (dept === 'products' && i?.type === 'refreshment' && hasChoices(i)) { setChooseFor(i); return; } if (dept === 'products' && mustScanAtRegister(i, rs)) { setScanFor(i); return; } onAdd(i); };
   const added = (a: RegisterAdd) => {
     setScanFor(null); onAdd(a.item, a.how === 'approved' && a.token ? { token: a.token, by: a.approver?.name || '', reason: a.reason || '' } : undefined);
     setSaid(a.note || (a.how === 'approved' ? `${nameFor(a.item)} added without a scan, approved by ${a.approver?.name || 'a manager'}.` : ''));
@@ -67,7 +71,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const byNumber = asked != null ? base.filter((i: any) => nums[String(i.id)] === asked) : [];
   const shown = [...byNumber, ...base.filter((i: any) => !byNumber.includes(i) && (cat === 'All' || String(i.category || '') === cat) && (!t || String(i.name || '').toLowerCase().includes(t) || String(i.sku || '').toLowerCase().includes(t) || String(i.barcode || '').toLowerCase().includes(t)))
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)))];
-  const inCart = (id: string) => (cart || []).find((c: any) => c.id === id)?.quantity || 0;
+  const inCart = (id: string) => (cart || []).filter((c: any) => c.id === id || (c.itemId === id && !c.compLineId)).reduce((s: number, c: any) => s + (Number(c.quantity) || 0), 0);
   const priceOf = (i: any) => (dept === 'products' ? deskPrice(i, listings) : Number(i.price || 0));
   const priceText = (i: any) => { const p = priceOf(i); return dept === 'products' && !(p > 0) ? 'No price yet' : money(p); };
   const stockPill = (i: any) => { const n = onHand(i); const low = Number(i.reorderPoint) > 0 ? n <= Number(i.reorderPoint) : n <= 2;
@@ -124,6 +128,8 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
           })}
         </div>}
       {shown.length > limit && <button type="button" onClick={() => setLimit((n) => n + 60)} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Show more ({shown.length - limit})</button>}
+      {chooseFor && <ChoiceSheet item={chooseFor} price={deskPrice(chooseFor, listings)} onClose={() => setChooseFor(null)}
+        onAdd={(c) => { const i = chooseFor; setChooseFor(null); onAdd({ ...i, __picks: c.picks }); setSaid(`${i.name}${c.text ? `, ${c.text}` : ''} added.`); }} />}
       {scanFor && <RegisterScanSheet tenantId={String(selectedTenant?.id || tenantId || '')} item={scanFor} label={nameFor(scanFor)} book={book} onAdd={added} onClose={() => setScanFor(null)} />}
     </div>
   );

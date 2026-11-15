@@ -20,6 +20,7 @@ import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
 import { mustScanAtRegister } from '@/lib/register-scan';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
+import { choiceGroups, cleanPicks, lineChoices, picksKey, priceChoices } from '@/lib/menu-choices';
 import { heldCovered, heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
@@ -545,7 +546,8 @@ export function usePosEngine() {
   const [heldApproval, setHeldApprovalState] = useState<{ token: string; by: string; ref?: string } | null>(null);
   const heldApprovalRef = useRef<{ token: string; by: string; ref?: string } | null>(null);
   const setHeldApproval = useCallback((v: { token: string; by: string; ref?: string } | null) => { heldApprovalRef.current = v; setHeldApprovalState(v); }, []);
-  const heldShort = useMemo(() => heldShortfall(retailItems, inventory || []) as HeldShort[], [retailItems, inventory]);
+  // (A line with choices, or from a table's tab, is its item: counted as the server counts it.)
+  const heldShort = useMemo(() => heldShortfall(retailItems.map((it: any) => (it.itemId ? { ...it, id: it.itemId } : it)), inventory || []) as HeldShort[], [retailItems, inventory]);
   const [staffDiscount, setStaffDiscount] = useState<{ kind: 'pct' | 'amt'; value: number; reason: string; approvalToken?: string | null; approvedBy?: string | null } | null>(null);
   const staffDiscountValue = useMemo(() => !staffDiscount ? 0 : Math.round(Math.min(subtotalCalc, staffDiscount.kind === 'pct' ? subtotalCalc * (safeNumber(staffDiscount.value) / 100) : safeNumber(staffDiscount.value)) * 100) / 100, [staffDiscount, subtotalCalc]);
   const codeDiscountRaw = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
@@ -579,7 +581,7 @@ export function usePosEngine() {
     let bestDiscountPct = 0; let eligibleProductIds: string[] = [];
     if (mId) { const membership = memberships.find(m => m.id === mId); if (membership?.retailDiscount) { bestDiscountPct = membership.retailDiscount; eligibleProductIds = membership.applicableProductIds || []; } }
     if (bestDiscountPct === 0) return 0;
-    return retailItems.reduce((acc, item) => { const isEligible = (item as any).type === 'product' && (eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id) || (!!(item as any).listingId && eligibleProductIds.includes(String((item as any).listingId)))); /* retail = real products only */ return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
+    return retailItems.reduce((acc, item) => { const isEligible = (item as any).type === 'product' && (eligibleProductIds.length === 0 || eligibleProductIds.includes(String((item as any).itemId || item.id)) || (!!(item as any).listingId && eligibleProductIds.includes(String((item as any).listingId)))); /* retail = real products only */ return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
   }, [selectedClient, memberships, packages, retailItems, skipMemberDiscount]);
 
   // EVERY DISCOUNT BY NAME — what's applied, what was removed, and a code that isn't being used (and why).
@@ -648,11 +650,36 @@ export function usePosEngine() {
       if (!(price > 0)) { toast({ variant: 'destructive', title: 'No price yet', description: `${saleName(item, listings)} has no price. Give it one in Inventory, then add it.` }); return false; }
       name = saleName(item, listings); listingId = listings.get(String(item.id))?.id || null;
     }
+    // Its choices (lib/menu-choices): picked here (`__picks`, checked against the menu), or as a table ordered them
+    // (`__tabLine`, read from that line at checkout). Each set of choices is its own line, at its own price.
+    const tabLine = type === 'product' && item?.__tabLine?.lineId ? { lineId: String(item.__tabLine.lineId), visitId: String(item.__tabLine.visitId || '') } : null;
+    const picks = type === 'product' && item?.__picks ? cleanPicks(item.__picks) : null;
+    let chosen: { extra: number; text: string } | null = null;
+    if (tabLine || comp) {
+      // As the table ordered it: priced from the menu now, a choice since gone at what it was (the server does the same).
+      const lc = lineChoices(item, { picks: item.__tabLine?.picks, choices: item.__tabLine?.choices });
+      if (lc && lc.lines.length) { chosen = { extra: lc.extra, text: lc.text }; price = Math.max(0, Math.round((price + lc.extra) * 100) / 100); if (lc.text) name = `${name}, ${lc.text}`; }
+    } else if (picks && Object.keys(picks).length) {
+      const r = priceChoices(item, picks);
+      if (!r.ok) { toast({ variant: 'destructive', title: 'Choose again', description: `${name}: ${r.error}` }); return false; }
+      if (r.lines.length) { chosen = { extra: r.extra, text: r.text }; price = Math.max(0, Math.round((price + r.extra) * 100) / 100); if (r.text) name = `${name}, ${r.text}`; }
+    } else if (type === 'product' && choiceGroups(item).some((g) => g.required)) {
+      // Scanned or added some other way: its choices are picked in the list.
+      toast({ variant: 'destructive', title: 'Choose first', description: `${name} needs its choices. Tap it in the list to pick them.` }); return false;
+    }
     // A comped item from a table's tab (api/tab): its own line, at what's left of its price. The server checks the comp
     // against its record before charging less (api/checkout/complete).
     if (comp && type === 'product') {
       const off = Math.max(0, Math.round(Number(comp.cents) || 0)) / 100;
       setRetailItems(prev => (prev.some((i: any) => i.compLineId === comp.lineId) ? prev : [...prev, { id: `${item.id}~comp~${comp.lineId}`, itemId: item.id, compLineId: comp.lineId, compVisitId: comp.visitId, name: `${name}, comped`, quantity: 1, price: Math.max(0, Math.round((price - off) * 100) / 100), type, imageUrl: item.imageUrl, stock: item.totalStock, ...(listingId ? { listingId } : {}) } as any]));
+      return true;
+    }
+    if (chosen || tabLine) {
+      const lineKey = tabLine ? `${item.id}~tab~${tabLine.lineId}` : `${item.id}~ch~${picksKey(picks)}`;
+      setRetailItems(prev => {
+        if (prev.some((i: any) => i.id === lineKey)) return prev.map((i: any) => (i.id === lineKey ? { ...i, quantity: i.quantity + n } : i));
+        return [...prev, { id: lineKey, itemId: item.id, name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock, choicesText: chosen?.text || null, ...(tabLine ? { tabLineId: tabLine.lineId, tabVisitId: tabLine.visitId } : { picks }), ...(listingId ? { listingId } : {}) } as any];
+      });
       return true;
     }
     setRetailItems(prev => {
@@ -1176,7 +1203,7 @@ export function usePosEngine() {
   const buildCheckoutPayload = (paymentData?: any) => ({
     tenantId, popupId: popup?.id || null, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
-    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null, ...(it.compLineId ? { itemId: it.itemId, compLineId: it.compLineId, compVisitId: it.compVisitId } : {}) })),
+    items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null, ...(it.compLineId ? { itemId: it.itemId, compLineId: it.compLineId, compVisitId: it.compVisitId } : {}), ...(it.tabLineId ? { itemId: it.itemId, tabLineId: it.tabLineId, tabVisitId: it.tabVisitId } : it.picks ? { itemId: it.itemId, picks: it.picks } : {}) })),
     // Items added at the register without a scan, each on a manager's PIN: the approvals, used by the sale on the server.
     noScan: retailItems.flatMap((it: any) => (Array.isArray(it.noScan) ? it.noScan : []).map((x: any) => ({ productId: it.id, approvalToken: x.token }))).slice(0, 60),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
@@ -1654,7 +1681,7 @@ export function usePosEngine() {
   const [packChoice, setPackChoice] = useState<{ item: any; pack: number; packKind: 'case' | 'pallet' } | null>(null);
   const addProductChecked = useCallback((item: any, qty = 1, noScan?: { token: string; by: string; reason: string }) => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
-    const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
+    const inCart = (retailItems || []).filter((i: any) => i.id === item.id || (i.itemId === item.id && !i.compLineId)).reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
     const left = onHand(item) - inCart;
     const heldN = Math.max(0, Math.round(Number(item.stockReserved) || 0));
     if (handleAddToCart(item, n, noScan) === false) return;

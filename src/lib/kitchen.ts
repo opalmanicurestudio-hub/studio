@@ -57,6 +57,9 @@ export function ticketFrom(d: any, col: KitchenCol) {
     item: String(r.itemName || r.menuItemName || 'Item'),
     // The guest's choices for it (lib/menu-choices), as the kitchen reads them: "Large, Oat, Extra shot".
     choices: String(r.choicesText || '').trim().slice(0, 200) || null,
+    // …and each on its own, for a printed ticket (one line per choice). An order kept before that has them as one.
+    choiceList: Array.isArray(r.choices) && r.choices.some((c: any) => c?.option) ? r.choices.map((c: any) => String(c?.option || '').trim().slice(0, 40)).filter(Boolean).slice(0, 16)
+      : String(r.choicesText || '').trim() ? [String(r.choicesText).trim().slice(0, 200)] : [],
     itemId: r.itemId || r.menuItemId || null,
     quantity: Math.max(1, Math.round(Number(r.quantity) || 1)),
     station: String(r.stationName || (r.tableNumber ? `Table ${r.tableNumber}${r.seatNumber ? `, seat ${r.seatNumber}` : ''}` : source === 'pos' ? 'Desk' : 'Lounge')),

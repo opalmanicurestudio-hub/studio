@@ -150,15 +150,26 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       let tries = 0; let t: any = null;
       const go = () => { const a = (e.appointmentsFromInventory || []).find((x: any) => x.id === id);
         if (!a && tries++ < 16) { t = setTimeout(go, 500); return; }
+        const missed: string[] = [];
         if (withTab && a && Array.isArray(a.tab)) for (const l of a.tab) { const src = l.itemType === 'service' ? (e.services || []) : (e.inventory || []); const item = src.find((x: any) => x.id === l.itemId);
-          if (item) { if (l.comp && Number(l.comp.amount) > 0) { e.handleAddToCart?.(item, 1, undefined, { lineId: String(l.lineId), visitId: id, cents: Math.round(Number(l.comp.amount) * 100) }); continue; }
-            for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) e.handleAddToCart?.(item); } }
+          if (item) {
+            // Each of the table's food and drink lines is rung up as its own line, with its choices (lib/menu-choices):
+            // priced from the menu, and read from this line at checkout.
+            const it2 = l.itemType !== 'service' ? { ...item, __tabLine: { lineId: String(l.lineId), visitId: id, picks: l.picks || null, choices: Array.isArray(l.choices) ? l.choices : [] } } : item;
+            let added = true;
+            if (l.comp && Number(l.comp.amount) > 0) added = e.handleAddToCart?.(it2, 1, undefined, { lineId: String(l.lineId), visitId: id, cents: Math.round(Number(l.comp.amount) * 100) }) !== false;
+            else for (let n = 0; n < Math.max(1, Number(l.quantity) || 1); n++) if (e.handleAddToCart?.(it2) === false) added = false;
+            if (!added) missed.push(String(l.name || 'An item'));
+          } else missed.push(String(l.name || 'An item')); }
+        // A check that would ring up short isn't opened: the desk says what's missing instead.
+        if (missed.length) { setTabMissed(missed); return; }
         actRef.current.checkout(id); };
       t = setTimeout(go, 600); return () => clearTimeout(t); }
     if (vid) { const t = setTimeout(() => openVisit(vid), 500); window.history.replaceState(null, '', window.location.pathname); return () => clearTimeout(t); } } catch { /* */ } }, []);
   const hadTill = useRef<boolean>(!!e.activeTill);   // closing the till → the client screen goes back to the logo
   useEffect(() => { if (hadTill.current && !e.activeTill && clientScreen.connected) clientScreen.ask('idle'); hadTill.current = !!e.activeTill; }, [e.activeTill]); // eslint-disable-line react-hooks/exhaustive-deps   // USB / Bluetooth scanners, anywhere on the desk
   const [overFor, setOverFor] = useState<any>(null); // a service running over → tell the next guests
+  const [tabMissed, setTabMissed] = useState<string[] | null>(null);   // a table's lines that couldn't be rung up
   const [mode, setMode] = useState<'desk' | 'counter'>('desk');
   const [about, setAbout] = useState<Guest | null>(null);
   const [lateFor, setLateFor] = useState<Guest | null>(null);
@@ -798,6 +809,11 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <DeskReschedule e={e} appt={moveAppt} accent={accent} onClose={() => setMoveAppt(null)} />
       <DeskFollowUp e={e} visit={followFor} accent={accent} onClose={() => setFollowFor(null)} />
       <DeskPayGate e={e} appt={payFor} accent={accent} onClose={() => setPayFor(null)} />
+      <Drawer accent={accent} open={!!tabMissed} onClose={() => setTabMissed(null)} title="This check isn’t ready">
+        {tabMissed && <div className="space-y-3 text-[15px]"><p>{tabMissed.length === 1 ? 'One line on the table’s tab' : `${tabMissed.length} lines on the table’s tab`} couldn’t be rung up here: {tabMissed.slice(0, 6).join(', ')}{tabMissed.length > 6 ? ` and ${tabMissed.length - 6} more` : ''}.</p>
+          <p style={{ color: 'var(--muted)' }}>So the check isn’t opened short. Void {tabMissed.length === 1 ? 'it' : 'them'} on the table’s tab, or check {tabMissed.length === 1 ? 'the item' : 'the items'} in Inventory, then check out the table again.</p>
+          <button type="button" onClick={() => setTabMissed(null)} className="min-h-[44px] w-full rounded-full text-[15px] font-semibold" style={{ background: 'var(--soft)' }}>OK</button></div>}
+      </Drawer>
       <Drawer accent={accent} open={!!overFor} onClose={() => setOverFor(null)} title="Running over">
         {overFor && (() => { const ov = serviceOverrun(overFor.appt, minsOf(overFor), now); return <OverrunPanel tenant={e.selectedTenant} tenantId={e.tenantId} role={e.role} inService={overFor.appt} today={todaysAppts} overMin={ov?.overMin || 0} plannedEnd={ov?.plannedEnd || null} providerName={staffName(overFor.appt.staffId || null)} />; })()}
       </Drawer>

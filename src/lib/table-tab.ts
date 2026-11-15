@@ -11,6 +11,7 @@ import { landed } from '@/lib/outbox';
 import { arrayUnion, doc, getDoc, setDoc, writeBatch, type Firestore } from 'firebase/firestore';
 import { ticketAllergyFields, type TableAllergy } from '@/lib/allergens';
 import { visitIdForParty } from '@/lib/table-service';
+import type { PickedChoice, Picks } from '@/lib/menu-choices';
 
 export interface TabComp { approvalId: string; amount: number; reason: string; by: string; approvedBy: string; at: string }
 export interface TabLine {
@@ -24,6 +25,9 @@ export interface TabLine {
   comp?: TabComp | null;
   /** What the menu said it contains when it was rung in (lib/allergens), so a seat change can tell the kitchen again. */
   allergens?: string[];
+  /** Its choices (lib/menu-choices): what was picked, as priced when it was rung in, and the kitchen's words for them.
+   *  The price above includes them. */
+  picks?: Record<string, string[]>; choices?: PickedChoice[]; choicesText?: string | null;
 }
 
 /** The visit a party's tab lives on (lib/table-service, where the server finds it too). */
@@ -50,26 +54,31 @@ export async function ensureTableVisit(fs: Firestore, tenantId: string, p: any, 
   return id;
 }
 
-export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[] };
+export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[]; choices?: any[] };
+/** The choices made for one line (lib/menu-choices priceChoices, worked out from the item as the menu has it). */
+export type TabChoice = { picks: Picks; lines: PickedChoice[]; text: string; extra: number };
 
 export const newLineId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 /** One item onto a table's tab, and its ticket to the station that makes it, in one save. `lineId` can be chosen by the
  *  screen (it knows the line before the save is confirmed, for "Not sent yet" with no connection). */
-export async function addToTab(fs: Firestore, tenantId: string, visitId: string, v: { tableName: string; guestName: string }, item: TabItem, o: { seat?: string | null; note?: string | null; by: string; sendNow?: boolean; allergies?: TableAllergy[]; lineId?: string }) {
+export async function addToTab(fs: Firestore, tenantId: string, visitId: string, v: { tableName: string; guestName: string }, item: TabItem, o: { seat?: string | null; note?: string | null; by: string; sendNow?: boolean; allergies?: TableAllergy[]; lineId?: string; choice?: TabChoice | null }) {
   const now = new Date().toISOString(); const lineId = o.lineId && /^[a-z0-9]{6,40}$/.test(o.lineId) ? o.lineId : newLineId();
   const b = writeBatch(fs); const kds = doc(fs, 'tenants', tenantId, 'kdsTickets', `tab_${visitId}_${lineId}`);
   const c = item.course || null;
   // A held course waits for the server to fire it, unless they've asked for this one now (or the course is already out).
   const waits = item.type === 'product' && !!c?.hold && o.sendNow !== true;
-  const price = Number(item.price) || 0;
+  // Its choices add (or take off) their own prices; the kitchen reads them each on its own line.
+  const ch = item.type === 'product' && o.choice && o.choice.lines.length ? o.choice : null;
+  const price = Math.round(((Number(item.price) || 0) + (ch ? Number(ch.extra) || 0 : 0)) * 100) / 100;
   const line: TabLine = { lineId, itemId: item.id, itemType: item.type, name: item.name, price, listPrice: price, quantity: 1, seat: o.seat || null, note: o.note || null, at: now, by: o.by,
     kdsId: item.type === 'product' ? kds.id : null, course: c ? c.n : null, courseName: c ? c.name : null, firedAt: waits ? null : now, station: item.station || null, makeSeconds: Number(item.makeSeconds) || null, comp: null,
-    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [] };
+    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [], ...(ch ? { picks: ch.picks, choices: ch.lines, choicesText: ch.text } : {}) };
   const al = ticketAllergyFields(o.allergies || [], o.seat || null, line.allergens || []);
   b.set(doc(fs, 'tenants', tenantId, 'appointments', visitId), { tab: arrayUnion(line), updatedAt: now }, { merge: true });
   // Food and drink go to the station that makes it (a service on the tab doesn't).
   if (item.type === 'product') b.set(kds, { id: kds.id, source: 'tab', visitId, lineId, tableNumber: v.tableName, seatNumber: o.seat || null, guestName: v.guestName, menuItemId: item.id, menuItemName: item.name, note: o.note || null,
     allergies: al.allergies, contains: al.contains, status: waits ? 'unfired' : 'pending', createdAt: now, ...(waits ? {} : { requestedAt: now, firedAt: now }), tenantId, isDelta: false,
+    ...(ch ? { choices: ch.lines, choicesText: ch.text } : {}),
     course: c ? c.n : null, courseName: c ? c.name : null, madeAt: item.station || null, makeSeconds: Number(item.makeSeconds) || null });
   await b.commit(); return line;
 }
