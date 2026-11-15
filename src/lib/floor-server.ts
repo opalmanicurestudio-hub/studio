@@ -102,7 +102,7 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
     const paidHere = v.status !== 'completed' && v.payPaidAt && v.payPaidTab === tabSig(tab) ? v.payPaidAt : null;
     const paidAt = v.status === 'completed' ? (v.checkedOutAt || v.completedAt || null) : paidHere;
     const nt: NudgeTable = { visitId: vid, partyId: p.id, table: label, seatedAt: p.seatedAt || null, tab, tickets: tk, allergies: tableAllergies(v), done: p.nudges && typeof p.nudges === 'object' ? p.nudges : {}, courses,
-      paidAt: paidHere };
+      paidAt: paidHere, asks: Array.isArray(v.guestAsks) ? v.guestAsks.slice(-20) : [] };
     const stage = tableStage({ seatedAt: p.seatedAt || null, size: Number(p.size) || 1, tab, tickets: tk, courses, checkAt: p.checkAt || null, paidAt }, fs, now);
     const row = { visitId: vid, table: label, staffIds: ids, total: Math.round(tab.reduce((s2: number, l: any) => s2 + (Number(l?.price) || 0) * (Number(l?.quantity) || 1), 0) * 100) / 100,
       stage: { key: stage.key, words: stage.words, step: stage.step, freeIn: stage.freeIn }, checkAt: p.checkAt || null, paidAt: paidAt || null, closed: v.status === 'completed',

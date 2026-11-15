@@ -4,7 +4,9 @@
 // what's paid so far and by what, what someone is paying right now, and what's left. The rest can be taken in cash.
 // Once it's all paid, "Close the check" records the sale (api/checkout/complete 'table_close'), the same as the desk
 // finishing a split bill. While anything's been paid here, the table is finished here, not at the desk (so nobody pays
-// twice). Reads api/tab 'pay_status'; only when the business has pay at the table on.
+// twice). Reads api/tab 'pay_status'.
+// The same code is the table's guest pass (lib/guest-pass): their order as it's made, asking for their server, water or
+// the check, and paying. With pay at the table off (or nothing on the tab yet), it's just the code.
 import * as React from 'react';
 import QRCode from 'qrcode';
 import { getAuth } from 'firebase/auth';
@@ -22,14 +24,15 @@ type Status = { url: string; why: string | null; closed: boolean; total: number;
   shares: { label: string; amount: number; tip: number; how: string; at: string | null }[]; paying: { label: string; amount: number }[];
   stuck?: { label: string; amount: number; piId: string | null }[] };
 
-export function TablePayCard({ tenantId, visitId, table, poke, onPaid }: { tenantId: string; visitId: string; table: string; poke?: unknown; onPaid?: (paid: number, full: boolean) => void }) {
+export function TablePayCard({ tenantId, visitId, table, poke, onPaid, payOn = true }: { tenantId: string; visitId: string; table: string; poke?: unknown; onPaid?: (paid: number, full: boolean) => void; payOn?: boolean }) {
   const [s, setS] = React.useState<Status | null>(null); const [qr, setQr] = React.useState(''); const [show, setShow] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState(''); const [err, setErr] = React.useState(''); const [cash, setCash] = React.useState(false);
   const load = React.useCallback(async () => {
     const r = await call({ tenantId, action: 'pay_status', visitId });
     if (r.ok) { setS(r); onPaid?.(Number(r.paid) || 0, !!r.full); } else setErr(r.error || 'The check couldn’t be read.');
   }, [tenantId, visitId]); // eslint-disable-line react-hooks/exhaustive-deps
-  React.useEffect(() => { void load(); const i = setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 10000); return () => clearInterval(i); }, [load, poke]);
+  // Kept up to date while paying is on; otherwise read once (just the table's code).
+  React.useEffect(() => { void load(); if (!payOn) return; const i = setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 10000); return () => clearInterval(i); }, [load, poke, payOn]);
   React.useEffect(() => { if (s?.url) QRCode.toDataURL(s.url, { width: 360, margin: 1 }).then(setQr).catch(() => setQr('')); }, [s?.url]);
 
   const takeCash = async () => {
@@ -53,21 +56,22 @@ export function TablePayCard({ tenantId, visitId, table, poke, onPaid }: { tenan
   const pct = s.total > 0 ? Math.min(100, Math.round((s.paid / s.total) * 100)) : 0;
   return (
     <section aria-label="Pay at the table" className="space-y-3 rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
-      <div className="flex items-baseline justify-between gap-3"><h3 className="text-[16px] font-semibold">Pay at the table</h3><span className="text-[13px]" style={{ color: MUTED }}>{table}</span></div>
+      <div className="flex items-baseline justify-between gap-3"><h3 className="text-[16px] font-semibold">{payOn ? 'The table’s page and paying' : 'The table’s page'}</h3><span className="text-[13px]" style={{ color: MUTED }}>{table}</span></div>
       {s.closed ? <>
         <p className="text-[14.5px]" style={{ color: GREEN }}>{msg || 'This check is closed.'}</p>
         {err && <p role="alert" className="text-[14px] font-medium" style={{ color: AMBER }}>{err}</p>}</> : <>
-        {s.full ? null : s.why ? <p className="text-[14px]" style={{ color: MUTED }}>{s.why}</p>
-          : show && qr ? (
+        {s.full ? null : show && qr ? (
             <div className="flex flex-wrap items-center gap-4">
-              <img src={qr} alt={`Code to pay the ${table} check`} width={168} height={168} className="rounded-2xl" style={{ border: `1px solid ${LINE}` }} />
+              <img src={qr} alt={`Code for the ${table} page`} width={168} height={168} className="rounded-2xl" style={{ border: `1px solid ${LINE}` }} />
               <div className="min-w-[160px] flex-1 space-y-1">
-                <p className="text-[15px] font-semibold">They scan this to pay</p>
-                <p className="text-[13.5px] leading-snug" style={{ color: MUTED }}>By seat, by item or evenly, with their own tip. Each payment shows here as it’s made.</p>
+                <p className="text-[15px] font-semibold">They scan this</p>
+                <p className="text-[13.5px] leading-snug" style={{ color: MUTED }}>Their order as it’s made, and a way to ask for you, water or the check{payOn ? '. Then paying by seat, by item or evenly, with their own tip; each payment shows here as it’s made' : ''}.</p>
                 <button type="button" onClick={() => setShow(false)} className="min-h-[44px] text-[14px] font-semibold underline underline-offset-4">Hide the code</button>
               </div>
             </div>)
-          : <button type="button" onClick={() => setShow(true)} className={btn} style={{ background: SOFT, color: INK }}>Show the code to pay</button>}
+          : <button type="button" onClick={() => setShow(true)} className={btn} style={{ background: SOFT, color: INK }}>Show the table’s code</button>}
+        {payOn && !s.full && s.why && <p className="text-[14px]" style={{ color: MUTED }}>{s.why}</p>}
+        {payOn && <>
         <div className="flex items-baseline justify-between gap-3 pt-1"><span className="text-[15px] font-semibold">Paid so far</span>
           <span className="text-[19px] font-semibold tabular-nums">{money(s.paid)} <span className="text-[14px] font-medium" style={{ color: MUTED }}>of {money(s.total)}</span></span></div>
         <div className="h-2 overflow-hidden rounded-full" style={{ background: LINE }} aria-hidden><i className="block h-full" style={{ width: `${pct}%`, background: GREEN }} /></div>
@@ -90,6 +94,7 @@ export function TablePayCard({ tenantId, visitId, table, poke, onPaid }: { tenan
                 <button type="button" onClick={() => setCash(false)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Not yet</button></div></div>
           : <button type="button" disabled={s.paying.length > 0} onClick={() => setCash(true)} className={btn} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>They paid the rest in cash</button>)}
         {s.paid > 0 && <button type="button" disabled={!s.full || busy === 'close'} onClick={close} className={btn} style={{ background: INK, color: '#fff' }}>{busy === 'close' ? 'Closing…' : s.full ? 'Close the check' : 'Close the check once it’s all paid'}</button>}
+        </>}
       </>}
     </section>
   );

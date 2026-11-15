@@ -42,8 +42,10 @@ export default function WaitPage() {
   if (!v) return <VisitShell brand={brand} title="One moment…" />;
   if (!v.ok) return <VisitShell brand={brand} title="This link isn’t working"><VisitCard><VisitMuted>{v.error || 'Ask the host for your place in line.'}</VisitMuted></VisitCard></VisitShell>;
   const name = v.first ? `, ${v.first}` : '';
-  if (v.state === 'seated') return <VisitShell brand={brand} title={<>You’re seated{name}</>} subtitle="Enjoy your meal."><div className="flex justify-center py-2"><VisitCheck /></div>
-    {v.rung && v.preorder.length > 0 && <VisitCard><VisitMuted>Your drinks are on their way, and on your table’s check.</VisitMuted></VisitCard>}</VisitShell>;
+  if (v.state === 'seated') return <VisitShell brand={brand} title={<>You’re seated{name}</>} subtitle={v.table ? `${v.table}. Enjoy your meal.` : 'Enjoy your meal.'}><div className="flex justify-center py-2"><VisitCheck /></div>
+    {v.rung && v.preorder.length > 0 && <VisitCard><VisitMuted>Your drinks are on their way, and on your table’s check.</VisitMuted></VisitCard>}
+    {v.pass && <VisitCard><VisitMuted>Your table’s own page: your order as it’s made, asking for your server, water or the check, and paying when you’re ready.</VisitMuted>
+      <div className="pt-3"><VisitButton href={v.pass}>Open your table’s page</VisitButton></div></VisitCard>}</VisitShell>;
   if (v.state === 'left') return <VisitShell brand={brand} title="You’ve left the list" subtitle="Thanks for letting us know. Come back any time." />;
   if (v.state === 'closed') return <VisitShell brand={brand} title="The list has closed for today" subtitle="Come back and see the host for a table." />;
   if (v.state === 'done') return <VisitShell brand={brand} title="This link has finished" subtitle="Thanks for coming in." />;

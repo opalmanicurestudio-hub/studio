@@ -104,6 +104,8 @@ export default function MyTablesPage() {
   const actions = (n: Nudge) => {
     const b = busy === `${n.visitId}|${n.key}`; const row = tables.find((t) => t.visitId === n.visitId);
     const openIt = row ? <button type="button" onClick={() => setOpen(row)} className={btn} style={quiet}>Open table</button> : null;
+    // Asked from their phones (the guest pass): "On it" tells them someone has it.
+    if (n.kind === 'asked') return <><button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={dark}>On it</button>{openIt}</>;
     if (n.kind === 'fire') return <><button type="button" disabled={b} onClick={() => step(n, 'fire')} className={btn} style={dark}>Fire {n.course?.name.toLowerCase()}</button><button type="button" disabled={b} onClick={() => step(n, 'later')} className={btn} style={quiet}>Not yet</button></>;
     if (n.kind === 'at_pass') return <><button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={dark}>I’ll take it</button>{openIt}</>;
     if (n.kind === 'late') return <><button type="button" disabled={b} onClick={() => step(n, 'done')} className={btn} style={dark}>Told them</button>{openIt}</>;

@@ -340,7 +340,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
       </section>
       {msg && <p className="text-[14px] font-semibold" role="status">{msg}</p>}
       {waiting.length > 0 && tab.length > 0 && <p className="text-[13px]" style={{ color: AMBER }}>{waiting.map((g, i) => (i ? g.course!.name.toLowerCase() : g.course!.name)).join(' and ')} {waiting.length === 1 ? 'hasn’t' : 'haven’t'} been fired. Fire {waiting.length === 1 ? 'it' : 'them'} or void what they didn’t want before checking out.</p>}
-      {visitId && tab.length > 0 && tablePayOf(tenant).on && <TablePayCard tenantId={tenantId} visitId={visitId} table={tableName} poke={`${visit?.payPaidSoFar || 0}|${tab.length}`} onPaid={(paid) => setPaidHere(paid)} />}
+      {visitId && <TablePayCard tenantId={tenantId} visitId={visitId} table={tableName} poke={`${visit?.payPaidSoFar || 0}|${tab.length}`} onPaid={(paid) => setPaidHere(paid)} payOn={tab.length > 0 && tablePayOf(tenant).on} />}
       {visitId && tab.length > 0 && <div className="flex flex-wrap items-center gap-2">
         <button type="button" disabled={printing} onClick={printCheck} className="min-h-[44px] rounded-xl border bg-[#fff] px-4 text-[14px] font-semibold disabled:opacity-50" style={{ borderColor: LINE }}>{printing ? 'Printing…' : 'Print the check'}</button>
         {printMsg && <p role="status" className="text-[13.5px]" style={{ color: MUTED }}>{printMsg}</p>}

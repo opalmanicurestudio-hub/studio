@@ -5,12 +5,16 @@
 // before or after tax as it set), and pay on the card company's own form (card, Apple Pay, Google Pay where the phone
 // has them). What's paid or being paid by someone else can't be picked; the amounts come from the server
 // (lib/table-bill, the same working as the server's). Paid: the server sees it, no need to wait. /api/table-pay.
+// It's the table's GUEST PASS too (design canvas "Guest pass", lib/guest-pass): it opens on where their order is, course
+// by course, a way to ask for their server, water or the check, a regular's usual, and what the tab comes to so far;
+// paying or splitting is one tap away. Kept up to date while it's open.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitSaid, VisitCheck, brandFromLook, useLook } from '@/components/booking/VisitShell';
 import { shareFor, tipFor, type Bill, type Choice, type PayState, type SplitWay } from '@/lib/table-bill';
+import { ASKS, STATE_WORDS, type AskKind, type ItemState, type PassCourse } from '@/lib/guest-pass';
 
 const POLL_MS = 15000;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -60,6 +64,72 @@ function PayForm({ claim, post, onPaid, onBack }: { claim: Claim; post: (a: stri
   );
 }
 
+const CHIP: Record<ItemState, { bg: string; fg: string }> = { served: { bg: '#eaf6ef', fg: '#1f7a4d' }, on_way: { bg: '#e7f1fb', fg: '#1d5fa8' }, making: { bg: '#fff7ed', fg: '#b45309' }, ordered: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' }, held: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' } };
+type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean };
+
+/** The table's own page while they're seated: their order, help, the tab so far, and paying (lib/guest-pass). */
+function TablePass({ v, pass, onPay, ask, asking, said }: { v: any; pass: Pass; onPay: () => void; ask: (w: AskKind) => void; asking: AskKind | null; said: string }) {
+  const [showCheck, setShowCheck] = React.useState(false);
+  const lines: Line[] = v.lines || [];
+  // The latest of each kind they've asked for, newest first.
+  const latest = Array.from(new Map(pass.asks.map((a) => [a.what, a])).values()).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 3);
+  const open = new Set(pass.asks.filter((a) => !a.seen).map((a) => a.what));
+  const usualOpen = open.has('usual') || pass.asks.some((a) => a.what === 'usual' && a.seen);
+  return (
+    <>
+      {pass.courses.length === 0 ? <VisitCard><VisitMuted>Nothing ordered yet. Your server takes your order.</VisitMuted></VisitCard> : (
+        <VisitCard>
+          <ul className="space-y-3" aria-label="Your order">
+            {pass.courses.map((c, i) => (
+              <li key={c.n} className={i ? 'border-t pt-3' : ''} style={{ borderColor: 'var(--line)' }}>
+                <p className="flex items-center justify-between gap-3"><span className="text-[15px] font-semibold">{c.name}</span>
+                  <span className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={{ background: CHIP[c.state].bg, color: CHIP[c.state].fg }}>{STATE_WORDS[c.state]}</span></p>
+                {c.state === 'served' || c.state === 'held'
+                  ? <p className="text-[13.5px]" style={{ color: 'var(--muted)' }}>{c.items.map((x) => x.name).join(', ')}{c.state === 'held' ? '. Your server sends it when you’re ready.' : ''}</p>
+                  : c.items.map((x, k) => (
+                    <p key={k} className="flex items-center justify-between gap-3 text-[14px]"><span>{x.name}{x.state !== c.state ? <span style={{ color: 'var(--muted)' }}>, {STATE_WORDS[x.state].toLowerCase()}</span> : null}</span>
+                      {x.seat ? <span className="text-[13px]" style={{ color: 'var(--muted)' }}>Seat {x.seat}</span> : null}</p>))}
+              </li>))}
+          </ul>
+        </VisitCard>
+      )}
+      <VisitCard>
+        <p className="text-[15px] font-semibold">Need something?</p>
+        {latest.length > 0 && <div className="mt-2 space-y-2" aria-live="polite">{latest.map((a) => (
+          <p key={a.id} className="rounded-2xl px-3 py-2.5 text-[14px]" style={a.seen ? { background: '#eaf6ef', color: '#1f7a4d' } : { background: 'var(--soft, #f3f1ee)', color: 'var(--ink)' }}>{a.said}</p>))}</div>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {ASKS.filter((x) => !open.has(x.value) && !(x.value === 'check' && pass.checkAsked)).map((x) => (
+            <button key={x.value} type="button" disabled={!!asking} onClick={() => ask(x.value)} className="v-pill" style={{ minHeight: 44 }}>{asking === x.value ? 'Sending…' : x.label}</button>))}
+        </div>
+        <VisitSaid text={said} />
+      </VisitCard>
+      {pass.usual && !usualOpen && (
+        <VisitCard>
+          <p className="text-[15px] font-semibold">Your usual?</p>
+          <VisitMuted>{pass.usual}, like last time. Your server brings it over.</VisitMuted>
+          <div className="mt-3"><button type="button" disabled={!!asking} onClick={() => ask('usual')} className="v-pill" style={{ minHeight: 44 }}>{asking === 'usual' ? 'Sending…' : 'Yes, please'}</button></div>
+        </VisitCard>
+      )}
+      {lines.length > 0 && (
+        <VisitCard>
+          <button type="button" onClick={() => setShowCheck(!showCheck)} aria-expanded={showCheck} className="w-full text-left" style={{ minHeight: 44 }}>
+            <span className="flex items-baseline justify-between gap-3"><span className="text-[15px] font-semibold">So far</span><span className="text-[15px] font-semibold tabular-nums">{money(v.total)}</span></span>
+            <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{lines.length} {lines.length === 1 ? 'item' : 'items'}, with tax. {showCheck ? 'Tap to hide the check.' : 'Tap to see the check.'}</span>
+          </button>
+          {showCheck && <div className="mt-2 space-y-1.5">{lines.map((l) => (
+            <p key={l.lineId} className="flex items-baseline justify-between gap-3 text-[14px]"><span>{l.name}{l.seat ? <span style={{ color: 'var(--muted)' }}>, seat {l.seat}</span> : null}</span><span className="tabular-nums">{l.comped ? 'On us' : money(l.price)}</span></p>))}</div>}
+        </VisitCard>
+      )}
+      {pass.payOn ? <div className="space-y-2 pt-1">
+          <VisitButton onClick={onPay}>Pay or split</VisitButton>
+          {v.state === 'wait' && v.why && <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>{v.why}</p>}
+        </div>
+        : <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>Your server takes payment when you’re ready.</p>}
+      <p className="px-1 text-center text-[12.5px]" style={{ color: 'var(--muted)' }}>This page is just for your table. It stays up to date while it’s open.</p>
+    </>
+  );
+}
+
 export default function TableBill() {
   const { tenantId, token } = useParams() as { tenantId: string; token: string };
   const [v, setV] = React.useState<any>(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
@@ -68,6 +138,9 @@ export default function TableBill() {
   const [ways, setWays] = React.useState(2); const [parts, setParts] = React.useState(1);
   const [tipPct, setTipPct] = React.useState<number | null>(null); const [other, setOther] = React.useState<string | null>(null);
   const [claim, setClaim] = React.useState<Claim | null>(null); const [paid, setPaid] = React.useState(false);
+  // The table's page first; paying when they tap it (or straight away from a link that says so).
+  const [mode, setMode] = React.useState<'table' | 'pay'>(() => (typeof window !== 'undefined' && /[?&]pay=1\b/.test(window.location.search) ? 'pay' : 'table'));
+  const [asking, setAsking] = React.useState<AskKind | null>(null); const [said, setSaid] = React.useState('');
   const post = React.useCallback((action: string, extra: any = {}) => fetch('/api/table-pay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, token, action, ...extra }) })
     .then((r) => r.json()).catch(() => ({ ok: false, error: 'No connection. Try again in a moment.' })), [tenantId, token]);
   const load = React.useCallback(() => post('view').then((r) => setV((prev: any) => (r?.ok || !prev?.ok ? r : prev))), [post]);
@@ -90,7 +163,17 @@ export default function TableBill() {
   if (!v.ok) return <VisitShell brand={brand} title="This link isn’t working"><VisitCard><VisitMuted>{v.error || 'Ask your server for the check.'}</VisitMuted></VisitCard></VisitShell>;
   if (paid) return <VisitShell brand={brand} title="Paid. Thank you!" subtitle="Your server sees it’s paid. No need to wait."><div className="flex justify-center py-2"><VisitCheck /></div></VisitShell>;
   if (v.state === 'closed') return <VisitShell brand={brand} title="This check is closed" subtitle="Thank you for coming in." />;
-  if (v.state === 'wait') return <VisitShell brand={brand} title={v.table || 'Your check'}><VisitCard><VisitMuted>{v.why}</VisitMuted></VisitCard></VisitShell>;
+  const ask = async (what: AskKind) => {
+    setAsking(what); setSaid('');
+    const r = await post('ask', { what }); setAsking(null);
+    if (!r?.ok) { setSaid(r?.error || 'That didn’t send. Try again, or wave someone over.'); return; }
+    void load();
+  };
+  if (mode === 'table' && v.pass && !claim) return (
+    <VisitShell brand={brand} kicker={v.table} title="Your table"><TablePass v={v} pass={v.pass} onPay={() => setMode('pay')} ask={ask} asking={asking} said={said} /></VisitShell>
+  );
+  const backToTable = v.pass && !claim ? <VisitButton quiet onClick={() => setMode('table')}>Back to your table</VisitButton> : null;
+  if (v.state === 'wait') return <VisitShell brand={brand} title={v.table || 'Your check'}><VisitCard><VisitMuted>{v.why}</VisitMuted></VisitCard>{backToTable}</VisitShell>;
 
   // The check as the server works it out, to show what each choice comes to (the server works it out again to charge).
   const lines: Line[] = v.lines || [];
@@ -180,6 +263,7 @@ export default function TableBill() {
           {sh && sh.ok && <p className="flex items-baseline justify-between px-1 text-[15px]"><span>{sh.label}, with tax{tipAmt > 0 ? ' and tip' : ''}</span><b className="text-[17px] font-semibold tabular-nums">{money(sh.amount + tipAmt)}</b></p>}
           <VisitButton disabled={busy || !sh || !sh.ok} onClick={start}>{busy ? 'One moment…' : sh && sh.ok ? `Pay ${money(sh.amount + tipAmt)}` : way === 'seat' ? 'Pick your seat' : way === 'item' ? 'Pick what you had' : 'Pay'}</VisitButton>
           <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>Your server sees it’s paid. No need to wait.</p>
+          {backToTable}
         </div>
       </>}
     </VisitShell>

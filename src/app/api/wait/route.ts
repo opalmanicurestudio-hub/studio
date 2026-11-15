@@ -18,7 +18,7 @@ import { liveCounts } from '@/lib/dish-counts-server';
 import { addPreorder, minutesWords, moreTime, placeWords, preorderTotal, removePreorder, waitSettingsOf } from '@/lib/wait-line';
 import { forgetFloor, readFloor, voidPreorderOrFlag, waitDrinks, waitNow } from '@/lib/floor-server';
 import { wordsList } from '@/lib/allergens';
-import { tableLabel } from '@/lib/table-service';
+import { tableLabel, visitIdForParty } from '@/lib/table-service';
 import { memorySettingsOf, usualDrinks } from '@/lib/guest-memory';
 import { memoryFor } from '@/lib/guest-memory-server';
 
@@ -150,6 +150,16 @@ export async function POST(req: NextRequest) {
     if (!open || state === 'left' || state === 'done' || state === 'closed') return ok({ ...look, state: state === 'left' ? 'left' : state === 'closed' ? 'closed' : 'done' });
     const base = { ...look, first: String(p.name || '').trim().split(/\s+/)[0]?.slice(0, 40) || '',
       size: Number(p.size) || 1, state, preorder: Array.isArray(p.preorder) ? p.preorder : [], preorderTotal: preorderTotal(p.preorder || []), rung: !!p.preorderRungAt, drinksWhen: s.drinksWhen };
+    // Seated: their table's own page from here on (lib/guest-pass), the same link the check's code opens.
+    if (state === 'seated') {
+      const vid = visitIdForParty(p);
+      const v: any = ID.test(vid) ? (await db.doc(`${T}/appointments/${vid}`).get()).data() : null;
+      if (!v || v.status === 'completed') return ok(base);
+      // The table's link as it is (made once, the first time it's needed: never a write on every look).
+      let token = typeof v.payToken === 'string' && /^[A-Za-z0-9_-]{20,40}$/.test(v.payToken) ? v.payToken : '';
+      if (!token) { const { payTokenOf } = await import('@/lib/table-pay-server'); token = await payTokenOf(db, T, vid).catch(() => ''); }
+      return ok({ ...base, pass: token ? `/bill/${encodeURIComponent(tenantId)}/${token}` : null, table: tableLabel(v.tableName) });
+    }
     if (state !== 'waiting' && state !== 'ready') return ok(base);
     const now = Date.now();
     const read = await readFloor(db, T, tenant);
