@@ -73,6 +73,15 @@ export async function memoriesFor(db: any, T: string, tenant: any, ids: string[]
   return out;
 }
 
+/** The guest a booking's number or email is, read only (one exact match, else null), with the name on file, so the
+ *  caller can see it's the same person and not someone sharing the number: the pre-shift briefing's regulars
+ *  (lib/briefing-server). Nothing is linked from here. */
+export async function guestFor(db: any, T: string, p: { phone?: unknown; email?: unknown }): Promise<{ id: string; name: string } | null> {
+  const list = await candidates(db, T, p); const m = matchGuest(list, p);
+  if (m.count !== 1 || !m.id) return null;
+  const c = list.find((x) => x.id === m.id) || {};
+  return { id: m.id, name: String(c.name || [c.firstName, c.lastName].filter(Boolean).join(' ') || '').slice(0, 80) };
+}
 /** The guests a mobile number or email could belong to (a few at most). */
 async function candidates(db: any, T: string, p: any): Promise<any[]> {
   const d = digitsKey(p.phone); const e = emailKey(p.email); const out = new Map<string, any>();

@@ -9,7 +9,9 @@
 // - What it takes: each dish's recipe (lib/menu-stock) times how many, against what's in stock now.
 import { ingredientLeft, ingredientUnit, recipeOf } from '@/lib/menu-stock';
 
-export type Night = { day: string; guests: number | null; booked: number; used: Record<string, number>; truncated?: boolean };
+export type Night = { day: string; guests: number | null; booked: number; used: Record<string, number>; truncated?: boolean;
+  /** Guests seated in each hour of the day, by the business's clock (lib/briefing reads the usual night's shape). */
+  byHour?: number[] };
 export type PrepItem = { id: string; name: string; station: string; x: any };
 export type PrepRow = { id: string; name: string; station: string; make: number | null; low: number; high: number; isNew: boolean };
 export type PrepNeed = { id: string; name: string; unit: string; need: number; have: number | null };
@@ -21,6 +23,8 @@ export type PrepPlan = {
   truncated: boolean;
   usualGuests: number | null; walkIns: number | null; guests: number | null;
   nights: { day: string; guests: number | null }[]; rows: PrepRow[]; needs: PrepNeed[];
+  /** A usual night's guests seated in each hour (24, the business's clock), from the same nights; null: not known. */
+  hours?: number[] | null;
 };
 
 export const PREP_WEEKS = 6;
@@ -81,7 +85,10 @@ export function planPrep(o: { day: string; nights: Night[]; items: PrepItem[]; b
   }
   const needs = Array.from(need.values()).sort((a, b) => Number(b.have !== null && b.have < b.need) - Number(a.have !== null && a.have < a.need) || a.name.localeCompare(b.name));
   const sameDay = o.nights.filter((n) => n.day < day && weekday(n.day) === weekday(day) && sold(n)).length;
-  return { day, basis, booked, bookings, sameDay, truncated: picked.some((n) => !!n.truncated), usualGuests, walkIns, guests, nights: picked.map((n) => ({ day: n.day, guests: n.guests })).reverse(), rows, needs };
+  // A usual night's shape through the evening: guests seated each hour, from the nights that counted them.
+  const shaped = counted.filter((n) => Array.isArray(n.byHour) && n.byHour.some((x) => Number(x) > 0));
+  const hours = shaped.length ? Array.from({ length: 24 }, (_, h) => r3(avg(shaped.map((n) => Math.max(0, Number(n.byHour![h]) || 0))))) : null;
+  return { day, basis, booked, bookings, sameDay, truncated: picked.some((n) => !!n.truncated), usualGuests, walkIns, guests, nights: picked.map((n) => ({ day: n.day, guests: n.guests })).reverse(), rows, needs, hours };
 }
 
 /** "Sat" for a day. */

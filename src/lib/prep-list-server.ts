@@ -3,6 +3,7 @@
 // menu and its recipes' ingredients; lib/prep-list works it out. Worked out at most every ten minutes a day a business.
 // What the kitchen has ticked off as done is kept with the day (prepLists/{day}).
 import { addDays, nightBounds, tonight, DAY_RE } from '@/lib/night-close-server';
+import { tenantTimeZone, wallParts } from '@/lib/tenant-time';
 import { usedByItem } from '@/lib/dish-counts';
 import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf } from '@/lib/menu-stock';
@@ -33,14 +34,17 @@ async function nightOf(db: any, T: string, tenant: any, day: string): Promise<Ni
   const tickets = [...k.docs.map((d: any) => d.data() || {}).filter((t: any) => String(t.createdAt || '') < b.end),
     ...l.docs.map((d: any) => d.data() || {}).filter((t: any) => String(t.requestedAt || '') < b.end)];
   const used: Record<string, number> = {}; for (const [id, q] of usedByItem(tickets)) used[id] = q;
-  let guests: number | null = null;
+  let guests: number | null = null; const byHour = Array.from({ length: 24 }, () => 0); const tz = tenantTimeZone(tenant);
   for (const s of ses.docs) {
     const p = await db.collection(`${T}/parties`).where('sessionId', '==', s.id).limit(800).get();
-    const n = p.docs.map((d: any) => d.data() || {}).filter((x: any) => ['seated', 'finished'].includes(String(x.status)) || !!x.seatedAt).reduce((a: number, x: any) => a + Math.max(1, Math.round(num(x.size) || 1)), 0);
+    const sat = p.docs.map((d: any) => d.data() || {}).filter((x: any) => ['seated', 'finished'].includes(String(x.status)) || !!x.seatedAt);
+    const n = sat.reduce((a: number, x: any) => a + Math.max(1, Math.round(num(x.size) || 1)), 0);
+    // When in the evening they sat (lib/briefing's usual shape of a night).
+    for (const x of sat) { const at = Date.parse(String(x.seatedAt || '')); if (Number.isFinite(at)) byHour[((wallParts(new Date(at), tz).hour % 24) + 24) % 24] += Math.max(1, Math.round(num(x.size) || 1)); }
     guests = (guests || 0) + n;
   }
   const booked = bk.docs.map((d: any) => d.data() || {}).filter((x: any) => ['booked', 'no_show'].includes(String(x.status))).reduce((a: number, x: any) => a + Math.max(1, Math.round(num(x.size) || 1)), 0);
-  const v: Night = { day, guests: guests && guests > 0 ? guests : null, booked, used, truncated: k.docs.length >= TICKETS || l.docs.length >= TICKETS };
+  const v: Night = { day, guests: guests && guests > 0 ? guests : null, booked, used, truncated: k.docs.length >= TICKETS || l.docs.length >= TICKETS, byHour };
   if (nightCache.size > 3000) nightCache.clear();
   nightCache.set(key, { at: Date.now(), v }); return v;
 }
