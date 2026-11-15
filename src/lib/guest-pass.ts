@@ -42,8 +42,9 @@ export function passCourses(tab: any[], tickets: Record<string, { status?: strin
 }
 export const STATE_WORDS: Record<ItemState, string> = { held: 'When you’re ready', ordered: 'Ordered', making: 'Being made', on_way: 'On its way', served: 'Served' };
 
-/** What a guest can ask for from their phone. */
-export type AskKind = 'server' | 'water' | 'check' | 'usual';
+/** What a guest can ask for from their phone. ('report' is "Something not right?", lib/table-recovery: it's kept with
+ *  the asks so the server's phone shows it first, but it isn't asked for this way.) */
+export type AskKind = 'server' | 'water' | 'check' | 'usual' | 'report';
 export const ASKS: { value: Exclude<AskKind, 'usual'>; label: string }[] = [
   { value: 'server', label: 'Our server' }, { value: 'water', label: 'Water, please' }, { value: 'check', label: 'The check, please' },
 ];
@@ -56,10 +57,12 @@ export const ASK_ID = /^[a-z0-9]{4,16}$/;
 /** What the server's phone says (lib/nudges). */
 export function askText(a: Pick<GuestAsk, 'what' | 'item'>, table: string): string {
   const t = table || 'A table';
+  if (a.what === 'report') return `${t} says something isn’t right${a.item ? `: ${a.item}` : ''}. A manager should go over.`;
   return a.what === 'water' ? `${t} would like water.` : a.what === 'check' ? `${t} would like the check.` : a.what === 'usual' ? `${t} would like their usual${a.item ? `: ${a.item}` : ''}.` : `${t} is asking for their server.`;
 }
 /** What the guest sees once it's sent, and once someone has it ("Ana has it"). */
 export function askSaid(a: Pick<GuestAsk, 'what' | 'item'>, seenBy: string | null): string {
+  if (a.what === 'report') return seenBy ? `Thanks for telling us. ${seenBy} is coming over.` : 'Thanks for telling us. A manager is on the way.';
   const item = a.what === 'water' ? 'water' : a.what === 'check' ? 'the check' : a.what === 'usual' ? (a.item || 'your usual') : '';
   if (a.what === 'server') return seenBy ? `${seenBy} is on the way.` : 'We let your server know.';
   if (a.what === 'check') return seenBy ? `${seenBy} is bringing the check.` : 'We let your server know you’d like the check.';

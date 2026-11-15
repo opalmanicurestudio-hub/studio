@@ -35,7 +35,8 @@
 //          takes that seat's allergies (lib/allergens), and asks for "Allergy noted" again if they're different.
 // Every comp, void and remake is kept as an approval record (tenants/{t}/approvals, which no browser can write): who
 // asked, who approved, why, the item, the night it belongs to, and the waste. The night's report reads them; checkout
-// checks a comp against its record before charging less.
+// checks a comp against its record before charging less. One for something that went wrong (a reason like "Took too
+// long" or "Not right") is on the visit's Making it right case too, starting one if it has none (lib/table-recovery-server).
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -43,6 +44,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { tonight } from '@/lib/night-close-server';
 import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, OTHER_REASON } from '@/lib/table-service';
+import { logTableFix } from '@/lib/table-recovery-server';
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
 import { NUDGE_KEY } from '@/lib/nudges';
 import { linkOrigin } from '@/lib/app-origin';
@@ -326,6 +328,8 @@ export async function POST(req: NextRequest) {
         tx.set(rRef, recordOf(rRef, 'comp', token, extra), { merge: true });
       }));
       await logAuditAdmin(db, tenantId, { action: 'tab.comp', targetType: 'appointment', targetId: visitId, amount, summary: `${me.name} comped ${line.name} (${money(amount)}) at ${v.tableName || 'a table'}: ${reason}${approvedBy !== me.name ? `. ${approvedBy} approved.` : ''}`, actor: { type: 'user', id: me.id, name: me.name } } as any).catch(() => {});
+      // Something that went wrong is on the visit's Making it right case (lib/table-recovery-server).
+      await logTableFix(db, tenantId, { id: me.id, name: me.name, role: String((auth.actor as any)?.role || 'staff'), manager }, visitId, { kind: 'comp', item: String(line.name || 'Item').slice(0, 80), amount, reason }).catch((e) => console.warn('[tab] case', e));
       return ok({ amount, approvedBy });
     }
 
@@ -376,6 +380,7 @@ export async function POST(req: NextRequest) {
           await PS.queueVoids(db, T, tenant, [{ ...k, id: line.kdsId }], me.name).catch((e) => console.warn('[tab void] print', e));
         }
       }
+      await logTableFix(db, tenantId, { id: me.id, name: me.name, role: String((auth.actor as any)?.role || 'staff'), manager }, visitId, { kind: 'void', item: String(line.name || 'Item').slice(0, 80), amount, reason }).catch((e) => console.warn('[tab] case', e));
       return ok({ amount, started, waste, approvedBy });
     }
 
@@ -408,6 +413,7 @@ export async function POST(req: NextRequest) {
         tx.set(rRef, recordOf(rRef, 'remake', null, { amount: 0, itemName: String(line.name || 'Item').slice(0, 80), itemId: line.itemId || null, reason, started: true, wasteCost: waste, ticketStatus: ticket.status || null, tableName: v.tableName || null, askedBy: me.name, approverName: me.name, newTicket: newId }));
       });
       await logAuditAdmin(db, tenantId, { action: 'tab.remake', targetType: 'appointment', targetId: visitId, summary: `${me.name} had ${line.name} made again at ${v.tableName || 'a table'}: ${reason}${waste !== null ? `. ${money(waste)} counts as waste.` : ''}`, actor: { type: 'user', id: me.id, name: me.name } } as any).catch(() => {});
+      await logTableFix(db, tenantId, { id: me.id, name: me.name, role: String((auth.actor as any)?.role || 'staff'), manager }, visitId, { kind: 'remake', item: String(line.name || 'Item').slice(0, 80), amount: 0, reason }).catch((e) => console.warn('[tab] case', e));
       return ok({ waste, ticket: newId });
     }
 

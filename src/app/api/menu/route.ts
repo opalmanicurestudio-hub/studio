@@ -36,6 +36,7 @@ import { readMenu, setSoldOut, isMenuItem, menuItemOf, menuItemNow } from '@/lib
 import { itemCost, targetOf } from '@/lib/food-cost';
 import { cleanPace, paceSettingsOf } from '@/lib/kitchen-pace';
 import { forgetPace } from '@/lib/kitchen-pace-server';
+import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
@@ -61,7 +62,7 @@ const ownBuckets = () => Array.from(new Set([process.env.FIREBASE_STORAGE_BUCKET
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Table service as the Menu page edits it (lib/table-service). */
-const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), tablePay: tablePayOf(t), nudges: nudgeSettingsOf(t) });
+const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySettingsOf(t), courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), tablePay: tablePayOf(t), nudges: nudgeSettingsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -219,6 +220,7 @@ export async function POST(req: NextRequest) {
       if (b.askAllergies !== undefined) { if (typeof b.askAllergies !== 'boolean') return bad('Ask about allergies: on or off.'); next.askAllergies = b.askAllergies; }
       if (b.finishTogether !== undefined) { if (typeof b.finishTogether !== 'boolean') return bad('Finish together: on or off.'); next.finishTogether = b.finishTogether; }
       if (b.pace !== undefined) { const p = cleanPace(b.pace); if (!p) return bad('Kitchen pace: on or off, and busy at 2 to 30 minutes behind.'); next.pace = p; }
+      if (b.recovery !== undefined) { const r = cleanRecovery(b.recovery); if (!r) return bad('When something goes wrong: on or off, and the host told after 0 to 60 minutes.'); next.recovery = r; }
       if (b.tablePay !== undefined) {
         if (!b.tablePay || typeof b.tablePay !== 'object') return bad('Check the pay at the table settings.');
         const tp = cleanTablePay({ ...tablePayOf(td), ...b.tablePay });

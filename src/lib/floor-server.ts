@@ -27,7 +27,9 @@ import { tabSig } from '@/lib/table-bill';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class FloorStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
 
-export type SeatedTable = { partyId: string; unitIds: string[]; nt: NudgeTable; row: any; stage: Stage };
+export type SeatedTable = { partyId: string; unitIds: string[]; nt: NudgeTable; row: any; stage: Stage;
+  /** What the table told us from its page ("Something not right?", lib/table-recovery), and the visit's Making it right case. */
+  report?: any | null; caseId?: string | null };
 export type FloorRead = { at: number; session: any | null; parties: any[]; seated: SeatedTable[]; staff: Record<string, string>;
   /** Tonight's lobby list (the walk-in queue), waiting as the host stand shows it: they're in line too. */
   lobby: any[];
@@ -111,7 +113,7 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
     const row = { visitId: vid, table: label, staffIds: ids, total: Math.round(tab.reduce((s2: number, l: any) => s2 + (Number(l?.price) || 0) * (Number(l?.quantity) || 1), 0) * 100) / 100,
       stage: { key: stage.key, words: stage.words, step: stage.step, freeIn: stage.freeIn }, checkAt: p.checkAt || null, paidAt: paidAt || null, closed: v.status === 'completed',
       party: { id: p.id, name: String(p.name || 'Table').slice(0, 80), size: Number(p.size) || 1, guestIds: Array.isArray(p.guestIds) ? p.guestIds : [], clientId: p.clientId || v.clientId || null, unitIds, seatedAt: p.seatedAt || null } };
-    return { partyId: p.id, unitIds, nt, row, stage };
+    return { partyId: p.id, unitIds, nt, row, stage, report: v.guestReport && typeof v.guestReport === 'object' ? v.guestReport : null, caseId: String(v.makeRightCaseId || v.guestReport?.caseId || '') || null };
   });
   const pace = await paceNow(db, T, tenant);
   return { at: now, session, parties, seated, staff, lobby, pace };

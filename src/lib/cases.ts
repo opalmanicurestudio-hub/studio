@@ -54,7 +54,9 @@ async function nextNumber(db: any, tenantId: string) {
   return `MIR-${y}-${String(n).padStart(4, '0')}`;
 }
 
-export async function openCase(db: any, tenantId: string, actor: RequestActor, b: any) {
+/** `o.id`: the case's id, already claimed by the caller (lib/table-recovery-server claims it on the visit first, so two
+ *  things at one table at once make one case). Never from a request body. */
+export async function openCase(db: any, tenantId: string, actor: RequestActor, b: any, o: { id?: string } = {}) {
   const tenant: any = (await db.doc(T(tenantId)).get()).data() || {}; const salonS = settingsOf(tenant);
   const staff = await staffList(db, tenantId); const me = staff.find((s: any) => s.id === actor.staffId);
   const visit = await visitOf(db, tenantId, String(b.appointmentId || ''), staff);
@@ -74,16 +76,16 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   const priorFixes = prior.filter((c: any) => c.fix && c.fix.kind !== 'note').map((c: any) => ({ at: c.fix.at || c.createdAt }));
   const photos: string[] = (Array.isArray(b.photos) ? b.photos : []).map(String).filter((u: string) => /^https:\/\//.test(u)).slice(0, 8);
   const checks = fairUseChecks({ settings: S, visit, reason, photos: photos.length, priorFixes, wants: b.wants, afterDiscount: prior.filter((c: any) => c.visit?.discounted).length + (visit?.discounted ? 1 : 0) });
-  const via = ['call', 'staff', 'desk', 'survey', 'link', 'text', 'review'].includes(b.via) ? b.via : 'desk';
+  const via = ['call', 'staff', 'desk', 'survey', 'link', 'text', 'review', 'table', 'floor'].includes(b.via) ? b.via : 'desk';
   const ownerId = renterCase ? renter.id : (via === 'call' || via === 'desk' || via === 'text' || via === 'review') && !reason?.safety ? actor.staffId : null;
-  const id = db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
+  const id = o.id && /^[A-Za-z0-9]{1,60}$/.test(o.id) ? o.id : db.collection(`${T(tenantId)}/cases`).doc().id; const number = await nextNumber(db, tenantId);
   const doc: any = {
     id, number, clientId: clientId || null, clientName, visit, reasonId: reason?.id || 'other', reasonLabel: reason?.label || 'Something else', safety: !!reason?.safety,
     via, words: String(b.words || '').trim().slice(0, 2000), wordsEn: b.wordsEn ? String(b.wordsEn).slice(0, 2000) : null, wordsLang: b.wordsLang ? String(b.wordsLang).slice(0, 12) : null, photos, voice: voiceIn, statusPath: b.statusPath ? String(b.statusPath).slice(0, 300) : null, wants: ['fix', 'talk', 'refund'].includes(b.wants) ? b.wants : null,
     reportedBy: { id: actor.staffId, name: actor.name }, providerAction: via === 'staff' ? String(b.providerAction || '').slice(0, 40) || null : null,
     ownerId, ownerName: ownerId ? (renterCase ? renter.name || 'Renter' : actor.name) : null, renterCase, renterStaffId: renter ? renter.id : null, renterId: renter?.renterId || null, status: ownerId ? 'owned' : 'heard', checks, needsManager: !renterCase && (!!reason?.safety || checks.some((c) => !c.ok)),
     replyDueAt: S.replyHours ? new Date(Date.now() + S.replyHours * 3600000).toISOString() : null, checkInDueAt: reason?.safety && S.safetyCheckInHours ? new Date(Date.now() + S.safetyCheckInHours * 3600000).toISOString() : null, fix: null, pending: null,
-    timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link', text: 'a text message', review: 'an online review' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
+    timeline: [line(actor.name, `Case opened (${({ call: 'phone call', staff: 'reported by the provider', desk: 'at the desk', survey: '“How was your visit?”', link: 'their visit link', table: 'their table’s page', floor: 'by the team at the table', text: 'a text message', review: 'an online review' } as any)[via]}): ${reason?.label || 'something else'}${b.words ? ` — “${String(b.words).slice(0, 200)}”` : ''}`),
       ...(renterCase ? [line('System', `${renter.name || 'The renter'}'s client — the case is theirs`)] : ownerId ? [line(actor.name, `${actor.name} took ownership`)] : [])],
     incident: reason?.safety ? { started: now(), whatHappened: String(b.words || ''), present: [], statements: [], checkIn48At: null } : null,
     preferOther: b.preferOther === true, involvedStaffIds: visit?.providerId ? [visit.providerId] : [],

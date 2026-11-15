@@ -11,7 +11,9 @@ import { useEffect, useState } from 'react';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', RED = '#b42318';
 export type Nudges = { fireAfterMin: number; checkBackMin: number; passWaitMin: number; noOrderMin: number; lateMin: number };
 export type TablePay = { on: boolean; ways: ('seat' | 'item' | 'even')[]; tips: number[]; tipBase: 'pre' | 'post'; suggest: number | null };
-export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges; tablePay?: TablePay; pace?: { on: boolean; busyMin: number } }
+export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges; tablePay?: TablePay; pace?: { on: boolean; busyMin: number }; recovery?: Recovery }
+type Recovery = { sorry: boolean; report: boolean; hostLateMin: number };
+const RECOVERY0: Recovery = { sorry: true, report: true, hostLateMin: 10 };
 const PAY_DEFAULTS: TablePay = { on: false, ways: ['seat', 'item', 'even'], tips: [18, 20, 22], tipBase: 'pre', suggest: 20 };
 const WAY_ROWS: ['seat' | 'item' | 'even', string][] = [['seat', 'By seat'], ['item', 'By item'], ['even', 'Evenly']];
 const TIP_OPTS = [10, 12, 15, 18, 20, 22, 25, 30];
@@ -37,12 +39,13 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
   const [pay, setPay] = useState<TablePay>({ ...PAY_DEFAULTS, ...(service.tablePay || {}) });
   const PACE0 = { on: true, busyMin: 5 };
   const [pace, setPace] = useState({ ...PACE0, ...(service.pace || {}) });
+  const [recovery, setRecovery] = useState<Recovery>({ ...RECOVERY0, ...(service.recovery || {}) });
   const [newStation, setNewStation] = useState(''); const [newReason, setNewReason] = useState('');
   const [busy, setBusy] = useState(false); const [note, setNote] = useState(''); const [err, setErr] = useState('');
-  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); setPay({ ...PAY_DEFAULTS, ...(service.tablePay || {}) }); setPace({ ...PACE0, ...(service.pace || {}) }); }, [service]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges, pay, pace]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }, { ...PAY_DEFAULTS, ...(service.tablePay || {}) }, { ...PACE0, ...(service.pace || {}) }]);
+  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); setPay({ ...PAY_DEFAULTS, ...(service.tablePay || {}) }); setPace({ ...PACE0, ...(service.pace || {}) }); setRecovery({ ...RECOVERY0, ...(service.recovery || {}) }); }, [service]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges, pay, pace, recovery]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }, { ...PAY_DEFAULTS, ...(service.tablePay || {}) }, { ...PACE0, ...(service.pace || {}) }, { ...RECOVERY0, ...(service.recovery || {}) }]);
   const save = async () => { setBusy(true); setErr(''); setNote('');
-    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges, tablePay: pay, pace });
+    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges, tablePay: pay, pace, recovery });
     setBusy(false); if (e) setErr(e); else setNote('Saved. Screens pick it up within a few seconds.'); };
   const chip = 'inline-flex min-h-[40px] items-center gap-1 rounded-full pl-3 pr-1 text-[13.5px] font-medium';
   const x = (label: string, onClick: () => void) => <button type="button" onClick={onClick} aria-label={label} className="h-9 w-9 rounded-full grid place-items-center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>;
@@ -130,6 +133,26 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
             </select>
           </label>
         ))}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-[15px] font-semibold">When something goes wrong</h3>
+        <label className="flex items-center gap-3 min-h-[44px]">
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">Say sorry on the table’s page</span><span className="block text-[13px]" style={{ color: MUTED }}>When a course runs late or a dish is being made again, the table’s own page says so, kindly.</span></span>
+          <input type="checkbox" checked={recovery.sorry} onChange={(e) => setRecovery({ ...recovery, sorry: e.target.checked })} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
+        <label className="flex items-center gap-3 min-h-[44px]" style={{ borderTop: `1px solid ${LINE}` }}>
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">“Something not right?” on the table’s page</span><span className="block text-[13px]" style={{ color: MUTED }}>Private to your team: the server’s phone, the host stand, and a Making it right case for managers. The choices are your Making it right reasons.</span></span>
+          <input type="checkbox" checked={recovery.report} onChange={(e) => setRecovery({ ...recovery, report: e.target.checked })} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
+        <label className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>
+          <span className="flex-1 min-w-[200px]"><span className="block text-[14.5px] font-medium">Tell the host when food is late by</span><span className="block text-[13px]" style={{ color: MUTED }}>Past the slowest dish’s usual time. The server hears first; the host stand can start a case in one tap.</span></span>
+          <select value={recovery.hostLateMin} onChange={(e) => setRecovery({ ...recovery, hostLateMin: Number(e.target.value) })} className={field} style={{ borderColor: LINE }}>
+            {Array.from(new Set([5, 10, 15, 20, 30, recovery.hostLateMin])).filter((n) => n > 0).sort((a, b) => a - b).map((n) => <option key={n} value={n}>{n} min</option>)}
+            <option value={0}>Off</option>
+          </select>
+        </label>
+        <p className="text-[13px]" style={{ color: MUTED }}>A comp, a remake or a void for something that went wrong is logged on the visit’s Making it right case too.</p>
       </div>
 
       <div className="space-y-2">

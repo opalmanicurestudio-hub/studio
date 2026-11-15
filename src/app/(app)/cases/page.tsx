@@ -16,7 +16,7 @@ import { settingsOf, FIX_LABEL, FIX_HINT, STAGES, stageIndex, WANTS, wantsFor, C
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', RED = '#b42318', PINK = '#fdecec', GREEN = '#1f6b3a';
 const ago = (iso: string) => { const m = Math.max(0, (Date.now() - Date.parse(iso)) / 60000); return m < 60 ? `${Math.round(m)} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
 const left = (iso: string) => { const m = (Date.parse(iso) - Date.now()) / 60000; if (m <= 0) return { text: `Reply overdue by ${ago(iso)}`, late: true }; return { text: m < 60 ? `Reply within ${Math.round(m)} min` : `Reply within ${Math.round(m / 60)} h`, late: false }; };
-const VIA: Record<string, string> = { review: 'Online review', text: 'Text message', call: 'Phone call', staff: 'Provider', desk: 'Front desk', survey: 'Visit rating', link: 'Visit link' };
+const VIA: Record<string, string> = { review: 'Online review', text: 'Text message', call: 'Phone call', staff: 'Provider', desk: 'Front desk', survey: 'Visit rating', link: 'Visit link', table: 'Their table’s page', floor: 'The team at the table' };
 const btn = 'h-11 rounded-full px-5 text-[15px] font-semibold disabled:opacity-40';
 
 async function download(tenantId: string, id: string, kind: 'record' | 'incident', number: string) {

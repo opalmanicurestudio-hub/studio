@@ -7,14 +7,16 @@
 // (lib/table-bill, the same working as the server's). Paid: the server sees it, no need to wait. /api/table-pay.
 // It's the table's GUEST PASS too (design canvas "Guest pass", lib/guest-pass): it opens on where their order is, course
 // by course, a way to ask for their server, water or the check, a regular's usual, and what the tab comes to so far;
-// paying or splitting is one tap away. Kept up to date while it's open.
+// paying or splitting is one tap away. Kept up to date while it's open. When a course runs late or a dish is being made
+// again it says sorry on its own, and a private "Something not right?" tells a manager (lib/table-recovery).
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitSaid, VisitCheck, brandFromLook, useLook } from '@/components/booking/VisitShell';
+import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitSaid, VisitCheck, VisitInput, brandFromLook, useLook } from '@/components/booking/VisitShell';
 import { shareFor, tipFor, type Bill, type Choice, type PayState, type SplitWay } from '@/lib/table-bill';
 import { ASKS, STATE_WORDS, type AskKind, type ItemState, type PassCourse } from '@/lib/guest-pass';
+import { SAFETY_WORDS, type ReportReason } from '@/lib/table-recovery';
 
 const POLL_MS = 15000;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -65,10 +67,61 @@ function PayForm({ claim, post, onPaid, onBack }: { claim: Claim; post: (a: stri
 }
 
 const CHIP: Record<ItemState, { bg: string; fg: string }> = { served: { bg: '#eaf6ef', fg: '#1f7a4d' }, on_way: { bg: '#e7f1fb', fg: '#1d5fa8' }, making: { bg: '#fff7ed', fg: '#b45309' }, ordered: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' }, held: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' } };
-type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean };
+type Report = { on: boolean; mine: { seen: boolean; said: string; safety: boolean } | null; reasons: ReportReason[]; dishes: { lineId: string; name: string }[] };
+type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean; sorry?: string[]; report?: Report | null };
+type Send = (x: { reasonId: string; lineId: string | null; words: string }) => Promise<string>;
+
+const SAFETY = { background: '#b45309', color: '#fff' };
+/** "Something not right?": private, to the team (lib/table-recovery). What they told us once it's sent; while that's
+ *  being seen to, only a safety reason (an allergic reaction) can be sent as well. */
+function NotRight({ report, send }: { report: Report; send: Send }) {
+  const [open, setOpen] = React.useState(false); const [reason, setReason] = React.useState<string | null>(null);
+  const [dish, setDish] = React.useState<string | null>(null); const [words, setWords] = React.useState('');
+  const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const status = report.mine ? (
+    <VisitCard>
+      <p role="status" className="rounded-2xl px-3 py-2.5 text-[14px]" style={report.mine.seen ? { background: '#eaf6ef', color: '#1f7a4d' } : { background: 'var(--soft, #f3f1ee)', color: 'var(--ink)' }}>{report.mine.said}</p>
+      {report.mine.safety && !report.mine.seen && <p className="mt-2 rounded-2xl px-3 py-2.5 text-[14px] font-semibold" style={SAFETY}>{SAFETY_WORDS}</p>}
+    </VisitCard>
+  ) : null;
+  if (!report.on || !report.reasons.length) return status;
+  if (!open) return <>{status}<button type="button" onClick={() => setOpen(true)} className="w-full text-center text-[14px] font-semibold underline underline-offset-4" style={{ color: 'var(--muted)', minHeight: 44 }}>{report.mine ? 'Something else happened?' : 'Something not right?'}</button></>;
+  const pick = report.reasons.find((r) => r.id === reason);
+  const submit = async () => {
+    if (!reason) return; setBusy(true); setErr('');
+    const e = await send({ reasonId: reason, lineId: dish, words }); setBusy(false);
+    if (e) { setErr(e); return; }
+    setOpen(false); setReason(null); setDish(null); setWords('');
+  };
+  return (
+    <>
+      {status}
+      <VisitCard>
+        <p className="text-[15px] font-semibold">{report.mine ? 'Something else happened?' : 'Something not right?'}</p>
+        <VisitMuted>Only our team sees this. A manager comes over.</VisitMuted>
+        <div role="group" aria-label="What wasn’t right" className="mt-3 flex flex-wrap gap-2">
+          {report.reasons.map((r) => <button key={r.id} type="button" aria-pressed={reason === r.id} onClick={() => setReason(r.id)} className="v-pill">{r.label}</button>)}
+        </div>
+        {pick?.safety && <p className="mt-3 rounded-2xl px-3 py-2.5 text-[14px] font-semibold" style={SAFETY}>{SAFETY_WORDS}</p>}
+        {report.dishes.length > 0 && <>
+          <p className="mt-4 text-[14px] font-semibold">Which one? <span className="font-normal" style={{ color: 'var(--muted)' }}>If it’s a dish</span></p>
+          <div role="group" aria-label="Which dish" className="mt-2 flex flex-wrap gap-2">
+            {report.dishes.map((d) => <button key={d.lineId} type="button" aria-pressed={dish === d.lineId} onClick={() => setDish(dish === d.lineId ? null : d.lineId)} className="v-pill">{d.name}</button>)}
+          </div></>}
+        <p className="mt-4 mb-2 text-[14px] font-semibold">Anything to add?{reason === 'other' ? '' : <span className="font-normal" style={{ color: 'var(--muted)' }}> Optional</span>}</p>
+        <VisitInput multiline label="Anything to add?" value={words} onChange={(x) => setWords(x.slice(0, 500))} placeholder="What happened" />
+        <VisitSaid text={err} />
+        <div className="mt-3 space-y-2">
+          <VisitButton disabled={!reason || busy || (reason === 'other' && !words.trim())} onClick={submit}>{busy ? 'Sending…' : 'Tell a manager'}</VisitButton>
+          <VisitButton quiet onClick={() => { setOpen(false); setErr(''); }}>Never mind</VisitButton>
+        </div>
+      </VisitCard>
+    </>
+  );
+}
 
 /** The table's own page while they're seated: their order, help, the tab so far, and paying (lib/guest-pass). */
-function TablePass({ v, pass, onPay, ask, asking, said }: { v: any; pass: Pass; onPay: () => void; ask: (w: AskKind) => void; asking: AskKind | null; said: string }) {
+function TablePass({ v, pass, onPay, ask, asking, said, send }: { v: any; pass: Pass; onPay: () => void; ask: (w: AskKind) => void; asking: AskKind | null; said: string; send: Send }) {
   const [showCheck, setShowCheck] = React.useState(false);
   const lines: Line[] = v.lines || [];
   // The latest of each kind they've asked for, newest first.
@@ -77,6 +130,8 @@ function TablePass({ v, pass, onPay, ask, asking, said }: { v: any; pass: Pass; 
   const usualOpen = open.has('usual') || pass.asks.some((a) => a.what === 'usual' && a.seen);
   return (
     <>
+      {(pass.sorry || []).length > 0 && <div role="status" className="space-y-1 rounded-2xl px-4 py-3 text-[14.5px] leading-snug" style={{ background: '#fff7ed', color: '#8a4a12' }}>
+        {(pass.sorry || []).map((x) => <p key={x}>{x}</p>)}</div>}
       {pass.courses.length === 0 ? <VisitCard><VisitMuted>Nothing ordered yet. Your server takes your order.</VisitMuted></VisitCard> : (
         <VisitCard>
           <ul className="space-y-3" aria-label="Your order">
@@ -125,6 +180,7 @@ function TablePass({ v, pass, onPay, ask, asking, said }: { v: any; pass: Pass; 
           {v.state === 'wait' && v.why && <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>{v.why}</p>}
         </div>
         : <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>Your server takes payment when you’re ready.</p>}
+      {pass.report && <NotRight report={pass.report} send={send} />}
       <p className="px-1 text-center text-[12.5px]" style={{ color: 'var(--muted)' }}>This page is just for your table. It stays up to date while it’s open.</p>
     </>
   );
@@ -169,8 +225,13 @@ export default function TableBill() {
     if (!r?.ok) { setSaid(r?.error || 'That didn’t send. Try again, or wave someone over.'); return; }
     void load();
   };
+  const report: Send = async (x) => {
+    const r = await post('report', x);
+    if (!r?.ok) return r?.error || 'That didn’t send. Wave anyone on the team over.';
+    await load(); return '';
+  };
   if (mode === 'table' && v.pass && !claim) return (
-    <VisitShell brand={brand} kicker={v.table} title="Your table"><TablePass v={v} pass={v.pass} onPay={() => setMode('pay')} ask={ask} asking={asking} said={said} /></VisitShell>
+    <VisitShell brand={brand} kicker={v.table} title="Your table"><TablePass v={v} pass={v.pass} onPay={() => setMode('pay')} ask={ask} asking={asking} said={said} send={report} /></VisitShell>
   );
   const backToTable = v.pass && !claim ? <VisitButton quiet onClick={() => setMode('table')}>Back to your table</VisitButton> : null;
   if (v.state === 'wait') return <VisitShell brand={brand} title={v.table || 'Your check'}><VisitCard><VisitMuted>{v.why}</VisitMuted></VisitCard>{backToTable}</VisitShell>;

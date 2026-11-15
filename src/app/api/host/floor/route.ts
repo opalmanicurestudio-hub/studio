@@ -22,6 +22,10 @@
 //            (lib/guest-memory-server). guest_note { tenantId, partyId, clientId, note }: the team's note for next time,
 //            for the guest a party on tonight's floor is linked to. guest_find { tenantId, term }: "Been here before?",
 //            guests by name, number or email (a hint of their contact details only), a few a minute.
+//   make_right { tenantId, partyId } → a Making it right case for a seated table (lib/table-recovery-server): its food
+//            is late or something isn't right. The one already open for the visit when there is one.
+// The floor read says which seated tables need someone (lib/table-recovery): a table that told us something isn't right
+// from its page, and food later than the business's minutes, each with its case when there is one.
 // The floor read also puts today's online bookings on the host stand as parties still to come, and says which late
 // cancels could be charged. When the business shows regulars, it suggests who tonight's parties are (an exact mobile
 // number or email of a guest it already has; only the host's yes links them) and gives each one's memory: visits,
@@ -35,11 +39,36 @@ import { sendTenantSms } from '@/lib/sms';
 import { linkOrigin } from '@/lib/app-origin';
 import { cleanFloor, floorSettingsOf } from '@/lib/table-stage';
 import { cleanWait, waitSettingsOf } from '@/lib/wait-line';
-import { FloorStop, forgetFloor, readFloor, ringPreorder, stagesByUnit, tablesOf, voidPreorderOrFlag } from '@/lib/floor-server';
+import { FloorStop, forgetFloor, readFloor, ringPreorder, stagesByUnit, tablesOf, voidPreorderOrFlag, type FloorRead } from '@/lib/floor-server';
+import { hostLateText, lateCourses, recoverySettingsOf, reportItem } from '@/lib/table-recovery';
+import { caseForVisit } from '@/lib/table-recovery-server';
 import { cleanTableBooking, tableBookingOf } from '@/lib/table-booking';
 import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '@/lib/table-booking-server';
 import { cleanMemory, memorySettingsOf } from '@/lib/guest-memory';
 import { findGuests, GuestStop, linkGuest, memoriesFor, recognize, saveGuestNote, tableTakesGuest } from '@/lib/guest-memory-server';
+
+/** Seated tables that need someone (lib/table-recovery): one that told us something isn't right, and food later than
+ *  the business's minutes. Each with its case when there is one. */
+function troublesOf(read: FloorRead, tenant: any, now: number) {
+  if (!read.session) return [];
+  const R = recoverySettingsOf(tenant); const out: { partyId: string; table: string; kind: 'report' | 'late'; text: string; caseId: string | null; seen: boolean; safety: boolean }[] = [];
+  for (const t of read.seated) {
+    const askId = String(t.report?.askId || ''); const seenBy = t.report && askId ? (t.nt.done as any)?.[`ask:${askId}`] : null; const seen = !!seenBy && !seenBy.until;
+    // Someone has had it a quarter of an hour: off the host stand (it stays on the case).
+    // (A safety one stays while they're seated.)
+    if (t.report && (t.report.safety || !(seen && now - Date.parse(String(seenBy.at || '')) > 15 * 60000))) {
+      out.push({ partyId: t.partyId, table: t.nt.table, kind: 'report', safety: !!t.report.safety, seen, caseId: t.caseId || null,
+        text: `${t.nt.table} says something isn’t right: ${reportItem(String(t.report.label || 'Something else'), t.report.dish || null)}.${seen && seenBy?.by ? ` ${String(seenBy.by).split(' ')[0]} is on it.` : ''}` });
+      continue;
+    }
+    if (R.hostLateMin > 0) {
+      const late = lateCourses(t.nt.tab as any, t.nt.tickets as any, t.nt.courses, now, R.hostLateMin)[0];
+      if (late) out.push({ partyId: t.partyId, table: t.nt.table, kind: 'late', safety: false, seen: false, caseId: t.caseId || null, text: hostLateText(t.nt.table, late) });
+    }
+  }
+  return out.sort((a, b) => Number(b.safety) - Number(a.safety) || Number(a.kind === 'late') - Number(b.kind === 'late'));
+}
+
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -53,7 +82,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'floor');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find'].includes(action)) return bad('Unknown action.');
+  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find', 'make_right'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' ? 'manager' : 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return bad('The floor is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -73,6 +102,19 @@ export async function POST(req: NextRequest) {
       forgetFloor(tenantId);
       return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant), booking: patch['hostingSettings.booking'] || tableBookingOf(tenant),
         memory: patch['hostingSettings.memory'] || memorySettingsOf(tenant) });
+    }
+
+    if (action === 'make_right') {
+      const partyId = String(b.partyId || ''); if (!ID.test(partyId)) return bad('Which table?');
+      const read = await readFloor(db, T, tenant, { fresh: true });
+      const t = read.seated.find((x) => x.partyId === partyId); if (!t) return bad('That table isn’t seated any more.', 404);
+      const late = lateCourses(t.nt.tab as any, t.nt.tickets as any, t.nt.courses, Date.now(), 0)[0];
+      const words = t.report ? `${t.nt.table} told us: ${reportItem(String(t.report.label || ''), t.report.dish || null)}.` : late ? hostLateText(t.nt.table, late) : `${t.nt.table}: the host is making it right.`;
+      const actor = { staffId: String(g.actor?.uid || ''), name: by, role: String(g.actor?.role || 'staff'), isManager: !!g.actor?.isManager || !!g.actor?.isTenantOwner, isOwner: !!g.actor?.isTenantOwner, portal: false, caps: [] };
+      const r = await caseForVisit(db, tenantId, actor, t.nt.visitId, { via: 'floor', reasonId: t.report?.reasonId || (late ? 'wait' : 'service'), words });
+      if (!r.ok) return bad(r.error, 409);
+      forgetFloor(tenantId);
+      return ok({ caseId: r.id, opened: r.opened });
     }
 
     if (action === 'floor') {
@@ -95,7 +137,9 @@ export async function POST(req: NextRequest) {
       }
       return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager, memory, guests,
         // How far behind the kitchen is (lib/kitchen-pace): already counted in the likely free times above.
-        pace: read.pace && read.pace.level !== 'calm' ? read.pace : null });
+        pace: read.pace && read.pace.level !== 'calm' ? read.pace : null,
+        // Tables that need someone: something isn't right, or food later than the business's minutes (lib/table-recovery).
+        troubles: troublesOf(read, tenant, Date.now()) });
     }
 
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {

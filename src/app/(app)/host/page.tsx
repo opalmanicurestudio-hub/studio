@@ -103,7 +103,8 @@ export default function HostScreen() {
   // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
   const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean;
-    memory: MemorySettings | null; guests: Record<string, GuestMemory>; pace: { behindMin: number; level: string } | null } | null>(null);
+    memory: MemorySettings | null; guests: Record<string, GuestMemory>; pace: { behindMin: number; level: string } | null;
+    troubles: { partyId: string; table: string; kind: 'report' | 'late'; text: string; caseId: string | null; seen: boolean; safety: boolean }[] } | null>(null);
   // Regulars: "Been here before?" for one party, and the team's note for one guest.
   const [findFor, setFindFor] = useState<any>(null); const [term, setTerm] = useState(''); const [found, setFound] = useState<FoundGuest[] | null>(null);
   const [noteFor, setNoteFor] = useState<{ clientId: string; name: string; partyId: string } | null>(null); const [noteText, setNoteText] = useState('');
@@ -208,7 +209,8 @@ export default function HostScreen() {
       const last = lastOf<any>(`floor.${tenantId}`); setAsOf(last?.at || Date.now()); if (!last) return; good.current = last.at; r = last.data;
     } else if (r?.ok) { good.current = Date.now(); setAsOf(null); keepLast(`floor.${tenantId}`, r); }
     if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager,
-      memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {}, pace: r.pace && r.pace.level !== 'calm' ? r.pace : null });
+      memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {}, pace: r.pace && r.pace.level !== 'calm' ? r.pace : null,
+      troubles: Array.isArray(r.troubles) ? r.troubles.slice(0, 8) : [] });
   }, [api, tenantId]);
   const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
   useEffect(() => {
@@ -231,6 +233,10 @@ export default function HostScreen() {
     ...floorAlerts(state, [], V ? hs.vocabulary : undefined).map((text) => ({ text })),
     // The kitchen running behind (lib/kitchen-pace): the likely free times and waits here already count it.
     ...(floor?.pace ? [{ text: `The kitchen is about ${floor.pace.behindMin} min behind${floor.pace.level === 'slammed' ? ', and slammed: seat slowly if you can' : ''}. The waits you quote already count it.` }] : []),
+    // A table that told us something isn't right, and food later than the business's minutes (lib/table-recovery): the
+    // case when there is one, or one tap to start it.
+    ...(floor?.troubles || []).map((t) => ({ text: t.text, act: t.caseId ? { label: 'Open the case', run: () => { window.location.assign(`/cases?id=${encodeURIComponent(t.caseId!)}`); } }
+      : { label: acting === `right:${t.partyId}` ? 'Opening…' : 'Make it right', run: () => { void makeRight(t.partyId, t.table); } } })),
     // Someone who left the list from their own link, for ten minutes, so the host isn't looking for them.
     ...parties.filter((p: any) => p.status === 'left' && p.leftBy === 'guest' && now.getTime() - Date.parse(p.leftAt || '') < 10 * 60000).map((p) => ({ text: `${p.name}, ${p.size} left the list from their phone.` })),
     // Drinks for someone who left that couldn't be taken off the bar's screen.
@@ -474,6 +480,15 @@ export default function HostScreen() {
     setActing(null);
     if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); void loadFloor(); return; }
     toast({ title: r.already ? `${who} was charged already` : `${money(r.amount)} charged to ${who}’s card. They get a receipt.` });
+    void loadFloor();
+  };
+  // A Making it right case for a seated table (lib/table-recovery-server): the managers see it, and it's open here.
+  const makeRight = async (partyId: string, table: string) => {
+    if (acting) return; setActing(`right:${partyId}`);
+    const r = await api('/api/host/floor', { action: 'make_right', partyId });
+    setActing(null);
+    if (!r?.ok) { toast({ variant: 'destructive', title: r?.error || 'That didn’t go through.' }); return; }
+    toast({ title: r.opened ? `Making it right case started for ${table}. The managers see it.` : `${table} already has a case. It’s open here now.` });
     void loadFloor();
   };
   const letGoBooking = async (bookingId: string, who: string, noShow: boolean) => {

@@ -11,6 +11,9 @@
 // asked for and whether someone has it, and a regular's usual when the business offers it; and
 //   ask    { tenantId, token, what: 'server'|'water'|'check'|'usual' } → their server's phone says so (lib/nudges), the
 //          check asked for shows on the host stand too. Asked again while the last is open: nothing new.
+//   report { tenantId, token, reasonId, lineId?, words? } → "Something not right?" (lib/table-recovery): private to the
+//          team. First on their server's phone, on the host stand, and a Making it right case for the managers and the
+//          desk. One a visit. 'view' also says sorry on its own when a course is late or a dish is being made again.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
@@ -23,6 +26,9 @@ import { ASK_KINDS, askOpen, askSaid, askSeen, firstName, MAX_ASKS, openOfKind, 
 import { memorySettingsOf } from '@/lib/guest-memory';
 import { memoryFor } from '@/lib/guest-memory-server';
 import { forgetFloor } from '@/lib/floor-server';
+import { canReportAgain, lateCourses, MAX_REPORT_WORDS, recoverySettingsOf, remadeNow, reportItem, reportReasons, sorryLines } from '@/lib/table-recovery';
+import { settingsOf as mirSettingsOf } from '@/lib/making-it-right';
+import { caseForVisit, reportOnCase } from '@/lib/table-recovery-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -47,7 +53,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const token = String(b.token || ''); const action = String(b.action || 'view');
   if (!ID.test(tenantId) || !PAY_TOKEN.test(token)) return bad('This link isn’t complete. Scan the code again.');
-  if (!['view', 'start', 'done', 'cancel', 'keep', 'ask'].includes(action)) return bad('Unknown action.');
+  if (!['view', 'start', 'done', 'cancel', 'keep', 'ask', 'report'].includes(action)) return bad('Unknown action.');
   const ip = callerOf(req);
   if (tooMany(`ip|${ip}`, 400) || tooMany(`${tenantId}|${token}`, 60) || tooMany(`miss|${ip}|${tenantId}`, 30, false)) return bad('One moment, then try again.', 429);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -126,6 +132,59 @@ export async function POST(req: NextRequest) {
       return ok({ ask: { ...r.ask, said: askSaid(r.ask, null), seen: false }, already: !!r.already });
     }
 
+    // "Something not right?": private, to the team. Once a visit, and again once someone has had the last one a while
+    // (lib/table-recovery); a safety reason (an allergic reaction) is always taken.
+    if (action === 'report') {
+      const R = recoverySettingsOf(tenant); if (!R.report) return bad('Ask anyone on the team.', 403);
+      const reasons = reportReasons(mirSettingsOf(tenant).reasons);
+      const reason = reasons.find((x) => x.id === String(b.reasonId || '')); if (!reason) return bad('What wasn’t right?');
+      const words = String(b.words ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_REPORT_WORDS);
+      if (reason.id === 'other' && !words) return bad('Tell us a little about it.');
+      const tab0: any[] = Array.isArray(found.v.tab) ? found.v.tab : [];
+      const lineId = String(b.lineId || ''); const dishLine = lineId ? tab0.find((l: any) => l?.lineId === lineId && l.itemType !== 'service') : null;
+      if (lineId && !dishLine) return bad('That isn’t on your table’s order.');
+      const dish = dishLine ? String(dishLine.name || '').slice(0, 60) || null : null;
+      // A few a minute from one table's link; an allergic reaction counts on its own, so earlier taps never hold it up.
+      if (tooMany(`report|${reason.safety ? 'safety|' : ''}${tenantId}|${token}`, 3)) return bad('One moment, then try again.', 429);
+      const slow = await limitPublic(req, 'table_report', tenantId, { perHour: 60, perDay: 0 }); if (slow) return slow;
+      const vRef = db.doc(`${T}/appointments/${visitId}`);
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const v: any = (await tx.get(vRef)).data() || {};
+        const pRef = v.partyId && ID.test(String(v.partyId)) ? db.doc(`${T}/parties/${v.partyId}`) : null;
+        const party: any = pRef ? (await tx.get(pRef)).data() || null : null;
+        if (v.status === 'completed' || (party && party.status !== 'seated')) throw new PayStop('Your table’s check is closed. Ask anyone on the team.', 409);
+        const asks: GuestAsk[] = Array.isArray(v.guestAsks) ? v.guestAsks : []; const done = party?.nudges || {};
+        const last: any = v.guestReport && typeof v.guestReport === 'object' ? v.guestReport : null;
+        const seen = last ? done[`ask:${last.askId}`] : null;
+        // (An allergic reaction after an everyday report is always taken; the same tapped again is the one on its way.)
+        if (last && (!reason.safety || last.safety) && !canReportAgain(last, seen && !seen.until ? seen.at : null, Date.now()))
+          return { ask: asks.find((a) => a.id === last.askId) || null, rep: last, already: true };
+        const ask: GuestAsk = { id: Math.random().toString(36).slice(2, 10).replace(/[^a-z0-9]/g, '').padEnd(6, '0'), what: 'report', at: new Date().toISOString(), item: reportItem(reason.label, dish) };
+        const stillOpen = asks.filter((a) => askOpen(a, done));
+        const keep = asks.filter((a) => !askOpen(a, done)).slice(-Math.max(0, MAX_ASKS - stillOpen.length - 1));
+        const rep = { at: ask.at, askId: ask.id, reasonId: reason.id, label: reason.label, dish, lineId: dishLine ? lineId : null, words: words || null, safety: reason.safety, caseId: null };
+        const earlier = (Array.isArray(v.guestReports) ? v.guestReports : last ? [last] : []).slice(-4);
+        tx.set(vRef, { guestAsks: [...asks.filter((a) => keep.includes(a) || askOpen(a, done)), ask], guestReport: rep, guestReports: [...earlier, rep] }, { merge: true });
+        return { ask, rep, already: false };
+      });
+      forgetFloor(tenantId);
+      // The case, for the managers and the desk (the server's phone and the host stand already have it): opened, or this
+      // report added to the one the visit has. Tried again when an earlier try didn't get as far as the case.
+      if (!r.already || !r.rep?.caseId) {
+        const who = { staffId: 'client', name: 'The table', role: 'client', isManager: false, isOwner: false, portal: false, caps: [] };
+        const rep = r.rep;
+        const c = await caseForVisit(db, tenantId, who, visitId, { via: 'table', reasonId: rep.reasonId, words: [rep.dish ? `About the ${rep.dish}.` : '', rep.words || ''].filter(Boolean).join(' ') || rep.label })
+          .catch((e: any) => { console.error('[table-pay] report case', e); return null; });
+        if (c?.ok) {
+          if (!c.opened) await reportOnCase(db, tenantId, c.id, { label: rep.label, dish: rep.dish, words: rep.words, safety: !!rep.safety }).catch((e: any) => console.error('[table-pay] report case', e));
+          await db.runTransaction(async (tx: any) => { const v: any = (await tx.get(vRef)).data() || {};
+            if (v.guestReport?.askId === rep.askId) tx.set(vRef, { guestReport: { ...v.guestReport, caseId: c.id }, guestReports: (Array.isArray(v.guestReports) ? v.guestReports : []).map((x: any) => (x?.askId === rep.askId ? { ...x, caseId: c.id } : x)) }, { merge: true }); });
+        }
+      }
+      const said = r.ask ? askSaid(r.ask, null) : 'Thanks for telling us. A manager is on the way.';
+      return ok({ report: { said, seen: false, safety: !!r.rep?.safety }, already: !!r.already });
+    }
+
     // view
     const s = tablePayOf(tenant);
     const ck = await checkOf(db, T, tenant, visitId, found.v);
@@ -136,11 +195,24 @@ export async function POST(req: NextRequest) {
     const tab: any[] = Array.isArray(found.v.tab) ? found.v.tab : [];
     const kds = Array.from(new Set(tab.map((l) => String(l?.kdsId || '')).filter((x) => ID.test(x)))).slice(0, 120);
     const kSnaps = kds.length ? await db.getAll(...kds.map((k) => db.doc(`${T}/kdsTickets/${k}`))) : [];
-    const tickets: Record<string, any> = {}; for (const k of kSnaps) if (k.exists) tickets[k.id] = { status: String((k.data() || {}).status || '') };
+    const tickets: Record<string, any> = {}; for (const k of kSnaps) if (k.exists) { const kd: any = k.data() || {}; tickets[k.id] = { status: String(kd.status || ''), remakeOf: kd.remakeOf ? String(kd.remakeOf) : null }; }
     const party: any = await partyOf(found.v); const done = party?.nudges || {};
-    const asks = (Array.isArray(found.v.guestAsks) ? found.v.guestAsks : []).slice(-6).map((a: GuestAsk) => { const seen = askSeen(a, done); const by = seen ? firstName(done[`ask:${a.id}`]?.by) || null : null;
-      return { id: a.id, what: a.what, at: a.at, seen, said: askSaid(a, by) }; });
-    const pass = { courses: passCourses(tab, tickets, coursesOf(tenant)), asks, usual: await usualOf(found.v, party), payOn: s.on, checkAsked: !!party?.checkAt };
+    const said = (a: GuestAsk) => { const seen = askSeen(a, done); const by = seen ? firstName(done[`ask:${a.id}`]?.by) || null : null; return { id: a.id, what: a.what, at: a.at, seen, said: askSaid(a, by) }; };
+    const allAsks: GuestAsk[] = Array.isArray(found.v.guestAsks) ? found.v.guestAsks : [];
+    const asks = allAsks.filter((a) => a.what !== 'report').slice(-6).map(said);
+    // Something not right? (lib/table-recovery): what they told us and whether someone has it, the reasons and their
+    // dishes to pick from; and sorry, on its own, for a late course or a dish being made again.
+    const R = recoverySettingsOf(tenant); const rep: any = found.v.guestReport || null;
+    const repAsk = rep ? allAsks.find((a) => a.id === rep.askId) : null;
+    const repSeen = rep ? done[`ask:${rep.askId}`] : null;
+    // Their last report while it's still being seen to; after that they can tell us again. A safety reason always.
+    const mine = rep && !canReportAgain(rep, repSeen && !repSeen.until ? repSeen.at : null, Date.now())
+      ? { ...(repAsk ? said(repAsk) : { seen: false, said: 'Thanks for telling us. A manager is on the way.' }), safety: !!rep.safety } : null;
+    const offer = R.report && !mine?.safety ? reportReasons(mirSettingsOf(tenant).reasons).filter((x) => !mine || x.safety) : [];
+    const report = R.report || mine ? { on: R.report, mine: mine ? { seen: mine.seen, said: mine.said, safety: mine.safety } : null, reasons: offer,
+      dishes: offer.length ? tab.filter((l: any) => l && l.itemType !== 'service' && l.lineId).slice(-30).map((l: any) => ({ lineId: String(l.lineId), name: String(l.name || 'Item').slice(0, 60) })) : [] } : null;
+    const sorry = R.sorry ? sorryLines(lateCourses(tab, tickets, coursesOf(tenant), Date.now()), remadeNow(tab, tickets)) : [];
+    const pass = { courses: passCourses(tab, tickets, coursesOf(tenant)), asks, usual: await usualOf(found.v, party), payOn: s.on, checkAsked: !!party?.checkAt, sorry, report };
     return ok({ ...look, state: why ? 'wait' : 'open', why, table: ck.table || tableLabel(found.v.tableName), pass,
       settings: { ways: s.ways, tips: s.tips, tipBase: s.tipBase, suggest: s.suggest },
       lines: ck.bill.lines.map((l) => ({ lineId: l.lineId, name: l.name, seat: l.seat, price: l.price, comped: l.comped, state: ck.st.covered.has(l.lineId) ? 'paid' : ck.st.busy.has(l.lineId) ? 'busy' : 'open' })),
