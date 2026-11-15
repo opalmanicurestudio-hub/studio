@@ -47,9 +47,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { KITCHEN_SIDE, jobDef } from '@/lib/jobs';
+import { tellPassReady, tellPassReadyMany } from '@/lib/floor-buzz';
 import { jobOf } from '@/lib/briefing';
 import { limitPublic } from '@/lib/rate-limit';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
@@ -205,6 +206,19 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
   });
 }
 
+/** Ends a host stand tablet's sign-in for good: its account is switched off (so a sign-in handed over but not used yet
+ *  can't be used later) and any session it has is ended. Handed over but never used, it has no account yet: it's made,
+ *  switched off. Whether that worked. */
+async function endSignIn(uid: string): Promise<boolean> {
+  const a = getAdminAuth(); const code = (e: any) => String(e?.code || e?.errorInfo?.code || '');
+  const stop = async () => { await a.updateUser(uid, { disabled: true }); await a.revokeRefreshTokens(uid); };
+  try { await stop(); return true; } catch (e) {
+    if (code(e) !== 'auth/user-not-found') return false;
+    try { await a.createUser({ uid, disabled: true }); return true; }
+    catch (e2) { if (code(e2) !== 'auth/uid-already-exists') return false; try { await stop(); return true; } catch { return false; } }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
@@ -221,8 +235,9 @@ export async function POST(req: NextRequest) {
       // tablet opens any of them.
       // The drive-thru's outdoor order board gets a key of its own kind, good for nothing but showing the order at the
       // speaker (api/counter 'board'): a screen guests can reach never holds a key that can take a payment.
-      const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : 'kitchen';
-      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : 'Kitchen');
+      // The host stand's tablet (app/host-stand) gets a key that only signs it in as the host stand ('hostToken').
+      const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : b.kind === 'host' ? 'host' : 'kitchen';
+      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : kind === 'host' ? 'Host stand' : 'Kitchen');
       await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
       // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
       // tablet doesn't: nobody would be making them.
@@ -246,12 +261,39 @@ export async function POST(req: NextRequest) {
         const ref = db.doc(`kitchenScreens/${id}`); const s: any = (await ref.get()).data();
         if (!s || s.tenantId !== tenantId) return bad('That screen isn’t here.', 404);
         await ref.set({ revokedAt: new Date().toISOString(), revokedBy: g.actor?.name || g.actor?.uid || 'manager' }, { merge: true });
+        // A host stand tablet is signed in as itself: that sign-in ends too (or the manager hears it didn't). Its sign-in is
+        // always this one, so it's ended even if it was being made at this moment.
+        if (s.kind === 'host') {
+          const ended = await endSignIn(`portal:${tenantId}:screen_${id}`);
+          if (!ended) return ok({ warning: 'The host stand tablet is stopped, but its sign-in couldn’t be ended just now. It can still show the floor for up to an hour. Stop it again in a moment.' });
+        }
         return ok();
       }
       const snap = await db.collection('kitchenScreens').where('tenantId', '==', tenantId).limit(50).get();
-      const screens = snap.docs.map((d: any) => { const x: any = d.data() || {}; return { id: d.id, name: String(x.name || 'Kitchen'), createdAt: x.createdAt || null, createdBy: x.createdBy || null, lastSeenAt: x.lastSeenAt || null }; })
+      const screens = snap.docs.map((d: any) => { const x: any = d.data() || {}; return { id: d.id, name: String(x.name || 'Kitchen'), kind: String(x.kind || 'kitchen'), createdAt: x.createdAt || null, createdBy: x.createdBy || null, lastSeenAt: x.lastSeenAt || null }; })
         .filter((_: any, i: number) => !(snap.docs[i].data() || {}).revokedAt).sort((a: any, b2: any) => String(b2.lastSeenAt || '').localeCompare(String(a.lastSeenAt || '')));
       return ok({ screens, maker: loungeMaker((await db.doc(`tenants/${tenantId}`).get()).data()) });
+    }
+
+    // THE HOST STAND'S TABLET (app/host-stand): its key signs it in as the host stand, a team sign-in of its own
+    // (lib/staff-auth: front desk steps under the tablet's name), so the host stand's pages work on it with nobody's
+    // account left signed in. Stopping the screen stops the sign-in.
+    if (action === 'hostToken') {
+      const slow = await limitPublic(req, 'host_token', tenantId, { perHour: 60, perDay: 600 }); if (slow) return slow;
+      const k = String(b.key || ''); if (k.length < 32 || k.length > 200) return bad('This tablet isn’t set up. A manager can set it up here.', 401);
+      const h = hash(k); const ref = db.doc(`kitchenScreens/${h}`); const sc: any = (await ref.get()).data();
+      if (!sc || sc.revokedAt || sc.tenantId !== tenantId || sc.kind !== 'host') return bad('This tablet isn’t set up, or was stopped. A manager can set it up again here.', 401);
+      const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The host stand is closed for now. The business owner can tell you more.' }, { status: 403 });
+      { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+      const uid = `portal:${tenantId}:screen_${h}`;
+      let token = '';
+      try { token = await getAdminAuth().createCustomToken(uid, { portal: true, tenantId, staffId: `screen_${h}`, role: 'front_desk', screen: true, isRenter: false }); }
+      catch { return bad('This tablet couldn’t be signed in just now. Try again in a moment.', 500); }
+      await ref.set({ lastSeenAt: new Date().toISOString(), authUid: uid }, { merge: true });
+      // Stopped while this sign-in was being made: end it now (stopping found no sign-in to end yet).
+      if ((await ref.get()).data()?.revokedAt) { await endSignIn(uid); return bad('This tablet was stopped. A manager can set it up again here.', 401); }
+      return ok({ token, name: String(sc.name || 'Host stand') });
     }
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -280,10 +322,17 @@ export async function POST(req: NextRequest) {
       return bad('This screen isn’t set up, or was stopped. A manager can set it up again here.', 401);
     }
 
-    if (action === 'forget') { await screen.ref.set({ revokedAt: new Date().toISOString() }, { merge: true }); return ok(); }
+    if (action === 'forget') {
+      await screen.ref.set({ revokedAt: new Date().toISOString() }, { merge: true });
+      // A host stand tablet stopping itself ends its own sign-in too.
+      if (screen.kind === 'host' && !(await endSignIn(`portal:${tenantId}:screen_${screen.ref.id}`))) {
+        return ok({ warning: 'This tablet is stopped, but its sign-in couldn’t be ended just now. A manager can stop it again from the kitchen screen’s setup to be sure.' });
+      }
+      return ok();
+    }
     // A drive-thru screen's key is for the lane (api/counter): here it can only check a PIN (the lane's "Who's working?").
     // The order board's can do nothing here at all.
-    if (screen.kind === 'drive-thru-board' || (screen.kind === 'drive-thru' && action !== 'pin')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
+    if (screen.kind === 'drive-thru-board' || screen.kind === 'host' || (screen.kind === 'drive-thru' && action !== 'pin')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
 
     // A paused or closed business has its kitchen screen closed too (as the page itself is, app/kds layout).
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
@@ -436,6 +485,7 @@ export async function POST(req: NextRequest) {
           return { ok: true, left };
         });
         if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
+        if (!r.already && col === 'kdsTickets') await tellPassReady(db, tenantId, id);
         return ok({ already: !!r.already, left: r.left ?? null, staffOk });
       }
       const binId = String(b.binId || ''); if (!ID.test(binId)) return bad('Which batch?');
@@ -500,6 +550,7 @@ export async function POST(req: NextRequest) {
       const r: any = await act(db, tenantId, screen, col, id, step, staff);
       // `allergy`: held for "Allergy noted", so a screen without that button (the floor, the desk) can say who to ask.
       if (r.error) return NextResponse.json({ ok: false, error: r.error, ...(r.allergy ? { allergy: true } : {}), staffOk }, { status: r.status || 400 });
+      if (step === 'ready' && col === 'kdsTickets' && !r.already) await tellPassReady(db, tenantId, id);
       return ok({ ...r, staffOk });
     }
 
@@ -514,8 +565,11 @@ export async function POST(req: NextRequest) {
       // Event and table tickets a few at a time, so a big course is quick. Lounge orders one by one: they share the
       // shelf, and several at once on the same item would only wait on each other (or give up).
       const kitchen = list.filter((t: any) => t.col === 'kdsTickets'), lounge = list.filter((t: any) => t.col === 'refreshmentRequests');
-      for (let i = 0; i < kitchen.length; i += 8) (await Promise.all(kitchen.slice(i, i + 8).map(run))).forEach(tally);
+      const readied: string[] = [];   // (one buzz a table's course: lib/floor-buzz tellPassReadyMany)
+      for (let i = 0; i < kitchen.length; i += 8) (await Promise.all(kitchen.slice(i, i + 8).map(async (t: any) => { const r = await run(t); if (step === 'ready' && r?.ok && !r.already) readied.push(String(t.id)); return r; }))).forEach(tally);
       for (const t of lounge) tally(await run(t));
+      // A table's course all ready at the pass: its server hears (lib/floor-buzz), once.
+      await tellPassReadyMany(db, tenantId, readied);
       return ok({ moved, failed, allergy, of: list.length, staffOk });
     }
 

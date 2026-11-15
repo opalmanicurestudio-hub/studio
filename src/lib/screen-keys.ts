@@ -9,9 +9,9 @@ import { requireRole } from '@/lib/route-guard';
 export const screenHash = (k: string) => createHash('sha256').update(String(k)).digest('hex');
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 
-/** What a screen was set up as: the kitchen screen, a floor board, a drive-thru lane, or the drive-thru's outdoor order
- *  board (which only ever shows the order at the speaker). A screen set up before kinds existed is a kitchen screen. */
-export type ScreenKind = 'kitchen' | 'floor' | 'drive-thru' | 'drive-thru-board';
+/** What a screen was set up as: the kitchen screen, a floor board, a drive-thru lane, the drive-thru's outdoor order
+ *  board (which only ever shows the order at the speaker), or the host stand's tablet (which only signs itself in). A screen set up before kinds existed is a kitchen screen. */
+export type ScreenKind = 'kitchen' | 'floor' | 'drive-thru' | 'drive-thru-board' | 'host';
 export type Screen = { ref: any; name: string; kind: ScreenKind; passes: Record<string, { id: string; name: string; exp: number }> };
 
 /** The screen this key belongs to (for this business only), or null. Seen-at is kept, at most every few minutes. */
@@ -22,7 +22,7 @@ export async function screenOf(db: any, tenantId: string, key: unknown): Promise
   const s: any = (await ref.get()).data();
   if (!s || s.revokedAt || s.tenantId !== tenantId) return null;
   if (!s.lastSeenAt || Date.now() - Date.parse(s.lastSeenAt) > 5 * 60000) await ref.set({ lastSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-  const kind: ScreenKind = ['floor', 'drive-thru', 'drive-thru-board'].includes(s.kind) ? s.kind : 'kitchen';
+  const kind: ScreenKind = ['floor', 'drive-thru', 'drive-thru-board', 'host'].includes(s.kind) ? s.kind : 'kitchen';
   return { ref, name: String(s.name || 'Kitchen'), kind, passes: (s.passes && typeof s.passes === 'object' ? s.passes : {}) as Screen['passes'] };
 }
 

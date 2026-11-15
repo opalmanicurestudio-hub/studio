@@ -46,6 +46,7 @@ import { cleanTableBooking, tableBookingOf } from '@/lib/table-booking';
 import { BookStop, bookingsOnFloor, cancelBooking, chargeBooking, letGo } from '@/lib/table-booking-server';
 import { cleanMemory, memorySettingsOf } from '@/lib/guest-memory';
 import { findGuests, GuestStop, linkGuest, memoriesFor, recognize, saveGuestNote, tableTakesGuest } from '@/lib/guest-memory-server';
+import { tellSeated } from '@/lib/floor-buzz';
 
 /** Seated tables that need someone (lib/table-recovery): one that told us something isn't right, and food later than
  *  the business's minutes. Each with its case when there is one. */
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'floor');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find', 'make_right'].includes(action)) return bad('Unknown action.');
+  if (!['floor', 'link', 'hold', 'ring', 'left', 'unring', 'settings', 'booking_charge', 'booking_letgo', 'booking_cancel', 'guest_link', 'guest_note', 'guest_find', 'make_right', 'event'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, action === 'settings' || action === 'booking_charge' ? 'manager' : 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return bad('The floor is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -102,6 +103,16 @@ export async function POST(req: NextRequest) {
       forgetFloor(tenantId);
       return ok({ floor: patch['hostingSettings.floor'] || floorSettingsOf(tenant), wait: patch['hostingSettings.wait'] || waitSettingsOf(tenant), booking: patch['hostingSettings.booking'] || tableBookingOf(tenant),
         memory: patch['hostingSettings.memory'] || memorySettingsOf(tenant) });
+    }
+
+    // Tonight's event, for the host stand's tablet: only what seating its guests needs (its name and table plan). The
+    // event's own page keeps its client, quote and money.
+    if (action === 'event') {
+      const q = await db.collection(`${T}/studioEvents`).where('status', '==', 'active').limit(1).get();
+      if (q.empty) return ok({ event: null });
+      const e: any = q.docs[0].data() || {};
+      const tables = Array.isArray(e.seatingTables) ? e.seatingTables.slice(0, 200) : null;
+      return ok({ event: { id: q.docs[0].id, name: String(e.name || e.title || 'Tonight’s event').slice(0, 80), seatingTables: tables } });
     }
 
     if (action === 'make_right') {
@@ -174,6 +185,8 @@ export async function POST(req: NextRequest) {
     if (action === 'ring') {
       const partyId = String(b.partyId || ''); if (!ID.test(partyId)) return bad('Which party?');
       const r = await ringPreorder(db, T, tenant, partyId, String(b.tableName || ''), by);
+      // The host stand calls this right after seating someone: their table's server hears (lib/floor-buzz), once.
+      await tellSeated(db, tenantId, partyId);
       return ok(r);
     }
 

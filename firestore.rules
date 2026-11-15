@@ -41,7 +41,12 @@ service cloud.firestore {
     // The team: the app's sign-ins, plus team members signed in to the staff portal with their PIN (not renters — they
     // run their own business and see only what's theirs).
     function isTeam(tenantId) {
-      return isStaff(tenantId) || (isPortalMember(tenantId) && request.auth.token.get('isRenter', false) != true);
+      return isStaff(tenantId) || (isPortalMember(tenantId) && request.auth.token.get('isRenter', false) != true && request.auth.token.get('screen', false) != true);
+    }
+    // The floor's pages (the host stand, Clear tables, My tables): the team, and the host stand's own tablet (signed in
+    // as itself, api/kitchen 'hostToken'), which reaches only the records those pages use.
+    function isFloorTeam(tenantId) {
+      return isTeam(tenantId) || (isPortalMember(tenantId) && request.auth.token.get('screen', false) == true && request.auth.token.get('isRenter', false) != true);
     }
     function portalStaffId() {
       return request.auth.token.get('staffId', '');
@@ -151,7 +156,7 @@ service cloud.firestore {
         && !('codesUpdatedAt' in d);
     }
     match /tenants/{tenantId}/inventory/{itemId} {
-      allow read: if isTeam(tenantId);
+      allow read: if isFloorTeam(tenantId);
       allow create: if isTeam(tenantId) && noLinks(request.resource.data) && (codesFree(request.resource.data) || noCodes(request.resource.data));
       // Choices and the listing never change here. Equipment keeps its codes free; a product's codes don't change here;
       // equipment turned into a product carries no codes and no choices.
@@ -169,8 +174,9 @@ service cloud.firestore {
     // A table's allergies on its visit (lib/allergens) change only through the server (api/tab), which brings the
     // kitchen's tickets up to date in the same save.
     match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow read, create, delete: if isTeam(tenantId);
-      allow update: if isTeam(tenantId)
+      allow read, create: if isFloorTeam(tenantId);
+      allow delete: if isTeam(tenantId);
+      allow update: if isFloorTeam(tenantId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['allergies', 'allergiesSeeded', 'allergiesAsked'])
         && request.resource.data.get('clinicCheckoff', null) == resource.data.get('clinicCheckoff', null)
         && !(request.resource.data.get('status', '') == 'completed'
@@ -198,14 +204,16 @@ service cloud.firestore {
       allow create: if false;
       allow update, delete: if isManager(tenantId);
     }
+    // The floor (tonight's service, its parties, the floor plan): the whole team, signed in with their PIN in the team
+    // app or on the host stand's own tablet too (components/shared/PortalScope), not a renter.
     match /tenants/{tenantId}/serviceSessions/{sessionId} {
-      allow read, write: if isStaff(tenantId);
+      allow read, write: if isFloorTeam(tenantId);
     }
     match /tenants/{tenantId}/parties/{partyId} {
-      allow read, write: if isStaff(tenantId);
+      allow read, write: if isFloorTeam(tenantId);
     }
     match /tenants/{tenantId}/floorPlans/{planId} {
-      allow read: if isStaff(tenantId);
+      allow read: if isFloorTeam(tenantId);
       allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/clients/{clientId} {
@@ -228,7 +236,9 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/approvals/{approvalId} {
-      allow read: if isStaff(tenantId);
+      // A table's comps, voids and remakes show on its tab for the floor's PIN sign-ins too; nothing else (an approval's
+      // id is what spends it).
+      allow read: if isStaff(tenantId) || (isFloorTeam(tenantId) && resource.data.get('kind', '') in ['comp', 'void_item', 'remake']);
       allow write: if false;
     }
     // Closing the night (api/close): the checklist marks and the night's kept report, written only by the server; read by
@@ -246,14 +256,14 @@ service cloud.firestore {
     // "Allergy noted", a seat change, a void, a table's allergies) goes through the server (api/kitchen, api/tab), so no
     // browser can mark a dish ready, or its allergy seen, around the kitchen's checks.
     match /tenants/{tenantId}/kdsTickets/{ticketId} {
-      allow read: if isTeam(tenantId);
-      allow create: if isTeam(tenantId) && request.resource.data.get('status', '') in ['pending', 'unfired']
+      allow read: if isFloorTeam(tenantId);
+      allow create: if isFloorTeam(tenantId) && request.resource.data.get('status', '') in ['pending', 'unfired']
         && request.resource.data.get('allergyNotedAt', null) == null && request.resource.data.get('allergyNotedBy', null) == null;
       allow update, delete: if false;
     }
     // TONIGHT'S COUNTS per dish (lib/dish-counts): the team reads them; only the server changes them.
     match /tenants/{tenantId}/dishCounts/{day} {
-      allow read: if isTeam(tenantId);
+      allow read: if isFloorTeam(tenantId);
       allow write: if false;
     }
     match /tenants/{tenantId}/pendingCheckouts/{pendingId} {
@@ -305,7 +315,8 @@ service cloud.firestore {
     // Lounge and kiosk orders: the team only. Guests and the kiosk go through /api/guest-lounge and
     // /api/concierge/requests, which check the link or the menu and return only what the screen shows.
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
-      allow read, create, update: if isTeam(tenantId);
+      allow read: if isFloorTeam(tenantId);
+      allow create, update: if isTeam(tenantId);
       allow delete: if false;
     }
     match /tenants/{tenantId}/notifications/{notificationId} {
@@ -877,6 +888,10 @@ service cloud.firestore {
     // api/back: calls between stations, the dish machine's readings kept for an inspector, breakage, and kegs and bottles
     // changed, read and written only through the server).
     match /tenants/{tenantId}/{collection}/{rest=**} {
+      // The host stand's tablet: the wait list's walk-ins and an event's guests it seats (tonight's event itself, only
+      // its name and table plan, comes through the server: api/host/floor 'event').
+      allow read: if isFloorTeam(tenantId) && collection in ['walkIns', 'eventGuests'];
+      allow write: if isFloorTeam(tenantId) && collection in ['walkIns', 'eventGuests'];
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
           'courses', 'enrollments', 'students', 'studentSessions', 'studentLogins',

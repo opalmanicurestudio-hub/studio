@@ -183,6 +183,8 @@ const PUBLIC_PORTALS = [
   // The dish pit and the barback, each on its own tablet (or a phone), next to the kitchen screen they take calls from.
   { href: '/dish',         icon: SprayCan,    label: 'Dish'             },
   { href: '/barback',      icon: Boxes,       label: 'Barback'          },
+  // The host stand's own tablet, set up once (app/host-stand): it signs itself in as the host stand.
+  { href: '/host-stand',   icon: ConciergeBell, label: 'Host stand tablet' },
   { href: '/drive-thru',   icon: Car,         label: 'Drive-thru'       },
   { href: '/floor',        icon: Layers,      label: 'Floor staff'      },
   { href: '/timeclock',    icon: Clock,       label: 'Time clock'       },
@@ -328,7 +330,7 @@ const SIDE_CSS = `
 :root{--cf-search-bg:hsl(var(--secondary))}
 `;
 export function AppSidebar() {
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, role, viaPortal, screen } = useTenant();
   const brandLogo = guestLogo(selectedTenant);
   const isHqAdmin = useIsHqAdmin();
   const tenantId = selectedTenant?.id;
@@ -349,7 +351,9 @@ export function AppSidebar() {
   const runsNight = !isOwner && !!tenantId && (runsTheNight(myJob?.job || null) || ((role === 'admin' || role === 'manager') && isFoodBusiness(selectedTenant)));
   const pageItem = (href: string, o: { screen?: boolean } = {}) => ({ href: o.screen ? href : pageHref(href, tenantId || '', { job: myJob?.job, station: myJob?.station }), ...PAGE_INFO[href] });
   const visible = (href: string) => !!PAGE_INFO[href] && pageVisible(selectedTenant, href);
-  const workItems = !isOwner && !runsNight && tenantId && myJob ? myJob.job.menu.filter(visible).map((h) => pageItem(h)) : [];
+  // Signed in with a PIN in the team app (or a host stand tablet): the floor's pages only (components/shared/PortalScope).
+  const floorItems = viaPortal ? (screen ? ['/host', '/clear', '/tables'] : ['/tables', '/clear', '/host']).filter(visible).map((h) => ({ href: h, ...PAGE_INFO[h] })) : [];
+  const workItems = !isOwner && !runsNight && !viaPortal && tenantId && myJob ? myJob.job.menu.filter(visible).map((h) => pageItem(h)) : [];
   const tonightItems = runsNight ? TONIGHT.filter(visible).map((h) => pageItem(h)) : [];
   const screenItems = runsNight ? STATION_SCREENS.filter(visible).map((h) => pageItem(h, { screen: true })) : [];
   // What's already in their own group isn't listed again underneath.
@@ -486,7 +490,7 @@ export function AppSidebar() {
               {brandLogo ? <img src={brandLogo} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-semibold text-primary-foreground">{String((selectedTenant as any)?.name || 'C').trim()[0]?.toUpperCase()}</span>}
               <div className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-[14.5px] font-semibold tracking-tight text-primary">{(selectedTenant as any)?.name || 'Your business'}</span>
-                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : myJob ? myJob.job.name : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Team'}</span>
+                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : screen ? 'Host stand tablet' : myJob ? myJob.job.name : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Team'}</span>
               </div>
             </Link>
 
@@ -503,11 +507,13 @@ export function AppSidebar() {
             </div>
           )}
 
-          {workItems.length > 0 && <NavSection label="Your work" items={workItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen />}
-          {tonightItems.length > 0 && <NavSection label="Tonight" items={tonightItems} defaultOpen />}
-          {screenItems.length > 0 && tenantId && <NavSection label="Station screens" items={screenItems} isPortal tenantId={tenantId} defaultOpen />}
+          {viaPortal && <NavSection label="The floor" items={floorItems} defaultOpen />}
+          {viaPortal && !screen && tenantId && <SidebarMenu className="gap-px px-1.5"><NavItem href={`/staff-portal/${tenantId}`} icon={Shield} label="Back to the team app" /></SidebarMenu>}
+          {!viaPortal && workItems.length > 0 && <NavSection label="Your work" items={workItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen />}
+          {!viaPortal && tonightItems.length > 0 && <NavSection label="Tonight" items={tonightItems} defaultOpen />}
+          {!viaPortal && screenItems.length > 0 && tenantId && <NavSection label="Station screens" items={screenItems} isPortal tenantId={tenantId} defaultOpen />}
 
-          <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={dailyItems.filter((i) => !ownHrefs.has(i.href))} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />
+          {!viaPortal && <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={dailyItems.filter((i) => !ownHrefs.has(i.href))} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />}
 
           {isOwner && (
             <>
@@ -530,7 +536,7 @@ export function AppSidebar() {
               <NavSection label="Team" items={TEAM_FULL} />
             </>
           )}
-          {isAdmin && !isOwner && (
+          {isAdmin && !isOwner && !viaPortal && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection label="Team" items={TEAM_ADMIN} />

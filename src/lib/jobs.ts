@@ -23,12 +23,12 @@ export type JobDef = {
 };
 
 /** Station screens: pages that run full screen on their own, opened at /page/{business id}. */
-export const SCREEN_PAGES = ['/kds', '/dish', '/barback', '/floor', '/drive-thru'];
+export const SCREEN_PAGES = ['/kds', '/dish', '/barback', '/floor', '/drive-thru', '/host-stand'];
 const EVERYONE = ['/messages', '/my-schedule'];
 
 /** What managers and shift leads run the night from, and the station screens they look in on. */
 export const TONIGHT = ['/briefing', '/host', '/menu', '/prep', '/close'];
-export const STATION_SCREENS = ['/kds', '/dish', '/barback', '/floor', '/drive-thru'];
+export const STATION_SCREENS = ['/kds', '/dish', '/barback', '/floor', '/drive-thru', '/host-stand'];
 
 export const JOBS: JobDef[] = [
   { id: 'server', name: 'Server', counts: 'server', station: null, home: '/tables', menu: ['/tables', '/clear', ...EVERYONE], role: 'staff',

@@ -103,7 +103,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
         if (!s.metadata.hasPendingWrites && Object.keys(unsentAll()[id] || {}).length) setUnsent(markUnsent(id, null, false)); }, () => {});
       un2 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'kdsTickets'), where('visitId', '==', id)), (s) => { const m: Record<string, string> = {}; const full: Record<string, any> = {};
         s.docs.forEach((d) => { const x: any = d.data() || {}; m[d.id] = String(x.status || 'pending'); full[d.id] = x; }); setStatuses(m); setTickets(full); }, () => {});
-      un3 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'approvals'), where('visitId', '==', id)), (s) => setRecords(s.docs.map((d) => d.data()).filter((r: any) => ['comp', 'void_item', 'remake'].includes(r.kind)).sort((a: any, b: any) => String(a.usedAt || a.createdAt).localeCompare(String(b.usedAt || b.createdAt)))), () => {});
+      un3 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'approvals'), where('visitId', '==', id), where('kind', 'in', ['comp', 'void_item', 'remake'])), (s) => setRecords(s.docs.map((d) => d.data()).filter((r: any) => ['comp', 'void_item', 'remake'].includes(r.kind)).sort((a: any, b: any) => String(a.usedAt || a.createdAt).localeCompare(String(b.usedAt || b.createdAt)))), () => {});
     }).catch(() => setMsg('The table’s visit couldn’t be opened.'));
     return () => { if (un) un(); if (un2) un2(); if (un3) un3(); }; }, [firestore, tenantId, party.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { getDoc(doc(firestore, 'tenants', tenantId)).then((s) => setTenant(s.data() || {})).catch(() => setTenant({})); }, [firestore, tenantId]);

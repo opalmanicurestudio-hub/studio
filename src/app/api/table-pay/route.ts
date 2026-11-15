@@ -34,6 +34,7 @@ import { caseForVisit, reportOnCase } from '@/lib/table-recovery-server';
 import { klairSettings } from '@/lib/klair';
 import { MAX_QUESTION, menuAnswersOn } from '@/lib/klair-menu';
 import { answerGuest } from '@/lib/klair-menu-server';
+import { tellTableAsk } from '@/lib/floor-buzz';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -134,6 +135,8 @@ export async function POST(req: NextRequest) {
         return { ask };
       });
       forgetFloor(tenantId);
+      // Their server's phone buzzes (lib/floor-buzz); with nobody on the section, the managers'.
+      if (!r.already) await tellTableAsk(db, tenantId, tenant, found.v, r.ask);
       return ok({ ask: { ...r.ask, said: askSaid(r.ask, null), seen: false }, already: !!r.already });
     }
 

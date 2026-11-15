@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       const slow = await limitPublic(req, 'kitchen_key', tenantId, { perHour: 60, perDay: 2000 }); if (slow) return slow;
       return bad('This screen isn’t set up, or was stopped. A manager can set it up again here.', 401);
     }
-    if (screen.ref && (screen.kind === 'drive-thru' || screen.kind === 'drive-thru-board')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
+    if (screen.ref && (screen.kind === 'drive-thru' || screen.kind === 'drive-thru-board' || screen.kind === 'host')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'This screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     { const locked = toolLocked(tenant, ['hospitality', 'classes_events']); if (locked) return locked; }

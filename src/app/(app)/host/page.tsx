@@ -68,7 +68,7 @@ const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:o
 
 export default function HostScreen() {
   const { firestore, user } = useFirebase() as any;
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, screen } = useTenant();
   const [tabFor, setTabFor] = useState<any>(null);   // the table whose tab is open
   const [tableFor, setTableFor] = useState<string | null>(null);   // a seated table tapped: its party, tab and "they've left"
   const [adding, setAdding] = useState(false);
@@ -329,13 +329,21 @@ export default function HostScreen() {
   const [eventMirror, setEventMirror] = useState<HostedParty[]>([]);
   useEffect(() => {
     if (!firestore || !tenantId) return;
+    // The host stand's tablet reads tonight's event through the server (its name and table plan only), every minute.
+    if (screen) {
+      let live = true;
+      const look = async () => { const r = await api('/api/host/floor', { action: 'event' }); if (live && r.ok) setActiveEvent(r.event || null); };
+      void look(); const t = window.setInterval(look, 60000);
+      return () => { live = false; window.clearInterval(t); };
+    }
     return onSnapshot(query(
       collection(firestore, `tenants/${tenantId}/studioEvents`),
       where('status', '==', 'active'), limit(1),
     ), (snap) => {
       setActiveEvent(snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as any) });
     });
-  }, [firestore, tenantId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, screen]);
   useEffect(() => {
     if (!firestore || !tenantId || !session?.id || !activeEvent?.id) { setEventMirror([]); return; }
     const evUnits: TableLike[] = Array.isArray(activeEvent.seatingTables) ? activeEvent.seatingTables : units;

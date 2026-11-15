@@ -24,6 +24,10 @@ interface TenantContextType {
  roleId: string | null;
  /** May the signed-in person do this? (lib/permissions) — the owner always can. */
  can: (cap: Cap) => boolean;
+ /** Signed in with a PIN in the team app (or a shared host stand tablet): only the floor's pages are theirs here. */
+ viaPortal: boolean;
+ /** A shared tablet set up for the host stand (api/kitchen 'hostToken'), not a person. */
+ screen: boolean;
 }
 
 export const TenantContext = createContext<TenantContextType | undefined>(undefined);
@@ -49,7 +53,24 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
 
  const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
 
- const staffTenantId = staffDirectoryEntry?.tenantId as string | undefined;
+ // ── Team app path: signed in with a PIN (api/portal/auth), or a host stand tablet ─────────────────────────────────
+ // Their sign-in carries the business and their team record; the floor's pages (My tables, Clear tables, the host
+ // stand) work for them here too. Undefined while it's being read.
+ const [portal, setPortal] = useState<{ tenantId: string; staffId: string; role: string; screen: boolean } | null | undefined>(undefined);
+ useEffect(() => {
+   if (!user || isOwner) { setPortal(null); return; }
+   setPortal(undefined);   // a new sign-in is read afresh (never the last one's)
+   let live = true;
+   user.getIdTokenResult().then((r) => {
+     const c: any = r?.claims || {};
+     const ok = c.portal === true && typeof c.tenantId === 'string' && c.tenantId && typeof c.staffId === 'string' && c.staffId && c.isRenter !== true;
+     if (live) setPortal(ok ? { tenantId: String(c.tenantId), staffId: String(c.staffId), role: String(c.role || 'staff'), screen: c.screen === true } : null);
+   }).catch(() => { if (live) setPortal(null); });
+   return () => { live = false; };
+ }, [user, isOwner]);
+ const viaPortal = !!portal && !staffDirectoryEntry;
+
+ const staffTenantId = (staffDirectoryEntry?.tenantId as string | undefined) || (viaPortal ? portal!.tenantId : undefined);
 
  const staffTenantRef = useMemoFirebase(() => {
    if (!firestore || !staffTenantId) return null;
@@ -73,10 +94,10 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
      return;
    }
 
-   if (isStaffDirectoryLoading) return;
+   if (isStaffDirectoryLoading || (!staffDirectoryEntry && portal === undefined)) return;
 
-   if (staffTenant && staffDirectoryEntry) {
-     const r = String((staffDirectoryEntry as any).role || 'staff');
+   if (staffTenant && (staffDirectoryEntry || viaPortal)) {
+     const r = String(staffDirectoryEntry ? (staffDirectoryEntry as any).role || 'staff' : portal?.role || 'staff');
      setRoleId(r);
      // Custom roles map to the broad level the rest of the app understands; what they may do comes from can().
      setRole((['owner', 'admin', 'manager', 'staff'].includes(r) ? r : isManagerRole(staffTenant, r) ? 'manager' : 'staff') as UserRole);
@@ -88,7 +109,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    }
  }, [
    user, allTenants, tenantsLoading, fallbackLoading, isOwner,
-   isStaffDirectoryLoading, staffTenant, staffDirectoryEntry, isUserLoading,
+   isStaffDirectoryLoading, staffTenant, staffDirectoryEntry, isUserLoading, portal, viaPortal,
  ]);
 
  // ── Self-heal: ensure tenant doc has userId set ────────────────────────────
@@ -108,6 +129,7 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    tenantsLoading ||
    fallbackLoading ||
    !!(user && !isOwner && isStaffDirectoryLoading) ||
+   !!(user && !isOwner && !staffDirectoryEntry && portal === undefined) ||
    !!(staffTenantId && staffTenantLoading);
 
  // ── Tenant switching (owners only) ─────────────────────────────────────────
@@ -125,9 +147,11 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
    isLoading,
    role,
    user,
-   staffId: !user ? null : role === 'owner' ? user.uid : String((staffDirectoryEntry as any)?.staffId || user.uid),
+   staffId: !user ? null : role === 'owner' ? user.uid : String((staffDirectoryEntry as any)?.staffId || (viaPortal ? portal!.staffId : '') || user.uid),
    roleId,
    can: (cap: Cap) => !!role && (role === 'owner' || canFor(selectedTenant, roleId || role, cap)),
+   viaPortal,
+   screen: viaPortal && !!portal?.screen,
  };
 
  return (

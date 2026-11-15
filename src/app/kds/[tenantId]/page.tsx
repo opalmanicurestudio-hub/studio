@@ -473,7 +473,7 @@ function Setup({ tenantId, stopped, closed, onPaired, onMe }: { tenantId: string
   const [maker, setMaker] = useState<'kitchen' | 'desk' | null>(null);
   useEffect(() => { if (!user) return; call({ action: 'screens' }).then((d) => { setScreens(d.ok ? d.screens || [] : null); if (d.ok) setMaker(d.maker === 'kitchen' ? 'kitchen' : 'desk'); }, () => setScreens(null)); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickMaker = async (to: 'kitchen' | 'desk') => { const was = maker; setMaker(to); const d = await call({ action: 'maker', maker: to }).catch(() => ({})); if (!d.ok) { setMaker(was); setErr(d.error || 'That didn’t save. Try again.'); } };
-  const stop = async (id: string) => { const d = await call({ action: 'revoke', id }).catch(() => ({})); if (d.ok) setScreens((l) => (l || []).filter((x) => x.id !== id)); else setErr(d.error || 'That screen couldn’t be stopped. Try again.'); };
+  const stop = async (id: string) => { const d = await call({ action: 'revoke', id }).catch(() => ({})); if (d.ok) { setScreens((l) => (l || []).filter((x) => x.id !== id)); if (d.warning) setErr(d.warning); } else setErr(d.error || 'That screen couldn’t be stopped. Try again.'); };
   const pair = async () => {
     setBusy(true); setErr('');
     try {

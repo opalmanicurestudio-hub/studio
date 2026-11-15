@@ -15,9 +15,10 @@ const KEY = 'cf:lastActivity'; const WARN_MS = 60000;
 const readLast = (fallback: number) => { try { const v = Number(localStorage.getItem(KEY)); return Number.isFinite(v) && v > 0 ? Math.max(v, fallback) : fallback; } catch { return fallback; } };
 
 export function IdleSignOut() {
-  const { selectedTenant } = useTenant() as any;
+  const { selectedTenant, screen } = useTenant() as any;
   const auth = useAuth(); const router = useRouter();
-  const pv = privacyOf(selectedTenant); const limitMs = pv.healthMode ? pv.autoSignOutMin * 60000 : 0;
+  // (A host stand tablet is nobody's account: it isn't signed out for being left alone.)
+  const pv = privacyOf(selectedTenant); const limitMs = pv.healthMode && !screen ? pv.autoSignOutMin * 60000 : 0;
   const last = React.useRef(Date.now()); const [left, setLeft] = React.useState<number | null>(null); const out = React.useRef(false);
 
   const stay = React.useCallback(() => { last.current = Date.now(); try { localStorage.setItem(KEY, String(last.current)); } catch { /* fine */ } setLeft(null); }, []);

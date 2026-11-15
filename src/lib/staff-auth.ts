@@ -45,6 +45,9 @@ export type StaffActor = {
   decisionAuthority: DecisionAuthority | null;
   /** Their online-orders job when a manager set one (picker, packer, shipper, manager, none). */
   fulfilmentRole?: string | null;
+  /** A shared host stand tablet a manager set up (lib/screen-keys, kind 'host'), not a person: front desk steps, under
+   *  the tablet's name. */
+  screen?: boolean;
 };
 
 export type StaffAuthResult =
@@ -78,6 +81,17 @@ export async function verifyStaffActor(
   // A staff-portal sign-in (PIN): uid is portal:{tenant}:{staffId}, signed by the server for this business only.
   const portalPrefix = `portal:${tenantId}:`;
   const viaPortal = portalClaims && uid.startsWith(portalPrefix);
+  // A host stand tablet (api/kitchen 'hostToken'): its sign-in names the screen it was set up as. It works only while
+  // that screen is still set up here; stopping the screen stops it at once.
+  const screenId = viaPortal ? uid.slice(portalPrefix.length) : '';
+  if (viaPortal && screenId.startsWith('screen_')) {
+    const hash = screenId.slice('screen_'.length);
+    const sc: any = /^[0-9a-f]{64}$/.test(hash) ? (await db.doc(`kitchenScreens/${hash}`).get()).data() : null;
+    if (!sc || sc.revokedAt || sc.tenantId !== tenantId || sc.kind !== 'host') return { ok: false, error: 'This tablet was stopped. A manager can set it up again.', status: 401 };
+    const tenantNow: any = tenantSnap.data() || {};
+    return { ok: true, tenant: tenantNow, actor: { uid: screenId, name: String(sc.name || 'Host stand').slice(0, 60), role: 'front_desk', isManager: false, isTenantOwner: false, portal: true, screen: true,
+      caps: capsFor(tenantNow, 'front_desk'), employmentModel: null, isRenter: false, decisionAuthority: null, fulfilmentRole: null } };
+  }
   let staffSnap = await db.doc(`tenants/${tenantId}/staff/${viaPortal ? uid.slice(portalPrefix.length) : uid}`).get();
   // A team member invited to the app: their login is linked to their staff record through staffDirectory.
   if (!staffSnap.exists) { const dir: any = (await db.doc(`staffDirectory/${uid}`).get()).data(); if (dir?.tenantId === tenantId && dir.staffId) staffSnap = await db.doc(`tenants/${tenantId}/staff/${String(dir.staffId)}`).get(); }

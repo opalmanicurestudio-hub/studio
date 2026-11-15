@@ -14,6 +14,7 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import { AccessGate } from '@/components/auth/AccessGate';
 import { ToolGate } from '@/components/shared/ToolGate';
 import { TenantProvider } from '@/context/TenantContext';
+import { PortalScope } from '@/components/shared/PortalScope';
 import { LocationProvider } from '@/context/LocationContext';
 import { usePathname } from 'next/navigation';
 import { SettingsShell } from '@/components/settings/SettingsShell';
@@ -114,6 +115,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <StaffPayOverlay />
         <IdleSignOut />
         <LocationProvider>
+         <PortalScope>
           <SidebarProvider>
             <Framed>{children}</Framed>
             <HelpDesk />
@@ -121,6 +123,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <StepReminder />
             <KlairHost />
           </SidebarProvider>
+         </PortalScope>
         </LocationProvider>
        </AccessGate>
       </TenantProvider>

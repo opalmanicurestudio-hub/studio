@@ -37,6 +37,7 @@ const PORTAL_TO_APP: Record<string, string> = { today: '/dashboard', schedule: '
 const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent',
   orders_cutoff: 'orders', orders_missed: 'orders', orders_big_day: 'orders', orders_fast: 'orders' };
 export const MANAGER_ROLES_PUSH = ['owner', 'admin', 'manager'];
+const FLOOR_LINKS = ['/tables', '/clear', '/host'];
 
 export function pushLink(base: string, tenantId: string, link?: string, opts: { role?: string; type?: string } = {}): string {
   const b = String(base || '').replace(/\/+$/, '');
@@ -47,6 +48,8 @@ export function pushLink(base: string, tenantId: string, link?: string, opts: { 
     if (l.startsWith('/')) return `${b}${l}`;
     return `${b}${PORTAL_TO_APP[l] || '/dashboard'}`;
   }
+  // The floor's pages open for team members too (signed in with their PIN in the team app: components/shared/PortalScope).
+  if (FLOOR_LINKS.includes(l)) return `${b}${l}`;
   // Team members: their own portal, on the right tab.
   let tab = PORTAL_TABS.includes(l) ? l : '';
   if (!tab && l.startsWith('/')) tab = /^\/(my-)?schedule\/requests/.test(l) ? 'requests' : /^\/(my-)?schedule/.test(l) ? 'schedule' : /^\/messages/.test(l) ? 'messages' : '';

@@ -156,6 +156,8 @@ import { PayTabs } from '@/components/pay/PayTabs';
 import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/PortalSplash';
 import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
 import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
+import { FloorLinks } from '@/components/portal/FloorLinks';
+import { isFoodBusiness } from '@/lib/food-setup';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -4332,6 +4334,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <button type="button" onClick={() => { updateDoc(doc(firestore, `tenants/${tenantId}/notifications`, n.id), { read: true, ackAt: new Date().toISOString() }).catch(() => {}); }} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-bold text-white" style={{ background: accentColor }}>Got it</button>
           </div>))}
         {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
+        {navKey === 'today' && !isRenter && isFoodBusiness(portalTenant) && <FloorLinks job={(staffMember as any).job || null} />}
         {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && (
           <Segments label="Today's view" value={todayView} onChange={pickToday}
