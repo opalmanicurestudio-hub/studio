@@ -9,6 +9,8 @@ import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { Minus, Plus, ShoppingBag, X } from 'lucide-react';
+import { MenuAsk } from '@/components/klair/MenuAsk';
+import { TELL_TEAM } from '@/lib/klair-menu';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 
@@ -18,7 +20,7 @@ const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null };
-type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; busy?: { minutes: number } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
 type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
@@ -287,6 +289,11 @@ export default function OrderAhead() {
         <nav aria-label="Menu sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {menu.sections.map((s) => <a key={s.name} href={`#sec-${encodeURIComponent(s.name)}`} className={`inline-flex min-h-[44px] shrink-0 items-center rounded-full bg-[#fff] px-4 text-[15px] font-medium ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}>{s.name}</a>)}
         </nav>)}
+      {menu.klair && <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+        <MenuAsk name={menu.klair.name} tell={TELL_TEAM} colors={{ accent: INK, soft: SOFT, ink: INK, muted: MUTED, line: LINE, card: '#fff' }} ask={async (question) => {
+          const r = await call({ tenantId, action: 'menu_ask', question });
+          return r.d?.ok && r.d.answer ? { text: String(r.d.answer.text || ''), tell: !!r.d.answer.tell } : { error: r.d?.error || 'That didn’t send. Ask the team.' };
+        }} /></section>}
       {menu.sections.map((s) => (
         <section key={s.name} id={`sec-${encodeURIComponent(s.name)}`} aria-label={s.name} className="scroll-mt-4">
           <h2 className="mb-3 text-[19px] font-semibold tracking-tight">{s.name}</h2>

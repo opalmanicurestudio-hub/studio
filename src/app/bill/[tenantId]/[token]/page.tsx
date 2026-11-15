@@ -17,6 +17,7 @@ import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitSaid, VisitCheck, 
 import { shareFor, tipFor, type Bill, type Choice, type PayState, type SplitWay } from '@/lib/table-bill';
 import { ASKS, STATE_WORDS, type AskKind, type ItemState, type PassCourse } from '@/lib/guest-pass';
 import { SAFETY_WORDS, type ReportReason } from '@/lib/table-recovery';
+import { MenuAsk, type AskMenu } from '@/components/klair/MenuAsk';
 
 const POLL_MS = 15000;
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -68,7 +69,7 @@ function PayForm({ claim, post, onPaid, onBack }: { claim: Claim; post: (a: stri
 
 const CHIP: Record<ItemState, { bg: string; fg: string }> = { served: { bg: '#eaf6ef', fg: '#1f7a4d' }, on_way: { bg: '#e7f1fb', fg: '#1d5fa8' }, making: { bg: '#fff7ed', fg: '#b45309' }, ordered: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' }, held: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' } };
 type Report = { on: boolean; mine: { seen: boolean; said: string; safety: boolean } | null; reasons: ReportReason[]; dishes: { lineId: string; name: string }[] };
-type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean; sorry?: string[]; report?: Report | null };
+type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean; sorry?: string[]; report?: Report | null; klair?: { name: string } | null };
 type Send = (x: { reasonId: string; lineId: string | null; words: string }) => Promise<string>;
 
 const SAFETY = { background: '#b45309', color: '#fff' };
@@ -121,7 +122,7 @@ function NotRight({ report, send }: { report: Report; send: Send }) {
 }
 
 /** The table's own page while they're seated: their order, help, the tab so far, and paying (lib/guest-pass). */
-function TablePass({ v, pass, onPay, ask, asking, said, send }: { v: any; pass: Pass; onPay: () => void; ask: (w: AskKind) => void; asking: AskKind | null; said: string; send: Send }) {
+function TablePass({ v, pass, onPay, ask, asking, said, send, menuAsk }: { v: any; pass: Pass; onPay: () => void; ask: (w: AskKind) => void; asking: AskKind | null; said: string; send: Send; menuAsk: AskMenu }) {
   const [showCheck, setShowCheck] = React.useState(false);
   const lines: Line[] = v.lines || [];
   // The latest of each kind they've asked for, newest first.
@@ -165,6 +166,7 @@ function TablePass({ v, pass, onPay, ask, asking, said, send }: { v: any; pass: 
           <div className="mt-3"><button type="button" disabled={!!asking} onClick={() => ask('usual')} className="v-pill" style={{ minHeight: 44 }}>{asking === 'usual' ? 'Sending…' : 'Yes, please'}</button></div>
         </VisitCard>
       )}
+      {pass.klair && <VisitCard><MenuAsk name={pass.klair.name} ask={menuAsk} /></VisitCard>}
       {lines.length > 0 && (
         <VisitCard>
           <button type="button" onClick={() => setShowCheck(!showCheck)} aria-expanded={showCheck} className="w-full text-left" style={{ minHeight: 44 }}>
@@ -225,13 +227,18 @@ export default function TableBill() {
     if (!r?.ok) { setSaid(r?.error || 'That didn’t send. Try again, or wave someone over.'); return; }
     void load();
   };
+  // Klair, on the menu (lib/klair-menu).
+  const menuAsk: AskMenu = async (question) => {
+    const r = await post('menu_ask', { question });
+    return r?.ok && r.answer ? { text: String(r.answer.text || ''), tell: !!r.answer.tell } : { error: r?.error || 'That didn’t send. Ask your server.' };
+  };
   const report: Send = async (x) => {
     const r = await post('report', x);
     if (!r?.ok) return r?.error || 'That didn’t send. Wave anyone on the team over.';
     await load(); return '';
   };
   if (mode === 'table' && v.pass && !claim) return (
-    <VisitShell brand={brand} kicker={v.table} title="Your table"><TablePass v={v} pass={v.pass} onPay={() => setMode('pay')} ask={ask} asking={asking} said={said} send={report} /></VisitShell>
+    <VisitShell brand={brand} kicker={v.table} title="Your table"><TablePass v={v} pass={v.pass} onPay={() => setMode('pay')} ask={ask} asking={asking} said={said} send={report} menuAsk={menuAsk} /></VisitShell>
   );
   const backToTable = v.pass && !claim ? <VisitButton quiet onClick={() => setMode('table')}>Back to your table</VisitButton> : null;
   if (v.state === 'wait') return <VisitShell brand={brand} title={v.table || 'Your check'}><VisitCard><VisitMuted>{v.why}</VisitMuted></VisitCard>{backToTable}</VisitShell>;

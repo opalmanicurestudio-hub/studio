@@ -37,6 +37,7 @@ import { itemCost, targetOf } from '@/lib/food-cost';
 import { cleanPace, paceSettingsOf } from '@/lib/kitchen-pace';
 import { forgetPace } from '@/lib/kitchen-pace-server';
 import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
+import { forgetMenuFacts } from '@/lib/klair-menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
@@ -77,6 +78,8 @@ export async function POST(req: NextRequest) {
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
     if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count'].includes(action)) return bad('Unknown action.');
+    // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
+    if (action !== 'list') forgetMenuFacts(tenantId);
     const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();

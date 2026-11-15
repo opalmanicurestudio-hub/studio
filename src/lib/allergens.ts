@@ -31,7 +31,7 @@ const WORDS: [RegExp, AllergenKey[]][] = [
   [/\beggs?\b/i, ['eggs']],
   [/\bshellfish\b|\bshrimps?\b|\bprawns?\b|\bcrabs?\b|\blobsters?\b|\bcrayfish\b|\bcrustaceans?\b|\bclams?\b|\boysters?\b|\bmussels?\b|\bscallops?\b|\bmollus[ck]s?\b/i, ['shellfish']],
   [/\bfish\b|\bsalmon\b|\btuna\b|\bcod\b|\banchov(y|ies)\b|\bseafood\b/i, ['fish']],
-  [/\bc[o]?eliac\b|\bgluten\b/i, ['gluten', 'wheat']],
+  [/\bc[o]?eliacs?\b|\bgluten\b/i, ['gluten', 'wheat']],
   [/\bwheat\b/i, ['wheat']],
   [/\bsoy\b|\bsoya\b|\bsoybeans?\b|\btofu\b/i, ['soy']],
   [/\bsesame\b|\btahini\b/i, ['sesame']],

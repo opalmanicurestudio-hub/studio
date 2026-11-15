@@ -20,6 +20,8 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { loyaltyOf } from '@/lib/loyalty';
 import { pickupDelayMin } from '@/lib/kitchen-pace';
 import { paceNow } from '@/lib/kitchen-pace-server';
+import { klairSettings } from '@/lib/klair';
+import { menuAnswersOn } from '@/lib/klair-menu';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -92,7 +94,9 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   // The kitchen running behind (lib/kitchen-pace): the first time offered is that much later, and the page says so.
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant);
   const busy = pace.level === 'calm' ? null : { minutes: pace.behindMin };
-  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant, Date.now(), pickupDelayMin(pace)), busy, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
+  // Klair answering menu questions (lib/klair-menu), when the business turns it on.
+  const K = klairSettings(tenant); const klair = menuAnswersOn(tenant, K.on) ? { name: K.name } : null;
+  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant, Date.now(), pickupDelayMin(pace)), busy, klair, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
     points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
 }
 

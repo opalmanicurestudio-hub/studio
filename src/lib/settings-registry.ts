@@ -55,7 +55,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   { id: 'messages', title: 'Client messages', meaning: 'The words clients get, replies, links and what was sent', pages: [
     { id: 'wording', title: 'Messages clients get', meaning: 'Confirmations, reminders and receipts, and quiet hours', href: '/settings/messages', words: 'message wording text sms email template confirmation reminder quiet hours' },
     { id: 'replies', title: 'Ready replies', meaning: 'Wording your team picks when answering shop customers', href: '/settings/replies', words: 'replies canned responses templates wording answers', module: 'retail' },
-    { id: 'embeds', title: 'Links and embeds', meaning: 'A Book button and live menu for your own website, and links to share', href: '/settings/embeds', words: 'links embed website book button menu share qr assistant' },
+    { id: 'embeds', title: 'Links and embeds', meaning: 'A Book button and live menu for your own website, and links to share', href: '/settings/embeds', words: 'links embed website book button menu share qr assistant klair menu questions allergens guests' },
     { id: 'voice', title: 'Phone assistant', meaning: 'What it knows and how it sounds', href: '/voice', words: 'voice phone calls assistant receptionist', module: 'voice', inShell: false },
     { id: 'sent', title: 'Sent messages', meaning: 'Every email and text, and whether it arrived', href: '/message-log', words: 'sent delivered failed history message log', inShell: false },
   ] },

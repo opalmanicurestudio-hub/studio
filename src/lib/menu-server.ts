@@ -32,7 +32,9 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   /** From a starter menu (lib/food-starters): what it likely contains, until someone says (never used as what it does
    *  contain), ingredients the business has that its recipe couldn't use as they're measured, and whether it still
    *  needs its first price. */
-  allergensLikely: AllergenKey[]; recipeGaps: string[]; starter: boolean };
+  allergensLikely: AllergenKey[]; recipeGaps: string[]; starter: boolean;
+  /** Its recipe's ingredients by name, in the recipe's order (empty: no recipe), for "what's in it?" (lib/klair-menu). */
+  recipe: string[] };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
 export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archived !== true && i.isActive !== false;
@@ -53,6 +55,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     allergens: itemAllergens(i), allergensSet: allergensKnown(i), dailyCount: dailyCountOf(i),
     allergensLikely: allergensKnown(i) ? [] : cleanKeys(Array.isArray(i.allergensLikely) ? i.allergensLikely : []),
     recipeGaps: (Array.isArray(i.recipeGaps) ? i.recipeGaps : []).map((g: unknown) => words(g, 60)).filter(Boolean).slice(0, 10), starter: i.createdVia === 'food-starter',
+    recipe: Array.from(new Set((Array.isArray(i.formula) ? i.formula : []).map((f: any) => words(f?.name, 40)).filter(Boolean))).slice(0, 12) as string[],
   };
 }
 

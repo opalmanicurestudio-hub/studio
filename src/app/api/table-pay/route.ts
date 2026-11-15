@@ -11,6 +11,8 @@
 // asked for and whether someone has it, and a regular's usual when the business offers it; and
 //   ask    { tenantId, token, what: 'server'|'water'|'check'|'usual' } → their server's phone says so (lib/nudges), the
 //          check asked for shows on the host stand too. Asked again while the last is open: nothing new.
+//   menu_ask { tenantId, token, question } → Klair answers a menu question from the business's recipes and allergen
+//          marks only (lib/klair-menu), when the business turns it on.
 //   report { tenantId, token, reasonId, lineId?, words? } → "Something not right?" (lib/table-recovery): private to the
 //          team. First on their server's phone, on the host stand, and a Making it right case for the managers and the
 //          desk. One a visit. 'view' also says sorry on its own when a course is late or a dish is being made again.
@@ -29,6 +31,9 @@ import { forgetFloor } from '@/lib/floor-server';
 import { canReportAgain, lateCourses, MAX_REPORT_WORDS, recoverySettingsOf, remadeNow, reportItem, reportReasons, sorryLines } from '@/lib/table-recovery';
 import { settingsOf as mirSettingsOf } from '@/lib/making-it-right';
 import { caseForVisit, reportOnCase } from '@/lib/table-recovery-server';
+import { klairSettings } from '@/lib/klair';
+import { MAX_QUESTION, menuAnswersOn } from '@/lib/klair-menu';
+import { answerGuest } from '@/lib/klair-menu-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -53,7 +58,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const token = String(b.token || ''); const action = String(b.action || 'view');
   if (!ID.test(tenantId) || !PAY_TOKEN.test(token)) return bad('This link isn’t complete. Scan the code again.');
-  if (!['view', 'start', 'done', 'cancel', 'keep', 'ask', 'report'].includes(action)) return bad('Unknown action.');
+  if (!['view', 'start', 'done', 'cancel', 'keep', 'ask', 'report', 'menu_ask'].includes(action)) return bad('Unknown action.');
   const ip = callerOf(req);
   if (tooMany(`ip|${ip}`, 400) || tooMany(`${tenantId}|${token}`, 60) || tooMany(`miss|${ip}|${tenantId}`, 30, false)) return bad('One moment, then try again.', 429);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -130,6 +135,15 @@ export async function POST(req: NextRequest) {
       });
       forgetFloor(tenantId);
       return ok({ ask: { ...r.ask, said: askSaid(r.ask, null), seen: false }, already: !!r.already });
+    }
+
+    // Klair, on the menu (lib/klair-menu): only when the business turns it on.
+    if (action === 'menu_ask') {
+      const K = klairSettings(tenant); if (!menuAnswersOn(tenant, K.on)) return bad('Ask your server about the menu.', 403);
+      const question = String(b.question ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_QUESTION); if (!question) return bad('Ask about a dish.');
+      if (tooMany(`menu|${tenantId}|${token}`, 12)) return bad('One moment, then try again.', 429);
+      const slow = await limitPublic(req, 'table_menu_ask', tenantId, { perHour: 600, perDay: 0 }); if (slow) return slow;
+      return ok({ answer: await answerGuest(db, tenantId, question), name: K.name });
     }
 
     // "Something not right?": private, to the team. Once a visit, and again once someone has had the last one a while
@@ -212,7 +226,9 @@ export async function POST(req: NextRequest) {
     const report = R.report || mine ? { on: R.report, mine: mine ? { seen: mine.seen, said: mine.said, safety: mine.safety } : null, reasons: offer,
       dishes: offer.length ? tab.filter((l: any) => l && l.itemType !== 'service' && l.lineId).slice(-30).map((l: any) => ({ lineId: String(l.lineId), name: String(l.name || 'Item').slice(0, 60) })) : [] } : null;
     const sorry = R.sorry ? sorryLines(lateCourses(tab, tickets, coursesOf(tenant), Date.now()), remadeNow(tab, tickets)) : [];
-    const pass = { courses: passCourses(tab, tickets, coursesOf(tenant)), asks, usual: await usualOf(found.v, party), payOn: s.on, checkAsked: !!party?.checkAt, sorry, report };
+    const K = klairSettings(tenant);
+    const pass = { courses: passCourses(tab, tickets, coursesOf(tenant)), asks, usual: await usualOf(found.v, party), payOn: s.on, checkAsked: !!party?.checkAt, sorry, report,
+      klair: menuAnswersOn(tenant, K.on) ? { name: K.name } : null };
     return ok({ ...look, state: why ? 'wait' : 'open', why, table: ck.table || tableLabel(found.v.tableName), pass,
       settings: { ways: s.ways, tips: s.tips, tipBase: s.tipBase, suggest: s.suggest },
       lines: ck.bill.lines.map((l) => ({ lineId: l.lineId, name: l.name, seat: l.seat, price: l.price, comped: l.comped, state: ck.st.covered.has(l.lineId) ? 'paid' : ck.st.busy.has(l.lineId) ? 'busy' : 'open' })),

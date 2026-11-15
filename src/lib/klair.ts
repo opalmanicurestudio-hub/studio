@@ -15,24 +15,28 @@ export function klairSettings(t: any) {
   return { on: assistantAddon(t) && k.enabled !== false, name, voice: String(k.voice || 'warm'), speak: k.speak !== false };
 }
 
-export type Intent = 'next' | 'unconfirmed' | 'gaps' | 'week' | 'move' | 'late' | 'confirm' | 'send' | 'rebook' | 'refund' | 'unknown';
+export type Intent = 'next' | 'unconfirmed' | 'gaps' | 'week' | 'move' | 'late' | 'confirm' | 'send' | 'rebook' | 'refund' | 'table' | 'wait' | 'kitchen' | 'soldout' | 'unknown';
+/** Questions about tonight's floor (lib/klair-floor): answered from the floor, the tabs and the kitchen; nothing changes. */
+export const FLOOR_INTENTS: Intent[] = ['table', 'wait', 'kitchen', 'soldout'];
 export const ACT_INTENTS: Intent[] = ['move', 'confirm', 'send', 'rebook', 'refund'];
 export type SendKind = 'visit_link' | 'aftercare' | 'review' | 'rebook';
-export interface Plan { intent: Intent; person: string | null; date: string | null; time: string | null; minutes: number | null; weeks: number | null; kind: SendKind | null; spans: string[]; heard: string }
+export interface Plan { intent: Intent; person: string | null; date: string | null; time: string | null; minutes: number | null; weeks: number | null; kind: SendKind | null; spans: string[]; heard: string;
+  /** A table as said ("4", "patio 2") and a party size ("for 4"), for the floor questions. */
+  table?: string | null; size?: number | null }
 
 const W = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/['’]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** The model's instructions: read one request into a plan. Names stay as heard; it never chooses a person. */
 export function planPrompt(o: { today: string; weekday: string; tz: string; name: string; inVisitClient?: string | null }) {
   return `You are ${o.name}, the assistant inside a salon and studio app. Read ONE spoken or typed request from a staff member and reply with JSON only:
-{"intent":"next|unconfirmed|gaps|week|move|late|confirm|send|rebook|refund|unknown","person":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"minutes":number|null,"weeks":number|null,"kind":"visit_link|aftercare|review|rebook"|null,"spans":[exact substrings of the request you used]}
-Meanings: next = what or who is next; unconfirmed = visits not confirmed (usually tomorrow); gaps = open time today; week = how the week is going (money); move = move a client's visit to another day/time; late = tell my next clients I'm running N minutes late (minutes); confirm = ask a client to confirm; send = send a client a link (kind); rebook = book a client again in N weeks (weeks); refund = refund or waive money.
+{"intent":"next|unconfirmed|gaps|week|move|late|confirm|send|rebook|refund|table|wait|kitchen|soldout|unknown","person":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:mm"|null,"minutes":number|null,"weeks":number|null,"kind":"visit_link|aftercare|review|rebook"|null,"table":string|null,"size":number|null,"spans":[exact substrings of the request you used]}
+Meanings: next = what or who is next; unconfirmed = visits not confirmed (usually tomorrow); gaps = open time today; week = how the week is going (money); move = move a client's visit to another day/time; late = tell my next clients I'm running N minutes late (minutes); confirm = ask a client to confirm; send = send a client a link (kind); rebook = book a client again in N weeks (weeks); refund = refund or waive money; table = what's left for, where's the food for, or the total of a table (table = the table as said, like "4" or "patio 2"); wait = the wait list or how long the wait is (size = the party size if said); kitchen = whether the kitchen is behind; soldout = what's sold out or 86'd.
 Today is ${o.weekday} ${o.today} (${o.tz}). Resolve "Thursday", "tomorrow", "next week" to a date on or after today. "at 3" in a salon means 3 PM unless they say morning. person = the client's name exactly as said (no guessing, no completing).${o.inVisitClient ? ` They are looking at ${o.inVisitClient}'s visit; "her", "him", "them" or no name means ${o.inVisitClient}.` : ''} If unsure what they want, intent "unknown".`;
 }
 
 /** A plan from the model's JSON, cleaned and limited to what the request actually contains. */
 export function cleanPlan(j: any, heard: string): Plan {
-  const intents: Intent[] = ['next', 'unconfirmed', 'gaps', 'week', 'move', 'late', 'confirm', 'send', 'rebook', 'refund', 'unknown'];
+  const intents: Intent[] = ['next', 'unconfirmed', 'gaps', 'week', 'move', 'late', 'confirm', 'send', 'rebook', 'refund', 'table', 'wait', 'kitchen', 'soldout', 'unknown'];
   const kinds: SendKind[] = ['visit_link', 'aftercare', 'review', 'rebook'];
   const inHeard = (s: any) => typeof s === 'string' && s.trim() && heard.toLowerCase().includes(s.trim().toLowerCase());
   return {
@@ -45,6 +49,8 @@ export function cleanPlan(j: any, heard: string): Plan {
     kind: kinds.includes(j?.kind) ? j.kind : null,
     spans: Array.isArray(j?.spans) ? j.spans.filter(inHeard).map((s: string) => s.trim()).slice(0, 8) : [],
     heard,
+    table: inHeard(j?.table) && /^[a-z0-9 ]{1,16}$/i.test(String(j.table).trim()) ? String(j.table).trim() : null,
+    size: Number.isInteger(Number(j?.size)) && Number(j.size) >= 1 && Number(j.size) <= 30 ? Number(j.size) : null,
   };
 }
 
@@ -56,7 +62,14 @@ export function plainPlan(heard: string): Plan {
   if (/\b(gaps?|open time|free time|openings?)\b/.test(s)) return { ...base, intent: 'gaps' };
   if (/\b(this week|the week|hows the week)\b/.test(s)) return { ...base, intent: 'week' };
   const late = s.match(/\b(\d{1,3}) ?(min|mins|minutes)\b.*\b(late|behind)\b|\b(late|behind)\b.*\b(\d{1,3}) ?(min|mins|minutes)\b/);
-  if (late) return { ...base, intent: 'late', minutes: Math.min(180, Number(late[1] || late[5])) };
+  // ("The kitchen is 10 minutes behind" isn't the person running late.)
+  if (late && !/\bkitchen\b/.test(s)) return { ...base, intent: 'late', minutes: Math.min(180, Number(late[1] || late[5])) };
+  // Tonight's floor: a table, the wait, the kitchen, what's sold out (after "I'm running late", which may say "wait").
+  const tbl = s.match(/\btable (\d{1,3}|[a-z]+ ?\d{1,3})\b/);
+  if (tbl && /\b(left|food|total|tab|check|owe|order(ed)?|status|where|doing|bill|how)\b/.test(s)) return { ...base, intent: 'table', table: tbl[1] };
+  if (/\b(sold out|86d|86ed|eighty sixed)\b/.test(s) || /\brun(ning)? (out|low) (of|on) (?!time\b)[a-z]/.test(s) || /\b(whats|what is|what got|anything|is anything)\b.*\b86\b|\b86 list\b/.test(s)) return { ...base, intent: 'soldout' };
+  if (/\bkitchen\b/.test(s) && /\b(behind|busy|slammed|backed up|weeds|keeping up|how)\b/.test(s)) return { ...base, intent: 'kitchen' };
+  if ((/\b(wait list|waitlist|the wait|wait time|wait for (a )?(party of )?\d{1,2})\b/.test(s) || /\b(whos|who is|anyone|how many|parties|people) (are |is )?waiting\b/.test(s)) && !/\bwaiting (room|to|on)\b/.test(s)) { const sz = s.match(/\b(?:for|party of|of) (\d{1,2})\b/); return { ...base, intent: 'wait', size: sz ? Math.min(30, Number(sz[1])) : null }; }
   return base;
 }
 

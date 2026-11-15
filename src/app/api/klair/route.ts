@@ -5,12 +5,14 @@
 //   confirm { tenantId, id }        → does it, through the same routes the app uses (rules, messages and the activity
 //                                     log stay identical), and returns what changed, with Undo where it can be undone
 //   undo    { tenantId, id }
+// Questions about tonight's floor ("what's left for table 4?", the wait, the kitchen, what's sold out) are answered
+// straight away from the floor, the tabs and the kitchen (lib/klair-floor); nothing changes.
 // Pending steps live in tenants/{t}/klairActions for 15 minutes and only for the person who asked. Signed-in team
 // members only, within their own permissions. Part of the ClarityFlow Assistant add-on.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
-import { klairSettings, planPrompt, cleanPlan, plainPlan, matchPeople, underline, spokenLine, ACT_INTENTS, type Plan, type Candidate } from '@/lib/klair';
+import { klairSettings, planPrompt, cleanPlan, plainPlan, matchPeople, underline, spokenLine, ACT_INTENTS, FLOOR_INTENTS, type Plan, type Candidate } from '@/lib/klair';
 import { tenantTimeZone, todayIn, wallToUtc, addDays, dayKey, wallParts, formatShortDay, formatTime } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
@@ -57,6 +59,19 @@ export async function POST(req: NextRequest) {
 
   // ── ASK ──
   const heard = String(b.text || '').trim().slice(0, 400); if (!heard) return j({ ok: false, error: 'Say or type what you need.' }, 400);
+  // Tonight's floor (lib/klair-floor): questions only, answered from the floor, the tabs and the kitchen, for the
+  // business's own team (not a renter), while tables are on. Read plainly first, so they're answered at once.
+  const floor = async (p: Plan) => {
+    if (actor.isRenter || actor.role === 'renter') return { kind: 'answer', text: 'Tables and tabs are the business’s own.' };
+    const { toolLocked } = await import('@/lib/tool-lock'); if (toolLocked(t, ['hospitality'])) return { kind: 'answer', text: 'Tables aren’t on for this business right now.' };
+    const { floorAnswer } = await import('@/lib/klair-floor');
+    const text = await floorAnswer(db, T, t, p, now).catch((e: any) => { console.error('[klair] floor', e); return 'I couldn’t read the floor just now. Try again in a moment.'; });
+    return { kind: 'answer', text, say: say('answer', { text }) };
+  };
+  // (Only where tables are on and for the business's own team; anywhere else the request is read as usual.)
+  { const quick = plainPlan(heard);
+    if (FLOOR_INTENTS.includes(quick.intent) && !actor.isRenter && actor.role !== 'renter' && !(await import('@/lib/tool-lock')).toolLocked(t, ['hospitality']))
+      return j({ ok: true, heard, shown: underline(heard, quick.spans), intent: quick.intent, ...(await floor(quick)) }); }
   const today = todayIn(tz); const weekday = new Date(wallToUtc(today, 12, 0, tz)).toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
   const apSnap = await db.collection(`${T}/appointments`).where('startTime', '>=', addDays(today, -120)).where('startTime', '<=', addDays(today, 61)).get().catch(() => ({ docs: [] }));
   const appts = rows(apSnap); const staff = rows(await db.collection(`${T}/staff`).get().catch(() => ({ docs: [] })));
@@ -71,6 +86,7 @@ export async function POST(req: NextRequest) {
   const base = { ok: true, heard, shown, intent: plan.intent };
 
   // Answers
+  if (FLOOR_INTENTS.includes(plan.intent)) return j({ ...base, ...(await floor(plan)) });
   if (plan.intent === 'unknown') return j({ ...base, kind: 'answer', text: `I didn’t catch what to do. Try “move Sam to Thursday at 3”, “who hasn’t confirmed tomorrow?” or “tell my next client I’m 10 minutes late”.`, say: say('answer', { text: 'I didn’t catch that. Try again?' }) });
   if (plan.intent === 'next') {
     const mine = appts.filter((a: any) => LIVE.includes(String(a.status)) && ms(a.startTime) >= now - 30 * 60000 && (!actor.isManager ? a.staffId === actor.uid : true)).sort((x: any, y: any) => ms(x.startTime) - ms(y.startTime));
