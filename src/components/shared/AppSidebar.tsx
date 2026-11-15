@@ -17,6 +17,9 @@ import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { useAuth, useFirebase, useUser } from '@/firebase';
 import { pageVisible } from '@/lib/modules';
+import { pageHref, runsTheNight, STATION_SCREENS, TONIGHT } from '@/lib/jobs';
+import { isFoodBusiness } from '@/lib/food-setup';
+import { useMyJob, useNoteMoves } from '@/hooks/use-my-job';
 import { openHelp, useIsHqAdmin } from '@/components/support/HelpDesk';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { signOut } from 'firebase/auth';
@@ -177,11 +180,17 @@ const PUBLIC_PORTALS = [
   { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in kiosk'   },
   { href: '/concierge',    icon: Coffee,      label: 'Lounge concierge' },
   { href: '/kds',          icon: ChefHat,     label: 'Kitchen screen'      },
+  // The dish pit and the barback, each on its own tablet (or a phone), next to the kitchen screen they take calls from.
+  { href: '/dish',         icon: SprayCan,    label: 'Dish'             },
+  { href: '/barback',      icon: Boxes,       label: 'Barback'          },
   { href: '/drive-thru',   icon: Car,         label: 'Drive-thru'       },
   { href: '/floor',        icon: Layers,      label: 'Floor staff'      },
   { href: '/timeclock',    icon: Clock,       label: 'Time clock'       },
   { href: '/staff-portal', icon: Shield,      label: 'Staff portal'     },
 ];
+
+/** A page in someone's job menu (lib/jobs): its name and icon, wherever it sits in the menu. */
+const PAGE_INFO: Record<string, { icon: any; label: string }> = Object.fromEntries([...DAILY_HUB, ...STUDIO_ASSETS, ...PUBLIC_PORTALS].map((i) => [i.href, { icon: i.icon, label: i.label }]));
 
 /** Every page in the menu, by area — what the header search looks through. */
 export const NAV_AREAS: { area: string; items: { href: string; label: string }[] }[] = [
@@ -252,20 +261,22 @@ function NavItem({
 }
 
 function NavSection({
-  label, items, isPortal, tenantId, badges,
+  label, items, isPortal, tenantId, badges, defaultOpen,
 }: {
   label:    string;
   items:    { href: string; icon: any; label: string }[];
   isPortal?: boolean;
   tenantId?: string;
   badges?:  Record<string, number>;
+  /** Open when the menu first shows (the Today list is, unless said otherwise). */
+  defaultOpen?: boolean;
 }) {
   const { selectedTenant } = useTenant();
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
   const pathname = usePathname();
   const holdsCurrent = items.some((it: any) => pathname === it.href || pathname.startsWith(`${it.href}/`));
-  const [open, setOpen] = useState<boolean>(holdsCurrent || label === 'Today');
+  const [open, setOpen] = useState<boolean>(holdsCurrent || (defaultOpen ?? label === 'Today'));
   useEffect(() => { if (holdsCurrent) setOpen(true); }, [holdsCurrent]);
   const shown = isCollapsed || open;
 
@@ -330,6 +341,19 @@ export function AppSidebar() {
   const isOwner = role === 'owner';
   const isAdmin = role === 'admin';
   const isOwnerOrAdmin = isOwner || isAdmin;
+
+  // At a food business, a team member's job (lib/jobs) gives them a short menu of their own; a manager or shift lead
+  // gets the night's pages and the station screens. The rest of the everyday menu stays a tap away.
+  const { myJob } = useMyJob();
+  useNoteMoves(pathname);
+  const runsNight = !isOwner && !!tenantId && (runsTheNight(myJob?.job || null) || ((role === 'admin' || role === 'manager') && isFoodBusiness(selectedTenant)));
+  const pageItem = (href: string, o: { screen?: boolean } = {}) => ({ href: o.screen ? href : pageHref(href, tenantId || '', { job: myJob?.job, station: myJob?.station }), ...PAGE_INFO[href] });
+  const visible = (href: string) => !!PAGE_INFO[href] && pageVisible(selectedTenant, href);
+  const workItems = !isOwner && !runsNight && tenantId && myJob ? myJob.job.menu.filter(visible).map((h) => pageItem(h)) : [];
+  const tonightItems = runsNight ? TONIGHT.filter(visible).map((h) => pageItem(h)) : [];
+  const screenItems = runsNight ? STATION_SCREENS.filter(visible).map((h) => pageItem(h, { screen: true })) : [];
+  // What's already in their own group isn't listed again underneath.
+  const ownHrefs = new Set<string>([...(workItems.length ? myJob?.job.menu || [] : []), ...(tonightItems.length ? TONIGHT : [])]);
 
   // v27 — FIX: /messages was completely absent from the sidebar — every
   // client conversation, staff DM, and team broadcast built this
@@ -462,7 +486,7 @@ export function AppSidebar() {
               {brandLogo ? <img src={brandLogo} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-semibold text-primary-foreground">{String((selectedTenant as any)?.name || 'C').trim()[0]?.toUpperCase()}</span>}
               <div className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate text-[14.5px] font-semibold tracking-tight text-primary">{(selectedTenant as any)?.name || 'Your business'}</span>
-                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Team'}</span>
+                <span className="truncate text-[12px] text-muted-foreground">{role === 'owner' ? 'Owner' : myJob ? myJob.job.name : role ? String(role)[0].toUpperCase() + String(role).slice(1) : 'Team'}</span>
               </div>
             </Link>
 
@@ -479,7 +503,11 @@ export function AppSidebar() {
             </div>
           )}
 
-          <NavSection label="Today" items={dailyItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} />
+          {workItems.length > 0 && <NavSection label="Your work" items={workItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen />}
+          {tonightItems.length > 0 && <NavSection label="Tonight" items={tonightItems} defaultOpen />}
+          {screenItems.length > 0 && tenantId && <NavSection label="Station screens" items={screenItems} isPortal tenantId={tenantId} defaultOpen />}
+
+          <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={dailyItems.filter((i) => !ownHrefs.has(i.href))} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />
 
           {isOwner && (
             <>

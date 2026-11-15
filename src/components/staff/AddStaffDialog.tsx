@@ -38,6 +38,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useTenant } from '@/context/TenantContext';
 import { rolesFor, assignableRoles } from '@/lib/permissions';
+import { JobPicker, skipsBooking } from '@/components/staff/JobPicker';
 
 const addStaffSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -54,6 +55,9 @@ const addStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.string().min(1),
+  // Their job and station at a food business (lib/jobs): the screen they open on.
+  job: z.string().optional(),
+  station: z.string().optional(),
   pricingTierId: z.string().optional(),
   payStructure: z.enum(['commission', 'hourly', 'salary', 'hourly_plus_commission', 'per_service']),
   serviceHourRate: z.coerce.number().min(0).optional(),   // per service pay: $ for each hour of service performed
@@ -218,11 +222,13 @@ const Step1 = ({ pricingTiers }: { pricingTiers: PricingTier[] }) => {
           </div>
         </div>
 
+        <JobPicker adding roleIds={roleChoices.map((r) => r.id)} />
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
           <div className="space-y-2">
             <Label className="text-[13px] font-medium text-muted-foreground ml-1">Role</Label>
             <Controller name="role" control={control} render={({ field }) => (
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
                   <SelectValue />
                 </SelectTrigger>
@@ -620,7 +626,9 @@ const WizardFormBody = ({
   onClose,
   hoursWeek,
   onHoursChange,
+  skipped,
 }: {
+  skipped: boolean;
   onFinishEarly: (e: React.MouseEvent) => void;
   hoursWeek: WeekHours;
   onHoursChange: (w: WeekHours) => void;
@@ -680,7 +688,7 @@ const WizardFormBody = ({
           >
             Cancel
           </Button>
-          {step === 2 && (
+          {(step === 2 || (step === 3 && skipped)) && (
             <Button
               onClick={onFinishEarly}
               type="button"
@@ -696,7 +704,7 @@ const WizardFormBody = ({
               type="button"
               className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group"
             >
-              {step === 2 ? 'Set pay' : 'Continue'} <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+              {step === 2 || skipped ? 'Set pay' : 'Continue'} <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
             </Button>
           ) : (
             <Button
@@ -766,6 +774,8 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
         assignedFormIds: [],
         showOnPublicPage: true,
         pin: newPin,
+        job: '',
+        station: '',
       });
       setStep(1);
     }
@@ -778,7 +788,8 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
       step === 2 ? (['services'] as const) :
       (['payStructure', 'payoutFrequency', 'commissionRate'] as const);
     const valid = await methods.trigger(fieldsToValidate as any);
-    if (valid) setStep(prev => prev + 1);
+    // A job nobody books (a server, a cook) goes straight from who they are to their pay.
+    if (valid) setStep(prev => (prev === 1 && skipsBooking(methods.getValues('job')) ? 3 : prev + 1));
   };
 
   // Steps 1 and 2 are what make someone BOOKABLE. Step 3 is payroll. Nobody
@@ -794,7 +805,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
 
   const handleBack = (e: React.MouseEvent) => {
     e.preventDefault();
-    setStep(prev => prev - 1);
+    setStep(prev => (prev === 3 && skipsBooking(methods.getValues('job')) ? 1 : prev - 1));
   };
 
   // The bookable week — not a form field (zod would strip it), merged at
@@ -823,6 +834,7 @@ export const AddStaffDialog: React.FC<AddStaffDialogProps> = ({
     onClose: () => onOpenChange(false),
     hoursWeek,
     onHoursChange: setHoursWeek,
+    skipped: skipsBooking(methods.watch('job')),
   };
 
   // ── Inline: rendered in normal page flow (mobile). Desktop: centered dialog. ──

@@ -55,6 +55,7 @@ import { CoveragePlanSheet } from '@/components/staff/CoveragePlanSheet';
 import type { CoverageOutcome } from '@/lib/coverage-plan';
 import { type Staff, type Appointment, type Service, ActivityLog, type PricingTier } from '@/lib/data';
 import { AddStaffDialog, type AddStaffFormData } from '@/components/staff/AddStaffDialog';
+import { skipsBooking } from '@/components/staff/JobPicker';
 import { nanoid } from 'nanoid';
 import { DateRange } from 'react-day-picker';
 import { format, subDays, startOfDay, endOfDay, parseISO, isPast, isSameDay, differenceInDays, differenceInMinutes, startOfMonth, endOfMonth, subMonths } from 'date-fns';
@@ -917,7 +918,7 @@ export default function StaffPage() {
       uiToast({
         title: (data as any).payPending ? 'Added — pay not set yet' : 'Added to the team',
         description: (data as any).payPending
-          ? `${data.name} can take bookings now. Open their card when you're ready to set pay.`
+          ? `${data.name} ${skipsBooking((data as any).job) ? 'is on the team' : 'can take bookings now'}. Open their card when you're ready to set pay.`
           : `${data.name} has been added with PIN access.`,
       });
 

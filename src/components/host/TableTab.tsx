@@ -27,6 +27,7 @@ import { itemSoldOut } from '@/lib/menu-choices';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
 import { kitchenScreenOn } from '@/lib/kitchen';
+import { isFoodBusiness } from '@/lib/food-setup';
 import { makeSecondsOf } from '@/lib/counter-orders';
 import { approveWithPin } from '@/lib/approve-client';
 import { tablePayOf } from '@/lib/table-bill';
@@ -128,8 +129,12 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     // Products as the desk sells them (lib/variants), each with its course, station and make time (lib/table-service).
     const all = inv.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
     const listings = listingsOf(all);
-    const prods = all.filter((x: any) => !x.isBackbar && !x.backbar && x.isArchived !== true && x.status !== 'archived' && !x.hasVariants && !variantIdsOf(x).length && !['equipment', 'overhead'].includes(String(x.type || '')));
-    const svcs = sv.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.isActive !== false && !x.archived);
+    const sellable = all.filter((x: any) => !x.isBackbar && !x.backbar && x.isArchived !== true && x.status !== 'archived' && !x.hasVariants && !variantIdsOf(x).length && !['equipment', 'overhead'].includes(String(x.type || '')));
+    // A food business with a menu sells its menu at the table: not the shop's stock, not its services (lib/menu-server:
+    // an item on the Menu page is a 'refreshment' that's live). Any other business keeps everything it sells.
+    const menu = isFoodBusiness(tenant) ? sellable.filter((x: any) => x.type === 'refreshment' && x.archived !== true && x.isActive !== false) : [];
+    const prods = menu.length ? menu : sellable;
+    const svcs = menu.length ? [] : sv.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.isActive !== false && !x.archived);
     // Without a kitchen screen nobody would see a held course to fire it, so everything goes right away.
     const kitchenOn = kitchenScreenOn(tenant);
     setCatalog([...prods.map((x: any) => { const raw = { ...x, category: x.category || listings.get(String(x.id))?.category || x.department || '' };

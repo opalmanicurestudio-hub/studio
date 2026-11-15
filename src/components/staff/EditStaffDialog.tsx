@@ -70,6 +70,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AppAccess } from '@/components/staff/AppAccess';
 import { useTenant } from '@/context/TenantContext';
 import { rolesFor, assignableRoles } from '@/lib/permissions';
+import { JobPicker } from '@/components/staff/JobPicker';
 import { useInventory } from '@/context/InventoryContext';
 import { businessLocations } from '@/lib/business-locations';
 
@@ -89,6 +90,9 @@ const editStaffSchema = z.object({
   youtubeUrl: z.string().optional(),
   portfolioUrl: z.string().optional(),
   role: z.string().min(1),
+  // Their job and station at a food business (lib/jobs): the screen they open on.
+  job: z.string().optional(),
+  station: z.string().optional(),
   // Tip sharing (Settings → Fees & credit → How tips are shared): their part in tip-outs and weighted pools, and —
   // for owners and admins — whether they also work as a provider and may share in tips.
   tipRole: z.enum(['provider', 'assistant', 'front_desk']).optional(),
@@ -314,6 +318,8 @@ const EditStaffFormInternal = ({
           </div>
 
           <AppAccess member={watch() as any} />
+
+          <JobPicker />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
             <div className="space-y-3">
@@ -848,6 +854,8 @@ export const EditStaffDialog: React.FC<any> = ({
         pricingTierId: staffMember.pricingTierId || '',
         tipRole: (staffMember as any).tipRole || ((staffMember as any).isAssistant ? 'assistant' : 'provider'),
         tipPoolEligible: (staffMember as any).tipPoolEligible === true,
+        job: (staffMember as any).job || '',
+        station: (staffMember as any).station || '',
         payoutFrequency: staffMember.payoutFrequency || 'weekly',
         employmentModel: (staffMember as any).employmentModel || 'unset',
         showProfitability: (staffMember as any).showProfitability === true,

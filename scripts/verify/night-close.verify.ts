@@ -156,7 +156,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
 
   console.log('where it shows');
   const kr = src('src/app/api/kitchen/route.ts');
-  check('the kitchen screen has its own Closing list (the kitchen’s, the bar’s, the dish pit’s and anyone’s), saved the same way, and can’t tick the front’s', /action === 'closing' \|\| action === 'closingCheck'/.test(kr) && /items: closeSettingsOf\(tenant\)\.items\.filter\(\(i\) => i\.area !== 'front'\)/.test(kr) && /staff\?\.name \|\| screen\.name, \['kitchen', 'bar', 'dish', 'anyone'\]\)/.test(kr));
+  check('the kitchen screen has its own Closing list (the kitchen’s, the bar’s, the dish pit’s and anyone’s), saved the same way, and can’t tick the front’s', /action === 'closing' \|\| action === 'closingCheck'/.test(kr) && /items: closeSettingsOf\(tenant\)\.items\.filter\(\(i\) => i\.area !== 'front'\)/.test(kr) && /!teamMember \|\| kitchenSide \? \['kitchen', 'bar', 'dish', 'anyone'\]/.test(kr) && /staff\?\.name \|\| screen\.name, areas\)/.test(kr));
   const fr = await S.recordCheck(db, T, { closingSettings: { items: [{ id: 'menus', label: 'Menus wiped', area: 'front' }] } }, '2099-12-31', 'menus', {}, 'Kitchen screen', ['kitchen', 'bar', 'anyone']);
   check('…refused for a front item', !fr.ok && (fr as any).status === 403);
   check('a tip run is paid in the period it starts in (a night’s run ends after midnight), in payroll, pay stubs, statements and Money',

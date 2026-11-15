@@ -143,7 +143,7 @@ const ago = (min: number) => new Date(NOW - min * 60000).toISOString();
   check('the kitchen screen: a quicker dish says when to start and waits below what to start now', /startPlan\(/.test(kds) && /So it’s ready with the/.test(kds) && /Start \{startWords/.test(kds) && /finishTogether: finishTogetherOn\(tenant\)/.test(kr));
   check('…counter orders carry each dish’s make time', /makeSeconds: Number\(l\.makeSeconds\) \|\| null/.test(cs));
   check('My tables: each nudge’s own step (fire, done, not yet), the tab one tap away, mine or every table', /action: 'fire'/.test(pg) && /action: 'nudge'/.test(pg) && /Not yet/.test(pg) && /<TableTab /.test(pg) && /Every table/.test(pg) && /navigator\.vibrate/.test(pg));
-  check('…in the sidebar and the hospitality pages', /href: '\/tables'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/tables'\]/.test(src('src/lib/modules.ts')) && /'tables'/.test(src('src/lib/app-theme.ts')));
+  check('…in the sidebar and the hospitality pages', /href: '\/tables'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/tables'[,\]]/.test(src('src/lib/modules.ts')) && /'tables'/.test(src('src/lib/app-theme.ts')));
   check('settings: finishing together and each nudge’s timing', /Finish a table’s plates together/.test(set) && /fireAfterMin/.test(set) && /Off<\/option>/.test(set));
   check('the host stand puts the signed-in person’s name on what they ring in', /by=\{String\(user\?\.displayName \|\| 'Host'\)/.test(src('src/app/(app)/host/page.tsx')));
   check('new screens keep to the house style', ![pg].some((x) => /\{\/\*|uppercase|font-black| · /.test(x)) && !/\b(studio|salon|stylist|booth)\b/i.test(pg.replace(/\/\/.*$/gm, '')));

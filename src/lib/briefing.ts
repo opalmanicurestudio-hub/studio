@@ -5,6 +5,7 @@
 // sold out, who's working, and a note from the manager. Staffing is worked out hour by hour from the same guests
 // against the schedule: how many servers, cooks, bartenders and a host the night needs, by the business's own numbers,
 // and where it's short. Always an estimate, and said to be one. Pure.
+import { jobDef } from '@/lib/jobs';
 
 export type StaffingSettings = { perServer: number; perCook: number; perBartender: number; hostAt: number };
 export const DEFAULT_STAFFING: StaffingSettings = { perServer: 16, perCook: 30, perBartender: 40, hostAt: 20 };
@@ -31,6 +32,8 @@ export const COUNTED: CountedJob[] = ['server', 'kitchen', 'bar', 'host'];
 export const JOB_WORD: Record<Job, string> = { server: 'server', kitchen: 'cook', bar: 'bartender', host: 'host', support: 'support', manager: 'manager', other: 'team' };
 export const JOB_COLUMN: Record<'server' | 'kitchen' | 'bar' | 'host', string> = { server: 'Servers', kitchen: 'Kitchen', bar: 'Bar', host: 'Host' };
 export function jobOf(staff: any): Job {
+  // Their job, when the business has set one (lib/jobs); otherwise read from their title.
+  const set = jobDef(staff?.job); if (set) return set.counts;
   const t = `${staff?.jobTitle || ''} ${staff?.title || ''} ${staff?.tipRole || ''}`.toLowerCase();
   if (/\b(server|waiter|waitress|wait ?staff)\b/.test(t)) return 'server';
   if (/\b(host|hostess|ma[iî]tre)/.test(t)) return 'host';

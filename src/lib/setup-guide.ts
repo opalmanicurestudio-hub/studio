@@ -39,7 +39,8 @@ export const FOOD_GUIDE_STEPS: GuideStepDef[] = [
   { id: 'tables', title: 'Your tables', meaning: 'The floor plan the host stand seats from', href: '/settings/hosting', module: 'hospitality' },
   { id: 'kitchen', title: 'Kitchen screens and printers', meaning: 'A screen or a printer at each station, so orders reach them', href: '/settings/printers', module: 'hospitality' },
   { id: 'closing', title: 'Closing the night', meaning: 'Your closing checklist and fridge temperatures', href: '/settings/closing', module: 'hospitality' },
-  stepOf('team'),
+  // A food business's team isn't booked: each person's job decides the screen they open on (lib/jobs).
+  { ...stepOf('team'), meaning: 'Add the people who work with you, each with their job. Their job decides the screen they open on.' },
 ];
 export const ALL_GUIDE_STEP_IDS = new Set([...GUIDE_STEPS, ...FOOD_GUIDE_STEPS].map((s) => s.id));
 

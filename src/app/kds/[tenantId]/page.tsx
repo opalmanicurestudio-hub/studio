@@ -464,7 +464,7 @@ function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, 
 }
 
 // ─── Setting the screen up ───────────────────────────────────────────────────────────────────────────────────────────
-function Setup({ tenantId, stopped, closed, onPaired }: { tenantId: string; stopped: string; closed: string; onPaired: (key: string) => void }) {
+function Setup({ tenantId, stopped, closed, onPaired, onMe }: { tenantId: string; stopped: string; closed: string; onPaired: (key: string) => void; onMe: () => void }) {
   const { user, isUserLoading } = useFirebase() as any;
   const [name, setName] = useState('Kitchen'); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [screens, setScreens] = useState<{ id: string; name: string; lastSeenAt: string | null; createdBy: string | null }[] | null>(null);
@@ -504,6 +504,9 @@ function Setup({ tenantId, stopped, closed, onPaired }: { tenantId: string; stop
             {err && <p className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
             <button type="button" onClick={pair} disabled={busy} className={`${btn} w-full`} style={{ background: INK, color: '#fff' }}>{busy ? 'Setting up…' : 'Set up this screen'}</button>
             <p className="text-[13px]" style={{ color: MUTED }}>Signed in as {user.email || 'you'}. Only an owner or manager can set up a screen.</p>
+            <div className="pt-3" style={{ borderTop: `1px solid ${LINE}` }}>
+              <button type="button" onClick={onMe} className={`${btn} w-full`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Just use it as me, on this device</button>
+            </div>
             {maker && (
               <div className="pt-3 space-y-2" style={{ borderTop: `1px solid ${LINE}` }}>
                 <p className="text-[14px] font-medium">Who makes the lounge’s drinks and extras?</p>
@@ -538,8 +541,12 @@ function Setup({ tenantId, stopped, closed, onPaired }: { tenantId: string; stop
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 export default function KitchenScreen() {
   const { tenantId } = useParams() as { tenantId: string };
-  const { user } = useFirebase() as any;
+  const { user, isUserLoading } = useFirebase() as any;
+  const retried = useRef(false);
   const [key, setKey] = useState<string | null>(null);
+  // On someone's own phone or computer, signed in: the screen works as them, with no key (api/kitchen, the team's way
+  // in). Kept for this visit only. A tablet that's set up keeps using its key.
+  const [me, setMe] = useState(false);
   const [ready, setReady] = useState(false);
   const [data, setData] = useState<Data | null>(null);
   // What's on screen, for a refresh that can't reach the server (it keeps it, or brings back the last one kept here).
@@ -584,6 +591,13 @@ export default function KitchenScreen() {
     if (read('cf.kitchen.autoprint') === 'on') setAutoPrint(true);
     try { const s = JSON.parse(sessionStorage.getItem('cf.kitchen.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     try { const e = new URLSearchParams(window.location.search).get('event'); if (e && /^[A-Za-z0-9_-]{1,160}$/.test(e)) setEventId(e); } catch { /* */ }
+    // Opened from someone's own menu (lib/jobs pageHref): their station, or expo; and, with no key here, as them.
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const st = q.get('station'); if (st && st.length <= 40) setStation(st);
+      if (q.get('view') === 'expo') setView('expo');
+      if (!read(keyName(tenantId)) && (q.get('me') === '1' || sessionStorage.getItem(`cf.kds.me.${tenantId}`))) { setMe(true); setStaff(null); sessionStorage.setItem(`cf.kds.me.${tenantId}`, '1'); sessionStorage.removeItem('cf.kitchen.staff'); }
+    } catch { /* */ }
     setReady(true);
   }, [tenantId]);
   const [skew, setSkew] = useState(0);
@@ -607,7 +621,7 @@ export default function KitchenScreen() {
   }, [unlock]);
 
   const post = useCallback(async (body: any) => {
-    const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...body }) });
+    const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...(key ? { key } : {}), ...body }) });
     const d = await r.json().catch(() => ({}));
     return { status: r.status, d };
   }, [tenantId, key]);
@@ -615,20 +629,22 @@ export default function KitchenScreen() {
   // The dish pit and the barback (api/back), with this screen's key and whoever's working.
   const postBack = useCallback(async (body: any) => {
     try {
-      const r = await fetch('/api/back', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...body }) });
+      const r = await fetch('/api/back', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...(key ? { key } : {}), ...(staff && key ? { staffPass: staff.pass } : {}), ...body }) });
       return { status: r.status, d: await r.json().catch(() => ({})) };
     } catch { return { status: 0, d: {} as any }; }
   }, [tenantId, key, staff]);
   // This screen's calls: read often while one is going, now and then otherwise.
   const callsGoing = myCalls.some((c) => c.status !== 'done');
   useEffect(() => {
-    if (!key) return; let stop = false;
+    if (!key && !me) return; let stop = false;
     const go = async () => { const { d } = await postBack({ action: 'calls' }); if (!stop && d?.ok) setMyCalls(d.mine || []); };
     void go(); const i = setInterval(go, callsGoing || myCalls.length ? 8000 : 30000);
     return () => { stop = true; clearInterval(i); };
-  }, [key, postBack, callsGoing, myCalls.length, callTick]);
+  }, [key, me, postBack, callsGoing, myCalls.length, callTick]);
 
-  const forgetHere = useCallback((why: string) => { write(keyName(tenantId), null); setKey(null); setData(null); seen.current = null; setStopped(why); }, [tenantId]);
+  const forgetHere = useCallback((why: string) => { write(keyName(tenantId), null); setKey(null); setMe(false); retried.current = false; try { sessionStorage.removeItem(`cf.kds.me.${tenantId}`); } catch { /* */ } setData(null); seen.current = null; setStopped(why); }, [tenantId]);
+  // As yourself, it's your name on what's done: a PIN name left in this tab from a shared screen goes.
+  const asMe = () => { try { sessionStorage.setItem(`cf.kds.me.${tenantId}`, '1'); sessionStorage.removeItem('cf.kitchen.staff'); } catch { /* */ } setStaff(null); retried.current = false; setMe(true); setStopped(''); seen.current = null; };
 
   // New tickets for this screen's station, printed on this tablet: one slip a table's course or an order, through the
   // tablet's print dialog (with Chrome set to print without asking, straight to its printer). Each ticket once, even
@@ -645,7 +661,7 @@ export default function KitchenScreen() {
   };
 
   const load = useCallback(async () => {
-    if (!key || inFlight.current) return;
+    if ((!key && !me) || inFlight.current) return;
     inFlight.current = true; const at = acted.current;
     const lastKey = `kds.${tenantId}.${eventId || 'all'}`;
     try {
@@ -654,8 +670,12 @@ export default function KitchenScreen() {
       const { status, d } = await post({ action: 'tickets', ...(eventId ? { eventId } : {}) });
       noteNetwork(true);
       if (at !== acted.current) return;   // a tap happened meanwhile: the next refresh has it
-      if (status === 401) { forgetHere(d.error || 'This screen was stopped. A manager can set it up again.'); return; }
+      // As yourself, the first refusal can be a sign-in still being restored: one more try before asking to sign in.
+      if (status === 401 && !key && !retried.current) { retried.current = true; setTimeout(() => void load(), 1500); return; }
+      if (status === 401) { forgetHere(key ? d.error || 'This screen was stopped. A manager can set it up again.' : 'Please sign in again.'); return; }
+      retried.current = false;
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
+      if (status === 403 && !key) { forgetHere(d.error || 'This is for the business’s own team.'); return; }
       if (!d.ok) return;
       setClosed('');
       const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
@@ -684,23 +704,23 @@ export default function KitchenScreen() {
         if (!seen.current) seen.current = new Set(last.data.tickets.map((t) => `${t.col}/${t.id}`));
         setData({ ...last.data, tickets: withKept(last.data.tickets, keptNow(), tenantId) }); setLastOk(last.at); } }
     } finally { inFlight.current = false; }
-  }, [key, eventId, post, forgetHere, soundOn, autoPrint]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, me, eventId, post, forgetHere, soundOn, autoPrint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!key) return;
+    if (!key && (!me || isUserLoading)) return;
     load();
     const i = setInterval(load, POLL_MS);
     const vis = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', vis);
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
-  }, [key, load]);
+  }, [key, me, isUserLoading, load]);
 
   const setBusy = (ids: string[], on: boolean) => setBusyIds((prev) => { const n = new Set(prev); for (const i of ids) { if (on) n.add(i); else n.delete(i); } return n; });
   const local = (list: KitchenTicket[], status: string, kept = false) => setData((d) => d ? { ...d, tickets: d.tickets.map((t) => list.some((x) => x.id === t.id && x.col === t.col) ? { ...t, status, ...(kept ? { keptHere: true } : {}), ...(status === 'in_progress' && staff ? { claimedBy: { staffId: staff.id, name: staff.name } } : {}) } : t).filter((t) => LIVE_STATUS.includes(t.status)) } : d);
   const after = STEP_AFTER;
   // A tap through the server: kept on the tablet with no connection (lib/outbox) when `keep`, sent when it's back.
   // The cook's pass is held for this session only, never in the tablet's lasting storage.
-  const tap = (body: any, label: string, keep: boolean) => send('/api/kitchen', { tenantId, key, ...body, ...(staff ? { staffPass: staff.pass } : {}) }, { label, auth: 'none', keep, tenantId, hold: ['staffPass'] });
+  const tap = (body: any, label: string, keep: boolean) => send('/api/kitchen', { tenantId, ...(key ? { key } : {}), ...body, ...(staff && key ? { staffPass: staff.pass } : {}) }, { label, auth: key ? 'none' : 'user', keep, tenantId, hold: ['staffPass'] });
   const keptWords = 'Saved on this tablet. It’s sent when the connection’s back.';
 
   const step = async (t: KitchenTicket, s: KitchenStep) => {
@@ -838,7 +858,7 @@ export default function KitchenScreen() {
   }, [data]);
 
   if (!ready) return <main className="min-h-dvh" style={{ background: SOFT }} />;
-  if (!key) return <Setup tenantId={tenantId} stopped={stopped} closed={closed} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setStopped(''); setJustPaired(true); seen.current = null; }} />;
+  if (!key && !me) return <Setup tenantId={tenantId} stopped={stopped} closed={closed} onMe={asMe} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setMe(false); try { sessionStorage.removeItem(`cf.kds.me.${tenantId}`); } catch { /* */ } setStopped(''); setJustPaired(true); seen.current = null; }} />;
 
   const tz = data?.business.timeZone || null;
   const stale = lastOk > 0 && now - lastOk > 15000;
@@ -870,7 +890,8 @@ export default function KitchenScreen() {
                 <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => pickView(v)} className="min-h-[44px] px-3 rounded-lg text-[14px] font-medium" style={view === v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(0,0,0,0.06)' } : { color: MUTED }}>{label}</button>
               ))}
             </div>
-            {staff
+            {!key ? <span className="inline-flex min-h-[44px] items-center rounded-xl px-3 text-[14px] bg-white" style={{ border: `1px solid ${LINE}` }}>As you, on this device</span>
+              : staff
               ? <span className="inline-flex items-center gap-2 rounded-xl pl-3 bg-white" style={{ border: `1px solid ${LINE}` }}><span className="text-[14px]">Working: <b className="font-semibold">{staff.name.split(' ')[0]}</b></span><button type="button" onClick={() => pickStaff(null)} className="min-h-[42px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: MUTED }}>Done</button></span>
               : <button type="button" onClick={() => setPinOpen(true)} className={btn} style={quiet}>Who’s working?</button>}
             {stations.length > 1 && view !== 'expo' && (
@@ -893,7 +914,8 @@ export default function KitchenScreen() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>For a receipt printer set up on this tablet. Each new ticket opens the print dialog; with Chrome set to print without asking, it prints straight away. Tickets that come in while this screen is closed don’t print here. A printer on the network is set up in Settings, under Printers.</p>
                   {(data?.printers || []).filter((p) => p.ok && (!myStation || !p.stations.length || p.stations.includes(myStation))).slice(0, 1).map((p) => (
                     <p key={p.name} className="px-3 pb-1 text-[13px] font-medium" style={{ color: AMBER }}>{p.name} already prints {myStation ? myStation : p.stations.length ? p.stations.slice(0, 3).join(', ') : 'every station’s'} tickets, so with this on those would print twice.</p>))}
-                  <button type="button" onClick={stopScreen} className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-medium" style={{ color: RED }}>Stop this screen</button>
+                  {key ? <button type="button" onClick={stopScreen} className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-medium" style={{ color: RED }}>Stop this screen</button>
+                    : <button type="button" onClick={() => { setMenuOpen(false); forgetHere(''); }} className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-medium" style={{ color: INK }}>Stop using it here</button>}
                 </div>
               )}
             </div>

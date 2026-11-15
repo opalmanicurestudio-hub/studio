@@ -49,6 +49,8 @@ import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
+import { KITCHEN_SIDE, jobDef } from '@/lib/jobs';
+import { jobOf } from '@/lib/briefing';
 import { limitPublic } from '@/lib/rate-limit';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
@@ -255,8 +257,11 @@ export async function POST(req: NextRequest) {
     let screen: any = await screenOf(db, tenantId, b.key);
     // A team member signed in on their own device (the front desk, the dashboard, the host stand) takes the same steps,
     // under their own name. Setting up, stopping and PINs stay with a screen.
-    let teamMember: { id: string; name: string } | null = null;
-    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold'].includes(action)) {
+    // On their own phone, a cook or a bartender works the kitchen screen as themselves too (lib/jobs: their job opens it):
+    // its counts and closing checks, and saying an allergy was seen. Those two stay with the kitchen side (their job, or
+    // with no job set, a title that says cook or bartender) or a manager; the kitchen's and bar's closing checks too.
+    let teamMember: { id: string; name: string } | null = null; let kitchenSide = false; let teamJob = '';
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -264,6 +269,9 @@ export async function POST(req: NextRequest) {
       const me: any = ID.test(String(g.actor?.uid || '')) ? (await db.doc(`tenants/${tenantId}/staff/${g.actor.uid}`).get()).data() : null;
       if (me && (me.isActive === false || me.status === 'archived' || me.archived === true)) return bad('This is for the business’s own team.', 403);
       teamMember = { id: String(g.actor?.uid || ''), name: String(g.actor?.name || 'A team member').slice(0, 60) };
+      teamJob = jobDef(me?.job)?.id || '';
+      kitchenSide = !!g.actor?.isTenantOwner || !!g.actor?.isManager || KITCHEN_SIDE.includes(teamJob as any) || (!teamJob && ['kitchen', 'bar'].includes(jobOf(me)));
+      if ((action === 'allergyNoted' || action === 'count') && !kitchenSide) return bad(action === 'count' ? 'Tonight’s counts are set by the kitchen. Ask a cook or a manager.' : 'Allergy noted is for the kitchen: a cook or expo taps it. Ask them, or a manager.', 403);
       screen = { ref: null, name: teamMember.name, passes: {} };
     }
     if (!screen) {
@@ -371,7 +379,12 @@ export async function POST(req: NextRequest) {
       const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');
       const T = `tenants/${tenantId}`; const day = tonight(tenant);
       if (action === 'closingCheck') {
-        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, ['kitchen', 'bar', 'dish', 'anyone']);
+        // On their own phone, each checks their own part: the kitchen side all of the back's, the dish pit its own, the
+        // barback the bar's, anyone else what's for anyone.
+        const areas: ('kitchen' | 'bar' | 'dish' | 'anyone')[] = !teamMember || kitchenSide ? ['kitchen', 'bar', 'dish', 'anyone'] : teamJob === 'dishwasher' ? ['dish', 'anyone'] : teamJob === 'barback' ? ['bar', 'anyone'] : ['anyone'];
+        const item = closeSettingsOf(tenant).items.find((i) => i.id === String(b.itemId || ''));
+        if (teamMember && item && item.area !== 'front' && !areas.includes(item.area as any)) return bad(`That one is checked by the ${item.area === 'dish' ? 'dish pit' : item.area === 'bar' ? 'bar' : 'kitchen'}.`, 403);
+        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, areas);
         return r.ok ? ok({ mark: r.mark }) : bad(r.error, r.status || 400);
       }
       const cur: any = (await db.doc(`${T}/nightCloses/${day}`).get()).data() || {};

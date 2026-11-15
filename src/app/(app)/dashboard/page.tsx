@@ -7,6 +7,7 @@ import { kitchenStep } from '@/lib/kitchen-client';
 import { loungeMaker } from '@/lib/kitchen';
 import { ReadyToRun, useReadyToRun } from '@/components/kitchen/ReadyToRun';
 import { moduleEnabled } from '@/lib/modules';
+import { useOpenJobHome } from '@/hooks/use-my-job';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { MovingInCard } from '@/components/import/MovingInCard';
@@ -423,6 +424,8 @@ export default function DashboardPage() {
   const { transactions } = useTransactionsInRange(dayStart, dayEnd);
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
+  // Someone with a job at a food business who has just signed in opens on the screen they work from (lib/jobs).
+  useOpenJobHome();
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
