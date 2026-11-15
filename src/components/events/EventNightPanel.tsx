@@ -5,6 +5,7 @@
 // firing a course goes through the manifest's own fire (its check of who's in and what they chose).
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
+import Link from 'next/link';
 import type { Moment, Pacing } from '@/lib/event-night';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', RED = '#b42318';
@@ -77,7 +78,10 @@ export default function EventNightPanel({ tenantId, eventId, firedKey, onFire }:
     <section aria-labelledby="en-title" className="space-y-3" style={{ color: INK }}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 id="en-title" className="text-[18px] font-semibold">Event night</h2>
-        {n.onTheNight && <p className="text-[13px] tabular-nums" style={{ color: MUTED }}>It’s {clock(n.now)}</p>}
+        <div className="flex items-center gap-3">
+          {n.onTheNight && <p className="text-[13px] tabular-nums" style={{ color: MUTED }}>It’s {clock(n.now)}</p>}
+          <Link href={`/events/${eventId}/sheet`} className={`${btn} px-0 underline underline-offset-4`} style={{ color: INK }}>Event sheet</Link>
+        </div>
       </div>
       {err && <p role="alert" className="rounded-xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
       <div className="grid gap-3 lg:grid-cols-3">
