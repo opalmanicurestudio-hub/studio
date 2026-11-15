@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', RED = '#b42318';
 export type Nudges = { fireAfterMin: number; checkBackMin: number; passWaitMin: number; noOrderMin: number; lateMin: number };
 export type TablePay = { on: boolean; ways: ('seat' | 'item' | 'even')[]; tips: number[]; tipBase: 'pre' | 'post'; suggest: number | null };
-export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges; tablePay?: TablePay }
+export type Service = { courses: { n: number; name: string; hold: boolean }[]; stations: string[]; compAllowanceCents: number; compReasons: string[]; askAllergies?: boolean; finishTogether?: boolean; nudges?: Nudges; tablePay?: TablePay; pace?: { on: boolean; busyMin: number } }
 const PAY_DEFAULTS: TablePay = { on: false, ways: ['seat', 'item', 'even'], tips: [18, 20, 22], tipBase: 'pre', suggest: 20 };
 const WAY_ROWS: ['seat' | 'item' | 'even', string][] = [['seat', 'By seat'], ['item', 'By item'], ['even', 'Evenly']];
 const TIP_OPTS = [10, 12, 15, 18, 20, 22, 25, 30];
@@ -35,12 +35,14 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
   const [together, setTogether] = useState(service.finishTogether !== false);
   const [nudges, setNudges] = useState<Nudges>({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) });
   const [pay, setPay] = useState<TablePay>({ ...PAY_DEFAULTS, ...(service.tablePay || {}) });
+  const PACE0 = { on: true, busyMin: 5 };
+  const [pace, setPace] = useState({ ...PACE0, ...(service.pace || {}) });
   const [newStation, setNewStation] = useState(''); const [newReason, setNewReason] = useState('');
   const [busy, setBusy] = useState(false); const [note, setNote] = useState(''); const [err, setErr] = useState('');
-  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); setPay({ ...PAY_DEFAULTS, ...(service.tablePay || {}) }); }, [service]);
-  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges, pay]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }, { ...PAY_DEFAULTS, ...(service.tablePay || {}) }]);
+  useEffect(() => { setStations(service.stations); setCourses(service.courses.map((c) => ({ name: c.name, hold: c.hold }))); setAllow(service.compAllowanceCents); setReasons(service.compReasons); setAsk(service.askAllergies !== false); setTogether(service.finishTogether !== false); setNudges({ ...NUDGE_DEFAULTS, ...(service.nudges || {}) }); setPay({ ...PAY_DEFAULTS, ...(service.tablePay || {}) }); setPace({ ...PACE0, ...(service.pace || {}) }); }, [service]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = JSON.stringify([stations, courses, allow, reasons, ask, together, nudges, pay, pace]) !== JSON.stringify([service.stations, service.courses.map((c) => ({ name: c.name, hold: c.hold })), service.compAllowanceCents, service.compReasons, service.askAllergies !== false, service.finishTogether !== false, { ...NUDGE_DEFAULTS, ...(service.nudges || {}) }, { ...PAY_DEFAULTS, ...(service.tablePay || {}) }, { ...PACE0, ...(service.pace || {}) }]);
   const save = async () => { setBusy(true); setErr(''); setNote('');
-    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges, tablePay: pay });
+    const e = await onSave({ stations, courses: courses.map((c, i) => ({ n: i + 1, name: c.name.trim(), hold: c.hold })), compAllowanceCents: allow, compReasons: reasons, askAllergies: ask, finishTogether: together, nudges, tablePay: pay, pace });
     setBusy(false); if (e) setErr(e); else setNote('Saved. Screens pick it up within a few seconds.'); };
   const chip = 'inline-flex min-h-[40px] items-center gap-1 rounded-full pl-3 pr-1 text-[13.5px] font-medium';
   const x = (label: string, onClick: () => void) => <button type="button" onClick={onClick} aria-label={label} className="h-9 w-9 rounded-full grid place-items-center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2.6" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>;
@@ -109,6 +111,15 @@ export function TableServiceSettings({ service, onSave }: { service: Service; on
           <span className="flex-1"><span className="block text-[14.5px] font-medium">Finish a table’s plates together</span><span className="block text-[13px]" style={{ color: MUTED }}>Each station sees when to start, so the quick dish isn’t sitting while the slow one cooks. Uses each dish’s make time; counter orders too.</span></span>
           <input type="checkbox" checked={together} onChange={(e) => setTogether(e.target.checked)} className="h-6 w-6" style={{ accentColor: INK }} />
         </label>
+        <label className="flex items-center gap-3 min-h-[44px]" style={{ borderTop: `1px solid ${LINE}` }}>
+          <span className="flex-1"><span className="block text-[14.5px] font-medium">Count the kitchen’s pace</span><span className="block text-[13px]" style={{ color: MUTED }}>When the kitchen is running behind, the host stand’s waits and the first pickup time for ordering ahead count it, and the kitchen screen says so.</span></span>
+          <input type="checkbox" checked={pace.on} onChange={(e) => setPace({ ...pace, on: e.target.checked })} className="h-6 w-6" style={{ accentColor: INK }} />
+        </label>
+        {pace.on && <label className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]">
+          <span><span className="block text-[14.5px] font-medium">Busy at</span><span className="block text-[13px]" style={{ color: MUTED }}>How far behind the usual make times before it counts. Twice that is slammed</span></span>
+          <select value={pace.busyMin} onChange={(e) => setPace({ ...pace, busyMin: Number(e.target.value) })} className={`${field} w-36`} style={{ borderColor: LINE }}>
+            {Array.from(new Set([3, 5, 8, 10, 15, pace.busyMin])).sort((a, b) => a - b).map((n) => <option key={n} value={n}>{n} min behind</option>)}
+          </select></label>}
         <p className="text-[13px] pt-1" style={{ color: MUTED }}>A server’s phone (My tables) nudges them about their own tables:</p>
         {NUDGE_ROWS.map(([k, label, hint, opts, word]) => (
           <label key={k} className="flex flex-wrap items-center justify-between gap-3 min-h-[52px]" style={{ borderTop: `1px solid ${LINE}` }}>

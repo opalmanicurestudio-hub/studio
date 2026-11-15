@@ -103,7 +103,7 @@ export default function HostScreen() {
   // WHERE EACH TABLE IS IN ITS MEAL (lib/table-stage, worked out by the server from each tab and the kitchen's
   // tickets), who looks after which tables, and the floor and wait-list settings. Asked every 15 seconds.
   const [floor, setFloor] = useState<{ stages: Record<string, any>; staff: Record<string, string>; floor: FloorSettings; wait: WaitSettings; lateCancels: LateCancel[]; manager: boolean;
-    memory: MemorySettings | null; guests: Record<string, GuestMemory> } | null>(null);
+    memory: MemorySettings | null; guests: Record<string, GuestMemory>; pace: { behindMin: number; level: string } | null } | null>(null);
   // Regulars: "Been here before?" for one party, and the team's note for one guest.
   const [findFor, setFindFor] = useState<any>(null); const [term, setTerm] = useState(''); const [found, setFound] = useState<FoundGuest[] | null>(null);
   const [noteFor, setNoteFor] = useState<{ clientId: string; name: string; partyId: string } | null>(null); const [noteText, setNoteText] = useState('');
@@ -208,7 +208,7 @@ export default function HostScreen() {
       const last = lastOf<any>(`floor.${tenantId}`); setAsOf(last?.at || Date.now()); if (!last) return; good.current = last.at; r = last.data;
     } else if (r?.ok) { good.current = Date.now(); setAsOf(null); keepLast(`floor.${tenantId}`, r); }
     if (r?.ok) setFloor({ stages: r.stages || {}, staff: r.staff || {}, floor: r.floor, wait: r.wait, lateCancels: Array.isArray(r.lateCancels) ? r.lateCancels : [], manager: !!r.manager,
-      memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {} });
+      memory: r.memory || null, guests: r.guests && typeof r.guests === 'object' ? r.guests : {}, pace: r.pace && r.pace.level !== 'calm' ? r.pace : null });
   }, [api, tenantId]);
   const seatedKey = parties.filter((p) => p.status === 'seated').map((p) => p.id).sort().join(',');
   useEffect(() => {
@@ -229,6 +229,8 @@ export default function HostScreen() {
     [parties]);
   const alerts: { text: string; act?: { label: string; run: () => void } }[] = [
     ...floorAlerts(state, [], V ? hs.vocabulary : undefined).map((text) => ({ text })),
+    // The kitchen running behind (lib/kitchen-pace): the likely free times and waits here already count it.
+    ...(floor?.pace ? [{ text: `The kitchen is about ${floor.pace.behindMin} min behind${floor.pace.level === 'slammed' ? ', and slammed: seat slowly if you can' : ''}. The waits you quote already count it.` }] : []),
     // Someone who left the list from their own link, for ten minutes, so the host isn't looking for them.
     ...parties.filter((p: any) => p.status === 'left' && p.leftBy === 'guest' && now.getTime() - Date.parse(p.leftAt || '') < 10 * 60000).map((p) => ({ text: `${p.name}, ${p.size} left the list from their phone.` })),
     // Drinks for someone who left that couldn't be taken off the bar's screen.

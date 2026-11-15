@@ -18,7 +18,7 @@ const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null };
-type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; busy?: { minutes: number } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
 type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
@@ -270,6 +270,7 @@ export default function OrderAhead() {
             <option value="">As soon as it’s ready</option>
             {menu.times.map((t) => <option key={t} value={t}>{clock(t, menu.timeZone)}</option>)}
           </select></label>
+        {menu.busy && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual.</p>}
         {placeErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{placeErr}</p>}
         <button type="button" onClick={place} disabled={placing || !cart.length} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : 'Continue to pay'}</button>
         <p className="text-center text-[13px]" style={{ color: MUTED }}>You pay now, so it’s ready when you get here.</p>

@@ -49,7 +49,7 @@ type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean;
+type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean;
   /** The printers that print tickets, and whether each is answering (lib/printing-server). */
   printers?: { name: string; stations: string[]; ok: boolean; words: string }[] };
 type Staff = { id: string; name: string; pass: string };
@@ -638,7 +638,8 @@ export default function KitchenScreen() {
       if (d.closed) { setClosed(d.error || 'The kitchen screen is closed for now.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [] };
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
+        pace: d.pace && Number(d.pace.behindMin) > 0 ? { behindMin: Math.round(Number(d.pace.behindMin)), level: String(d.pace.level || 'busy') } : null };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
       // A sound for every ticket not seen before (the first one after a quiet spell too), never for what was already up.
@@ -842,6 +843,7 @@ export default function KitchenScreen() {
             <h1 className="text-[20px] font-semibold leading-tight truncate">{data?.business.name || 'Kitchen'}</h1>
             <p className="text-[13.5px]" style={{ color: MUTED }}>{view === 'expo' ? 'Expo, every station' : myStation || data?.screen || 'Kitchen screen'}, {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'} up</p>
           </div>
+          {data?.pace && <p role="status" className="rounded-2xl px-3 py-1.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>About {data.pace.behindMin} min behind. The host stand and pickup times know.</p>}
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-xl p-1" style={{ background: SOFT }} role="tablist" aria-label="How tickets are shown">
               {([['lanes', 'Lanes'], ['order', 'By order'], ['course', 'By course'], ['dish', 'By dish'], ['expo', 'Expo']] as [View, string][]).map(([v, label]) => (

@@ -94,7 +94,7 @@ export function suggestFor(id: string, x: any, perDay: number, onOrder: number, 
   const lead = Math.max(0, Math.min(60, Math.round(num(x?.leadTimeDays)))); const moq = Math.max(0, Math.round(num(x?.moq)));
   const have = onHand + Math.max(0, onOrder);
   const need = par !== null ? par * per - have : perDay * (lead + cover) - have;
-  let suggest = need > per * 0.05 ? Math.ceil(need / per - 1e-9) : 0;
+  let suggest = need > per * 0.05 ? Math.ceil(need / per - 1e-6) : 0;
   if (suggest > 0 && moq > suggest) suggest = moq;
   const daysLeft = perDay > 0 ? Math.floor(have / perDay) : null;
   const dose = x?.costingMethod === 'uses' || x?.costingMethod === 'size';

@@ -93,7 +93,9 @@ export async function POST(req: NextRequest) {
         const linkedIds = new Set([...live.map((p: any) => p.clientId), ...read.lobby.map((m: any) => m.clientId)].filter(Boolean).map(String));
         for (const [id, m] of Object.entries(guests)) if (!linkedIds.has(id)) guests[id] = { ...m, usual: [], table: null, allergy: null, note: null, lastAt: null };
       }
-      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager, memory, guests });
+      return ok({ session: read.session?.id || null, stages: stagesByUnit(read), staff: read.staff, floor: floorSettingsOf(tenant), wait: waitSettingsOf(tenant), at: read.at, lateCancels, manager, memory, guests,
+        // How far behind the kitchen is (lib/kitchen-pace): already counted in the likely free times above.
+        pace: read.pace && read.pace.level !== 'calm' ? read.pace : null });
     }
 
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {

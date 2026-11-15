@@ -160,7 +160,8 @@ export async function POST(req: NextRequest) {
     // PLAN
     const tenant: any = (await db.doc(T).get()).data() || {};
     const cover = coverDaysOf(tenant);
-    const since = new Date(Date.now() - LOOKBACK_DAYS * 86400000).toISOString();
+    // From the same moment as now: two weeks is exactly fourteen days (never a hair less, which rounds an order up a case).
+    const since = new Date(Date.parse(now) - LOOKBACK_DAYS * 86400000).toISOString();
     const LIMIT = 20000;
     const [inv, open, moves] = await Promise.all([
       db.collection(`${T}/inventory`).limit(3000).get(),

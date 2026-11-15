@@ -89,7 +89,8 @@ let BSmod: any = null; const BSx = () => BSmod;
   check('off: the page says so, and nothing can be booked', r.body.ok && r.body.on === false && (await P({ action: 'book', day: '2026-12-01', time: '19:00', size: 2, name: 'A', phone: '5550001111' })).status === 409);
   await db.doc(T).set({ hostingSettings: { holdGraceMinutes: 15, booking: { on: true, first: '18:00', last: '21:00', every: 30, maxSize: 8, card: true, cardFrom: 6, feePerGuest: 20, cancelHours: 24 } } }, { merge: true });
   r = await P({ action: 'info' });
-  const day = r.body.days[1];
+  // Two days out: a 9 pm booking tomorrow is already inside its free-cancel window after 9 pm tonight.
+  const day = r.body.days[2];
   check('on: the days ahead, the largest party, what a guest can tell us, the card rule, the event request for bigger groups', r.body.on && r.body.days.length >= 28 && r.body.maxSize === 8 && r.body.asks.includes('High chair') && r.body.card.from === 6 && r.body.card.feePerGuest === 20 && r.body.groups === '/inquiry/t1' && r.body.holdMin === 15, r.body);
   r = await P({ action: 'slots', day, size: 2 });
   check('the times that day, all open (seats from the floor plan: 10)', r.body.slots.length === 7 && r.body.slots.every((x: any) => x.ok), r.body);
@@ -147,7 +148,7 @@ let BSmod: any = null; const BSx = () => BSmod;
   check('their booking: when, for how many, what they told us, held 15 minutes; nobody else’s', r.body.ok && r.body.booking.state === 'booked' && r.body.booking.size === 4 && r.body.booking.asks.join() === 'Birthday' && r.body.booking.holdMin === 15 && !JSON.stringify(r.body).includes('ward@'), r.body);
   check('a link that isn’t theirs opens nothing', (await P({ action: 'view', id: lee.id, k: 'x'.repeat(22) })).status === 404 && (await P({ action: 'view', id: 'tb0000000000000000', k: leeTok })).status === 404);
   r = await P({ action: 'view', id: rey.id, k: rey.token });
-  check('a big table’s: the card holding it and until when cancelling is free', r.body.booking.card.last4 === '4242' && r.body.booking.fee === 120 && !!r.body.booking.freeWords && r.body.booking.lateFee === false);
+  check('a big table’s: the card holding it and until when cancelling is free', r.body.booking.card.last4 === '4242' && r.body.booking.fee === 120 && !!r.body.booking.freeWords && r.body.booking.lateFee === false, r.body.booking);
   r = await P({ action: 'late', id: lee.id, k: leeTok, minutes: 15 });
   check('running late: the booking knows', r.body.ok && (await get(`${T}/tableBookings/${lee.id}`)).lateBy === 15);
 

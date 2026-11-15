@@ -55,6 +55,7 @@ import { moveStock } from '@/lib/usage';
 import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
 import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
+import { paceNow } from '@/lib/kitchen-pace-server';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, needsAllergyNote, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { liveCounts, setTonightCount } from '@/lib/dish-counts-server';
 import { allergySig, tableAllergies, ticketAllergyPatch } from '@/lib/allergens';
@@ -333,7 +334,10 @@ export async function POST(req: NextRequest) {
       // The printers that print tickets, and whether each is answering (lib/printing-server): the screen says when one isn't.
       const PS = await import('@/lib/printing-server');
       const printers = PS.printerSummary(await PS.printersCached(db, T).catch(() => []), Date.now(), tz).filter((p) => p.tickets).map((p) => ({ name: p.name, stations: p.stations, ok: p.ok, words: p.words }));
-      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, printers, now: new Date().toISOString() });
+      // How far behind the kitchen is (lib/kitchen-pace): the host stand and ordering ahead are counting it.
+      const pace = await paceNow(db, T, tenant);
+      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, printers,
+        pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level }, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {

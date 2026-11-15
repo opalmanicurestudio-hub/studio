@@ -211,6 +211,8 @@ async function seed() {
   check('an order received on Inventory’s own receive screen keeps what came of each line, so Ordering knows what’s still to come', /receivedQuantity: \(Number\(it\.receivedQuantity\) \|\| 0\) \+ \(came\.get\(it\.productId\) \|\| 0\)/.test(inv));
   check('in the menu after Manifest, from Purchase orders, and in Settings search', /href: '\/inventory\/ordering', icon: ShoppingCart/.test(src('src/components/shared/AppSidebar.tsx')) && /href="\/inventory\/ordering">What to order/.test(inv) && /id: 'ordering', title: 'Ordering'/.test(src('src/lib/settings-registry.ts')));
 
+  check('two weeks is measured from the same moment as now (never a hair under fourteen days, which rounded an order up a case)', /const since = new Date\(Date\.parse\(now\) - LOOKBACK_DAYS \* 86400000\)/.test(src('src/app/api/ordering/route.ts'))
+    && O.suggestFor('x', { totalStock: 1, leadTimeDays: 1 }, 7 / (14 - 1e-7), 0, 7).suggest === 3 && O.suggestFor('x', { totalStock: 1, leadTimeDays: 1 }, 0.5, 0, 7).suggest === 3);
   console.log(failures ? `\n${failures} FAILED` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

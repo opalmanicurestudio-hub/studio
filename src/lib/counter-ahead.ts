@@ -18,6 +18,8 @@ import { sendOrder, payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { loyaltyOf } from '@/lib/loyalty';
+import { pickupDelayMin } from '@/lib/kitchen-pace';
+import { paceNow } from '@/lib/kitchen-pace-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -50,10 +52,12 @@ export function aheadSigOk(tenantId: string, orderId: string, sig: unknown): boo
 
 /** The pickup times offered: as soon as it's ready (null), then every 15 minutes from 20 minutes out, for `laterHours`,
  *  today only (in the business's own time zone: an order and its code belong to one day). */
-export function pickupTimes(tenant: any, now = Date.now()): string[] {
+/** The times a guest can pick, every quarter hour from twenty minutes on (later by `delayMin` when the kitchen is
+ *  behind, lib/kitchen-pace), until the business's limit, today only. */
+export function pickupTimes(tenant: any, now = Date.now(), delayMin = 0): string[] {
   const { laterHours } = aheadOf(tenant); if (!laterHours) return [];
   const step = SLOT_MIN * 60000; const tz = tenantTimeZone(tenant); const today = todayIn(tz, new Date(now));
-  const first = Math.ceil((now + FIRST_SLOT_MIN * 60000) / step) * step;
+  const first = Math.ceil((now + (FIRST_SLOT_MIN + Math.max(0, Math.round(delayMin))) * 60000) / step) * step;
   const out: string[] = [];
   for (let t = first; t <= now + laterHours * 3600000; t += step) { if (todayIn(tz, new Date(t)) !== today) break; out.push(new Date(t).toISOString()); }
   return out;
@@ -85,7 +89,10 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   const payments = !!accountOf(tenant) && !!process.env.STRIPE_SECRET_KEY && !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && !!secret();
   // The rewards program, when it's on: the page asks for a phone number (and, for a program you join, whether they want to).
   const L = loyaltyOf(tenant);
-  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant), sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
+  // The kitchen running behind (lib/kitchen-pace): the first time offered is that much later, and the page says so.
+  const pace = await paceNow(db, `tenants/${tenantId}`, tenant);
+  const busy = pace.level === 'calm' ? null : { minutes: pace.behindMin };
+  return { ok: true as const, on: payments, business, ways: A.ways, times: pickupTimes(tenant, Date.now(), pickupDelayMin(pace)), busy, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
     points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
 }
 

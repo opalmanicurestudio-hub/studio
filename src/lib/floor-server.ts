@@ -11,6 +11,8 @@
 import { coursesOf, courseOfItem, isDrinkItem, PREORDER_NOTE, stationOfItem, stationsOf, tableLabel, visitIdForParty } from '@/lib/table-service';
 import { itemAllergens, tableAllergies, ticketAllergyFields } from '@/lib/allergens';
 import { allNudges, nudgeSettingsOf, type NudgeTable } from '@/lib/nudges';
+import { pacedFreeIn, type Pace } from '@/lib/kitchen-pace';
+import { paceNow } from '@/lib/kitchen-pace-server';
 import { floorSettingsOf, tableStage, type Stage } from '@/lib/table-stage';
 import { floorTables, type SeatTable } from '@/lib/seat-next';
 import { isWaitDrink, linePlace, waitSettingsOf, type LinePlace } from '@/lib/wait-line';
@@ -28,7 +30,9 @@ export class FloorStop extends Error { constructor(public msg: string, public st
 export type SeatedTable = { partyId: string; unitIds: string[]; nt: NudgeTable; row: any; stage: Stage };
 export type FloorRead = { at: number; session: any | null; parties: any[]; seated: SeatedTable[]; staff: Record<string, string>;
   /** Tonight's lobby list (the walk-in queue), waiting as the host stand shows it: they're in line too. */
-  lobby: any[] };
+  lobby: any[];
+  /** How far behind the kitchen is (lib/kitchen-pace): counted in the likely free time of tables still waiting on food. */
+  pace?: Pace };
 
 /** Several documents in one step of a transaction (one round trip where the database allows it). */
 async function readAll(tx: any, refs: any[]): Promise<any[]> {
@@ -109,7 +113,8 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
       party: { id: p.id, name: String(p.name || 'Table').slice(0, 80), size: Number(p.size) || 1, guestIds: Array.isArray(p.guestIds) ? p.guestIds : [], clientId: p.clientId || v.clientId || null, unitIds, seatedAt: p.seatedAt || null } };
     return { partyId: p.id, unitIds, nt, row, stage };
   });
-  return { at: now, session, parties, seated, staff, lobby };
+  const pace = await paceNow(db, T, tenant);
+  return { at: now, session, parties, seated, staff, lobby, pace };
 }
 
 /** Tonight's seated tables with what each needs next (lib/nudges): only the person's own section when `mine` and they
@@ -128,7 +133,8 @@ export async function tablesNow(db: any, T: string, tenant: any, meId: string, m
 /** Each seated table's stage by table, for the host stand. */
 export function stagesByUnit(read: FloorRead): Record<string, Stage & { partyId: string }> {
   const out: Record<string, Stage & { partyId: string }> = {};
-  for (const t of read.seated) for (const u of t.unitIds) out[u] = { ...t.stage, partyId: t.partyId };
+  // A kitchen running behind keeps a table waiting on its food that much longer (lib/kitchen-pace).
+  for (const t of read.seated) for (const u of t.unitIds) out[u] = { ...t.stage, freeIn: read.pace ? pacedFreeIn(t.stage.key, t.stage.freeIn, read.pace) : t.stage.freeIn, partyId: t.partyId };
   return out;
 }
 
