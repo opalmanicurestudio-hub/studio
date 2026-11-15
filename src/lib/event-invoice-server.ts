@@ -5,6 +5,7 @@
 // 'event_invoice'); a card payment is recorded once, however often it's noticed (the client's return, Stripe's notice);
 // a manager can also mark it paid another way. The amount charged is always the balance worked out here.
 import { createHash, randomBytes } from 'crypto';
+import { tellManagers } from '@/lib/tell-managers';
 import { cleanInvoice, hasPayment, invoiceLines, paymentsOf, suggestEachCents, type InvoiceIn, type Payment } from '@/lib/event-invoice';
 import { money } from '@/lib/event-sheet';
 import { spacePayAccount } from '@/lib/space-stripe';
@@ -175,12 +176,11 @@ export async function finishInvoice(db: any, stripe: any, tenantId: string, sess
   });
   if (!fresh) return { ok: false, error: 'not_found' };
   if (fresh.added) {
-    // The owner hears about it once (this step only adds the payment once).
-    const n = db.collection(`${T}/notifications`).doc();
+    // The owner and managers hear about it once (this step only adds the payment once); a payment over what was owed
+    // buzzes their phones (lib/push-tier).
     const who = clip(fresh.ev.clientName, 60) || 'The client'; const what = clip(fresh.ev.title || fresh.ev.name, 100) || 'the event';
-    await n.set({ id: n.id, type: 'event_invoice_paid', priority: fresh.over ? 'high' : 'normal',
-      message: fresh.over ? `${who} paid ${money(cents)} on the final invoice for ${what}, ${money(fresh.over)} more than was owed. Refund ${money(fresh.over)} to their card in Stripe.` : `${who} paid ${money(cents)} on the final invoice for ${what}.`,
-      link: `/events/${eventId}/sheet`, eventId, read: false, createdAt: new Date().toISOString() }).catch(() => undefined);
+    await tellManagers(db, tenantId, tenant, { type: fresh.over ? 'event_invoice_overpaid' : 'event_invoice_paid', priority: fresh.over ? 'high' : 'normal', link: `/events/${eventId}/sheet`, extra: { eventId },
+      message: fresh.over ? `${who} paid ${money(cents)} on the final invoice for ${what}, ${money(fresh.over)} more than was owed. Refund ${money(fresh.over)} to their card in Stripe.` : `${who} paid ${money(cents)} on the final invoice for ${what}.` });
   }
   return { ok: true, paid: true };
 }
@@ -202,8 +202,8 @@ export async function syncInvoiceRefund(db: any, tenantId: string, eventId: stri
     return { ev, back, owed: view.balanceCents };
   });
   if (!changed) return false;
-  const n = db.collection(`${T}/notifications`).doc();
-  await n.set({ id: n.id, type: 'event_invoice_refunded', message: `${money(changed.back)} of the final invoice payment for ${clip(changed.ev.title || changed.ev.name, 100) || 'the event'} was refunded in Stripe.${changed.owed > 0 ? ` It shows ${money(changed.owed)} owing again.` : ''}`,
-    link: `/events/${eventId}/sheet`, eventId, read: false, createdAt: new Date().toISOString() }).catch(() => undefined);
+  const tenant: any = (await db.doc(T).get()).data() || {};
+  await tellManagers(db, tenantId, tenant, { type: 'event_invoice_refunded', link: `/events/${eventId}/sheet`, extra: { eventId },
+    message: `${money(changed.back)} of the final invoice payment for ${clip(changed.ev.title || changed.ev.name, 100) || 'the event'} was refunded in Stripe.${changed.owed > 0 ? ` It shows ${money(changed.owed)} owing again.` : ''}` });
   return true;
 }

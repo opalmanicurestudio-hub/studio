@@ -32,6 +32,8 @@ import { timeLeft } from '@/lib/counter-orders';
 import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { ExpoView } from '@/components/kitchen/ExpoView';
 import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
+import { CallSheet, CallStrip } from '@/components/kitchen/CallSheet';
+import type { Call } from '@/lib/back-calls';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { renderHtml, ticketDoc } from '@/lib/printing';
 import { flush, keptNow, noteNetwork, send, type Kept } from '@/lib/outbox';
@@ -564,6 +566,8 @@ export default function KitchenScreen() {
   const [soldOpen, setSoldOpen] = useState(false);
   const [closingOpen, setClosingOpen] = useState(false);
   const [countsOpen, setCountsOpen] = useState(false);
+  // Calls to the dish pit and the barback from this screen (components/kitchen/CallSheet, api/back), and who's coming.
+  const [callOpen, setCallOpen] = useState(false); const [myCalls, setMyCalls] = useState<Call[]>([]); const [callTick, setCallTick] = useState(0);
   const [justPaired, setJustPaired] = useState(false);
   const [holdBusy, setHoldBusy] = useState<string | null>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -607,6 +611,22 @@ export default function KitchenScreen() {
     const d = await r.json().catch(() => ({}));
     return { status: r.status, d };
   }, [tenantId, key]);
+
+  // The dish pit and the barback (api/back), with this screen's key and whoever's working.
+  const postBack = useCallback(async (body: any) => {
+    try {
+      const r = await fetch('/api/back', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...body }) });
+      return { status: r.status, d: await r.json().catch(() => ({})) };
+    } catch { return { status: 0, d: {} as any }; }
+  }, [tenantId, key, staff]);
+  // This screen's calls: read often while one is going, now and then otherwise.
+  const callsGoing = myCalls.some((c) => c.status !== 'done');
+  useEffect(() => {
+    if (!key) return; let stop = false;
+    const go = async () => { const { d } = await postBack({ action: 'calls' }); if (!stop && d?.ok) setMyCalls(d.mine || []); };
+    void go(); const i = setInterval(go, callsGoing || myCalls.length ? 8000 : 30000);
+    return () => { stop = true; clearInterval(i); };
+  }, [key, postBack, callsGoing, myCalls.length, callTick]);
 
   const forgetHere = useCallback((why: string) => { write(keyName(tenantId), null); setKey(null); setData(null); seen.current = null; setStopped(why); }, [tenantId]);
 
@@ -861,6 +881,7 @@ export default function KitchenScreen() {
             )}
             <button type="button" onClick={() => setSoldOpen(true)} className={btn} style={quiet}>Sold out</button>
             <button type="button" onClick={() => setCountsOpen(true)} className={btn} style={quiet}>Counts</button>
+            <button type="button" onClick={() => setCallOpen(true)} className={btn} style={quiet}>Call</button>
             <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>Closing</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? 'Sound on' : 'Sound off'}</button>
             <div className="relative">
@@ -894,6 +915,7 @@ export default function KitchenScreen() {
       <div className="px-4 sm:px-6 pt-3 space-y-2">
         {closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{closed}</div>}
         {!closed && <ConnectionBar tenantId={tenantId} down={stale} asOf={lastOk || null} kitchen />}
+        <CallStrip calls={myCalls} post={postBack} now={Date.now()} onChanged={() => setCallTick((n) => n + 1)} />
         {!stale && (data?.printers || []).filter((p) => !p.ok && (!myStation || !p.stations.length || p.stations.includes(myStation))).map((p) => (
           <div key={p.name} role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}><b className="font-semibold">{p.name} isn’t printing.</b> {p.words}. New tickets are on this screen. Check its paper and that it’s on the Wi-Fi.</div>))}
         {justPaired && (
@@ -944,6 +966,7 @@ export default function KitchenScreen() {
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line="Your PIN puts your name on the tickets you move. The screen works without it." />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {countsOpen && <CountsSheet rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
+      {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
       {closingOpen && <ClosingSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setClosingOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label="Cancel this ticket">

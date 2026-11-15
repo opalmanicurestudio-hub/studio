@@ -2,7 +2,8 @@
 // are /close and the kitchen screen's Closing sheet, settings at /settings/closing).
 // - A closing checklist the business sets: things to tick ("Floors and mats") and temperatures to log ("Walk-in fridge",
 //   at most 41°F). A temperature outside its limit needs a few words on what was done about it, and is flagged on the
-//   report. Each item belongs to an area (kitchen, bar, front, anyone), so the kitchen screen shows the kitchen's.
+//   report. Each item belongs to an area (kitchen, bar, dish, front, anyone), so the kitchen screen shows the kitchen's
+//   and the dish pit's screen the dish pit's (api/back).
 // - The drawer is counted in the till (the front desk's Close the till); the checklist only shows whether it's done.
 // - A manager closes the night once the checklist is done (unless the business lets it close without) and no drawer is
 //   left open. Closing keeps the night's report, approves the night's tip shares when tips are shared by the day (never
@@ -13,13 +14,13 @@
 // Food-safety numbers here are the usual US ones (cold food at 41°F or below, frozen at 0°F or below, hot at 135°F or
 // above); a business sets its own limits per item.
 
-export type CloseArea = 'kitchen' | 'bar' | 'front' | 'anyone';
+export type CloseArea = 'kitchen' | 'bar' | 'dish' | 'front' | 'anyone';
 export type CloseItem = { id: string; label: string; kind: 'check' | 'temp'; area: CloseArea; maxF?: number | null; minF?: number | null };
 export type CloseSettings = { items: CloseItem[]; requireChecklist: boolean; reportTo: string[]; approveTips: boolean };
 export type CheckMark = { done: boolean; value?: number | null; note?: string | null; by: string; at: string; out?: boolean };
 
 export const AREAS: { id: CloseArea; label: string }[] = [
-  { id: 'kitchen', label: 'Kitchen' }, { id: 'bar', label: 'Bar' }, { id: 'front', label: 'Front' }, { id: 'anyone', label: 'Anyone' },
+  { id: 'kitchen', label: 'Kitchen' }, { id: 'bar', label: 'Bar' }, { id: 'dish', label: 'Dish' }, { id: 'front', label: 'Front' }, { id: 'anyone', label: 'Anyone' },
 ];
 export const MAX_ITEMS = 30;
 export const DEFAULT_ITEMS: CloseItem[] = [

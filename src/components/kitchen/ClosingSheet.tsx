@@ -2,6 +2,7 @@
 // src/components/kitchen/ClosingSheet.tsx — CLOSING on the kitchen screen: tonight's checklist items for the kitchen and
 // the bar (lib/night-close), ticked or read right here, so whoever's on the line logs the walk-in and freezer without
 // signing in anywhere else. A reading outside its limit asks what was done. Saved through api/kitchen 'closingCheck'.
+// The dish screen opens it too, for the dish pit's items (`who`, through api/back).
 import { useEffect, useState } from 'react';
 import { limitWords, tempOk, type CheckMark, type CloseItem } from '@/lib/night-close';
 
@@ -9,7 +10,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', GREEN = '#1f7a4d', G
 type Post = (body: any) => Promise<{ status: number; d: any }>;
 const at = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-export function ClosingSheet({ post, onClose }: { post: Post; onClose: () => void }) {
+export function ClosingSheet({ post, onClose, who = 'the kitchen and bar' }: { post: Post; onClose: () => void; who?: string }) {
   const [items, setItems] = useState<CloseItem[] | null>(null); const [checks, setChecks] = useState<Record<string, CheckMark>>({});
   const [closed, setClosed] = useState(false); const [err, setErr] = useState('');
   const load = async () => { const { d } = await post({ action: 'closing' }); if (d?.ok) { setItems(d.items); setChecks(d.checks || {}); setClosed(!!d.closed); } else setErr(d?.error || 'The checklist didn’t load.'); };
@@ -21,12 +22,12 @@ export function ClosingSheet({ post, onClose }: { post: Post; onClose: () => voi
       <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#fff] p-5 space-y-3" style={{ color: INK }}>
         <div className="flex items-start gap-3">
           <div className="flex-1"><h2 id="closing-title" className="text-[20px] font-semibold">Closing</h2>
-            <p className="text-[14px]" style={{ color: MUTED }}>{closed ? 'The night is closed.' : items ? (left ? `${left} left for the kitchen and bar` : 'All done here.') : 'Loading…'}</p></div>
+            <p className="text-[14px]" style={{ color: MUTED }}>{closed ? 'The night is closed.' : items ? (left ? `${left} left for ${who}` : 'All done here.') : 'Loading…'}</p></div>
           <button type="button" onClick={onClose} aria-label="Close" className="h-11 w-11 rounded-xl grid place-items-center" style={{ border: `1px solid ${LINE}` }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={INK} strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
         </div>
         {err && <p className="text-[14px] font-semibold" style={{ color: RED }} role="alert">{err}</p>}
         {(items || []).map((i) => <Line key={i.id} item={i} m={checks[i.id]} locked={closed} onSave={save} />)}
-        {items && !items.length && <p className="text-[14px]" style={{ color: MUTED }}>Nothing on the checklist for the kitchen or bar.</p>}
+        {items && !items.length && <p className="text-[14px]" style={{ color: MUTED }}>Nothing on the checklist for {who.replace(' and ', ' or ')}.</p>}
       </div>
     </div>
   );
@@ -42,7 +43,7 @@ function Line({ item, m, locked, onSave }: { item: CloseItem; m?: CheckMark; loc
         <span className="h-7 w-7 shrink-0 rounded-full grid place-items-center" style={m?.done ? { background: m.out ? AMBER_TINT : GREEN_TINT } : { border: '1.5px solid #c9cacd' }} aria-hidden>
           {m?.done && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={m.out ? AMBER : GREEN} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5 9-10" /></svg>}</span>
         <div className="flex-1 min-w-0"><p className="text-[16px] font-medium">{item.label}</p>
-          <p className="text-[13px]" style={{ color: m?.out ? AMBER : MUTED }}>{m?.done ? `${m.by}, ${at(m.at)}${m.out && m.note ? `. ${m.note}` : ''}` : item.kind === 'temp' ? limitWords(item) : item.area === 'bar' ? 'Bar' : item.area === 'kitchen' ? 'Kitchen' : 'Anyone'}</p></div>
+          <p className="text-[13px]" style={{ color: m?.out ? AMBER : MUTED }}>{m?.done ? `${m.by}, ${at(m.at)}${m.out && m.note ? `. ${m.note}` : ''}` : item.kind === 'temp' ? limitWords(item) : item.area === 'bar' ? 'Bar' : item.area === 'dish' ? 'Dish' : item.area === 'kitchen' ? 'Kitchen' : 'Anyone'}</p></div>
         {m?.done && item.kind === 'temp' && <span className="text-[16px] font-semibold tabular-nums" style={{ color: m.out ? AMBER : INK }}>{m.value}°F</span>}
         {!m?.done && !locked && item.kind === 'check' && <button type="button" disabled={busy} onClick={() => go({ done: true })} className="min-h-[48px] rounded-xl px-5 text-[15px] font-semibold text-[#fff]" style={{ background: INK }}>Done</button>}
       </div>

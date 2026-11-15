@@ -873,7 +873,9 @@ service cloud.firestore {
     // (proLicenses, lib/pro-license: a copy of someone's license, read and decided only through the server); and
     // pop-up tables (popups, lib/popup: what each sold is counted by the server as it sells); and the pre-shift
     // briefing (briefings, lib/briefing-server: the manager's note and who has read it, read and written only through
-    // the server).
+    // the server); and the dish pit and the barback (backCalls, machineChecks, breakage, barAlerts, barChanges, barLast,
+    // api/back: calls between stations, the dish machine's readings kept for an inspector, breakage, and kegs and bottles
+    // changed, read and written only through the server).
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -890,6 +892,7 @@ service cloud.firestore {
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',
           'proLicenses', 'popups', 'briefings',
+          'backCalls', 'machineChecks', 'breakage', 'barAlerts', 'barChanges', 'barLast',
           'activityLogs', 'shifts', 'shiftRequests', 'staffThreads',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',
           'assetUnits',

@@ -10,6 +10,8 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   provider_delay_reply: 'now', disruption_reply: 'now', cover_request: 'now', provider_ask: 'now', provider_offer_reply: 'now', change_request: 'now',
   // Station Assist & lounge
   assist: 'now', assist_escalation: 'now', floor_assist: 'now',
+  // The dish pit and the barback (lib/back-calls-server, lib/dish-server)
+  back_call_waiting: 'now', dish_machine_out: 'now', bar_running_out: 'today',
   // Housekeeping — stations, kits, cleansing, sterilising, laundry, delays
   turnover_due: 'now', turnover_escalation: 'now', kit_timer: 'now', kit_cleansed: 'now', contact_reached: 'now', cycle_done: 'now', linen_timer: 'now', kit_none_usable: 'now', kit_short: 'now', visit_delay: 'now', delay_affects_you: 'now',
   // Clients reaching out
@@ -23,6 +25,7 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   // Online orders (lib/order-alerts)
   orders_cutoff: 'now', orders_missed: 'now', orders_big_day: 'today', orders_fast: 'today',
   // Other tools
+  event_invoice_overpaid: 'today', event_invoice_refunded: 'today',
   school_tour: 'today', quote_accepted: 'today', quote_declined: 'today', quote_revision: 'today', maintenance: 'today', maintenance_collision: 'today',
   membership_payment_failed: 'today', payroll_draft: 'today', waitlist_join: 'today', appointment: 'today', user: 'today',
 };

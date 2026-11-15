@@ -100,7 +100,7 @@ let mailDown = 0;
   const again = await EIS.finishInvoice(db, fakeStripe, 't1', sid, sessions.get(sid));
   check('the same payment noticed again (Stripe’s notice) counts once', again.ok && (await get(`${T}/studioEvents/e1`)).finalInvoice.payments.length === 1);
   const nots = await list(`${T}/notifications`, 'type', 'event_invoice_paid');
-  check('the owner hears once', nots.length === 1 && /paid \$4,382\.50 on the final invoice/.test(nots[0].message), nots);
+  check('the owner hears once, addressed to them (the app lists a person’s own notices)', nots.length === 1 && nots[0].userId === 'owner1' && /paid \$4,382\.50 on the final invoice/.test(nots[0].message), nots);
   check('…and a paid invoice can’t change or be sent again', (await mgr({ action: 'save', invoice: { came: 50, eachCents: 1, barCents: 0, extras: [] } })).status === 409 && (await mgr({ action: 'send' })).status === 409 && (await pub({ action: 'pay' })).status === 409);
   check('the checkout key carries the details Stripe checks (a corrected email or title opens a new checkout)', /^event-invoice-e1-438250-0-[a-f0-9]{12}$/.test(c1.opts.idempotencyKey), c1.opts.idempotencyKey);
 
@@ -120,7 +120,7 @@ let mailDown = 0;
   // Settled another way while the client was on the checkout, then their card payment lands.
   check('marked paid in cash meanwhile', (await mgr({ action: 'mark_paid', how: 'cash' })).ok);
   await EIS.finishInvoice(db, fakeStripe, 't1', sid2, sessions.get(sid2));
-  const ev4 = await get(`${T}/studioEvents/e1`); const highs = (await list(`${T}/notifications`, 'type', 'event_invoice_paid')).filter((x: any) => x.priority === 'high');
+  const ev4 = await get(`${T}/studioEvents/e1`); const highs = (await list(`${T}/notifications`, 'type', 'event_invoice_overpaid')).filter((x: any) => x.priority === 'high' && x.userId === 'owner1');
   check('a payment more than was owed: kept, flagged, and the owner told to refund the difference', ev4.finalInvoice.status === 'paid' && ev4.finalInvoice.payments.length === 3 && highs.length === 1 && /\$4,382\.50 more than was owed\. Refund \$4,382\.50/.test(highs[0].message), { inv: ev4.finalInvoice, highs });
   check('…the manager sees it too', (await mgr({ action: 'view' })).invoice.overpaidCents === 438250);
   await EIS.syncInvoiceRefund(db, 't1', 'e1', sessions.get(sid2).payment_intent, 438250);

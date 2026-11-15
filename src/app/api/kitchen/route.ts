@@ -371,7 +371,7 @@ export async function POST(req: NextRequest) {
       const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');
       const T = `tenants/${tenantId}`; const day = tonight(tenant);
       if (action === 'closingCheck') {
-        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, ['kitchen', 'bar', 'anyone']);
+        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, ['kitchen', 'bar', 'dish', 'anyone']);
         return r.ok ? ok({ mark: r.mark }) : bad(r.error, r.status || 400);
       }
       const cur: any = (await db.doc(`${T}/nightCloses/${day}`).get()).data() || {};
