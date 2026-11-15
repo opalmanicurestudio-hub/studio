@@ -5,6 +5,7 @@
 // seatNumber, as the manifest keeps them) or held by a checkout still open. Nothing about who sits where leaves the
 // server: the map says only taken, held or open. Pure.
 import { chartTables } from '@/lib/event-guest-link';
+import { featuresOf, noteOf, shapeOf, tableKindWords, TABLE_FEATURES, type TableShape } from '@/lib/table-kinds';
 
 /** The most seats one whole table can sell at once, and the most one person can hold at a time. */
 export const MAX_TABLE_SEATS = 20;
@@ -39,14 +40,18 @@ const stateOf = (use: InUse, t: { id: string; name: string }, s: { id: string; l
 export const anyInUse = (use: InUse, seats: { tableId?: string; seatId?: string; table: string; seat: string }[]) =>
   seats.some((x) => use.taken.has(seatKey(x.table, x.seat)) || use.held.has(seatKey(x.table, x.seat)) || (!!x.tableId && !!x.seatId && (use.taken.has(idKey(x.tableId, x.seatId)) || use.held.has(idKey(x.tableId, x.seatId)))));
 
-export type MapTable = { id: string; name: string; x: number | null; y: number | null; seats: { id: string; label: string; state: 'open' | 'taken' | 'held' }[]; wholeOpen: boolean };
+export type MapTable = { id: string; name: string; x: number | null; y: number | null; seats: { id: string; label: string; state: 'open' | 'taken' | 'held' }[]; wholeOpen: boolean;
+  shape: TableShape; kind: string; features: string[]; note: string | null };
 /** The map a guest sees: each table and its seats, open, taken or held, and whether every seat at it is open. */
 export function seatMap(ev: any, use: InUse): MapTable[] {
   const raw = new Map<string, any>((Array.isArray(ev?.seatingTables) ? ev.seatingTables : []).map((t: any) => [String(t?.id), t]));
   return chartTables(ev).filter((t) => t.seats.length).map((t) => {
     const r = raw.get(t.id) || {}; const num = (v: any) => (Number.isFinite(Number(v)) && v !== null ? Math.max(0, Math.min(100, Number(v))) : null);
     const seats = t.seats.map((s) => ({ id: s.id, label: s.label, state: stateOf(use, t, s) }));
-    return { id: t.id, name: t.name, x: num(r.x), y: num(r.y), seats, wholeOpen: seats.length <= MAX_TABLE_SEATS && seats.every((s) => s.state === 'open') };
+    // What kind of table it is (lib/table-kinds): its shape, what a guest cares about, the business's note.
+    const f = featuresOf(r);
+    return { id: t.id, name: t.name, x: num(r.x), y: num(r.y), seats, wholeOpen: seats.length <= MAX_TABLE_SEATS && seats.every((s) => s.state === 'open'),
+      shape: shapeOf(r), kind: tableKindWords(r), features: TABLE_FEATURES.filter((x) => f.includes(x.id)).map((x) => x.label), note: noteOf(r) || null };
   });
 }
 

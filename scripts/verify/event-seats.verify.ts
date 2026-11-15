@@ -74,6 +74,21 @@ let mailDown = 0;
     && !S.pickSeats(ev, typed, { picks: [{ tableId: 't5', seatId: 't5s2' }], max: 8 }).ok && !S.pickSeats(ev, typed, { picks: [{ tableId: 't6', seatId: 't6s1' }], max: 8 }).ok);
   check('in words', S.seatWords([{ table: '5', seat: '6' }, { table: '5', seat: '7' }]) === 'Table 5, seats 6 and 7' && S.seatWords([{ table: 'Patio', seat: 'A' }]) === 'Patio, seat A');
 
+  console.log('what kind of table it is');
+  const K2 = await import('../../src/lib/table-kinds');
+  const sane = (shape: any, n: number) => { const d = K2.drawTable(shape, n); const inTop = (p: any) => p.x > d.top.x + 2 && p.x < d.top.x + d.top.w - 2 && p.y > d.top.y + 2 && p.y < d.top.y + d.top.h - 2;
+    let close = Infinity; for (let i = 0; i < d.seats.length; i++) for (let j = i + 1; j < d.seats.length; j++) close = Math.min(close, Math.hypot(d.seats[i].x - d.seats[j].x, d.seats[i].y - d.seats[j].y));
+    return d.seats.length === n && close >= 14 && d.seats.every((p) => !inTop(p) && p.x >= 0 && p.y >= 0 && p.x <= d.w && p.y <= d.h); };
+  check('every shape draws each seat once, apart, off the table and inside its box (1 to 20 seats)', ['round', 'square', 'long', 'counter'].every((sh) => [1, 2, 4, 5, 6, 8, 10, 12, 20].every((n) => sane(sh, n))));
+  const longT = K2.drawTable('long', 10);
+  check('a long table: down both sides, and one at each end from six seats', longT.seats.filter((p) => p.y === 10).length === 4 && longT.seats.filter((p) => p.y === longT.h - 10).length === 4 && longT.seats.filter((p) => p.y === longT.h / 2).length === 2 && K2.drawTable('long', 4).seats.every((p) => p.y !== 38));
+  check('a counter: seats in a row on one side', new Set(K2.drawTable('counter', 6).seats.map((p) => p.y)).size === 1);
+  check('in words', K2.tableKindWords({}) === 'A round table' && K2.tableKindWords({ shape: 'round', features: ['high_top'] }) === 'A round high-top' && K2.tableKindWords({ shape: 'long', features: ['window', 'quiet'] }) === 'A long table, by the window and in a quieter spot'
+    && K2.tableKindWords({ shape: 'counter', features: ['outside'] }) === 'A counter, outside' && K2.tableKindWords({ shape: 'oval', features: ['nonsense'] }) === 'A round table');
+  const kinded = { seatingTables: [{ ...chart[0], shape: 'long', features: ['window', 'step_free', 'x'], note: '  Next to   the stage  ' }, chart[1]], seatPicking: { on: true } };
+  const km = S.seatMap(kinded, S.seatsInUse([], []));
+  check('the map carries each table’s shape and kind (an older table is round)', km[0].shape === 'long' && km[0].kind === 'A long table, by the window and with step-free access' && km[0].features.join() === 'By the window,Step-free access' && km[0].note === 'Next to the stage' && km[1].shape === 'round' && km[1].note === null, km);
+
   console.log('buying seats');
   const { POST } = await import('../../src/app/api/public/event/route');
   const K = await import('../../src/lib/event-tickets');
@@ -140,8 +155,10 @@ let mailDown = 0;
   const page = read('src/app/event/[tenantId]/[eventId]/page.tsx'); const picker = read('src/components/events/SeatPicker.tsx'); const panel = read('src/components/events/EventNightPanel.tsx');
   check('the event’s page: choose your seats on the map, a whole table, the seats on the confirmation', page.includes('<SeatPicker') && page.includes('Choose your seats') && page.includes('wholeTable: whole') && page.includes('done.seats') && picker.includes('Buy the whole table') && picker.includes('Someone paying now'));
   check('the manager’s switches on the event night', panel.includes('Seats online') && panel.includes('Let guests choose seats') && panel.includes('Sell whole tables too'));
-  const mine = picker + read('src/lib/event-seats.ts');
-  check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine) && !/\{\/\*/.test(picker) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(picker));
+  check('the seating chart sets each table’s shape, what guests should know and a note; the picker draws the shape and says what kind it is', read('src/components/events/SeatingChartTab.tsx').includes('<TableKindFields table={table}') && read('src/components/events/TableKindFields.tsx').includes('What guests should know')
+    && picker.includes('drawTable(t.shape') && picker.includes('cur.kind') && picker.includes('cur.note') && /replace\(\/\^table\\s\+\/i, ''\)/.test(picker));
+  const mine = picker + read('src/lib/event-seats.ts') + read('src/lib/table-kinds.ts') + read('src/components/events/TableKindFields.tsx');
+  check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine) && !/\{\/\*/.test(picker + read('src/components/events/TableKindFields.tsx')) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(picker + read('src/components/events/TableKindFields.tsx')));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

@@ -13,6 +13,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { PRINT, esc, printPage } from '@/lib/print-style';
+import TableKindFields from '@/components/events/TableKindFields';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 export type Seat = {
@@ -30,6 +31,10 @@ export type SeatingTable = {
   seatLabelStyle: 'letters' | 'numbers';
   seats:          Seat[];
   staffIds:       string[];
+  // What kind of table it is, for guests choosing their seats (lib/table-kinds).
+  shape?:         'round' | 'square' | 'long' | 'counter';
+  features?:      string[];
+  note?:          string;
 };
 
 type Props = {
@@ -338,6 +343,8 @@ const TableConfigPanel = ({
           ))}
         </div>
       </div>
+
+      <TableKindFields table={table} onChange={(patch) => onUpdate({ ...table, ...patch })} />
 
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Table Color</label>

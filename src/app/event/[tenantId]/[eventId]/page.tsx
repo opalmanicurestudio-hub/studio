@@ -133,7 +133,7 @@ export default function EventGuestPage() {
         <label className={LABEL}>Phone <span style={{ color: MUTED }}>(optional)</span><input type="tel" value={phone} onChange={(x) => setPhone(x.target.value)} autoComplete="tel" className={INPUT} style={{ borderColor: LINE }} /></label>
         <input value={trap} onChange={(x) => setTrap(x.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute -left-[9999px] h-px w-px opacity-0" name="ev_ref" />
         {msg && <p className="text-[14px] font-medium" style={{ color: AMBER }} role="alert">{msg}</p>}
-        <Button type="submit" color={color} disabled={busy}>{busy ? 'Opening checkout…' : `Continue to payment · $${total}`}</Button>
+        <Button type="submit" color={color} disabled={busy || (seatsOn && !count)}>{busy ? 'Opening checkout…' : seatsOn && !count ? 'Choose your seats to continue' : `Continue to payment · $${total}`}</Button>
         <p className="text-center text-[13px]" style={{ color: MUTED }}>You’ll pay {d.business?.name || 'the business'} on a secure checkout. Your places are held while you pay.</p>
       </form>
       {orderOpen && <p className="text-center text-[14px]" style={{ color: MUTED }}>Already have a ticket? <a href={mealLink} className="underline underline-offset-2" style={{ color: '#16171a' }}>Choose your meal</a></p>}
