@@ -207,6 +207,17 @@ export async function handleConnectWebhook(req: NextRequest) {
           break;
         }
 
+        // An event's final invoice paid from its link (lib/event-invoice-server): recorded once, whichever comes first,
+        // this notice or the client's return.
+        if (session.metadata?.kind === 'event_invoice') {
+          if (String(session.metadata?.tenantId || '') === tenant.id) {
+            const { finishInvoice } = await import('@/lib/event-invoice-server');
+            const r = await finishInvoice(db, stripe2, tenant.id, String(session.id), session);
+            if (!r.ok && r.error === 'retry') throw new Error('event invoice payment not recorded yet');
+          }
+          break;
+        }
+
         // A space booking or a day pass paid on the business's own account (api/booths/reserve): confirmed from here too,
         // so it's booked and in the books even when the guest never comes back to the page that confirms it. The same
         // confirming step runs (it checks the payment with Stripe and is safe to run twice).
@@ -843,6 +854,12 @@ export async function handleConnectWebhook(req: NextRequest) {
         if (meta.kind === 'event_ticket' && meta.orderId && charge.refunded === true && String(meta.tenantId || '') === tenant.id && !refunds.some((rf: any) => rf?.metadata?.origin === 'app')) {
           const { syncOutsideTicketRefund } = await import('@/lib/event-tickets');
           await syncOutsideTicketRefund(db, tenant.id, String(meta.orderId), Number(charge.amount_refunded) || 0);
+        }
+        // An event's final invoice paid by card and refunded in Stripe (lib/event-invoice-server): the invoice shows what's
+        // owing again and the owner is told. (The refund itself is in the books from above.)
+        if (meta.kind === 'event_invoice' && meta.eventId && String(meta.tenantId || '') === tenant.id && chPi) {
+          const { syncInvoiceRefund } = await import('@/lib/event-invoice-server');
+          await syncInvoiceRefund(db, tenant.id, String(meta.eventId), chPi, Number(charge.amount_refunded) || 0);
         }
         // The card payment for a shop order refunded in full in the Stripe dashboard (not by the app, whose refunds carry
         // the app's mark): its downloads close (lib/digital-access), whatever else paid for the order.

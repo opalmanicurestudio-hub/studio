@@ -2,13 +2,15 @@
 // src/app/(app)/events/[eventId]/sheet/page.tsx — THE EVENT SHEET (design canvas "Event sheet and final invoice";
 // lib/event-sheet, api/event-sheet). One page the team works the event from, made from the quote and the event: when
 // and where, the guests, the client, what's included, the run of show, the menu from the guests' choices with the
-// allergies, the team, the seating and the notes; for managers, the money. Prints on one page.
+// allergies, the team, the seating and the notes; for managers, the money and the final invoice (not printed). Prints on
+// one page.
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { clockWords, money, type SheetMoney } from '@/lib/event-sheet';
 import type { Moment } from '@/lib/event-night';
+import FinalInvoiceCard from '@/components/events/FinalInvoiceCard';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -86,7 +88,7 @@ export default function EventSheetPage() {
             <h1 className="text-[24px] font-semibold leading-tight">{s.title}</h1>
             {s.when && <p className="text-[15px]">{s.when}</p>}
           </div>
-          <div className="text-right text-[12.5px]" style={{ color: MUTED }}>{s.business && <p>{s.business}</p>}<p>Printed {printed}</p></div>
+          <div className="text-[12.5px] sm:text-right" style={{ color: MUTED }}>{s.business && <p>{s.business}</p>}<p>Printed {printed}</p></div>
         </header>
 
         <dl className="grid gap-3 sm:grid-cols-3">
@@ -131,6 +133,8 @@ export default function EventSheetPage() {
           </Section></div>
         )}
       </article>
+
+      {m && tenantId && <FinalInvoiceCard tenantId={tenantId} eventId={eventId} guaranteed={s.fromQuote ? g.guaranteed : null} quotedCents={m.quotedCents} paidBeforeCents={m.paidCents} />}
     </main>
   );
 }
