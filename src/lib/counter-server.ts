@@ -259,9 +259,11 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
     // Lines the kitchen never started go back; the rest was made (or being made) and is waste.
     const back: Record<string, number> = {}; const goesBack = new Set<string>(); let returned = 0, wasted = 0;
+    const wastedItems: Record<string, number> = {};   // what was made and thrown away, by item (lib/food-cost wasteOf)
     for (const l of lines) {
       const t: any = tix.find((d: any) => d.id === `${orderId}_${l.lineId}`)?.data();
-      if (!t || t.status === 'pending' || t.status === 'cancelled') { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); } else wasted += l.quantity;
+      if (!t || t.status === 'pending' || t.status === 'cancelled') { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); }
+      else { wasted += l.quantity; if (ID.test(String(l.itemId || ''))) wastedItems[l.itemId] = (wastedItems[l.itemId] || 0) + l.quantity; }
     }
     const why = `Voided ${CHANNEL_NAME[o.channel as Channel] || ''} order ${o.number}: ${reason}`.replace(/\s+/g, ' ');
     const log = (id: string, d: any, delta: number) => tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'returned', delta, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
@@ -319,7 +321,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       }
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }
-    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted }, { merge: true });
+    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}) }, { merge: true });
     if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
     return { ok: true, returned, wasted };
   });

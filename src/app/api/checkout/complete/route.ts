@@ -40,6 +40,7 @@ import { methodOfVia } from '@/lib/pay-via';
 import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 import { kitchenScreenOn } from '@/lib/kitchen';
+import { recipeOf } from '@/lib/menu-stock';
 import { itemAllergens, profileAllergy, ticketAllergyFields } from '@/lib/allergens';
 
 export const dynamic = 'force-dynamic';
@@ -1079,6 +1080,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   // What a table's tab already sent to the kitchen when it was ordered (lib/table-tab): paying for it doesn't send it again.
   const sentFromTab: Record<string, number> = {}; const kitchenLines: Record<string, number> = {};
+  // Food and drink made from a recipe that isn't sent to a kitchen screen: made here, so its ingredients come off once the
+  // sale is saved (lib/recipe-stock-server). One that goes to the kitchen takes them when it's made.
+  const madeHere: { id: string; qty: number; name: string }[] = [];
   for (const v of visits) for (const l of (Array.isArray(v.appointment?.tab) ? v.appointment.tab : [])) if (l?.kdsId && l?.itemId) sentFromTab[String(l.itemId)] = (sentFromTab[String(l.itemId)] || 0) + Math.max(1, Number(l.quantity) || 1);
   // The same product can be on two lines (a comped one from a table's tab beside the rest): its stock, lots and pop-up
   // count move once per line, each from where the line before left them.
@@ -1111,7 +1115,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         const al = prof ? ticketAllergyFields([prof], null, itemAllergens(inv)) : null;
         batch.set(kRef, clean({ id: kRef.id, source: 'pos', menuItemId: it.id, menuItemName: it.name, quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
           status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true });
-      }
+      } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item') });
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
@@ -1379,6 +1383,21 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  if (madeHere.length) {
+    try {
+      const { readRecipeParts, takeParts, mergeParts } = await import('@/lib/recipe-stock-server');
+      await db.runTransaction(async (tx: any) => {
+        const parts = mergeParts((await Promise.all(madeHere.map((m) => readRecipeParts(tx, db, T, m.id, m.qty)))).flat());
+        takeParts(tx, db, T, parts, { type: 'used', reason: `Sold at the front desk: ${madeHere.map((m) => `${m.name} ×${m.qty}`).join(', ')}`.slice(0, 200), actorId: String(auth.actor.uid || 'staff'), actorName: String(auth.actor.name || 'Front desk'), ref: { kind: 'order', id: receiptRef.id } });
+      });
+    } catch (e: any) {
+      // The sale stands (it can't be saved again for this): the team is told, and it's kept with the business's history,
+      // so the next count's difference has its reason.
+      console.warn('[checkout] ingredients not taken off', e);
+      warnings.push(`What went into ${madeHere.map((m) => m.name).join(', ')} wasn’t taken off stock. The next count will show it.`);
+      await logAuditAdmin(db, tenantId, { action: 'stock.parts_missed', targetType: 'receipt', targetId: receiptRef.id, summary: `Ingredients for ${madeHere.map((m) => `${m.name} ×${m.qty}`).join(', ')} weren’t taken off stock after the sale: ${String(e?.message || e).slice(0, 120)}`, actor: { type: 'system', id: 'checkout', name: 'Front desk' } } as any).catch(() => {});
+    }
+  }
   if (heldShort.length) {
     warnings.push(`${heldShort.map((h) => h.name).join(', ')} came out of what was held for online orders${heldApprovedBy ? ` (approved by ${heldApprovedBy})` : ''}. An order may be short when it’s packed.`);
     await logAuditAdmin(db, tenantId, { action: 'checkout.held_stock_sold', targetType: 'client', targetId: clientId || '', summary: `Sold at the desk from units held for online orders: ${heldShort.map((h) => `${h.name} (${h.want} sold, ${h.free} free)`).join('; ')}${heldApprovedBy ? ` — approved by ${heldApprovedBy}` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});

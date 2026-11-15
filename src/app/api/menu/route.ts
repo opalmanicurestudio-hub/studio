@@ -33,6 +33,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf, menuItemNow } from '@/lib/menu-server';
+import { itemCost, targetOf } from '@/lib/food-cost';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { randomBytes } from 'crypto';
@@ -88,7 +89,17 @@ export async function POST(req: NextRequest) {
       const counts = (await liveCounts(db, tenantId, td, items.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
       // One the count just sold out (or brought back) shows that way here too.
       for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut; }
-      return ok({ menu, recipes, counts, canEdit: !!(g.actor?.isManager || g.actor?.isTenantOwner), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      const canEdit = !!(g.actor?.isManager || g.actor?.isTenantOwner);
+      // For managers: what each costs to make from its recipe, as a share of its price (lib/food-cost).
+      let costs: Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number }> | undefined;
+      if (canEdit) {
+        const ids = Array.from(new Set(Object.values(recipes).flatMap((r: any[]) => r.map((l) => String(l.id))))).slice(0, 600);
+        const parts = new Map<string, any>();
+        for (let i = 0; i < ids.length; i += 300) { const snaps = await db.getAll(...ids.slice(i, i + 300).map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`))).catch(() => [] as any[]); for (const sn of snaps) if (sn?.exists) parts.set(sn.id, sn.data()); }
+        const target = targetOf(td); costs = {};
+        for (const d of items.docs) { const x: any = d.data() || {}; if (!isMenuItem(x)) continue; const c = itemCost(d.id, x, parts, target); costs[d.id] = { cost: c.cost, share: c.share, over: c.over, typical: c.typical, target }; }
+      }
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs } : {}), targets: targetsOf(td), service: serviceOf(td), lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });

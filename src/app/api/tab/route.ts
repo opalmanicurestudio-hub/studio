@@ -46,6 +46,9 @@ import { compAllowanceCents, kitchenStarted, listPriceOf, needsManager, round2, 
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
 import { NUDGE_KEY } from '@/lib/nudges';
 import { linkOrigin } from '@/lib/app-origin';
+import { recipeOf } from '@/lib/menu-stock';
+import { DEFAULT_TARGET, itemCost } from '@/lib/food-cost';
+import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
 import { forgetFloor, tablesNow } from '@/lib/floor-server';
 
 export const dynamic = 'force-dynamic';
@@ -60,6 +63,14 @@ const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 async function costToMake(db: any, T: string, itemId: string, qty: number): Promise<number | null> {
   if (!ID.test(itemId)) return null;
   const x: any = (await db.doc(`${T}/inventory/${itemId}`).get()).data();
+  // Made from a recipe: what its ingredients cost (lib/food-cost), when every one has a cost.
+  const recipe = recipeOf(x, itemId);
+  if (recipe.length) {
+    const snaps = await Promise.all(recipe.map((l) => db.doc(`${T}/inventory/${l.id}`).get().catch(() => null)));
+    const parts = new Map<string, any>(); recipe.forEach((l, i) => { const d = snaps[i]?.data?.(); if (d) parts.set(l.id, d); });
+    const c = itemCost(itemId, x, parts, DEFAULT_TARGET).cost;
+    if (c !== null) return round2(c * Math.max(1, qty));
+  }
   const c = [x?.costPerUnit, x?.unitCost].map(Number).find((n) => Number.isFinite(n) && n > 0);
   return c ? round2(c * Math.max(1, qty)) : null;
 }
@@ -343,11 +354,15 @@ export async function POST(req: NextRequest) {
         if (!tab.some((x) => x?.lineId === lineId)) throw new Stop('That item is already off the tab.', 409);
         // Started after the check above was made: it needs what a started item needs.
         if (!started && kitchenStarted(k?.status) && !manager) throw new Stop('The kitchen started it just now, so a manager approves. Try again.', 409);
+        // Started and stopped before it was ready: what went into it is waste (lib/recipe-stock-server). One already
+        // ready took its ingredients then.
+        const st = String(k?.status || ''); const stops = !!(kRef && k) && (!kitchenStarted(st) || (stop && st !== 'delivered'));
+        const wasted = stops && kitchenStarted(st) && k.partsUsed !== true && !k.channel ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1)) : null;
         tx.set(vRef, { tab: tab.filter((x) => x.lineId !== lineId), updatedAt: now }, { merge: true });
         if (kRef && k) {
-          const st = String(k.status || '');
-          if (!kitchenStarted(st) || (stop && st !== 'delivered')) tx.set(kRef, { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason }, { merge: true });
+          if (stops) tx.set(kRef, { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
           else tx.set(kRef, { voided: true, voidReason: reason }, { merge: true });
+          if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Voided after the kitchen started: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
         }
         tx.set(rRef, recordOf(rRef, 'void_item', token, extra), { merge: true });
       }));
@@ -378,13 +393,17 @@ export async function POST(req: NextRequest) {
         const k: any = (await tx.get(oldRef)).data() || {};
         const l = tab.find((x) => x?.lineId === lineId);
         if (!l || l.kdsId !== line.kdsId) throw new Stop('That item changed while this was being done. Try again.', 409);
+        // The first plate, started but not yet ready: what went into it is waste (one that was ready took its
+        // ingredients then). The new plate takes its own when it's made.
+        const wasted = k.partsUsed !== true && !k.channel && kitchenStarted(k.status) ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1)) : null;
         // Its allergies go with it; the station says "Allergy noted" again for the new plate.
-        const keep = Object.fromEntries(Object.entries(k).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy'].includes(f)));
+        const keep = Object.fromEntries(Object.entries(k).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy', 'partsUsed', 'fromHold'].includes(f)));
         // The table's allergies as they stand now (one may have been added since the first plate).
         const al = ticketAllergyFields(tableAllergies(cur), l.seat || null, Array.isArray(l.allergens) ? l.allergens : []);
         tx.set(newRef, { ...keep, allergies: al.allergies, contains: al.contains, id: newId, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, remakeOf: line.kdsId, remakeReason: reason, note: [`Remake: ${reason}`, k.note].filter(Boolean).join('. ').slice(0, 200) });
-        if (String(k.status) !== 'delivered') tx.set(oldRef, { status: 'cancelled', cancelledAt: now, remadeAs: newId }, { merge: true });
+        if (String(k.status) !== 'delivered') tx.set(oldRef, { status: 'cancelled', cancelledAt: now, remadeAs: newId, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
         else tx.set(oldRef, { remadeAs: newId }, { merge: true });
+        if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Made again: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
         tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, kdsId: newId } : x)), updatedAt: now }, { merge: true });
         tx.set(rRef, recordOf(rRef, 'remake', null, { amount: 0, itemName: String(line.name || 'Item').slice(0, 80), itemId: line.itemId || null, reason, started: true, wasteCost: waste, ticketStatus: ticket.status || null, tableName: v.tableName || null, askedBy: me.name, approverName: me.name, newTicket: newId }));
       });

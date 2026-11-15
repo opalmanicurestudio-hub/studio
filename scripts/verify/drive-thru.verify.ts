@@ -234,6 +234,15 @@ const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
     && (await get(`${T}/kdsTickets/${c3t.id}`)).status === 'cancelled' && (await get(`${T}/inventory/fries`)).totalStock === friesBefore + 1, { body: r.body, v3 });
   r = await P({ action: 'paid', orderId: car7.orderId, method: 'card' });
   check('…and a voided order can’t then be paid', r.status === 409, r.body);
+  check('…nothing was made, so nothing is kept as thrown away', !v3.wastedItems && v3.wastedQty === 0);
+  const car8 = (await P({ action: 'car', carKey: 'carkey-0018' })).body;
+  await P({ action: 'add', orderId: car8.orderId, itemId: 'fries', tapKey: 'tap-00000031' });
+  await P({ action: 'send', orderId: car8.orderId });
+  const c8t = (await all(`${T}/kdsTickets`)).find((t: any) => t.orderId === car8.orderId);
+  await kitchen(req({ action: 'act', tenantId: 't1', key: kkey, col: 'kdsTickets', id: c8t.id, step: 'claim' }));
+  r = await P({ action: 'void', orderId: car8.orderId, reason: 'Drove off without paying', staffPass: await passOf('m9', 'Mo Diaz') });
+  const v8 = await get(`${T}/counterOrders/${car8.orderId}`);
+  check('…one voided after the kitchen started it: what was made is kept, by item, for the week’s waste (lib/food-cost)', r.body.ok && r.body.wasted === 1 && v8.wastedItems?.fries === 1, { body: r.body, v8 });
   void crew;
   // Not enough left for the order: refused at sending, never sold below nothing.
   const car5 = (await P({ action: 'car', carKey: 'carkey-0005' })).body;

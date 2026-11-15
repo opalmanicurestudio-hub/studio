@@ -60,12 +60,16 @@ export async function recordCount(db: any, tenantId: string, productId: string, 
     const doseDelta = per > 0 ? Math.round(((n * per + openNow) - (Math.max(0, Number(item.totalStock) || 0) * per + openWas)) * 1000) / 1000 : 0;
     // A count that matches is still recorded for whole-unit products: it's where the history starts adding up from again.
     if (per > 0 && doseDelta === 0) return { ok: true, delta: next.delta, totalStock: n, changed: next.delta !== 0 };
-    tx.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
+    tx.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), { ...buildEntry({
       productId, type: 'counted', delta: per > 0 ? doseDelta : next.delta, field: 'totalStock',
       unit: per > 0 ? (item.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item.unit || 'ml')) : (item.unit || 'units'),
       reason: pk && per > 0 ? `Counted: ${n} sealed + ${openNow} ${item.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item.unit || 'ml')} in the open one (was ${Math.max(0, Number(item.totalStock) || 0)} + ${openWas})` : `Counted: ${n} on the shelf (was ${Math.max(0, Number(item.totalStock) || 0)})`,
       actorId: actor.id, actorName: actor.name, ref: { kind: 'count', id: productId }, ...(per > 0 ? {} : { balanceAfter: n }),
-    }));
+    }),
+    // Its first count (not counted until now: a starter ingredient before its first count or delivery): where its
+    // history starts, not a difference found (lib/food-cost countRows). Once a delivery has started its count, the
+    // first count is compared with that.
+    ...(item.countStock === false ? { baseline: true } : {}) });
     return { ok: true, delta: next.delta, totalStock: n, changed: per > 0 ? doseDelta !== 0 : next.delta !== 0 };
   });
 }

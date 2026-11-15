@@ -54,6 +54,7 @@ import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/
 import { moveStock } from '@/lib/usage';
 import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
+import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, needsAllergyNote, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { liveCounts, setTonightCount } from '@/lib/dish-counts-server';
 import { allergySig, tableAllergies, ticketAllergyPatch } from '@/lib/allergens';
@@ -143,6 +144,13 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
         }
       }
     }
+    // A table's, the desk's or an event's dish made from a recipe uses up its ingredients once it's made: when it's
+    // marked ready, or served without being marked ready first (lib/recipe-stock-server). A counter or drive-thru order
+    // took them when it was sent; a lounge order takes them as it's delivered, below.
+    const makes = col === 'kdsTickets' && !r.channel && r.partsUsed !== true && (step === 'ready' || step === 'deliver');
+    // One stopped here after it was started: what went into it is waste.
+    const stopsStarted = col === 'kdsTickets' && !r.channel && r.partsUsed !== true && step === 'cancel' && r.status === 'in_progress';
+    const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty) : [];
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }
       : step === 'ready' ? { status: 'ready', readyAt: now, ...(r.claimedBy ? {} : { claimedBy: by }) }
@@ -152,6 +160,14 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
       : step === 'drop' ? { carriedBy: null, carriedAt: null, ...(lounge ? { bringingOutAt: null, bringingOutBy: null } : {}) }
       : step === 'deliver' ? { status: 'delivered', deliveredAt: now, deliveredBy: by }
       : { status: 'cancelled', cancelledAt: now, cancelledBy: by };
+    if (stopsStarted) {
+      takeParts(tx, db, T, made, { type: 'spoiled', reason: `Stopped after it was started: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
+      patch.partsUsed = true;
+    }
+    if (makes) {
+      takeParts(tx, db, T, made, { type: 'used', reason: `Made: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : r.guestName ? ` for ${String(r.guestName).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
+      patch.partsUsed = true;
+    }
     if (lounge && step === 'deliver' && parts.length) {
       // The same stock step as checkout (lib/usage moveStock): a product with no uses or size set is left alone.
       for (const p of parts) {
@@ -392,9 +408,14 @@ export async function POST(req: NextRequest) {
           const qty = Math.max(1, Math.round(num(t.quantity) || 1));
           if (String(t.itemId || t.menuItemId || '') !== bin.itemId) return { error: 'That batch is for something else.', status: 400 };
           if (num(bin.quantity) < qty) return { error: `Only ${num(bin.quantity)} left in that batch.`, status: 409 };
+          // A table's, the desk's or an event's dish from the batch uses up its portion now, as one made fresh would (a
+          // counter order took its own when it was sent; a lounge order takes its own as it's delivered).
+          const takes = col === 'kdsTickets' && !t.channel && t.partsUsed !== true;
+          const made = takes ? await readRecipeParts(tx, db, T, bin.itemId, qty) : [];
           const left = num(bin.quantity) - qty;
           tx.set(bRef, { quantity: left, ...(left === 0 ? { status: 'used', usedUpAt: nowIso } : {}) }, { merge: true });
-          tx.set(tRef, { status: 'ready', readyAt: nowIso, fromHold: binId, ...(t.claimedBy ? {} : { claimedBy: { staffId: staff?.id || null, name: who, via: screen.name } }) }, { merge: true });
+          tx.set(tRef, { status: 'ready', readyAt: nowIso, fromHold: binId, ...(takes ? { partsUsed: true } : {}), ...(t.claimedBy ? {} : { claimedBy: { staffId: staff?.id || null, name: who, via: screen.name } }) }, { merge: true });
+          if (takes) takeParts(tx, db, T, made, { type: 'used', reason: `Made: ${String(t.menuItemName || bin.name || 'item').slice(0, 60)} ×${qty}, from a held batch`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id } });
           return { ok: true, left };
         });
         if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
@@ -405,7 +426,14 @@ export async function POST(req: NextRequest) {
       const r: any = await db.runTransaction(async (tx: any) => {
         const bin: any = (await tx.get(bRef)).data();
         if (!bin || bin.status !== 'held') return { already: true };
-        if (action === 'holdToss') { tx.set(bRef, { status: 'tossed', tossedAt: nowIso, tossedQty: num(bin.quantity), tossedBy: who, quantity: 0 }, { merge: true }); return { ok: true, left: 0 }; }
+        if (action === 'holdToss') {
+          // What's thrown out was made: its portions' ingredients come off as waste (lib/recipe-stock-server), and the
+          // batch is kept for the day's waste (lib/food-cost).
+          const tossed = await readRecipeParts(tx, db, T, String(bin.itemId || ''), num(bin.quantity));
+          tx.set(bRef, { status: 'tossed', tossedAt: nowIso, tossedQty: num(bin.quantity), tossedBy: who, quantity: 0 }, { merge: true });
+          takeParts(tx, db, T, tossed, { type: 'spoiled', reason: `Thrown out: ${num(bin.quantity)} of ${String(bin.name || 'a batch').slice(0, 60)}, past its holding time`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id: binId } });
+          return { ok: true, left: 0 };
+        }
         const qty = Math.floor(num(b.quantity));
         if (!(qty >= 1 && qty <= 200)) return { error: 'How many? Between 1 and 200.', status: 400 };
         if (binState(bin, nowMs).state === 'expired') return { error: 'That batch is past its holding time. Throw it out.', status: 409 };

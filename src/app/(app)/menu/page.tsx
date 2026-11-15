@@ -31,6 +31,9 @@ const BTN = `min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold disabled:o
 const field = 'mt-1.5 w-full min-h-[44px] rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
 const pickField = 'min-h-[44px] w-36 shrink-0 rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+/** What one costs to make, for a manager (lib/food-cost). */
+const costWords = (c: { cost: number | null; share: number | null; typical: boolean }) => c.cost === null ? 'Cost to make not known yet: an ingredient has no cost'
+  : `Costs ${money(c.cost)} to make${c.share !== null ? `, ${Math.round(c.share * 100)}% of its price` : ''}${c.typical ? ', at typical prices' : ''}`;
 const MAKE_TIMES = [30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900];
 const HOLD_TIMES = [5, 7, 10, 15, 20, 30, 45, 60, 90, 120];
 const TARGET_TIMES = [90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 600, 900, 1200];
@@ -54,6 +57,7 @@ export default function MenuPage() {
   const [recipes, setRecipes] = useState<Record<string, RecipeLine[]>>({});
   const [counts, setCounts] = useState<Record<string, CountRow>>({});
   const [canEdit, setCanEdit] = useState(false);
+  const [costs, setCosts] = useState<Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number }>>({});
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -71,7 +75,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setTargets(d.targets || null); setService(d.service || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
@@ -124,7 +128,7 @@ export default function MenuPage() {
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight">Menu</h1>
-            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.{tenantId ? <> Show it on a screen: <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center underline">open the menu board</a>.</> : null}</p>
+            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.{canEdit && Object.keys(costs).length > 0 ? <> What each costs to make, and what sold: <Link href="/food-cost" className="inline-flex min-h-[44px] items-center underline">Food cost</Link>.</> : null}{tenantId ? <> Show it on a screen: <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center underline">open the menu board</a>.</> : null}</p>
           </div>
           {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
         </header>
@@ -200,10 +204,12 @@ export default function MenuPage() {
                           {m.membersOnly && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: SOFT, color: MUTED }}>Members</span>}
                           {!m.inStock && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{outWords(m)}</span>}
                           {counts[m.id] && !m.soldOut && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-medium tabular-nums" style={lowCount(counts[m.id]) ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: MUTED }}>{leftWords(counts[m.id])} tonight</span>}
+                          {costs[m.id]?.over && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Over {Math.round(costs[m.id].target * 100)}%</span>}
                         </span>
                         <span className="mt-0.5 block text-[13.5px]" style={{ color: outOpts.length ? AMBER : MUTED }}>
                           {outOpts.length ? `Sold out: ${outOpts.join(', ')}` : m.choices.length ? m.choices.map((g) => g.name).join(', ') : 'No choices'}
                         </span>
+                        {costs[m.id] && <span className="mt-0.5 block text-[13px] tabular-nums" style={{ color: MUTED }}>{costWords(costs[m.id])}</span>}
                       </button>
                       <span className="flex items-center gap-2.5">
                         <span className="hidden text-[14px] sm:inline" style={{ color: m.soldOut ? AMBER : MUTED, fontWeight: m.soldOut ? 600 : 400 }}>Sold out</span>
