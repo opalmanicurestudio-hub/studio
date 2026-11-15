@@ -15,6 +15,7 @@ import { nanoid } from 'nanoid';
 import { format, parseISO, formatDistanceToNowStrict } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppHeader } from '@/components/shared/AppHeader';
+import EventNightPanel from '@/components/events/EventNightPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -1324,6 +1325,7 @@ export default function EventManifestPage() {
     <div className="flex flex-col h-full overflow-hidden bg-muted/60">
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
+        {tenantId && eventId && <EventNightPanel tenantId={tenantId} eventId={eventId} firedKey={fires.map((f: any) => `${f.id}:${f.status}`).sort().join(',')} onFire={(c) => setFireConfirmCourse(c)} />}
 
         <>
           <div className="hidden md:flex items-start justify-between gap-4">
