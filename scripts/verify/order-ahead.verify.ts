@@ -96,7 +96,7 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
 
   console.log('the guest’s menu');
   r = await A({ action: 'menu' });
-  const items = r.body.sections.flatMap((s: any) => s.items);
+  const items = r.body.sections.flatMap((s: any) => s.items); const offered: string[] = r.body.times || [];
   check('the menu by section, with photos and choices; sold out says so; members-only items aren’t shown', r.body.on === true && r.body.business === 'Northside' && JSON.stringify(r.body.ways) === '["drive-thru","inside"]'
     && items.find((i: any) => i.id === 'burger')?.imageUrl === 'https://img.test/burger.png' && items.find((i: any) => i.id === 'fries')?.choices.length === 1 && items.find((i: any) => i.id === 'shake')?.soldOut === true && !items.some((i: any) => i.id === 'secret'), r.body);
   check('times every 15 minutes, from 20 minutes out, for 2 hours, today only', r.body.times.length <= 8 && r.body.times.every((t: string) => t.slice(0, 10) === new Date().toISOString().slice(0, 10) || new Date().getUTCHours() >= 22) && Date.parse(r.body.times[0]) >= Date.now() + 19 * 60000 && r.body.times.every((t: string) => Date.parse(t) % (15 * 60000) === 0), r.body.times);
@@ -144,7 +144,8 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   check('the order page: the code, being made, at the drive-thru', r.body.paid && r.body.code === o1.ahead.code && r.body.kitchen === 'making' && r.body.way === 'drive-thru' && r.body.number === 'A1', r.body);
 
   console.log('for later');
-  const later = slot(60);
+  // (An hour out, or the latest time offered when an hour out is already tomorrow: late in the evening.)
+  const later = offered.includes(slot(60)) ? slot(60) : offered[offered.length - 1] || slot(60);
   r = await A({ ...base, key: nextKey(), name: 'Priya', way: 'inside', at: later, lines: [{ itemId: 'burger', quantity: 1 }] });
   const id2 = r.body.orderId; const s2 = r.body.sig; const o2 = await get(`${T}/counterOrders/${id2}`);
   paid(o2.ahead.payId);

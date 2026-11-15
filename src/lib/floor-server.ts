@@ -23,6 +23,7 @@ import { deskPrice, saleName } from '@/lib/variants';
 import { makeSecondsOf } from '@/lib/counter-orders';
 import { itemSoldOut } from '@/lib/menu-choices';
 import { tabSig } from '@/lib/table-bill';
+import { alsoAtOf, foldParts, lineTicketIds, partName, partTicketId } from '@/lib/two-stations';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class FloorStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
@@ -103,7 +104,10 @@ async function readFresh(db: any, T: string, tenant: any): Promise<FloorRead> {
     const ids = Array.from(new Set(us.flatMap((u: any) => (Array.isArray(u.staffIds) ? u.staffIds : []).map(String))));
     const tab = Array.isArray(v.tab) ? v.tab : [];
     const tk: Record<string, any> = {};
-    for (const l of tab) if (l?.kdsId && tickets.has(l.kdsId)) { const k = tickets.get(l.kdsId); tk[l.kdsId] = { status: String(k.status || ''), readyAt: k.readyAt || null, deliveredAt: k.deliveredAt || null }; }
+    // A dish made at two stations is as far along as its slowest part (lib/two-stations): "at the pass" once both are.
+    for (const l of tab) if (l?.kdsId && tickets.has(l.kdsId)) { const all = lineTicketIds(l).map((id) => tickets.get(id)).filter(Boolean).map((k: any) => ({ status: String(k.status || ''), readyAt: k.readyAt || null, deliveredAt: k.deliveredAt || null, partOf: null as string | null }));
+      const f = foldParts(Object.fromEntries(all.map((k, i) => [i === 0 ? 'main' : `p${i}`, i === 0 ? k : { ...k, partOf: 'main' }])));
+      const m: any = f.main; tk[l.kdsId] = { status: String(m.status || ''), readyAt: m.readyAt || null, deliveredAt: m.deliveredAt || null }; }
     // Paid: checked out, or paid in full by the guests at the table and not closed yet (lib/table-pay-server).
     const paidHere = v.status !== 'completed' && v.payPaidAt && v.payPaidTab === tabSig(tab) ? v.payPaidAt : null;
     const paidAt = v.status === 'completed' ? (v.checkedOutAt || v.completedAt || null) : paidHere;
@@ -194,10 +198,10 @@ export async function ringPreorder(db: any, T: string, tenant: any, partyId: str
     // Only for a party that's here: seated, or called forward.
     if (!['seated', 'notified'].includes(String(p.status))) throw new FloorStop('They’re not here now.');
     if (p.preorderRungAt) {
-      const ids = (Array.isArray(p.preorderKds) ? p.preorderKds : []).filter((x: string) => ID.test(String(x))).slice(0, 20);
+      const ids = (Array.isArray(p.preorderKds) ? p.preorderKds : []).filter((x: string) => ID.test(String(x))).slice(0, 40);
       const snaps = ids.length ? await readAll(tx, ids.map((id: string) => db.doc(`${T}/kdsTickets/${id}`))) : [];
       let moved = 0;
-      for (const s of snaps) { const k: any = s.exists ? s.data() || {} : null; if (k && !['delivered', 'cancelled'].includes(String(k.status)) && k.tableNumber !== table) { tx.set(s.ref, { tableNumber: table }, { merge: true }); moved += 1; } }
+      for (const s of snaps) { const k: any = s.exists ? s.data() || {} : null; if (k && !['delivered', 'cancelled'].includes(String(k.status)) && k.tableNumber !== table) { tx.set(s.ref, { tableNumber: table }, { merge: true }); if (!k.partOf) moved += 1; } }
       return { rung: 0, moved, skipped: [] as string[] };
     }
     const lines: any[] = (Array.isArray(p.preorder) ? p.preorder : []).filter((l: any) => l && ID.test(String(l.itemId)) && Number(l.qty) > 0).slice(0, 8);
@@ -221,13 +225,21 @@ export async function ringPreorder(db: any, T: string, tenant: any, partyId: str
         const lineId = `${Date.now().toString(36)}w${(i++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
         const kdsId = `tab_${vid}_${lineId}`;
         const name = saleName(x, new Map()).slice(0, 80);
+        // Also made at another station (lib/two-stations): its part's ticket there too.
+        const also = x.type === 'refreshment' && x.combo !== true ? alsoAtOf(x, stations) : [];
         tab.push({ lineId, itemId: x.id, itemType: 'product', name, price, listPrice: price, quantity: 1, seat: null, note: PREORDER_NOTE, at: now, by, kdsId,
-          course: c ? c.n : null, courseName: c ? c.name : null, firedAt: now, station, makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null, comp: null, allergens });
+          course: c ? c.n : null, courseName: c ? c.name : null, firedAt: now, station, makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null, comp: null, allergens,
+          ...(also.length ? { alsoKdsIds: also.map((_, k) => partTicketId(kdsId, k)), alsoAt: also } : {}) });
         const al = ticketAllergyFields(allergies, null, allergens);
         tx.set(db.doc(`${T}/kdsTickets/${kdsId}`), { id: kdsId, source: 'tab', visitId: vid, lineId, tableNumber: table, seatNumber: null, guestName: String(p.name || 'Guest').slice(0, 80), menuItemId: x.id, menuItemName: name,
           note: PREORDER_NOTE, allergies: al.allergies, contains: al.contains, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, tenantId: T.split('/')[1], isDelta: false,
-          course: c ? c.n : null, courseName: c ? c.name : null, madeAt: station, makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null });
+          course: c ? c.n : null, courseName: c ? c.name : null, madeAt: station, makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null, ...(also.length ? { alsoAt: also } : {}) });
         kds.push(kdsId);
+        also.forEach((a, k) => { const pid = partTicketId(kdsId, k);
+          tx.set(db.doc(`${T}/kdsTickets/${pid}`), { id: pid, source: 'tab', visitId: vid, lineId, tableNumber: table, seatNumber: null, guestName: String(p.name || 'Guest').slice(0, 80), menuItemId: x.id, menuItemName: partName(name, a.part),
+            note: PREORDER_NOTE, allergies: al.allergies, contains: al.contains, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, tenantId: T.split('/')[1], isDelta: false,
+            course: c ? c.n : null, courseName: c ? c.name : null, madeAt: a.station, makeSeconds: x.type === 'refreshment' ? makeSecondsOf(x) : null, partOf: kdsId, partFrom: station, partFor: name, partsUsed: true });
+          kds.push(pid); });
       }
     }
     if (!tab.length) { tx.set(pRef, { preorderRungAt: now, preorderKds: [], preorderSkipped: skipped }, { merge: true }); return { rung: 0, moved: 0, skipped }; }
@@ -254,7 +266,7 @@ export async function voidPreorder(db: any, T: string, partyId: string, by: stri
   const pRef = db.doc(`${T}/parties/${partyId}`);
   const n = await db.runTransaction(async (tx: any) => {
     const p: any = (await tx.get(pRef)).data() || {};
-    const ids = (Array.isArray(p.preorderKds) ? p.preorderKds : []).filter((x: string) => ID.test(String(x))).slice(0, 20);
+    const ids = (Array.isArray(p.preorderKds) ? p.preorderKds : []).filter((x: string) => ID.test(String(x))).slice(0, 40);
     if (!p.preorderRungAt || !ids.length || p.status === 'seated' || p.seatedAt) return 0;
     const vid = visitIdForParty({ ...p, id: partyId }); const vRef = db.doc(`${T}/appointments/${vid}`);
     const v: any = (await tx.get(vRef)).data() || null;
@@ -267,7 +279,9 @@ export async function voidPreorder(db: any, T: string, partyId: string, by: stri
     }
     if (v && v.status !== 'completed' && off.size) {
       const tab = (Array.isArray(v.tab) ? v.tab : []).filter((l: any) => !off.has(String(l?.kdsId || '')));
-      const entry = { at: now, kind: 'note', text: `${off.size === 1 ? 'A drink' : `${off.size} drinks`} ordered while waiting taken off: ${reason.toLowerCase()}`, by, via: 'host' };
+      // (Counted as drinks, not tickets: a part made at another station isn't one more.)
+      const gone = (Array.isArray(v.tab) ? v.tab.length : 0) - tab.length;
+      const entry = { at: now, kind: 'note', text: `${gone === 1 ? 'A drink' : `${gone} drinks`} ordered while waiting taken off: ${reason.toLowerCase()}`, by, via: 'host' };
       tx.set(vRef, { tab, timeline: [...(Array.isArray(v.timeline) ? v.timeline : []), entry].slice(-60), updatedAt: now, ...(onlyTheirs && !tab.length ? { status: 'cancelled', stage: 'cancelled' } : {}) }, { merge: true });
     }
     tx.set(pRef, { preorderVoidedAt: off.size ? now : null, drinksStuckAt: null }, { merge: true });

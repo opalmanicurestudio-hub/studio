@@ -16,6 +16,7 @@ import { emailHint, phoneHint } from '@/lib/privacy';
 import { visitIdForParty } from '@/lib/table-service';
 import { profileAllergy, tableAllergies, ticketAllergyPatch } from '@/lib/allergens';
 import { digitsKey, DONE_STATUSES, emailKey, matchGuest, matchSig, MAX_VISITS, memoryOf, memorySettingsOf, NOTE_MAX, RECENT, usableGuest, type GuestMemory } from '@/lib/guest-memory';
+import { lineTicketIds } from '@/lib/two-stations';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class GuestStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
@@ -98,7 +99,8 @@ async function candidates(db: any, T: string, p: any): Promise<any[]> {
  *  so call it before any write in the transaction; `client` is the new guest's profile, `prevClient` the old one's. */
 async function tableTakes(tx: any, db: any, T: string, vRef: any, v: any, clientId: string | null, client: any, by: string, prevClient: any = null) {
   const tab: any[] = Array.isArray(v.tab) ? v.tab : [];
-  const lines = tab.filter((l) => l?.kdsId && ID.test(String(l.kdsId)));
+  // (Each line's own ticket, and its parts' at other stations: lib/two-stations.)
+  const lines = tab.flatMap((l) => lineTicketIds(l).filter((id) => ID.test(id)).map((id) => ({ ...l, kdsId: id })));
   const snaps = lines.length ? await Promise.all(lines.map((l) => tx.get(db.doc(`${T}/kdsTickets/${l.kdsId}`)))) : [];
   const now = nowIso();
   // The other guest's profile allergy, just as their profile has it, comes off; one changed at the table stays, as told.

@@ -37,6 +37,7 @@ import { TablePayCard } from '@/components/host/TablePayCard';
 import { paperDoc, renderHtml } from '@/lib/printing';
 import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 import { askAllergiesOf, compReasonsOf, courseOfItem, courseStage, coursesOf, kitchenStarted, listPriceOf, prepMinutes, stationOfItem, stationsOf, OTHER_REASON, REMAKE_REASONS, VOID_REASONS, type Course } from '@/lib/table-service';
+import { alsoAtOf, foldParts, partName } from '@/lib/two-stations';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const GREEN_TINT = '#eaf6ef', AMBER_TINT = '#fff7ed';
@@ -103,7 +104,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
       un = onSnapshot(doc(firestore, 'tenants', tenantId, 'appointments', id), { includeMetadataChanges: true }, (s) => { const v: any = s.data() || {}; setVisit(v); setTab((v.tab || []) as TabLine[]);
         if (!s.metadata.hasPendingWrites && Object.keys(unsentAll()[id] || {}).length) setUnsent(markUnsent(id, null, false)); }, () => {});
       un2 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'kdsTickets'), where('visitId', '==', id)), (s) => { const m: Record<string, string> = {}; const full: Record<string, any> = {};
-        s.docs.forEach((d) => { const x: any = d.data() || {}; m[d.id] = String(x.status || 'pending'); full[d.id] = x; }); setStatuses(m); setTickets(full); }, () => {});
+        s.docs.forEach((d) => { const x: any = d.data() || {}; m[d.id] = String(x.status || 'pending'); full[d.id] = x; });
+        // A dish made at two stations is as far along as its slowest part (lib/two-stations).
+        const folded = foldParts(full); for (const [k, x] of Object.entries<any>(folded)) m[k] = String(x.status || 'pending'); setStatuses(m); setTickets(full); }, () => {});
       un3 = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'approvals'), where('visitId', '==', id), where('kind', 'in', ['comp', 'void_item', 'remake'])), (s) => setRecords(s.docs.map((d) => d.data()).filter((r: any) => ['comp', 'void_item', 'remake'].includes(r.kind)).sort((a: any, b: any) => String(a.usedAt || a.createdAt).localeCompare(String(b.usedAt || b.createdAt)))), () => {});
     }).catch(() => setMsg('The table’s visit couldn’t be opened.'));
     return () => { if (un) un(); if (un2) un2(); if (un3) un3(); }; }, [firestore, tenantId, party.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -147,7 +150,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
         allergens: itemAllergens(x), allergensKnown: x.type !== 'refreshment' || allergensKnown(x), soldOut: x.type === 'refreshment' && itemSoldOut(x),
         // Its menus by time of day and happy-hour price (lib/menu-time), worked out when it's rung in.
         ...(x.type === 'refreshment' ? { timed: { dayparts: x.dayparts || [], happyPrice: x.happyPrice ?? null } } : {}),
-        ...(x.type === 'refreshment' && Array.isArray(x.choices) && x.choices.length ? { choices: x.choices } : {}) }; })
+        ...(x.type === 'refreshment' && Array.isArray(x.choices) && x.choices.length ? { choices: x.choices } : {}),
+        // Also made at another station (lib/two-stations): its part goes there.
+        ...(x.type === 'refreshment' && alsoAtOf(x, stations).length ? { alsoAt: alsoAtOf(x, stations) } : {}) }; })
         // A combo is a counter order (its parts go to their own stations there).
         .filter((x: any) => x.price > 0 && !prods.find((p: any) => p.id === x.id)?.combo),
       ...svcs.map((x: any) => ({ id: x.id, type: 'service', name: x.name || 'Service', price: Number(x.price) || 0, category: x.category || '', course: null, station: null, makeSeconds: null }))]); }).catch(() => {}); }, [firestore, tenantId, tenant, courses, stations]);
@@ -199,9 +204,11 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     [tenantId, visitId, outbox.waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const onPaper = tab.filter((l) => !!l.kdsId && ((unsent.has(l.lineId) && !!l.firedAt) || (!l.firedAt && !!l.course && firesWaiting.has(Number(l.course)))));
   const printPaper = () => {
-    const raws = onPaper.map((l) => { const al = ticketAllergyFields(allergies, l.seat || null, l.allergens || []);
-      return ticketFrom({ id: l.kdsId, itemName: l.name, choicesText: l.choicesText || null, choices: l.choices || [], quantity: l.quantity, seatNumber: l.seat || null, note: l.note || null, tableNumber: tableName, guestName: party.name || 'Table', course: l.course, courseName: l.courseName,
-        madeAt: l.station || null, visitId, status: 'pending', allergies: al.allergies, contains: al.contains, createdAt: l.at }, 'kdsTickets'); });
+    const raws = onPaper.flatMap((l) => { const al = ticketAllergyFields(allergies, l.seat || null, l.allergens || []);
+      const one = (id: string, itemName: string, madeAt: string | null, own: boolean) => ticketFrom({ id, itemName, choicesText: l.choicesText || null, choices: own ? l.choices || [] : [], quantity: l.quantity, seatNumber: l.seat || null, note: l.note || null, tableNumber: tableName, guestName: party.name || 'Table', course: l.course, courseName: l.courseName,
+        madeAt, visitId, status: 'pending', allergies: al.allergies, contains: al.contains, createdAt: l.at }, 'kdsTickets');
+      // (Its part made at another station goes on that station's paper too.)
+      return [one(String(l.kdsId), l.name, l.station || null, true), ...(l.alsoAt || []).map((a, i) => one(String(l.alsoKdsIds?.[i] || `${l.kdsId}_s${i + 1}`), partName(l.name, a.part), a.station, false))]; });
     const per = new Map<string, any[]>(); for (const t of raws) { const k = String((t as any).madeAt || ''); per.set(k, [...(per.get(k) || []), t]); }
     const d = paperDoc(Array.from(per.entries()).map(([station, list]) => ({ station: station || null, tickets: list })), { tz: tenantTimeZone(tenant), at: new Date().toISOString(), by: String(by || '') });
     const w = window.open('', '_blank', 'width=420,height=620');

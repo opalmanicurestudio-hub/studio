@@ -26,6 +26,8 @@
 //   voice   { tenantId, on?, askName? } → managers: the drive-thru's voice assistant on or off here (api/counter/voice),
 //             and whether it asks each car for a first name; list says whether it's set up, on, asking, and up to date
 //   voiceUpdate { tenantId } → managers: bring this business's assistant up to date (lib/drive-thru-voice-setup)
+//   create  { tenantId, name, section, price, station?, onHand?, tapKey? } → managers: a new item, on the menu and in
+//             Inventory in one step (its editor opens next); save also takes alsoAt [{ station, part }] (lib/two-stations).
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts.
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
@@ -44,7 +46,7 @@ import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
 import { forgetMenuFacts } from '@/lib/klair-menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
@@ -57,6 +59,8 @@ import { MAX_COUNT } from '@/lib/dish-counts';
 import { forgetCounts, liveCounts, setTonightCount } from '@/lib/dish-counts-server';
 import { accountOf } from '@/lib/reader-sale';
 import { linkOrigin } from '@/lib/app-origin';
+import { cleanAlsoAt, MAX_ALSO } from '@/lib/two-stations';
+import { buildEntry } from '@/lib/stock-ledger';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -81,10 +85,10 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times'].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create'].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -184,6 +188,43 @@ export async function POST(req: NextRequest) {
     }
 
     // Menus by time of day and happy hour (lib/menu-time): the windows; each item says which it's in, and its price then.
+    if (action === 'create') {
+      // A new item, on the menu and in Inventory in one step (design canvas "One item, two stations"): its name, section,
+      // price, the station that makes it and, if it's counted, how many there are. Its photo, choices, recipe and the rest
+      // are added in its editor, which opens next. The same tap sent twice makes one item.
+      const name = words(b.name, 80); if (!name) return bad('Give it a name.');
+      if (b.price === null || b.price === undefined || String(b.price).trim() === '') return bad('Enter a price ($0 is fine).');
+      const price = Math.round(Number(b.price) * 100) / 100; if (!Number.isFinite(price) || price < 0 || price > 10000) return bad('Enter a price of $0 or more.');
+      const onHand = b.onHand === null || b.onHand === undefined || String(b.onHand).trim() === '' ? null : Math.floor(Number(b.onHand));
+      if (onHand !== null && (!Number.isFinite(onHand) || onHand < 0 || onHand > 100000)) return bad('How many you have: a number, or leave it empty.');
+      const td: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const want = words(b.station, 24); const station = want ? stationsOf(td).find((y) => y.toLowerCase() === want.toLowerCase()) || null : null;
+      if (want && !station) return bad('Pick one of your stations.');
+      const snap = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get();
+      const same = snap.docs.find((d: any) => { const x: any = d.data() || {}; return x.archived !== true && x.status !== 'archived' && words(x.name, 80).toLowerCase() === name.toLowerCase(); });
+      const tap = typeof b.tapKey === 'string' && /^[A-Za-z0-9_-]{8,40}$/.test(b.tapKey) ? b.tapKey : null;
+      if (same && !(tap && same.id === `menu_${tap}`)) return bad(`${name} is on the menu already. Find it in the list and open it.`);
+      const ref = tap ? db.doc(`tenants/${tenantId}/inventory/menu_${tap}`) : db.collection(`tenants/${tenantId}/inventory`).doc();
+      const nowIso = new Date().toISOString(); const by = words(g.actor?.name, 60) || 'A manager';
+      // The name, claimed in the same step, so two managers adding the same item at once make one.
+      const claimRef = db.doc(`tenants/${tenantId}/private/menuName_${createHash('sha256').update(name.toLowerCase()).digest('hex').slice(0, 40)}`);
+      const made: any = await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(ref)).data(); if (cur) return { item: cur, already: true };
+        const claim: any = (await tx.get(claimRef)).data();
+        const held: any = claim?.id && claim.id !== ref.id && ID.test(String(claim.id)) ? (await tx.get(db.doc(`tenants/${tenantId}/inventory/${claim.id}`))).data() : null;
+        if (held && held.archived !== true && held.status !== 'archived' && words(held.name, 80).toLowerCase() === name.toLowerCase()) return { dupe: true };
+        tx.set(claimRef, { id: ref.id, name, at: nowIso });
+        const item = { id: ref.id, name, type: 'refreshment', category: words(b.section, 40) || 'Menu', description: '', status: 'active', isActive: true, totalStock: onHand ?? 0, supplier: '', batches: [],
+          price, msrp: price, showInConcierge: true, choices: [], formula: [], station, course: null, createdVia: 'menu', createdAt: nowIso, updatedAt: nowIso, menuUpdatedAt: nowIso, menuUpdatedBy: by };
+        tx.set(ref, item);
+        // What's on hand to start with, in the stock ledger like any count.
+        if (onHand) tx.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({ productId: ref.id, type: 'counted', delta: onHand, unit: 'units', reason: 'Added on the Menu page', actorId: String(g.actor?.uid || 'manager'), actorName: by, balanceAfter: onHand }));
+        return { item };
+      });
+      if (made.dupe) return bad(`${name} is on the menu already. Find it in the list and open it.`);
+      return ok({ item: menuItemOf(ref.id, made.item), already: !!made.already });
+    }
+
     if (action === 'times') {
       const dayparts = cleanDayparts(b.dayparts); const happyHour = cleanHappyHour(b.happyHour);
       if (Array.isArray(b.dayparts) && b.dayparts.length !== dayparts.length) return bad('Each menu by time of day needs a name, and a start and end that differ.');
@@ -304,6 +345,17 @@ export async function POST(req: NextRequest) {
       if (x.station !== undefined) { const st = words(x.station, 24); if (st && !stationsOf(td).some((y) => y.toLowerCase() === st.toLowerCase())) return bad('Pick one of your stations.'); service.station = st || null; }
       if (x.course !== undefined) { if (x.course === null || x.course === '') service.course = null; else { const n = Math.floor(Number(x.course)); if (!(n === 0 || coursesOf(td).some((c) => c.n === n))) return bad('Pick one of your courses.'); service.course = n; } }
     }
+    // Also made at another station, as a part of its own (lib/two-stations): one of the business's stations, not the one
+    // it's made at, each with a few words for its part.
+    if (x.alsoAt !== undefined) {
+      const td: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+      const given = Array.isArray(x.alsoAt) ? x.alsoAt.filter((a: any) => words(a?.station, 24) || words(a?.part, 40)) : [];
+      const own = service.station !== undefined ? service.station : words((await db.doc(`tenants/${tenantId}/inventory/${itemId}`).get()).data()?.station, 24) || null;
+      const also = cleanAlsoAt(given, stationsOf(td), own);
+      if (given.length > MAX_ALSO) return bad(`Up to ${MAX_ALSO} other stations.`);
+      if (also.length !== given.length) return bad('Each other station is one of yours (not the one it’s made at), with a few words for what’s made there.');
+      service.alsoAt = also;
+    }
     // What it contains (lib/allergens), when given: only the allergens on the list, each once.
     const safety: Record<string, any> = {};
     if (x.allergens !== undefined) {
@@ -345,6 +397,9 @@ export async function POST(req: NextRequest) {
       const parts = Array.isArray(x.comboParts) ? x.comboParts.map((p: any) => String(p?.itemId || p || '')).filter((id: string) => ID.test(id) && id !== itemId).slice(0, 6) : [];
       timed.comboParts = timed.combo ? parts.map((id: string) => ({ itemId: id })) : [];
       if (timed.combo && !parts.length && !choices.some((cg) => cg.options.some((o) => o.itemId))) return bad('A combo needs what’s in it: the items it always has, or a choice of items.');
+      // A combo's parts each go to their own station already: it isn't also made somewhere else.
+      if (timed.combo && Array.isArray(service.alsoAt) && service.alsoAt.length) return bad('A combo’s parts each go to their own station already. Take Also made at off.');
+      if (timed.combo) service.alsoAt = [];
     }
     if (choices.some((cg) => cg.options.some((o) => o.itemId === itemId))) return bad('A combo can’t have itself in it.');
     // Each part (always in it, or made as a choice) is one of the business's own menu items, and not a combo itself.

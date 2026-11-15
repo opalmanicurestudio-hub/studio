@@ -155,9 +155,10 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     // A table's, the desk's or an event's dish made from a recipe uses up its ingredients once it's made: when it's
     // marked ready, or served without being marked ready first (lib/recipe-stock-server). A counter or drive-thru order
     // took them when it was sent; a lounge order takes them as it's delivered, below.
-    const makes = col === 'kdsTickets' && !r.channel && r.partsUsed !== true && (step === 'ready' || step === 'deliver');
+    // (A part made at another station, lib/two-stations, takes nothing: the dish's own ticket takes the whole recipe.)
+    const makes = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && (step === 'ready' || step === 'deliver');
     // One stopped here after it was started: what went into it is waste.
-    const stopsStarted = col === 'kdsTickets' && !r.channel && r.partsUsed !== true && step === 'cancel' && r.status === 'in_progress';
+    const stopsStarted = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && step === 'cancel' && r.status === 'in_progress';
     const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty) : [];
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }

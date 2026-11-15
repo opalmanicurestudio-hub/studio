@@ -44,6 +44,8 @@ import { resolveOffers, offerAllows } from '@/lib/renter-offers';
 import { kitchenScreenOn } from '@/lib/kitchen';
 import { recipeOf } from '@/lib/menu-stock';
 import { itemAllergens, profileAllergy, ticketAllergyFields } from '@/lib/allergens';
+import { alsoAtOf, partName, partTicketId } from '@/lib/two-stations';
+import { stationOfItem, stationsOf } from '@/lib/table-service';
 
 export const dynamic = 'force-dynamic';
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -1178,7 +1180,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         const al = prof ? ticketAllergyFields([prof], null, itemAllergens(inv)) : null;
         batch.set(kRef, clean({ id: kRef.id, source: 'pos', menuItemId: it.id, menuItemName: it.name, quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
           status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}),
-          ...((it as any).choicesText ? { choicesText: (it as any).choicesText, choices: (it as any).choices || [] } : {}) }), { merge: true });
+          ...((it as any).choicesText ? { choicesText: (it as any).choicesText, choices: (it as any).choices || [] } : {}), ...(alsoAtOf(inv, stationsOf(tenant)).length ? { alsoAt: alsoAtOf(inv, stationsOf(tenant)) } : {}) }), { merge: true });
+        // A part made at another station (lib/two-stations): its own ticket there, joined to this one. Its stock is the item's.
+        alsoAtOf(inv, stationsOf(tenant)).forEach((a, k) => { const pRef = db.doc(`${T}/kdsTickets/${partTicketId(kRef.id, k)}`);
+          batch.set(pRef, clean({ id: pRef.id, source: 'pos', menuItemId: it.id, menuItemName: partName(String(inv.name || it.name), a.part), quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
+            status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, madeAt: a.station, partOf: kRef.id, partFor: String(inv.name || it.name).slice(0, 80), partFrom: stationOfItem(inv, stationsOf(tenant)), partsUsed: true, ...((it as any).choicesText ? { choicesText: (it as any).choicesText } : {}),
+            ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true }); });
       } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item') });
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });

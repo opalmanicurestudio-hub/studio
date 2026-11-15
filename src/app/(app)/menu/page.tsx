@@ -26,6 +26,7 @@ import { MenuTimesCard } from '@/components/menu/MenuTimesCard';
 import type { Daypart, HappyHour } from '@/lib/menu-time';
 import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
+import { NewItemSheet } from '@/components/menu/NewItemSheet';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -70,6 +71,8 @@ export default function MenuPage() {
   const [spots, setSpots] = useState<number | null>(null);
   const [ahead, setAhead] = useState<AheadSettings | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
+  // New item: on the menu and in Inventory in one step (components/menu/NewItemSheet), its editor opening next.
+  const [adding, setAdding] = useState(false);
   const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
 
   const call = useCallback(async (body: any) => {
@@ -131,9 +134,12 @@ export default function MenuPage() {
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight">Menu</h1>
-            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. New items are added in <Link href="/inventory" className="underline">Inventory</Link>.{canEdit && Object.keys(costs).length > 0 ? <> What each costs to make, and what sold: <Link href="/food-cost" className="inline-flex min-h-[44px] items-center underline">Food cost</Link>.</> : null}{tenantId ? <> Show it on a screen: <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center underline">open the menu board</a>.</> : null}</p>
+            <p className="mt-1 text-[15px]" style={{ color: MUTED }}>What guests see when they order from a station tablet, their own phone or the drive-thru. {canEdit ? <>Add something new with New item; drinks and food already in <Link href="/inventory" className="underline">Inventory</Link> show here by themselves.</> : <>New items are added in <Link href="/inventory" className="underline">Inventory</Link>.</>}{canEdit && Object.keys(costs).length > 0 ? <> What each costs to make, and what sold: <Link href="/food-cost" className="inline-flex min-h-[44px] items-center underline">Food cost</Link>.</> : null}{tenantId ? <> Show it on a screen: <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center underline">open the menu board</a>.</> : null}</p>
           </div>
-          {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
+          <div className="flex flex-wrap items-center gap-2">
+            {outCount > 0 && <span className="rounded-full px-3 py-1.5 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{outCount} with something sold out</span>}
+            {canEdit && <button type="button" onClick={() => setAdding(true)} className={`min-h-[44px] rounded-xl px-5 text-[15px] font-semibold ${RING}`} style={{ background: INK, color: '#fff' }}>New item</button>}
+          </div>
         </header>
         {canEdit && ahead && <div id="order-ahead" className="scroll-mt-6"><OrderAheadCard start={ahead} call={call} /></div>}
         {canEdit && times && <div id="menu-times" className="scroll-mt-6"><MenuTimesCard start={times} onSave={async (next) => { const d = await call({ action: 'times', ...next }); if (d.ok) { setTimes({ dayparts: d.dayparts, happyHour: d.happyHour }); return null; } return d.error || 'That didn’t save.'; }} /></div>}
@@ -225,6 +231,9 @@ export default function MenuPage() {
             </section>
           ))}
       </div>
+      {adding && <NewItemSheet sections={Array.from(new Set((menu || []).map((m) => m.section)))} stations={service?.stations || []} onClose={() => setAdding(false)}
+        onCreate={async (body) => { const d = await call({ action: 'create', ...body }); if (!d.ok) return d.error || 'That didn’t save.';
+          setMenu((xs) => [...(xs || []).filter((x) => x.id !== d.item.id), d.item].sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))); setAdding(false); setEditing(d.item); return null; }} />}
       {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call} dayparts={times?.dayparts || []} allItems={menu || []}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
         onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); setEditing(null);
@@ -313,6 +322,8 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
   const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2) })) })));
   const [station, setStation] = useState(item.station || ''); const [course, setCourse] = useState(item.course === null ? '' : String(item.course));
+  // Also made at another station, as a part of its own (lib/two-stations): "the fries" at the fryer.
+  const [also, setAlso] = useState<{ station: string; part: string }[]>(() => (item.alsoAt || []).map((a) => ({ ...a })));
   // What it contains (lib/allergens) and how many it starts each night with (lib/dish-counts).
   const [allergens, setAllergens] = useState<AllergenKey[] | null>(item.allergensSet ? item.allergens || [] : null); const [daily, setDaily] = useState(item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount));
   const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
@@ -367,6 +378,7 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
       ...(allergens !== null && JSON.stringify(allergens) !== JSON.stringify(item.allergensSet ? item.allergens || [] : null) ? { allergens } : {}),
       ...(daily !== (item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount)) ? { dailyCount: daily === '' ? null : Number(daily) } : {}),
       ...(JSON.stringify(parts) !== JSON.stringify(item.dayparts || []) ? { dayparts: parts } : {}),
+      ...(JSON.stringify(also) !== JSON.stringify(item.alsoAt || []) ? { alsoAt: also.map((a) => ({ station: a.station, part: a.part.trim() })) } : {}),
       ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
       ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}) });
     setSaving(false); if (e) setErr(e);
@@ -456,6 +468,19 @@ function EditSheet({ item, recipe, tenantId, canEdit, busy, service, onClose, on
                   {service.stations.map((x) => <option key={x} value={x}>{x}</option>)}
                 </select>
               </label>
+              {service.stations.length > 1 && !combo && <div className="space-y-2">
+                <span><span className="block text-[15px] font-medium">Also made at</span><span className="block text-[13px]" style={{ color: MUTED }}>A part made at another station (the fries for a steak, at the fryer). Each station sees its own part, and the plate is ready once both are.</span></span>
+                {also.map((a, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <select value={a.station} onChange={(e) => setAlso((xs) => xs.map((x, k) => (k === i ? { ...x, station: e.target.value } : x)))} aria-label="Other station" className={pickField} style={{ borderColor: LINE }}>
+                      <option value="">Pick a station</option>
+                      {service.stations.filter((x) => x !== station).map((x) => <option key={x} value={x}>{x}</option>)}
+                    </select>
+                    <input value={a.part} onChange={(e) => setAlso((xs) => xs.map((x, k) => (k === i ? { ...x, part: e.target.value.slice(0, 40) } : x)))} placeholder="the fries" aria-label="What’s made there" className="min-h-[44px] min-w-0 flex-1 rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
+                    <button type="button" onClick={() => setAlso((xs) => xs.filter((_, k) => k !== i))} aria-label={`Not made at ${a.station || 'that station'}`} className={`h-11 w-11 shrink-0 rounded-xl text-[18px] ${RING}`} style={{ border: `1px solid ${LINE}`, color: MUTED }}>×</button>
+                  </div>))}
+                {also.length < 2 && <button type="button" onClick={() => setAlso((xs) => [...xs, { station: '', part: '' }])} className={`min-h-[44px] rounded-xl px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>Add another station</button>}
+              </div>}
               <label className="flex flex-wrap items-center justify-between gap-3">
                 <span><span className="block text-[15px] font-medium">Course at a table</span><span className="block text-[13px]" style={{ color: MUTED }}>A held course waits until the server fires it.</span></span>
                 <select value={course} onChange={(e) => setCourse(e.target.value)} className={pickField} style={{ borderColor: LINE }}>

@@ -13,6 +13,8 @@ import { recipeOf, ingredientLeft, ingredientUnit } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
+import { stationOfItem, stationsOf } from '@/lib/table-service';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -223,14 +225,23 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const due = new Date(Number.isFinite(wanted) && wanted > asap ? wanted : asap).toISOString();
     const hold = Date.parse(String(opts.holdUntil || '')); const holdUntil = Number.isFinite(hold) && hold > now.getTime() ? new Date(hold).toISOString() : null;
     const who2 = ticketWho(o);
-    made.forEach((m, i) => {
-      const l = m.l; const part = m.combo ? items[ids.indexOf(m.itemId)] : null;
-      const tRef = db.doc(`${T}/kdsTickets/${orderId}_${l.lineId}${m.combo ? `_${m.n}` : ''}`);
+    // Each ticket: a line (or a combo's part) at its own station, and a part of it made at another station (lib/two-stations).
+    const stations = stationsOf(tenant);
+    const tickets = made.flatMap((m) => {
+      const it = items[ids.indexOf(m.itemId)]; const base = `${orderId}_${m.l.lineId}${m.combo ? `_${m.n}` : ''}`;
+      const also = it && it.combo !== true ? alsoAtOf(it, stations) : [];
+      return [{ m, id: base, also: null as AlsoAt | null, main: base }, ...also.map((a, k) => ({ m, id: partTicketId(base, k), also: a as AlsoAt | null, main: base }))];
+    });
+    tickets.forEach(({ m, id, also, main }, i) => {
+      const l = m.l; const part = m.combo ? items[ids.indexOf(m.itemId)] : null; const it = items[ids.indexOf(m.itemId)];
+      const dish = part ? String(part.name || 'Item').slice(0, 80) : l.name;
+      const tRef = db.doc(`${T}/kdsTickets/${id}`);
       // A combo's part: its own name and make time, with the combo it's part of ("Burger meal"), at its own station.
-      tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: part ? String(part.name || 'Item').slice(0, 80) : l.name, quantity: l.quantity,
-        choicesText: part ? l.name : l.choicesText || null, ...(!part && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
+      tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: also ? partName(dish, also.part) : dish, quantity: l.quantity,
+        choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
+        ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
         guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
-        line: i + 1, lines: made.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
+        line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
     // Taken: each stock item once (lib/usage moveStock for an ingredient, as the lounge does), with a line in the stock

@@ -35,6 +35,7 @@ import { klairSettings } from '@/lib/klair';
 import { MAX_QUESTION, menuAnswersOn } from '@/lib/klair-menu';
 import { answerGuest } from '@/lib/klair-menu-server';
 import { tellTableAsk } from '@/lib/floor-buzz';
+import { foldParts, lineTicketIds } from '@/lib/two-stations';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -210,9 +211,11 @@ export async function POST(req: NextRequest) {
     const total = ck.bill.total;
     // The guest pass: where their order is, what they've asked for, and their usual.
     const tab: any[] = Array.isArray(found.v.tab) ? found.v.tab : [];
-    const kds = Array.from(new Set(tab.map((l) => String(l?.kdsId || '')).filter((x) => ID.test(x)))).slice(0, 120);
+    // (Each line's own ticket and its parts at other stations, folded: a dish is ready once every part is, lib/two-stations.)
+    const kds = Array.from(new Set(tab.flatMap((l) => lineTicketIds(l)).filter((x) => ID.test(x)))).slice(0, 160);
     const kSnaps = kds.length ? await db.getAll(...kds.map((k) => db.doc(`${T}/kdsTickets/${k}`))) : [];
-    const tickets: Record<string, any> = {}; for (const k of kSnaps) if (k.exists) { const kd: any = k.data() || {}; tickets[k.id] = { status: String(kd.status || ''), remakeOf: kd.remakeOf ? String(kd.remakeOf) : null }; }
+    const raw: Record<string, any> = {}; for (const k of kSnaps) if (k.exists) { const kd: any = k.data() || {}; raw[k.id] = { status: String(kd.status || ''), remakeOf: kd.remakeOf ? String(kd.remakeOf) : null, partOf: kd.partOf ? String(kd.partOf) : null }; }
+    const tickets: Record<string, any> = foldParts(raw);
     const party: any = await partyOf(found.v); const done = party?.nudges || {};
     const said = (a: GuestAsk) => { const seen = askSeen(a, done); const by = seen ? firstName(done[`ask:${a.id}`]?.by) || null : null; return { id: a.id, what: a.what, at: a.at, seen, said: askSaid(a, by) }; };
     const allAsks: GuestAsk[] = Array.isArray(found.v.guestAsks) ? found.v.guestAsks : [];

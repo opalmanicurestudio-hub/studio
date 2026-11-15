@@ -99,6 +99,11 @@ export function ticketFrom(d: any, col: KitchenCol) {
     remake: typeof r.remakeOf === 'string' && !!r.remakeOf,
     // How long it takes to make (seconds), so a table's or an order's plates can be timed to finish together.
     makeSeconds: Number(r.makeSeconds) > 0 ? Math.round(Number(r.makeSeconds)) : null,
+    // Made at two stations (lib/two-stations): the dish's own ticket says where its parts are made; a part's ticket says
+    // which dish it's for and where that's made.
+    alsoAt: (Array.isArray(r.alsoAt) ? r.alsoAt : []).slice(0, 2).map((a: any) => ({ station: String(a?.station || '').slice(0, 24), part: String(a?.part || '').slice(0, 40) })).filter((a: any) => a.station && a.part) as { station: string; part: string }[],
+    partOf: typeof r.partOf === 'string' ? r.partOf : null,
+    partFor: r.partFor ? String(r.partFor).slice(0, 80) : null, partFrom: r.partFrom ? String(r.partFrom).slice(0, 24) : null,
   };
 }
 

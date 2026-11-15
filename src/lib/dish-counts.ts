@@ -35,7 +35,8 @@ export function ticketUses(t: any): boolean {
 export function usedByItem(tickets: any[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const t of tickets) {
-    const id = String(t?.menuItemId || t?.itemId || ''); if (!id || !ticketUses(t)) continue;
+    // (A part made at another station, lib/two-stations, is the same portion: only the dish's own ticket counts.)
+    const id = String(t?.menuItemId || t?.itemId || ''); if (!id || t?.partOf || !ticketUses(t)) continue;
     m.set(id, (m.get(id) || 0) + Math.max(1, Math.round(Number(t?.quantity) || 1)));
   }
   return m;

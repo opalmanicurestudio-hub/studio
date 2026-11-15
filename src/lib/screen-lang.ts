@@ -50,6 +50,7 @@ const ES: Record<string, string> = {
   '{n} with an allergy': '{n} con alergia', '{n} with allergies': '{n} con alergias', '{n} to note': '{n} por anotar',
   'Mark {n} ready': 'Marcar {n} listos', 'All {n} ready': 'Los {n} listos', 'Bagged and out': 'Embolsado y entregado', 'Serve the {n} ready': 'Servir los {n} listos',
   'Start {when}, with the {dish}': 'Empezar {when}, junto con: {dish}',
+  'Also at {station}: {part}': 'También en {station}: {part}', 'For {dish}, from {station}': 'Para {dish}, de {station}', 'For {dish}': 'Para {dish}',
   // Expo
   'Ready to run': 'Listo para llevar', '{n} run cooking, {r} ready to go out': '{n} salida en marcha, {r} lista para salir', '{n} runs cooking, {r} ready to go out': '{n} salidas en marcha, {r} listas para salir',
   'Nothing cooking. Fired courses and orders show here.': 'Nada en marcha. Los tiempos y pedidos marchados salen aquí.',

@@ -12,6 +12,7 @@ import { arrayUnion, doc, getDoc, setDoc, writeBatch, type Firestore } from 'fir
 import { ticketAllergyFields, type TableAllergy } from '@/lib/allergens';
 import { visitIdForParty } from '@/lib/table-service';
 import type { PickedChoice, Picks } from '@/lib/menu-choices';
+import { partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 
 export interface TabComp { approvalId: string; amount: number; reason: string; by: string; approvedBy: string; at: string }
 export interface TabLine {
@@ -30,6 +31,8 @@ export interface TabLine {
   /** Its choices (lib/menu-choices): what was picked, as priced when it was rung in, and the kitchen's words for them.
    *  The price above includes them. */
   picks?: Record<string, string[]>; choices?: PickedChoice[]; choicesText?: string | null;
+  /** Also made at another station (lib/two-stations): each part's ticket, and where and what it is. */
+  alsoKdsIds?: string[]; alsoAt?: AlsoAt[];
 }
 
 /** The visit a party's tab lives on (lib/table-service, where the server finds it too). */
@@ -56,7 +59,7 @@ export async function ensureTableVisit(fs: Firestore, tenantId: string, p: any, 
   return id;
 }
 
-export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; happy?: boolean; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[]; choices?: any[] };
+export type TabItem = { id: string; type: 'product' | 'service'; name: string; price: number; happy?: boolean; alsoAt?: AlsoAt[]; course?: { n: number; name: string; hold: boolean } | null; station?: string | null; makeSeconds?: number | null; allergens?: string[]; choices?: any[] };
 /** The choices made for one line (lib/menu-choices priceChoices, worked out from the item as the menu has it). */
 export type TabChoice = { picks: Picks; lines: PickedChoice[]; text: string; extra: number };
 
@@ -72,16 +75,24 @@ export async function addToTab(fs: Firestore, tenantId: string, visitId: string,
   // Its choices add (or take off) their own prices; the kitchen reads them each on its own line.
   const ch = item.type === 'product' && o.choice && o.choice.lines.length ? o.choice : null;
   const price = Math.round(((Number(item.price) || 0) + (ch ? Number(ch.extra) || 0 : 0)) * 100) / 100;
+  // Also made at another station: a ticket there for its part ("Steak frites: the fries"), joined to this line.
+  const also = item.type === 'product' && Array.isArray(item.alsoAt) ? item.alsoAt.slice(0, 2) : [];
   const line: TabLine = { lineId, itemId: item.id, itemType: item.type, name: item.name, price, listPrice: price, quantity: 1, seat: o.seat || null, note: o.note || null, at: now, by: o.by,
     kdsId: item.type === 'product' ? kds.id : null, course: c ? c.n : null, courseName: c ? c.name : null, firedAt: waits ? null : now, station: item.station || null, makeSeconds: Number(item.makeSeconds) || null, comp: null,
-    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [], ...(ch ? { picks: ch.picks, choices: ch.lines, choicesText: ch.text } : {}), ...(item.happy ? { happy: true } : {}) };
+    allergens: Array.isArray(item.allergens) ? item.allergens.slice(0, 10) : [], ...(ch ? { picks: ch.picks, choices: ch.lines, choicesText: ch.text } : {}), ...(item.happy ? { happy: true } : {}),
+    ...(also.length ? { alsoKdsIds: also.map((_, i) => partTicketId(kds.id, i)), alsoAt: also } : {}) };
   const al = ticketAllergyFields(o.allergies || [], o.seat || null, line.allergens || []);
   b.set(doc(fs, 'tenants', tenantId, 'appointments', visitId), { tab: arrayUnion(line), updatedAt: now }, { merge: true });
   // Food and drink go to the station that makes it (a service on the tab doesn't).
   if (item.type === 'product') b.set(kds, { id: kds.id, source: 'tab', visitId, lineId, tableNumber: v.tableName, seatNumber: o.seat || null, guestName: v.guestName, menuItemId: item.id, menuItemName: item.name, note: o.note || null,
     allergies: al.allergies, contains: al.contains, status: waits ? 'unfired' : 'pending', createdAt: now, ...(waits ? {} : { requestedAt: now, firedAt: now }), tenantId, isDelta: false,
     ...(ch ? { choices: ch.lines, choicesText: ch.text } : {}),
-    course: c ? c.n : null, courseName: c ? c.name : null, madeAt: item.station || null, makeSeconds: Number(item.makeSeconds) || null });
+    course: c ? c.n : null, courseName: c ? c.name : null, madeAt: item.station || null, makeSeconds: Number(item.makeSeconds) || null,
+    ...(also.length ? { alsoAt: also } : {}) });
+  also.forEach((a, i) => { const id = partTicketId(kds.id, i);
+    b.set(doc(fs, 'tenants', tenantId, 'kdsTickets', id), { id, source: 'tab', visitId, lineId, tableNumber: v.tableName, seatNumber: o.seat || null, guestName: v.guestName, menuItemId: item.id, menuItemName: partName(item.name, a.part), note: o.note || null,
+      allergies: al.allergies, contains: al.contains, status: waits ? 'unfired' : 'pending', createdAt: now, ...(waits ? {} : { requestedAt: now, firedAt: now }), tenantId, isDelta: false, ...(ch ? { choicesText: ch.text } : {}),
+      course: c ? c.n : null, courseName: c ? c.name : null, madeAt: a.station, makeSeconds: Number(item.makeSeconds) || null, partOf: kds.id, partFrom: item.station || null, partFor: item.name, partsUsed: true }); });
   await b.commit(); return line;
 }
 

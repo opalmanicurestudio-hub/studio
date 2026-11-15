@@ -202,6 +202,8 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
             {t.item}{t.quantity > 1 && <span style={{ color: MUTED }}> × {t.quantity}</span>}
           </h3>
           {t.choices && <p className="mt-1 text-[18px] font-semibold leading-snug" style={{ color: INK }}>{t.choices}</p>}
+          {t.alsoAt.length > 0 && <p className="mt-1 text-[14.5px] font-medium" style={{ color: MUTED }}>{t.alsoAt.map((a) => say('Also at {station}: {part}', { station: a.station, part: a.part })).join('. ')}</p>}
+          {t.partFor && <p className="mt-1 text-[14.5px] font-medium" style={{ color: MUTED }}>{t.partFrom ? say('For {dish}, from {station}', { dish: t.partFor, station: t.partFrom }) : say('For {dish}', { dish: t.partFor })}</p>}
           {(t as any).keptHere && <p className="mt-2"><span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{say('Sends when it’s back')}</span></p>}
         </div>
         {later

@@ -56,6 +56,7 @@ import { recipeOf } from '@/lib/menu-stock';
 import { DEFAULT_TARGET, itemCost } from '@/lib/food-cost';
 import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
 import { forgetFloor, tablesNow } from '@/lib/floor-server';
+import { lineTicketIds, partTicketId } from '@/lib/two-stations';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -194,7 +195,9 @@ export async function POST(req: NextRequest) {
     const line = (Array.isArray(v.tab) ? v.tab : []).find((l: any) => l?.lineId === lineId);
     if (!line) throw new Stop('That item isn’t on the tab any more.', 404);
     const k: any = line.kdsId && ID.test(String(line.kdsId)) ? (await db.doc(`${T}/kdsTickets/${line.kdsId}`).get()).data() : null;
-    return { v, line, ticket: k || null, started: kitchenStarted(k?.status) };
+    // Started when any station has started on it: the dish itself, or a part of it at another station (lib/two-stations).
+    const parts: any[] = await Promise.all((Array.isArray(line.alsoKdsIds) ? line.alsoKdsIds : []).map(String).filter((id: string) => ID.test(id)).map(async (id: string) => (await db.doc(`${T}/kdsTickets/${id}`).get()).data() || null));
+    return { v, line, ticket: k || null, started: kitchenStarted(k?.status) || parts.some((p) => !!p && kitchenStarted(p.status)) };
   };
   const reasonOf = () => { const r = words(b.reason, 80); return r && r !== OTHER_REASON ? r : ''; };
   // A record of what was done, where no browser can change it (an approval used once, or one written here). Written in
@@ -220,7 +223,8 @@ export async function POST(req: NextRequest) {
         if (v.status === 'completed' && v.checkoutSessionId) throw new Stop('That table has already paid.');
         const tab: any[] = Array.isArray(v.tab) ? v.tab : [];
         const lines = tab.filter((l) => Number(l?.course) === n && !l?.firedAt);
-        const refs = lines.filter((l) => l.kdsId && ID.test(String(l.kdsId))).map((l) => db.doc(`${T}/kdsTickets/${l.kdsId}`));
+        // (Each line's own ticket and its parts' at other stations: lib/two-stations.)
+        const refs = lines.flatMap((l) => lineTicketIds(l)).filter((id) => ID.test(id)).map((id) => db.doc(`${T}/kdsTickets/${id}`));
         const snaps = refs.length ? await Promise.all(refs.map((r: any) => tx.get(r))) : [];
         // Waiting to be fired, or taken off after 16 hours untouched (api/kitchen): either way the kitchen gets it now.
         snaps.forEach((s: any, i: number) => { const k: any = s.exists ? s.data() || {} : null;
@@ -255,7 +259,8 @@ export async function POST(req: NextRequest) {
         if (!v) throw new Stop('That table’s visit wasn’t found.', 404);
         if (v.status === 'completed' && v.checkoutSessionId) throw new Stop('That table has already paid.');
         const tab: any[] = Array.isArray(v.tab) ? v.tab : [];
-        const lines = tab.filter((l) => l?.kdsId && ID.test(String(l.kdsId)));
+        // Every ticket of every line: its own, and its parts' at other stations (lib/two-stations).
+        const lines = tab.flatMap((l) => lineTicketIds(l).filter((id) => ID.test(id)).map((id) => ({ ...l, kdsId: id })));
         const snaps = lines.length ? await Promise.all(lines.map((l) => tx.get(db.doc(`${T}/kdsTickets/${l.kdsId}`)))) : [];
         let next = tableAllergies(v);
         if (op === 'seed') { if (v.allergiesSeeded) return next; if (profile && !next.some((a) => a.from === 'profile')) next = [...next, profile]; }
@@ -284,11 +289,12 @@ export async function POST(req: NextRequest) {
         const v: any = (await tx.get(vRef)).data(); const tab: any[] = Array.isArray(v?.tab) ? v.tab : [];
         if (v?.status === 'completed' && v?.checkoutSessionId) throw new Stop('That table has already paid.');
         const l = tab.find((x) => x?.lineId === lineId); if (!l) throw new Stop('That item isn’t on the tab any more.', 404);
-        const kRef = l.kdsId && ID.test(String(l.kdsId)) ? db.doc(`${T}/kdsTickets/${l.kdsId}`) : null;
-        const k: any = kRef ? (await tx.get(kRef)).data() : null;
+        // (Its own ticket and its parts' at other stations move together: lib/two-stations.)
+        const kRefs = lineTicketIds(l).filter((id) => ID.test(id)).map((id) => db.doc(`${T}/kdsTickets/${id}`));
+        const ks: any[] = await Promise.all(kRefs.map(async (r: any) => (await tx.get(r)).data()));
         tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, seat } : x)), updatedAt: now }, { merge: true });
         // The new seat's allergies go with it (and the whole table's), so the kitchen never makes it for the old seat.
-        if (kRef && k) tx.set(kRef, { seatNumber: seat, ...(ticketAllergyPatch(k, tableAllergies(v), seat, Array.isArray(l.allergens) ? l.allergens : []) || {}) }, { merge: true });
+        kRefs.forEach((kRef: any, i: number) => { const k = ks[i]; if (k) tx.set(kRef, { seatNumber: seat, ...(ticketAllergyPatch(k, tableAllergies(v), seat, Array.isArray(l.allergens) ? l.allergens : []) || {}) }, { merge: true }); });
       });
       return ok({ seat });
     }
@@ -371,9 +377,12 @@ export async function POST(req: NextRequest) {
         const cur: any = (await tx.get(vRef)).data(); const tab: any[] = Array.isArray(cur?.tab) ? cur.tab : [];
         const kRef = line.kdsId && ID.test(String(line.kdsId)) ? db.doc(`${T}/kdsTickets/${line.kdsId}`) : null;
         const k: any = kRef ? (await tx.get(kRef)).data() : null;
+        // Its parts made at other stations (lib/two-stations) come off with it.
+        const pRefs = (Array.isArray(line.alsoKdsIds) ? line.alsoKdsIds : []).map(String).filter((id: string) => ID.test(id)).map((id: string) => db.doc(`${T}/kdsTickets/${id}`));
+        const pks: any[] = await Promise.all(pRefs.map(async (r: any) => (await tx.get(r)).data()));
         if (!tab.some((x) => x?.lineId === lineId)) throw new Stop('That item is already off the tab.', 409);
         // Started after the check above was made: it needs what a started item needs.
-        if (!started && kitchenStarted(k?.status) && !manager) throw new Stop('The kitchen started it just now, so a manager approves. Try again.', 409);
+        if (!started && (kitchenStarted(k?.status) || pks.some((pk) => !!pk && kitchenStarted(pk.status))) && !manager) throw new Stop('The kitchen started it just now, so a manager approves. Try again.', 409);
         // Started and stopped before it was ready: what went into it is waste (lib/recipe-stock-server). One already
         // ready took its ingredients then.
         const st = String(k?.status || ''); const stops = !!(kRef && k) && (!kitchenStarted(st) || (stop && st !== 'delivered'));
@@ -384,16 +393,18 @@ export async function POST(req: NextRequest) {
           else tx.set(kRef, { voided: true, voidReason: reason }, { merge: true });
           if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Voided after the kitchen started: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
         }
+        pRefs.forEach((r: any, i: number) => { const pk = pks[i]; if (!pk) return; const ps = String(pk.status || '');
+          tx.set(r, !kitchenStarted(ps) || (stop && ps !== 'delivered') ? { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason } : { voided: true, voidReason: reason }, { merge: true }); });
         tx.set(rRef, recordOf(rRef, 'void_item', token, extra), { merge: true });
       }));
       await logAuditAdmin(db, tenantId, { action: 'tab.void', targetType: 'appointment', targetId: visitId, amount, summary: `${me.name} voided ${line.name} (${money(amount)}) at ${v.tableName || 'a table'}: ${reason}${started ? `. The kitchen had started it${waste !== null ? `; ${money(waste)} counts as waste` : ''}.` : ''}${approvedBy !== me.name ? ` ${approvedBy} approved.` : ''}`, actor: { type: 'user', id: me.id, name: me.name } } as any).catch(() => {});
       // Already on paper at a station's printer: a "Taken off" slip there too (lib/printing-server). Read again now it's
       // off, so a printer that printed it a moment ago is told as well; one the kitchen carries on with isn't.
-      if (line.kdsId && ID.test(String(line.kdsId))) {
-        const k: any = (await db.doc(`${T}/kdsTickets/${line.kdsId}`).get().catch(() => null))?.data();
+      for (const tid of lineTicketIds(line)) {
+        const k: any = (await db.doc(`${T}/kdsTickets/${tid}`).get().catch(() => null))?.data();
         if (k?.status === 'cancelled' && k.printed && typeof k.printed === 'object' && Object.values(k.printed).some(Boolean)) {
           const PS = await import('@/lib/printing-server');
-          await PS.queueVoids(db, T, tenant, [{ ...k, id: line.kdsId }], me.name).catch((e) => console.warn('[tab void] print', e));
+          await PS.queueVoids(db, T, tenant, [{ ...k, id: tid }], me.name).catch((e) => console.warn('[tab void] print', e));
         }
       }
       await logTableFix(db, tenantId, { id: me.id, name: me.name, role: String((auth.actor as any)?.role || 'staff'), manager }, visitId, { kind: 'void', item: String(line.name || 'Item').slice(0, 80), amount, reason }).catch((e) => console.warn('[tab] case', e));
@@ -414,6 +425,9 @@ export async function POST(req: NextRequest) {
         const k: any = (await tx.get(oldRef)).data() || {};
         const l = tab.find((x) => x?.lineId === lineId);
         if (!l || l.kdsId !== line.kdsId) throw new Stop('That item changed while this was being done. Try again.', 409);
+        // Its parts at other stations (lib/two-stations) are made again with it: the whole plate goes out again.
+        const oldParts = (Array.isArray(l.alsoKdsIds) ? l.alsoKdsIds : []).map(String).filter((id: string) => ID.test(id));
+        const pks: any[] = await Promise.all(oldParts.map(async (id: string) => (await tx.get(db.doc(`${T}/kdsTickets/${id}`))).data() || null));
         // The first plate, started but not yet ready: what went into it is waste (one that was ready took its
         // ingredients then). The new plate takes its own when it's made.
         const wasted = k.partsUsed !== true && !k.channel && kitchenStarted(k.status) ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1)) : null;
@@ -425,7 +439,12 @@ export async function POST(req: NextRequest) {
         if (String(k.status) !== 'delivered') tx.set(oldRef, { status: 'cancelled', cancelledAt: now, remadeAs: newId, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
         else tx.set(oldRef, { remadeAs: newId }, { merge: true });
         if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Made again: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
-        tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, kdsId: newId } : x)), updatedAt: now }, { merge: true });
+        const newParts: string[] = [];
+        oldParts.forEach((pid: string, i: number) => { const pk = pks[i]; if (!pk) return; const nid = partTicketId(newId, i); newParts.push(nid);
+          const pkeep = Object.fromEntries(Object.entries(pk).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy'].includes(f)));
+          tx.set(db.doc(`${T}/kdsTickets/${nid}`), { ...pkeep, allergies: al.allergies, contains: al.contains, id: nid, partOf: newId, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, remakeOf: pid, remakeReason: reason, note: [`Remake: ${reason}`, pk.note].filter(Boolean).join('. ').slice(0, 200) });
+          tx.set(db.doc(`${T}/kdsTickets/${pid}`), String(pk.status) !== 'delivered' ? { status: 'cancelled', cancelledAt: now, remadeAs: nid } : { remadeAs: nid }, { merge: true }); });
+        tx.set(vRef, { tab: tab.map((x) => (x.lineId === lineId ? { ...x, kdsId: newId, ...(oldParts.length ? { alsoKdsIds: newParts } : {}) } : x)), updatedAt: now }, { merge: true });
         tx.set(rRef, recordOf(rRef, 'remake', null, { amount: 0, itemName: String(line.name || 'Item').slice(0, 80), itemId: line.itemId || null, reason, started: true, wasteCost: waste, ticketStatus: ticket.status || null, tableName: v.tableName || null, askedBy: me.name, approverName: me.name, newTicket: newId }));
       });
       await logAuditAdmin(db, tenantId, { action: 'tab.remake', targetType: 'appointment', targetId: visitId, summary: `${me.name} had ${line.name} made again at ${v.tableName || 'a table'}: ${reason}${waste !== null ? `. ${money(waste)} counts as waste.` : ''}`, actor: { type: 'user', id: me.id, name: me.name } } as any).catch(() => {});
