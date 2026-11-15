@@ -20,6 +20,7 @@ type Night = {
   state: { states: Record<string, 'done' | 'next' | 'later'>; next: Moment | null; inMin: number | null } | null;
   pacing: Pacing | null;
   prep: { guests: number; dishes: { id: string; name: string; course: number; portions: number }[]; unchosen: number; allergies: { name: string; count: number }[]; diets: { name: string; count: number }[] };
+  seats: { paid: boolean; chart: boolean; total: number; taken: number; on: boolean; wholeTables: boolean };
 };
 
 async function post(body: any) {
@@ -150,6 +151,18 @@ export default function EventNightPanel({ tenantId, eventId, firedKey, onFire }:
           </p>}
         </div>
       </div>
+      {n.seats.paid && (manager || n.seats.on) && (
+        <div className={card} style={{ borderColor: LINE }}>
+          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[15px] font-semibold">Seats online</h3>
+            {n.seats.chart && <span className="text-[13px] tabular-nums" style={{ color: MUTED }}>{n.seats.taken} of {n.seats.total} seats taken</span>}</div>
+          {!n.seats.chart ? <p className="mt-1 text-[13.5px]" style={{ color: MUTED }}>Set up the seating chart, with its tables and seats, and guests can choose their seats when they buy tickets.</p> : (<>
+            <p className="mt-1 text-[13.5px]" style={{ color: MUTED }}>{n.seats.on ? `Guests choose their seats on the map when they buy tickets${n.seats.wholeTables ? ', and can buy a whole table' : ''}.` : 'Guests buy tickets and you seat them. Turn this on and they choose their seats on the map.'}</p>
+            {manager && <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" aria-pressed={n.seats.on} disabled={busy === 'seats'} onClick={() => act('seats', { action: 'seats', on: !n.seats.on, wholeTables: n.seats.wholeTables })} className={btn} style={n.seats.on ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{n.seats.on ? 'Seat choice is on' : 'Let guests choose seats'}</button>
+              {n.seats.on && <button type="button" aria-pressed={n.seats.wholeTables} disabled={busy === 'seats'} onClick={() => act('seats', { action: 'seats', on: true, wholeTables: !n.seats.wholeTables })} className={btn} style={n.seats.wholeTables ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}` }}>{n.seats.wholeTables ? 'Whole tables sell online' : 'Sell whole tables too'}</button>}
+            </div>}
+          </>)}
+        </div>)}
     </section>
   );
 }

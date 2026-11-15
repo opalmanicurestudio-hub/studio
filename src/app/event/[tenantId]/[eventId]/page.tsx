@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { BusinessHead, Button, CARD, INPUT, LABEL, LINE, MUTED, Note, PinForm, AMBER, Shell, askEvent, calendarHref, savePin, savedPin, whenLabel } from '@/components/events/guest-shell';
+import SeatPicker, { type Pick } from '@/components/events/SeatPicker';
 
 export default function EventGuestPage() {
   const { tenantId, eventId } = useParams() as { tenantId: string; eventId: string };
@@ -14,6 +15,7 @@ export default function EventGuestPage() {
   const [name, setName] = React.useState(''); const [email, setEmail] = React.useState(''); const [phone, setPhone] = React.useState(''); const [places, setPlaces] = React.useState(1);
   const [trap, setTrap] = React.useState(''); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState(''); const [done, setDone] = React.useState<any>(null);
   const [qty, setQty] = React.useState(1); const [paying, setPaying] = React.useState<'checking' | 'slow' | null>(null);
+  const [picks, setPicks] = React.useState<Pick[]>([]); const [whole, setWhole] = React.useState<string | null>(null);
 
   // Back from the checkout: paid (confirmed here, waiting a little if the payment is still settling), or left without
   // paying (the places held for them go back on sale). The address is tidied so a refresh doesn't ask again.
@@ -26,8 +28,8 @@ export default function EventGuestPage() {
     (async () => {
       for (let i = 0; i < 6 && !stop; i++) {
         const r = await askEvent({ action: 'paid', tenantId, eventId, session });
-        if (r.ok && r.status === 'paid') { setDone({ tickets: r.qty, title: r.title, buyer: r.name }); setPaying(null); tidy(); return; }
-        if (r.ok && r.status === 'sold_out') { setPaying(null); setMsg('This event sold out while you were paying, so your payment has been refunded. It can take a few days to show on your card.'); tidy(); return; }
+        if (r.ok && r.status === 'paid') { setDone({ tickets: r.qty, title: r.title, buyer: r.name, seats: r.seats || null }); setPaying(null); tidy(); return; }
+        if (r.ok && r.status === 'sold_out') { setPaying(null); setMsg(r.seatTaken ? 'Those seats were given to someone else while you were paying, so your payment has been refunded. It can take a few days to show on your card. You can choose other seats.' : 'This event sold out while you were paying, so your payment has been refunded. It can take a few days to show on your card.'); tidy(); return; }
         if (!r.ok && !r.retry) { setPaying(null); setMsg(r.error || 'We couldn’t find that payment.'); tidy(); return; }
         await new Promise((res) => setTimeout(res, 2000));
       }
@@ -42,7 +44,7 @@ export default function EventGuestPage() {
     if (!r.ok) { setErr(r.error || 'We couldn’t load this event.'); return; }
     if (!r.needsPin && p) savePin(tenantId, eventId, p);
     if (r.needsPin && kept) { savePin(tenantId, eventId, ''); r.pinError = null; }
-    setPin(r.needsPin ? '' : p); setD(r);
+    setPin(r.needsPin ? '' : p); setD(r); return r;
   }, [tenantId, eventId]);
   React.useEffect(() => { const k = savedPin(tenantId, eventId); load(k, !!k); }, [load, tenantId, eventId]);
 
@@ -67,6 +69,7 @@ export default function EventGuestPage() {
     <div className="space-y-2 p-5" style={CARD}>
       <p className="text-[20px] font-semibold">You’re going</p>
       <p className="text-[15.5px] leading-relaxed">{done.tickets > 1 ? `You have ${done.tickets} tickets. Your guests are on the list under your name.` : 'You have a ticket.'} Your confirmation is on its way by email. Just give your name at the door.</p>
+      {done.seats && <p className="text-[16px] font-semibold">Your {done.tickets === 1 ? 'seat' : 'seats'}: {done.seats}</p>}
     </div>
     {orderOpen && <a href={mealLink} className="flex h-[54px] w-full items-center justify-center rounded-full text-[16px] font-medium text-white" style={{ background: color }}>Choose your meal</a>}
     {cal && <a href={cal} download="event.ics" className="flex h-11 items-center justify-center text-[15px] underline underline-offset-2">Add to calendar</a>}
@@ -94,27 +97,36 @@ export default function EventGuestPage() {
     if (tk.block) return <Shell>{head}{msg && <Note tone="warn">{msg}</Note>}<Note>{tk.block}</Note></Shell>;
     if (tLeft === 0) return <Shell>{head}{msg && <Note tone="warn">{msg}</Note>}<Note tone="warn">This event is sold out.</Note></Shell>;
     const maxQty = Math.max(1, Math.min(tk.max || 8, tLeft ?? (tk.max || 8)));
-    const each = (tk.cents / 100).toFixed(2).replace(/\.00$/, ''); const total = ((tk.cents * qty) / 100).toFixed(2).replace(/\.00$/, '');
+    // Seats chosen on the map (lib/event-seats): the tickets are the seats.
+    const seatsOn = !!tk.seats; const wholeSeats = whole ? (tk.seats?.tables || []).find((t: any) => t.id === whole)?.seats.length || 0 : 0;
+    const count = seatsOn ? (whole ? wholeSeats : picks.length) : qty;
+    const each = (tk.cents / 100).toFixed(2).replace(/\.00$/, ''); const total = ((tk.cents * count) / 100).toFixed(2).replace(/\.00$/, '');
     const buy = async () => {
       setMsg('');
       if (!name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setMsg('Add your name and email.'); return; }
+      if (seatsOn && !count) { setMsg('Choose your seats on the map.'); return; }
       setBusy(true);
-      const r = await askEvent({ action: 'buy', tenantId, eventId, pin: pin || undefined, name, email, phone, qty, ev_ref: trap });
+      const r = await askEvent({ action: 'buy', tenantId, eventId, pin: pin || undefined, name, email, phone, qty: count, ev_ref: trap, ...(seatsOn ? (whole ? { wholeTable: whole } : { seats: picks }) : {}) });
       if (r.ok && r.url) { window.location.assign(r.url); return; }
       setBusy(false);
       if (r.needsPin) { await load(''); return; }
-      setMsg(r.error || 'That didn’t go through.'); if (typeof r.left === 'number') { if (qty > r.left) setQty(Math.max(1, r.left)); load(pin); }
+      setMsg(r.error || 'That didn’t go through.');
+      // A seat taken meanwhile: the map is read again, and what's still open stays chosen.
+      if (seatsOn) { const fresh = await load(pin); const open = new Set<string>(((fresh as any)?.tickets?.seats?.tables || []).flatMap((t: any) => t.seats.filter((x: any) => x.state === 'open').map((x: any) => `${t.id}|${x.id}`)));
+        if (fresh) { setPicks((ps) => ps.filter((x) => open.has(`${x.tableId}|${x.seatId}`))); setWhole(null); } return; }
+      if (typeof r.left === 'number') { if (qty > r.left) setQty(Math.max(1, r.left)); load(pin); }
     };
     return <Shell>{head}
       <p className="text-[15px]">${each} a ticket{tLeft !== null ? <span style={{ color: MUTED }}> · {tLeft === 1 ? '1 left' : `${tLeft} left`}</span> : null}</p>
       <form className="space-y-4 p-5" style={CARD} onSubmit={(ev) => { ev.preventDefault(); buy(); }}>
-        <p className="text-[18px] font-semibold">Get tickets</p>
-        <div><p className={LABEL}>How many</p>
+        <p className="text-[18px] font-semibold">{seatsOn ? 'Choose your seats' : 'Get tickets'}</p>
+        {seatsOn ? <SeatPicker tables={tk.seats.tables} wholeTables={!!tk.seats.wholeTables} picks={picks} whole={whole} max={maxQty} onPicks={setPicks} onWhole={setWhole} /> : <div><p className={LABEL}>How many</p>
           <div className="mt-1.5 flex items-center gap-3">
             <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((x) => Math.max(1, x - 1))} className="h-11 w-11 rounded-full border bg-white text-[20px] disabled:opacity-40" style={{ borderColor: LINE }}>−</button>
             <span className="min-w-8 text-center text-[20px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
             <button type="button" aria-label="One more" disabled={qty >= maxQty} onClick={() => setQty((x) => Math.min(maxQty, x + 1))} className="h-11 w-11 rounded-full border bg-white text-[20px] disabled:opacity-40" style={{ borderColor: LINE }}>+</button>
-          </div></div>
+          </div></div>}
+        {seatsOn && count > 0 && <p className="text-[15px]" aria-live="polite"><span className="font-semibold">{count} {count === 1 ? 'seat' : 'seats'}</span> <span style={{ color: MUTED }}>at ${each} each</span></p>}
         <label className={LABEL}>Name<input value={name} onChange={(x) => setName(x.target.value)} autoComplete="name" className={INPUT} style={{ borderColor: LINE }} /></label>
         <label className={LABEL}>Email<input type="email" value={email} onChange={(x) => setEmail(x.target.value)} autoComplete="email" inputMode="email" aria-describedby="tk-email" className={INPUT} style={{ borderColor: LINE }} />
           <span id="tk-email" className="mt-1 block text-[13px] font-normal" style={{ color: MUTED }}>Your tickets are sent here.</span></label>

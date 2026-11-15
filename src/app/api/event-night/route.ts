@@ -5,11 +5,13 @@
 //                                                 (fresh: read again now, as after a course fires).
 //   show { tenantId, eventId, show: Moment[] }  → the run of show, as a manager set it.
 //   push { tenantId, eventId, minutes }         → everything still to come, that much later (5 to 60 minutes).
+//   seats { tenantId, eventId, on, wholeTables } → guests choose their seats when buying tickets, and may buy a whole
+//                                                 table (lib/event-seats); needs the event's seating chart.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { PUSH_MAX, PUSH_MIN } from '@/lib/event-night';
-import { eventNightFor, pushShow, saveShow } from '@/lib/event-night-server';
+import { eventNightFor, pushShow, saveSeatPicking, saveShow } from '@/lib/event-night-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -21,7 +23,7 @@ export async function POST(req: NextRequest) {
   const tenantId = String(b.tenantId || ''); const eventId = String(b.eventId || ''); const action = String(b.action || 'view');
   if (!ID.test(tenantId)) return bad('Which business?');
   if (!ID.test(eventId)) return bad('Which event?');
-  if (!['view', 'show', 'push'].includes(action)) return bad('Unknown action.');
+  if (!['view', 'show', 'push', 'seats'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, action === 'view' ? 'staff' : 'manager'); if (g.deny) return g.deny;
   if (g.actor?.isRenter || g.actor?.role === 'renter') return bad('The event is the business’s own.', 403);
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
@@ -34,6 +36,12 @@ export async function POST(req: NextRequest) {
       if (r === 'missing') return bad('That event isn’t here any more.', 404);
       if (!r) return bad('Each moment needs a time and what happens, a course only once, and no more than 20.');
       return ok({ show: r });
+    }
+    if (action === 'seats') {
+      const r = await saveSeatPicking(db, T, eventId, b.on === true, b.wholeTables === true);
+      if (r === 'missing') return bad('That event isn’t here any more.', 404);
+      if (r === 'no_chart') return bad('Set up the seating chart first, with its tables and seats.', 409);
+      return ok({});
     }
     if (action === 'push') {
       const m = Number(b.minutes);

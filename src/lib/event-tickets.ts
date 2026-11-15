@@ -12,6 +12,7 @@
 //     its guests come off the list, and the refund goes in the books. Nothing is ever charged automatically.
 // A paused or locked business sells nothing (the route asks lib/tenant-open-server first).
 
+import { anyInUse, MAX_TABLE_SEATS, pickSeats, seatPickingOf, seatsInUse, seatWords, type SeatRef } from '@/lib/event-seats';
 import type { Firestore } from 'firebase-admin/firestore';
 import { createCheckoutSession } from '@/lib/pay-later';
 import { linkOrigin } from '@/lib/app-origin';
@@ -65,7 +66,7 @@ const whenOf = (ev: any) => {
 export type StartResult = { ok: true; url: string; orderId: string } | { ok: false; error: string; status: number; left?: number };
 
 /** Holds the places and opens a checkout on the business's account. */
-export async function startTicketOrder(db: Firestore, stripe: any, input: { tenantId: string; eventId: string; name: any; email: any; phone?: any; qty: any; origin: string; today: string; visitor?: string }): Promise<StartResult> {
+export async function startTicketOrder(db: Firestore, stripe: any, input: { tenantId: string; eventId: string; name: any; email: any; phone?: any; qty: any; origin: string; today: string; visitor?: string; seats?: unknown; wholeTable?: unknown }): Promise<StartResult> {
   const { tenantId, eventId } = input;
   if (!ID.test(tenantId) || !ID.test(eventId)) return { ok: false, error: 'This link isn’t complete.', status: 400 };
   const name = clip(input.name, 120), email = String(input.email ?? '').trim().toLowerCase().slice(0, 160), phone = clip(input.phone, 40);
@@ -83,21 +84,34 @@ export async function startTicketOrder(db: Firestore, stripe: any, input: { tena
   const held = await db.runTransaction(async (tx: any) => {
     const ev: any = (await tx.get(evRef)).data();
     const b = ev ? saleBlock(ev, t, input.today) : 'We couldn’t find this event.'; if (b) return { ok: false as const, error: b };
-    const guests = (await tx.get(db.collection(`${T}/eventGuests`).where('eventId', '==', eventId))).size;
+    const list = (await tx.get(db.collection(`${T}/eventGuests`).where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {});
+    const guests = list.length;
     const open = (await tx.get(orders.where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {});
     const left = placesLeft(ev, guests, open);
+    // Seats chosen on the map (lib/event-seats): checked here, in the same step as the hold, so two people can't take the
+    // same seat; the number of tickets is the number of seats.
+    let q = qty; let seats: SeatRef[] | null = null; let whole: string | null = null;
+    if (seatPickingOf(ev).on) {
+      const pick = pickSeats(ev, seatsInUse(list, open), { picks: input.seats, wholeTable: input.wholeTable, max: MAX_TICKETS });
+      if (!pick.ok) return { ok: false as const, error: pick.error };
+      seats = pick.seats; whole = pick.whole; q = seats.length;
+      // No more than a table's worth of seats held at once from one connection.
+      const holding = input.visitor ? open.filter((o: any) => o.visitor === input.visitor && o.status === 'pending' && Date.parse(String(o.holdUntil || '')) > Date.now()).reduce((n: number, o: any) => n + (Number(o.qty) || 0), 0) : 0;
+      if (holding + q > MAX_TABLE_SEATS) return { ok: false as const, error: 'You have seats waiting at checkout already. Finish paying for those first.' };
+    }
     if (left === 0) return { ok: false as const, error: 'This event is sold out.', left: 0 };
     // Three checkouts open at a time from any one connection (a group on one Wi-Fi can still buy together), so nobody can
     // hold an event's places by opening more.
     const mine = input.visitor ? open.filter((o: any) => o.visitor === input.visitor && o.status === 'pending' && !o.checkoutFailed && Date.parse(String(o.holdUntil || '')) > Date.now()).length : 0;
     if (mine >= 3) return { ok: false as const, error: 'You already have a checkout open for this event. Finish it there, or try again in half an hour.' };
-    if (left !== null && qty > left) return { ok: false as const, error: `Only ${left} ${left === 1 ? 'ticket is' : 'tickets are'} left.`, left };
+    if (left !== null && q > left) return { ok: false as const, error: `Only ${left} ${left === 1 ? 'ticket is' : 'tickets are'} left.`, left };
     const cents = ticketCents(ev); const now = new Date();
-    tx.set(orderRef, { id: orderRef.id, tenantId, eventId, eventTitle: clip(ev.title || ev.name, 120) || 'the event', status: 'pending', qty, unitCents: cents, totalCents: cents * qty,
+    tx.set(orderRef, { id: orderRef.id, tenantId, eventId, eventTitle: clip(ev.title || ev.name, 120) || 'the event', status: 'pending', qty: q, unitCents: cents, totalCents: cents * q,
+      ...(seats ? { seats } : {}), ...(whole ? { wholeTable: whole } : {}),
       name, email, phone: phone || null, account, createdAt: now.toISOString(), holdUntil: new Date(now.getTime() + HOLD_MS).toISOString(), ...(input.visitor ? { visitor: input.visitor } : {}) });
     // Touched so two checkouts opening at the same moment can't both take the last places.
     tx.set(evRef, { ticketsTouchedAt: now.toISOString() }, { merge: true });
-    return { ok: true as const, cents, title: clip(ev.title || ev.name, 120) || 'Event', ev };
+    return { ok: true as const, cents, title: clip(ev.title || ev.name, 120) || 'Event', ev, q, seats };
   });
   if (!held.ok) return { ok: false, error: held.error, status: 409, ...(typeof (held as any).left === 'number' ? { left: (held as any).left } : {}) };
 
@@ -105,7 +119,7 @@ export async function startTicketOrder(db: Firestore, stripe: any, input: { tena
   const meta = { kind: 'event_ticket', tenantId, eventId, orderId: orderRef.id };
   const params = {
       mode: 'payment', payment_method_types: ['card'],
-      line_items: [{ quantity: qty, price_data: { currency: 'usd', unit_amount: held.cents, product_data: { name: `Ticket: ${held.title}`, ...(whenOf(held.ev) ? { description: whenOf(held.ev) } : {}) } } }],
+      line_items: [{ quantity: held.q, price_data: { currency: 'usd', unit_amount: held.cents, product_data: { name: `Ticket: ${held.title}`, ...(whenOf(held.ev) || held.seats ? { description: [whenOf(held.ev), held.seats ? seatWords(held.seats) : ''].filter(Boolean).join('. ').slice(0, 300) } : {}) } } }],
       customer_email: email,
       expires_at: Math.floor((Date.now() + CHECKOUT_MS) / 1000),
       payment_intent_data: { receipt_email: email, metadata: meta },
@@ -159,7 +173,7 @@ export async function expireTicketOrder(db: Firestore, tenantId: string, orderId
   });
 }
 
-export type FinishResult = { ok: true; status: 'paid' | 'pending' | 'sold_out'; title: string; qty: number; name: string } | { ok: false; error: 'not_found' | 'retry' };
+export type FinishResult = { ok: true; status: 'paid' | 'pending' | 'sold_out'; title: string; qty: number; name: string; seats?: string | null; seatTaken?: boolean } | { ok: false; error: 'not_found' | 'retry' };
 
 /** After payment: the guests go on the list, the sale goes in the books, and both sides are told (once, however often
  *  this runs). `given` is the checkout when the caller already has it (the payments notice). */
@@ -174,8 +188,9 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
   const ref = db.doc(`${T}/eventTicketOrders/${orderId}`);
   const o: any = (await ref.get()).data();
   if (!o || o.tenantId !== tenantId || (o.sessionId && o.sessionId !== sessionId)) return { ok: false, error: 'not_found' };
-  const out = (status: 'paid' | 'pending' | 'sold_out') => ({ ok: true as const, status, title: String(o.eventTitle || 'the event'), qty: Number(o.qty) || 1, name: String(o.name || '') });
-  if (o.status === 'refunded' && o.why === 'sold_out') return out('sold_out');
+  const out = (status: 'paid' | 'pending' | 'sold_out', seatTaken = false) => ({ ok: true as const, status, title: String(o.eventTitle || 'the event'), qty: Number(o.qty) || 1, name: String(o.name || ''),
+    seats: status === 'paid' && Array.isArray(o.seats) && o.seats.length ? seatWords(o.seats) : null, ...(seatTaken ? { seatTaken: true } : {}) });
+  if (o.status === 'refunded' && o.why === 'sold_out') return out('sold_out', o.seatTaken === true);
   if (o.status === 'paid' || o.status === 'refunded') {
     // A confirmation that didn't go the first time is tried again (the return page, Stripe's notice, the daily sweep).
     if (o.status === 'paid' && !o.buyerToldAt) await tellBuyerOnce(db, tenantId, t, ref);
@@ -195,7 +210,8 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
   const paidAt = Number(session.created) > 0 ? new Date(Number(session.created) * 1000).toISOString() : new Date().toISOString();
   const charged = Number(session.amount_total) || Number(o.totalCents) || 0;
   const evRef = db.doc(`${T}/studioEvents/${o.eventId}`);
-  const qty = Math.max(1, Math.min(MAX_TICKETS, Number(o.qty) || 1));
+  const orderSeats: SeatRef[] = Array.isArray(o.seats) ? o.seats : [];
+  const qty = Math.max(1, Math.min(o.wholeTable ? MAX_TABLE_SEATS : MAX_TICKETS, Number(o.qty) || 1));
   const guestRefs = Array.from({ length: qty }, (_, i) => db.doc(`${T}/eventGuests/ticket_${orderId}_${i + 1}`));
   const lineRef = db.doc(`${T}/transactions/ticket_${orderId}`);
 
@@ -207,19 +223,28 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
     const ev: any = (await tx.get(evRef)).data() || {};
     const have = await Promise.all(guestRefs.map((g) => tx.get(g)));
     const line = await tx.get(lineRef);
+    // Seats chosen on the map: a seat the team gave someone by hand while this was being paid for (the chart doesn't
+    // see checkouts) means the money goes back, rather than two guests in one seat.
+    if (orderSeats.length && cur.status === 'pending') {
+      const listed = (await tx.get(db.collection(`${T}/eventGuests`).where('eventId', '==', o.eventId))).docs.map((d: any) => d.data() || {}).filter((g: any) => g.ticketOrderId !== orderId);
+      if (anyInUse(seatsInUse(listed, []), orderSeats)) { tx.set(ref, { status: 'refunding', why: 'seat_taken', paymentIntentId: piId, paidCents: charged }, { merge: true }); return 'sold_out' as const; }
+    }
     // Paid after its places were let go (its checkout closed or the guest left it, so this shouldn't happen): it takes
     // them only if they're still free; otherwise the money goes back.
     if (cur.status !== 'pending') {
-      const onList = (await tx.get(db.collection(`${T}/eventGuests`).where('eventId', '==', o.eventId))).size;
+      const listed = (await tx.get(db.collection(`${T}/eventGuests`).where('eventId', '==', o.eventId))).docs.map((d: any) => d.data() || {}).filter((g: any) => g.ticketOrderId !== orderId);
+      const onList = listed.length;
       const others = (await tx.get(db.collection(`${T}/eventTicketOrders`).where('eventId', '==', o.eventId))).docs.map((d: any) => d.data() || {}).filter((x: any) => x.id !== orderId);
       const left = placesLeft(ev, onList, others);
-      if (left !== null && left < have.filter((h: any) => !h.exists).length) { tx.set(ref, { status: 'refunding', why: 'sold_out', paymentIntentId: piId, paidCents: charged }, { merge: true }); return 'sold_out' as const; }
+      // Its seats too: taken meanwhile by someone else, the money goes back.
+      const seatGone = anyInUse(seatsInUse(listed, others), orderSeats);
+      if ((left !== null && left < have.filter((h: any) => !h.exists).length) || seatGone) { tx.set(ref, { status: 'refunding', why: 'sold_out', paymentIntentId: piId, paidCents: charged }, { merge: true }); return 'sold_out' as const; }
     }
     const now = new Date().toISOString(); let added = 0;
     guestRefs.forEach((g, i) => {
       if (have[i].exists) return; added++;
       tx.set(g, { id: g.id, eventId: o.eventId, tenantId, name: i === 0 ? o.name : `${o.name} (guest ${i})`, email: i === 0 ? o.email : '', phone: i === 0 ? (o.phone || '') : '',
-        tableId: null, tableNumber: null, seatNumber: null, notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false,
+        tableId: orderSeats[i]?.tableId || null, seatId: orderSeats[i]?.seatId || null, tableNumber: orderSeats[i]?.table || null, seatNumber: orderSeats[i]?.seat || null, notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false,
         source: 'ticket', ticketOrderId: orderId, paidCents: Number(o.unitCents) || Math.round(charged / qty), submittedAt: now });
     });
     if (added) tx.set(evRef, { rsvpCount: (Number(ev.rsvpCount) || 0) + added, ticketsSold: (Number(ev.ticketsSold) || 0) + added }, { merge: true });
@@ -230,7 +255,7 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
     return true;
   });
 
-  if (fresh === 'sold_out') return await refundSoldOut(db, stripe, tenantId, t, ref, o, piId, charged) ? out('sold_out') : { ok: false, error: 'retry' };
+  if (fresh === 'sold_out') return await refundSoldOut(db, stripe, tenantId, t, ref, o, piId, charged) ? out('sold_out', (await ref.get()).data()?.seatTaken === true) : { ok: false, error: 'retry' };
   if (fresh) {
     const after: any = (await ref.get()).data() || {};
     if (!after.buyerToldAt) await tellBuyerOnce(db, tenantId, t, ref);
@@ -245,13 +270,15 @@ async function refundSoldOut(db: Firestore, stripe: any, tenantId: string, t: an
   if (!piId) return false;   // a paid checkout always has its payment: tried again until it does
   try { await stripe.refunds.create({ payment_intent: piId, reason: 'requested_by_customer', metadata: { origin: 'app', tenantId, kind: 'event_ticket_refund', orderId: o.id, why: 'sold_out' } }, { stripeAccount: o.account, idempotencyKey: `event-ticket-soldout-${o.id}` }); }
   catch (e: any) { if (e?.code !== 'charge_already_refunded') { console.error('[event-tickets] sold-out refund failed', tenantId, o.id, e?.message); return false; } }
-  await ref.set({ status: 'refunded', why: 'sold_out', refundedAt: new Date().toISOString(), refundedCents: charged }, { merge: true });
-  await tellOwner(db, tenantId, t, `${o.name} paid for ${o.eventTitle || 'your event'} after it sold out, so their ${money(charged)} was refunded.`, `/events/${o.eventId}/manifest`);
+  // A seat someone was given by hand while this was being paid for, or the event filled up.
+  const seatTaken = (await ref.get().then((x: any) => x.data()?.why).catch(() => null)) === 'seat_taken' || o.why === 'seat_taken';
+  await ref.set({ status: 'refunded', why: 'sold_out', ...(seatTaken ? { seatTaken: true } : {}), refundedAt: new Date().toISOString(), refundedCents: charged }, { merge: true });
+  await tellOwner(db, tenantId, t, seatTaken ? `${o.name} paid for seats at ${o.eventTitle || 'your event'} that the team had given to someone else meanwhile, so their ${money(charged)} was refunded.` : `${o.name} paid for ${o.eventTitle || 'your event'} after it sold out, so their ${money(charged)} was refunded.`, `/events/${o.eventId}/manifest`);
   try {
     const { sendNotification } = await import('@/lib/notify'); const { brandedEmailHtml } = await import('@/lib/email-template');
-    const lines = [`Hi ${String(o.name || '').split(' ')[0] || 'there'},`, `${o.eventTitle || 'The event'} sold out while you were paying, so we couldn’t give you a ticket. Your ${money(charged)} is on its way back to your card. It can take a few days to show.`];
+    const lines = [`Hi ${String(o.name || '').split(' ')[0] || 'there'},`, seatTaken ? `The seats you chose for ${o.eventTitle || 'the event'} were given to someone else while you were paying, so we couldn’t give you those tickets. Your ${money(charged)} is on its way back to your card. It can take a few days to show. You’re welcome to choose other seats.` : `${o.eventTitle || 'The event'} sold out while you were paying, so we couldn’t give you a ticket. Your ${money(charged)} is on its way back to your card. It can take a few days to show.`];
     await sendNotification(db, { tenantId, channel: 'email', to: o.email, kind: 'event_ticket', clientName: o.name, subject: `Your payment for ${o.eventTitle || 'the event'} was refunded`, text: lines.join('\n\n'),
-      html: brandedEmailHtml({ studioName: String(t?.name || ''), title: 'Sorry, it sold out', bodyLines: lines } as any), recipientType: 'client' } as any);
+      html: brandedEmailHtml({ studioName: String(t?.name || ''), title: seatTaken ? 'Sorry, those seats were taken' : 'Sorry, it sold out', bodyLines: lines } as any), recipientType: 'client' } as any);
   } catch { /* the refund itself is what matters */ }
   return true;
 }
@@ -290,6 +317,7 @@ async function tellBuyer(db: Firestore, tenantId: string, t: any, o: any, charge
     const qty = Number(o.qty) || 1; const title = String(o.eventTitle || 'the event');
     const lines = [`Hi ${String(o.name || '').split(' ')[0] || 'there'},`, `You have ${qty === 1 ? 'a ticket' : `${qty} tickets`} for ${title}. You paid ${money(charged)}.`,
       ...(whenOf(ev) ? [`When: ${whenOf(ev)}`] : []), ...(ev.venue ? [`Where: ${clip(ev.venue, 120)}`] : []),
+      ...(Array.isArray(o.seats) && o.seats.length ? [`Your ${o.seats.length === 1 ? 'seat' : 'seats'}: ${seatWords(o.seats)}`] : []),
       qty > 1 ? 'Your guests are on the list under your name, so just give your name at the door.' : 'Just give your name at the door.'];
     const subject = `Your ${qty === 1 ? 'ticket' : 'tickets'} for ${title}`;
     const r: any = await sendNotification(db, { tenantId, channel: 'email', to: o.email, kind: 'event_ticket', clientName: o.name, subject, text: lines.join('\n\n'),

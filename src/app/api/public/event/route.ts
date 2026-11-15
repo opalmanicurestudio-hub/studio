@@ -12,6 +12,7 @@
 //   cancel   one place, or all of them; a place freed goes to the first person waiting whose party fits
 //   give     a place to a friend (their own link by email; the place's meal and allergy answers are cleared)
 //   waitlist join it when the event is full;  waitspot / leave  their waitlist link: where they are, or leave
+import { seatMap, seatPickingOf, seatsInUse } from '@/lib/event-seats';
 import { NextRequest, NextResponse } from 'next/server';
 import * as nextServer from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
@@ -150,7 +151,9 @@ export async function POST(req: NextRequest) {
         event: { ...base, venue: clean(ev.venue, 120) || null, menuNote: clean(ev.menuNote, 280) || null, orderingDeadline: typeof ev.orderingDeadline === 'string' ? ev.orderingDeadline : null },
         reserve: { block: reserveBlock(ev, today), placesLeft: free, waitlist: full && waitlistOpen(ev, today) },
         // A paid event: its price, tickets left (less the places held by open checkouts) and whether they're on sale.
-        ...(paidEvent ? { tickets: { cents: ticketCents(ev), left: placesLeft(ev, gs.size, os.docs.map((d: any) => d.data() || {})), block: saleBlock(ev, tenant, today), max: MAX_TICKETS } } : {}),
+        ...(paidEvent ? { tickets: { cents: ticketCents(ev), left: placesLeft(ev, gs.size, os.docs.map((d: any) => d.data() || {})), block: saleBlock(ev, tenant, today), max: MAX_TICKETS,
+          // Seats chosen on the map (lib/event-seats): only open, taken or held, never who.
+          ...(seatPickingOf(ev).on ? { seats: { wholeTables: seatPickingOf(ev).wholeTables, tables: seatMap(ev, seatsInUse(gs.docs.map((d: any) => d.data() || {}), os.docs.map((d: any) => d.data() || {}))) } } : {}) } } : {}),
         order: { block: orderBlock(ev, today), courses: menuCourses(ms.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))), tables: chartTables(ev).map((t) => ({ name: t.name, seats: t.seats.map((s) => s.label) })) },
         allergies: ALLERGY_CHOICES });
     }
@@ -292,7 +295,8 @@ export async function POST(req: NextRequest) {
       if (!name || !EMAIL.test(email)) return out({ ok: false, error: 'Add your name and email.' }, 400);
       // A few checkouts an hour for one email, so nobody can hold an event's places by opening checkout after checkout.
       if (!(await bump(`event-buy-email_${hash(`${tenantId}|${eventId}|${email}`)}_${Math.floor(Date.now() / 3600000)}`, 4, 2 * 3600000))) return out({ ok: false, error: 'Too many tries for now. Please try again in an hour.' }, 429);
-      const r = await startTicketOrder(db, stripe(), { tenantId, eventId, name, email, phone, qty: b.qty, origin: req.nextUrl.origin, today, visitor: hash(`${tenantId}|${visitorIp(req)}`) });
+      const r = await startTicketOrder(db, stripe(), { tenantId, eventId, name, email, phone, qty: b.qty, origin: req.nextUrl.origin, today, visitor: hash(`${tenantId}|${visitorIp(req)}`),
+        ...(Array.isArray(b.seats) ? { seats: b.seats.slice(0, 20) } : {}), ...(b.wholeTable ? { wholeTable: String(b.wholeTable).slice(0, 80) } : {}) });
       return r.ok ? out({ ok: true, url: r.url }) : out({ ok: false, error: r.error, ...(typeof r.left === 'number' ? { left: r.left } : {}) }, r.status);
     }
 

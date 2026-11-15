@@ -1,6 +1,9 @@
 // src/lib/event-night-server.ts — an event's night, put together (lib/event-night): its run of show (saved on the event
 // as runOfShow, or a first one worked out from its start and courses), where the night is, how the courses are going
 // from the kitchen's tickets, and the prep from the guests' choices. Read by api/event-night.
+import { chartTables } from '@/lib/event-guest-link';
+import { seatMap, seatPickingOf, seatsInUse } from '@/lib/event-seats';
+import { isPaidEvent } from '@/lib/event-tickets';
 import { tenantTimeZone, wallParts, dayKey } from '@/lib/tenant-time';
 import { readTime } from '@/lib/event-block';
 import { cleanShow, coursePacing, eventPrep, nightState, pushLater, startOfShow, suggestShow, toHM, toMin, type Moment } from '@/lib/event-night';
@@ -76,7 +79,19 @@ async function build(db: any, T: string, tenant: any, eventId: string) {
     event: { id: eventId, title: String(ev.title || ev.name || 'Event').slice(0, 80), date: String(ev.date || ''), time: startOf(ev), status: String(ev.status || 'upcoming') },
     show, saved, courses: courses.map((n) => ({ n, name: LABELS[n] || `Course ${n}` })), fired: Array.from(fired.keys()),
     onTheNight: night.on, now: toHM(night.nowMin), state, pacing, prep: eventPrep(guests, items),
+    // Seats chosen online when buying tickets (lib/event-seats): the seating chart's seats, and how many are taken.
+    seats: (() => { const chart = chartTables(ev); const total = chart.reduce((a, t) => a + t.seats.length, 0); const sp = seatPickingOf(ev);
+      const taken = seatMap(ev, seatsInUse(guests, [])).reduce((n, t) => n + t.seats.filter((x) => x.state === 'taken').length, 0);
+      return { paid: isPaidEvent(ev), chart: total > 0, total, taken, on: sp.on, wholeTables: sp.wholeTables }; })(),
   };
+}
+
+/** Whether guests choose their seats when they buy tickets, and may buy a whole table. Only with a seating chart. */
+export async function saveSeatPicking(db: any, T: string, eventId: string, on: boolean, wholeTables: boolean): Promise<'ok' | 'missing' | 'no_chart'> {
+  const snap = await db.doc(`${T}/studioEvents/${eventId}`).get(); if (!snap.exists) return 'missing';
+  if (on && !chartTables(snap.data()).some((t) => t.seats.length)) return 'no_chart';
+  await db.doc(`${T}/studioEvents/${eventId}`).set({ seatPicking: { on, wholeTables: on && wholeTables } }, { merge: true });
+  forgetNight(T, eventId); return 'ok';
 }
 
 /** The run of show, as a manager set it (null when it doesn't make sense). */
