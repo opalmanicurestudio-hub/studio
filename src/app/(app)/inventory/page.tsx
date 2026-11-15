@@ -101,7 +101,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, increment, setDoc, writeBatch } from 'firebase/firestore';
 
 import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
 import { addProduct, saveProduct } from '@/lib/codes-client';
@@ -539,13 +539,13 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 ...(item.lot && item.lot.trim() ? { lot: item.lot.trim() } : {}),
               };
               
-              const updatedBatches = [...existingProduct.batches, newBatchData];
-              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+              const updatedBatches = [...(existingProduct.batches || []), newBatchData];
 
+              // Added to what's on the shelf (never worked out again from the batches: a count, or a sale that moved the
+              // total only, would be lost).
               batch.update(productRef, {
-                batches: updatedBatches,
-                totalStock: totalStock,
-                costPerUnit: item.costPerUnit,
+                ...JSON.parse(JSON.stringify({ batches: updatedBatches, costPerUnit: item.costPerUnit })),
+                totalStock: increment(item.quantityReceived),
               });
 
               const stockCorrection: Omit<StockCorrection, 'id'> = {
@@ -590,9 +590,12 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         newStatus = 'Partially Received';
       }
       
-      if (newStatus !== orderToReceive.status) {
+      // What came of each line is kept on the order (damaged ones came too), so Ordering knows what's still to come.
+      {
         const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
-        batch.update(orderRef, { status: newStatus });
+        const came = new Map(receivedItems.map((it) => [it.productId, (Number(it.quantityReceived) || 0) + (Number(it.quantityDamaged) || 0)]));
+        const items = (orderToReceive.items || []).map((it) => (came.get(it.productId) ? { ...it, receivedQuantity: (Number(it.receivedQuantity) || 0) + (came.get(it.productId) || 0) } : it));
+        batch.update(orderRef, JSON.parse(JSON.stringify({ items, ...(newStatus !== orderToReceive.status ? { status: newStatus } : {}) })));
       }
 
       batch.commit().then(async () => {
@@ -639,7 +642,10 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                             <CardTitle>Purchase Orders</CardTitle>
                             <CardDescription>Track your inventory supply orders.</CardDescription>
                         </div>
-                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                          <Button asChild variant="outline" className="min-h-[44px] w-full sm:w-auto"><Link href="/inventory/ordering">What to order</Link></Button>
+                          <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
+                        </div>
                     </div>
                      <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
                         <div className="relative w-full flex-1">
@@ -1081,11 +1087,13 @@ export default function InventoryPage() {
     const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
     const updatedBatches = [...product.batches];
     updatedBatches[batchToIndex] = { ...batchToUpdate, stock: batchToUpdate.stock - quantity };
-    const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+    // Taken off what's on the shelf (never worked out again from the batches: a count, or a sale that moved the total
+    // only, would be lost).
+    const newTotalStock = Math.max(0, (Number(product.totalStock) || 0) - quantity);
     
-    const updatedData: Partial<InventoryItem> = {
+    const updatedData: any = {
       batches: updatedBatches,
-      totalStock: newTotalStock
+      totalStock: increment(-quantity)
     };
 
     if (newTotalStock === 0) {
@@ -1180,10 +1188,11 @@ export default function InventoryPage() {
         remainingToDeduct -= deductFromBatch;
     }
     
-    const newTotalStock = sortedBatches.reduce((acc, b) => acc + b.stock, 0);
+    // Taken off what's on the shelf, as a write-off is (never worked out again from the batches).
+    const newTotalStock = Math.max(0, (Number(product.totalStock) || 0) - quantity);
 
     updateDocumentNonBlocking(productRef, { 
-      totalStock: newTotalStock,
+      totalStock: increment(-quantity),
       batches: sortedBatches,
     });
     
@@ -1236,11 +1245,12 @@ export default function InventoryPage() {
                 return b;
             });
             
-            const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+            // Taken off what's on the shelf, as a single write-off is.
+            const newTotalStock = Math.max(0, (Number(product.totalStock) || 0) - (Number(item.stock) || 0));
 
-            const updatePayload: Partial<InventoryItem> = {
+            const updatePayload: any = {
                 batches: updatedBatches,
-                totalStock: newTotalStock,
+                totalStock: increment(-(Number(item.stock) || 0)),
             };
             
             // If writing off the last container, clear partial usage as well

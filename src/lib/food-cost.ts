@@ -139,8 +139,9 @@ export function countRows(entries: CountEntry[], parts: Map<string, any>, counte
   }
   return rows.sort((a, b) => (Number(a.first) - Number(b.first)) || (Number(a.value === null) - Number(b.value === null)) || ((b.value || 0) - (a.value || 0)) || a.name.localeCompare(b.name));
 }
-/** What the stock history measures an ingredient in (as a count records it, lib/stock-count). */
-export const ledgerUnit = (d: any) => (d?.costingMethod === 'uses' ? String(d.useUnit || 'uses') : d?.costingMethod === 'size' ? String(d.unit || 'ml') : String(d?.unit || 'units'));
+/** What the stock history measures an ingredient in (as a count records it, lib/stock-count): uses, ml or g, or whole
+ *  units (a bottle whose size is in oz is still counted by the bottle). */
+export const ledgerUnit = (d: any) => (d?.costingMethod === 'uses' ? String(d.useUnit || 'uses') : d?.costingMethod === 'size' ? String(d.unit || 'ml') : 'units');
 
 /** An amount in words, "12 L", "500 g", "3 units". */
 export function amountWords(qty: number, unit: string): string {
@@ -148,7 +149,7 @@ export function amountWords(qty: number, unit: string): string {
   const fmt = (n: number) => (Math.round(n * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 });
   if (/^ml$/i.test(u) && q >= 1000) return `${fmt(q / 1000)} L`;
   if (/^g$/i.test(u) && q >= 1000) return `${fmt(q / 1000)} kg`;
-  if (!u || u === 'each') return `${fmt(q)} ${q === 1 ? 'unit' : 'units'}`;
+  if (!u || u === 'each' || u === 'units') return `${fmt(q)} ${q === 1 ? 'unit' : 'units'}`;
   return `${fmt(q)} ${u}`;
 }
 /** What a count found, in words. */
