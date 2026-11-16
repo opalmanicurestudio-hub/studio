@@ -891,7 +891,8 @@ service cloud.firestore {
     // lib/records-server, lib/food-safety-server: a price notice sent once, each person's signed cash tip declaration, the
     // month's stock value, a closed night's totals, the food safety logs as they were taken, the certificates and permits,
     // and guest incidents and staff sent home sick, read and written only through the server, so nobody changes a record
-    // after the fact and nobody on the team reads another person's).
+    // after the fact and nobody on the team reads another person's); and the menu's choice sets (choiceSets,
+    // lib/choice-sets-server: changed by a manager through the server, which writes each one onto every item with it).
     match /tenants/{tenantId}/{collection}/{rest=**} {
       // The host stand's tablet: the wait list's walk-ins and an event's guests it seats (tonight's event itself, only
       // its name and table plan, comes through the server: api/host/floor 'event').
@@ -956,7 +957,8 @@ service cloud.firestore {
           'visitFormAnswers', 'visitPhotoMarks', 'clientPhotoRecords',
           'driveThruCars', 'counterOrders', 'orderCounters', 'holdingBins',
           'kdsTickets', 'dishCounts',
-          'priceAlerts', 'tipDeclarations', 'stockValues', 'recordsNights', 'safetyLogs', 'permits', 'safetyIncidents'
+          'priceAlerts', 'tipDeclarations', 'stockValues', 'recordsNights', 'safetyLogs', 'permits', 'safetyIncidents',
+          'choiceSets'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

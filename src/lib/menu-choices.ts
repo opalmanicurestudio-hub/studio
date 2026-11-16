@@ -7,8 +7,10 @@
 // anything that isn't on it, and gives back the lines kept on the order (so a later menu change never rewrites what
 // someone ordered), the amount they add, and the words the kitchen reads ("Large, oat milk, extra shot").
 
-export type ChoiceOption = { id: string; name: string; price: number; soldOut: boolean; itemId?: string };
-export type ChoiceGroup = { id: string; name: string; pick: 'one' | 'any'; required: boolean; max: number; options: ChoiceOption[] };
+export type ChoiceOption = { id: string; name: string; price: number; soldOut: boolean; itemId?: string;
+  /** In a choice from a set: which of the set's options it is, when the item kept its own id for it. */ setOption?: string };
+export type ChoiceGroup = { id: string; name: string; pick: 'one' | 'any'; required: boolean; max: number; options: ChoiceOption[];
+  /** From a choice set (lib/choice-sets): the same on every item it's on, changed in one place. */ setId?: string };
 export type PickedChoice = { groupId: string; group: string; optionId: string; option: string; price: number };
 export type Picks = Record<string, string[]>;
 
@@ -26,8 +28,10 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 const cents = (v: unknown) => { const x = Math.round(Number(v) * 100) / 100; return Number.isFinite(x) ? Math.max(-1000, Math.min(1000, x)) : 0; };
 export const money = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(2)}`;
 
-/** An item's groups, cleaned: what a screen shows and what the server prices against. Anything malformed is left out. */
-export function choiceGroups(item: any): ChoiceGroup[] {
+/** An item's groups, cleaned: what a screen shows and what the server prices against. Anything malformed is left out.
+ *  `withSets`: also which choice set a group comes from (lib/choice-sets), for the team's screens and the server; a
+ *  guest's menu doesn't carry it. */
+export function choiceGroups(item: any, withSets = false): ChoiceGroup[] {
   const raw = Array.isArray(item?.choices) ? item.choices : [];
   const out: ChoiceGroup[] = [];
   const seenG = new Set<string>();
@@ -35,6 +39,7 @@ export function choiceGroups(item: any): ChoiceGroup[] {
     const id = String(g?.id || ''); const name = words(g?.name, 40);
     if (!ID.test(id) || !name || seenG.has(id)) continue;
     seenG.add(id);
+    const setId = withSets && typeof g?.setId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(g.setId) ? g.setId : null;
     const seenO = new Set<string>();
     const options: ChoiceOption[] = [];
     for (const o of (Array.isArray(g?.options) ? g.options : []).slice(0, MAX_OPTIONS)) {
@@ -42,12 +47,13 @@ export function choiceGroups(item: any): ChoiceGroup[] {
       if (!ID.test(oid) || !oname || seenO.has(oid)) continue;
       // An option that is another menu item (a combo's side or drink): made and counted as that item (lib/counter-orders).
       const itemId = typeof o?.itemId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(o.itemId) ? o.itemId : null;
-      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: outNow(o), ...(itemId ? { itemId } : {}) });
+      const setOption = setId && ID.test(String(o?.setOption || '')) && String(o.setOption) !== oid ? String(o.setOption) : null;
+      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: outNow(o), ...(itemId ? { itemId } : {}), ...(setOption ? { setOption } : {}) });
     }
     if (!options.length) continue;
     const pick: 'one' | 'any' = g?.pick === 'any' ? 'any' : 'one';
     const max = pick === 'one' ? 1 : Math.max(1, Math.min(options.length, Math.floor(Number(g?.max)) || options.length));
-    out.push({ id, name, pick, required: pick === 'one' ? g?.required !== false : g?.required === true, max, options });
+    out.push({ id, name, pick, required: pick === 'one' ? g?.required !== false : g?.required === true, max, options, ...(setId ? { setId } : {}) });
   }
   return out;
 }
@@ -116,7 +122,7 @@ export function cleanForSave(groups: unknown, newId: () => string): ChoiceGroup[
     ...g, id: ID.test(String(g?.id || '')) ? g.id : newId(),
     options: (Array.isArray(g?.options) ? g.options : []).map((o: any) => ({ ...o, id: ID.test(String(o?.id || '')) ? o.id : newId() })),
   }));
-  return choiceGroups({ choices: raw });
+  return choiceGroups({ choices: raw }, true);
 }
 
 /** Whether an item has any choices to make. */

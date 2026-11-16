@@ -51,7 +51,7 @@ import { forgetPace } from '@/lib/kitchen-pace-server';
 import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
 import { forgetMenuFacts } from '@/lib/klair-menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
-import { cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
+import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
 import { agentOf } from '@/lib/drive-thru-voice';
@@ -69,6 +69,7 @@ import { cleanAlsoAt, MAX_ALSO } from '@/lib/two-stations';
 import { buildEntry } from '@/lib/stock-ledger';
 import { canBeIngredient, readPartsDeep, recipeFromScreen, removePrep, savePrep } from '@/lib/prep-recipes-server';
 import { cleanChanges, optionChanges, changeIds, type ChoiceChange } from '@/lib/choice-recipe';
+import { groupOfSet, idsOnItem, setIdsOf, type ChoiceSet } from '@/lib/choice-sets';
 import { measuresFor, toStockUnits, hasYield, yieldOf, perEachOf } from '@/lib/kitchen-units';
 import { prepOf, isPrep } from '@/lib/prep-recipes';
 import { linesCost, partUnitCost } from '@/lib/food-cost';
@@ -97,10 +98,11 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove'].includes(action)) return bad('Unknown action.');
+    const SET_ACTIONS = ['sets', 'setSave', 'setRemove', 'setApply', 'setOff', 'setFrom'];
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create', 'prep', 'prepRemove'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -119,7 +121,7 @@ export async function POST(req: NextRequest) {
       // For managers: what each costs to make from its recipe, as a share of its price (lib/food-cost).
       let costs: Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number; thin?: string[] }> | undefined;
       // For managers, too: what each choice changes in the recipe (lib/choice-recipe), and the prep recipes made in batches.
-      let changes: Record<string, Record<string, ChoiceChange[]>> | undefined; let preps: any[] | undefined;
+      let changes: Record<string, Record<string, ChoiceChange[]>> | undefined; let preps: any[] | undefined; let sets: any[] | undefined;
       if (canEdit) {
         const prepDocs = (await db.collection(`tenants/${tenantId}/inventory`).where('createdVia', '==', 'prep-recipe').limit(200).get().catch(() => ({ docs: [] as any[] }))).docs
           .filter((d: any) => isPrep(d.data() || {}, d.id));
@@ -130,8 +132,12 @@ export async function POST(req: NextRequest) {
           costs[d.id] = { cost: c.cost, share: c.share, over: c.over, typical: c.typical, target, ...(thin.length ? { thin } : {}) };
           const ch = optionChanges(x); if (ch.size) changes[d.id] = Object.fromEntries(ch); }
         preps = prepDocs.map((d: any) => prepRow(d.id, d.data() || {}, parts)).sort((a: any, c: any) => a.name.localeCompare(c.name));
+        // The choice sets, for an item's editor to turn on (lib/choice-sets).
+        const { cleanSet } = await import('@/lib/choice-sets');
+        sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
+          .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -344,6 +350,21 @@ export async function POST(req: NextRequest) {
       return 'error' in r ? bad(r.error, r.status) : ok({});
     }
 
+    // CHOICE SETS (lib/choice-sets): made once, on every item that has them. Managers; sold out on one, anyone on the team.
+    if (action === 'setSoldOut' || SET_ACTIONS.includes(action)) {
+      const CS = await import('@/lib/choice-sets-server'); const by = words(g.actor?.name, 60) || 'A manager';
+      try {
+        if (action === 'sets') return ok(await CS.listSets(db, tenantId));
+        if (action === 'setSave') { const r = await CS.saveSet(db, tenantId, b.set, by); return ok({ set: r.set, items: r.items }); }
+        if (action === 'setApply') return ok(await CS.applySet(db, tenantId, String(b.setId || ''), b.itemIds, by));
+        if (action === 'setOff') { await CS.setOff(db, tenantId, String(b.setId || ''), String(b.itemId || ''), b.keep === true); return ok({}); }
+        if (action === 'setFrom') { const r = await CS.setFromGroup(db, tenantId, String(b.itemId || ''), String(b.groupId || ''), by); return ok({ set: r.set, items: r.items }); }
+        if (action === 'setRemove') return ok({ items: await CS.removeSet(db, tenantId, String(b.setId || '')) });
+        if (typeof b.out !== 'boolean') return bad('Sold out, or back?');
+        return ok({ items: await CS.setOptionSoldOut(db, tenantId, String(b.setId || ''), String(b.optionId || ''), b.out, words(g.actor?.name, 60) || 'The team') });
+      } catch (e: any) { if (e instanceof CS.SetStop) return bad(e.msg, e.status); throw e; }
+    }
+
     if (action === 'soldout') {
       const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, String(g.actor?.name || 'The team'));
       return r.ok ? ok({ item: r.item }) : bad(r.error, r.status);
@@ -363,10 +384,24 @@ export async function POST(req: NextRequest) {
       if (opts.length > MAX_OPTIONS) return bad(`Up to ${MAX_OPTIONS} options in a choice (${words(cg?.name, 40) || 'one of them'} has more).`);
       for (const o of opts) { const p = Number(o?.price); if (String(o?.price ?? '').trim() !== '' && (!Number.isFinite(p) || Math.abs(p) > 1000)) return bad(`Check the price of ${words(o?.name, 40) || 'an option'}.`); }
     }
-    const choices = cleanForSave(x.choices, () => randomBytes(6).toString('base64url'));
+    let choices = cleanForSave(x.choices, () => randomBytes(6).toString('base64url'));
     // A choice with a name but no options, or options with no names, is dropped by cleanForSave: say so rather than lose it.
     const given = Array.isArray(x.choices) ? x.choices.filter((c: any) => words(c?.name, 40) || (Array.isArray(c?.options) && c.options.some((o: any) => words(o?.name, 40)))) : [];
     if (given.length !== choices.length) return bad('Each choice needs a name and at least one option with a name.');
+    // A choice from a set is the set's, whatever the form sent (lib/choice-sets): its options and prices as the set has
+    // them (each option keeping the id it has on this item, worked out in the save below); its recipe changes fitted to
+    // this item's recipe below. A set that's gone leaves the choice as the item's own.
+    const sets = new Map<string, ChoiceSet>();
+    const setIds = Array.from(new Set(choices.map((c) => c.setId).filter(Boolean))) as string[];
+    if (setIds.length) {
+      const { readSet } = await import('@/lib/choice-sets-server');
+      for (const cs of await Promise.all(setIds.map((id) => readSet(db, tenantId, id)))) if (cs) sets.set(cs.id, cs);
+      choices = choices.map((c) => {
+        if (!c.setId) return c; const cs = sets.get(c.setId);
+        if (!cs) { const { setId: _gone, ...own } = c; return { ...own, options: own.options.map(({ setOption: _s, ...o }) => o) }; }
+        return choiceGroups({ choices: [groupOfSet(cs, c.id, () => undefined)] }, true)[0];
+      });
+    }
     const lowest = price + choices.filter((cg) => cg.required && cg.pick === 'one').reduce((s, cg) => s + Math.min(...cg.options.map((o) => o.price)), 0);
     if (lowest < 0) return bad('A choice takes off more than the item costs. Check the prices.');
     // Kitchen timing, when given: how long it takes to make, and whether a batch is cooked ahead and held (and for how long).
@@ -474,19 +509,29 @@ export async function POST(req: NextRequest) {
       // Its option as saved: by its id (kept by cleanForSave), else by its group's and its own name.
       const grp = choices.find((c) => c.id === String(cg?.id || '')) || choices.find((c) => words(c.name, 40) === words(cg?.name, 40));
       const opt = grp?.options.find((y) => y.id === String(o?.id || '')) || grp?.options.find((y) => words(y.name, 40) === words(o?.name, 40));
-      if (grp && opt) changesIn.set(`${grp.id}/${opt.id}`, ch);
+      if (grp && opt && !grp.setId) changesIn.set(`${grp.id}/${opt.id}`, ch);
     }
     const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
     const r: any = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data();
+      // A set's choice as this item has it: each option keeping the id it has here (what its orders and sales were kept
+      // with), and the set's changes for each option, fitted to the recipe below.
+      const setChanges = new Map<string, ChoiceChange[]>();
+      const mine = choices.map((c) => {
+        const cs = c.setId ? sets.get(c.setId) : null; if (!cs) return c;
+        const was = (Array.isArray(cur?.choices) ? cur.choices : []).find((g: any) => String(g?.id) === c.id && g?.setId === c.setId);
+        const grp = choiceGroups({ choices: [groupOfSet(cs, c.id, () => undefined, idsOnItem(was))] }, true)[0];
+        for (const o of grp.options) { const so = cs.options.find((y) => y.id === (o.setOption || o.id)); if (so?.changes?.length) setChanges.set(`${c.id}/${o.id}`, so.changes); }
+        return grp;
+      });
       // An option sent without its changes (a caller that doesn't edit them) keeps the ones it has; an empty list clears them.
       const stored = optionChanges(cur);
       for (const cg of rawGroups) for (const o of Array.isArray(cg?.options) ? cg.options : []) {
         if (o?.changes !== undefined) continue;
-        const key = `${String(cg?.id || '')}/${String(o?.id || '')}`;
+        const key = `${String(cg?.id || '')}/${String(o?.id || '')}`; if (choices.some((c) => c.id === String(cg?.id) && c.setId)) continue;
         if (stored.has(key) && choices.some((c) => c.id === String(cg?.id) && c.options.some((y) => y.id === String(o?.id)))) changesIn.set(key, stored.get(key)!);
       }
-      const wantIds = Array.from(new Set<string>([...(recipeIn || []).map((l: any) => String(l.id)), ...Array.from(changesIn.values()).flat().flatMap((c) => (c.kind === 'add' ? [c.id] : c.kind === 'swap' ? [c.to] : [])), ...recipeOf(cur, itemId).map((l) => l.id)])).filter((id) => ID.test(id) && id !== itemId);
+      const wantIds = Array.from(new Set<string>([...(recipeIn || []).map((l: any) => String(l.id)), ...Array.from(setChanges.values()).flat().flatMap((c) => (c.kind === 'add' ? [c.id] : c.kind === 'swap' ? [c.to] : [])), ...Array.from(changesIn.values()).flat().flatMap((c) => (c.kind === 'add' ? [c.id] : c.kind === 'swap' ? [c.to] : [])), ...recipeOf(cur, itemId).map((l) => l.id)])).filter((id) => ID.test(id) && id !== itemId);
       const partDocs = await Promise.all(wantIds.map((id) => tx.get(db.doc(`tenants/${tenantId}/inventory/${id}`))));
       const parts = new Map<string, any>(); wantIds.forEach((id, k) => { const d = partDocs[k].data(); if (d) parts.set(id, d); });
       // An item that goes into another item's recipe is counted by its own count, so it can't have a recipe of its own.
@@ -522,18 +567,21 @@ export async function POST(req: NextRequest) {
         }
         checked.set(key, out);
       }
+      // A set's changes: only those that fit this item's recipe (oat instead of whole milk does nothing on a drink with
+      // no milk), never refused.
+      if (setChanges.size) { const { fitChanges } = await import('@/lib/choice-sets-server'); for (const [key, list] of setChanges) { const fit = fitChanges(list, recipeNow, parts); if (fit.length) checked.set(key, fit); } }
       // What's sold out is the kitchen's to say (one tap, api/menu 'soldout' or the kitchen screen): a save keeps it as
       // it is now, whatever the form had when it opened.
       const nowOut = new Map<string, string | null>();
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
-      const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => ({ ...(nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false }),
+      const kept = mine.map((cg) => ({ ...cg, options: cg.options.map((o) => ({ ...(nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false }),
         ...(checked.has(`${cg.id}/${o.id}`) ? { changes: checked.get(`${cg.id}/${o.id}`) } : {}) })) }));
       // The desk and a table's tab charge an item's Inventory price (lib/variants deskPrice): set to the menu's when the
       // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
       // An item from a starter menu goes on the menu only once it has a price (it came in at none, lib/food-starters).
       if (cur.createdVia === 'food-starter' && x.onMenu !== false && !(price > 0)) return { error: 'Give it a price first, then put it on the menu.', status: 400 };
       const deskToo = !(Number(cur.msrp) > 0) || Math.round(Number(cur.price) * 100) !== Math.round(price * 100);
-      const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept,
+      const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept, choiceSetIds: setIdsOf(kept),
         showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...timed, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };

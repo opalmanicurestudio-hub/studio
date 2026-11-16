@@ -12,6 +12,7 @@ import { changeWords, MAX_CHANGES, type ChoiceChange } from '@/lib/choice-recipe
 import type { OptionCost } from '@/lib/food-cost';
 import type { RecipeLine } from '@/lib/menu-stock';
 import type { Ingredient } from '@/components/menu/RecipeEditor';
+import { kindOfGroup, optionsLine, setRule, type ChoiceSet } from '@/lib/choice-sets';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -20,6 +21,11 @@ let n = 0;
 const nid = () => `n${Date.now().toString(36)}${(n++).toString(36)}`;
 
 export type EditGroup = Omit<ChoiceGroup, 'options'> & { options: { id: string; name: string; price: number | string; soldOut: boolean; itemId?: string; changes?: ChoiceChange[] }[] };
+/** A choice set as an item's editor offers it (lib/choice-sets). */
+export type SetPick = Pick<ChoiceSet, 'id' | 'name' | 'kind' | 'required' | 'max' | 'options'>;
+/** A set as one of this item's choices: the set's own options (the server takes them from the set when it's saved). */
+export const groupFromSet = (s: SetPick): EditGroup => ({ id: nid(), setId: s.id, name: s.name, pick: s.kind === 'one' ? 'one' : 'any', required: s.required, max: s.max,
+  options: s.options.map((o) => ({ id: o.id, name: o.name, price: o.price, soldOut: o.soldOut === true })) });
 
 const STARTERS: { label: string; make: () => EditGroup }[] = [
   { label: 'Size', make: () => ({ id: nid(), name: 'Size', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: 'Small', price: 0, soldOut: false }, { id: nid(), name: 'Large', price: 0.5, soldOut: false }] }) },
@@ -28,11 +34,13 @@ const STARTERS: { label: string; make: () => EditGroup }[] = [
   { label: 'Leave out', make: () => ({ id: nid(), name: 'Leave out', pick: 'any', required: false, max: 4, options: [{ id: nid(), name: 'No onions', price: 0, soldOut: false }] }) },
 ];
 
-export function ChoicesEditor({ groups, onChange, recipe, stock, costs }: { groups: EditGroup[]; onChange: (g: EditGroup[]) => void;
+export function ChoicesEditor({ groups, onChange, recipe, stock, costs, sets, onOpenSet }: { groups: EditGroup[]; onChange: (g: EditGroup[]) => void;
   /** The item's recipe as it stands in the editor, and the stock: an option can then change what's made. */
   recipe?: RecipeLine[]; stock?: Ingredient[] | null;
   /** What each option costs and keeps, by "group/option". */
-  costs?: Record<string, OptionCost> }) {
+  costs?: Record<string, OptionCost>;
+  /** The business's choice sets, to turn on for this item; and where to change one for every item. */
+  sets?: SetPick[]; onOpenSet?: (setId: string) => void }) {
   const uid = useId();
   const setG = (i: number, patch: Partial<EditGroup>) => onChange(groups.map((g, k) => (k === i ? { ...g, ...patch } : g)));
   const setO = (i: number, j: number, patch: any) => setG(i, { options: groups[i].options.map((o, k) => (k === j ? { ...o, ...patch } : o)) });
@@ -40,7 +48,27 @@ export function ChoicesEditor({ groups, onChange, recipe, stock, costs }: { grou
   return (
     <div className="space-y-3" style={{ color: INK }}>
       {groups.length === 0 && <p className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>No choices yet. Add sizes, milks, extras or things to leave out, each with its own price.</p>}
-      {groups.map((g, i) => (
+      {groups.map((g, i) => g.setId ? (
+        // From a set: the same on every item it's on, so it's changed in the set (or made this item's own).
+        <fieldset key={g.id} className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
+          <legend className="sr-only">{g.name}, from your choice sets</legend>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">{g.name}<span className="rounded-full bg-[#fff] px-2 py-0.5 text-[12px] font-semibold" style={{ color: MUTED }}>Set</span></p>
+              <p className="mt-0.5 text-[13px] leading-snug" style={{ color: MUTED }}>{setRule({ kind: kindOfGroup({ name: g.name, pick: g.pick, options: g.options.map((o) => ({ price: Number(o.price) || 0 })) }), required: g.required, max: g.max, options: g.options as any })}. {optionsLine({ options: g.options.map((o) => ({ ...o, price: Number(o.price) || 0, soldOut: o.soldOut })) as any })}</p>
+            </div>
+            <div className="flex gap-1">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${g.name} up`} className={`h-11 w-11 rounded-xl border bg-[#fff] text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↑</button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === groups.length - 1} aria-label={`Move ${g.name} down`} className={`h-11 w-11 rounded-xl border bg-[#fff] text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↓</button>
+              <button type="button" onClick={() => onChange(groups.filter((_, k) => k !== i))} aria-label={`Take ${g.name} off this item`} className={`h-11 rounded-xl border bg-[#fff] px-3 text-[14px] font-medium ${RING}`} style={{ borderColor: LINE }}>Take off</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onOpenSet && <button type="button" onClick={() => onOpenSet(g.setId!)} className={`min-h-[44px] rounded-xl border bg-[#fff] px-3.5 text-[14px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Change it for every item</button>}
+            <button type="button" onClick={() => setG(i, { setId: undefined })} className={`min-h-[44px] rounded-xl border bg-[#fff] px-3.5 text-[14px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Only for this item</button>
+          </div>
+        </fieldset>
+      ) : (
         <fieldset key={g.id} className="space-y-3 rounded-2xl border p-4" style={{ borderColor: LINE }}>
           <legend className="sr-only">{g.name || 'Choice'}</legend>
           <div className="flex flex-wrap items-end gap-2">
@@ -82,8 +110,12 @@ export function ChoicesEditor({ groups, onChange, recipe, stock, costs }: { grou
           <button type="button" onClick={() => setG(i, { options: [...g.options, { id: nid(), name: '', price: 0, soldOut: false }] })} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Add an option</button>
         </fieldset>
       ))}
+      {sets && sets.some((x) => !groups.some((g) => g.setId === x.id)) && <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[14px]" style={{ color: MUTED }}>From your sets:</span>
+        {sets.filter((x) => !groups.some((g) => g.setId === x.id)).map((x) => <button key={x.id} type="button" onClick={() => onChange([...groups, groupFromSet(x)])} className={`min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold ${RING}`} style={{ background: SOFT }}>{x.name}</button>)}
+      </div>}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[14px]" style={{ color: MUTED }}>Add a choice:</span>
+        <span className="text-[14px]" style={{ color: MUTED }}>{sets?.length ? 'Or one only this item has:' : 'Add a choice:'}</span>
         {STARTERS.map((s) => <button key={s.label} type="button" onClick={() => onChange([...groups, s.make()])} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>{s.label}</button>)}
         <button type="button" onClick={() => onChange([...groups, { id: nid(), name: '', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: '', price: 0, soldOut: false }] }])} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Something else</button>
       </div>
@@ -91,14 +123,15 @@ export function ChoicesEditor({ groups, onChange, recipe, stock, costs }: { grou
   );
 }
 
-/** One option's changes to the recipe, and what it costs and keeps. */
-function OptionChanges({ name, changes, onChange, recipe, stock, cost }: { name: string; changes: ChoiceChange[]; onChange: (c: ChoiceChange[]) => void; recipe: RecipeLine[]; stock: Ingredient[]; cost?: OptionCost }) {
+/** One option's changes to the recipe, and what it costs and keeps. With `anyStock` (a choice set, which has no recipe of
+ *  its own), what it swaps out or leaves out is picked from all the stock; each item keeps only what fits its recipe. */
+export function OptionChanges({ name, changes, onChange, recipe, stock, cost, anyStock }: { name: string; changes: ChoiceChange[]; onChange: (c: ChoiceChange[]) => void; recipe: RecipeLine[]; stock: Ingredient[]; cost?: OptionCost; anyStock?: boolean }) {
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<'add' | 'swap' | 'out'>('add');
   const [what, setWhat] = useState(''); const [to, setTo] = useState(''); const [amt, setAmt] = useState(''); const [measure, setMeasure] = useState('');
   const [err, setErr] = useState('');
   const pick = stock.find((x) => x.id === what);
-  const inRecipe = Array.from(new Map(recipe.map((l) => [l.id, l])).values());
+  const inRecipe: { id: string; name: string }[] = anyStock ? stock.map((x) => ({ id: x.id, name: x.name })) : Array.from(new Map(recipe.map((l) => [l.id, l])).values());
   const reset = () => { setAdding(false); setWhat(''); setTo(''); setAmt(''); setMeasure(''); setErr(''); };
   const add = () => {
     if (kind === 'add') {
@@ -150,13 +183,13 @@ function OptionChanges({ name, changes, onChange, recipe, stock, cost }: { name:
           </div>}
           {kind === 'swap' && <div className="flex flex-wrap items-center gap-2">
             <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Uses this" className={sel} style={{ borderColor: LINE }}>
-              <option value="">Pick what goes in</option>{stock.filter((x) => !inRecipe.some((l) => l.id === x.id)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+              <option value="">Pick what goes in</option>{stock.filter((x) => (anyStock ? x.id !== what : !inRecipe.some((l) => l.id === x.id))).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
             <span className="text-[13.5px]" style={{ color: MUTED }}>instead of</span>
             <select value={what} onChange={(e) => setWhat(e.target.value)} aria-label="Instead of" className={sel} style={{ borderColor: LINE }}>
-              <option value="">Pick from the recipe</option>{inRecipe.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
+              <option value="">{anyStock ? 'Pick from your stock' : 'Pick from the recipe'}</option>{inRecipe.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
           </div>}
           {kind === 'out' && <select value={what} onChange={(e) => setWhat(e.target.value)} aria-label="Leaves out" className={`${sel} w-full`} style={{ borderColor: LINE }}>
-            <option value="">Pick from the recipe</option>{inRecipe.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+            <option value="">{anyStock ? 'Pick from your stock' : 'Pick from the recipe'}</option>{inRecipe.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
           {kind !== 'add' && !inRecipe.length && <p className="text-[13px]" style={{ color: MUTED }}>Add a recipe below first, then a choice can swap or leave out what’s in it.</p>}
           {err && <p role="alert" className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{err}</p>}
           <div className="flex gap-2">

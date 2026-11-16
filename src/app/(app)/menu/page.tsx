@@ -31,6 +31,13 @@ import type { Daypart, HappyHour } from '@/lib/menu-time';
 import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { NewItemSheet } from '@/components/menu/NewItemSheet';
+import { ChoiceSetsPanel } from '@/components/menu/ChoiceSetsPanel';
+import type { SetPick } from '@/components/menu/ChoicesEditor';
+
+// The page's three parts: the items first; the choice sets they share; and the settings (ordering ahead, menus by time
+// of day, table service, service times, prep recipes). A link to one of the settings (/menu#order-ahead) opens Settings.
+type Tab = 'items' | 'sets' | 'settings';
+const SETTINGS_IDS = ['order-ahead', 'menu-times', 'table-service', 'service-times', 'prep-recipes'];
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -81,6 +88,10 @@ export default function MenuPage() {
   // New item: on the menu and in Inventory in one step (components/menu/NewItemSheet), its editor opening next.
   const [adding, setAdding] = useState(false);
   const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
+  const [sets, setSets] = useState<SetPick[]>([]);
+  const [tab, setTabState] = useState<Tab>(() => { try { const h = window.location.hash.slice(1); if (SETTINGS_IDS.includes(h)) return 'settings'; const t = new URLSearchParams(window.location.search).get('tab'); return t === 'sets' || t === 'settings' ? t : 'items'; } catch { return 'items'; } });
+  const [openSet, setOpenSet] = useState<string | null>(null);
+  const setTab = (t: Tab) => { setTabState(t); try { const u = new URL(window.location.href); if (t === 'items') u.searchParams.delete('tab'); else u.searchParams.set('tab', t); u.hash = ''; window.history.replaceState(null, '', u.toString()); } catch { /* the address stays */ } };
 
   const call = useCallback(async (body: any) => {
     try {
@@ -88,7 +99,10 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
+  // A link straight to one of the settings: scrolled to once it's there.
+  useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
   // Opened from somewhere else for one item (Food cost's "Look at the recipe": /menu?item=…): its editor, once.
   const deepOpened = useRef(false);
   useEffect(() => {
@@ -144,7 +158,7 @@ export default function MenuPage() {
 
   return (
     <div className="min-h-dvh" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-      <div className="mx-auto max-w-4xl space-y-5 px-4 py-6 sm:px-6">
+      <div className={`mx-auto ${canEdit && tab === 'sets' ? 'max-w-6xl' : 'max-w-4xl'} space-y-5 px-4 py-6 sm:px-6`}>
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[26px] font-semibold tracking-tight">Menu</h1>
@@ -155,11 +169,21 @@ export default function MenuPage() {
             {canEdit && <button type="button" onClick={() => setAdding(true)} className={`min-h-[44px] rounded-xl px-5 text-[15px] font-semibold ${RING}`} style={{ background: INK, color: '#fff' }}>New item</button>}
           </div>
         </header>
+        {canEdit && (
+          <div role="tablist" aria-label="The menu" className="flex flex-wrap gap-2">
+            {([['items', 'Items'], ['sets', 'Choice sets'], ['settings', 'Settings']] as [Tab, string][]).map(([t, label]) => (
+              <button key={t} type="button" role="tab" aria-selected={tab === t} aria-controls={`menu-${t}`} id={`tab-${t}`} onClick={() => setTab(t)}
+                className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={tab === t ? { background: INK, color: '#fff', borderColor: INK } : { background: '#fff', borderColor: LINE }}>{label}</button>))}
+          </div>
+        )}
+        {canEdit && tab === 'sets' && <div id="menu-sets" role="tabpanel" aria-labelledby="tab-sets"><ChoiceSetsPanel call={call} openId={openSet} onOpened={() => setOpenSet(null)} onChanged={() => void loadAll()} /></div>}
+        {canEdit && tab === 'settings' && <div id="menu-settings" role="tabpanel" aria-labelledby="tab-settings" className="space-y-5">
+          <p className="text-[14.5px]" style={{ color: MUTED }}>How the menu is ordered from and made: ordering ahead, menus by time of day, table service, service times and prep recipes.</p>
         {canEdit && ahead && <div id="order-ahead" className="scroll-mt-6"><OrderAheadCard start={ahead} call={call} /></div>}
         {canEdit && times && <div id="menu-times" className="scroll-mt-6"><MenuTimesCard start={times} onSave={async (next) => { const d = await call({ action: 'times', ...next }); if (d.ok) { setTimes({ dayparts: d.dayparts, happyHour: d.happyHour }); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && service && <div id="table-service" className="scroll-mt-6"><TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && targets && (
-          <section aria-labelledby="times-title" className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
+          <section id="service-times" aria-labelledby="times-title" className="scroll-mt-6 rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
             <button type="button" onClick={() => setTimesOpen((v) => !v)} aria-expanded={timesOpen} className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-3xl px-5 text-left ${RING}`}>
               <span><span id="times-title" className="block text-[16px] font-semibold">Service times</span>
                 <span className="block text-[13.5px]" style={{ color: MUTED }}>Drive-thru {mmss(targets['drive-thru'])}, counter {mmss(targets.counter)}, ordered ahead {mmss(targets.ahead)}</span></span>
@@ -208,6 +232,8 @@ export default function MenuPage() {
         )}
         {canEdit && preps && <div id="prep-recipes" className="scroll-mt-6"><PrepRecipes preps={preps} call={call}
           onSaved={() => { void call({ action: 'list' }).then((d) => { if (d.ok) { setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setRecipes(d.recipes || {}); } }); }} /></div>}
+        </div>}
+        {(!canEdit || tab === 'items') && <div id="menu-items" role={canEdit ? 'tabpanel' : undefined} aria-labelledby={canEdit ? 'tab-items' : undefined} className="space-y-5">
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className={`${field} mt-0`} style={{ borderColor: LINE }} />
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {!menu ? <div className="h-40 rounded-3xl bg-[#fff]" aria-busy="true" />
@@ -247,11 +273,13 @@ export default function MenuPage() {
               </ul>
             </section>
           ))}
+        </div>}
       </div>
       {adding && <NewItemSheet sections={Array.from(new Set((menu || []).map((m) => m.section)))} stations={service?.stations || []} onClose={() => setAdding(false)}
         onCreate={async (body) => { const d = await call({ action: 'create', ...body }); if (!d.ok) return d.error || 'That didn’t save.';
           setMenu((xs) => [...(xs || []).filter((x) => x.id !== d.item.id), d.item].sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))); setAdding(false); setEditing(d.item); return null; }} />}
       {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} changes={changes[editing.id] || {}} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call} dayparts={times?.dayparts || []} allItems={menu || []}
+        sets={sets} onOpenSet={(id) => { setEditing(null); setTab('sets'); setOpenSet(id); }}
         onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
         onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null);
           void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />}
@@ -259,8 +287,8 @@ export default function MenuPage() {
   );
 }
 
-function EditSheet({ item, recipe, changes, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call, dayparts, allItems }: { item: MenuItem; recipe: RecipeLine[]; changes: Record<string, ChoiceChange[]>; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
-  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any>; dayparts: Daypart[]; allItems: MenuItem[] }) {
+function EditSheet({ item, recipe, changes, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call, dayparts, allItems, sets, onOpenSet }: { item: MenuItem; recipe: RecipeLine[]; changes: Record<string, ChoiceChange[]>; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
+  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any>; dayparts: Daypart[]; allItems: MenuItem[]; sets: SetPick[]; onOpenSet: (setId: string) => void }) {
   const startLines = useMemo<EditLine[]>(() => recipe.map(toEditLine), [recipe]);
   const [lines, setLines] = useState<EditLine[]>(startLines);
   const [stock, setStock] = useState<Ingredient[] | null>(null);
@@ -389,7 +417,7 @@ function EditSheet({ item, recipe, changes, tenantId, canEdit, busy, service, on
           {(item.recipeGaps || []).length > 0 && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Add {item.recipeGaps.join(', ')} to its recipe yourself: {item.recipeGaps.length === 1 ? 'yours is' : 'yours are'} measured differently from the starter recipe.</p>}
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">Choices</h3>
-            <ChoicesEditor groups={groups} onChange={setGroups} recipe={stock ? asRecipe(lines, partsOf(stock)) : []} stock={stock} costs={optCosts} />
+            <ChoicesEditor groups={groups} onChange={setGroups} recipe={stock ? asRecipe(lines, partsOf(stock)) : []} stock={stock} costs={optCosts} sets={sets} onOpenSet={onOpenSet} />
           </div>
           <div className="space-y-2">
             <h3 className="text-[16px] font-semibold">When it’s sold</h3>

@@ -52,7 +52,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
   return {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
-    choices: choiceGroups(i), soldOut: itemSoldOut(i), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
+    choices: choiceGroups(i, true), soldOut: itemSoldOut(i), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
     short: stock.short, canMake: stock.canMake, byRecipe: stock.byRecipe,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
     featured: i.boardFeatured === true, badge: i.boardBadge === 'new' || i.boardBadge === 'limited' ? i.boardBadge : null,
@@ -155,6 +155,15 @@ export async function setSoldOut(db: any, tenantId: string, input: { itemId: unk
     return { ok: true, item: menuItemOf(itemId, { ...i, choices: next }), raw: { ...i, choices: next } };
   });
   if (!r.ok) return r;
+  // A choice from a set (lib/choice-sets): sold out on every item with that set, not this one alone.
+  const linked = groupId ? (Array.isArray(r.raw.choices) ? r.raw.choices : []).find((g: any) => String(g?.id) === groupId && g?.setId) : null;
+  if (linked) {
+    // The set's own id for this option (the item may keep its own id for it: lib/choice-sets groupOfSet).
+    const opt = (Array.isArray(linked.options) ? linked.options : []).find((o: any) => String(o?.id) === optionId);
+    const { setOptionSoldOut } = await import('@/lib/choice-sets-server');
+    await setOptionSoldOut(db, tenantId, String(linked.setId), String(opt?.setOption || optionId), out, by).catch((e: any) => console.error('[menu] set sold out', e?.message || e));
+    r.raw = (await ref.get()).data() || r.raw;
+  }
   // With its recipe's ingredients counted, as every menu shows it.
   return { ok: true, item: await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item) };
 }
