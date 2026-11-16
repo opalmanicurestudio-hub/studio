@@ -52,9 +52,10 @@ import { logTableFix } from '@/lib/table-recovery-server';
 import { cleanAllergy, profileAllergy, tableAllergies, ticketAllergyFields, ticketAllergyPatch, MAX_TABLE_ALLERGIES } from '@/lib/allergens';
 import { NUDGE_KEY } from '@/lib/nudges';
 import { linkOrigin } from '@/lib/app-origin';
-import { recipeOf } from '@/lib/menu-stock';
-import { DEFAULT_TARGET, itemCost } from '@/lib/food-cost';
-import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
+import { costWith } from '@/lib/food-cost';
+import { readRecipeParts, takeParts, picksFrom } from '@/lib/recipe-stock-server';
+import { readPartsDeep } from '@/lib/prep-recipes-server';
+import { madeWith } from '@/lib/choice-recipe';
 import { forgetFloor, tablesNow } from '@/lib/floor-server';
 import { lineTicketIds, partTicketId } from '@/lib/two-stations';
 
@@ -67,15 +68,15 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 
 /** What one made costs, for waste: the item's cost in Inventory, when it has one (the first that's more than 0). */
-async function costToMake(db: any, T: string, itemId: string, qty: number): Promise<number | null> {
+async function costToMake(db: any, T: string, itemId: string, qty: number, choices?: unknown): Promise<number | null> {
   if (!ID.test(itemId)) return null;
   const x: any = (await db.doc(`${T}/inventory/${itemId}`).get()).data();
-  // Made from a recipe: what its ingredients cost (lib/food-cost), when every one has a cost.
-  const recipe = recipeOf(x, itemId);
-  if (recipe.length) {
-    const snaps = await Promise.all(recipe.map((l) => db.doc(`${T}/inventory/${l.id}`).get().catch(() => null)));
-    const parts = new Map<string, any>(); recipe.forEach((l, i) => { const d = snaps[i]?.data?.(); if (d) parts.set(l.id, d); });
-    const c = itemCost(itemId, x, parts, DEFAULT_TARGET).cost;
+  // Made from a recipe: what its ingredients cost as it was chosen (lib/food-cost costWith: an oat latte, an extra shot),
+  // when every one has a cost.
+  const lines = madeWith(x, itemId, picksFrom(choices));
+  if (lines.length) {
+    const parts = await readPartsDeep(db, T, lines.map((l) => l.id));
+    const c = costWith(itemId, x, parts, picksFrom(choices));
     if (c !== null) return round2(c * Math.max(1, qty));
   }
   const c = [x?.costPerUnit, x?.unitCost].map(Number).find((n) => Number.isFinite(n) && n > 0);
@@ -368,7 +369,7 @@ export async function POST(req: NextRequest) {
         approvedBy = a.approverName; token = String(b.approvalToken);
       }
       const stop = b.stopKitchen !== false;
-      const waste = started ? await costToMake(db, T, String(line.itemId || ''), Number(line.quantity) || 1) : null;
+      const waste = started ? await costToMake(db, T, String(line.itemId || ''), Number(line.quantity) || 1, line.choices || line.picks) : null;
       const amount = round2((Number(line.price) || 0) * (Number(line.quantity) || 1));
       const rRef = recordRef(token);
       const extra = { amount, itemName: String(line.name || 'Item').slice(0, 80), itemId: line.itemId || null, reason, started, wasteCost: waste, stopped: started ? stop : null, ticketStatus: ticket?.status || null,
@@ -386,7 +387,7 @@ export async function POST(req: NextRequest) {
         // Started and stopped before it was ready: what went into it is waste (lib/recipe-stock-server). One already
         // ready took its ingredients then.
         const st = String(k?.status || ''); const stops = !!(kRef && k) && (!kitchenStarted(st) || (stop && st !== 'delivered'));
-        const wasted = stops && kitchenStarted(st) && k.partsUsed !== true && !k.channel ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1)) : null;
+        const wasted = stops && kitchenStarted(st) && k.partsUsed !== true && !k.channel ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1), undefined, k.choices || line.choices) : null;
         tx.set(vRef, { tab: tab.filter((x) => x.lineId !== lineId), updatedAt: now }, { merge: true });
         if (kRef && k) {
           if (stops) tx.set(kRef, { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
@@ -416,7 +417,7 @@ export async function POST(req: NextRequest) {
       const { line, ticket, started, v } = await readLine();
       if (!ticket || !line.kdsId) return bad(`${line.name} doesn’t go to the kitchen, so there’s nothing to make again.`);
       if (!started) return bad(`${line.name} hasn’t been started yet. It’s still on its way.`);
-      const waste = await costToMake(db, T, String(line.itemId || ''), Number(line.quantity) || 1);
+      const waste = await costToMake(db, T, String(line.itemId || ''), Number(line.quantity) || 1, line.choices || line.picks);
       const oldRef = db.doc(`${T}/kdsTickets/${line.kdsId}`);
       const newId = `${String(line.kdsId).replace(/_r[a-z0-9]+$/, '').slice(0, 140)}_r${Date.now().toString(36)}`;
       const newRef = db.doc(`${T}/kdsTickets/${newId}`); const rRef = recordRef(null);
@@ -430,7 +431,7 @@ export async function POST(req: NextRequest) {
         const pks: any[] = await Promise.all(oldParts.map(async (id: string) => (await tx.get(db.doc(`${T}/kdsTickets/${id}`))).data() || null));
         // The first plate, started but not yet ready: what went into it is waste (one that was ready took its
         // ingredients then). The new plate takes its own when it's made.
-        const wasted = k.partsUsed !== true && !k.channel && kitchenStarted(k.status) ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1)) : null;
+        const wasted = k.partsUsed !== true && !k.channel && kitchenStarted(k.status) ? await readRecipeParts(tx, db, T, String(k.menuItemId || line.itemId || ''), Math.max(1, Number(k.quantity) || 1), undefined, k.choices || line.choices) : null;
         // Its allergies go with it; the station says "Allergy noted" again for the new plate.
         const keep = Object.fromEntries(Object.entries(k).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy', 'partsUsed', 'fromHold'].includes(f)));
         // The table's allergies as they stand now (one may have been added since the first plate).

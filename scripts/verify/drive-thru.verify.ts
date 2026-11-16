@@ -283,8 +283,9 @@ const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   check('an item with no recipe and none of its own is “None in stock”', wrapM && wrapM.inStock === false && wrapM.short === null && wrapM.byRecipe === false && (await import('../../src/lib/menu-stock')).outWords(wrapM) === 'None in stock', wrapM);
   r = await menuApi(req({ action: 'ingredients', tenantId: 't1' }));
   const ingIds = (r.body.ingredients || []).map((x: any) => x.id);
-  check('what a recipe can use: the business’s stock with what’s left, never equipment, an archived item, or cost', r.body.ok && ingIds.includes('patty') && ingIds.includes('bun') && !ingIds.includes('grill') && !ingIds.includes('oldbun')
-    && r.body.ingredients.find((x: any) => x.id === 'patty').left === 3 && !JSON.stringify(r.body).includes('cost'), r.body);
+  // (A manager's recipe editor works out each line's cost as it's typed, round 32: what one costs comes too; a supplier never.)
+  check('what a recipe can use: the business’s stock with what’s left, never equipment, an archived item, or a supplier', r.body.ok && ingIds.includes('patty') && ingIds.includes('bun') && !ingIds.includes('grill') && !ingIds.includes('oldbun')
+    && r.body.ingredients.find((x: any) => x.id === 'patty').left === 3 && !JSON.stringify(r.body).includes('supplier'), r.body);
   const wrapSave = (recipe: any) => menuApi(req({ action: 'save', tenantId: 't1', itemId: 'wrap', item: { name: 'Wrap', section: 'Food', price: 7, choices: [], recipe } }));
   r = await wrapSave([{ id: 'patty', quantityUsed: 1 }, { id: 'bun', quantityUsed: 2 }, { id: 'patty', quantityUsed: 0.5 }]);
   const wrapDoc = await get(`${T}/inventory/wrap`);

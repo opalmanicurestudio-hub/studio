@@ -59,7 +59,7 @@ import { jobOf } from '@/lib/briefing';
 import { limitPublic } from '@/lib/rate-limit';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
-import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
+import { recipeOf } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
 import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
 import { paceNow } from '@/lib/kitchen-pace-server';
@@ -135,21 +135,11 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
       const iRef = db.doc(`${T}/inventory/${itemId}`);
       item = (await tx.get(iRef)).data() || null;
       if (item && step === 'deliver') {
-        // A recipe (a latte) uses up its parts now: an item made from a recipe is counted by its parts (lib/menu-stock).
+        // A recipe (a latte) uses up its parts now: an item made from a recipe is counted by its parts (lib/menu-stock),
+        // as the guest chose it (lib/choice-recipe) and with what trimming and cooking lose (lib/recipe-stock-server).
         // A plain item is taken now only if ordering didn't already.
-        // The recipe as every menu reads it (lib/menu-stock recipeOf): the lines with an amount, never the item itself.
-        const recipe = recipeOf(item, itemId).length ? recipeOf(item, itemId) : null;
-        const formula = recipe || (r.stockMoved === true ? [] : [{ id: itemId, quantityUsed: 1 }]);
-        tookItem = !recipe && formula.length > 0;
-        for (const f of formula) {
-          const pid = String(f?.id || ''); if (!ID.test(pid)) continue;
-          const same = parts.find((p) => p.ref.id === pid);   // a part listed twice is used once, in full
-          if (same) { same.qty += num(f.quantityUsed) * qty; continue; }
-          const pRef = db.doc(`${T}/inventory/${pid}`);
-          const data = pid === itemId ? item : (await tx.get(pRef)).data();
-          // An ingredient that's put away, or a menu item made from its own recipe, isn't counted (as on every menu).
-          if (data && (!recipe || ingredientLeft(data) !== null)) parts.push({ ref: pRef, data, qty: num(f.quantityUsed) * qty });
-        }
+        if (recipeOf(item, itemId).length) parts.push(...await readRecipeParts(tx, db, T, itemId, qty, item, r.choices));
+        else if (r.stockMoved !== true) { parts.push({ ref: iRef, data: item, qty }); tookItem = true; }
       }
     }
     // A table's, the desk's or an event's dish made from a recipe uses up its ingredients once it's made: when it's
@@ -159,7 +149,8 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     const makes = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && (step === 'ready' || step === 'deliver');
     // One stopped here after it was started: what went into it is waste.
     const stopsStarted = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && step === 'cancel' && r.status === 'in_progress';
-    const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty) : [];
+    // What's made is what the guest chose (oat milk, an extra shot: lib/choice-recipe), as the ticket kept it.
+    const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty, undefined, r.choices) : [];
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }
       : step === 'ready' ? { status: 'ready', readyAt: now, ...(r.claimedBy ? {} : { claimedBy: by }) }
@@ -379,7 +370,9 @@ export async function POST(req: NextRequest) {
       const raw = new Map<string, any>(docs.map((d: any) => [d.id, d.data() || {}]));
       for (const t of [...tickets, ...unfired]) if (!t.madeAt || !stations.includes(t.madeAt)) t.madeAt = stationOfItem(raw.get(String(t.itemId || '')) || {}, stations);
       const items: Record<string, any> = {};
-      for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => ({ id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
+      for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => (f?.measure && num(f.amount) > 0
+        // As the cook measures it (2 tbsp, 6 oz), when the recipe was written that way (lib/kitchen-units).
+        ? { id: f.id, name: String(f.name || ''), quantityUsed: num(f.amount), unit: String(f.measure) } : { id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
       const today = [...lt.docs, ...kt.docs].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
       // What's held right now, what the menu says can be, and today's waste from it.
       const [heldSnap, holdItems, tossedSnap] = await Promise.all([

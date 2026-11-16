@@ -7,9 +7,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
 import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
-import { itemSoldOut, priceChoices, type Picks } from '@/lib/menu-choices';
+import { itemSoldOut, picksOf, priceChoices, type Picks } from '@/lib/menu-choices';
 import { isMenuItem } from '@/lib/menu-server';
-import { recipeOf, ingredientLeft, ingredientUnit } from '@/lib/menu-stock';
+import { recipeOf, ingredientLeft, ingredientUnit, needsOf, type RecipeLine } from '@/lib/menu-stock';
+import { madeWith } from '@/lib/choice-recipe';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -185,6 +186,10 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     type PartTake = { item: string; items: Record<string, number>; parts: Record<string, number> };
     const lineTake: Record<string, { own: number; parts: Record<string, number>; items: Record<string, number>; byPart: Record<string, PartTake> }> = {};
     const ownNeed = new Map<string, number>(); const partNeed = new Map<string, number>(); const partFor = new Map<string, string>();
+    // What's made, line by line: the recipe as the guest chose it (oat milk instead of whole, an extra shot:
+    // lib/choice-recipe); a combo's part as it comes. Each ingredient's amount is worked out once its record is read
+    // (a kitchen measure turned into what it's counted in, more for what trimming and cooking lose: lib/kitchen-units).
+    const toTake: { l: OrderLine; take: (typeof lineTake)[string]; pt: PartTake | null; lines: RecipeLine[] }[] = [];
     for (const m of made) {
       const l = m.l; const it = items[ids.indexOf(m.itemId)]; const recipe = recipeOf(it, m.itemId);
       const take = lineTake[l.lineId] || { own: 0, parts: {} as Record<string, number>, items: {} as Record<string, number>, byPart: {} as Record<string, PartTake> };
@@ -197,16 +202,20 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
         if (pt) pt.items[m.itemId] = (pt.items[m.itemId] || 0) + l.quantity;
         ownNeed.set(m.itemId, (ownNeed.get(m.itemId) || 0) + l.quantity);
       }
-      for (const f of recipe) {
-        const use = f.quantityUsed * l.quantity; if (!(use > 0)) continue;
-        take.parts[f.id] = (take.parts[f.id] || 0) + use; if (pt) pt.parts[f.id] = (pt.parts[f.id] || 0) + use;
-        partNeed.set(f.id, (partNeed.get(f.id) || 0) + use); if (!partFor.has(f.id)) partFor.set(f.id, String(it.name || 'item'));
-      }
+      const lines = m.combo ? recipe : madeWith(it, m.itemId, picksOf(l.choices));
+      if (lines.length) toTake.push({ l, take, pt, lines });
+      for (const f of lines) if (!partFor.has(f.id)) partFor.set(f.id, String(it.name || 'item'));
       lineTake[l.lineId] = take;
     }
-    for (const pid of partNeed.keys()) {
-      if (docs.has(pid)) continue;
+    for (const pid of Array.from(new Set(toTake.flatMap((x) => x.lines.map((f) => f.id))))) {
+      if (docs.has(pid) || !/^[A-Za-z0-9_-]{1,160}$/.test(pid)) continue;
       const pRef = db.doc(`${T}/inventory/${pid}`); const data = (await tx.get(pRef)).data(); if (data) docs.set(pid, { ref: pRef, data });
+    }
+    const partData = new Map<string, any>(Array.from(docs.entries()).map(([id, d]) => [id, d.data]));
+    for (const x of toTake) for (const [pid, need] of needsOf(x.lines, partData)) {
+      const use = Math.round(need * x.l.quantity * 1000) / 1000; if (!(use > 0)) continue;
+      x.take.parts[pid] = (x.take.parts[pid] || 0) + use; if (x.pt) x.pt.parts[pid] = (x.pt.parts[pid] || 0) + use;
+      partNeed.set(pid, Math.round(((partNeed.get(pid) || 0) + use) * 1000) / 1000);
     }
     // An ingredient that can't be counted (no size or uses set, put away, or a menu item made from its own recipe) is left
     // as it is; so is one no longer in stock at all.

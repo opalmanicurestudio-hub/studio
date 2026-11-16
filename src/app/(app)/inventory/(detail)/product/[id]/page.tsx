@@ -31,6 +31,10 @@ import { shopStatus } from '@/components/products/ProductsList';
 import { CountSheet } from '@/components/products/CountSheet';
 import { UseTestSheet, canTestUses, startUseTest } from '@/components/products/UseTestSheet';
 import { productFeatures } from '@/lib/product-features';
+import { YieldPanel } from '@/components/products/YieldPanel';
+import { recipeOf } from '@/lib/menu-stock';
+import { hasYield, perEachOf } from '@/lib/kitchen-units';
+import { makesWords, prepOf } from '@/lib/prep-recipes';
 import { Btn, C, Sheet, muted } from '@/components/orders/ui';
 import QRCode from 'qrcode';
 
@@ -328,6 +332,11 @@ export default function ProductDetailPage() {
         .map((sv: any) => ({ sv, line: recipeLines(sv.products || []).find((l) => l.productId === String(p.id)) }))
         .filter((x) => !!x.line) as { sv: any; line: { productId: string; qty: number } }[];
     const forServices = kindOf === 'professional' || kindOf === 'overhead' || usedIn.length > 0;
+    // The menu items and prep recipes whose recipes use it (lib/menu-stock), for its yield and what one gives.
+    const usedInMenu = ((inventory as any[]) || []).filter((i: any) => i && String(i.id) !== String(p.id) && i.archived !== true && i.status !== 'archived' && (i.type === 'refreshment' || !!prepOf(i)) && recipeOf(i, String(i.id)).some((l) => l.id === String(p.id)))
+        .map((i: any) => ({ id: String(i.id), name: String(i.name || 'An item') }));
+    const prepInfo = prepOf(p);
+    const showYield = countable && kindOf !== 'refreshment' && kindOf !== 'equipment' && !prepInfo && (usedInMenu.length > 0 || hasYield(p) || !!perEachOf(p));
     // "1 use", "10 wraps", "3 ml": the unit reads right for one and for many.
     const one = unit === 'each' ? 'item' : unit === 'uses' ? 'use' : /^(ml|g|oz)$/i.test(unit) ? unit : unit.replace(/s$/, '');
     const many = unit === 'each' ? 'items' : unit;
@@ -385,7 +394,7 @@ export default function ProductDetailPage() {
                         {countable && <Link href={`/inventory/labels?items=${encodeURIComponent(p.id)}:1`} className={linkBtn} style={{ background: C.soft, color: C.ink }}>Print labels</Link>}
                         <Btn kind="soft" onClick={async () => { const url = await QRCode.toDataURL(`clarityflow://product/${p.id}`, { width: 512, margin: 1, errorCorrectionLevel: 'M' }).catch(() => ''); if (url) setQr(url); }}>QR code</Btn>
                         {countable && !variantIds.length && <Btn kind="soft" onClick={() => setIsCountOpen(true)}>Count it</Btn>}
-                        {countable && !variantIds.length && <Btn kind="primary" onClick={() => setIsReceiveOpen(true)}>Receive stock</Btn>}
+                        {countable && !variantIds.length && !prepInfo && <Btn kind="primary" onClick={() => setIsReceiveOpen(true)}>Receive stock</Btn>}
                     </div>
                 </div>
 
@@ -409,7 +418,13 @@ export default function ProductDetailPage() {
                                 <Tile label="Worth on the shelf" value={money(stockValue)} note="at what it cost" />
                             </div>
                         )}
-                        {countable && forServices && (
+                        {countable && forServices && !usedIn.length && usedInMenu.length > 0 && (
+                            <p className="m-0 rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: C.warnSoft, color: C.warn } : { background: C.okSoft, color: C.ok }}>
+                                {gap ? `Its cost can’t be counted yet: ${gap}. ${usedInMenu.map((x) => x.name).slice(0, 2).join(' and ')}${usedInMenu.length > 2 ? ' and more' : ''} show no cost to make until it’s added in Edit details.`
+                                    : `Counts toward what ${usedInMenu.map((x) => x.name).slice(0, 2).join(' and ')}${usedInMenu.length > 2 ? ` and ${usedInMenu.length - 2} more` : ''} ${usedInMenu.length === 1 ? 'costs' : 'cost'} to make.`}
+                            </p>
+                        )}
+                        {countable && forServices && (usedIn.length > 0 || !usedInMenu.length) && (
                             <p className="m-0 rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: C.warnSoft, color: C.warn } : { background: C.okSoft, color: C.ok }}>
                                 {gap ? `Its cost per use can’t be counted yet: ${gap}. Services using it leave it out of their margins and the restocking fund until it’s added in Edit details.`
                                     : `Counts toward service margins${fundOn ? ' and the restocking fund' : ''} at ${money(perUseCost || 0)} ${unit === 'each' ? 'each' : `per ${one}`}.`}
@@ -426,8 +441,8 @@ export default function ProductDetailPage() {
                                         {features.online && wholesaleCents > 0 && wholesaleCents !== priceCents ? <Line k="Wholesale" v={money(wholesaleCents / 100)} /> : null}
                                     </Panel>
                                 ) : null}
-                                {countable && (forServices || !sells) ? (
-                                    <Panel title={kindOf === 'overhead' ? 'What it costs to use' : 'Using it in services'}>
+                                {countable && !prepInfo && (forServices || !sells) ? (
+                                    <Panel title={usedIn.length ? 'Using it in services' : 'What it costs to use'}>
                                         <Line k="Counted by" v={p.costingMethod === 'uses' ? 'Uses' : p.costingMethod === 'size' ? `Amount used (${unit})` : 'Each one'} />
                                         <Line k={p.costingMethod ? 'One container cost' : 'One cost'} v={money(cost)} />
                                         {p.costingMethod ? <Line k="One container holds" v={perContainer(p) ? fmtQty(perContainer(p) as number) : <span style={{ color: C.warn }}>Not set</span>} /> : null}
@@ -456,6 +471,17 @@ export default function ProductDetailPage() {
                                         {p.supplier ? <Line k="From" v={p.supplier} /> : null}
                                     </Panel>
                                 ) : null}
+                                {showYield && tenantId && <YieldPanel tenantId={tenantId} product={p} usedIn={usedInMenu} />}
+                                {prepInfo && (
+                                    <Panel title="Prep recipe" action={<Link href="/menu" className="-my-2 inline-flex min-h-[44px] items-center px-2 text-[15px] font-medium" style={{ color: C.ok }}>Change it on the Menu</Link>}>
+                                        <Line k="A batch" v={makesWords(prepInfo)} />
+                                        <Line k="A batch costs" v={cost > 0 ? `${money(cost)}${perUseCost !== null ? `, ${money(perUseCost)} per ${unit}` : ''}` : <span style={{ color: C.warn }}>Not known yet</span>} />
+                                        {prepInfo.keepsDays ? <Line k="Keeps" v={`${prepInfo.keepsDays} day${prepInfo.keepsDays === 1 ? '' : 's'}`} /> : null}
+                                        <Line k="Last made" v={prepInfo.lastMadeAt ? `${format(safeDate(prepInfo.lastMadeAt), 'EEE MMM d')}${prepInfo.lastMadeBy ? `, by ${prepInfo.lastMadeBy}` : ''}` : 'Not yet'} />
+                                        {usedInMenu.length > 0 ? <Line k="Used in" v={usedInMenu.slice(0, 3).map((x) => x.name).join(', ') + (usedInMenu.length > 3 ? ` and ${usedInMenu.length - 3} more` : '')} /> : null}
+                                        <p className="m-0 pt-2 text-[14px]" style={muted}>Made on the Prep page: what goes into a batch comes off stock then, and each dish takes its portion of this.</p>
+                                    </Panel>
+                                )}
                                 {variantIds.length > 0 && (
                                     <Panel title="Variants" action={<button type="button" className="-my-2 min-h-[44px] px-2 text-[15px] font-medium" style={{ color: C.ok }} onClick={() => setTab('variants')}>See them all</button>}>
                                         {variants.slice(0, 4).map((v) => <Line key={v.id} k={choiceFor(p, String(v.id))?.choice.label || v.name} v={`${Number(v.totalStock) || 0} on the shelf`} />)}

@@ -3,9 +3,17 @@
 // food and drink sold over a stretch cost to make, day by day; what the counts found against what was sold (each count's
 // difference, from the stock history: everything sold, made and logged as waste is already taken off, so what a count
 // finds missing is what nothing accounts for); and what was thrown away. Pure.
-import { recipeOf } from '@/lib/menu-stock';
+//   A recipe line costs what it takes off stock (lib/kitchen-units stockNeed: its kitchen measure turned into what the
+//   ingredient is counted in, more for what trimming and cooking lose), at what one of the ingredient costs: a prep
+//   recipe's from its own recipe at today's costs (lib/prep-recipes). A choice that changes the recipe (lib/choice-recipe)
+//   costs the difference it makes.
+import { recipeOf, type RecipeLine } from '@/lib/menu-stock';
 import { costGap, unitCost, unitLabel } from '@/lib/product-cost';
 import { suggestPrice } from '@/lib/food-starters';
+import { hasYield, stockNeed, yieldOf } from '@/lib/kitchen-units';
+import { prepOf } from '@/lib/prep-recipes';
+import { madeWith, optionChanges } from '@/lib/choice-recipe';
+import { choiceGroups, type Picks } from '@/lib/menu-choices';
 
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -24,7 +32,57 @@ export function cleanTarget(v: unknown): number | null {
   return f >= TARGET_MIN && f <= TARGET_MAX ? Math.round(f * 100) / 100 : null;
 }
 
-export type CostLine = { id: string; name: string; amount: number; unit: string; cost: number | null; typical: boolean; why: string | null };
+export type CostLine = { id: string; name: string; amount: number; unit: string; cost: number | null; typical: boolean; why: string | null;
+  /** The share of what's bought that's served, when trimming or cooking lose some (lib/kitchen-units). */
+  usable?: number | null;
+  /** A prep recipe made in batches (lib/prep-recipes). */
+  prep?: boolean };
+/** What a choice adds to the price, what it adds to the cost, and what's left of it (lib/choice-recipe). */
+export type OptionCost = { groupId: string; optionId: string; group: string; option: string; price: number; cost: number | null; keeps: number | null; changes: boolean;
+  /** It barely pays for itself: it keeps under a fifth of what it charges, or costs more than it charges. */
+  thin: boolean };
+
+/** What one of an ingredient costs, in what it's counted in: a prep recipe's from its own recipe at today's ingredient
+ *  costs (a prep inside a prep too, one level), else what Inventory has. Null when it isn't known. */
+export function partUnitCost(part: any, parts: Map<string, any>, depth = 0): number | null {
+  const p = prepOf(part);
+  // Worked out live when everything in it has a cost; else what it cost when it was last saved or made.
+  if (p && depth < 2) { const b = linesCost(recipeOf(part), parts, depth + 1); if (b.cost !== null) return b.cost / p.makes; }
+  return unitCost(part);
+}
+/** What some recipe lines cost, line by line; null while any of them has no cost (gaps say which, and why). */
+export function linesCost(recipe: RecipeLine[], parts: Map<string, any>, depth = 0): { lines: CostLine[]; cost: number | null; gaps: { name: string; why: string }[]; typical: boolean } {
+  const lines: CostLine[] = recipe.map((l) => {
+    const p = parts.get(l.id); const u = p ? partUnitCost(p, parts, depth) : null; const prep = !!prepOf(p);
+    const typical = p?.typicalCost === true || (prep && depth < 2 && linesCost(recipeOf(p), parts, depth + 1).typical);
+    const why = !p ? 'not in Inventory any more' : u !== null ? null : prep ? 'an ingredient in its recipe has no cost yet' : costGap(p) || 'no cost';
+    return { id: l.id, name: String(p?.name || l.name), amount: l.measure && Number(l.amount) > 0 ? Number(l.amount) : l.quantityUsed, unit: l.measure && Number(l.amount) > 0 ? l.measure : p ? unitLabel(p) : l.unit,
+      cost: u === null ? null : r4(u * stockNeed(l, p)), typical, why, usable: p && hasYield(p) ? Math.round(yieldOf(p) * 1000) / 1000 : null, prep };
+  });
+  const gaps = lines.filter((l) => l.cost === null).map((l) => ({ name: l.name, why: l.why || 'no cost' }));
+  return { lines, cost: gaps.length ? null : r4(lines.reduce((s, l) => s + (l.cost || 0), 0)), gaps, typical: lines.some((l) => l.typical) };
+}
+/** What one costs to make for these choices (a large oat latte); null while any part has no cost. */
+export function costWith(id: string, item: any, parts: Map<string, any>, picks?: Picks | null): number | null {
+  const lines = madeWith(item, id, picks);
+  if (lines.length) return linesCost(lines, parts).cost;
+  const u = unitCost({ ...item, costingMethod: null, useUnit: null }); return u === null ? null : r4(u);
+}
+/** Each choice that charges something or changes the recipe: what it adds to the cost against the item as it comes, and
+ *  what it keeps. */
+export function optionCosts(id: string, item: any, parts: Map<string, any>, baseCost: number | null): OptionCost[] {
+  const changes = optionChanges(item); const out: OptionCost[] = [];
+  for (const g of choiceGroups(item)) for (const o of g.options) {
+    const key = `${g.id}/${o.id}`; const ch = changes.has(key);
+    if (o.itemId || (!ch && !(o.price !== 0))) continue;
+    const withIt = ch ? costWith(id, item, parts, { [g.id]: [o.id] }) : baseCost;
+    const cost = withIt === null || baseCost === null ? null : r2(withIt - baseCost);
+    const keeps = cost === null ? null : r2(o.price - cost);
+    out.push({ groupId: g.id, optionId: o.id, group: g.name, option: o.name, price: o.price, cost, keeps, changes: ch,
+      thin: keeps !== null && ((o.price > 0 && keeps < o.price * 0.2) || (o.price <= 0 && keeps <= -0.25)) });
+  }
+  return out;
+}
 export type ItemCost = {
   id: string; name: string; price: number;
   /** What one costs to make; null while any part has no cost (see gaps). */
@@ -43,6 +101,8 @@ export type ItemCost = {
   /** The part that costs the most, when there's more than one. */
   biggest: CostLine | null;
   needsPrice: boolean;
+  /** Its choices that charge something or change the recipe, each with what it costs and keeps. */
+  options: OptionCost[];
 };
 
 /** One menu item's cost to make, from its recipe and each part as Inventory has it (`parts` by id). */
@@ -51,13 +111,8 @@ export function itemCost(id: string, item: any, parts: Map<string, any>, target:
   const price = Math.max(0, num(item?.price));
   let lines: CostLine[] = []; let cost: number | null; let typical: boolean; const gaps: { name: string; why: string }[] = [];
   if (recipe.length) {
-    lines = recipe.map((l) => {
-      const p = parts.get(l.id); const u = p ? unitCost(p) : null;
-      return { id: l.id, name: String(p?.name || l.name), amount: l.quantityUsed, unit: p ? unitLabel(p) : l.unit, cost: u === null ? null : r4(u * l.quantityUsed), typical: p?.typicalCost === true, why: p ? costGap(p) : 'not in Inventory any more' };
-    });
-    for (const l of lines) if (l.cost === null) gaps.push({ name: l.name, why: l.why || 'no cost' });
-    cost = gaps.length ? null : r4(lines.reduce((s, l) => s + (l.cost || 0), 0));
-    typical = lines.some((l) => l.typical);
+    const c = linesCost(recipe, parts);
+    lines = c.lines; gaps.push(...c.gaps); cost = c.cost; typical = c.typical;
   } else {
     // Sold as it comes (a bottle, a can): what one costs.
     const u = unitCost({ ...item, costingMethod: null, useUnit: null });
@@ -72,12 +127,14 @@ export function itemCost(id: string, item: any, parts: Map<string, any>, target:
     id, name: String(item?.name || 'Item'), price, cost, byRecipe: recipe.length > 0, lines, typical, gaps,
     missing: (Array.isArray(item?.recipeGaps) ? item.recipeGaps : []).map(String).filter(Boolean).slice(0, 10),
     share, target, over, fix: over && cost !== null ? suggestPrice(cost, target) : null,
-    biggest: costed.length > 1 ? costed[0] : null, needsPrice: !(price > 0),
+    biggest: costed.length > 1 ? costed[0] : null, needsPrice: !(price > 0), options: optionCosts(id, item, parts, cost),
   };
 }
 
 /** Food and drink sold: one line of a sale (`amount` is what it was sold for, all `qty` of it). */
-export type SoldLine = { itemId: string; qty: number; amount: number; at: string };
+export type SoldLine = { itemId: string; qty: number; amount: number; at: string;
+  /** What one cost to make with the choices it was sold with (lib/food-cost costWith), when they change the recipe. */
+  each?: number | null };
 export type DayRow = { day: string; sold: number; cost: number; share: number | null };
 export type ItemSold = { id: string; name: string; qty: number; sold: number; cost: number | null };
 export type PeriodCost = {
@@ -96,7 +153,7 @@ export function periodCost(lines: SoldLine[], costs: Map<string, ItemCost>, days
   let sold = 0, covered = 0, cost = 0, uncovered = 0; const uncoveredItems = new Set<string>();
   for (const l of lines) {
     const qty = num(l.qty), amount = Math.max(0, num(l.amount)); if (!(qty > 0)) continue;
-    const c = costs.get(l.itemId); const each = c?.cost ?? null;
+    const c = costs.get(l.itemId); const each = l.each !== undefined ? l.each : c?.cost ?? null;
     sold += amount;
     const it = byItem.get(l.itemId) || { id: l.itemId, name: c?.name || 'An item no longer on the menu', qty: 0, sold: 0, cost: each === null ? null : 0 };
     it.qty += qty; it.sold = r2(it.sold + amount); byItem.set(l.itemId, it);

@@ -32,7 +32,13 @@
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts.
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
-// Nothing about cost or suppliers is read or written here. `list` also gives each item's recipe.
+//   prep    { tenantId, prepId?, name, makes, unit, keepsDays?, minutes?, recipe } → managers: a prep recipe added or
+//             changed (lib/prep-recipes-server savePrep): what goes into a batch, what a batch makes, how long it keeps
+//   prepRemove { tenantId, prepId } → managers: a prep recipe put away (not while a recipe uses it)
+//   (save's recipe lines may be written in a kitchen measure: [{ id, amount, measure }], lib/kitchen-units; and each
+//   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
+// Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
+// ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
 import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
 import { cleanSlotItems, SLOT_ITEMS_MAX, SLOT_ITEMS_MIN } from '@/lib/ahead-slots';
 import { NextRequest, NextResponse } from 'next/server';
@@ -61,6 +67,12 @@ import { accountOf } from '@/lib/reader-sale';
 import { linkOrigin } from '@/lib/app-origin';
 import { cleanAlsoAt, MAX_ALSO } from '@/lib/two-stations';
 import { buildEntry } from '@/lib/stock-ledger';
+import { canBeIngredient, readPartsDeep, recipeFromScreen, removePrep, savePrep } from '@/lib/prep-recipes-server';
+import { cleanChanges, optionChanges, changeIds, type ChoiceChange } from '@/lib/choice-recipe';
+import { measuresFor, toStockUnits, hasYield, yieldOf, perEachOf } from '@/lib/kitchen-units';
+import { prepOf, isPrep } from '@/lib/prep-recipes';
+import { linesCost, partUnitCost } from '@/lib/food-cost';
+import { unitLabel } from '@/lib/product-cost';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -85,10 +97,10 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create'].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove'].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create', 'prep', 'prepRemove'].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -105,15 +117,21 @@ export async function POST(req: NextRequest) {
       for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut; }
       const canEdit = !!(g.actor?.isManager || g.actor?.isTenantOwner);
       // For managers: what each costs to make from its recipe, as a share of its price (lib/food-cost).
-      let costs: Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number }> | undefined;
+      let costs: Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number; thin?: string[] }> | undefined;
+      // For managers, too: what each choice changes in the recipe (lib/choice-recipe), and the prep recipes made in batches.
+      let changes: Record<string, Record<string, ChoiceChange[]>> | undefined; let preps: any[] | undefined;
       if (canEdit) {
-        const ids = Array.from(new Set(Object.values(recipes).flatMap((r: any[]) => r.map((l) => String(l.id))))).slice(0, 600);
-        const parts = new Map<string, any>();
-        for (let i = 0; i < ids.length; i += 300) { const snaps = await db.getAll(...ids.slice(i, i + 300).map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`))).catch(() => [] as any[]); for (const sn of snaps) if (sn?.exists) parts.set(sn.id, sn.data()); }
-        const target = targetOf(td); costs = {};
-        for (const d of items.docs) { const x: any = d.data() || {}; if (!isMenuItem(x)) continue; const c = itemCost(d.id, x, parts, target); costs[d.id] = { cost: c.cost, share: c.share, over: c.over, typical: c.typical, target }; }
+        const prepDocs = (await db.collection(`tenants/${tenantId}/inventory`).where('createdVia', '==', 'prep-recipe').limit(200).get().catch(() => ({ docs: [] as any[] }))).docs
+          .filter((d: any) => isPrep(d.data() || {}, d.id));
+        const ids = Array.from(new Set([...Object.values(recipes).flatMap((r: any[]) => r.map((l) => String(l.id))), ...items.docs.flatMap((d: any) => changeIds(d.data() || {})), ...prepDocs.map((d: any) => d.id)])).slice(0, 600);
+        const parts = await readPartsDeep(db, `tenants/${tenantId}`, ids);
+        const target = targetOf(td); costs = {}; changes = {};
+        for (const d of items.docs) { const x: any = d.data() || {}; if (!isMenuItem(x)) continue; const c = itemCost(d.id, x, parts, target); const thin = c.options.filter((o) => o.thin).map((o) => o.option);
+          costs[d.id] = { cost: c.cost, share: c.share, over: c.over, typical: c.typical, target, ...(thin.length ? { thin } : {}) };
+          const ch = optionChanges(x); if (ch.size) changes[d.id] = Object.fromEntries(ch); }
+        preps = prepDocs.map((d: any) => prepRow(d.id, d.data() || {}, parts)).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -300,11 +318,30 @@ export async function POST(req: NextRequest) {
       // What a recipe can use: anything the business stocks but equipment, and never a menu item that's made from its own
       // recipe (one level of recipe only).
       const snap = await db.collection(`tenants/${tenantId}/inventory`).limit(1500).get();
-      const list = snap.docs.map((d: any) => ({ id: d.id, x: d.data() || {} }))
-        .filter(({ id, x }: any) => ID.test(id) && canBeIngredient(x, id))
-        .map(({ id, x }: any) => { const left = ingredientLeft(x); return { id, name: words(x.name, 80) || 'Item', unit: ingredientUnit(x), left: left === null ? null : Math.round(left * 100) / 100, menu: x.type === 'refreshment' }; })
+      const all = new Map<string, any>(snap.docs.map((d: any) => [d.id, d.data() || {}]));
+      const list = Array.from(all.entries())
+        .filter(([id, x]: any) => ID.test(id) && canBeIngredient(x, id))
+        .map(([id, x]: any) => { const left = ingredientLeft(x); const u = partUnitCost(x, all);
+          // What the recipe editor works a cost out from, here on the screen, by the same rules as the server (lib/food-cost):
+          // what one costs, how it's counted, what's usable, what one gives, and a prep recipe's own recipe.
+          return { id, name: words(x.name, 80) || 'Item', unit: ingredientUnit(x), left: left === null ? null : Math.round(left * 100) / 100, menu: x.type === 'refreshment',
+            prep: isPrep(x, id), measures: measuresFor(x), usable: hasYield(x) ? Math.round(yieldOf(x) * 1000) / 1000 : null, perEach: perEachOf(x), unitCost: u,
+            part: { name: words(x.name, 80), type: x.type || null, costPerUnit: Number(x.costPerUnit) || 0, costingMethod: x.costingMethod || null, size: x.size ?? null, unit: x.unit ?? null, estimatedUses: x.estimatedUses ?? null, useUnit: x.useUnit ?? null,
+              usablePct: x.usablePct ?? null, cookLossPct: x.cookLossPct ?? null, perEach: x.perEach ?? null, typicalCost: x.typicalCost === true, ...(prepOf(x) ? { prep: x.prep, formula: recipeOf(x, id) } : {}) } }; })
         .sort((a: any, c: any) => a.name.localeCompare(c.name));
       return ok({ ingredients: list });
+    }
+
+    if (action === 'prep') {
+      const r = await savePrep(db, `tenants/${tenantId}`, { id: String(g.actor?.uid || 'manager'), name: words(g.actor?.name, 60) || 'A manager' }, b);
+      if ('error' in r) return bad(r.error, r.status);
+      const parts = await readPartsDeep(db, `tenants/${tenantId}`, recipeOf(r.item, r.id).map((l) => l.id));
+      return ok({ prep: prepRow(r.id, r.item, parts) });
+    }
+
+    if (action === 'prepRemove') {
+      const r = await removePrep(db, `tenants/${tenantId}`, String(b.prepId || ''), words(g.actor?.name, 60) || 'A manager');
+      return 'error' in r ? bad(r.error, r.status) : ok({});
     }
 
     if (action === 'soldout') {
@@ -421,42 +458,76 @@ export async function POST(req: NextRequest) {
         photo.imageUrl = u;
       }
     }
-    // The recipe, when given: what goes into one, from the business's own stock (checked against it below).
-    let recipeIn: { id: string; q: number }[] | null = null;
+    // The recipe, when given: what goes into one, from the business's own stock, each line as the cook measures it
+    // (checked against the stock, and turned into what each ingredient is counted in, below: lib/kitchen-units).
+    let recipeIn: any[] | null = null;
     if (x.recipe !== undefined && x.recipe !== null) {
       if (!Array.isArray(x.recipe)) return bad('Check the recipe.');
       if (x.recipe.length > MAX_RECIPE_LINES) return bad(`Up to ${MAX_RECIPE_LINES} ingredients in a recipe.`);
-      recipeIn = [];
-      for (const l of x.recipe) {
-        const id = String(l?.id || ''); const q = Math.round(Number(l?.quantityUsed) * 1000) / 1000;
-        if (!ID.test(id) || id === itemId) return bad('Check the recipe: one of the ingredients isn’t in your stock.');
-        if (!Number.isFinite(q) || q <= 0 || q > 10000) return bad(`How much ${words(l?.name, 40) || 'of an ingredient'} goes into one? Type an amount above 0.`);
-        const same = recipeIn.find((y) => y.id === id); if (same) same.q = Math.round((same.q + q) * 1000) / 1000; else recipeIn.push({ id, q });
-      }
+      if (x.recipe.some((l: any) => !ID.test(String(l?.id || '')) || String(l?.id) === itemId)) return bad('Check the recipe: one of the ingredients isn’t in your stock.');
+      recipeIn = x.recipe;
+    }
+    // What each choice changes in the recipe (lib/choice-recipe), by option, as given.
+    const changesIn = new Map<string, ChoiceChange[]>();
+    for (const cg of rawGroups) for (const o of Array.isArray(cg?.options) ? cg.options : []) {
+      const ch = cleanChanges(o?.changes); if (!ch.length) continue;
+      // Its option as saved: by its id (kept by cleanForSave), else by its group's and its own name.
+      const grp = choices.find((c) => c.id === String(cg?.id || '')) || choices.find((c) => words(c.name, 40) === words(cg?.name, 40));
+      const opt = grp?.options.find((y) => y.id === String(o?.id || '')) || grp?.options.find((y) => words(y.name, 40) === words(o?.name, 40));
+      if (grp && opt) changesIn.set(`${grp.id}/${opt.id}`, ch);
     }
     const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
     const r: any = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data();
-      const partDocs = recipeIn ? await Promise.all(recipeIn.map((l) => tx.get(db.doc(`tenants/${tenantId}/inventory/${l.id}`)))) : [];
+      // An option sent without its changes (a caller that doesn't edit them) keeps the ones it has; an empty list clears them.
+      const stored = optionChanges(cur);
+      for (const cg of rawGroups) for (const o of Array.isArray(cg?.options) ? cg.options : []) {
+        if (o?.changes !== undefined) continue;
+        const key = `${String(cg?.id || '')}/${String(o?.id || '')}`;
+        if (stored.has(key) && choices.some((c) => c.id === String(cg?.id) && c.options.some((y) => y.id === String(o?.id)))) changesIn.set(key, stored.get(key)!);
+      }
+      const wantIds = Array.from(new Set<string>([...(recipeIn || []).map((l: any) => String(l.id)), ...Array.from(changesIn.values()).flat().flatMap((c) => (c.kind === 'add' ? [c.id] : c.kind === 'swap' ? [c.to] : [])), ...recipeOf(cur, itemId).map((l) => l.id)])).filter((id) => ID.test(id) && id !== itemId);
+      const partDocs = await Promise.all(wantIds.map((id) => tx.get(db.doc(`tenants/${tenantId}/inventory/${id}`))));
+      const parts = new Map<string, any>(); wantIds.forEach((id, k) => { const d = partDocs[k].data(); if (d) parts.set(id, d); });
       // An item that goes into another item's recipe is counted by its own count, so it can't have a recipe of its own.
       const usedIn = recipeIn && recipeIn.length ? (await tx.get(db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400))).docs
         .find((d: any) => d.id !== itemId && isMenuItem(d.data()) && recipeOf(d.data() || {}, d.id).some((l) => l.id === itemId)) : null;
       if (!isMenuItem(cur)) return { error: 'That isn’t on the menu.', status: 404 };
       if (usedIn) return { error: `${words(cur.name, 40) || 'This item'} goes into ${words(usedIn.data()?.name, 40) || 'another item'}’s recipe, so it’s counted by itself. Take it out of that recipe first.`, status: 409 };
       let formula: any[] | undefined;
-      if (recipeIn) {
-        formula = [];
-        for (const [k, l] of recipeIn.entries()) {
-          const p: any = partDocs[k].data();
-          if (!p || !canBeIngredient(p, l.id)) return { error: `${p ? words(p.name, 40) || 'One of the ingredients' : 'One of the ingredients'} can’t go into a recipe. Take it off and save again.`, status: 409 };
-          formula.push({ id: l.id, name: words(p.name, 80) || 'Ingredient', quantityUsed: l.q, unit: ingredientUnit(p) });
+      if (recipeIn) { const f = recipeFromScreen(recipeIn, itemId, parts); if ('error' in f) return f; formula = f.formula; }
+      // Each choice's changes, against the recipe as it'll be: what it adds is in stock and can be measured that way; what
+      // it swaps out or leaves out is in the recipe; what it swaps in can stand in the same measure.
+      const recipeNow = formula ? recipeOf({ formula }, itemId) : recipeOf(cur, itemId);
+      const checked = new Map<string, ChoiceChange[]>();
+      for (const [key, list] of changesIn) {
+        const [gid, oid] = key.split('/'); const optName = choices.find((c) => c.id === gid)?.options.find((y) => y.id === oid)?.name || 'A choice';
+        const out: ChoiceChange[] = [];
+        for (const c of list) {
+          if (c.kind === 'add') {
+            const p = parts.get(c.id); if (!p || !canBeIngredient(p, c.id)) return { error: `${optName}: what it adds isn’t in your stock any more. Pick another.`, status: 409 };
+            if (toStockUnits(c.amount, c.measure, p) === null) return { error: `${optName}: ${words(p.name, 40)} is counted in ${unitLabel(p)}, so ${c.amount} ${c.measure} can’t be worked out from that.`, status: 400 };
+            out.push({ ...c, name: words(p.name, 80) || c.name });
+          } else if (c.kind === 'swap') {
+            const line = recipeNow.find((l) => l.id === c.from); const p = parts.get(c.to);
+            if (!line) return { error: `${optName}: it swaps out ${c.fromName}, which isn’t in the recipe. Add it to the recipe, or change the choice.`, status: 400 };
+            if (!p || !canBeIngredient(p, c.to)) return { error: `${optName}: what it swaps in isn’t in your stock any more. Pick another.`, status: 409 };
+            if (toStockUnits(line.measure ? Number(line.amount) : line.quantityUsed, line.measure || line.unit, p) === null) return { error: `${optName}: ${words(p.name, 40)} is counted in ${unitLabel(p)}, so it can’t stand in for ${line.measure ? `${line.amount} ${line.measure}` : `${line.quantityUsed} ${line.unit}`} of ${line.name}. Count it the same way, or say in Inventory what one gives.`, status: 400 };
+            out.push({ ...c, fromName: line.name, toName: words(p.name, 80) || c.toName });
+          } else {
+            const line = recipeNow.find((l) => l.id === c.id);
+            if (!line) return { error: `${optName}: it leaves out ${c.name}, which isn’t in the recipe.`, status: 400 };
+            out.push({ ...c, name: line.name });
+          }
         }
+        checked.set(key, out);
       }
       // What's sold out is the kitchen's to say (one tap, api/menu 'soldout' or the kitchen screen): a save keeps it as
       // it is now, whatever the form had when it opened.
       const nowOut = new Map<string, string | null>();
       for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
-      const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => (nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false })) }));
+      const kept = choices.map((cg) => ({ ...cg, options: cg.options.map((o) => ({ ...(nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false }),
+        ...(checked.has(`${cg.id}/${o.id}`) ? { changes: checked.get(`${cg.id}/${o.id}`) } : {}) })) }));
       // The desk and a table's tab charge an item's Inventory price (lib/variants deskPrice): set to the menu's when the
       // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
       // An item from a starter menu goes on the menu only once it has a price (it came in at none, lib/food-starters).
@@ -472,18 +543,17 @@ export async function POST(req: NextRequest) {
     if (safety.dailyCount !== undefined) forgetCounts(tenantId);
     // As every menu shows it now: with its recipe's ingredients counted.
     const item = await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item);
-    return ok({ item, recipe: recipeOf(r.raw, itemId) });
+    return ok({ item, recipe: recipeOf(r.raw, itemId), changes: Object.fromEntries(optionChanges(r.raw)) });
   } catch (e: any) {
     console.error('[menu] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);
   }
 }
 
-/** Can this go into a menu item's recipe: something the business stocks (not equipment, not archived), and not a menu
- *  item that's made from a recipe of its own. */
-function canBeIngredient(x: any, id: string): boolean {
-  if (!x || x.archived === true || x.status === 'archived' || x.isActive === false) return false;
-  if (x.type === 'equipment') return false;
-  if (x.type === 'refreshment' && recipeOf(x, id).length) return false;
-  return true;
+/** A prep recipe as the Menu page lists it: what a batch makes and costs, what one portion costs, what's on the shelf,
+ *  and its recipe for the editor (lib/prep-recipes). */
+function prepRow(id: string, x: any, parts: Map<string, any>) {
+  const p = prepOf(x)!; const lines = recipeOf(x, id); const c = linesCost(lines, parts); const left = ingredientLeft(x);
+  return { id, name: words(x.name, 80) || 'Prep recipe', makes: p.makes, unit: p.unit, keepsDays: p.keepsDays, minutes: p.minutes, lastMadeAt: p.lastMadeAt, lastMadeBy: p.lastMadeBy,
+    left: left === null ? null : Math.round(left * 1000) / 1000, batchCost: c.cost, unitCost: c.cost === null ? null : c.cost / p.makes, typical: c.typical, gaps: c.gaps, recipe: lines };
 }

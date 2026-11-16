@@ -85,9 +85,11 @@ const req = (body: any) => ({ json: async () => body, text: async () => JSON.str
 const src = (p: string) => readFileSync(p, 'utf8');
 const as = (o: any) => { for (const k of Object.keys(actor)) delete actor[k]; Object.assign(actor, { caps: [] }, o); };
 const notes = async (type: string) => (await all(`${T}/notifications`)).filter((n: any) => n.type === type);
-const day = new Date().toISOString().slice(0, 10);
+// The business's night (it runs past midnight), as the code reads tonight's schedule: set below.
+let day = new Date().toISOString().slice(0, 10);
 
 (async () => {
+  day = (await import('../../src/lib/night-close-server')).tonight({ timezone: 'UTC' });
   await db.doc(T).set({ name: 'North Loft', userId: 'own', businessType: 'hospitality', stripeAccountId: 'acct_1', timezone: 'UTC' });
   await db.doc(`${T}/staff/m1`).set({ name: 'Ana Ruiz', role: 'manager', job: 'manager' });
   await db.doc(`${T}/staff/s1`).set({ name: 'Lee Park', role: 'staff', job: 'server' });

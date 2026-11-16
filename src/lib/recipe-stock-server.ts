@@ -5,7 +5,11 @@
 // much more went than was made (lib/food-cost). An ingredient that isn't counted yet (lib/menu-stock ingredientLeft
 // null: a starter ingredient before its first count or delivery, or one put away) is left alone, so its first count is
 // where its history starts. Reads come first, then writes, as a transaction needs.
-import { recipeOf, ingredientLeft } from '@/lib/menu-stock';
+//   What's taken is what's made: the recipe with the guest's choices (lib/choice-recipe: oat milk instead of whole, an
+//   extra shot), each line in what its ingredient is counted in, with what trimming and cooking lose (lib/kitchen-units).
+import { ingredientLeft, needsOf } from '@/lib/menu-stock';
+import { madeWith } from '@/lib/choice-recipe';
+import { picksOf, type Picks } from '@/lib/menu-choices';
 import { moveStock } from '@/lib/usage';
 import { buildEntry } from '@/lib/stock-ledger';
 import { ledgerUnit } from '@/lib/food-cost';
@@ -14,16 +18,25 @@ const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export type PartTake = { ref: any; data: any; qty: number };
 
 /** Reads, inside the caller's transaction, the counted ingredients `qty` of a menu item uses. [] for an item with no
- *  recipe (a can of soda is taken off when it's sold, never here). `item`: the item, when the caller has read it. */
-export async function readRecipeParts(tx: any, db: any, T: string, itemId: string, qty: number, item?: any): Promise<PartTake[]> {
+ *  recipe (a can of soda is taken off when it's sold, never here). `item`: the item, when the caller has read it.
+ *  `choices`: what the guest picked, as kept on the ticket (its choice lines, or picks). */
+export async function readRecipeParts(tx: any, db: any, T: string, itemId: string, qty: number, item?: any, choices?: unknown): Promise<PartTake[]> {
   if (!ID.test(String(itemId || '')) || !(qty > 0)) return [];
   const x = item !== undefined ? item : (await tx.get(db.doc(`${T}/inventory/${itemId}`))).data();
-  const lines = recipeOf(x, itemId); if (!lines.length) return [];
-  const refs = lines.map((l) => db.doc(`${T}/inventory/${l.id}`));
+  const lines = madeWith(x, itemId, picksFrom(choices)); if (!lines.length) return [];
+  const ids = Array.from(new Set(lines.map((l) => l.id))).filter((id) => ID.test(id));
+  const refs = ids.map((id) => db.doc(`${T}/inventory/${id}`));
   const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+  const parts = new Map<string, any>(); ids.forEach((id, i) => { const d = snaps[i].data(); if (d) parts.set(id, d); });
   const out: PartTake[] = [];
-  lines.forEach((l, i) => { const d = snaps[i].data(); if (d && ingredientLeft(d) !== null) out.push({ ref: refs[i], data: d, qty: Math.round(l.quantityUsed * qty * 1000) / 1000 }); });
+  for (const [id, need] of needsOf(lines, parts)) { const d = parts.get(id); if (d && ingredientLeft(d) !== null) out.push({ ref: refs[ids.indexOf(id)], data: d, qty: Math.round(need * qty * 1000) / 1000 }); }
   return out;
+}
+/** Picks from what a ticket or a sale line kept: its choice lines ([{ groupId, optionId }]) or its picks. */
+export function picksFrom(v: unknown): Picks | null {
+  if (!v) return null;
+  if (Array.isArray(v)) return picksOf(v);
+  return typeof v === 'object' ? (v as Picks) : null;
 }
 
 /** Parts read for several items at once, one per ingredient (two items that share milk take both amounts, in one write). */

@@ -1128,7 +1128,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const sentFromTab: Record<string, number> = {}; const kitchenLines: Record<string, number> = {};
   // Food and drink made from a recipe that isn't sent to a kitchen screen: made here, so its ingredients come off once the
   // sale is saved (lib/recipe-stock-server). One that goes to the kitchen takes them when it's made.
-  const madeHere: { id: string; qty: number; name: string }[] = [];
+  const madeHere: { id: string; qty: number; name: string; choices?: any }[] = [];
   // Each tab line by its own line (one rung up here by its line, a comped one or one from the tab, takes only its own);
   // a line with no choices also by item, for one rung up without its line. Something picked at the desk with choices is
   // new: always made. Lines rung up by their own line are counted first, so a new one at the desk is never mistaken for
@@ -1186,7 +1186,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
           batch.set(pRef, clean({ id: pRef.id, source: 'pos', menuItemId: it.id, menuItemName: partName(String(inv.name || it.name), a.part), quantity: toMake, guestName: client.name || 'Guest', clientId: clientId || null,
             status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, madeAt: a.station, partOf: kRef.id, partFor: String(inv.name || it.name).slice(0, 80), partFrom: stationOfItem(inv, stationsOf(tenant)), partsUsed: true, ...((it as any).choicesText ? { choicesText: (it as any).choicesText } : {}),
             ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true }); });
-      } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item') });
+      } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item'), choices: (it as any).choices || null });
       batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
@@ -1373,7 +1373,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
     reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
-      spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
+      spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity, ...(Array.isArray((x as any).choices) && (x as any).choices.length ? { choices: (x as any).choices.slice(0, 20).map((c: any) => ({ groupId: String(c?.groupId || ''), optionId: String(c?.optionId || '') })) } : {}) })),
       // Counted at a pop-up table (lib/popup): a void puts these back into what the table has left.
       // Comps from a table's tab this sale spent (api/tab): a void gives them back, so the reopened table can pay again.
       ...(items.some((x: any) => x.comp?.approvalId) ? { comps: items.filter((x: any) => x.comp?.approvalId).map((x: any) => String(x.comp.approvalId)) } : {}),
@@ -1458,7 +1458,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     try {
       const { readRecipeParts, takeParts, mergeParts } = await import('@/lib/recipe-stock-server');
       await db.runTransaction(async (tx: any) => {
-        const parts = mergeParts((await Promise.all(madeHere.map((m) => readRecipeParts(tx, db, T, m.id, m.qty)))).flat());
+        // As each was chosen (oat milk, an extra shot: lib/choice-recipe).
+        const parts = mergeParts((await Promise.all(madeHere.map((m) => readRecipeParts(tx, db, T, m.id, m.qty, undefined, m.choices)))).flat());
         takeParts(tx, db, T, parts, { type: 'used', reason: `Sold at the front desk: ${madeHere.map((m) => `${m.name} ×${m.qty}`).join(', ')}`.slice(0, 200), actorId: String(auth.actor.uid || 'staff'), actorName: String(auth.actor.name || 'Front desk'), ref: { kind: 'order', id: receiptRef.id } });
       });
     } catch (e: any) {

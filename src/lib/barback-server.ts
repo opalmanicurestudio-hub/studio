@@ -13,6 +13,7 @@
 import { barParts, changeOutcome, runningLow, lowWords, type BarPart } from '@/lib/barback';
 import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf } from '@/lib/menu-stock';
+import { lineAmount, stockNeed } from '@/lib/kitchen-units';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
 import { moveStock } from '@/lib/usage';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -61,7 +62,8 @@ export async function barPartsFor(db: any, T: string, tenant: any): Promise<{ me
       const snaps: any[] = await db.getAll(...chunk.map((id) => db.doc(`${T}/inventory/${id}`))).catch(() => []);
       chunk.forEach((id, k) => { const x = snaps[k]?.data?.(); if (x) got.set(id, x); });
     }
-    return menu.bar ? barParts(menu.rows, got, (item) => stationOfItem(item, menu.stations), menu.bar, recipeOf) : [];
+    // Each pour as it comes off the bottle (a recipe written in fl oz, turned into the bottle's ml: lib/kitchen-units).
+    return menu.bar ? barParts(menu.rows, got, (item) => stationOfItem(item, menu.stations), menu.bar, (item, id) => recipeOf(item, id).map((l) => ({ ...l, quantityUsed: stockNeed(l, got.get(l.id)) }))) : [];
   });
   return { menu, parts: parts.map((p) => ({ ...p })) };
 }
@@ -82,7 +84,8 @@ export async function barbackFor(db: any, tenantId: string, tenant: any, now = D
     const station = t.madeAt || (item ? stationOfItem(item, menu.stations) : null);
     if (String(station || '').toLowerCase() !== menu.bar.toLowerCase()) continue;
     drinks += t.quantity;
-    if (item) for (const l of recipeOf(item, String(t.itemId))) used.set(l.id, (used.get(l.id) || 0) + l.quantityUsed * t.quantity);
+    // As it comes off the bottle (a pour written in fl oz, the bottle counted in ml: lib/kitchen-units).
+    if (item) for (const l of recipeOf(item, String(t.itemId))) { const bp = parts.find((x) => x.id === l.id); used.set(l.id, (used.get(l.id) || 0) + (bp ? lineAmount(l, { costingMethod: 'size', size: bp.size, unit: bp.unit }) : l.quantityUsed) * t.quantity); }
   }
   if (!recent.capped) for (const p of parts) p.usedLastHour = Math.round((used.get(p.id) || 0) * 1000) / 1000;
   const low = runningLow(parts);

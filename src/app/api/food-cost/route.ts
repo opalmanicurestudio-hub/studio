@@ -8,6 +8,9 @@
 //   target  { tenantId, target } → the share of its price an item should cost (10% to 60%), kept as foodCost.target.
 //   cost    { tenantId, itemId, cost } → what the business pays for an ingredient (per container, as Inventory has it):
 //           it's no longer a typical price. Never changes a menu price.
+//   yield   { tenantId, itemId, usablePct?, cookLossPct?, perEach? } → an ingredient's yield (lib/kitchen-units): the share
+//           usable after trimming (5 to 100), the share lost in cooking when a recipe weighs it cooked (0 to 90), and
+//           what one gives when it's counted one by one ({ amount, unit }, a lemon's 45 ml of juice); empty clears each.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -17,7 +20,11 @@ import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf } from '@/lib/menu-stock';
 import { perContainer } from '@/lib/product-cost';
 import { nightBounds, tonight } from '@/lib/night-close-server';
-import { cleanPeriod, cleanTarget, countRows, itemCost, periodCost, periodDays, targetOf, wasteOf, type CountEntry, type ItemCost, type SoldLine } from '@/lib/food-cost';
+import { cleanPeriod, cleanTarget, costWith, countRows, itemCost, periodCost, periodDays, targetOf, wasteOf, type CountEntry, type ItemCost, type SoldLine } from '@/lib/food-cost';
+import { cleanPct, cleanPerEach, COOK_LOSS_MAX, USABLE_MIN } from '@/lib/kitchen-units';
+import { prepOf } from '@/lib/prep-recipes';
+import { changeIds, changesRecipe } from '@/lib/choice-recipe';
+import { picksOf } from '@/lib/menu-choices';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -30,7 +37,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'report');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['report', 'target', 'cost'].includes(action)) return bad('Unknown action.');
+  if (!['report', 'target', 'cost', 'yield'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data() || {};
@@ -60,6 +67,28 @@ export async function POST(req: NextRequest) {
     return ok({ itemId, cost });
   }
 
+  if (action === 'yield') {
+    const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which ingredient?');
+    const patch: Record<string, any> = {};
+    if (b.usablePct !== undefined) { const v = cleanPct(b.usablePct, USABLE_MIN, 100); if (v === null) return bad(`Usable after trimming: a share from ${USABLE_MIN}% to 100%, or leave it empty.`); patch.usablePct = v === '' || v === 100 ? null : v; }
+    if (b.cookLossPct !== undefined) { const v = cleanPct(b.cookLossPct, 0, COOK_LOSS_MAX); if (v === null) return bad(`Lost in cooking: a share up to ${COOK_LOSS_MAX}%, or leave it empty.`); patch.cookLossPct = v === '' || v === 0 ? null : v; }
+    if (b.perEach !== undefined) { const v = cleanPerEach(b.perEach); if (v === 'bad') return bad('What one gives: an amount and a weight or volume, like 45 ml.'); patch.perEach = v; }
+    if (!Object.keys(patch).length) return bad('Nothing to change.');
+    const ref = db.doc(`${T}/inventory/${itemId}`);
+    const r: any = await db.runTransaction(async (tx: any) => {
+      const x: any = (await tx.get(ref)).data();
+      if (!live(x)) return { error: 'That ingredient isn’t there any more.', status: 404 };
+      if (x.type === 'refreshment' && recipeOf(x, itemId).length) return { error: 'That’s made from a recipe: its ingredients have the yields.', status: 400 };
+      if (prepOf(x)) return { error: 'A prep recipe is all usable. Change what a batch makes instead.', status: 400 };
+      tx.set(ref, { ...patch, yieldSetBy: by, yieldSetAt: now, updatedAt: now }, { merge: true });
+      return { name: String(x.name || 'An ingredient') };
+    });
+    if (r.error) return bad(r.error, r.status);
+    const said = [patch.usablePct !== undefined ? `usable ${patch.usablePct === null ? 'all of it' : `${patch.usablePct}%`}` : '', patch.cookLossPct !== undefined ? `lost in cooking ${patch.cookLossPct === null ? 'none' : `${patch.cookLossPct}%`}` : '', patch.perEach !== undefined ? (patch.perEach ? `one gives ${patch.perEach.amount} ${patch.perEach.unit}` : 'what one gives cleared') : ''].filter(Boolean).join(', ');
+    await logAuditAdmin(db, tenantId, { action: 'inventory.yield', targetType: 'inventory', targetId: itemId, summary: `${by} set ${r.name}’s yield: ${said}.`, actor: { type: 'user', id: String(g.actor?.uid || ''), name: by } } as any).catch(() => {});
+    return ok({ itemId, usablePct: patch.usablePct, cookLossPct: patch.cookLossPct, perEach: patch.perEach });
+  }
+
   // REPORT
   const period = cleanPeriod(b.period); const target = targetOf(tenant);
   const today = tonight(tenant); const days = periodDays(period, today);
@@ -72,7 +101,9 @@ export async function POST(req: NextRequest) {
   // Every refreshment, on the menu now or not (something sold last week and since taken off still has a cost).
   for (const [id, x] of all) if (x.type === 'refreshment') costs.set(id, itemCost(id, x, all, target));
   // The ingredients the menu's recipes use, and the ones still at a typical price.
-  const used = new Set<string>(); for (const [id, x] of menu) for (const l of recipeOf(x, id)) used.add(l.id);
+  // (What its choices can add or swap in, and what a prep recipe in it is made of, two levels down, count too.)
+  const used = new Set<string>(); for (const [id, x] of menu) { for (const l of recipeOf(x, id)) used.add(l.id); for (const c of changeIds(x)) used.add(c); }
+  for (let level = 0; level < 2; level++) for (const id of Array.from(used)) { const p = all.get(id); if (prepOf(p)) for (const l of recipeOf(p, id)) used.add(l.id); }
   const typical = Array.from(used).map((id) => [id, all.get(id)] as [string, any]).filter(([, p]) => live(p) && p.typicalCost === true)
     .map(([id, p]) => ({ id, name: String(p.name || 'Ingredient'), container: String(p.container || ''), cost: num(p.costPerUnit), per: perContainer(p), unit: String(p.costingMethod === 'uses' ? p.useUnit || 'uses' : p.costingMethod === 'size' ? p.unit || 'ml' : '') }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -105,7 +136,8 @@ export async function POST(req: NextRequest) {
       if (k < 0 && !taken.has(i)) k = i; if (k >= 0) taken.add(k);
       const id = String(p?.id || ''); if (all.get(id)?.type !== 'refreshment') return;
       const l = k >= 0 ? lines[k] : null; const qty = num(p.quantity) || num(l?.qty);
-      sold.push({ itemId: id, qty, amount: l ? num(l.amount) : 0, at: String(r.date) });
+      const x = all.get(id); const each = x && changesRecipe(x) && Array.isArray(p?.choices) && p.choices.length ? costWith(id, x, all, picksOf(p.choices)) : undefined;
+      sold.push({ itemId: id, qty, amount: l ? num(l.amount) : 0, at: String(r.date), ...(each !== undefined ? { each } : {}) });
     });
   }
   // The counter's and drive-thru's paid orders.
@@ -114,7 +146,9 @@ export async function POST(req: NextRequest) {
     if (!o.paidAt || o.refundedAt || ['refunded', 'cancelled', 'canceled', 'voided'].includes(String(o.status || ''))) continue;
     for (const l of Array.isArray(o.lines) ? o.lines : []) {
       const id = String(l?.itemId || ''); if (!all.has(id)) continue;
-      sold.push({ itemId: id, qty: num(l.quantity), amount: num(l.unitPrice) * num(l.quantity), at: String(o.paidAt) });
+      // Made as it was chosen, when its choices change the recipe (an oat latte costs more than a plain one: lib/choice-recipe).
+      const x = all.get(id); const each = x && changesRecipe(x) && Array.isArray(l.choices) && l.choices.length ? costWith(id, x, all, picksOf(l.choices)) : undefined;
+      sold.push({ itemId: id, qty: num(l.quantity), amount: num(l.unitPrice) * num(l.quantity), at: String(o.paidAt), ...(each !== undefined ? { each } : {}) });
     }
   }
   const report = periodCost(sold, costs, days, dayOf);

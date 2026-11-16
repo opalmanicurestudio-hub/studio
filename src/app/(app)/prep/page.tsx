@@ -4,10 +4,13 @@
 // guests expected (booked, and the walk-ins of a usual night), the last few of those nights, and what the recipes take
 // against what's in stock now. The kitchen ticks dishes off as they're prepped; another day this week can be picked;
 // it prints (lib/prep-list, api/prep).
+//   Prep recipes (lib/prep-recipes): how many batches of each sauce, soup or dough the day's dishes take, against what's
+//   on the shelf and still good by then; "Made it" takes what goes into a batch off stock and puts what it makes on the
+//   shelf (api/prep 'made'), after saying so.
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
-import { needWords, weekdayName, type PrepPlan } from '@/lib/prep-list';
+import { needWords, weekdayName, type PrepBatch, type PrepPlan } from '@/lib/prep-list';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 type Plan = PrepPlan & { days: string[]; done: Record<string, { by: string; at: string; make?: number | null }> };
@@ -39,10 +42,54 @@ export default function PrepPage() {
     if (!d.ok) { setErr(d.error || 'That didn’t save.'); void load(); }
   };
 
+  // One key per "Made it": sent again after a lost reply, it makes the batch once (api/prep 'made').
+  const [making, setMaking] = useState<{ id: string; n: number; key?: string } | null>(null);
+  const [made, setMade] = useState<Record<string, string>>({});
+  const makeIt = async (b: PrepBatch, n: number) => {
+    if (!tenantId) return; setBusy(true); setErr('');
+    const key = making?.key || `mk${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    if (making && !making.key) setMaking({ ...making, key });
+    const d = await post({ tenantId, action: 'made', prepId: b.id, batches: n, tapKey: key }); setBusy(false);
+    if (!d.ok) { setErr(d.error || 'That didn’t go through.'); return; }
+    setMaking(null); setMade((m) => ({ ...m, [b.id]: `Made: ${needWords(d.made, d.unit)} of ${b.name} on the shelf${d.left !== null && d.left !== undefined ? `, ${needWords(Math.round(d.left * 10) / 10, d.unit)} in all` : ''}.` }));
+    void load(true);
+  };
+
   const tomorrow = p?.days?.[1];
   const usual = p ? (p.basis === 'weekday' ? `A usual ${weekdayName(p.day)}` : 'A usual night') : '';
   const stations = p ? Array.from(new Set(p.rows.map((r) => r.station))) : [];
   const most = p ? Math.max(1, ...p.nights.map((n) => n.guests || 0), p.guests || 0) : 1;
+  // The prep recipes, with how many batches the day takes and "Made it" (shown even before there are nights to go by).
+  const batchSection = p && (p.batches || []).length > 0 ? (
+    <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }} aria-label="Make in batches">
+      <h2 className="text-[17px] font-semibold">Make in batches</h2>
+      <p className="pb-1 text-[13px]" style={{ color: MUTED }}>Your prep recipes: what the dishes take, less what’s on the shelf and still good by then</p>
+      <div className="grid gap-x-6 sm:grid-cols-2">
+      {(p.batches || []).map((b) => { const open = making?.id === b.id; const n = open ? making!.n : Math.max(1, b.batches); const until = b.keepsDays ? new Date(Date.now() + b.keepsDays * 864e5) : null; return (
+        <div key={b.id} className="space-y-1.5 py-3" style={{ borderTop: `1px solid ${LINE}` }}>
+          <div className="flex items-baseline justify-between gap-3"><b className="text-[15px] font-semibold">{b.name}</b>
+            <b className="text-[15px] font-semibold tabular-nums" style={b.batches ? undefined : { color: MUTED, fontWeight: 500 }}>{b.batches ? `${b.batches} batch${b.batches === 1 ? '' : 'es'}` : 'Enough'}</b></div>
+          <p className="text-[13px] leading-snug" style={{ color: b.past ? AMBER : MUTED }}>{b.need > 0 ? `Needs about ${needWords(Math.round(b.need * 10) / 10, b.unit)}.` : 'The dishes on the list don’t need any.'}{b.have !== null ? (b.have > 0 ? ` You have ${needWords(Math.round(b.have * 10) / 10, b.unit)}` : ' None on the shelf') : ''}{b.past && b.lastMadeAt ? `, made ${new Date(b.lastMadeAt).toLocaleDateString('en-US', { weekday: 'short' })}: past its ${b.keepsDays} days by then.` : b.goodUntil && b.have ? `, good until ${new Date(b.goodUntil).toLocaleDateString('en-US', { weekday: 'short' })}.` : b.have !== null ? '.' : ''}{b.minutes ? ` A batch takes about ${b.minutes} min.` : ''}</p>
+          {made[b.id] && !open && <p className="text-[13px] font-semibold" style={{ color: GREEN }}>{made[b.id]}</p>}
+          {!open ? <div className="print:hidden"><button type="button" onClick={() => setMaking({ id: b.id, n: Math.max(1, b.batches), key: `mk${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}` })} className="min-h-[44px] rounded-xl px-4 text-[14px] font-semibold"
+              style={b.batches ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff' }}>Made it</button></div>
+            : <div className="space-y-2 rounded-2xl p-3 print:hidden" style={{ background: SOFT }}>
+                <div className="flex items-center gap-2" role="group" aria-label="How many batches">
+                  <button type="button" onClick={() => setMaking({ id: b.id, n: Math.max(1, n - 1), key: undefined })} aria-label="One batch fewer" className="h-11 w-11 rounded-xl border bg-[#fff] text-[18px]" style={{ borderColor: LINE }}>−</button>
+                  <span className="min-w-[96px] text-center text-[15px] font-semibold tabular-nums">{n} batch{n === 1 ? '' : 'es'}</span>
+                  <button type="button" onClick={() => setMaking({ id: b.id, n: Math.min(20, n + 1), key: undefined })} aria-label="One batch more" className="h-11 w-11 rounded-xl border bg-[#fff] text-[18px]" style={{ borderColor: LINE }}>+</button>
+                </div>
+                <p className="text-[13px] leading-snug">Takes {b.goesIn.length ? b.goesIn.join(', ').replace(/, ([^,]*)$/, ' and $1') : 'what goes into it'} off stock, and puts {needWords(Math.round(b.makes * n * 100) / 100, b.unit)} of {b.name} on the shelf{until ? `, good until ${until.toLocaleDateString('en-US', { weekday: 'short' })}` : ''}.</p>
+                <div className="flex gap-2">
+                  <button type="button" disabled={busy} onClick={() => makeIt(b, n)} className="min-h-[44px] rounded-xl px-4 text-[14px] font-semibold disabled:opacity-50" style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : 'Made it'}</button>
+                  <button type="button" onClick={() => setMaking(null)} className="min-h-[44px] rounded-xl border bg-[#fff] px-4 text-[14px] font-semibold" style={{ borderColor: LINE }}>Cancel</button>
+                </div>
+              </div>}
+        </div>); })}
+      </div>
+    </section>
+  ) : null;
+
   return (
     <div className="min-h-dvh print:bg-[#fff]" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6">
@@ -73,7 +120,10 @@ export default function PrepPage() {
         </header>
         {err && <p role="alert" className="text-[14px] font-semibold" style={{ color: AMBER }}>{err}</p>}
 
+        {p && p.basis === 'none' && batchSection && <div className="max-w-3xl">{batchSection}</div>}
         {p && p.basis !== 'none' && <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+          <div className="min-w-0 space-y-4">
+          {batchSection}
           <main className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }} aria-busy={busy}>
             <div className="grid grid-cols-[44px_1fr_60px_76px] sm:grid-cols-[44px_1fr_96px_120px] items-center gap-2 pb-1 text-[13px]" style={{ color: MUTED }}>
               <span /><span>Dish</span><span className="text-right">Make about</span><span className="text-right">Usually</span>
@@ -95,6 +145,7 @@ export default function PrepPage() {
                   </div>); })}
               </section>))}
           </main>
+          </div>
 
           <aside className="space-y-4">
             <section className="space-y-2 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }} aria-label="Guests">

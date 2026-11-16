@@ -157,6 +157,7 @@ export default function FoodCostPage() {
                           <span>{m.name}</span>
                           {m.over && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Over {pct(m.target)}</span>}
                           {m.typical && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-semibold" style={{ background: SOFT, color: MUTED }}>Typical prices</span>}
+                          {(m.options || []).some((o) => o.thin) && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>A choice keeps little</span>}
                         </span>
                         {m.needsPrice ? <span className="text-[13.5px]" style={{ color: MUTED }}>Needs a price</span> : <span className="w-16 text-right tabular-nums" style={{ color: MUTED }}>{money(m.price)}</span>}
                         <span className="w-14 text-right tabular-nums">{m.cost === null ? '–' : money(m.cost)}</span>
@@ -165,9 +166,18 @@ export default function FoodCostPage() {
                       {m.over && m.fix !== null && !isOpen && <p className="-mt-1 pb-2 text-[13px]" style={{ color: MUTED }}>{money(m.fix)} would bring it to {pct(m.target)}.{m.biggest ? ` Or check the recipe: ${m.biggest.name.toLowerCase()} is the biggest part.` : ''}</p>}
                       {isOpen && (
                         <div className="space-y-1.5 pb-3 text-[13.5px]">
-                          {m.byRecipe ? m.lines.map((l) => (
-                            <p key={l.id} className="flex justify-between gap-3"><span style={{ color: MUTED }}>{l.name}, {amountWords(l.amount, l.unit)}{l.typical ? ' (typical price)' : ''}</span><span className="tabular-nums">{l.cost === null ? 'no cost yet' : money(l.cost)}</span></p>))
+                          {m.byRecipe ? m.lines.map((l, i) => (
+                            <p key={`${l.id}-${i}`} className="flex justify-between gap-3"><span style={{ color: MUTED }}>{l.name}{l.prep ? ' (prep recipe)' : ''}, {amountWords(l.amount, l.unit)}{l.usable ? `, ${Math.round(l.usable * 100)}% usable` : ''}{l.typical ? ' (typical price)' : ''}</span><span className="tabular-nums">{l.cost === null ? 'no cost yet' : money(l.cost)}</span></p>))
                             : <p style={{ color: MUTED }}>Sold as it comes, at what one costs.</p>}
+                          {(m.options || []).length > 0 && (
+                            <div className="mt-2 space-y-1 border-t pt-2" style={{ borderColor: LINE }}>
+                              <p className="font-semibold">What each choice keeps</p>
+                              {m.options.map((o) => (
+                                <p key={`${o.groupId}/${o.optionId}`} className="flex justify-between gap-3"><span style={{ color: o.thin ? AMBER : MUTED, fontWeight: o.thin ? 600 : 400 }}>{o.option}: charges {o.price < 0 ? `−${money(-o.price)}` : money(o.price)}, costs {o.cost === null ? 'not known yet' : o.cost < 0 ? `${money(-o.cost)} less` : money(o.cost)}</span>
+                                  <span className="tabular-nums" style={{ color: o.thin ? AMBER : INK, fontWeight: o.thin ? 600 : 400 }}>{o.keeps === null ? '–' : `keeps ${o.keeps < 0 ? `−${money(-o.keeps)}` : money(o.keeps)}`}</span></p>))}
+                              {m.options.some((o) => o.thin) && <p style={{ color: MUTED }}>A choice that barely pays for itself: raise what it charges, or check what it uses.</p>}
+                            </div>
+                          )}
                           {m.gaps.length > 0 && <p style={{ color: AMBER }}>{m.gaps.map((x) => `${x.name}: ${x.why}`).join('. ')}. Put its cost in Inventory, and this item’s cost shows.</p>}
                           {m.missing.length > 0 && <p style={{ color: AMBER }}>Add {m.missing.join(', ')} to its recipe: yours {m.missing.length === 1 ? 'is' : 'are'} measured differently from the starter recipe.</p>}
                           {m.over && m.fix !== null && <p>{money(m.fix)} would bring it to {pct(m.target)}.{m.biggest ? ` Or check the recipe: ${m.biggest.name.toLowerCase()} is the biggest part, ${money(m.biggest.cost || 0)} of it.` : ''}</p>}

@@ -7,6 +7,7 @@ import { tenantTimeZone, wallParts } from '@/lib/tenant-time';
 import { usedByItem } from '@/lib/dish-counts';
 import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf } from '@/lib/menu-stock';
+import { isPrep, prepOf } from '@/lib/prep-recipes';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
 import { planPrep, PREP_WEEKS, usualNights, type Night, type PrepPlan } from '@/lib/prep-list';
 
@@ -73,21 +74,29 @@ export async function prepFor(db: any, T: string, tenant: any, asked?: string | 
       const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(i + 1))).filter((d) => !want.has(d));
       nights = [...nights, ...(await Promise.all(recent.map((d) => nightOf(db, T, tenant, d))))];
     }
-    const [menu, bk] = await Promise.all([
+    const [menu, bk, prepSnap] = await Promise.all([
       db.collection(`${T}/inventory`).where('type', '==', 'refreshment').limit(500).get(),
       db.collection(`${T}/tableBookings`).where('day', '==', day).limit(400).get(),
+      // The prep recipes (lib/prep-recipes), each listed whether the dishes need it or not.
+      db.collection(`${T}/inventory`).where('createdVia', '==', 'prep-recipe').limit(200).get().catch(() => ({ docs: [] as any[] })),
     ]);
+    const prepIds: string[] = prepSnap.docs.filter((d: any) => isPrep(d.data() || {}, d.id)).map((d: any) => d.id);
     const stations = stationsOf(tenant);
     const items = menu.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))
       .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').replace(/\s+/g, ' ').trim().slice(0, 60), station: stationOfItem(r.x, stations), x: r.x }));
-    const partIds: string[] = Array.from(new Set<string>(items.flatMap((it: any) => recipeOf(it.x, it.id).map((l) => l.id)))).filter((id) => ID.test(id)).slice(0, 300);
+    const partIds: string[] = Array.from(new Set<string>([...items.flatMap((it: any) => recipeOf(it.x, it.id).map((l) => l.id)), ...prepIds])).filter((id) => ID.test(id)).slice(0, 300);
     const parts = new Map<string, any>();
-    for (let i = 0; i < partIds.length; i += 100) {
-      const snaps = await db.getAll(...partIds.slice(i, i + 100).map((id) => db.doc(`${T}/inventory/${id}`)));
-      for (const s of snaps) if (s.exists) parts.set(s.id, s.data() || {});
+    // The ingredients, and what a prep recipe among them is made of (one level of prep inside another, lib/prep-recipes).
+    let toRead: string[] = partIds;
+    for (let level = 0; level < 3 && toRead.length; level++) {
+      for (let i = 0; i < toRead.length; i += 100) {
+        const snaps = await db.getAll(...toRead.slice(i, i + 100).map((id) => db.doc(`${T}/inventory/${id}`)));
+        for (const s of snaps) if (s.exists) parts.set(s.id, s.data() || {});
+      }
+      toRead = Array.from(new Set<string>(toRead.flatMap((id) => (prepOf(parts.get(id)) ? recipeOf(parts.get(id), id).map((l) => l.id) : [])))).filter((id) => ID.test(id) && !parts.has(id)).slice(0, 300);
     }
     const live = bk.docs.map((d: any) => d.data() || {}).filter((x: any) => x.status === 'booked');
-    plan = planPrep({ day, nights, items, booked: live.reduce((a: number, x: any) => a + Math.max(1, Math.round(num(x.size) || 1)), 0), bookings: live.length, stations, parts, now: now.getTime() });
+    plan = planPrep({ day, nights, items, booked: live.reduce((a: number, x: any) => a + Math.max(1, Math.round(num(x.size) || 1)), 0), bookings: live.length, stations, parts, now: now.getTime(), prepIds });
     if (planCache.size > 500) planCache.clear();
     planCache.set(key, { at: Date.now(), v: plan });
   }
