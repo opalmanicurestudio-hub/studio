@@ -21,6 +21,8 @@ export type Report = {
   kind: string; title: string; group: string; what: string; month: string; monthWords: string; business: string; madeAt: string;
   kpis: Kpi[]; chart: Chart | null; notes: Note[]; columns: Col[]; rows: Cell[][]; totals: Cell[] | null;
   glossary: [string, string][]; file: string; empty: string;
+  /** Rows shown before "Show all" (12 when not said), and the rows set in bold (a statement's subtotals). */
+  rowsShown?: number; strong?: number[];
 };
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -73,6 +75,7 @@ export const fileName = (business: string, what: string, month: string) => `${St
 /** The reports, in the order Records lists them. */
 export const RECORD_REPORTS: { kind: string; title: string; group: string }[] = [
   { kind: 'nights', title: 'Nightly closes', group: 'Money' },
+  { kind: 'pnl', title: 'Profit and loss', group: 'Money' },
   { kind: 'tips', title: 'Tips by person', group: 'People' },
   { kind: 'declared', title: 'Cash tips declared', group: 'People' },
   { kind: 'stock', title: 'Stock value', group: 'Stock' },

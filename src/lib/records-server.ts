@@ -8,6 +8,7 @@
 //               month before (api/cron/nightly), or by a manager after the month-end count (tenants/{t}/stockValues/{month})
 //   purchases   orders received in the month, by supplier, with the invoice when one is attached
 //   comps/voids by who asked for each (tenants/{t}/approvals)
+//   money       the month's money lines (tenants/{t}/transactions), for the profit and loss (lib/books-summary)
 import { buildNightReport, nightBounds, tonight } from '@/lib/night-close-server';
 import { isMenuItem } from '@/lib/menu-server';
 import { computeTipShares } from '@/lib/tip-share';
@@ -186,6 +187,40 @@ export async function monthTips(db: any, tenantId: string, tenant: any, month: s
 /** The month's bounds in the business's own days (its first night's start to its last night's end). */
 export function monthBounds(tenant: any, days: string[]): { start: string; end: string } | null {
   if (!days.length) return null; return { start: nightBounds(tenant, days[0]).start, end: nightBounds(tenant, days[days.length - 1]).end };
+}
+
+/** When a money line happened: its date as kept (an ISO string, a day, or a timestamp). A day with no time, or a time
+ *  with no zone (typed in by hand), is the business's own day: the middle of it (lib/night-close-server nightBounds), so
+ *  a line dated the 1st is in the month that starts that day wherever the business is. */
+export function lineTime(v: any, tenant?: any): number {
+  if (!v) return NaN;
+  if (tenant && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(T[\d:.]*)?$/.test(v.trim())) {
+    const b = nightBounds(tenant, v.trim().slice(0, 10)); return (Date.parse(b.start) + Date.parse(b.end)) / 2;
+  }
+  if (v instanceof Date) return v.getTime();
+  if (typeof v?.toDate === 'function') return v.toDate().getTime();
+  if (typeof v === 'object' && 'seconds' in v) return Number(v.seconds) * 1000;
+  return Date.parse(String(v));
+}
+export const MONEY_LINES_READ = 20000;
+/** The money lines dated in [start, end) (a date is kept as text or as a timestamp, so both are read: the text a day wider
+ *  each side, then each kept to the stretch by its own time), and the lines they undo from before it (a refund this month
+ *  of a sale last month), for lib/books-summary to look up. `partial`: more than can be read at once. */
+export async function monthMoney(db: any, tenantId: string, tenant: any, start: string, end: string): Promise<{ lines: any[]; lookup: any[]; partial: boolean }> {
+  const col = db.collection(`tenants/${tenantId}/transactions`); const s = Date.parse(start), e = Date.parse(end);
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const [a, b]: any[] = await Promise.all([
+    col.where('date', '>=', day(s - 86400000)).where('date', '<', day(e + 2 * 86400000)).limit(MONEY_LINES_READ).get(),
+    col.where('date', '>=', new Date(s - 86400000)).where('date', '<', new Date(e + 86400000)).limit(MONEY_LINES_READ).get().catch(() => ({ docs: [] as any[] })),
+  ]);
+  const byId = new Map<string, any>();
+  for (const d of [...a.docs, ...b.docs]) { const x = { id: d.id, ...(d.data() || {}) }; const t = lineTime(x.date, tenant); if (t >= s && t < e) byId.set(d.id, x); }
+  const lines = Array.from(byId.values());
+  // What they undo, when it isn't in the month itself (one step: a reversal also says what it undid, for one not found).
+  const wanted = Array.from(new Set(lines.flatMap((x) => [x.reversalOf, x.voidOf].map((v) => String(v || '')).filter((v) => /^[A-Za-z0-9_-]{1,160}$/.test(v) && !byId.has(v))))).slice(0, 500);
+  const snaps: any[] = wanted.length ? await db.getAll(...wanted.map((id) => db.doc(`tenants/${tenantId}/transactions/${id}`))) : [];
+  const lookup = snaps.filter((d) => d?.exists).map((d) => ({ id: d.id, ...(d.data() || {}) }));
+  return { lines, lookup: [...lines, ...lookup], partial: a.docs.length >= MONEY_LINES_READ || b.docs.length >= MONEY_LINES_READ };
 }
 
 export type MonthRecords = {

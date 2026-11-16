@@ -92,7 +92,10 @@ export async function POST(req: NextRequest) {
     return ok({ total: r.total });
   }
 
+  // The business's numbers (the profit and loss) are for those whose role shows them (lib/permissions money.view).
+  const seesMoney = !!g.actor?.isTenantOwner || (Array.isArray(g.actor?.caps) && g.actor.caps.includes('money.view'));
   if (action === 'report' || action === 'csv') {
+    if (String(b.kind || '') === 'pnl' && !seesMoney) return bad('Your role doesn’t show the business’s numbers. Ask the owner.', 403);
     // One record as a report (lib/records-reports), or its spreadsheet: made from the same table, so they never differ.
     try {
       const r = await buildRecordReport(db, tenantId, tenant, String(b.kind || ''), month, today, { csvOnly: action === 'csv' });
@@ -102,5 +105,5 @@ export async function POST(req: NextRequest) {
 
   // MONTH
   const r = await monthRecords(db, tenantId, tenant, month);
-  return ok({ ...r, business: String(tenant.name || ''), hospitality: tenant?.modules?.hospitality !== false });
+  return ok({ ...r, business: String(tenant.name || ''), hospitality: tenant?.modules?.hospitality !== false, seesMoney });
 }

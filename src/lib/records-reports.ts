@@ -3,13 +3,17 @@
 // what's worth a look, the table and how to read it. The spreadsheet is made from the same table (report-kit reportCsv),
 // so its columns are the ones the accountant has always had.
 //   nights       every night's sales, tax, tips, comps, voids and the drawers
+//   pnl          the profit and loss: income, cost of goods, expenses and what's left, against last month
+//                (lib/books-summary, the same reading of the money lines as the Money page)
 //   tips         each person's card and cash tips, what they declared and their share after sharing
 //   declared     each person's signed cash tip report, and who hasn't yet
 //   stock        what's on the shelf, item by item, as kept for the month (or now)
 //   purchases    orders received, by supplier, with the invoices
 //   adjustments  comps and voids, by who gave them
 import { cleanMonth, declareBy, monthDays, monthOfDay, monthWords, prevMonth, tipCheck, CASH_TIP_MIN_CENTS } from '@/lib/records';
-import { monthAdjustments, monthBounds, monthNights, monthPurchases, monthSales, monthTips, stockNow, STOCK_LINES_KEPT, type NightRow } from '@/lib/records-server';
+import { lineTime, monthAdjustments, monthBounds, monthMoney, monthNights, monthPurchases, monthSales, monthTips, stockNow, STOCK_LINES_KEPT, type NightRow } from '@/lib/records-server';
+import { booksSummary, lookupOf, netSalesOf, type BooksSummary } from '@/lib/books-summary';
+import { tonight } from '@/lib/night-close-server';
 import { changeWords, dayWords, dollars, fileName, kpiDollars, listWords, longDay, pct, r2, RECORD_REPORTS, totalsOf, weekday, type Bar, type Cell, type Col, type Kpi, type Note, type Report } from '@/lib/report-kit';
 
 const $ = (c: number) => Math.round(c) / 100;
@@ -147,6 +151,92 @@ export async function buildRecordReport(db: any, tenantId: string, tenant: any, 
       glossary: [['Cash tips received', 'what the person declared, in their own words and signed.'], ['Tips paid out', 'cash tips they passed on to others (a busser, the bar).'],
         ['Recorded by the till', 'the cash tips the till has for them, to check against.'], ['Signed on', 'when they signed. A changed one keeps the copy it replaced.']],
       file: fileName(business, 'cash-tips-declared', month), empty: 'Nobody had cash tips to declare this month.' };
+  }
+
+  if (kind === 'pnl') {
+    if (!bnd) throw new ReportStop('That month hasn’t started yet.');
+    // Against last month: the whole of it for a month that's over; the same days of it for the month in progress.
+    const prevAll = monthDays(prevMonth(month), today); const pb = monthBounds(tenant, current ? prevAll.slice(0, days.length) : prevAll);
+    const prevSame = current ? prevAll.slice(0, days.length) : prevAll;
+    const [now, before] = await Promise.all([monthMoney(db, tenantId, tenant, bnd.start, bnd.end), pb ? monthMoney(db, tenantId, tenant, pb.start, pb.end) : Promise.resolve({ lines: [], lookup: [], partial: false })]);
+    const s = booksSummary(now.lines, { lookup: now.lookup, businessOnly: true });
+    const p: BooksSummary | null = before.lines.length ? booksSummary(before.lines, { lookup: before.lookup, businessOnly: true }) : null;
+    const lastLabel = current ? `the first ${prevSame.length} ${prevSame.length === 1 ? 'day' : 'days'} of ${lastMonth}` : lastMonth;
+    const expenses = r2(s.netFees + s.operatingExpenses);
+    const share = (v: number) => (s.income > 0 ? pct(v / s.income, 0) : null);
+    const ch = p ? changeWords(s.netSales, p.netSales, lastLabel) : null;
+    const opex = [...s.byCategory.opex];
+    const kpis: Kpi[] = [
+      { label: 'Net sales', value: kpiDollars(s.netSales), tone: ch?.tone, note: `${ch ? `${ch.text} ` : ''}After refunds and discounts, before tax.` },
+      { label: 'Gross profit', value: kpiDollars(s.grossProfit), note: s.income > 0 ? `${share(s.grossProfit)} of income, after ${dollars(s.cogs)} cost of goods.` : 'No income yet.' },
+      { label: 'Expenses', value: kpiDollars(expenses), note: opex.length ? `The most: ${opex[0][0]}, ${dollars(opex[0][1])}.` : s.netFees ? `Card fees, ${dollars(s.netFees)}.` : 'None recorded yet.' },
+      { label: s.net < 0 ? 'Net loss' : 'Net profit', value: kpiDollars(Math.abs(s.net)), tone: s.net < 0 ? 'warn' : s.net > 0 ? 'ok' : undefined,
+        note: s.income > 0 ? `${s.net < 0 ? 'More went out than came in' : `${share(s.net)} of income kept`}${p ? `; ${dollars(p.net)} ${current ? 'by this day' : 'in'} ${lastMonth}` : ''}.` : 'No income yet.' },
+      { label: 'Sales tax to pay', value: kpiDollars(s.taxOwed), note: 'Collected for the state, less what refunds gave back. Never income.' },
+    ];
+
+    // Net sales by day (the business's own days, as the nightly closes have them).
+    const dayIdx = new Map(days.map((d, i) => [d, i])); const byDay = days.map(() => 0); const byId = lookupOf(now.lookup);
+    for (const t of now.lines) {
+      if (String(t?.context || '').toLowerCase() === 'personal') continue;
+      const ms = lineTime(t.date, tenant); if (!Number.isFinite(ms)) continue;
+      const i = dayIdx.get(tonight(tenant, new Date(ms))); if (i !== undefined) byDay[i] += netSalesOf(t, byId);
+    }
+    const selling = byDay.filter((v) => v > 0); const avg = selling.length ? r2(selling.reduce((a, v) => a + v, 0) / selling.length) : 0;
+    const bars: Bar[] = days.map((d, i) => ({ label: dayWords(d), value: r2(Math.max(0, byDay[i])), tone: [5, 6, 0].includes(weekday(d)) ? 'main' : 'soft', tip: `${longDay(d)}: ${dollars(r2(byDay[i]))} net sales` }));
+
+    const notes: Note[] = [];
+    if (now.partial || before.partial) notes.push({ tone: 'warn', text: `More money lines than can be read at once${now.partial ? '' : ` for ${lastMonth}`}: some are left out, so ${now.partial ? 'these totals' : 'the comparison'} may be low.` });
+    const unsorted = [...s.byCategory.sales, ...s.byCategory.opex, ...s.byCategory.cogs].filter(([c]) => /uncategori[sz]ed|^other$/i.test(c));
+    if (unsorted.length) notes.push({ tone: 'warn', text: `${dollars(unsorted.reduce((a, [, v]) => a + Math.abs(v), 0))} is in money lines with no category, or in Other. Give each its own, so it lands in the right line here and on the tax return.`, href: '/money', link: 'Open Money' });
+    if (s.net < 0 && s.income > 0) notes.push({ tone: 'warn', text: `${dollars(-s.net)} more went out than came in. The biggest costs: ${listWords([...opex.slice(0, 2).map(([c, v]) => `${c} (${dollars(v)})`), ...(s.cogs > 0 ? [`cost of goods (${dollars(s.cogs)})`] : [])].slice(0, 3))}.` });
+    if (p) {
+      const prevOpex = new Map(p.byCategory.opex);
+      const jump = opex.map(([c, v]) => ({ c, v, d: v - (prevOpex.get(c) || 0) })).filter((x) => x.d >= 100 && x.d >= 0.2 * (prevOpex.get(x.c) || 0)).sort((a, b) => b.d - a.d)[0];
+      if (jump) notes.push({ tone: 'plain', text: `${jump.c} was ${dollars(jump.v)}, up ${dollars(jump.d)} on ${lastLabel}.` });
+    }
+    if (s.tips > 0) notes.push({ tone: 'plain', text: `Tips of ${dollars(s.tips)} are shown with income, because the team’s pay (an expense) includes the tips paid out.` });
+    const personal = now.lines.filter((t) => String(t?.context || '').toLowerCase() === 'personal').length;
+    if (personal) notes.push({ tone: 'plain', text: `${personal} ${personal === 1 ? 'line' : 'lines'} marked Personal ${personal === 1 ? 'is' : 'are'} left out: ${personal === 1 ? 'it isn’t' : 'they aren’t'} the business’s.` });
+
+    // The statement, line by line, this month against last.
+    const columns: Col[] = [{ label: 'Line', kind: 'text' }, { label: 'Part', kind: 'text' }, { label: mw.split(' ')[0], kind: 'money' }, { label: current ? `${lastMonth}, same days` : lastMonth, kind: 'money' }, { label: 'Change', kind: 'money' }];
+    const rows: Cell[][] = []; const strong: number[] = [];
+    const line = (name: string, part: string, v: number, w: number | null, always = false) => { if (!always && Math.abs(v) < 0.005 && (w === null || Math.abs(w) < 0.005)) return; if (always) strong.push(rows.length); rows.push([name, part, r2(v), w === null ? null : r2(w), w === null ? null : r2(v - w)]); };
+    const cats = (part: string, key: keyof BooksSummary['byCategory'], label: string, sign = 1) => {
+      const mine = new Map(s.byCategory[key]); const theirs = new Map(p ? p.byCategory[key] : []);
+      const names = Array.from(new Set([...mine.keys(), ...theirs.keys()])).sort((a, b) => (mine.get(b) || 0) - (mine.get(a) || 0) || a.localeCompare(b));
+      for (const c of names) line(`${label}${c}`, part, sign * (mine.get(c) || 0), p ? sign * (theirs.get(c) || 0) : null);
+    };
+    const v = (f: (x: BooksSummary) => number) => [f(s), p ? f(p) : null] as [number, number | null];
+    cats('Income', 'sales', '');
+    line('Sales', 'Income', ...v((x) => x.sales), true);
+    line('Less refunds and returns', 'Income', ...v((x) => -x.returns));
+    line('Less discounts and deposits used', 'Income', ...v((x) => -x.discounts));
+    line('Net sales', 'Income', ...v((x) => x.netSales), true);
+    line('Tips collected for the team', 'Income', ...v((x) => x.tips));
+    line('Other income', 'Income', ...v((x) => x.otherIncome));
+    line('Total income', 'Income', ...v((x) => x.income), true);
+    cats('Cost of goods', 'cogs', '');
+    line('Gross profit', 'Cost of goods', ...v((x) => x.grossProfit), true);
+    line('Card processing fees', 'Expenses', ...v((x) => x.feesPaid));
+    line('Fees given back', 'Expenses', ...v((x) => -x.feesBack));
+    cats('Expenses', 'opex', '');
+    line('Total expenses', 'Expenses', ...v((x) => x.netFees + x.operatingExpenses), true);
+    line(s.net < 0 ? 'Net loss' : 'Net profit', 'Profit', ...v((x) => x.net), true);
+    line('Sales tax collected', 'Not in the profit', ...v((x) => x.taxCollected));
+    line('Sales tax given back on refunds and voids', 'Not in the profit', ...v((x) => -x.taxRefunded));
+    line('Sales tax to pay the state', 'Not in the profit', ...v((x) => x.taxOwed));
+    line('Gift cards sold (income when they’re used)', 'Not in the profit', ...v((x) => x.giftCardsSold));
+    line('Taken for renters', 'Not in the profit', ...v((x) => x.heldForRenters));
+    line('Owner draws and transfers', 'Not in the profit', ...v((x) => x.transfers));
+
+    return { ...base, what: `What the business took in and spent in ${mw.split(' ')[0]}: sales less refunds and discounts, the cost of goods, expenses, and what’s left, against ${lastLabel}. From the business’s money lines in Money (not those marked Personal). Your accountant uses it for the books and the tax return.`,
+      kpis, notes: notes.slice(0, 4).length ? notes.slice(0, 4) : [NOTHING], columns, rows: now.lines.length ? rows : [], totals: null, rowsShown: 80, strong: now.lines.length ? strong : [],
+      chart: selling.length ? { title: 'Net sales by day', money: true, bars, days: true, avg: avg > 0 ? { value: avg, label: 'Average day' } : null, legend: [{ tone: 'main', label: 'Friday to Sunday' }, { tone: 'soft', label: 'Monday to Thursday' }] } : null,
+      glossary: [['Net sales', 'what was sold, less refunds, returns and discounts, before sales tax.'], ['Gross profit', 'income less the cost of the goods sold (supplies and products used).'],
+        ['Expenses', 'card fees and everything else the business paid for: rent, pay, marketing.'], ['Not in the profit', 'sales tax (the state’s), gift cards sold (income when used), money taken for renters, and the owner’s draws and transfers.']],
+      file: fileName(business, 'profit-and-loss', month), empty: 'No money lines this month yet.' };
   }
 
   if (kind === 'stock') {

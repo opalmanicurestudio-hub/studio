@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { makeDb, check, failures, FV, strictTransactions } from './fake-db';
 
 const db: any = strictTransactions(makeDb()); const audits: any[] = [];
-let manager = true; let uid = 'm1';
+let manager = true; let uid = 'm1'; let owner = true; let caps: string[] = [];
 const M: any = Module as any; const load = M._load;
 const fake = (request: string, mock: any) => { const c = M._cache?.[request]; if (c) { c.exports = mock; c.loaded = true; } return mock; };
 M._load = function (request: string, ...rest: any[]) {
@@ -22,7 +22,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/app') return { initializeApp: () => ({ name: 'admin' }), getApps: () => [{ name: 'admin' }], cert: () => ({}) };
   if (request === 'firebase-admin/firestore' || /firebase-admin\/lib\/firestore\/index\.js$/.test(request)) return fake(request, { getFirestore: () => db, FieldValue: FV });
   if (request === '@/lib/route-guard' || /\/src\/lib\/route-guard(\.ts)?$/.test(request)) return fake(request, {
-    requireRole: async (_r: any, _t: any, level: string) => (level === 'manager' && !manager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor: { uid, name: uid === 'm1' ? 'Ana Ruiz' : 'Sam Ortiz', isManager: manager } }),
+    requireRole: async (_r: any, _t: any, level: string) => (level === 'manager' && !manager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor: { uid, name: uid === 'm1' ? 'Ana Ruiz' : 'Sam Ortiz', isManager: manager, isTenantOwner: owner, caps } }),
     requireCan: async () => ({ actor: { uid } }),
   });
   if (request === '@/lib/audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async (_d: any, _t: string, e: any) => { audits.push(e); }, auditEntry: () => ({}) });
@@ -186,6 +186,43 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('a report that isn’t one, or a month to come, is said; reports are a manager’s', (await R({ action: 'report', month: prev, kind: 'secrets' })).status === 400 && (await R({ action: 'report', month: '2099-01', kind: 'nights' })).status === 400
     && await (async () => { manager = false; const x = (await R({ action: 'report', month: prev, kind: 'nights' })).status === 403; manager = true; return x; })());
 
+  console.log('the profit and loss');
+  const pp = RL.prevMonth(prev); const money = (id: string, x: any) => db.doc(`${T}/transactions/${id}`).set({ id, ...x });
+  await money('pp1', { type: 'income', category: 'Services', amount: 100, date: `${pp}-03T15:00:00.000Z` });
+  await money('pp2', { type: 'income', category: 'Services', amount: 900, date: `${pp}-10T15:00:00.000Z` });
+  await money('pp3', { type: 'expense', category: 'Rent', amount: 400, date: `${pp}-01T15:00:00.000Z` });
+  await money('t1', { type: 'income', category: 'Services', amount: 1000, date: `${prev}-05T15:00:00.000Z` });
+  await money('t2', { type: 'income', category: 'Retail', amount: 200, date: `${prev}-06T15:00:00.000Z` });
+  await money('t3', { type: 'income', category: 'Tax Collected', amount: 80, date: `${prev}-06T15:00:00.000Z` });
+  await money('t4', { type: 'expense', category: 'Rent', amount: 600, date: `${prev}-01T15:00:00.000Z` });
+  await money('t5', { type: 'expense', category: 'Supplies', amount: 150, date: `${prev}-08T15:00:00.000Z` });
+  await money('t6', { type: 'expense', category: 'Processing Fee', amount: 30, date: `${prev}-09T15:00:00.000Z` });
+  await money('t7', { type: 'reversal', reversalOf: 'pp1', category: 'Refunds', amount: 100, taxRefunded: 8, date: `${prev}-11T15:00:00.000Z` });
+  await money('t8', { type: 'expense', category: 'Rent', amount: 50, context: 'Personal', date: `${prev}-12T15:00:00.000Z` });
+  await money('t9', { type: 'expense', category: 'Distribution', amount: 300, date: `${prev}-13T15:00:00.000Z` });
+  await money('t10', { type: 'income', category: 'Services', amount: 50, date: `${prev}-12` });
+  r = await R({ action: 'report', month: prev, kind: 'pnl' }); const pl = r.body.report; const kv = (l: string) => pl?.kpis.find((k: any) => k.label === l);
+  const lastWord = RL.monthWords(pp).split(' ')[0];
+  check('the profit and loss: net sales (a refund of last month’s sale comes off, its tax off the tax owed), gross profit, expenses, what’s left, the tax to pay', r.body.ok && kv('Net sales')?.value === '$1,158' && /^Up 16% on /.test(kv('Net sales')?.note || '')
+    && kv('Gross profit')?.value === '$1,008' && kv('Expenses')?.value === '$630.00' && /Rent, \$600\.00/.test(kv('Expenses')?.note || '') && kv('Net profit')?.value === '$378.00' && kv('Net profit')?.tone === 'ok' && kv('Sales tax to pay')?.value === '$72.00', pl?.kpis);
+  const rowOf = (name: string) => pl.rows.find((x: any) => x[0] === name);
+  check('…the statement, line by line, against last month: a day kept as a date counts, a Personal line doesn’t, draws aren’t an expense', JSON.stringify(rowOf('Services')) === JSON.stringify(['Services', 'Income', 1050, 1000, 50])
+    && JSON.stringify(rowOf('Rent')) === JSON.stringify(['Rent', 'Expenses', 600, 400, 200]) && JSON.stringify(rowOf('Net profit')) === JSON.stringify(['Net profit', 'Profit', 378, 600, -222])
+    && rowOf('Less refunds and returns')?.[2] === -92 && rowOf('Owner draws and transfers')?.[2] === 300 && rowOf('Sales tax to pay the state')?.[2] === 72 && pl.columns[3].label === lastWord && pl.totals === null
+    && pl.strong.map((i: number) => pl.rows[i][0]).join('|') === 'Sales|Net sales|Total income|Gross profit|Total expenses|Net profit' && pl.rowsShown >= pl.rows.length, pl?.rows);
+  check('…worth a look: an expense that jumped, and the Personal line left out', pl.notes.some((n: any) => n.text === `Rent was $600.00, up $200.00 on ${lastWord}.`) && pl.notes.some((n: any) => /1 line marked Personal is left out/.test(n.text)), pl.notes);
+  r = await R({ action: 'csv', month: prev, kind: 'pnl' });
+  check('…its spreadsheet is the statement', r.body.ok && r.body.csv.startsWith(`Line,Part,${RL.monthWords(prev).split(' ')[0]},${lastWord},Change`) && /\r\nServices,Income,1050,1000,50\r\n/.test(r.body.csv) && /-profit-and-loss-\d{4}-\d{2}\.csv$/.test(r.body.name), r.body);
+  owner = false;
+  check('…only for those whose role shows the business’s numbers', (await R({ action: 'report', month: prev, kind: 'pnl' })).status === 403 && (await R({ action: 'csv', month: prev, kind: 'pnl' })).status === 403
+    && (await R({ action: 'month', month: prev })).body.seesMoney === false && await (async () => { caps = ['money.view']; const ok = (await R({ action: 'report', month: prev, kind: 'pnl' })).body.ok; caps = []; return ok; })());
+  owner = true;
+  const RSV = await import('../../src/lib/records-server'); const NC = await import('../../src/lib/night-close-server');
+  const ny = { timezone: 'America/New_York' }; const nov = RSV.monthBounds(ny, RL.monthDays('2026-11', '2026-12-15'))!;
+  const inNov = (v: string) => { const t = RSV.lineTime(v, ny); return t >= Date.parse(nov.start) && t < Date.parse(nov.end); };
+  check('…a line typed as a day (or a time with no zone) is that business day wherever the business is: the 1st starts the month, the 1st of the next doesn’t', inNov('2026-11-01') && inNov('2026-11-30') && !inNov('2026-12-01') && !inNov('2026-10-31')
+    && inNov('2026-11-01T09:00:00') && NC.tonight(ny, new Date(RSV.lineTime('2026-11-01', ny))) === '2026-11-01' && RSV.lineTime('2026-11-01T02:00:00.000Z', ny) === Date.parse('2026-11-01T02:00:00.000Z'), nov);
+
   console.log('the shelf’s value, kept');
   r = await R({ action: 'keepStock', month });
   const kept: any = await get(`${T}/stockValues/${month}`);
@@ -221,7 +258,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const lowTap = files.filter((f) => /min-h-\[(3\d|[12]\d)px\]|h-(8|9|10) w-(8|9|10)\b/.test(src(f)));
   check('every control is a 44px target', lowTap.length === 0, lowTap);
   const pg = src('src/app/(app)/records/page.tsx');
-  check('Records: money, people and stock; what’s left to finish; each record downloaded or opened', /To finish for/.test(pg) && /Cash tips declared/.test(pg) && /Tips against sales/.test(pg) && /Orders received, by supplier/.test(pg) && /action: 'csv'/.test(pg) && /openBtn\('\/money'\)/.test(pg));
+  check('Records: money, people and stock; what’s left to finish; each record downloaded or opened', /To finish for/.test(pg) && /Cash tips declared/.test(pg) && /Tips against sales/.test(pg) && /Orders received, by supplier/.test(pg) && /action: 'csv'/.test(pg) && /openBtn\('\/money'\)/.test(pg) && /dlBtn\('pnl'\)/.test(pg) && /r\.seesMoney === false/.test(pg));
   check('in the sidebar with Money; the staff portal’s pay tab has Cash tips', /href: '\/records'/.test(src('src/components/shared/AppSidebar.tsx')) && /<DeclareTips/.test(src('src/app/staff-portal/[tenantId]/StaffPortalPage.tsx')));
   check('never a tax number on a declaration', !/\bssn\b|social security|\btaxId\b/i.test(src('src/app/api/records/route.ts')) && !/\bssn\b|social security/i.test(src('src/components/visit/DeclareTips.tsx')));
 

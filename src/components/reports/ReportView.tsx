@@ -68,7 +68,8 @@ export function BarChart({ chart }: { chart: Chart }) {
 
 export function ReportView({ report: r, onCsv, csvBusy, back, picker }: { report: Report; onCsv: () => void; csvBusy: boolean; back?: { href: string; label: string }; picker?: React.ReactNode }) {
   const [all, setAll] = useState(false);
-  const many = r.rows.length > ROWS_SHOWN;
+  // A statement (the profit and loss) shows every line; a long list, the first dozen until asked.
+  const shown = r.rowsShown || ROWS_SHOWN; const many = r.rows.length > shown;
   const kpiCols = r.kpis.length >= 5 ? 'lg:grid-cols-5' : r.kpis.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-4';
   const right = (k: string) => k === 'money' || k === 'price' || k === 'count' || k === 'num' || k === 'pct';
   // The page's foot, in the printout's CSS: letters, numbers and plain punctuation only, so no name can end the style or
@@ -124,7 +125,7 @@ export function ReportView({ report: r, onCsv, csvBusy, back, picker }: { report
         <section aria-labelledby="detail-title" className="rounded-3xl bg-[#fff] px-5 pb-3 pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 id="detail-title" className="text-[15px] font-semibold">In detail</h2>
-            {many && <p className="text-[12.5px] print:hidden" style={{ color: MUTED }}>{all ? `All ${r.rows.length} rows.` : `The first ${ROWS_SHOWN} of ${r.rows.length}. The spreadsheet and the printout have them all.`}</p>}
+            {many && <p className="text-[12.5px] print:hidden" style={{ color: MUTED }}>{all ? `All ${r.rows.length} rows.` : `The first ${shown} of ${r.rows.length}. The spreadsheet and the printout have them all.`}</p>}
           </div>
           {r.rows.length === 0 ? <p className="py-3 text-[14px]" style={{ color: MUTED }}>{r.empty}</p> : (
             <div className="relative mt-1 overflow-x-auto print:overflow-visible">
@@ -132,7 +133,7 @@ export function ReportView({ report: r, onCsv, csvBusy, back, picker }: { report
                 <thead><tr>{r.columns.map((c) => <th key={c.label} scope="col" className={`whitespace-nowrap border-b px-2 py-2 font-semibold first:pl-0 ${right(c.kind) ? 'text-right' : 'text-left'}`} style={{ color: MUTED, borderColor: LINE }}>{c.label}</th>)}</tr></thead>
                 <tbody>
                   {r.rows.map((row, i) => (
-                    <tr key={i} className={!all && i >= ROWS_SHOWN ? 'hidden print:table-row' : ''}>
+                    <tr key={i} className={`${!all && i >= shown ? 'hidden print:table-row' : ''} ${r.strong?.includes(i) ? 'font-semibold' : ''}`}>
                       {row.map((v, j) => { const c = r.columns[j]; const neg = typeof v === 'number' && v < 0;
                         return <td key={j} className={`border-b px-2 py-1.5 first:pl-0 ${right(c.kind) ? 'whitespace-nowrap text-right' : 'text-left'}`} style={{ borderColor: '#f3f3f5', color: neg || v === 'Not yet' || v === 'No' ? AMBER : INK }}>{cellText(c, v)}</td>; })}
                     </tr>))}
@@ -140,7 +141,7 @@ export function ReportView({ report: r, onCsv, csvBusy, back, picker }: { report
                 </tbody>
               </table>
             </div>)}
-          {many && <button type="button" onClick={() => setAll((v) => !v)} aria-expanded={all} className={`mt-1 inline-flex min-h-[44px] items-center text-[13px] font-semibold underline underline-offset-4 print:hidden ${RING}`}>{all ? `Show the first ${ROWS_SHOWN}` : `Show all ${r.rows.length}`}</button>}
+          {many && <button type="button" onClick={() => setAll((v) => !v)} aria-expanded={all} className={`mt-1 inline-flex min-h-[44px] items-center text-[13px] font-semibold underline underline-offset-4 print:hidden ${RING}`}>{all ? `Show the first ${shown}` : `Show all ${r.rows.length}`}</button>}
         </section>
 
         <section aria-labelledby="read-title" className="pb-2">

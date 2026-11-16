@@ -25,7 +25,7 @@ const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1
 
 type Person = { staffId: string; name: string; chargedCents: number; cashCents: number; shareCents: number; declared: { cashCents: number; paidOutCents: number; signedName: string; signedAt: string; changed?: boolean } | null; due: boolean };
 type R = {
-  month: string; today: string; days: number; business: string; hospitality: boolean; partial?: boolean;
+  month: string; today: string; days: number; business: string; hospitality: boolean; partial?: boolean; seesMoney?: boolean;
   nights: { day: string; closed: boolean; count: number; sales: number; tax: number }[]; closes: { closed: number; open: string[] };
   sales: { total: number; tax: number; tips: number; refunds: number };
   tips: { people: Person[]; chargedCents: number; cashCents: number; declaredCashCents: number; mode: string; check: { sales: number; reported: number; pct: number | null; shortfall: number; under: boolean } };
@@ -138,7 +138,7 @@ export default function RecordsPage() {
               <ul className="mt-2">
                 {row('r1', { name: r.hospitality ? 'Nightly closes' : 'Sales by day', pill: r.hospitality ? <Pill tone={r.closes.open.length ? 'warn' : 'ok'}>{r.closes.closed} of {r.days} closed</Pill> : undefined, sub: <>{whole(r.sales.total)} in sales{r.sales.refunds ? `, ${whole(r.sales.refunds)} refunded` : ''}. Sales, tax, tips, comps, voids and the drawers, day by day.</>, more: r.closes.open.length > 0 ? <p className="text-[13px]" style={{ color: AMBER }}>Not closed: {list(r.closes.open.map(md))}.</p> : null, action: dlBtn('nights') })}
                 {row('r2', { name: "Sales tax", sub: <>{money(r.sales.tax)} collected on {whole(r.sales.total)} of sales. Each day’s is in the nightly file.</>, action: dlBtn('nights') })}
-                {row('r3', { name: "Profit and loss", sub: "In Money: pick the month, then Reports, for profit and loss and the tax summary.", action: openBtn('/money') })}
+                {row('r3', { name: "Profit and loss", sub: r.seesMoney === false ? 'Your role doesn’t show the business’s numbers. The owner can open it.' : 'Income, cost of goods, expenses and what’s left, against last month. The tax summary is in Money, under Reports.', action: r.seesMoney === false ? null : dlBtn('pnl') })}
                 {row('r4', { name: "Gift cards owed", sub: "What’s still on cards, sold and used, and cards unused for two years.", action: openBtn('/gift-cards/report') })}
               </ul>
             </section>

@@ -1211,21 +1211,25 @@ const LedgerTab = () => {
                   <Printer className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">Reports</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1 w-72">
-                <DropdownMenuItem onClick={handlePrint} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <BookOpen className="w-3.5 h-3.5 mr-2 text-primary opacity-60" /> Studio Report — Full Detail
+              <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1 w-80">
+                <DropdownMenuItem asChild className="rounded-xl min-h-[44px] px-3 text-[14px] font-semibold">
+                  <Link href="/records/pnl"><TrendingUp className="w-4 h-4 mr-2 text-green-600" /> Profit and loss, month by month</Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('pnl')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <TrendingUp className="w-3.5 h-3.5 mr-2 text-green-600 opacity-60" /> Profit &amp; Loss
+                <p className="px-3 pb-1 pt-2 text-[12px] text-muted-foreground">For the dates picked here, to print:</p>
+                <DropdownMenuItem onClick={handlePrint} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
+                  <BookOpen className="w-4 h-4 mr-2 text-primary opacity-60" /> The ledger, in full detail
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('tax')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <Landmark className="w-3.5 h-3.5 mr-2 text-orange-600 opacity-60" /> Tax Summary (Schedule C)
+                <DropdownMenuItem onClick={() => openReport('pnl')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
+                  <TrendingUp className="w-4 h-4 mr-2 text-green-600 opacity-60" /> Profit and loss for these dates
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('payroll')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <Users className="w-3.5 h-3.5 mr-2 text-sky-600 opacity-60" /> Payroll Register
+                <DropdownMenuItem onClick={() => openReport('tax')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
+                  <Landmark className="w-4 h-4 mr-2 text-orange-600 opacity-60" /> Tax summary (Schedule C)
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('audit')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-                  <ShieldCheck className="w-3.5 h-3.5 mr-2 text-muted-foreground opacity-60" /> Audit Trail
+                <DropdownMenuItem onClick={() => openReport('payroll')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
+                  <Users className="w-4 h-4 mr-2 text-sky-600 opacity-60" /> Payroll register
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openReport('audit')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
+                  <ShieldCheck className="w-4 h-4 mr-2 text-muted-foreground opacity-60" /> Audit trail
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
