@@ -15,7 +15,12 @@
 //           drink, set once (lib/plate-extras): each checked against the stock and how it's measured; the whole list.
 //   cardFee { tenantId, pct } → what card payments cost, as a share of what's charged (0 to 10%), for each plate's cost.
 //   (The report also gives what a plate really costs at a table and to go, what went out with food and drink, and the
-//   staff meals, lib/counter-server staffMeal.)
+//   staff meals, lib/counter-server staffMeal; and the prices that moved in the stretch, from deliveries, with the dishes
+//   and choices each one moved, lib/price-creep.)
+//   price   { tenantId, itemId, price, was } → a menu item's price, from Prices that moved ("Price it at $16"): only while
+//           it's still `was` (another screen may have changed it); the desk's price follows, as the Menu page does it.
+//   moved   { tenantId, itemIds } → anyone on the team, after putting a delivery away on the stock screens: the managers
+//           are told when it pushed a dish over the aim (lib/price-creep-server). Says nothing about costs back.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -32,7 +37,10 @@ import { canBeIngredient } from '@/lib/prep-recipes-server';
 import { unitLabel } from '@/lib/product-cost';
 import { prepOf } from '@/lib/prep-recipes';
 import { changeIds, changesRecipe } from '@/lib/choice-recipe';
-import { picksOf } from '@/lib/menu-choices';
+import { choiceGroups, picksOf } from '@/lib/menu-choices';
+import { effectsOf, hurtBy, moveOf } from '@/lib/price-creep';
+import { checkDeliveries } from '@/lib/price-creep-server';
+import { bump } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -45,8 +53,8 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'report');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['report', 'target', 'cost', 'yield', 'extras', 'cardFee'].includes(action)) return bad('Unknown action.');
-  const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
+  if (!['report', 'target', 'cost', 'yield', 'extras', 'cardFee', 'price', 'moved'].includes(action)) return bad('Unknown action.');
+  const g: any = await requireRole(req, tenantId, action === 'moved' ? 'staff' : 'manager'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data() || {};
   { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
@@ -95,6 +103,40 @@ export async function POST(req: NextRequest) {
     const said = [patch.usablePct !== undefined ? `usable ${patch.usablePct === null ? 'all of it' : `${patch.usablePct}%`}` : '', patch.cookLossPct !== undefined ? `lost in cooking ${patch.cookLossPct === null ? 'none' : `${patch.cookLossPct}%`}` : '', patch.perEach !== undefined ? (patch.perEach ? `one gives ${patch.perEach.amount} ${patch.perEach.unit}` : 'what one gives cleared') : ''].filter(Boolean).join(', ');
     await logAuditAdmin(db, tenantId, { action: 'inventory.yield', targetType: 'inventory', targetId: itemId, summary: `${by} set ${r.name}’s yield: ${said}.`, actor: { type: 'user', id: String(g.actor?.uid || ''), name: by } } as any).catch(() => {});
     return ok({ itemId, usablePct: patch.usablePct, cookLossPct: patch.cookLossPct, perEach: patch.perEach });
+  }
+
+  if (action === 'moved') {
+    // What was just put away (the last six hours, so a screen whose clock is off still counts it; a delivery is told about
+    // once, however often it's asked). A few hundred an hour for the business at most: a screen asking in a loop reads
+    // nothing past that.
+    const ids = (Array.isArray(b.itemIds) ? b.itemIds : []).map(String).filter((x: string) => ID.test(x)).slice(0, 50);
+    if (!ids.length) return ok({ moved: 0 });
+    if (!(await bump(`price_moved_${tenantId}_${Math.floor(Date.now() / 3600000)}`, 300, 2 * 3600000).catch(() => true))) return ok({ moved: 0, later: true });
+    const moves = await checkDeliveries(db, tenantId, tenant, ids, new Date(Date.now() - 6 * 3600000).toISOString()).catch((e: any) => { console.error('[food-cost] delivery check', e?.message || e); return []; });
+    return ok({ moved: moves.length });
+  }
+
+  if (action === 'price') {
+    const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which item?');
+    const price = Math.round(num(b.price) * 100) / 100; const was = Math.round(num(b.was) * 100) / 100;
+    if (!(price > 0) || price > 10000) return bad('A price of more than $0.');
+    const ref = db.doc(`${T}/inventory/${itemId}`);
+    const r: any = await db.runTransaction(async (tx: any) => {
+      const x: any = (await tx.get(ref)).data();
+      if (!x || x.type !== 'refreshment' || x.archived === true) return { error: 'That isn’t on the menu any more.', status: 404 };
+      const cur = Math.round(num(x.price) * 100) / 100;
+      if (cur !== was) return { error: `Its price is $${cur.toFixed(2)} now (it changed since this was worked out). Look again.`, status: 409 };
+      // A required choice that takes something off can't take it below nothing.
+      const lowest = price + choiceGroups(x).filter((cg: any) => cg.required && cg.pick === 'one' && cg.options.length).reduce((t: number, cg: any) => t + Math.min(...cg.options.map((o: any) => num(o.price))), 0);
+      if (lowest < 0) return { error: 'A choice takes off more than that price. Change it on the Menu.', status: 400 };
+      // The desk and a table's tab charge the item's own price: it follows, as the Menu page's save does.
+      const deskToo = !(num(x.msrp) > 0) || Math.round(num(x.msrp) * 100) === Math.round(cur * 100);
+      tx.set(ref, { price, ...(deskToo ? { msrp: price } : {}), menuUpdatedAt: now, menuUpdatedBy: by, updatedAt: now }, { merge: true });
+      return { name: String(x.name || 'Item'), was: cur };
+    });
+    if (r.error) return bad(r.error, r.status);
+    await logAuditAdmin(db, tenantId, { action: 'menu.price', targetType: 'inventory', targetId: itemId, summary: `${by} priced ${r.name} at $${price.toFixed(2)} (was $${r.was.toFixed(2)}), from Prices that moved.`, actor: { type: 'user', id: String(g.actor?.uid || ''), name: by } } as any).catch(() => {});
+    return ok({ price });
   }
 
   if (action === 'cardFee') {
@@ -219,6 +261,13 @@ export async function POST(req: NextRequest) {
   for (const d of extraSnap.docs) { const e: any = d.data() || {}; if (!(String(e.date || '') >= start && String(e.date || '') < end)) continue; const p = all.get(String(e.productId || '')); const u = p ? partUnitCost(p, all) : null; if (u === null) { extrasUnknown += 1; continue; } extrasCost -= num(e.change) * u; }
   extrasCost = Math.max(0, extrasCost);
   const staffMeals = Array.from(staff.values()).sort((a, c) => c.cost - a.cost);
+  // Prices that moved in the stretch, from deliveries (lib/price-creep): what the menu uses, and what goes out with it.
+  // Those that pushed a dish over the aim first, then the rises, the biggest first; then what came down.
+  const priced = Array.from(new Set([...Array.from(used), ...extras.map((e) => e.itemId)]));
+  const moves = priced.map((id) => { const x = all.get(id); if (!live(x) || prepOf(x)) return null; const m = moveOf(id, x, start, end); if (!m) return null; const e = effectsOf(m, all, menu, target); return { ...m, dishes: e.dishes.slice(0, 6), options: e.options.slice(0, 4) }; })
+    .filter((m): m is NonNullable<typeof m> => !!m)
+    .sort((a, c) => Number(c.dishes.some(hurtBy) || c.options.length > 0) - Number(a.dishes.some(hurtBy) || a.options.length > 0) || Number(c.up) - Number(a.up) || Math.abs(c.pct) - Math.abs(a.pct))
+    .slice(0, 12);
 
   const adjustments = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => (a.kind === 'void_item' || a.kind === 'remake') && a.used === true);
   const voided = voidedOrders.docs.flatMap((d: any) => Object.entries((d.data() || {}).wastedItems || {}).map(([itemId, qty]) => ({ itemId, qty: num(qty) })));
@@ -239,6 +288,6 @@ export async function POST(req: NextRequest) {
   // A stretch with more sales than are read at once: said so, rather than a share that looks complete.
   const partial = rc.docs.length >= 5000 || co.docs.length >= 5000 || counted.docs.length >= 5000;
   return ok({ period, days, today, target, report, items, typical, counts, waste, partial,
-    extras: extrasList, cardPct, cardShare, extrasUsed: { cost: Math.round(extrasCost * 100) / 100, unknown: extrasUnknown },
+    extras: extrasList, cardPct, cardShare, moves, extrasUsed: { cost: Math.round(extrasCost * 100) / 100, unknown: extrasUnknown },
     staffMeals: { count: staffMeals.reduce((n, m) => n + m.count, 0), cost: Math.round(staffMeals.reduce((n, m) => n + m.cost, 0) * 100) / 100, unknown: staffMeals.reduce((n, m) => n + m.unknown, 0), by: staffMeals } });
 }

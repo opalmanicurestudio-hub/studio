@@ -27,6 +27,8 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   orders_cutoff: 'now', orders_missed: 'now', orders_big_day: 'today', orders_fast: 'today',
   // Other tools
   event_invoice_overpaid: 'today', event_invoice_refunded: 'today',
+  // Food cost (lib/price-creep-server): a delivery that pushed a dish over the business's aim
+  price_moved: 'today',
   school_tour: 'today', quote_accepted: 'today', quote_declined: 'today', quote_revision: 'today', maintenance: 'today', maintenance_collision: 'today',
   membership_payment_failed: 'today', payroll_draft: 'today', waitlist_join: 'today', appointment: 'today', user: 'today',
 };

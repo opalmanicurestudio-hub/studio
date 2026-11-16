@@ -123,6 +123,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { releaseCoverableBackorders } from '@/lib/fulfil-client';
+import { checkPrices } from '@/lib/price-check-client';
 import { buildEntry } from '@/lib/stock-ledger';
 import { useTenant } from '@/context/TenantContext';
 import { ProductCard } from '@/components/inventory/ProductCard';
@@ -607,6 +608,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
               ...(got.length ? { action: <ToastAction altText="Print labels for this delivery" asChild><Link href={`/inventory/labels?from=delivery&items=${got.slice(0, 200).join(',')}`}>Print labels</Link></ToastAction> } : {}),
           });
           setOrderToReceive(null);
+          // Came in at another price than last time: the managers hear about any dish it pushed over the aim.
+          checkPrices(tenantId, receivedItems.filter((it) => it.quantityReceived > 0).map((it) => it.productId));
           try {
             const { released } = await releaseCoverableBackorders(
               firestore,

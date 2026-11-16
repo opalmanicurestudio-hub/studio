@@ -10,7 +10,8 @@
 //   receive  { tenantId, orderId, lines?: [{ itemId, qty, cost? }] } → it came in: each line on the shelf as a batch at
 //            its cost, on the stock history, and the order marked received (or partly, with the rest still to come), all
 //            at once. Without `lines`, everything still to come as ordered. A cost typed here is what the business pays
-//            from now on.
+//            from now on. The answer's `moved`: anything that came in at 5% more or less than the delivery before, with
+//            the dishes it pushed over the aim (lib/price-creep); the managers are told about those (once a delivery).
 //   cancel   { tenantId, orderId } → not coming after all: an order with nothing in yet is cancelled; one partly in is
 //            closed with what came.
 //   supplier { tenantId, itemId, supplier } → who the business buys that from.
@@ -22,6 +23,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { buildEntry } from '@/lib/stock-ledger';
+import { checkDeliveries } from '@/lib/price-creep-server';
+import { moveWords } from '@/lib/price-creep';
 import { ledgerUnit } from '@/lib/food-cost';
 import { cleanReceived, cleanSupplier, containerOf, COVER_MAX, COVER_MIN, coverDaysOf, deliveryDiff, isOpen, LOOKBACK_DAYS, notCounted, OPEN_STATUSES, orderable, orderNumber, orderTotal, perOf, planBySupplier, remainingOf, spanDays, spreadReceived, suggestFor, usedPerDay, type OrderItem, type SupplyOrder } from '@/lib/ordering';
 
@@ -125,7 +128,8 @@ export async function POST(req: NextRequest) {
           if (!x) { missing.push(items.find((it) => it.productId === l.productId)?.productName || 'An item'); return; }
           received.push({ itemId: l.productId, qty: l.qty, cost: l.cost });
           const per = perOf(x) || 1; const name = String(x.name || 'Item');
-          const batch = { id: `order-${orderId}-${i}-${Date.now().toString(36)}`, stock: l.qty, costPerUnit: l.cost, receivedDate: now, note: `Order #${number} from ${supplier}` };
+          // (Put away at a typical price, before the business said what it pays: kept, but never a price to compare with.)
+          const batch = { id: `order-${orderId}-${i}-${Date.now().toString(36)}`, stock: l.qty, costPerUnit: l.cost, receivedDate: now, note: `Order #${number} from ${supplier}`, ...(x.typicalCost === true && !l.typed ? { typical: true } : {}) };
           tx.set(refs[i], {
             totalStock: Math.max(0, num(x.totalStock)) + l.qty, batches: [...(Array.isArray(x.batches) ? x.batches : []), batch],
             // Its cost changes when one is typed here (what the business pays now), or when it had none; never back to an
@@ -154,7 +158,14 @@ export async function POST(req: NextRequest) {
       });
       if (!r.already) await logAuditAdmin(db, tenantId, { action: action === 'receive' ? 'inventory.receive' : 'inventory.order_cancel', targetType: 'order', targetId: orderId,
         summary: action === 'receive' ? `${by} received order #${r.number} from ${r.supplier}: ${r.units} ${r.units === 1 ? 'container' : 'containers'}.` : `${by} closed order #${r.number} from ${r.supplier}${r.given ? `; $${Number(r.given).toFixed(2)} given back` : ''}.`, actor: { type: 'user', id: actorId, name: by } } as any).catch(() => {});
-      return ok(r);
+      // What came in at another price than last time, and what that did to the menu (never holds up the delivery).
+      let moved: any[] = [];
+      if (!r.already && action === 'receive' && Array.isArray(r.received) && r.received.length) {
+        const tenant: any = (await db.doc(T).get()).data() || {};
+        moved = (await checkDeliveries(db, tenantId, tenant, r.received.map((x: any) => String(x.itemId)), new Date(Date.parse(now) - 1000).toISOString()).catch((e: any) => { console.error('[ordering] price check', e?.message || e); return []; }))
+          .map((m) => ({ id: m.id, name: m.name, up: m.up, words: moveWords(m), dishes: m.dishes.filter((d) => d.crossed || d.over).slice(0, 3).map((d) => ({ name: d.name, share: d.shareAfter, was: d.shareBefore, fix: d.fix })), options: m.options.slice(0, 2).map((o) => ({ item: o.item, option: o.option, cost: o.costAfter, charges: o.charges })) }));
+      }
+      return ok({ ...r, moved });
     }
 
     // PLAN

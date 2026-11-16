@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { releaseCoverableBackorders } from '@/lib/fulfil-client';
+import { checkPrices } from '@/lib/price-check-client';
 import { applyStockDelta } from '@/lib/stock-ledger';
 import { Button } from '@/components/ui/button';
 import {
@@ -117,7 +118,8 @@ export function QuickReceiveDialog({
           if (!snap.exists()) throw new Error('item missing');
           const item = snap.data() as any;
           const cost = l.unitCost.trim() === '' ? (Number(item.costPerUnit) || 0) : Math.max(0, Number(l.unitCost) || 0);
-          const batch = { id: `batch-${nanoid(8)}`, stock: l.qty, costPerUnit: cost, receivedDate: now };
+          // (Put away at a typical price, before the business said what it pays: never a price to compare with.)
+          const batch = { id: `batch-${nanoid(8)}`, stock: l.qty, costPerUnit: cost, receivedDate: now, ...(item.typicalCost === true && l.unitCost.trim() === '' ? { typical: true } : {}) };
           // Batches and cost still ride the item write (FIFO costing needs the
           // array); the COUNT and its record go through the one door, which
           // uses an atomic increment — so a simultaneous sale can't be lost.
@@ -150,6 +152,8 @@ export function QuickReceiveDialog({
       toast({ variant: 'destructive', title: 'Some lines failed', description: failures.join(', ') });
     } else {
       toast({ title: 'Stock received', description: `${units} unit(s) across ${lines.length} item(s) \u2014 costed batches created.` });
+      // Came in at another price than last time: the managers hear about any dish it pushed over the aim.
+      checkPrices(tenantId, lines.map((l) => l.productId));
       try {
         const { released } = await releaseCoverableBackorders(
           firestore as Firestore, tenantId,

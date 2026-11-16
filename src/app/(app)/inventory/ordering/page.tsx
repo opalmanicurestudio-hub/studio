@@ -4,6 +4,8 @@
 // stock history, what's on the shelf and what's on its way), a set amount kept of anything the business says, and who
 // it buys each thing from, put in right here. An order is copied into a text or an email the way the business already
 // orders; when it comes in, one tap puts it all on the shelf at its costs, or "Edit first" for what came in different.
+// Anything that came in at another price than last time says so right after, with the dishes it pushed over the aim
+// (lib/price-creep), and links to Food cost to set them right.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
@@ -55,6 +57,8 @@ export default function OrderingPage() {
   const [who, setWho] = useState<Record<string, string>>({});
   const [parOpen, setParOpen] = useState<string | null>(null); const [parTyped, setParTyped] = useState('');
   const [note, setNote] = useState('');
+  type Moved = { id: string; name: string; up: boolean; words: string; dishes: { name: string; share: number | null; was: number | null; fix: number | null }[]; options: { item: string; option: string; cost: number; charges: number }[] };
+  const [moved, setMoved] = useState<Moved[]>([]);
 
   const load = useCallback(async () => {
     if (!tenantId) return;
@@ -65,7 +69,7 @@ export default function OrderingPage() {
 
   const q = (s: Suggestion) => (qty[s.id] ?? s.suggest);
   const run = async (key: string, body: any, after?: (d: any) => void) => {
-    if (!tenantId) return null; setBusy(key); setErr(''); setNote('');
+    if (!tenantId) return null; setBusy(key); setErr(''); setNote(''); setMoved([]);
     const d = await post({ tenantId, ...body }); setBusy(null);
     if (!d.ok) { setErr(d.error || 'That didn’t go through. Try again.'); return null; }
     after?.(d); return d;
@@ -79,7 +83,7 @@ export default function OrderingPage() {
     // What this screen showed as still to come, so an order put away meanwhile from another screen isn't put away twice.
     const expect: Record<string, number> = {}; for (const l of o.items) expect[l.productId] = (expect[l.productId] || 0) + remainingOf(l);
     await run(`recv-${o.id}`, { action: 'receive', orderId: o.id, expect, ...(lines ? { lines } : {}) }, async (d) => {
-      setEditing(null); setGot({});
+      setEditing(null); setGot({}); setMoved(Array.isArray(d.moved) ? d.moved : []);
       setNote(d.already ? `Order #${o.number} was already put away.` : `${d.status === 'Partially Received' ? `What came of order #${o.number} is on the shelf. The rest is still to come.` : `Order #${o.number} from ${o.supplier} is on the shelf.`}${d.missing?.length ? ` ${d.missing.join(', ')} ${d.missing.length === 1 ? 'isn’t' : 'aren’t'} in Inventory any more, so ${d.missing.length === 1 ? 'it wasn’t' : 'they weren’t'} put away.` : ''}`);
       // A delivery can let a shop order that was waiting for it go out (lib/retail-fulfill), as a quick receive does.
       if (!d.already && moduleEnabled(selectedTenant, 'retail')) {
@@ -140,6 +144,20 @@ export default function OrderingPage() {
         </header>
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {note && <p role="status" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: GREEN_TINT, color: GREEN }}>{note}</p>}
+        {moved.length > 0 && (
+          <section aria-labelledby="moved-title" className="rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
+            <h2 id="moved-title" className="text-[15px] font-semibold">{moved.length === 1 ? 'A price moved' : 'Prices moved'} on this delivery</h2>
+            <ul className="mt-1 space-y-2">
+              {moved.map((m) => (
+                <li key={m.id} className="text-[14px]">
+                  <span className="font-medium">{m.name}</span> <span style={{ color: m.up ? AMBER : MUTED }}>{m.words}</span>
+                  {m.dishes.map((d) => <span key={d.name} className="block text-[13.5px]" style={{ color: MUTED }}>{d.name} is now {d.share === null ? '–' : `${Math.round(d.share * 100)}%`} of its price (it was {d.was === null ? '–' : `${Math.round(d.was * 100)}%`}){d.fix ? `; $${d.fix.toFixed(2)} brings it back` : ''}.</span>)}
+                  {m.options.map((o) => <span key={`${o.item}-${o.option}`} className="block text-[13.5px]" style={{ color: MUTED }}>{o.option} on {o.item} now costs you ${o.cost.toFixed(2)} more, and you charge ${o.charges.toFixed(2)} for it.</span>)}
+                </li>))}
+            </ul>
+            <Link href="/food-cost" className="mt-1 inline-flex min-h-[44px] items-center text-[14px] font-semibold underline underline-offset-4">See it on Food cost</Link>
+          </section>
+        )}
         {!p ? <div className="h-48 rounded-3xl bg-[#fff]" aria-busy="true" /> : (
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)]">
             <div className="space-y-4">

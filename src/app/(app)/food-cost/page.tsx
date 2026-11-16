@@ -4,13 +4,15 @@
 // all and day by day, against the business's own aim; what each menu item costs to make from its recipe, and the price that
 // would bring one that's over back to the aim, and what a plate really costs at a table and to go (with what goes out with
 // it and the card fee: components/food/PlateExtras); the ingredients still at typical prices, with what the business pays
-// put in right here; what the counts found against what was sold; what was thrown away; and the staff meals.
+// put in right here; the prices that moved, from deliveries, and the dishes they pushed over the aim (components/food/
+// PricesMoved); what the counts found against what was sold; what was thrown away; and the staff meals.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { amountWords, countWords, PERIODS, type CountRow, type ItemCost, type Period, type PeriodCost, type PlateCost, type Waste } from '@/lib/food-cost';
 import { PlateExtras, type ExtraRow } from '@/components/food/PlateExtras';
+import { PricesMoved, type PriceMove } from '@/components/food/PricesMoved';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -18,7 +20,7 @@ type Item = ItemCost & { sold: number; section: string };
 type Typical = { id: string; name: string; container: string; cost: number; per: number | null; unit: string };
 type StaffMeals = { count: number; cost: number; unknown: number; by: { for: string; count: number; cost: number; unknown: number }[] };
 type Report = { period: Period; days: string[]; today: string; target: number; report: PeriodCost; items: Item[]; typical: Typical[]; counts: CountRow[]; waste: Waste; partial?: boolean;
-  extras: ExtraRow[]; cardPct: number; cardShare: number; extrasUsed: { cost: number; unknown: number }; staffMeals: StaffMeals };
+  extras: ExtraRow[]; cardPct: number; cardShare: number; extrasUsed: { cost: number; unknown: number }; staffMeals: StaffMeals; moves?: PriceMove[] };
 
 const money = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const whole = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -237,6 +239,7 @@ export default function FoodCostPage() {
             </section>
 
             <div className="space-y-4">
+              <PricesMoved tenantId={tenantId!} moves={r.moves || []} target={r.target} periodText={periodWords(r.period)} onPriced={() => void load()} />
               <section aria-labelledby="counted-title" className="rounded-3xl bg-[#fff] px-5 py-4">
                 <h2 id="counted-title" className="text-[15px] font-semibold">Used against counted</h2>
                 <p className="text-[13.5px]" style={{ color: MUTED }}>What your counts found, against what sales say you used, since each one was last counted.</p>

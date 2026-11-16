@@ -89,6 +89,13 @@ export default function MenuPage() {
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
   useEffect(() => { if (!tenantId) return; void call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); } else setErr(d.error || 'The menu didn’t load.'); }); }, [tenantId, call]);
+  // Opened from somewhere else for one item (Food cost's "Look at the recipe": /menu?item=…): its editor, once.
+  const deepOpened = useRef(false);
+  useEffect(() => {
+    if (deepOpened.current || !menu) return; let id: string | null = null;
+    try { id = new URLSearchParams(window.location.search).get('item'); } catch { /* no address to read */ }
+    if (!id) return; deepOpened.current = true; const m = menu.find((x) => x.id === id); if (m) setEditing(m);
+  }, [menu]);
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
