@@ -252,6 +252,24 @@ const moves = async (productId: string, type?: string) => (await all(`${T}/stock
     && near(b.waste.total, 1.2 + 0.61 + 1.65 + 4.95) && near(b.waste.voids, 0.61 + 1.65) && near(b.waste.batches, 4.95), { counts: b.counts, waste: b.waste });
   r = await FC.POST(req({ tenantId: 't1', action: 'report', period: 'last' }));
   check('last week: nothing sold yet, nothing thrown away', r.body.ok && r.body.report.sold === 0 && r.body.waste.total === 0 && r.body.days.length === 7 && !r.body.days.includes(day));
+  // The same stretch as a report anyone can read (lib/food-cost-report), and its spreadsheet.
+  r = await FC.POST(req({ tenantId: 't1', action: 'view', period: 'week' })); const v = r.body.report;
+  check('the report: what it is, the share against the aim, what was sold and what it cost, what was thrown away, the items over', r.body.ok && /^Food cost, /.test(v.title) && /against your aim of 30%/.test(v.what)
+    && v.kpis.map((k: any) => k.label).join('|') === 'Food cost|Sold|Cost to make it|Thrown away|Over the aim' && v.kpis[1].value === '$23.00' && /\$6\.00 of it has no cost to make yet/.test(v.kpis[1].note)
+    && v.kpis[2].value === `$${b.report.cost.toFixed(2)}` && v.kpis[4].value === String(b.items.filter((x: any) => x.over && !x.needsPrice).length), v.kpis);
+  check('…sales by day, each day over or under the aim; what’s worth a look names what has no cost, and the item over the aim with its fix', (b.days.length > 1 ? v.chart?.bars.length === b.days.length && v.chart.bars.some((x: any) => x.value === 17) : v.chart === null)
+    && v.notes.some((n: any) => n.tone === 'warn' && /^Avocado toast costs 36\.7% of its price\. At \$5\.50 it’s back to 30% or less\.$/.test(n.text) && n.href === '/menu?item=toast')
+    && v.notes.some((n: any) => n.tone === 'warn' && /no cost to make/.test(n.text)) && v.notes.length <= 4, { chart: v.chart, notes: v.notes });
+  check('…every item sold, with its sales, cost and share; the totals are everything sold', v.rows.length === b.report.items.length && v.rows[0][0] === b.report.items[0].name && v.totals[0] === 'Everything sold' && v.totals[3] === 23 && near(v.totals[4], b.report.cost)
+    && v.columns.map((c: any) => c.label).join('|') === 'Item|Section|Quantity|Sales|Cost to make|Food cost|Price now|One costs now|Against the aim'
+    && (b.days.length > 1 ? v.chart.bars.reduce((n: number, x: any) => n + x.value, 0) === 23 : true) && b.report.days.find((d: any) => d.day === day)?.all === 23, v.rows);
+  r = await FC.POST(req({ tenantId: 't1', action: 'csv', period: 'week' }));
+  check('…the spreadsheet is the same table: a header, one row an item, plain numbers, no totals row', r.body.ok && /^[a-z0-9-]+-food-cost-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.csv$/.test(r.body.name)
+    && r.body.csv.split('\r\n').filter(Boolean).length === v.rows.length + 1 && r.body.csv.startsWith('Item,Section,Quantity,Sales,Cost to make,Food cost %,Price now,One costs now,Against the aim') && !/\$/.test(r.body.csv)
+    && r.body.csv.split('\r\n').slice(1).filter(Boolean).every((line: string) => { const v = line.split(',')[5]; return v === '' || (Number(v) > 1 && Number(v) < 100); }), r.body);
+  r = await FC.POST(req({ tenantId: 't1', action: 'view', period: 'last' }));
+  check('…a stretch with nothing sold: no picture, no rows, and it says so', r.body.ok && r.body.report.rows.length === 0 && r.body.report.chart === null && r.body.report.empty === 'Nothing was sold in this stretch yet.' && r.body.report.kpis[0].value === 'Not known');
+  manager = false; r = await FC.POST(req({ tenantId: 't1', action: 'view' })); check('…managers only', !r.body.ok); manager = true;
   r = await FC.POST(req({ tenantId: 't1', action: 'target', target: '28' }));
   check('the business sets its own aim', r.body.ok && r.body.target === 0.28 && (await get(T)).foodCost.target === 0.28 && (await FC.POST(req({ tenantId: 't1', action: 'report' }))).body.target === 0.28);
   r = await FC.POST(req({ tenantId: 't1', action: 'target', target: 75 }));
@@ -281,6 +299,9 @@ const moves = async (productId: string, type?: string) => (await all(`${T}/stock
 
   console.log('the screens');
   const page = src('src/app/(app)/food-cost/page.tsx'), menuPage = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx'));
+  const rp = src('src/app/(app)/food-cost/report/page.tsx');
+  check('the report page: the stretch in the address, the report view, back to Food cost; Food cost links to it', /action: 'view', period/.test(rp) && /<ReportView report=\{r\}/.test(rp) && /back=\{\{ href: '\/food-cost', label: 'Food cost' \}\}/.test(rp)
+    && /searchParams\.set\('period', period\)/.test(rp) && /href=\{`\/food-cost\/report\?period=\$\{period\}`\}/.test(page) && !/uppercase|font-black|\{\/\*| · /.test(rp));
   check('the page: the stretch, the share against the aim, by day, typical prices put in here, each item, the counts and what was thrown away', /PERIODS\.map/.test(page) && /Aiming for/.test(page) && /aria-label="By day"/.test(page) && /action: 'cost'/.test(page)
     && /Each item/.test(page) && /Used against counted/.test(page) && /Thrown away/.test(page) && /More gone than sold usually means/.test(page));
   check('…tap targets, the house words', !/uppercase|font-black|\{\/\*| · |[\u{1F300}-\u{1FAFF}]|call us|contact us/u.test(page) && (page.match(/min-h-\[4[46]px\]/g) || []).length >= 5);

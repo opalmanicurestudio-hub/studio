@@ -17,6 +17,8 @@
 //   (The report also gives what a plate really costs at a table and to go, what went out with food and drink, and the
 //   staff meals, lib/counter-server staffMeal; and the prices that moved in the stretch, from deliveries, with the dishes
 //   and choices each one moved, lib/price-creep.)
+//   view    { tenantId, period? } → the same stretch as a report anyone can read (lib/food-cost-report: the page
+//           /food-cost/report); csv → its table as a spreadsheet { name, csv }.
 //   price   { tenantId, itemId, price, was } → a menu item's price, from Prices that moved ("Price it at $16"): only while
 //           it's still `was` (another screen may have changed it); the desk's price follows, as the Menu page does it.
 //   moved   { tenantId, itemIds } → anyone on the team, after putting a delivery away on the stock screens: the managers
@@ -41,6 +43,8 @@ import { choiceGroups, picksOf } from '@/lib/menu-choices';
 import { effectsOf, hurtBy, moveOf } from '@/lib/price-creep';
 import { checkDeliveries } from '@/lib/price-creep-server';
 import { bump } from '@/lib/rate-limit';
+import { foodCostReport } from '@/lib/food-cost-report';
+import { reportCsv } from '@/lib/report-kit';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -53,7 +57,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'report');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['report', 'target', 'cost', 'yield', 'extras', 'cardFee', 'price', 'moved'].includes(action)) return bad('Unknown action.');
+  if (!['report', 'view', 'csv', 'target', 'cost', 'yield', 'extras', 'cardFee', 'price', 'moved'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, action === 'moved' ? 'staff' : 'manager'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data() || {};
@@ -287,6 +291,12 @@ export async function POST(req: NextRequest) {
     .sort((a, b) => Number(a.needsPrice) - Number(b.needsPrice) || b.soldAmount - a.soldAmount || a.name.localeCompare(b.name));
   // A stretch with more sales than are read at once: said so, rather than a share that looks complete.
   const partial = rc.docs.length >= 5000 || co.docs.length >= 5000 || counted.docs.length >= 5000;
+  if (action === 'view' || action === 'csv') {
+    const r = foodCostReport({ period, days, today, target, report, items, typical, waste, partial,
+      staffMeals: { count: staffMeals.reduce((n, m) => n + m.count, 0), cost: Math.round(staffMeals.reduce((n, m) => n + m.cost, 0) * 100) / 100, unknown: staffMeals.reduce((n, m) => n + m.unknown, 0) } },
+      String(tenant.name || '').replace(/\s+/g, ' ').trim().slice(0, 80), now);
+    return action === 'view' ? ok({ report: r, period, today }) : ok({ name: r.file, csv: reportCsv(r) });
+  }
   return ok({ period, days, today, target, report, items, typical, counts, waste, partial,
     extras: extrasList, cardPct, cardShare, moves, extrasUsed: { cost: Math.round(extrasCost * 100) / 100, unknown: extrasUnknown },
     staffMeals: { count: staffMeals.reduce((n, m) => n + m.count, 0), cost: Math.round(staffMeals.reduce((n, m) => n + m.cost, 0) * 100) / 100, unknown: staffMeals.reduce((n, m) => n + m.unknown, 0), by: staffMeals } });

@@ -155,8 +155,10 @@ export function itemCost(id: string, item: any, parts: Map<string, any>, target:
 export type SoldLine = { itemId: string; qty: number; amount: number; at: string;
   /** What one cost to make with the choices it was sold with (lib/food-cost costWith), when they change the recipe. */
   each?: number | null };
-export type DayRow = { day: string; sold: number; cost: number; share: number | null };
-export type ItemSold = { id: string; name: string; qty: number; sold: number; cost: number | null };
+/** A day: what sold with a cost to make known, what that cost, its share; and everything sold that day (`all`). */
+export type DayRow = { day: string; sold: number; cost: number; share: number | null; all: number };
+/** An item: how many sold, for how much, and of that, what sold with a cost known (`covered`) and what it cost. */
+export type ItemSold = { id: string; name: string; qty: number; sold: number; cost: number | null; covered: number };
 export type PeriodCost = {
   /** Everything sold, and the part of it whose cost to make is known. */
   sold: number; covered: number; cost: number; share: number | null;
@@ -168,23 +170,24 @@ export type PeriodCost = {
 /** What the food and drink sold over a stretch cost to make, in all and day by day (`days`: each day of the stretch, in
  *  order; `dayOf`: the business day a sale belongs to). Items not on the menu now are counted at their last cost known. */
 export function periodCost(lines: SoldLine[], costs: Map<string, ItemCost>, days: string[], dayOf: (iso: string) => string): PeriodCost {
-  const byDay = new Map(days.map((d) => [d, { sold: 0, cost: 0 }]));
+  const byDay = new Map(days.map((d) => [d, { sold: 0, cost: 0, all: 0 }]));
   const byItem = new Map<string, ItemSold>();
   let sold = 0, covered = 0, cost = 0, uncovered = 0; const uncoveredItems = new Set<string>();
   for (const l of lines) {
     const qty = num(l.qty), amount = Math.max(0, num(l.amount)); if (!(qty > 0)) continue;
     const c = costs.get(l.itemId); const each = l.each !== undefined ? l.each : c?.cost ?? null;
     sold += amount;
-    const it = byItem.get(l.itemId) || { id: l.itemId, name: c?.name || 'An item no longer on the menu', qty: 0, sold: 0, cost: each === null ? null : 0 };
+    const it = byItem.get(l.itemId) || { id: l.itemId, name: c?.name || 'An item no longer on the menu', qty: 0, sold: 0, cost: each === null ? null : 0, covered: 0 };
     it.qty += qty; it.sold = r2(it.sold + amount); byItem.set(l.itemId, it);
+    const d = byDay.get(dayOf(l.at)); if (d) d.all += amount;
     if (each === null) { uncovered += amount; uncoveredItems.add(it.name); continue; }
-    covered += amount; cost += each * qty; it.cost = r2((it.cost || 0) + each * qty);
-    const d = byDay.get(dayOf(l.at)); if (d) { d.sold += amount; d.cost += each * qty; }
+    covered += amount; cost += each * qty; it.cost = r2((it.cost || 0) + each * qty); it.covered = r2(it.covered + amount);
+    if (d) { d.sold += amount; d.cost += each * qty; }
   }
   return {
     sold: r2(sold), covered: r2(covered), cost: r2(cost), share: covered > 0 ? cost / covered : null,
     uncovered: r2(uncovered), uncoveredItems: Array.from(uncoveredItems).slice(0, 8),
-    days: days.map((day) => { const d = byDay.get(day)!; return { day, sold: r2(d.sold), cost: r2(d.cost), share: d.sold > 0 ? d.cost / d.sold : null }; }),
+    days: days.map((day) => { const d = byDay.get(day)!; return { day, sold: r2(d.sold), cost: r2(d.cost), share: d.sold > 0 ? d.cost / d.sold : null, all: r2(d.all) }; }),
     items: Array.from(byItem.values()).sort((a, b) => b.sold - a.sold),
   };
 }

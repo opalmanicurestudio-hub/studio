@@ -63,8 +63,10 @@ export function totalsOf(cols: Col[], rows: Cell[][], label: string): Cell[] | n
   if (!rows.length || !cols.some((c) => c.total)) return null;
   return cols.map((c, i) => (i === 0 ? label : c.total ? r2(rows.reduce((s, r) => s + (typeof r[i] === 'number' ? (r[i] as number) : 0), 0)) : null));
 }
-/** The spreadsheet: the table's columns and rows, as they are (no totals row). */
-export const reportCsv = (r: Pick<Report, 'columns' | 'rows'>) => toCsv(r.columns.map((c) => c.label), r.rows);
+/** The spreadsheet: the table's columns and rows, as they are (no totals row). A share is written as a percentage
+ *  (31.25 under "Food cost %"), so nobody reads 0.3125 as dollars. */
+export const reportCsv = (r: Pick<Report, 'columns' | 'rows'>) => toCsv(r.columns.map((c) => (c.kind === 'pct' ? `${c.label} %` : c.label)),
+  r.rows.map((row) => row.map((v, i) => (r.columns[i]?.kind === 'pct' && typeof v === 'number' ? Math.round(v * 10000) / 100 : v))));
 /** The file's name: "north-loft-nightly-closes-2026-10.csv". */
 export const fileName = (business: string, what: string, month: string) => `${String(business || 'records').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'records'}-${what}-${month}.csv`;
 

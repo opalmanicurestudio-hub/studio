@@ -119,11 +119,14 @@ export default function FoodCostPage() {
             <h1 className="text-[28px] font-semibold tracking-tight">Food cost</h1>
             <p className="text-[15px]" style={{ color: MUTED }}>What your menu costs to make, against what it sells for.</p>
           </div>
-          <div role="radiogroup" aria-label="Which stretch" className="flex flex-wrap gap-2">
-            {PERIODS.map((p) => (
-              <button key={p.value} type="button" role="radio" aria-checked={period === p.value} onClick={() => setPeriod(p.value)}
-                className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={period === p.value ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{p.label}</button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div role="radiogroup" aria-label="Which stretch" className="flex flex-wrap gap-2">
+              {PERIODS.map((p) => (
+                <button key={p.value} type="button" role="radio" aria-checked={period === p.value} onClick={() => setPeriod(p.value)}
+                  className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={period === p.value ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}` }}>{p.label}</button>
+              ))}
+            </div>
+            <Link href={`/food-cost/report?period=${period}`} className={`inline-flex min-h-[44px] items-center rounded-full border bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Report, print or spreadsheet</Link>
           </div>
         </header>
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
