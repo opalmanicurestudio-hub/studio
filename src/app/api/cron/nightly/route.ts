@@ -1598,6 +1598,8 @@ export async function GET(req: NextRequest) {
     for (const tDoc of (await db.collection('tenants').get()).docs) { try { if (await monthlyReportNotice(db, tDoc.id, tDoc.data())) mirReports++; } catch (e) { console.error('[nightly] mir report', tDoc.id, e); }
       try { const { giftReminderSweep } = await import('@/lib/gift-cards'); await giftReminderSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] gift reminders', tDoc.id, e); }
       try { const { monthReviewNotice } = await import('@/lib/month-review'); await monthReviewNotice(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] month review', tDoc.id, e); }
+      // Records: the month before's stock value, kept on the business's first days of a month unless a manager kept one.
+      try { const { stockSnapshotSweep } = await import('@/lib/records-server'); await stockSnapshotSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] stock value', tDoc.id, e); }
       if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
       if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } }
       // Problem reports nobody has decided on in two days: one note to the people who can decide (lib/claim-reminder).

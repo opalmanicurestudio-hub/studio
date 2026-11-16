@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine } from 'lucide-react';
+import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -140,6 +140,8 @@ const TEAM_ADMIN = [
 const FINANCIAL_SUITE = [
   { href: '/financials', icon: Landmark,      label: 'Pricing foundation' },
   { href: '/money',      icon: Wallet,        label: 'Money'         },
+  // What the accountant, a payroll check or the IRS asks for, a month at a time (/records).
+  { href: '/records',    icon: Archive,       label: 'Records'       },
   { href: '/disputes',   icon: AlertTriangle, label: 'Disputes'    },
   { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];

@@ -24,6 +24,7 @@ import { handoffEntry } from '@/lib/handoff-log';
 import { StaffOverruns } from '@/components/visit/StaffOverruns';
 import { MyTimes } from '@/components/visit/MyTimes';
 import { MyTips } from '@/components/visit/MyTips';
+import { DeclareTips } from '@/components/visit/DeclareTips';
 import { PushPrompt } from '@/components/shared/PushPrompt';
 import { ClientStatusCard } from '@/components/staff/ClientStatusCard';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
@@ -4349,6 +4350,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             options={[{ value: 'messages', label: 'Chats', badge: messagesBadge + teamBadge }, { value: 'inbox', label: 'Notices', badge: unreadCount }]} />
         )}
         {navKey === 'pay' && staffMember.role !== 'renter' && <MyTips tenantId={tenantId} />}
+        {navKey === 'pay' && staffMember.role !== 'renter' && <DeclareTips tenantId={tenantId} />}
         {navKey === 'me' && activeTab !== 'me' && (
           <button onClick={() => setActiveTab('me')} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#6d7075]"><ChevronLeft className="w-4 h-4" />Me</button>
         )}
