@@ -37,8 +37,8 @@ export function ChoiceSetsPanel({ call, openId, onOpened, onChanged }: { call: (
     setSets(d.sets); setSugg(d.suggestions || []); setItems(d.items || []); return d.sets as Listed[];
   }, [call]);
   useEffect(() => { void load(); void call({ action: 'ingredients' }).then((d: any) => { if (d.ok) setStock(d.ingredients || []); }); }, [load, call]);
-  // Opened from an item's editor ("Change it for every item").
-  useEffect(() => { if (!openId || !sets) return; const s = sets.find((x) => x.id === openId); if (s) { open(s); onOpened?.(); } }, [openId, sets]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opened from an item's editor ("Change it for every item", or "New set": a new one).
+  useEffect(() => { if (!openId || !sets) return; if (openId === 'new') { open(null); onOpened?.(); return; } const s = sets.find((x) => x.id === openId); if (s) { open(s); onOpened?.(); } }, [openId, sets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const listed = draft?.id ? sets?.find((x) => x.id === draft.id) || null : null;
   const sections = Array.from(new Set(items.map((i) => i.section)));

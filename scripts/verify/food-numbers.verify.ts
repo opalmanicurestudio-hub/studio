@@ -282,12 +282,12 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…the prep recipe’s ingredients count among what the menu uses (typical prices, counts)', r.body.ok);
 
   console.log('the screens');
-  const files = ['src/components/menu/RecipeEditor.tsx', 'src/components/menu/PrepRecipes.tsx', 'src/components/menu/ChoicesEditor.tsx', 'src/components/products/YieldPanel.tsx', 'src/app/(app)/prep/page.tsx', 'src/app/(app)/menu/page.tsx'];
+  const files = ['src/components/menu/RecipeEditor.tsx', 'src/components/menu/PrepRecipes.tsx', 'src/components/menu/ChoicesEditor.tsx', 'src/components/products/YieldPanel.tsx', 'src/app/(app)/prep/page.tsx', 'src/app/(app)/menu/page.tsx', 'src/components/menu/ItemBuilder.tsx'];
   const bad = files.filter((f) => /\{\/\*/.test(src(f)) || /\buppercase\b/.test(src(f)) || /font-black/.test(src(f)) || / · /.test(src(f)) || /contact us|call us/i.test(src(f)));
   check('no JSX comments, capitals, heavy type or dots between words on the new screens', bad.length === 0, bad);
   const lowTap = files.filter((f) => /min-h-\[(3\d|[12]\d)px\]|h-(8|9|10) w-(8|9|10)\b/.test(src(f)));
   check('every control is a 44px target', lowTap.length === 0, lowTap);
-  check('the recipe comes before the choices in the item editor, so a choice can change it', src('src/app/(app)/menu/page.tsx').indexOf('<RecipeEditor') < src('src/app/(app)/menu/page.tsx').indexOf('<ChoicesEditor'));
+  check('the recipe and the choices are one draft in the item builder, so a choice can change the recipe', /const formula = useMemo\(\(\) => \(stock \? asRecipe\(lines, stockParts\) : \[\]\)/.test(src('src/components/menu/ItemBuilder.tsx')) && /recipe=\{formula\} stock=\{stock\} costs=\{optCosts\}/.test(src('src/components/menu/ItemBuilder.tsx')));
   check('the product page shows the yield for an ingredient in a recipe, and what a prep recipe is', /<YieldPanel/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')) && /title="Prep recipe"/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

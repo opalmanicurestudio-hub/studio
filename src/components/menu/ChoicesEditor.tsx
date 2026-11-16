@@ -1,9 +1,10 @@
 'use client';
-// src/components/menu/ChoicesEditor.tsx — THE BUSINESS SETS AN ITEM'S CHOICES: groups like Size, Milk or Extras, each
-// "pick one" or "pick any", and options with what they add to (or take off) the price. A few common groups start
-// filled in. What's saved is cleaned on the server (lib/menu-choices), so nothing here can put a price on the menu that
-// the server wouldn't charge.
-//   With the recipe and the stock (the Menu page's item editor, for a manager), each option can change what's made too
+// src/components/menu/ChoicesEditor.tsx — THE PIECES AN ITEM'S CHOICES ARE EDITED WITH (the step-by-step builder,
+// components/menu/ItemBuilder, and the choice sets, components/menu/ChoiceSetsPanel): a choice only one item has, like
+// Size, Milk or Extras, "pick one" or "pick any", with options and what they add to (or take off) the price; a few
+// common ones to start from; and a choice set as one of an item's choices. What's saved is cleaned on the server
+// (lib/menu-choices), so nothing here can put a price on the menu that the server wouldn't charge.
+//   With the recipe and the stock (a manager building an item), each option can change what's made too
 //   (lib/choice-recipe): use more of something, use something instead, or leave something out. What each one then costs
 //   and keeps shows beside it, worked out by the same rules as the server (lib/food-cost optionCosts).
 import { useId, useState } from 'react';
@@ -12,120 +13,83 @@ import { changeWords, MAX_CHANGES, type ChoiceChange } from '@/lib/choice-recipe
 import type { OptionCost } from '@/lib/food-cost';
 import type { RecipeLine } from '@/lib/menu-stock';
 import type { Ingredient } from '@/components/menu/RecipeEditor';
-import { kindOfGroup, optionsLine, setRule, type ChoiceSet } from '@/lib/choice-sets';
+import type { ChoiceSet } from '@/lib/choice-sets';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const input = 'min-h-[44px] rounded-xl border bg-[#fff] px-3 text-[15.5px] outline-none focus:border-[#16171a]';
 let n = 0;
-const nid = () => `n${Date.now().toString(36)}${(n++).toString(36)}`;
+export const nid = () => `n${Date.now().toString(36)}${(n++).toString(36)}`;
 
 export type EditGroup = Omit<ChoiceGroup, 'options'> & { options: { id: string; name: string; price: number | string; soldOut: boolean; itemId?: string; changes?: ChoiceChange[] }[] };
 /** A choice set as an item's editor offers it (lib/choice-sets). */
 export type SetPick = Pick<ChoiceSet, 'id' | 'name' | 'kind' | 'required' | 'max' | 'options'>;
-/** A set as one of this item's choices: the set's own options (the server takes them from the set when it's saved). */
+/** A set as one of this item's choices: the set's own options (the server takes them from the set when it's saved, with
+ *  only the recipe changes that fit this item; the ones here are for what the editor shows it costing). */
 export const groupFromSet = (s: SetPick): EditGroup => ({ id: nid(), setId: s.id, name: s.name, pick: s.kind === 'one' ? 'one' : 'any', required: s.required, max: s.max,
-  options: s.options.map((o) => ({ id: o.id, name: o.name, price: o.price, soldOut: o.soldOut === true })) });
+  options: s.options.map((o) => ({ id: o.id, name: o.name, price: o.price, soldOut: o.soldOut === true, ...(o.changes?.length ? { changes: o.changes } : {}) })) });
 
-const STARTERS: { label: string; make: () => EditGroup }[] = [
+export const STARTERS: { label: string; make: () => EditGroup }[] = [
   { label: 'Size', make: () => ({ id: nid(), name: 'Size', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: 'Small', price: 0, soldOut: false }, { id: nid(), name: 'Large', price: 0.5, soldOut: false }] }) },
   { label: 'Milk', make: () => ({ id: nid(), name: 'Milk', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: 'Whole', price: 0, soldOut: false }, { id: nid(), name: 'Oat', price: 0.75, soldOut: false }] }) },
   { label: 'Extras', make: () => ({ id: nid(), name: 'Extras', pick: 'any', required: false, max: 4, options: [{ id: nid(), name: 'Extra shot', price: 1, soldOut: false }] }) },
   { label: 'Leave out', make: () => ({ id: nid(), name: 'Leave out', pick: 'any', required: false, max: 4, options: [{ id: nid(), name: 'No onions', price: 0, soldOut: false }] }) },
 ];
 
-export function ChoicesEditor({ groups, onChange, recipe, stock, costs, sets, onOpenSet }: { groups: EditGroup[]; onChange: (g: EditGroup[]) => void;
-  /** The item's recipe as it stands in the editor, and the stock: an option can then change what's made. */
-  recipe?: RecipeLine[]; stock?: Ingredient[] | null;
-  /** What each option costs and keeps, by "group/option". */
-  costs?: Record<string, OptionCost>;
-  /** The business's choice sets, to turn on for this item; and where to change one for every item. */
-  sets?: SetPick[]; onOpenSet?: (setId: string) => void }) {
+/** One choice only this item has: its name, how many are picked, and its options with what each adds to the price (and,
+ *  with the recipe and the stock, to what's made). */
+export function OwnGroup({ g, onChange, onRemove, onMove, first, last, recipe, stock, costs, recipeHint }: { g: EditGroup; onChange: (patch: Partial<EditGroup>) => void; onRemove: () => void; onMove: (d: -1 | 1) => void;
+  first: boolean; last: boolean; recipe?: RecipeLine[]; stock?: Ingredient[] | null; costs?: Record<string, OptionCost>; recipeHint?: string }) {
   const uid = useId();
-  const setG = (i: number, patch: Partial<EditGroup>) => onChange(groups.map((g, k) => (k === i ? { ...g, ...patch } : g)));
-  const setO = (i: number, j: number, patch: any) => setG(i, { options: groups[i].options.map((o, k) => (k === j ? { ...o, ...patch } : o)) });
-  const move = (i: number, d: -1 | 1) => { const k = i + d; if (k < 0 || k >= groups.length) return; const next = groups.slice(); [next[i], next[k]] = [next[k], next[i]]; onChange(next); };
+  const setO = (j: number, patch: any) => onChange({ options: g.options.map((o, k) => (k === j ? { ...o, ...patch } : o)) });
   return (
-    <div className="space-y-3" style={{ color: INK }}>
-      {groups.length === 0 && <p className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>No choices yet. Add sizes, milks, extras or things to leave out, each with its own price.</p>}
-      {groups.map((g, i) => g.setId ? (
-        // From a set: the same on every item it's on, so it's changed in the set (or made this item's own).
-        <fieldset key={g.id} className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
-          <legend className="sr-only">{g.name}, from your choice sets</legend>
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">{g.name}<span className="rounded-full bg-[#fff] px-2 py-0.5 text-[12px] font-semibold" style={{ color: MUTED }}>Set</span></p>
-              <p className="mt-0.5 text-[13px] leading-snug" style={{ color: MUTED }}>{setRule({ kind: kindOfGroup({ name: g.name, pick: g.pick, options: g.options.map((o) => ({ price: Number(o.price) || 0 })) }), required: g.required, max: g.max, options: g.options as any })}. {optionsLine({ options: g.options.map((o) => ({ ...o, price: Number(o.price) || 0, soldOut: o.soldOut })) as any })}</p>
-            </div>
-            <div className="flex gap-1">
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${g.name} up`} className={`h-11 w-11 rounded-xl border bg-[#fff] text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↑</button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === groups.length - 1} aria-label={`Move ${g.name} down`} className={`h-11 w-11 rounded-xl border bg-[#fff] text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↓</button>
-              <button type="button" onClick={() => onChange(groups.filter((_, k) => k !== i))} aria-label={`Take ${g.name} off this item`} className={`h-11 rounded-xl border bg-[#fff] px-3 text-[14px] font-medium ${RING}`} style={{ borderColor: LINE }}>Take off</button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {onOpenSet && <button type="button" onClick={() => onOpenSet(g.setId!)} className={`min-h-[44px] rounded-xl border bg-[#fff] px-3.5 text-[14px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Change it for every item</button>}
-            <button type="button" onClick={() => setG(i, { setId: undefined })} className={`min-h-[44px] rounded-xl border bg-[#fff] px-3.5 text-[14px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Only for this item</button>
-          </div>
-        </fieldset>
-      ) : (
-        <fieldset key={g.id} className="space-y-3 rounded-2xl border p-4" style={{ borderColor: LINE }}>
-          <legend className="sr-only">{g.name || 'Choice'}</legend>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="min-w-[160px] flex-1"><span className="text-[13.5px] font-medium">Choice</span>
-              <input value={g.name} onChange={(e) => setG(i, { name: e.target.value.slice(0, 40) })} placeholder="Size, Milk, Extras" className={`${input} mt-1 w-full`} style={{ borderColor: LINE }} /></label>
-            <div role="radiogroup" aria-label={`How many of ${g.name || 'this choice'}`} className="flex rounded-xl border p-0.5" style={{ borderColor: LINE }}>
-              {(['one', 'any'] as const).map((p) => (
-                <button key={p} type="button" role="radio" aria-checked={g.pick === p} onClick={() => setG(i, { pick: p, required: p === 'one', max: p === 'one' ? 1 : Math.max(1, g.options.length) })}
-                  className={`min-h-[44px] rounded-lg px-3 text-[14px] font-semibold ${RING}`} style={g.pick === p ? { background: INK, color: '#fff' } : { color: INK }}>{p === 'one' ? 'Pick one' : 'Pick any'}</button>
-              ))}
-            </div>
-            <div className="flex gap-1">
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move ${g.name || 'choice'} up`} className={`h-11 w-11 rounded-xl border text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↑</button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === groups.length - 1} aria-label={`Move ${g.name || 'choice'} down`} className={`h-11 w-11 rounded-xl border text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↓</button>
-              <button type="button" onClick={() => onChange(groups.filter((_, k) => k !== i))} aria-label={`Remove ${g.name || 'choice'}`} className={`h-11 rounded-xl border px-3 text-[14px] font-medium ${RING}`} style={{ borderColor: LINE, color: '#b42318' }}>Remove</button>
-            </div>
-          </div>
-          <label className="flex min-h-[44px] items-center gap-3 text-[14.5px]">
-            {g.pick === 'one'
-              ? <><input type="checkbox" checked={g.required} onChange={(e) => setG(i, { required: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />They must pick one</>
-              : <><span>Up to</span><input type="number" min={1} max={Math.max(1, g.options.length)} value={g.max} onChange={(e) => setG(i, { max: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} className={`${input} w-20`} style={{ borderColor: LINE }} aria-label="Most they can pick" /><span style={{ color: MUTED }}>of these</span></>}
-          </label>
-          <ul className="space-y-2">
-            {g.options.map((o, j) => { const oc = costs?.[`${g.id}/${o.id}`]; return (
-              <li key={o.id} className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <input value={o.name} onChange={(e) => setO(i, j, { name: e.target.value.slice(0, 40) })} placeholder="Oat, Large, Extra shot" aria-label={`Option ${j + 1} of ${g.name || 'this choice'}`} className={`${input} min-w-0 flex-1`} style={{ borderColor: LINE }} />
-                  <span className="relative w-28 shrink-0">
-                    <span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[15px]" style={{ color: MUTED }}>$</span>
-                    <input id={`${uid}-${g.id}-${o.id}`} inputMode="decimal" value={String(o.price)} onChange={(e) => setO(i, j, { price: e.target.value.replace(/[^0-9.\-]/g, '').slice(0, 8) })}
-                      aria-label={`What ${o.name || 'this option'} adds to the price (a minus takes off)`} className={`${input} w-full pl-6`} style={{ borderColor: LINE }} />
-                  </span>
-                  <button type="button" onClick={() => setG(i, { options: g.options.filter((_, k) => k !== j) })} aria-label={`Remove ${o.name || 'this option'}`} className={`h-11 w-11 shrink-0 rounded-xl border text-[18px] ${RING}`} style={{ borderColor: LINE, color: MUTED }}>×</button>
-                </div>
-                {stock && !o.itemId && <OptionChanges name={o.name || 'This option'} changes={o.changes || []} onChange={(changes) => setO(i, j, { changes })} recipe={recipe || []} stock={stock} cost={oc} />}
-              </li>); })}
-          </ul>
-          <p className="text-[13px]" style={{ color: MUTED }}>The price is what it adds. 0 costs nothing; a minus takes off (a small size).</p>
-          <button type="button" onClick={() => setG(i, { options: [...g.options, { id: nid(), name: '', price: 0, soldOut: false }] })} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Add an option</button>
-        </fieldset>
-      ))}
-      {sets && sets.some((x) => !groups.some((g) => g.setId === x.id)) && <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[14px]" style={{ color: MUTED }}>From your sets:</span>
-        {sets.filter((x) => !groups.some((g) => g.setId === x.id)).map((x) => <button key={x.id} type="button" onClick={() => onChange([...groups, groupFromSet(x)])} className={`min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold ${RING}`} style={{ background: SOFT }}>{x.name}</button>)}
-      </div>}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[14px]" style={{ color: MUTED }}>{sets?.length ? 'Or one only this item has:' : 'Add a choice:'}</span>
-        {STARTERS.map((s) => <button key={s.label} type="button" onClick={() => onChange([...groups, s.make()])} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>{s.label}</button>)}
-        <button type="button" onClick={() => onChange([...groups, { id: nid(), name: '', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: '', price: 0, soldOut: false }] }])} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Something else</button>
+    <fieldset className="space-y-3 rounded-2xl border p-4" style={{ borderColor: LINE }}>
+      <legend className="sr-only">{g.name || 'Choice'}</legend>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-[160px] flex-1"><span className="text-[13.5px] font-medium">Choice</span>
+          <input value={g.name} onChange={(e) => onChange({ name: e.target.value.slice(0, 40) })} placeholder="Size, Milk, Extras" className={`${input} mt-1 w-full`} style={{ borderColor: LINE }} /></label>
+        <div role="radiogroup" aria-label={`How many of ${g.name || 'this choice'}`} className="flex rounded-xl border p-0.5" style={{ borderColor: LINE }}>
+          {(['one', 'any'] as const).map((p) => (
+            <button key={p} type="button" role="radio" aria-checked={g.pick === p} onClick={() => onChange({ pick: p, required: p === 'one', max: p === 'one' ? 1 : Math.max(1, g.options.length) })}
+              className={`min-h-[44px] rounded-lg px-3 text-[14px] font-semibold ${RING}`} style={g.pick === p ? { background: INK, color: '#fff' } : { color: INK }}>{p === 'one' ? 'Pick one' : 'Pick any'}</button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          <button type="button" onClick={() => onMove(-1)} disabled={first} aria-label={`Move ${g.name || 'choice'} up`} className={`h-11 w-11 rounded-xl border text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↑</button>
+          <button type="button" onClick={() => onMove(1)} disabled={last} aria-label={`Move ${g.name || 'choice'} down`} className={`h-11 w-11 rounded-xl border text-[16px] disabled:opacity-30 ${RING}`} style={{ borderColor: LINE }}>↓</button>
+          <button type="button" onClick={onRemove} aria-label={`Remove ${g.name || 'choice'}`} className={`h-11 rounded-xl border px-3 text-[14px] font-medium ${RING}`} style={{ borderColor: LINE, color: '#b42318' }}>Remove</button>
+        </div>
       </div>
-    </div>
+      <label className="flex min-h-[44px] items-center gap-3 text-[14.5px]">
+        {g.pick === 'one'
+          ? <><input type="checkbox" checked={g.required} onChange={(e) => onChange({ required: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />They must pick one</>
+          : <><span>Up to</span><input type="number" min={1} max={Math.max(1, g.options.length)} value={g.max} onChange={(e) => onChange({ max: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} className={`${input} w-20`} style={{ borderColor: LINE }} aria-label="Most they can pick" /><span style={{ color: MUTED }}>of these</span></>}
+      </label>
+      <ul className="space-y-2">
+        {g.options.map((o, j) => { const oc = costs?.[`${g.id}/${o.id}`]; return (
+          <li key={o.id} className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <input value={o.name} onChange={(e) => setO(j, { name: e.target.value.slice(0, 40) })} placeholder="Oat, Large, Extra shot" aria-label={`Option ${j + 1} of ${g.name || 'this choice'}`} className={`${input} min-w-0 flex-1`} style={{ borderColor: LINE }} />
+              <span className="relative w-28 shrink-0">
+                <span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[15px]" style={{ color: MUTED }}>$</span>
+                <input id={`${uid}-${g.id}-${o.id}`} inputMode="decimal" value={String(o.price)} onChange={(e) => setO(j, { price: e.target.value.replace(/[^0-9.\-]/g, '').slice(0, 8) })}
+                  aria-label={`What ${o.name || 'this option'} adds to the price (a minus takes off)`} className={`${input} w-full pl-6`} style={{ borderColor: LINE }} />
+              </span>
+              <button type="button" onClick={() => onChange({ options: g.options.filter((_, k) => k !== j) })} aria-label={`Remove ${o.name || 'this option'}`} className={`h-11 w-11 shrink-0 rounded-xl border text-[18px] ${RING}`} style={{ borderColor: LINE, color: MUTED }}>×</button>
+            </div>
+            {stock && !o.itemId && <OptionChanges name={o.name || 'This option'} changes={o.changes || []} onChange={(changes) => setO(j, { changes })} recipe={recipe || []} stock={stock} cost={oc} recipeHint={recipeHint} />}
+          </li>); })}
+      </ul>
+      <p className="text-[13px]" style={{ color: MUTED }}>The price is what it adds. 0 costs nothing; a minus takes off (a small size).</p>
+      <button type="button" onClick={() => onChange({ options: [...g.options, { id: nid(), name: '', price: 0, soldOut: false }] })} className={`min-h-[44px] rounded-xl border px-4 text-[14.5px] font-semibold ${RING}`} style={{ borderColor: LINE }}>Add an option</button>
+    </fieldset>
   );
 }
 
 /** One option's changes to the recipe, and what it costs and keeps. With `anyStock` (a choice set, which has no recipe of
  *  its own), what it swaps out or leaves out is picked from all the stock; each item keeps only what fits its recipe. */
-export function OptionChanges({ name, changes, onChange, recipe, stock, cost, anyStock }: { name: string; changes: ChoiceChange[]; onChange: (c: ChoiceChange[]) => void; recipe: RecipeLine[]; stock: Ingredient[]; cost?: OptionCost; anyStock?: boolean }) {
+export function OptionChanges({ name, changes, onChange, recipe, stock, cost, anyStock, recipeHint }: { name: string; changes: ChoiceChange[]; onChange: (c: ChoiceChange[]) => void; recipe: RecipeLine[]; stock: Ingredient[]; cost?: OptionCost; anyStock?: boolean;
+  /** Where the recipe is added, when there's none yet (a swap or a leave-out needs one). */ recipeHint?: string }) {
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<'add' | 'swap' | 'out'>('add');
   const [what, setWhat] = useState(''); const [to, setTo] = useState(''); const [amt, setAmt] = useState(''); const [measure, setMeasure] = useState('');
@@ -190,7 +154,7 @@ export function OptionChanges({ name, changes, onChange, recipe, stock, cost, an
           </div>}
           {kind === 'out' && <select value={what} onChange={(e) => setWhat(e.target.value)} aria-label="Leaves out" className={`${sel} w-full`} style={{ borderColor: LINE }}>
             <option value="">{anyStock ? 'Pick from your stock' : 'Pick from the recipe'}</option>{inRecipe.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-          {kind !== 'add' && !inRecipe.length && <p className="text-[13px]" style={{ color: MUTED }}>Add a recipe below first, then a choice can swap or leave out what’s in it.</p>}
+          {kind !== 'add' && !inRecipe.length && <p className="text-[13px]" style={{ color: MUTED }}>{recipeHint || 'Add a recipe below first, then a choice can swap or leave out what’s in it.'}</p>}
           {err && <p role="alert" className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{err}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={add} className={`min-h-[44px] rounded-xl px-4 text-[14px] font-semibold ${RING}`} style={{ background: INK, color: '#fff' }}>Add the change</button>

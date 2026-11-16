@@ -93,7 +93,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…and never anything that isn’t a proper photo address', r.body.order.lines[0].imageUrl === null, r.body.order.lines[0]);
 
   console.log('the pages');
-  const lane = src('src/app/drive-thru/[tenantId]/page.tsx'), board = src('src/app/drive-thru/[tenantId]/board/page.tsx'), menu = src('src/app/(app)/menu/page.tsx');
+  const lane = src('src/app/drive-thru/[tenantId]/page.tsx'), board = src('src/app/drive-thru/[tenantId]/board/page.tsx'), menu = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx'));
   check('the lane shows picture buttons once any item has a photo, and compact ones when none do', lane.includes('const withPhotos = menu.some((m) => !!m.imageUrl);') && lane.includes('if (withPhotos) return (') && lane.includes('aspect-[16/10]'));
   check('the order board keeps a steady number of lines (smaller once an order is long, never cut off) with pictures beside them', board.includes('const shown = dense ? 5 : 4;') && board.includes('l.imageUrl && <img'));
   check('the Menu page uploads a smaller copy into the business’s product photos, and saves it only with Save',

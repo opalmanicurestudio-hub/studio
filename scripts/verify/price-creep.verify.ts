@@ -148,7 +148,7 @@ const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
   check('every control is a 44px target', lowTap.length === 0, lowTap);
   const pm = src('src/components/food/PricesMoved.tsx');
   check('Food cost: Prices that moved, a price set in two taps, the recipe opened on the Menu', /<PricesMoved/.test(src('src/app/(app)/food-cost/page.tsx')) && /Price it at/.test(pm) && /Change it to/.test(pm) && /\/menu\?item=/.test(pm) && /action: 'price'/.test(pm));
-  check('the Menu opens at the item it’s sent to', /get\('item'\)/.test(src('src/app/(app)/menu/page.tsx')));
+  check('the Menu opens at the item it’s sent to', /get\('item'\)/.test((src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx'))));
   check('Ordering says what moved after a delivery; the other stock screens ask', /Prices moved|A price moved/.test(src('src/app/(app)/inventory/ordering/page.tsx')) && /checkPrices\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /checkPrices\(/.test(src('src/app/(app)/inventory/page.tsx')));
   check('a price that moved can buzz a phone, on the same day', /price_moved: 'today'/.test(src('src/lib/push-tier.ts')));
 

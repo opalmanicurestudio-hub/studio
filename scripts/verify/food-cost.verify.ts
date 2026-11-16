@@ -280,7 +280,7 @@ const moves = async (productId: string, type?: string) => (await all(`${T}/stock
   check('…the team doesn’t', r.body.ok && r.body.costs === undefined); manager = true;
 
   console.log('the screens');
-  const page = src('src/app/(app)/food-cost/page.tsx'), menuPage = src('src/app/(app)/menu/page.tsx');
+  const page = src('src/app/(app)/food-cost/page.tsx'), menuPage = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx'));
   check('the page: the stretch, the share against the aim, by day, typical prices put in here, each item, the counts and what was thrown away', /PERIODS\.map/.test(page) && /Aiming for/.test(page) && /aria-label="By day"/.test(page) && /action: 'cost'/.test(page)
     && /Each item/.test(page) && /Used against counted/.test(page) && /Thrown away/.test(page) && /More gone than sold usually means/.test(page));
   check('…tap targets, the house words', !/uppercase|font-black|\{\/\*| · |[\u{1F300}-\u{1FAFF}]|call us|contact us/u.test(page) && (page.match(/min-h-\[4[46]px\]/g) || []).length >= 5);

@@ -144,7 +144,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('a food step can be marked done', r.body.ok && (await get(T)).setupGuide.done.closing);
 
   console.log('the screens');
-  const page = src('src/app/(app)/settings/setup/food/page.tsx'), setup = src('src/app/(app)/settings/setup/page.tsx'), menu = src('src/app/(app)/menu/page.tsx');
+  const page = src('src/app/(app)/settings/setup/food/page.tsx'), setup = src('src/app/(app)/settings/setup/page.tsx'), menu = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx'));
   check('the food setup page: three questions, the plan, typical prices said so, tools changed only in Your ClarityFlow', /What do you run\?/.test(page) && /How do guests order\?/.test(page) && /Who’s working\?/.test(page) && /Nothing changes until you tap Set it up/.test(page) && /typical US prices/.test(page) && /href="\/subscriptions"/.test(page) && /action: 'apply'/.test(page));
   check('the setup page: set up for food in place of the services menu; the booking link only with tables', /Set up for food and drink/.test(setup) && /!food && g\.data\.facts\.livePriced === 0/.test(setup) && /showBooking = !food \|\| food\.ways\.includes\('table'\)/.test(setup));
   check('the menu: “Needs a price”, likely allergens confirmed by a tap, recipe gaps, ordering ahead to link to', /Needs a price/.test(menu) && /Start from these/.test(menu) && /Anything not listed may still be in it/.test(menu) && /recipeGaps/.test(menu) && /id="order-ahead"/.test(menu));

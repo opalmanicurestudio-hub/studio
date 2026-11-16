@@ -11,27 +11,25 @@
 //   Allergens: what each dish contains of the major allergens (lib/allergens), so a server is warned before ringing it
 //   in for a guest who can't have it. Made each night: a dish counted down as it's ordered (lib/dish-counts), sold out by
 //   itself at zero; what's left tonight shows beside it.
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+//   A manager builds each item step by step (components/menu/ItemBuilder), with what the guest sees beside it; the rest
+//   of the team gets its choices to mark sold out.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTenant } from '@/context/TenantContext';
-import { ChoicesEditor, type EditGroup } from '@/components/menu/ChoicesEditor';
 import { money, type ChoiceGroup } from '@/lib/menu-choices';
 import type { MenuItem } from '@/lib/menu-server';
 import { outWords, type RecipeLine } from '@/lib/menu-stock';
-import { RecipeEditor, asRecipe, partsOf, toEditLine, toSaveLine, type EditLine, type Ingredient } from '@/components/menu/RecipeEditor';
 import { PrepRecipes, type PrepRow } from '@/components/menu/PrepRecipes';
-import { linesCost, optionCosts, type OptionCost } from '@/lib/food-cost';
+import { DEFAULT_TARGET } from '@/lib/food-cost';
 import type { ChoiceChange } from '@/lib/choice-recipe';
-import { uploadImage } from '@/lib/upload-image';
-import { ImagePlus } from 'lucide-react';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
 import { MenuTimesCard } from '@/components/menu/MenuTimesCard';
 import type { Daypart, HappyHour } from '@/lib/menu-time';
-import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
 import { leftWords, lowCount, type CountRow } from '@/lib/dish-counts';
 import { NewItemSheet } from '@/components/menu/NewItemSheet';
 import { ChoiceSetsPanel } from '@/components/menu/ChoiceSetsPanel';
+import { ItemBuilder } from '@/components/menu/ItemBuilder';
 import type { SetPick } from '@/components/menu/ChoicesEditor';
 
 // The page's three parts: the items first; the choice sets they share; and the settings (ordering ahead, menus by time
@@ -48,8 +46,6 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, 
 /** What one costs to make, for a manager (lib/food-cost). */
 const costWords = (c: { cost: number | null; share: number | null; typical: boolean }) => c.cost === null ? 'Cost to make not known yet: an ingredient has no cost'
   : `Costs ${money(c.cost)} to make${c.share !== null ? `, ${Math.round(c.share * 100)}% of its price` : ''}${c.typical ? ', at typical prices' : ''}`;
-const MAKE_TIMES = [30, 45, 60, 90, 120, 180, 240, 300, 420, 600, 900];
-const HOLD_TIMES = [5, 7, 10, 15, 20, 30, 45, 60, 90, 120];
 const TARGET_TIMES = [90, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480, 600, 900, 1200];
 const TARGET_ROWS: [string, string, string][] = [['drive-thru', 'Drive-thru', 'From arriving at the speaker to driving away'], ['counter', 'Counter', 'From ordering to handed over'], ['ahead', 'Ordered ahead', 'From the order coming in to ready for pickup']];
 
@@ -87,6 +83,8 @@ export default function MenuPage() {
   const [timesOpen, setTimesOpen] = useState(false);
   // New item: on the menu and in Inventory in one step (components/menu/NewItemSheet), its editor opening next.
   const [adding, setAdding] = useState(false);
+  // An item just made opens on its sizes (its name, section and price were just given).
+  const [fresh, setFresh] = useState(false);
   const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
   const [sets, setSets] = useState<SetPick[]>([]);
   const [tab, setTabState] = useState<Tab>(() => { try { const h = window.location.hash.slice(1); if (SETTINGS_IDS.includes(h)) return 'settings'; const t = new URLSearchParams(window.location.search).get('tab'); return t === 'sets' || t === 'settings' ? t : 'items'; } catch { return 'items'; } });
@@ -277,98 +275,30 @@ export default function MenuPage() {
       </div>
       {adding && <NewItemSheet sections={Array.from(new Set((menu || []).map((m) => m.section)))} stations={service?.stations || []} onClose={() => setAdding(false)}
         onCreate={async (body) => { const d = await call({ action: 'create', ...body }); if (!d.ok) return d.error || 'That didn’t save.';
-          setMenu((xs) => [...(xs || []).filter((x) => x.id !== d.item.id), d.item].sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))); setAdding(false); setEditing(d.item); return null; }} />}
-      {editing && <EditSheet key={editing.id} item={editing} recipe={recipes[editing.id] || []} changes={changes[editing.id] || {}} tenantId={tenantId} canEdit={canEdit} busy={busy} service={service} onClose={() => setEditing(null)} call={call} dayparts={times?.dayparts || []} allItems={menu || []}
-        sets={sets} onOpenSet={(id) => { setEditing(null); setTab('sets'); setOpenSet(id); }}
-        onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
-        onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null);
-          void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />}
+          setMenu((xs) => [...(xs || []).filter((x) => x.id !== d.item.id), d.item].sort((a, b) => a.section.localeCompare(b.section) || a.name.localeCompare(b.name))); setAdding(false); setFresh(true); setEditing(d.item); return null; }} />}
+      {editing && (canEdit
+        ? <ItemBuilder key={editing.id} item={editing} recipe={recipes[editing.id] || []} changes={changes[editing.id] || {}} tenantId={tenantId} service={service} dayparts={times?.dayparts || []} allItems={menu || []} sets={sets}
+            aim={costs[editing.id]?.target ?? Object.values(costs)[0]?.target ?? DEFAULT_TARGET} startStep={fresh ? 2 : 1} busy={busy} call={call}
+            onClose={() => { setEditing(null); setFresh(false); }}
+            onOpenSet={(id) => { setEditing(null); setFresh(false); setTab('sets'); setOpenSet(id); }}
+            onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
+            onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null); setFresh(false);
+              void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />
+        : <SoldOutSheet item={editing} busy={busy} onClose={() => setEditing(null)} onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }} />)}
     </div>
   );
 }
 
-function EditSheet({ item, recipe, changes, tenantId, canEdit, busy, service, onClose, onSave, onSoldOut, call, dayparts, allItems, sets, onOpenSet }: { item: MenuItem; recipe: RecipeLine[]; changes: Record<string, ChoiceChange[]>; tenantId: string | null; canEdit: boolean; busy: string | null; service: Service | null; onClose: () => void;
-  onSave: (patch: any) => Promise<string | null>; onSoldOut: (groupId: string, optionId: string, out: boolean) => void; call: (body: any) => Promise<any>; dayparts: Daypart[]; allItems: MenuItem[]; sets: SetPick[]; onOpenSet: (setId: string) => void }) {
-  const startLines = useMemo<EditLine[]>(() => recipe.map(toEditLine), [recipe]);
-  const [lines, setLines] = useState<EditLine[]>(startLines);
-  const [stock, setStock] = useState<Ingredient[] | null>(null);
-  useEffect(() => { if (!canEdit) return; void call({ action: 'ingredients' }).then((d: any) => { if (d.ok) setStock(d.ingredients || []); }); }, [canEdit, call]);
-  const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
-  const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
-  // The menu board: shown big up front, a tag, and calories (optional).
-  const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
-  // Each option with what it changes in the recipe (lib/choice-recipe), when it does.
-  const [groups, setGroups] = useState<EditGroup[]>(item.choices.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: o.price.toFixed(2), ...(changes[`${g.id}/${o.id}`] ? { changes: changes[`${g.id}/${o.id}`] } : {}) })) })));
-  const [station, setStation] = useState(item.station || ''); const [course, setCourse] = useState(item.course === null ? '' : String(item.course));
-  // Also made at another station, as a part of its own (lib/two-stations): "the fries" at the fryer.
-  const [also, setAlso] = useState<{ station: string; part: string }[]>(() => (item.alsoAt || []).map((a) => ({ ...a })));
-  // What it contains (lib/allergens) and how many it starts each night with (lib/dish-counts).
-  const [allergens, setAllergens] = useState<AllergenKey[] | null>(item.allergensSet ? item.allergens || [] : null); const [daily, setDaily] = useState(item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount));
-  const [makeSeconds, setMakeSeconds] = useState(item.makeSeconds); const [makeTouched, setMakeTouched] = useState(false); const [held, setHeld] = useState(item.holdMinutes > 0);
-  const [holdMinutes, setHoldMinutes] = useState(item.holdMinutes || 10); const [batchSize, setBatchSize] = useState(String(item.batchSize));
-  // What each choice costs and keeps, as the recipe and choices stand in this editor (lib/food-cost optionCosts): only
-  // for an item made from a recipe, whose cost is known.
-  const optCosts = useMemo<Record<string, OptionCost>>(() => {
-    if (!stock) return {};
-    const parts = partsOf(stock); const formula = asRecipe(lines, parts); if (!formula.length) return {};
-    const draft = { formula, price: Number(price) || 0, choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: Number(o.price) || 0 })) })) };
-    return Object.fromEntries(optionCosts(item.id, draft, parts, linesCost(formula, parts).cost).map((c) => [`${c.groupId}/${c.optionId}`, c]));
-  }, [stock, lines, groups, price, item.id]);
-  const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
-  // Its menus by time of day and happy-hour price (lib/menu-time), and as a combo, what's in it (lib/counter-orders).
-  const [parts, setParts] = useState<string[]>(item.dayparts || []); const [happy, setHappy] = useState(item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2));
-  const [combo, setCombo] = useState(!!item.combo); const [inIt, setInIt] = useState<string[]>(item.comboParts || []);
-  const others = allItems.filter((x) => x.id !== item.id && !x.combo);
-  const [photo, setPhoto] = useState<string | null>(item.imageUrl || null); const [uploading, setUploading] = useState(false);
+/** For the team: an item's choices to mark sold out tonight (a manager changes the rest). */
+function SoldOutSheet({ item, busy, onClose, onSoldOut }: { item: MenuItem; busy: string | null; onClose: () => void; onSoldOut: (groupId: string, optionId: string, out: boolean) => void }) {
   const box = useRef<HTMLDivElement | null>(null);
-  // A photo is made smaller on this device before it's uploaded (a phone photo becomes a few hundred KB), then kept with
-  // the business's product photos. It's saved onto the item only with Save.
-  const pickPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f || !tenantId || uploading) return;
-    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) { setErr('Use a JPEG, PNG or WebP photo.'); return; }
-    if (f.size > 25 * 1024 * 1024) { setErr('That photo is too big. Use one under 25 MB.'); return; }
-    setUploading(true); setErr('');
-    try {
-      const ext = f.type === 'image/png' ? 'png' : f.type === 'image/webp' ? 'webp' : 'jpg';
-      setPhoto(await uploadImage(`tenants/${tenantId}/products/menu-${item.id}-${Date.now()}.${ext}`, f, 900));
-    } catch { setErr('That photo didn’t upload. Check the connection and try again.'); }
-    finally { setUploading(false); }
-  };
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input, button')?.focus();
+    const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('button')?.focus();
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; document.addEventListener('keydown', k);
     const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
     return () => { document.removeEventListener('keydown', k); document.body.style.overflow = was; opener?.focus?.(); };
   }, []);
-  const save = async () => {
-    // A price that isn't a number is asked about, never saved as nothing.
-    const money2 = (v: unknown) => { const t = String(v ?? '').trim(); if (t === '' || t === '-') return 0; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
-    if (String(price).trim() === '' || !Number.isFinite(Number(price))) { setErr('What does it cost? Type a price, like 4.50.'); return; }
-    const bad = groups.flatMap((g) => g.options).find((o) => Number.isNaN(money2(o.price)));
-    if (bad) { setErr(`What does ${bad.name || 'that option'} add? Type an amount, like 0.75, or leave it at 0.`); return; }
-    const batch = Math.floor(Number(batchSize));
-    if (held && !(batch >= 1 && batch <= 200)) { setErr('How many in a batch? Between 1 and 200.'); return; }
-    const noAmount = lines.find((l) => !(Number(l.q) > 0));
-    if (noAmount) { setErr(`How much ${noAmount.name} goes into one? Type an amount, like 1 or 0.5.`); return; }
-    // The recipe is saved only when it was changed here (one left alone is kept as it is).
-    // (Saved again, too, when an ingredient is now counted in another unit, so the recipe says what it's measured in.)
-    const recipeChanged = JSON.stringify(lines.map((l) => [l.id, Number(l.q), l.measure])) !== JSON.stringify(startLines.map((l) => [l.id, Number(l.q), l.measure]))
-      || lines.some((l) => { const x = stock?.find((y) => y.id === l.id); return !!x && x.unit !== l.unit; });
-    setSaving(true); setErr('');
-    const e = await onSave({ name, section, words, price: Number(price), onMenu, membersOnly, featured, badge: badge || null, calories: calories.trim() === '' ? null : Number(calories), ...(photo !== (item.imageUrl || null) ? { imageUrl: photo } : {}), choices: groups.map((g) => ({ ...g, options: g.options.map((o) => ({ ...o, price: money2(o.price) })) })),
-      // Timing is saved only when it's set here (an item left alone keeps the kitchen's default, not a copy of it).
-      ...(makeTouched ? { makeSeconds } : {}), ...(station !== (item.station || '') ? { station: station || null } : {}), ...(course !== (item.course === null ? '' : String(item.course)) ? { course: course === '' ? null : Number(course) } : {}), ...(held || item.holdMinutes > 0 ? { holdMinutes: held ? holdMinutes : 0 } : {}), ...(held ? { batchSize: batch } : {}),
-      ...(recipeChanged ? { recipe: lines.map(toSaveLine) } : {}),
-      ...(allergens !== null && JSON.stringify(allergens) !== JSON.stringify(item.allergensSet ? item.allergens || [] : null) ? { allergens } : {}),
-      ...(daily !== (item.dailyCount === null || item.dailyCount === undefined ? '' : String(item.dailyCount)) ? { dailyCount: daily === '' ? null : Number(daily) } : {}),
-      ...(JSON.stringify(parts) !== JSON.stringify(item.dayparts || []) ? { dayparts: parts } : {}),
-      ...(JSON.stringify(also) !== JSON.stringify(item.alsoAt || []) ? { alsoAt: also.map((a) => ({ station: a.station, part: a.part.trim() })) } : {}),
-      ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
-      ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}) });
-    setSaving(false); if (e) setErr(e);
-  };
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="edit-title" className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl bg-[#fff] p-6 sm:max-w-2xl sm:rounded-3xl" style={{ color: INK }}>
@@ -376,155 +306,7 @@ function EditSheet({ item, recipe, changes, tenantId, canEdit, busy, service, on
           <h2 id="edit-title" className="text-[22px] font-semibold">{item.name}</h2>
           <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${RING}`} style={{ borderColor: LINE }}>×</button>
         </div>
-        {canEdit ? <div className="mt-4 space-y-5">
-          <div className="flex items-center gap-4">
-            <span className="flex h-[90px] w-[120px] shrink-0 items-center justify-center overflow-hidden rounded-2xl" style={{ background: SOFT, border: `1px solid ${LINE}` }}>
-              {photo ? <img src={photo} alt={`${name || item.name}`} className="h-full w-full object-cover" /> : <ImagePlus className="h-6 w-6" style={{ color: MUTED }} aria-hidden />}
-            </span>
-            <div className="min-w-0 space-y-2">
-              <p><span className="block text-[14px] font-medium">Photo</span><span className="block text-[13px]" style={{ color: MUTED }}>Shows on the drive-thru’s buttons and on the order board facing the car. A photo on a plain background reads best.</span></p>
-              <div className="flex flex-wrap gap-2">
-                <label className={`${BTN} inline-flex cursor-pointer items-center focus-within:ring-2 focus-within:ring-[#16171a] focus-within:ring-offset-2`} style={{ border: `1px solid ${LINE}`, opacity: uploading ? 0.6 : 1 }}>
-                  {uploading ? 'Adding the photo…' : photo ? 'Change photo' : 'Add a photo'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={pickPhoto} disabled={!tenantId} aria-disabled={uploading} />
-                </label>
-                {photo && !uploading && <button type="button" onClick={() => setPhoto(null)} className={BTN} style={{ border: `1px solid ${LINE}` }}>Remove</button>}
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_180px_140px]">
-            <label><span className="text-[14px] font-medium">Name</span><input value={name} onChange={(e) => setName(e.target.value.slice(0, 80))} className={field} style={{ borderColor: LINE }} /></label>
-            <label><span className="text-[14px] font-medium">Section</span><input value={section} onChange={(e) => setSection(e.target.value.slice(0, 40))} placeholder="Coffee, Food" className={field} style={{ borderColor: LINE }} /></label>
-            <label><span className="text-[14px] font-medium">Price</span>
-              <span className="relative block"><span aria-hidden className="pointer-events-none absolute left-3 top-[calc(50%+3px)] -translate-y-1/2 text-[16px]" style={{ color: MUTED }}>$</span>
-                <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))} className={`${field} pl-6`} style={{ borderColor: LINE }} /></span></label>
-          </div>
-          <label className="block"><span className="text-[14px] font-medium">What it is</span><span className="block text-[13px]" style={{ color: MUTED }}>A line guests read. Name anything people are often allergic to, and tick it under Contains.</span>
-            <textarea value={words} onChange={(e) => setWords(e.target.value.slice(0, 240))} rows={2} className={`${field} py-2.5`} style={{ borderColor: LINE }} /></label>
-          <fieldset className="space-y-2">
-            <legend className="text-[16px] font-semibold">Contains</legend>
-            <p className="text-[13px]" style={{ color: MUTED }}>A server ringing it in for a guest with one of these is warned, and the kitchen ticket says so. The nine major allergens, plus gluten. Until you say, a server is warned for any guest with a severe allergy.</p>
-            <div className="flex flex-wrap gap-2">{ALLERGENS.map((a) => { const on = !!allergens?.includes(a.key);
-              return <button key={a.key} type="button" aria-pressed={on} onClick={() => { const cur = allergens || []; setAllergens(cleanKeys(on ? cur.filter((x) => x !== a.key) : [...cur, a.key])); }} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{a.label}</button>; })}
-              <button type="button" aria-pressed={allergens !== null && allergens.length === 0} onClick={() => setAllergens([])} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={allergens !== null && allergens.length === 0 ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>None of these</button></div>
-            {allergens === null && (item.allergensLikely || []).length > 0
-              ? <div className="flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2" style={{ background: AMBER_TINT }}>
-                  <p className="min-w-0 flex-1 text-[13.5px] font-semibold" style={{ color: AMBER }}>Likely contains {item.allergensLikely.map((k) => (ALLERGENS.find((a) => a.key === k)?.label || k).toLowerCase()).join(', ')}, from the starter menu. Anything not listed may still be in it: check your own products’ labels, then change these to match.</p>
-                  <button type="button" onClick={() => setAllergens(cleanKeys(item.allergensLikely))} className={`min-h-[44px] rounded-full bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>Start from these</button></div>
-              : allergens === null && <p className="text-[13px] font-semibold" style={{ color: AMBER }}>Not said yet.</p>}
-          </fieldset>
-          <RecipeEditor lines={lines} onChange={setLines} stock={stock} ownId={item.id} price={Number(price) || 0} canMake={item.byRecipe ? item.canMake : null} short={item.short} />
-          {(item.recipeGaps || []).length > 0 && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Add {item.recipeGaps.join(', ')} to its recipe yourself: {item.recipeGaps.length === 1 ? 'yours is' : 'yours are'} measured differently from the starter recipe.</p>}
-          <div className="space-y-2">
-            <h3 className="text-[16px] font-semibold">Choices</h3>
-            <ChoicesEditor groups={groups} onChange={setGroups} recipe={stock ? asRecipe(lines, partsOf(stock)) : []} stock={stock} costs={optCosts} sets={sets} onOpenSet={onOpenSet} />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-[16px] font-semibold">When it’s sold</h3>
-            {dayparts.length > 0 ? <div className="flex flex-wrap gap-2" role="group" aria-label="Menus by time of day it’s in">{dayparts.map((d) => { const on = parts.includes(d.id);
-              return <button key={d.id} type="button" aria-pressed={on} onClick={() => setParts((xs) => (on ? xs.filter((x) => x !== d.id) : [...xs, d.id]))} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{d.name}</button>; })}
-              <span className="self-center text-[13px]" style={{ color: MUTED }}>{parts.length ? 'Only while one of these is on.' : 'All day.'}</span></div>
-              : <p className="text-[13px]" style={{ color: MUTED }}>All day. Add menus by time of day (Breakfast, Lunch) above to sell it only then.</p>}
-            <label className="flex flex-wrap items-center justify-between gap-3"><span><span className="block text-[15px] font-medium">Happy-hour price</span><span className="block text-[13px]" style={{ color: MUTED }}>During happy hour (set above). Empty: its price.</span></span>
-              <span className="relative block w-32"><span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[16px]" style={{ color: MUTED }}>$</span>
-                <input inputMode="decimal" value={happy} onChange={(e) => setHappy(e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))} aria-label="Happy-hour price" className={`${field} mt-0 pl-6`} style={{ borderColor: LINE }} /></span></label>
-          </div>
-          <div className="space-y-2">
-            <button type="button" role="switch" aria-checked={combo} onClick={() => setCombo((v) => !v)} className={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left ${RING}`} style={{ background: SOFT }}>
-              <span><span className="block text-[15px] font-semibold">A combo</span><span className="block text-[13px]" style={{ color: MUTED }}>A meal deal at the counter and drive-thru: the items it always has, and a choice of others (in Choices, “Made as”). Each part goes to its own station and comes off its own stock.</span></span>
-              <span className="rounded-full px-2.5 py-1 text-[12px] font-semibold" style={combo ? { background: INK, color: '#fff' } : { background: '#fff', color: MUTED }}>{combo ? 'On' : 'Off'}</span></button>
-            {combo && <>
-              <p className="text-[14px] font-medium">Always has</p>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Items it always has">{others.map((x) => { const on = inIt.includes(x.id);
-                return <button key={x.id} type="button" aria-pressed={on} onClick={() => setInIt((xs) => (on ? xs.filter((y) => y !== x.id) : [...xs, x.id].slice(0, 6)))} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { border: `1px solid ${LINE}`, fontWeight: 500 }}>{x.name}</button>; })}</div>
-              {groups.length > 0 && <div className="space-y-2"><p className="text-[14px] font-medium">Made as</p>
-                {groups.flatMap((g, gi) => g.options.map((o, oi) => (
-                  <label key={`${g.id}/${o.id}`} className="flex flex-wrap items-center justify-between gap-2 text-[14px]"><span>{g.name}: {o.name}</span>
-                    <select value={(o as any).itemId || ''} onChange={(e) => setGroups((gs) => gs.map((x, k) => (k !== gi ? x : { ...x, options: x.options.map((y, m) => (m !== oi ? y : { ...y, itemId: e.target.value || undefined } as any)) })))} className={pickField} style={{ borderColor: LINE }}>
-                      <option value="">Nothing more (a note on the ticket)</option>{others.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>)))}</div>}
-            </>}
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-[16px] font-semibold">Kitchen timing</h3>
-            {service && <>
-              <label className="flex flex-wrap items-center justify-between gap-3">
-                <span><span className="block text-[15px] font-medium">Made at</span><span className="block text-[13px]" style={{ color: MUTED }}>Shows on that station’s screen. Drinks go to the bar unless set.</span></span>
-                <select value={station} onChange={(e) => setStation(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
-                  <option value="">Worked out from its section</option>
-                  {service.stations.map((x) => <option key={x} value={x}>{x}</option>)}
-                </select>
-              </label>
-              {service.stations.length > 1 && !combo && <div className="space-y-2">
-                <span><span className="block text-[15px] font-medium">Also made at</span><span className="block text-[13px]" style={{ color: MUTED }}>A part made at another station (the fries for a steak, at the fryer). Each station sees its own part, and the plate is ready once both are.</span></span>
-                {also.map((a, i) => (
-                  <div key={i} className="flex flex-wrap items-center gap-2">
-                    <select value={a.station} onChange={(e) => setAlso((xs) => xs.map((x, k) => (k === i ? { ...x, station: e.target.value } : x)))} aria-label="Other station" className={pickField} style={{ borderColor: LINE }}>
-                      <option value="">Pick a station</option>
-                      {service.stations.filter((x) => x !== station).map((x) => <option key={x} value={x}>{x}</option>)}
-                    </select>
-                    <input value={a.part} onChange={(e) => setAlso((xs) => xs.map((x, k) => (k === i ? { ...x, part: e.target.value.slice(0, 40) } : x)))} placeholder="the fries" aria-label="What’s made there" className="min-h-[44px] min-w-0 flex-1 rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
-                    <button type="button" onClick={() => setAlso((xs) => xs.filter((_, k) => k !== i))} aria-label={`Not made at ${a.station || 'that station'}`} className={`h-11 w-11 shrink-0 rounded-xl text-[18px] ${RING}`} style={{ border: `1px solid ${LINE}`, color: MUTED }}>×</button>
-                  </div>))}
-                {also.length < 2 && <button type="button" onClick={() => setAlso((xs) => [...xs, { station: '', part: '' }])} className={`min-h-[44px] rounded-xl px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>Add another station</button>}
-              </div>}
-              <label className="flex flex-wrap items-center justify-between gap-3">
-                <span><span className="block text-[15px] font-medium">Course at a table</span><span className="block text-[13px]" style={{ color: MUTED }}>A held course waits until the server fires it.</span></span>
-                <select value={course} onChange={(e) => setCourse(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
-                  <option value="">From its section</option>
-                  <option value="0">Always right away</option>
-                  {service.courses.map((c) => <option key={c.n} value={String(c.n)}>{c.name}{c.hold ? ', held until fired' : ''}</option>)}
-                </select>
-              </label>
-            </>}
-            <label className="flex flex-wrap items-center justify-between gap-3">
-              <span><span className="block text-[15px] font-medium">Takes to make</span><span className="block text-[13px]" style={{ color: MUTED }}>An order is never due sooner than its slowest item.</span></span>
-              <select value={makeSeconds} onChange={(e) => { setMakeSeconds(Number(e.target.value)); setMakeTouched(true); }} className={pickField} style={{ borderColor: LINE }}>
-                {Array.from(new Set([...MAKE_TIMES, makeSeconds])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{t < 60 ? `${t} seconds` : mmss(t)}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-wrap items-center justify-between gap-3">
-              <span><span className="block text-[15px] font-medium">Made each night</span><span className="block text-[13px]" style={{ color: MUTED }}>Counts down as it’s ordered, and sells out by itself at zero. The kitchen can change tonight’s number. Leave empty to not count it.</span></span>
-              <input inputMode="numeric" value={daily} onChange={(e) => setDaily(e.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="Not counted" aria-label="How many are made each night" className={pickField} style={{ borderColor: LINE }} />
-            </label>
-            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={held} onChange={(e) => setHeld(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Cooked ahead in batches and held</label>
-            {held && <div className="grid gap-3 rounded-2xl p-4 sm:grid-cols-2" style={{ background: SOFT }}>
-              <label><span className="text-[14px] font-medium">Hold for</span>
-                <select value={holdMinutes} onChange={(e) => setHoldMinutes(Number(e.target.value))} className={field} style={{ borderColor: LINE }}>
-                  {Array.from(new Set([...HOLD_TIMES, holdMinutes])).sort((a, b) => a - b).map((m) => <option key={m} value={m}>{m} minutes</option>)}
-                </select></label>
-              <label><span className="text-[14px] font-medium">A batch is</span>
-                <input inputMode="numeric" value={batchSize} onChange={(e) => setBatchSize(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} className={field} style={{ borderColor: LINE }} /></label>
-              <p className="text-[13px] sm:col-span-2" style={{ color: MUTED }}>The kitchen screen starts a batch in one tap, counts it down, and says when it has to be thrown out.</p>
-            </div>}
-          </div>
-          <div className="space-y-2">
-            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={onMenu} onChange={(e) => setOnMenu(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />On the menu guests see</label>
-            {item.starter && !item.onMenu && <p className="text-[13px]" style={{ color: MUTED }}>From your starter menu: give it a price, then tick this to put it on the menu.</p>}
-            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Members only</label>
-          </div>
-          <fieldset className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
-            <legend className="sr-only">On the menu board</legend>
-            <p className="text-[15px] font-semibold">On the menu board</p>
-            <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Feature it: shown big, up front</label>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label htmlFor="item-badge" className="text-[15px]">Tag</label>
-              <select id="item-badge" value={badge} onChange={(e) => setBadge(e.target.value)} className={pickField} style={{ borderColor: LINE }}>
-                <option value="">None</option><option value="new">New</option><option value="limited">Limited time</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label htmlFor="item-cal" className="text-[15px]">Calories <span style={{ color: MUTED }}>(optional)</span></label>
-              <input id="item-cal" value={calories} onChange={(e) => setCalories(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="540" className={pickField} style={{ borderColor: LINE }} />
-            </div>
-            <p className="text-[13px]" style={{ color: MUTED }}>Popular shows by itself on your three best sellers this week.</p>
-          </fieldset>
-          {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
-          <div className="flex gap-2">
-            <button type="button" onClick={save} disabled={saving || uploading} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button type="button" onClick={onClose} className={BTN} style={{ border: `1px solid ${LINE}` }}>Cancel</button>
-          </div>
-        </div> : <p className="mt-3 text-[15px]" style={{ color: MUTED }}>A manager can change the price and choices. You can mark choices sold out below.</p>}
+        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>A manager can change the price and choices. You can mark choices sold out below.</p>
         {item.choices.length > 0 && <div className="mt-6 space-y-3 border-t pt-5" style={{ borderColor: LINE }}>
           <h3 className="text-[16px] font-semibold">Sold out tonight</h3>
           {item.choices.map((g: ChoiceGroup) => (

@@ -135,7 +135,7 @@ const latte = {
   check('…and the tablet shows “from” prices, the picker, and a total with the choices in it', station.includes('<ChoicePicker item={pick.item}') && /startingPrice\(i\)\.from \? 'from '/.test(station) && /total > 0 \? `Add, \$\{money\(total\)\}`/.test(station));
 
   console.log('the pages');
-  const page = src('src/app/(app)/menu/page.tsx'); const editor = src('src/components/menu/ChoicesEditor.tsx'); const picker = src('src/components/menu/ChoicePicker.tsx');
+  const page = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')); const editor = src('src/components/menu/ChoicesEditor.tsx'); const picker = src('src/components/menu/ChoicePicker.tsx');
   check('the menu page reads and saves through the server only', page.includes("fetch('/api/menu'") && !/firebase\/firestore/.test(page + editor + picker));
   check('the picker uses real radio buttons and checkboxes, and a sold-out choice can’t be picked', /type=\{g\.pick === 'one' \? 'radio' : 'checkbox'\}/.test(picker) && /disabled = \(o\.soldOut && !checked\)/.test(picker) && picker.includes('>Sold out</span>'));
   const strings = [page, editor, picker].join('\n').match(/(['"`])(?:(?!\1)[^\\\n]|\\.)*\1|>[^<>{}\n]+</g)?.join('\n') || '';

@@ -169,7 +169,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('two managers adding the same item at once make one', [ra, rb].filter((x: any) => x.body.ok).length === 1 && (await all(`${T}/inventory`)).filter((x: any) => /pork belly/i.test(x.name)).length === 1, [ra.body, rb.body]);
 
   console.log('the screens');
-  const tt = src('src/components/host/TableTab.tsx'), fl = src('src/lib/floor-server.ts'), kds = src('src/app/kds/[tenantId]/page.tsx'), kit = src('src/lib/kitchen.ts'), mp = src('src/app/(app)/menu/page.tsx'), nis = src('src/components/menu/NewItemSheet.tsx');
+  const tt = src('src/components/host/TableTab.tsx'), fl = src('src/lib/floor-server.ts'), kds = src('src/app/kds/[tenantId]/page.tsx'), kit = src('src/lib/kitchen.ts'), mp = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')), nis = src('src/components/menu/NewItemSheet.tsx');
   check('the tab screen and the floor see a dish as far along as its slowest part', /const folded = foldParts\(full\)/.test(tt) && /alsoAt: alsoAtOf\(x, stations\)/.test(tt) && /foldParts\(Object\.fromEntries/.test(fl) && /lineTicketIds\(l\)\.map\(\(id\) => tickets\.get\(id\)\)/.test(fl));
   check('…a paper ticket puts the part on its own station’s paper', /partName\(l\.name, a\.part\), a\.station, false/.test(tt));
   check('the kitchen screen says which is which: “Also at Fryer: the fries”, and “For Steak frites, from Grill”', /say\('Also at \{station\}: \{part\}'/.test(kds) && /say\('For \{dish\}, from \{station\}'/.test(kds) && /partOf: typeof r\.partOf === 'string'/.test(kit));

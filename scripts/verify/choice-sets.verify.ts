@@ -143,11 +143,11 @@ const grp = (x: any, setId: string) => (x?.choices || []).find((g: any) => g.set
   check('a sold-out tap finds the items with the set at once (not the whole menu)', /where\('choiceSetIds', 'array-contains', setId\)/.test(sv) && /for \(const \[id\] of await itemsWith\(db, tenantId, setId\)\)/.test(sv));
 
   console.log('the screens');
-  const page = src('src/app/(app)/menu/page.tsx'); const panel = src('src/components/menu/ChoiceSetsPanel.tsx'); const ed = src('src/components/menu/ChoicesEditor.tsx');
+  const page = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')); const panel = src('src/components/menu/ChoiceSetsPanel.tsx'); const ed = src('src/components/menu/ChoicesEditor.tsx');
   check('the Menu page: Items first, then Choice sets and Settings; a link to a setting opens Settings', /\['items', 'Items'\], \['sets', 'Choice sets'\], \['settings', 'Settings'\]/.test(page) && /role="tablist"/.test(page) && /SETTINGS_IDS = \['order-ahead', 'menu-times', 'table-service', 'service-times', 'prep-recipes'\]/.test(page) && /<ChoiceSetsPanel call=\{call\}/.test(page));
-  check('…an item’s editor turns a set on, changes it for every item, or makes it the item’s own', /From your sets:/.test(ed) && /Change it for every item/.test(ed) && /Only for this item/.test(ed) && /onOpenSet=\{\(id\) => \{ setEditing\(null\); setTab\('sets'\); setOpenSet\(id\); \}\}/.test(page));
+  check('…an item’s builder turns a set on or off, changes it for every item, or makes it the item’s own', /onToggle=\{\(\) => setGroups\(\(gs\) => \[\.\.\.gs, groupFromSet\(s\)\]\)\}/.test(page) && /Change \{g\.name\} for every item/.test(page) && /Only for this \{noun\}/.test(page) && /onOpenSet=\{\(id\) => \{ setEditing\(null\); setFresh\(false\); setTab\('sets'\); setOpenSet\(id\); \}\}/.test(page) && /export const groupFromSet/.test(ed));
   check('…the sets: offered from choices already the same, three kinds, put on a section or picked items, sold out once', /Make \$\{x\.name\} a set/.test(panel) && /SET_KINDS\.map/.test(panel) && /Add to every item in it/.test(panel) && /Pick items/.test(panel) && /Mark sold out/.test(panel) && /Stop using it as a set/.test(panel));
-  check('…in the app’s own words and look', !/uppercase|font-black|\{\/\*| · /.test(panel + ed) && !/\b(salon|stylist|booth|chair)s?\b/i.test(panel) && /min-h-\[44px\]/.test(panel) && /bg-\[#fff\]/.test(panel));
+  check('…in the app’s own words and look', !/uppercase|font-black|\{\/\*| · /.test(panel + ed + page) && !/\b(salon|stylist|booth|chair)s?\b/i.test(panel) && /min-h-\[44px\]/.test(panel) && /bg-\[#fff\]/.test(panel));
   const rules = src('firestore.rules'); const closed = rules.slice(rules.indexOf('match /tenants/{tenantId}/{collection}/{rest=**}'), rules.indexOf('match /tenants/{tenantId}/jobListings'));
   check('the database: choice sets only through the server', closed.includes(`'choiceSets'`));
 
