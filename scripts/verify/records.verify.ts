@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import { makeDb, check, failures, FV, strictTransactions } from './fake-db';
 
 const db: any = strictTransactions(makeDb()); const audits: any[] = [];
-let manager = true; let uid = 'm1'; let owner = true; let caps: string[] = [];
+let manager = true; let uid = 'm1'; let owner = true; let caps: string[] = []; const stubCalls: string[] = [];
 const M: any = Module as any; const load = M._load;
 const fake = (request: string, mock: any) => { const c = M._cache?.[request]; if (c) { c.exports = mock; c.loaded = true; } return mock; };
 M._load = function (request: string, ...rest: any[]) {
@@ -25,6 +25,13 @@ M._load = function (request: string, ...rest: any[]) {
     requireRole: async (_r: any, _t: any, level: string) => (level === 'manager' && !manager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor: { uid, name: uid === 'm1' ? 'Ana Ruiz' : 'Sam Ortiz', isManager: manager, isTenantOwner: owner, caps } }),
     requireCan: async () => ({ actor: { uid } }),
   });
+  // Each person's pay stub (lib/pay-stub, checked on its own): what the payroll register is made from.
+  if (request === '@/lib/pay-stub' || /\/src\/lib\/pay-stub(\.ts)?$/.test(request)) return fake(request, { stubFor: async (_d: any, _t: string, staffId: string, period: any) => { stubCalls.push(`${staffId}:${period.from}`);
+    if (staffId === 'm1') return { name: 'Ana Ruiz', role: 'manager', total: 1200, hours: 60, overtimeHours: 2, parts: { services: 900, tips: 200, retail: 50, time: 0, other: 0, adjustments: 50 } };
+    if (staffId === 'boom') throw new Error('deadline exceeded');
+    if (staffId === 'dup') return { name: 'Ana Ruiz', role: 'staff', total: 100, hours: 5, overtimeHours: 0, parts: { services: 100, tips: 0, retail: 0, time: 0, other: 0, adjustments: 0 } };
+    if (staffId === 's1') return { name: 'Sam Ortiz', role: 'staff', total: 800, hours: 40, overtimeHours: 0, parts: { services: 0, tips: 120, retail: 0, time: 680, other: 0, adjustments: 0 } };
+    return { name: 'Lee Park', role: 'staff', total: 0, hours: 0, overtimeHours: 0, parts: { services: 0, tips: 0, retail: 0, time: 0, other: 0, adjustments: 0 } }; } });
   if (request === '@/lib/audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async (_d: any, _t: string, e: any) => { audits.push(e); }, auditEntry: () => ({}) });
   return load.call(this, request, ...rest);
 };
@@ -32,6 +39,7 @@ M._load = function (request: string, ...rest: any[]) {
 const T = 'tenants/t1';
 const get = async (p: string) => (await db.doc(p).get()).data() || null;
 const req = (body: any) => ({ json: async () => body, text: async () => JSON.stringify(body), headers: { get: (k: string) => (String(k).toLowerCase() === 'authorization' ? 'Bearer test' : null) }, nextUrl: { origin: 'https://app.test' } }) as any;
+const kpiD = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: Math.abs(v) < 1000 ? 2 : 0, maximumFractionDigits: Math.abs(v) < 1000 ? 2 : 0 })}`;
 const near = (a: any, b: number, e = 0.005) => typeof a === 'number' && Math.abs(a - b) <= e;
 const src = (p: string) => readFileSync(p, 'utf8');
 
@@ -223,6 +231,28 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…a line typed as a day (or a time with no zone) is that business day wherever the business is: the 1st starts the month, the 1st of the next doesn’t', inNov('2026-11-01') && inNov('2026-11-30') && !inNov('2026-12-01') && !inNov('2026-10-31')
     && inNov('2026-11-01T09:00:00') && NC.tonight(ny, new Date(RSV.lineTime('2026-11-01', ny))) === '2026-11-01' && RSV.lineTime('2026-11-01T02:00:00.000Z', ny) === Date.parse('2026-11-01T02:00:00.000Z'), nov);
 
+  console.log('the payroll register');
+  await db.doc(`${T}/staff/rent1`).set({ name: 'Rae Renter', role: 'renter', isRenter: true });
+  const PP = await import('../../src/lib/pay-periods'); const tn = { timezone: 'UTC' };
+  const paydays: string[] = []; { let q = PP.periodOf(tn, RL.monthDays(prev, `${prev}-31`).slice(-1)[0]); for (let i = 0; i < 6; i++) { if (q.payday.startsWith(prev)) paydays.unshift(q.payday); const d = new Date(`${q.from}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); q = PP.periodOf(tn, d.toISOString().slice(0, 10)); } }
+  r = await R({ action: 'report', month: prev, kind: 'payroll' }); const pr = r.body.report; const pk = (l: string) => pr?.kpis.find((k: any) => k.label === l);
+  check('the payroll register: each person’s pay for each payday in the month (not a renter’s, nobody paid nothing), hours and overtime, tips, the employer’s taxes', r.body.ok && paydays.length >= 2
+    && pr.rows.length === 2 * paydays.length && pr.rows.every((x: any) => ['Ana Ruiz', 'Sam Ortiz'].includes(x[0])) && !stubCalls.some((c) => c.startsWith('rent1:'))
+    && pk('Total pay')?.value === kpiD(2000 * paydays.length) && pk('People paid')?.value === '2' && pk('Hours')?.tone === undefined && (pk('Hours')?.note || '').startsWith(`${2 * paydays.length} of them overtime`) && pr.rows[0][1] === 'Manager' && pk('Tips paid with it')?.value === kpiD(320 * paydays.length)
+    && /federal only/.test(pk('Employer taxes, about')?.note || '') && pr.totals[12] === 2000 * paydays.length && pr.rows[0][3] === paydays[0] && pr.rows[0][13] === 'Yes', { kpis: pr?.kpis, rows: pr?.rows });
+  check('…worth a look: who worked the most overtime, the corrections paid with it, the state not set', pr.notes.some((n: any) => /^Ana Ruiz worked the most overtime: 2 hours/.test(n.text)) && pr.notes.some((n: any) => /corrections? (was|were) paid/.test(n.text)) && pr.notes.some((n: any) => /federal only/.test(n.text)), pr.notes);
+  r = await R({ action: 'csv', month: prev, kind: 'payroll' });
+  check('…its spreadsheet', r.body.ok && r.body.csv.startsWith('Person,Role,Pay period,Payday,Hours,Overtime hours,Services,Tips,Retail,Hourly and salary,Other,Corrections,Total,Paid') && /-payroll-register-\d{4}-\d{2}\.csv$/.test(r.body.name));
+  await db.doc(`${T}/staff/boom`).set({ name: 'Bo Om', role: 'staff' }); await db.doc(`${T}/staff/dup`).set({ name: 'Ana Ruiz', role: 'staff' }); await db.doc(T).set({ taxState: 'ZZ' }, { merge: true });
+  const pr2 = (await R({ action: 'report', month: prev, kind: 'payroll' })).body.report;
+  check('…a pay stub that can’t be read is said first, never taken for no pay; two people with one name are two; a state we don’t have is federal only', pr2.notes[0].tone === 'warn' && new RegExp(`^${paydays.length} pay stubs? couldn’t be read`).test(pr2.notes[0].text)
+    && pr2.kpis.find((k: any) => k.label === 'People paid').value === '3' && /federal only/.test(pr2.kpis.find((k: any) => k.label === 'Employer taxes, about').note), pr2.notes);
+  await db.doc(`${T}/staff/boom`).delete(); await db.doc(`${T}/staff/dup`).delete();
+  owner = false;
+  check('…only for those whose role shows other people’s pay or runs payroll', (await R({ action: 'report', month: prev, kind: 'payroll' })).status === 403 && (await R({ action: 'month', month: prev })).body.seesPay === false
+    && await (async () => { caps = ['money.payroll']; const ok = (await R({ action: 'csv', month: prev, kind: 'payroll' })).body.ok; caps = ['team.pay']; const ok2 = (await R({ action: 'report', month: prev, kind: 'payroll' })).body.ok; caps = []; return ok && ok2; })());
+  owner = true;
+
   console.log('the shelf’s value, kept');
   r = await R({ action: 'keepStock', month });
   const kept: any = await get(`${T}/stockValues/${month}`);
@@ -258,7 +288,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const lowTap = files.filter((f) => /min-h-\[(3\d|[12]\d)px\]|h-(8|9|10) w-(8|9|10)\b/.test(src(f)));
   check('every control is a 44px target', lowTap.length === 0, lowTap);
   const pg = src('src/app/(app)/records/page.tsx');
-  check('Records: money, people and stock; what’s left to finish; each record downloaded or opened', /To finish for/.test(pg) && /Cash tips declared/.test(pg) && /Tips against sales/.test(pg) && /Orders received, by supplier/.test(pg) && /action: 'csv'/.test(pg) && /openBtn\('\/money'\)/.test(pg) && /dlBtn\('pnl'\)/.test(pg) && /r\.seesMoney === false/.test(pg));
+  check('Records: money, people and stock; what’s left to finish; each record downloaded or opened', /To finish for/.test(pg) && /Cash tips declared/.test(pg) && /Tips against sales/.test(pg) && /Orders received, by supplier/.test(pg) && /action: 'csv'/.test(pg) && /openBtn\('\/timesheets'\)/.test(pg) && /dlBtn\('pnl'\)/.test(pg) && /r\.seesMoney === false/.test(pg) && /dlBtn\('payroll'\)/.test(pg) && /r\.seesPay === false/.test(pg));
   check('in the sidebar with Money; the staff portal’s pay tab has Cash tips', /href: '\/records'/.test(src('src/components/shared/AppSidebar.tsx')) && /<DeclareTips/.test(src('src/app/staff-portal/[tenantId]/StaffPortalPage.tsx')));
   check('never a tax number on a declaration', !/\bssn\b|social security|\btaxId\b/i.test(src('src/app/api/records/route.ts')) && !/\bssn\b|social security/i.test(src('src/components/visit/DeclareTips.tsx')));
 

@@ -76,6 +76,7 @@ export const fileName = (business: string, what: string, month: string) => `${St
 export const RECORD_REPORTS: { kind: string; title: string; group: string }[] = [
   { kind: 'nights', title: 'Nightly closes', group: 'Money' },
   { kind: 'pnl', title: 'Profit and loss', group: 'Money' },
+  { kind: 'payroll', title: 'Payroll register', group: 'People' },
   { kind: 'tips', title: 'Tips by person', group: 'People' },
   { kind: 'declared', title: 'Cash tips declared', group: 'People' },
   { kind: 'stock', title: 'Stock value', group: 'Stock' },

@@ -3,6 +3,8 @@
 // what's worth a look, the table and how to read it. The spreadsheet is made from the same table (report-kit reportCsv),
 // so its columns are the ones the accountant has always had.
 //   nights       every night's sales, tax, tips, comps, voids and the drawers
+//   payroll      the payroll register: each person's pay for each pay period paid in the month (lib/pay-stub), with
+//                hours, tips and the employer's taxes, about
 //   pnl          the profit and loss: income, cost of goods, expenses and what's left, against last month
 //                (lib/books-summary, the same reading of the money lines as the Money page)
 //   tips         each person's card and cash tips, what they declared and their share after sharing
@@ -14,10 +16,13 @@ import { cleanMonth, declareBy, monthDays, monthOfDay, monthWords, prevMonth, ti
 import { lineTime, monthAdjustments, monthBounds, monthMoney, monthNights, monthPurchases, monthSales, monthTips, stockNow, STOCK_LINES_KEPT, type NightRow } from '@/lib/records-server';
 import { booksSummary, lookupOf, netSalesOf, type BooksSummary } from '@/lib/books-summary';
 import { tonight } from '@/lib/night-close-server';
+import { periodOf, type PayPeriod } from '@/lib/pay-periods';
+import { getStateProfile, GENERIC_US_PROFILE, STATE_TAX_PROFILES } from '@/lib/state-tax-profiles';
 import { changeWords, dayWords, dollars, fileName, kpiDollars, listWords, longDay, pct, r2, RECORD_REPORTS, totalsOf, weekday, type Bar, type Cell, type Col, type Kpi, type Note, type Report } from '@/lib/report-kit';
 
 const $ = (c: number) => Math.round(c) / 100;
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+const addDay = (day: string, n: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const NOTHING: Note = { text: 'Nothing stands out this month.', tone: 'plain' };
 
 export class ReportStop extends Error { constructor(public msg: string, public status = 400) { super(msg); } }
@@ -151,6 +156,62 @@ export async function buildRecordReport(db: any, tenantId: string, tenant: any, 
       glossary: [['Cash tips received', 'what the person declared, in their own words and signed.'], ['Tips paid out', 'cash tips they passed on to others (a busser, the bar).'],
         ['Recorded by the till', 'the cash tips the till has for them, to check against.'], ['Signed on', 'when they signed. A changed one keeps the copy it replaced.']],
       file: fileName(business, 'cash-tips-declared', month), empty: 'Nobody had cash tips to declare this month.' };
+  }
+
+  if (kind === 'payroll') {
+    // The pay periods whose payday falls in the month, oldest first (a period's work can be in the month before).
+    const first = `${month}-01`; const lastDay = monthDays(month, `${month}-31`).slice(-1)[0] || first;
+    const periods: PayPeriod[] = []; let p = periodOf(tenant, lastDay);
+    for (let i = 0; i < 40 && p.payday >= first; i++) { if (p.payday <= lastDay) periods.unshift(p); p = periodOf(tenant, addDay(p.from, -1)); }
+    // Everyone paid as staff (not renters, who run their own business), the ones who've left included.
+    const staffSnap = await db.collection(`${T}/staff`).limit(300).get();
+    const team = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((m: any) => m.role !== 'renter' && m.isRenter !== true);
+    const { stubFor } = await import('@/lib/pay-stub');
+    type Row = { staffId: string; name: string; role: string; period: PayPeriod; paid: boolean; hours: number; ot: number; parts: { services: number; tips: number; retail: number; time: number; other: number; adjustments: number }; total: number };
+    const got: Row[] = []; let failed = 0; let notRead = 0; const began = Date.now();
+    const jobs = periods.flatMap((pp) => team.map((m: any) => ({ pp, m })));
+    // A few at a time: each stub reads that person's period. A paid one is saved once and read back after (as opening a
+    // pay stub does: lib/pay-stub stubFor), so what someone was paid stays what this shows. A stub that can't be read is
+    // counted and said, never taken for no pay; and past 45 seconds the rest are left, and that's said too.
+    for (let k = 0; k < jobs.length; k += 6) {
+      if (Date.now() - began > 45000) { notRead = jobs.length - k; break; }
+      const out = await Promise.all(jobs.slice(k, k + 6).map(({ pp, m }) => stubFor(db, tenantId, m.id, pp).catch((e: any) => { console.error('[records] pay stub not read', m.id, pp.from, e?.message || e); return 'failed' as const; })));
+      out.forEach((st: any, j: number) => { if (st === 'failed') { failed++; return; } if (!st || !(Math.abs(Number(st.total) || 0) >= 0.005 || Number(st.hours) > 0)) return; const { pp, m } = jobs[k + j];
+        const role = words(st.role, 30).replace(/[_-]+/g, ' ');
+        got.push({ staffId: String(m.id), name: words(st.name, 60) || 'Team member', role: role.charAt(0).toUpperCase() + role.slice(1), period: pp, paid: pp.payday <= today, hours: r2(Number(st.hours) || 0), ot: r2(Number(st.overtimeHours) || 0), parts: st.parts, total: r2(Number(st.total) || 0) }); });
+    }
+    got.sort((a, b) => a.period.payday.localeCompare(b.period.payday) || b.total - a.total || a.name.localeCompare(b.name));
+    const total = r2(got.reduce((a, x) => a + x.total, 0)); const people = new Set(got.map((x) => x.staffId)); const hours = r2(got.reduce((a, x) => a + x.hours, 0)); const ot = r2(got.reduce((a, x) => a + x.ot, 0));
+    const tips = r2(got.reduce((a, x) => a + (x.parts?.tips || 0), 0)); const adj = got.filter((x) => Math.abs(x.parts?.adjustments || 0) >= 0.005);
+    // The business's state, when it's one we have the figures for; else federal only (never another state's).
+    const state = String(tenant?.taxState || '').trim().toUpperCase(); const known = !!state && !!STATE_TAX_PROFILES[state]; const profile = known ? getStateProfile(state) : GENERIC_US_PROFILE; const employer = r2(total * (profile.employerPayrollTaxPct / 100));
+    const toCome = periods.filter((pp) => pp.payday > today);
+    const perPerson = Array.from(people).map((id) => { const mine = got.filter((x) => x.staffId === id); return { n: mine[0].name, v: r2(mine.reduce((a, x) => a + x.total, 0)) }; }).sort((a, b) => b.v - a.v);
+    const span = (pp: PayPeriod) => `${dayWords(pp.from)} to ${dayWords(pp.to)}`;
+    const kpis: Kpi[] = [
+      { label: 'Total pay', value: kpiDollars(total), note: periods.length ? `${periods.length} ${periods.length === 1 ? 'payday' : 'paydays'}: ${listWords(periods.map((pp) => dayWords(pp.payday)))}.` : 'No payday this month.' },
+      { label: 'People paid', value: String(people.size), note: people.size ? `${perPerson[0].n} the most, ${dollars(perPerson[0].v)}.` : 'Nobody yet.' },
+      { label: 'Hours', value: hours.toLocaleString('en-US', { maximumFractionDigits: 1 }), tone: hours > 0 && ot / hours > 0.05 ? 'warn' : undefined, note: ot > 0 ? `${ot.toLocaleString('en-US', { maximumFractionDigits: 1 })} of them overtime, at time and a half.` : 'No overtime.' },
+      { label: 'Tips paid with it', value: kpiDollars(tips), note: 'Tips are wages: they’re in the total and taxed with it.' },
+      { label: 'Employer taxes, about', value: kpiDollars(employer), note: `${profile.employerPayrollTaxPct}% for ${known ? profile.code : 'federal only (set your state in Payday)'}. Your payroll provider’s filings are the record.` },
+    ];
+    const notes: Note[] = [];
+    if (failed || notRead) notes.push({ tone: 'warn', text: `${failed + notRead} pay ${failed + notRead === 1 ? 'stub' : 'stubs'} couldn’t be read${notRead ? ' in time' : ''}, so these totals may be low. Open it again in a minute.` });
+    if (toCome.length) notes.push({ tone: 'warn', text: `${listWords(toCome.map((pp) => dayWords(pp.payday)))} ${toCome.length === 1 ? 'is' : 'are'} still to come: ${toCome.length === 1 ? 'its' : 'their'} pay can change until then.` });
+    const otTop = got.filter((x) => x.ot > 0).sort((a, b) => b.ot - a.ot)[0];
+    if (otTop) notes.push({ tone: 'plain', text: `${otTop.name} worked the most overtime: ${otTop.ot.toLocaleString('en-US', { maximumFractionDigits: 1 })} hours, ${span(otTop.period)}.`, href: '/timesheets', link: 'See the hours' });
+    if (adj.length) notes.push({ tone: 'plain', text: `${adj.length} ${adj.length === 1 ? 'correction was' : 'corrections were'} paid with ${adj.length === 1 ? 'it' : 'them'}, ${dollars(r2(adj.reduce((a, x) => a + (x.parts.adjustments || 0), 0)))} in all: each is on that person’s pay stub.` });
+    if (!known && total > 0) notes.push({ tone: 'plain', text: 'Employer taxes are worked out for federal only. Set your state in Money, Payday, for your state’s.', href: '/money', link: 'Open Money' });
+    const columns: Col[] = [{ label: 'Person', kind: 'text' }, { label: 'Role', kind: 'text' }, { label: 'Pay period', kind: 'text' }, { label: 'Payday', kind: 'date' }, { label: 'Hours', kind: 'num', total: true }, { label: 'Overtime hours', kind: 'num', total: true },
+      { label: 'Services', kind: 'money', total: true }, { label: 'Tips', kind: 'money', total: true }, { label: 'Retail', kind: 'money', total: true }, { label: 'Hourly and salary', kind: 'money', total: true }, { label: 'Other', kind: 'money', total: true }, { label: 'Corrections', kind: 'money', total: true },
+      { label: 'Total', kind: 'money', total: true }, { label: 'Paid', kind: 'text' }];
+    const rows: Cell[][] = got.map((x) => [x.name, x.role, span(x.period), x.period.payday, x.hours, x.ot, r2(x.parts?.services || 0), r2(x.parts?.tips || 0), r2(x.parts?.retail || 0), r2(x.parts?.time || 0), r2(x.parts?.other || 0), r2(x.parts?.adjustments || 0), x.total, x.paid ? 'Yes' : 'Not yet']);
+    return { ...base, what: `Each person’s pay for every pay period paid in ${mw.split(' ')[0]}, from their pay stubs: hours, what they earned it from, and the total, with the employer’s taxes on top, about. Your accountant or payroll provider checks it against the filings.`,
+      kpis, notes: notes.length ? notes.slice(0, 4) : [NOTHING], columns, rows, totals: totalsOf(columns, rows, mw.split(' ')[0]),
+      chart: perPerson.length > 1 ? { title: 'Pay by person', money: true, bars: perPerson.slice(0, 24).map((x) => ({ label: x.n.split(' ')[0], value: x.v, tone: 'main' as const, tip: `${x.n}: ${dollars(x.v)}` })), avg: { value: r2(total / perPerson.length), label: 'Average' } } : null,
+      glossary: [['Pay period', 'the days the work was done; the payday is when it was paid, which can be in the next month.'], ['Services, tips, retail', 'what each person earned on what they did, as their pay setup says (commission, tips, a share of retail).'],
+        ['Hourly and salary', 'pay for time, overtime at time and a half included.'], ['Corrections', 'a fix to an earlier stub, paid with this one.'], ['Employer taxes', 'Social Security, Medicare, federal and state unemployment, as an estimate. They aren’t in the people’s pay.']],
+      file: fileName(business, 'payroll-register', month), empty: 'Nobody was paid this month yet.' };
   }
 
   if (kind === 'pnl') {

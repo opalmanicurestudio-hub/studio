@@ -25,7 +25,7 @@ const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1
 
 type Person = { staffId: string; name: string; chargedCents: number; cashCents: number; shareCents: number; declared: { cashCents: number; paidOutCents: number; signedName: string; signedAt: string; changed?: boolean } | null; due: boolean };
 type R = {
-  month: string; today: string; days: number; business: string; hospitality: boolean; partial?: boolean; seesMoney?: boolean;
+  month: string; today: string; days: number; business: string; hospitality: boolean; partial?: boolean; seesMoney?: boolean; seesPay?: boolean;
   nights: { day: string; closed: boolean; count: number; sales: number; tax: number }[]; closes: { closed: number; open: string[] };
   sales: { total: number; tax: number; tips: number; refunds: number };
   tips: { people: Person[]; chargedCents: number; cashCents: number; declaredCashCents: number; mode: string; check: { sales: number; reported: number; pct: number | null; shortfall: number; under: boolean } };
@@ -148,7 +148,7 @@ export default function RecordsPage() {
               <p className="text-[13px]" style={{ color: MUTED }}>Hours, pay and tips, kept the way wage law and the IRS ask.</p>
               <ul className="mt-2">
                 {row('r5', { name: "Hours worked", sub: "Hours, overtime and breaks from the time clock, with a spreadsheet download there.", action: openBtn('/timesheets') })}
-                {row('r6', { name: "Payroll register", sub: "In Money: pick the month, then Reports.", action: openBtn('/money') })}
+                {row('r6', { name: "Payroll register", sub: r.seesPay === false ? 'Your role doesn’t show other people’s pay. The owner can open it.' : 'Each person’s pay for every payday this month, from their pay stubs, with the employer’s taxes, about.', action: r.seesPay === false ? null : dlBtn('payroll') })}
                 {row('r7', { name: "Tips by person", sub: <>{cents(r.tips.chargedCents)} on cards, {cents(r.tips.cashCents)} in cash as the till has it{r.tips.mode !== 'direct' ? ', and how they were shared' : ''}.</>, action: dlBtn('tips') })}
                 {row('r8', { name: "Cash tips declared", pill: r.tips.people.some((p) => p.due) ? <Pill tone={notDeclared.length ? 'warn' : 'ok'}>{declared.length} of {r.tips.people.filter((p) => p.due || p.declared).length}</Pill> : undefined, sub: <>Anyone making $20 or more a month in cash tips reports them to you in writing by the 10th of the next month. Each person declares and signs on their phone, under Pay; this keeps the signed copy.</>, more: r.tips.people.length ? <>
                     {moreBtn('declared', `See who${notDeclared.length ? `, ${notDeclared.length} not yet` : ''}`)}
