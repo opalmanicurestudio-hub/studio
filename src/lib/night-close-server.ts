@@ -73,7 +73,8 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
     ...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided).map((r: any) => ({ at: String(r.date), net: Math.max(0, num(r.subtotal) - num(r.discount)), refunded: (Array.isArray(r.refunds) ? r.refunds : []).reduce((s: number, x: any) => s + num(x?.cents), 0) / 100,
       total: num(r.total), tip: num(r.tip), tax: num(r.tax), method: String(r.paymentMethod || 'other'),
       payments: Array.isArray(r.payments) ? r.payments.map((p: any) => ({ method: String(p.method || 'other'), amount: num(p.amount), tip: num(p.tip) })) : null })),
-    ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => o.paidAt && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || '')))
+    // (A staff meal is settled with no money, lib/counter-server staffMeal: never a sale.)
+    ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || '')))
       .map((o: any) => ({ at: String(o.paidAt), net: num(o.subtotal ?? (num(o.total) - num(o.tax))), total: num(o.total), tip: num(o.tip), tax: num(o.tax), method: String(o.payMethod || 'other'), payments: null })),
   ];
   const adjustments: Adjustment[] = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => ['comp', 'void_item', 'remake'].includes(a.kind) && a.used === true)

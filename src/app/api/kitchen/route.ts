@@ -59,9 +59,10 @@ import { jobOf } from '@/lib/briefing';
 import { limitPublic } from '@/lib/rate-limit';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { moveStock } from '@/lib/usage';
-import { recipeOf } from '@/lib/menu-stock';
+import { needsOf, recipeOf } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
-import { readRecipeParts, takeParts } from '@/lib/recipe-stock-server';
+import { mergeParts, partTakes, readRecipeParts, takeParts, type PartTake } from '@/lib/recipe-stock-server';
+import { extrasOf, guestExtras, itemExtras, orderExtras } from '@/lib/plate-extras';
 import { paceNow } from '@/lib/kitchen-pace-server';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, needsAllergyNote, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
 import { liveCounts, setTonightCount } from '@/lib/dish-counts-server';
@@ -149,8 +150,21 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
     const makes = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && (step === 'ready' || step === 'deliver');
     // One stopped here after it was started: what went into it is waste.
     const stopsStarted = col === 'kdsTickets' && !r.channel && !r.partOf && r.partsUsed !== true && step === 'cancel' && r.status === 'in_progress';
-    // What's made is what the guest chose (oat milk, an extra shot: lib/choice-recipe), as the ticket kept it.
-    const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty, undefined, r.choices) : [];
+    // What's made is what the guest chose (oat milk, an extra shot: lib/choice-recipe), as the ticket kept it, with what
+    // goes out with it at a table, set once (sugar with a coffee: lib/plate-extras). Not when it's thrown away.
+    const extras = makes ? extrasOf((await tx.get(db.doc(T))).data() || {}) : [];
+    const made = makes || stopsStarted ? await readRecipeParts(tx, db, T, itemId, qty, undefined, r.choices, extras.length ? (x: any) => itemExtras(extras, x, 'here') : undefined) : [];
+    // The table's own, once a visit, with its first dish up: bread and butter for each guest, napkins for the table.
+    let tableTake: PartTake[] = []; let visitRef: any = null;
+    if (makes && ID.test(String(r.visitId || '')) && extras.some((e) => e.per === 'guest' || (e.per === 'order' && e.when !== 'togo'))) {
+      const vRef = db.doc(`${T}/appointments/${String(r.visitId)}`); const v: any = (await tx.get(vRef)).data();
+      if (v?.isTable === true && !v.extrasTakenAt) {
+        const lines = [...guestExtras(extras, Math.max(1, Math.floor(num(v.partySize)) || 1)), ...orderExtras(extras, 'here')];
+        const ids = Array.from(new Set(lines.map((l) => l.id))).filter((x) => ID.test(x)); const refs = ids.map((x) => db.doc(`${T}/inventory/${x}`));
+        const snaps = await Promise.all(refs.map((x: any) => tx.get(x))); const got = new Map<string, any>(); ids.forEach((x, k) => { const d = snaps[k].data(); if (d) got.set(x, d); });
+        tableTake = partTakes(new Map(), needsOf(lines, got), got, refs, ids, 1); visitRef = vRef;
+      }
+    }
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }
       : step === 'ready' ? { status: 'ready', readyAt: now, ...(r.claimedBy ? {} : { claimedBy: by }) }
@@ -165,7 +179,8 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
       patch.partsUsed = true;
     }
     if (makes) {
-      takeParts(tx, db, T, made, { type: 'used', reason: `Made: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : r.guestName ? ` for ${String(r.guestName).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
+      if (visitRef) tx.set(visitRef, { extrasTakenAt: now }, { merge: true });
+      takeParts(tx, db, T, mergeParts([...made, ...tableTake]), { type: 'used', reason: `Made: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : r.guestName ? ` for ${String(r.guestName).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
       patch.partsUsed = true;
     }
     if (lounge && step === 'deliver' && parts.length) {

@@ -13,8 +13,13 @@
 //   add    { tenantId, key, orderId, itemId, quantity?, choices?, tapKey? } → a line, priced from the menu (the
 //                                                      same tapKey twice adds it once)
 //   remove { tenantId, key, orderId, lineId, tapKey? }  ·  qty { tenantId, key, orderId, lineId, quantity, tapKey? }
-//   send   { tenantId, key, orderId }               → to the kitchen: one ticket a line, due by the channel's target
-//                                                      (the drive-thru's is the tightest); stock and recipe parts once
+//   send   { tenantId, key, orderId, toGo? }        → to the kitchen: one ticket a line, due by the channel's target
+//                                                      (the drive-thru's is the tightest); stock and recipe parts once;
+//                                                      at the counter, toGo says it's to go, and what goes out with it
+//                                                      follows (lib/plate-extras)
+//   staffMeal { tenantId, key, orderId, for, pin? } → a sent order settled as a staff meal for a named member of the
+//          team: no money, left out of the night's sales, counted apart on the food cost report (lib/counter-server
+//          staffMeal); a manager's to ring in (signed in or working here as one, else their PIN), and never undone
 //   paid   { tenantId, key, orderId, method: 'card'|'cash', tendered? } → paid at the window: the sale and its tax in
 //                                                      the books, cash into the open drawer (with what was handed over
 //                                                      and the change); the car moves on to pick up
@@ -57,7 +62,7 @@ import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, photoOf, spotsOf, RUSH_CARS, inLineNow, CHANNEL_NAME, atDriveThru, type Channel } from '@/lib/counter-orders';
-import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder } from '@/lib/counter-server';
+import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder, staffMeal } from '@/lib/counter-server';
 import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
@@ -67,6 +72,9 @@ import { aheadForLane, aheadToCar, aheadOf } from '@/lib/counter-ahead';
 import { pointsOn, linkOrder } from '@/lib/counter-points';
 import { pageAccent } from '@/lib/studio-page';
 import { menuNumbers } from '@/lib/menu-numbers';
+import { extrasOf } from '@/lib/plate-extras';
+import { logAuditAdmin } from '@/lib/audit';
+import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { readWindow, boardNumbers } from '@/lib/pickup-window';
 import { moduleEnabled } from '@/lib/modules';
 import { linkOrigin } from '@/lib/app-origin';
@@ -97,7 +105,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard', 'points', 'call'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -131,7 +139,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'move', 'call', 'looks', 'here'].includes(action)) {
+    if (['add', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'move', 'call', 'looks', 'here', 'staffMeal'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -160,6 +168,8 @@ export async function POST(req: NextRequest) {
           // Rewards for this order (lib/counter-points): the last 4 of the phone given, and what it earned once paid.
           points: o.clientId && o.points?.phone ? { phone: String(o.points.phone), earned: num(o.points.earned) } : null, subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, paidVia: o.paidAt ? (o.paidVia || null) : null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
+          // To go (sent so: lib/plate-extras), and a staff meal (settled with no money: lib/counter-server staffMeal).
+          toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
@@ -216,6 +226,9 @@ export async function POST(req: NextRequest) {
         daypart: daypartNow(tenant), happyHour: inHappyHour(tenant) ? { until: timeWords(happyHourOf(tenant).to) } : null, channel,
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant),
+        // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
+        // real cup), so the screen asks it before the order is sent (lib/plate-extras).
+        askToGo: channel === 'counter' && extrasOf(tenant).some((e) => e.per !== 'guest' && e.when !== 'any'),
       });
     }
 
@@ -553,8 +566,33 @@ export async function POST(req: NextRequest) {
       return r.error ? bad(r.error, r.status) : ok({ staffOk });
     }
 
+    if (action === 'staffMeal') {
+      // A staff meal: settled with no money, for a named member of the team (lib/counter-server staffMeal). It writes the
+      // order off as a void does, so a manager rings it in: signed in or working here as one, or with their PIN typed here
+      // (checked with the same lockout as any PIN, lib/pin).
+      let approver: { id: string; name: string } | null = staff && await isManager(db, tenantId, staff.id) ? staff : null;
+      if (!approver && b.pin !== undefined && b.pin !== null && b.pin !== '') {
+        const pin = String(b.pin); if (!validPin(pin)) return bad('Enter a 4-digit PIN.');
+        const ticket = await beginPinAttempt(db, tenantId); if (ticket === null) return bad('Too many wrong PINs. Wait 15 minutes, or ask a manager.', 423);
+        const hit = await findStaffByPin(db, tenantId, pin); await endPinAttempt(db, tenantId, ticket, !!hit);
+        if (!hit) return bad('That PIN isn’t right.', 403);
+        if (!(await isManager(db, tenantId, hit.id))) return NextResponse.json({ ok: false, needsManager: true, error: 'That isn’t a manager’s PIN.', staffOk }, { status: 403 });
+        approver = { id: hit.id, name: String(hit.name || 'A manager').slice(0, 60) };
+      }
+      if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager rings in a staff meal. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await staffMeal(db, tenantId, orderId, b.for, who, approver);
+      if (r.error) return bad(r.error, r.status);
+      forgetStats(tenantId);
+      if (!r.already) {
+        await stopPhone(db, tenantId, tenant, orderId).catch(() => null);
+        await logAuditAdmin(db, tenantId, { action: 'counter.staff_meal', targetType: 'counterOrder', targetId: orderId, summary: `${approver.name} rang in a staff meal for ${r.for}${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
+      }
+      return ok({ already: !!r.already, for: r.for, approvedBy: approver.name, staffOk });
+    }
+
     if (action === 'send') {
-      const r: any = await sendOrder(db, tenantId, tenant, orderId, who);
+      // For here or to go, at the counter (the drive-thru is always to go): what goes out with it follows (lib/plate-extras).
+      const r: any = await sendOrder(db, tenantId, tenant, orderId, who, { toGo: channel === 'counter' ? b.toGo === true : undefined });
       return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, dueAt: r.due || null, staffOk });
     }
 

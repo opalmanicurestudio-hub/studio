@@ -11,6 +11,7 @@ import { itemSoldOut, picksOf, priceChoices, type Picks } from '@/lib/menu-choic
 import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, needsOf, type RecipeLine } from '@/lib/menu-stock';
 import { madeWith } from '@/lib/choice-recipe';
+import { extrasOf, itemExtras, modeOf, orderExtras } from '@/lib/plate-extras';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -140,7 +141,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
  *  and what its recipe uses) is taken once, here. */
 /** `o.due`: when it's wanted (an order placed ahead for a time); `o.holdUntil`: the kitchen doesn't start before then (the
  *  tickets wait under Later on the kitchen screen until it's time, or until the guest says they're here). */
-export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who, opts: { due?: string | null; holdUntil?: string | null } = {}): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
+export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who, opts: { due?: string | null; holdUntil?: string | null; toGo?: boolean } = {}): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
@@ -183,40 +184,49 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     // that. Every stock item is read once, before anything is written, even one that's both sold on its own line and an
     // ingredient of another (a bottled sauce): its own count and the recipe's share come off in one step.
     const docs = new Map<string, { ref: any; data: any }>(); ids.forEach((id, k) => docs.set(id, { ref: itemRefs[k], data: items[k] }));
-    type PartTake = { item: string; items: Record<string, number>; parts: Record<string, number> };
-    const lineTake: Record<string, { own: number; parts: Record<string, number>; items: Record<string, number>; byPart: Record<string, PartTake> }> = {};
+    // (`extras`: the share of `parts` that went out with it, set once, so a void can say what it puts back of each.)
+    type PartTake = { item: string; items: Record<string, number>; parts: Record<string, number>; extras: Record<string, number> };
+    const lineTake: Record<string, { own: number; parts: Record<string, number>; items: Record<string, number>; extras: Record<string, number>; byPart: Record<string, PartTake> }> = {};
     const ownNeed = new Map<string, number>(); const partNeed = new Map<string, number>(); const partFor = new Map<string, string>();
     // What's made, line by line: the recipe as the guest chose it (oat milk instead of whole, an extra shot:
     // lib/choice-recipe); a combo's part as it comes. Each ingredient's amount is worked out once its record is read
     // (a kitchen measure turned into what it's counted in, more for what trimming and cooking lose: lib/kitchen-units).
-    const toTake: { l: OrderLine; take: (typeof lineTake)[string]; pt: PartTake | null; lines: RecipeLine[] }[] = [];
+    // What goes out with each, set once (a box for a main to go, a lid on a hot drink: lib/plate-extras), for here or to
+    // go; and with the order (a bag). Taken with the line (a void puts it back), never what stops an order.
+    const extras = extrasOf(tenant); const toGo = opts.toGo === true || o.toGo === true; const mode = modeOf(o.channel, toGo);
+    const toTake: { l: OrderLine; take: (typeof lineTake)[string]; pt: PartTake | null; lines: RecipeLine[]; extra: RecipeLine[] }[] = [];
     for (const m of made) {
       const l = m.l; const it = items[ids.indexOf(m.itemId)]; const recipe = recipeOf(it, m.itemId);
-      const take = lineTake[l.lineId] || { own: 0, parts: {} as Record<string, number>, items: {} as Record<string, number>, byPart: {} as Record<string, PartTake> };
+      const take = lineTake[l.lineId] || { own: 0, parts: {} as Record<string, number>, items: {} as Record<string, number>, extras: {} as Record<string, number>, byPart: {} as Record<string, PartTake> };
       // A combo's part: what it took kept part by part too, so a void puts back exactly the parts the kitchen never
       // started (the drink, when the burger is already on the grill).
-      const pt: PartTake | null = m.combo ? (take.byPart[String(m.n)] = take.byPart[String(m.n)] || { item: m.itemId, items: {}, parts: {} }) : null;
+      const pt: PartTake | null = m.combo ? (take.byPart[String(m.n)] = take.byPart[String(m.n)] || { item: m.itemId, items: {}, parts: {}, extras: {} }) : null;
       // A combo's part without a recipe comes off its own count, kept with the line by item (so a void puts it back).
       if (!recipe.length) {
         if (m.combo) take.items[m.itemId] = (take.items[m.itemId] || 0) + l.quantity; else take.own += l.quantity;
         if (pt) pt.items[m.itemId] = (pt.items[m.itemId] || 0) + l.quantity;
         ownNeed.set(m.itemId, (ownNeed.get(m.itemId) || 0) + l.quantity);
       }
-      const lines = m.combo ? recipe : madeWith(it, m.itemId, picksOf(l.choices));
-      if (lines.length) toTake.push({ l, take, pt, lines });
+      const lines = m.combo ? recipe : madeWith(it, m.itemId, picksOf(l.choices)); const extra = itemExtras(extras, it, mode);
+      if (lines.length || extra.length) toTake.push({ l, take, pt, lines, extra });
       for (const f of lines) if (!partFor.has(f.id)) partFor.set(f.id, String(it.name || 'item'));
       lineTake[l.lineId] = take;
     }
-    for (const pid of Array.from(new Set(toTake.flatMap((x) => x.lines.map((f) => f.id))))) {
+    const withOrder = orderExtras(extras, mode);
+    for (const pid of Array.from(new Set([...toTake.flatMap((x) => [...x.lines, ...x.extra].map((f) => f.id)), ...withOrder.map((f) => f.id)]))) {
       if (docs.has(pid) || !/^[A-Za-z0-9_-]{1,160}$/.test(pid)) continue;
       const pRef = db.doc(`${T}/inventory/${pid}`); const data = (await tx.get(pRef)).data(); if (data) docs.set(pid, { ref: pRef, data });
     }
     const partData = new Map<string, any>(Array.from(docs.entries()).map(([id, d]) => [id, d.data]));
-    for (const x of toTake) for (const [pid, need] of needsOf(x.lines, partData)) {
+    const extraNeed = new Map<string, number>();
+    for (const x of toTake) for (const [list, into] of [[x.lines, partNeed], [x.extra, extraNeed]] as [RecipeLine[], Map<string, number>][]) for (const [pid, need] of needsOf(list, partData)) {
       const use = Math.round(need * x.l.quantity * 1000) / 1000; if (!(use > 0)) continue;
       x.take.parts[pid] = (x.take.parts[pid] || 0) + use; if (x.pt) x.pt.parts[pid] = (x.pt.parts[pid] || 0) + use;
-      partNeed.set(pid, Math.round(((partNeed.get(pid) || 0) + use) * 1000) / 1000);
+      if (into === extraNeed) { x.take.extras[pid] = (x.take.extras[pid] || 0) + use; if (x.pt) x.pt.extras[pid] = (x.pt.extras[pid] || 0) + use; }
+      into.set(pid, Math.round(((into.get(pid) || 0) + use) * 1000) / 1000);
     }
+    const extrasTaken: Record<string, number> = {};
+    for (const [pid, need] of needsOf(withOrder, partData)) { extraNeed.set(pid, Math.round(((extraNeed.get(pid) || 0) + need) * 1000) / 1000); extrasTaken[pid] = need; }
     // An ingredient that can't be counted (no size or uses set, put away, or a menu item made from its own recipe) is left
     // as it is; so is one no longer in stock at all.
     const countable = (pid: string) => { const d = docs.get(pid)?.data; return !!d && ingredientLeft(d) !== null && !moveStock(d, 0).notCounted; };
@@ -253,15 +263,29 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
+    // An extra that was only partly there: each line's (and the order's) share of it cut to what came off.
+    const r3 = (x: number) => Math.round(x * 1000) / 1000;
+    const shrinkOne = (t: { parts: Record<string, number>; extras: Record<string, number> }, pid: string, r: number) => {
+      const e = t.extras[pid]; if (!e) return; t.parts[pid] = r3((t.parts[pid] || 0) - e * (1 - r)); t.extras[pid] = r3(e * r);
+      if (!(t.parts[pid] > 0)) delete t.parts[pid]; if (!(t.extras[pid] > 0)) delete t.extras[pid];
+    };
+    const shrinkExtra = (pid: string, r: number) => {
+      for (const t of Object.values(lineTake)) { shrinkOne(t, pid, r); for (const x of Object.values(t.byPart)) shrinkOne(x, pid, r); }
+      if (extrasTaken[pid]) { extrasTaken[pid] = r3(extrasTaken[pid] * r); if (!(extrasTaken[pid] > 0)) delete extrasTaken[pid]; }
+    };
     // Taken: each stock item once (lib/usage moveStock for an ingredient, as the lounge does), with a line in the stock
     // ledger for what was sold and what was used.
     const used: { id: string; qty: number }[] = []; const itemsTaken: string[] = [];
     for (const [id, d] of docs) {
-      const own = ownNeed.get(id) || 0; const part = countable(id) ? partNeed.get(id) || 0 : 0;
-      if (!own && !part) continue;
+      const own = ownNeed.get(id) || 0; const part = countable(id) ? partNeed.get(id) || 0 : 0; const extra = countable(id) ? extraNeed.get(id) || 0 : 0;
+      if (!own && !part && !extra) continue;
       const after = { ...d.data, totalStock: num(d.data.totalStock) - own };
-      if (part) tx.set(d.ref, moveStock(after, part).patch, { merge: true });
+      // What went out with it is only what was there (the recipe's share was checked above; a box that's run out isn't):
+      // kept as taken, so a void never puts back more than came off.
+      let extraMoved = extra;
+      if (part || extra) { const mv = moveStock(after, Math.round((part + extra) * 1000) / 1000); tx.set(d.ref, mv.patch, { merge: true }); if (extra && mv.shortfall > 0) extraMoved = Math.max(0, Math.round((extra - mv.shortfall) * 1000) / 1000); }
       else tx.set(d.ref, { totalStock: FieldValue.increment(-own) }, { merge: true });
+      if (extraMoved < extra) shrinkExtra(id, extra > 0 ? extraMoved / extra : 0);
       if (own) {
         itemsTaken.push(id);
         tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'sold', delta: -own, unit: String(d.data.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, balanceAfter: num(d.data.totalStock) - own }));
@@ -270,13 +294,16 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
         used.push({ id, qty: part });
         tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'used', delta: -part, unit: String(d.data.unit || 'units'), reason: `${why}: ${partFor.get(id)}`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
       }
+      // What went out with it (set once: a box, a lid, a bag), on a line of its own, marked so a report can tell it apart.
+      if (extraMoved > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'used', delta: -extraMoved, unit: String(d.data.unit || 'units'), reason: `${why}: what goes out with it`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }), extra: true });
     }
     // What each line took, as taken (an ingredient that couldn't be counted took nothing).
-    const stockTaken: Record<string, { own: number; parts: Record<string, number>; items?: Record<string, number>; byPart?: Record<string, PartTake> }> = {};
+    const stockTaken: Record<string, { own: number; parts: Record<string, number>; items?: Record<string, number>; extras?: Record<string, number>; byPart?: Record<string, Partial<PartTake>> }> = {};
     const counted = (x: Record<string, number>) => Object.fromEntries(Object.entries(x).filter(([pid]) => countable(pid)));
-    for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}),
-      ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts) }])) } : {}) };
-    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken }, { merge: true });
+    const some = (x: Record<string, number>) => (Object.keys(counted(x)).length ? { extras: counted(x) } : {});
+    for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}), ...some(t.extras),
+      ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts), ...some(x.extras) }])) } : {}) };
+    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken, toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
     const qty = new Map<string, number>();
@@ -286,6 +313,29 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...sold }, { merge: true });
     if (car && car.stage === 'speaker') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pay', stageAt: { ...(car.stageAt || {}), pay: nowIso } }, { merge: true });
     return { ok: true, due };
+  });
+}
+
+/** A staff meal (design canvas "Food numbers"): a sent order settled with no money, for a named member of the team, so
+ *  what it took off stock is on the books as a staff meal and not a mystery (lib/food-cost). Never a sale: no money is
+ *  booked, the night's sales leave it out (lib/night-close-server), and the food cost report counts it apart. Once only;
+ *  never one that's paid, voided, or on a card reader. */
+export async function staffMeal(db: any, tenantId: string, orderId: string, forName: unknown, who: Who, approver?: Who): Promise<{ ok: true; already?: boolean; for: string } | Fail> {
+  const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
+  if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
+  const name = cleanName(forName); if (!name) return { error: 'Who is it for? Type their first name.', status: 400 };
+  const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
+  return db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
+    if (o.staffMeal) return { ok: true, already: true, for: String(o.staffMeal.for || name) };
+    if (o.paidAt) return { error: 'That order is paid already.', status: 409 };
+    if (o.status !== 'sent' && o.status !== 'done') return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
+    if (cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409 };
+    const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
+    tx.set(orderRef, { paidAt: nowIso, payMethod: 'staff', staffMeal: { for: name, by: who.name, byId: who.id || null, at: nowIso, ...(approver ? { approvedBy: approver.name, approvedById: approver.id || null } : {}) }, updatedAt: nowIso }, { merge: true });
+    // Settled: it waits to be handed over, like a paid order.
+    if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
+    return { ok: true, for: name };
   });
 }
 
@@ -335,7 +385,12 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     if (o.stockTaken && typeof o.stockTaken === 'object') {
       // Exactly what each line that goes back took at sending (its own count, or its ingredients), each stock item put
       // back once.
-      const own = new Map<string, number>(); const part = new Map<string, number>();
+      const own = new Map<string, number>(); const part = new Map<string, number>(); const extra = new Map<string, number>();
+      const addExtra = (x: any) => { for (const [pid, q] of Object.entries<any>(x?.extras || {})) if (ID.test(pid) && num(q) > 0) extra.set(pid, (extra.get(pid) || 0) + num(q)); };
+      // What went out once with the order (a bag) comes back too when none of it was made.
+      if (returned > 0 && wasted === 0 && o.extrasTaken && typeof o.extrasTaken === 'object') for (const [pid, q] of Object.entries<any>(o.extrasTaken)) {
+        if (!ID.test(pid) || !(num(q) > 0)) continue; part.set(pid, (part.get(pid) || 0) + num(q)); extra.set(pid, (extra.get(pid) || 0) + num(q));
+      }
       for (const l of lines) {
         const t: any = o.stockTaken[l.lineId]; if (!t) continue;
         const ok = partsBack.get(l.lineId);
@@ -343,7 +398,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
           // A combo: each part the kitchen never started, as that part took it.
           for (const n of ok) { const x: any = t.byPart?.[n] || {};
             for (const [pid, q] of Object.entries<any>(x.items || {})) if (ID.test(pid) && num(q) > 0) own.set(pid, (own.get(pid) || 0) + num(q));
-            for (const [pid, q] of Object.entries<any>(x.parts || {})) if (ID.test(pid) && num(q) > 0) part.set(pid, (part.get(pid) || 0) + num(q)); }
+            for (const [pid, q] of Object.entries<any>(x.parts || {})) if (ID.test(pid) && num(q) > 0) part.set(pid, (part.get(pid) || 0) + num(q));
+            addExtra(x); }
           continue;
         }
         if (!goesBack.has(l.lineId)) continue;
@@ -351,6 +407,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
         // A combo's parts that came off their own counts.
         for (const [pid, q] of Object.entries<any>(t.items || {})) if (ID.test(pid) && num(q) > 0) own.set(pid, (own.get(pid) || 0) + num(q));
         for (const [pid, q] of Object.entries<any>(t.parts || {})) if (ID.test(pid) && num(q) > 0) part.set(pid, (part.get(pid) || 0) + num(q));
+        addExtra(t);
       }
       const idsBack = Array.from(new Set([...own.keys(), ...part.keys()]));
       const snaps = await Promise.all(idsBack.map((id) => tx.get(db.doc(`${T}/inventory/${id}`))));
@@ -363,7 +420,10 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
         if (partBack) tx.set(ref, m!.patch, { merge: true });
         else if (o1) tx.set(ref, { totalStock: FieldValue.increment(o1) }, { merge: true });
         if (o1) log(id, d, o1);
-        if (partBack) log(id, d, p1);
+        // What went out with it comes back on a line of its own, marked as it was taken (lib/food-cost counts it off).
+        const e1 = partBack ? Math.min(p1, extra.get(id) || 0) : 0;
+        if (partBack && p1 - e1 > 1e-9) log(id, d, Math.round((p1 - e1) * 1000) / 1000);
+        if (e1 > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'returned', delta: e1, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }), extra: true });
       });
     } else {
       // An order sent before each line's take was kept: as it was worked out then.

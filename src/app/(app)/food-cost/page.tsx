@@ -2,19 +2,23 @@
 // src/app/(app)/food-cost/page.tsx — FOOD COST (design canvas "Food cost"; lib/food-cost, api/food-cost). For managers:
 // what the food and drink sold this week (last week, or the last 30 days) cost to make, as a share of what it sold for, in
 // all and day by day, against the business's own aim; what each menu item costs to make from its recipe, and the price that
-// would bring one that's over back to the aim; the ingredients still at typical prices, with what the business pays put in
-// right here; what the counts found against what was sold; and what was thrown away.
+// would bring one that's over back to the aim, and what a plate really costs at a table and to go (with what goes out with
+// it and the card fee: components/food/PlateExtras); the ingredients still at typical prices, with what the business pays
+// put in right here; what the counts found against what was sold; what was thrown away; and the staff meals.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
-import { amountWords, countWords, PERIODS, type CountRow, type ItemCost, type Period, type PeriodCost, type Waste } from '@/lib/food-cost';
+import { amountWords, countWords, PERIODS, type CountRow, type ItemCost, type Period, type PeriodCost, type PlateCost, type Waste } from '@/lib/food-cost';
+import { PlateExtras, type ExtraRow } from '@/components/food/PlateExtras';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 type Item = ItemCost & { sold: number; section: string };
 type Typical = { id: string; name: string; container: string; cost: number; per: number | null; unit: string };
-type Report = { period: Period; days: string[]; today: string; target: number; report: PeriodCost; items: Item[]; typical: Typical[]; counts: CountRow[]; waste: Waste; partial?: boolean };
+type StaffMeals = { count: number; cost: number; unknown: number; by: { for: string; count: number; cost: number; unknown: number }[] };
+type Report = { period: Period; days: string[]; today: string; target: number; report: PeriodCost; items: Item[]; typical: Typical[]; counts: CountRow[]; waste: Waste; partial?: boolean;
+  extras: ExtraRow[]; cardPct: number; cardShare: number; extrasUsed: { cost: number; unknown: number }; staffMeals: StaffMeals };
 
 const money = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const whole = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -39,6 +43,38 @@ function dayRows(r: Report): { label: string; sold: number; cost: number; share:
     out.push({ label: `${md(chunk[0].day)}`, sold, cost, share: sold > 0 ? cost / sold : null });
   }
   return out;
+}
+
+/** What a plate really costs at a table and to go, side by side: the recipe, each thing that goes out with it (a dash
+ *  where it doesn't), the card fee, and what that leaves. One column when nothing goes out differently. */
+function plateTable(here: PlateCost, togo: PlateCost) {
+  type Row = { key: string; label: string; here: number | null | undefined; togo: number | null | undefined };
+  const rows: Row[] = [];
+  const add = (p: PlateCost, side: 'here' | 'togo') => {
+    for (const l of [...p.extras.map((x) => ({ ...x, per: 'item' as const })), ...p.once]) {
+      const key = `${l.per}:${l.id}`; let r = rows.find((x) => x.key === key);
+      if (!r) { r = { key, label: l.per === 'item' ? l.name : `${l.name}, once ${l.per === 'guest' ? 'a guest' : 'an order'}`, here: undefined, togo: undefined }; rows.push(r); }
+      r[side] = l.cost;
+    }
+  };
+  add(here, 'here'); add(togo, 'togo'); rows.sort((a, b) => Number(!a.key.startsWith('item:')) - Number(!b.key.startsWith('item:')));
+  const one = here.total === togo.total && rows.every((r) => r.here === r.togo);
+  const cell = (v: number | null | undefined, tone?: string) => <td className="py-1 pl-2 text-right tabular-nums" style={{ color: v === null ? AMBER : v === undefined ? MUTED : tone || INK }}>{v === undefined ? '–' : v === null ? 'no cost' : money(v)}</td>;
+  const fee = `Card fee, ${Math.round(here.cardPct * 100) / 100}%${here.cardShare < 1 ? ` on the ${Math.round(here.cardShare * 100)}% paid by card` : ''}`;
+  return (
+    <table className="w-full text-[13.5px]">
+      <thead><tr><th className="py-1 text-left font-normal" style={{ color: MUTED }}><span className="sr-only">What</span></th>
+        {one ? <th className="whitespace-nowrap py-1 pl-2 text-right font-semibold">At a table or to go</th> : <><th className="whitespace-nowrap py-1 pl-2 text-right font-semibold">At a table</th><th className="whitespace-nowrap py-1 pl-2 text-right font-semibold">To go</th></>}</tr></thead>
+      <tbody>
+        <tr><td className="py-1" style={{ color: MUTED }}>From the recipe</td>{cell(here.recipe)}{!one && cell(togo.recipe)}</tr>
+        {rows.map((r) => <tr key={r.key}><td className="py-1" style={{ color: MUTED }}>{r.label}</td>{cell(r.here)}{!one && cell(r.togo)}</tr>)}
+        <tr><td className="py-1" style={{ color: MUTED }}>{fee}</td>{cell(here.cardFee)}{!one && cell(togo.cardFee)}</tr>
+        <tr className="border-t font-semibold" style={{ borderColor: LINE }}><td className="py-1">Costs you</td>{cell(here.total)}{!one && cell(togo.total)}</tr>
+        <tr><td className="py-1" style={{ color: MUTED }}>Share of the price</td><td className="py-1 pl-2 text-right tabular-nums">{pct(here.share)}</td>{!one && <td className="py-1 pl-2 text-right tabular-nums">{pct(togo.share)}</td>}</tr>
+        <tr><td className="py-1" style={{ color: MUTED }}>Keeps</td>{cell(here.keeps, here.keeps !== null && here.keeps < 0 ? AMBER : undefined)}{!one && cell(togo.keeps, togo.keeps !== null && togo.keeps < 0 ? AMBER : undefined)}</tr>
+      </tbody>
+    </table>
+  );
 }
 
 export default function FoodCostPage() {
@@ -143,6 +179,8 @@ export default function FoodCostPage() {
                   )}
                 </section>
               )}
+              <PlateExtras tenantId={tenantId!} extras={r.extras || []} cardPct={r.cardPct} cardShare={r.cardShare} used={r.extrasUsed || { cost: 0, unknown: 0 }} periodText={periodWords(r.period)}
+                sections={Array.from(new Set(r.items.map((m) => m.section).filter(Boolean)))} onSaved={() => void load()} />
             </div>
 
             <section aria-labelledby="items-title" className="rounded-3xl bg-[#fff] px-5 py-4">
@@ -178,6 +216,14 @@ export default function FoodCostPage() {
                               {m.options.some((o) => o.thin) && <p style={{ color: MUTED }}>A choice that barely pays for itself: raise what it charges, or check what it uses.</p>}
                             </div>
                           )}
+                          {m.plates && m.cost !== null && m.price > 0 && (
+                            <div className="mt-2 space-y-2 border-t pt-2" style={{ borderColor: LINE }}>
+                              <p className="font-semibold">What a plate really costs</p>
+                              {plateTable(m.plates.here, m.plates.togo)}
+                              {[...m.plates.here.once, ...m.plates.togo.once].length > 0 && <p style={{ color: MUTED }}>What goes out once an order or once a guest is counted as if this were all that was ordered. Shared over more, it’s less.</p>}
+                              {r.extras.length === 0 && <p style={{ color: MUTED }}>Add what goes out with it, like a box to go or bread for the table, under Set once, counted everywhere.</p>}
+                            </div>
+                          )}
                           {m.gaps.length > 0 && <p style={{ color: AMBER }}>{m.gaps.map((x) => `${x.name}: ${x.why}`).join('. ')}. Put its cost in Inventory, and this item’s cost shows.</p>}
                           {m.missing.length > 0 && <p style={{ color: AMBER }}>Add {m.missing.join(', ')} to its recipe: yours {m.missing.length === 1 ? 'is' : 'are'} measured differently from the starter recipe.</p>}
                           {m.over && m.fix !== null && <p>{money(m.fix)} would bring it to {pct(m.target)}.{m.biggest ? ` Or check the recipe: ${m.biggest.name.toLowerCase()} is the biggest part, ${money(m.biggest.cost || 0)} of it.` : ''}</p>}
@@ -210,6 +256,19 @@ export default function FoodCostPage() {
                 <h2 id="waste-title" className="text-[15px] font-semibold">Thrown away</h2>
                 <p className="text-[13.5px]" style={{ color: MUTED }}>{money(r.waste.total)} {periodWords(r.period)}: remakes, voids after the kitchen started, and batches past their time.</p>
                 {r.waste.total > 0 && <p className="mt-1 text-[13.5px] tabular-nums">{[r.waste.remakes > 0 ? `Remakes ${money(r.waste.remakes)}` : '', r.waste.voids > 0 ? `voids ${money(r.waste.voids)}` : '', r.waste.batches > 0 ? `batches ${money(r.waste.batches)}` : ''].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase())}.</p>}
+              </section>
+              <section aria-labelledby="staff-title" className="rounded-3xl bg-[#fff] px-5 py-4">
+                <h2 id="staff-title" className="text-[15px] font-semibold">Staff meals</h2>
+                {!r.staffMeals || r.staffMeals.count === 0
+                  ? <p className="text-[13.5px]" style={{ color: MUTED }}>None {periodWords(r.period)}. At the counter, send the order, then pick Staff meal instead of a payment: it comes off stock at what it cost to make, on the books and not a mystery.</p>
+                  : <>
+                    <p className="text-[13.5px]" style={{ color: MUTED }}>{r.staffMeals.count} {periodWords(r.period)}, {money(r.staffMeals.cost)} at what they cost to make. Not counted as sales.</p>
+                    <ul className="mt-2">
+                      {r.staffMeals.by.map((x) => (
+                        <li key={x.for} className="flex justify-between gap-3 border-t py-2 text-[14px]" style={{ borderColor: LINE }}><span>{x.for}<span style={{ color: MUTED }}>, {x.count}</span></span><span className="tabular-nums">{money(x.cost)}</span></li>))}
+                    </ul>
+                    {r.staffMeals.unknown > 0 && <p className="mt-1 text-[13px]" style={{ color: AMBER }}>Some items have no cost yet, so they’re left out.</p>}
+                  </>}
               </section>
             </div>
           </div>

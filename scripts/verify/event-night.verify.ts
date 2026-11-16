@@ -101,7 +101,9 @@ const src = (p: string) => readFileSync(p, 'utf8');
   await db.doc(`${T}/courseFires/f1`).set({ id: 'f1', eventId: 'e1', courseNumber: 1, status: 'fired', firedAt: new Date(Date.now() - 25 * 60000).toISOString() });
   for (let i = 0; i < 4; i++) await db.doc(`${T}/kdsTickets/k${i}`).set({ id: `k${i}`, eventId: 'e1', courseNumber: 1, guestId: `g${i}`, status: i < 3 ? 'delivered' : 'ready', readyAt: new Date(Date.now() - 15 * 60000).toISOString(), deliveredAt: i < 3 ? new Date().toISOString() : null });
   r = await R.POST(req({ tenantId: 't1', eventId: 'e1', action: 'view', fresh: true }));
-  const timeSafe = nowMin >= 90 && nowMin <= 21 * 60;
+  // (An evening event reads a moment before 6 am as after midnight, so the run of show starting an hour back must be after
+  // 6 am for these to hold.)
+  const timeSafe = nowMin >= 7 * 60 && nowMin <= 21 * 60;
   check('on the night: the course fired is done, the next is mains, and its plates out from the kitchen’s tickets', !timeSafe || (r.body.night.state.next.course === 2 && r.body.night.state.states[r.body.night.show[1].id] === 'done' && r.body.night.pacing.out === 3 && r.body.night.pacing.total === 4 && r.body.night.pacing.state === 'on_pace' && r.body.night.pacing.kitchenMin === 10), r.body.night);
   r = await R.POST(req({ tenantId: 't1', eventId: 'e1', action: 'push', minutes: 10 }));
   const after = (await db.doc(`${T}/studioEvents/e1`).get()).data().runOfShow;

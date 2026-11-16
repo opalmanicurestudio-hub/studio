@@ -11,6 +11,11 @@
 //   yield   { tenantId, itemId, usablePct?, cookLossPct?, perEach? } → an ingredient's yield (lib/kitchen-units): the share
 //           usable after trimming (5 to 100), the share lost in cooking when a recipe weighs it cooked (0 to 90), and
 //           what one gives when it's counted one by one ({ amount, unit }, a lemon's 45 ml of juice); empty clears each.
+//   extras  { tenantId, extras: [{ id?, itemId, amount, measure, per, when, sections }] } → what goes out with food and
+//           drink, set once (lib/plate-extras): each checked against the stock and how it's measured; the whole list.
+//   cardFee { tenantId, pct } → what card payments cost, as a share of what's charged (0 to 10%), for each plate's cost.
+//   (The report also gives what a plate really costs at a table and to go, what went out with food and drink, and the
+//   staff meals, lib/counter-server staffMeal.)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -20,8 +25,11 @@ import { isMenuItem } from '@/lib/menu-server';
 import { recipeOf } from '@/lib/menu-stock';
 import { perContainer } from '@/lib/product-cost';
 import { nightBounds, tonight } from '@/lib/night-close-server';
-import { cleanPeriod, cleanTarget, costWith, countRows, itemCost, periodCost, periodDays, targetOf, wasteOf, type CountEntry, type ItemCost, type SoldLine } from '@/lib/food-cost';
-import { cleanPct, cleanPerEach, COOK_LOSS_MAX, USABLE_MIN } from '@/lib/kitchen-units';
+import { cleanPeriod, cleanTarget, costWith, countRows, itemCost, linesCost, partUnitCost, periodCost, periodDays, targetOf, wasteOf, type CountEntry, type ItemCost, type SoldLine } from '@/lib/food-cost';
+import { cleanPct, cleanPerEach, COOK_LOSS_MAX, measuresFor, toStockUnits, USABLE_MIN } from '@/lib/kitchen-units';
+import { cardFeeOf, cleanCardFee, cleanExtras, extrasOf, extraWords, MAX_EXTRAS } from '@/lib/plate-extras';
+import { canBeIngredient } from '@/lib/prep-recipes-server';
+import { unitLabel } from '@/lib/product-cost';
 import { prepOf } from '@/lib/prep-recipes';
 import { changeIds, changesRecipe } from '@/lib/choice-recipe';
 import { picksOf } from '@/lib/menu-choices';
@@ -37,7 +45,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'report');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['report', 'target', 'cost', 'yield'].includes(action)) return bad('Unknown action.');
+  if (!['report', 'target', 'cost', 'yield', 'extras', 'cardFee'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data() || {};
@@ -89,6 +97,31 @@ export async function POST(req: NextRequest) {
     return ok({ itemId, usablePct: patch.usablePct, cookLossPct: patch.cookLossPct, perEach: patch.perEach });
   }
 
+  if (action === 'cardFee') {
+    const pct = cleanCardFee(b.pct); if (pct === null) return bad('Card fees: a share from 0% to 10%, like 2.9.');
+    await db.doc(T).set({ foodCost: { cardFeePct: pct, cardFeeSetBy: by, cardFeeSetAt: now }, updatedAt: now }, { merge: true });
+    return ok({ cardFeePct: pct });
+  }
+
+  if (action === 'extras') {
+    const raw: any[] = Array.isArray(b.extras) ? b.extras : null as any;
+    if (!raw) return bad('Check the list.');
+    if (raw.length > MAX_EXTRAS) return bad(`Up to ${MAX_EXTRAS} of these.`);
+    const list = cleanExtras(raw);
+    if (list.length !== raw.length) return bad('One of them isn’t complete: pick what it is and how much, then save again.');
+    // Each from the business's own stock, in a measure it can be taken off in (a box by the each, napkins by the each).
+    const snaps: any[] = list.length ? await db.getAll(...list.map((e) => db.doc(`${T}/inventory/${e.itemId}`))) : [];
+    for (const [k, e] of list.entries()) {
+      const x: any = snaps[k]?.exists ? snaps[k].data() : null;
+      if (!x || !canBeIngredient(x, e.itemId)) return bad(`${x ? String(x.name || 'One of them') : 'One of them'} isn’t in your stock any more. Pick another.`, 409);
+      if (toStockUnits(e.amount, e.measure, x) === null) return bad(`${String(x.name || 'That')} is counted in ${unitLabel(x)}, so ${e.amount} ${e.measure} can’t be worked out from that. Use ${measuresFor(x).slice(0, 4).join(', ')}.`);
+      e.name = String(x.name || e.name).replace(/\s+/g, ' ').trim().slice(0, 80);
+    }
+    await db.doc(T).set({ foodCost: { extras: list, extrasSetBy: by, extrasSetAt: now }, updatedAt: now }, { merge: true });
+    await logAuditAdmin(db, tenantId, { action: 'food_cost.extras', targetType: 'tenant', targetId: tenantId, summary: `${by} set what goes out with food and drink: ${list.map((e) => `${e.name} ${extraWords(e)}`).join('; ') || 'none'}.`, actor: { type: 'user', id: String(g.actor?.uid || ''), name: by } } as any).catch(() => {});
+    return ok({ extras: list });
+  }
+
   // REPORT
   const period = cleanPeriod(b.period); const target = targetOf(tenant);
   const today = tonight(tenant); const days = periodDays(period, today);
@@ -98,8 +131,10 @@ export async function POST(req: NextRequest) {
   const all = new Map<string, any>(inv.docs.map((d: any) => [d.id, d.data() || {}]));
   const menu = Array.from(all.entries()).filter(([, x]) => isMenuItem(x));
   const costs = new Map<string, ItemCost>();
-  // Every refreshment, on the menu now or not (something sold last week and since taken off still has a cost).
+  // Every refreshment, on the menu now or not (something sold last week and since taken off still has a cost). What a
+  // plate really costs (its extras and card fee) is worked out below, once the stretch's card share is known.
   for (const [id, x] of all) if (x.type === 'refreshment') costs.set(id, itemCost(id, x, all, target));
+  const extras = extrasOf(tenant); const cardPct = cardFeeOf(tenant);
   // The ingredients the menu's recipes use, and the ones still at a typical price.
   // (What its choices can add or swap in, and what a prep recipe in it is made of, two levels down, count too.)
   const used = new Set<string>(); for (const [id, x] of menu) { for (const l of recipeOf(x, id)) used.add(l.id); for (const c of changeIds(x)) used.add(c); }
@@ -121,6 +156,10 @@ export async function POST(req: NextRequest) {
     // Counter and drive-thru orders voided after the kitchen made them (lib/counter-server keeps what was made).
     db.collection(`${T}/counterOrders`).where('voidedAt', '>=', start).where('voidedAt', '<', end).limit(2000).get().catch(() => ({ docs: [] as any[] })),
   ]);
+  // What went out with food and drink (set once: lib/plate-extras), as taken off stock in the stretch. Without the index
+  // for that (marked and dated together), every marked one, kept to the stretch here.
+  const extraSnap: any = await db.collection(`${T}/stockCorrections`).where('extra', '==', true).where('date', '>=', start).where('date', '<', end).limit(5000).get()
+    .catch(() => db.collection(`${T}/stockCorrections`).where('extra', '==', true).limit(5000).get()).catch(() => ({ docs: [] as any[] }));
 
   const sold: SoldLine[] = [];
   // The front desk's sales (a table's tab is paid there): each product line of a receipt, as it was sold, matched to
@@ -140,10 +179,27 @@ export async function POST(req: NextRequest) {
       sold.push({ itemId: id, qty, amount: l ? num(l.amount) : 0, at: String(r.date), ...(each !== undefined ? { each } : {}) });
     });
   }
-  // The counter's and drive-thru's paid orders.
+  // The counter's and drive-thru's paid orders. A staff meal (settled with no money: lib/counter-server staffMeal) isn't a
+  // sale: what it cost is counted apart, by who it was for.
+  const staff = new Map<string, { for: string; count: number; cost: number; unknown: number }>(); let paidCard = 0, paidAll = 0;
+  // What was paid by card at the desk: each payment on the receipt when it lists them (a split bill, a gift card toward
+  // it), else the receipt by how it was paid. A gift card or store credit isn't a card fee.
+  const byCard = (m: unknown) => /card|stripe|terminal|tap|reader|client.?screen/i.test(String(m || '')) && !/gift|credit|store/i.test(String(m || ''));
+  for (const d of rc.docs) {
+    const r: any = d.data() || {}; if (r.voided) continue;
+    const pays: any[] = Array.isArray(r.detail?.payments) && r.detail.payments.length ? r.detail.payments : [{ method: r.paymentMethod, amount: r.total }];
+    for (const x of pays) { const t = num(x?.amount); paidAll += t; if (byCard(x?.method)) paidCard += t; }
+  }
   for (const d of co.docs) {
     const o: any = d.data() || {};
     if (!o.paidAt || o.refundedAt || ['refunded', 'cancelled', 'canceled', 'voided'].includes(String(o.status || ''))) continue;
+    if (o.staffMeal) {
+      const who = String(o.staffMeal.for || 'Team').slice(0, 40); const cur = staff.get(who.toLowerCase()) || { for: who, count: 0, cost: 0, unknown: 0 };
+      cur.count += 1;
+      for (const l of Array.isArray(o.lines) ? o.lines : []) { const id = String(l?.itemId || ''); const x = all.get(id); if (!x) continue; const each = costWith(id, x, all, picksOf(l.choices || [])); if (each === null) cur.unknown += 1; else cur.cost = Math.round((cur.cost + each * num(l.quantity)) * 100) / 100; }
+      staff.set(who.toLowerCase(), cur); continue;
+    }
+    const t = num(o.total); paidAll += t; if (o.payMethod === 'card') paidCard += t;
     for (const l of Array.isArray(o.lines) ? o.lines : []) {
       const id = String(l?.itemId || ''); if (!all.has(id)) continue;
       // Made as it was chosen, when its choices change the recipe (an oat latte costs more than a plain one: lib/choice-recipe).
@@ -152,6 +208,17 @@ export async function POST(req: NextRequest) {
     }
   }
   const report = periodCost(sold, costs, days, dayOf);
+  // What a plate really costs, at a table and to go: its recipe, what goes out with it, and the card fee on the share of
+  // sales paid by card in the stretch (all of it, with nothing sold yet).
+  const cardShare = paidAll > 0 ? Math.round((paidCard / paidAll) * 1000) / 1000 : 1;
+  for (const [id, x] of menu) costs.set(id, itemCost(id, x, all, target, { extras, cardPct, cardShare }));
+  // The extras as set, each with what one costs, and what went out in the stretch.
+  const extrasList = extras.map((e) => ({ ...e, words: extraWords(e), cost: linesCost([{ id: e.itemId, name: e.name, quantityUsed: e.amount, unit: e.measure, amount: e.amount, measure: e.measure }], all).cost }));
+  let extrasCost = 0, extrasUnknown = 0;
+  // (Taken is a negative change; put back by a void, a positive one, counted off.)
+  for (const d of extraSnap.docs) { const e: any = d.data() || {}; if (!(String(e.date || '') >= start && String(e.date || '') < end)) continue; const p = all.get(String(e.productId || '')); const u = p ? partUnitCost(p, all) : null; if (u === null) { extrasUnknown += 1; continue; } extrasCost -= num(e.change) * u; }
+  extrasCost = Math.max(0, extrasCost);
+  const staffMeals = Array.from(staff.values()).sort((a, c) => c.cost - a.cost);
 
   const adjustments = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => (a.kind === 'void_item' || a.kind === 'remake') && a.used === true);
   const voided = voidedOrders.docs.flatMap((d: any) => Object.entries((d.data() || {}).wastedItems || {}).map(([itemId, qty]) => ({ itemId, qty: num(qty) })));
@@ -171,5 +238,7 @@ export async function POST(req: NextRequest) {
     .sort((a, b) => Number(a.needsPrice) - Number(b.needsPrice) || b.soldAmount - a.soldAmount || a.name.localeCompare(b.name));
   // A stretch with more sales than are read at once: said so, rather than a share that looks complete.
   const partial = rc.docs.length >= 5000 || co.docs.length >= 5000 || counted.docs.length >= 5000;
-  return ok({ period, days, today, target, report, items, typical, counts, waste, partial });
+  return ok({ period, days, today, target, report, items, typical, counts, waste, partial,
+    extras: extrasList, cardPct, cardShare, extrasUsed: { cost: Math.round(extrasCost * 100) / 100, unknown: extrasUnknown },
+    staffMeals: { count: staffMeals.reduce((n, m) => n + m.count, 0), cost: Math.round(staffMeals.reduce((n, m) => n + m.cost, 0) * 100) / 100, unknown: staffMeals.reduce((n, m) => n + m.unknown, 0), by: staffMeals } });
 }

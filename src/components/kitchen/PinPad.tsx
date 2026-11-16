@@ -9,8 +9,10 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AM
 
 export type ScreenStaff = { id: string; name: string; pass: string };
 
-export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name on what you do here. The screen works without it.' }: {
+export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name on what you do here. The screen works without it.', title = 'Who’s working?' }: {
   check: (pin: string) => Promise<{ ok: true; staff: ScreenStaff } | { ok: false; error: string }>; onDone: (s: ScreenStaff) => void; onClose: () => void; line?: string;
+  /** What it's for, when it isn't who's working (a manager's PIN to ring in a staff meal). */
+  title?: string;
 }) {
   const say = useT();
   const [pin, setPin] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
@@ -35,7 +37,7 @@ export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="pin-title" className="w-full max-w-xs space-y-4 rounded-3xl bg-[#fff] p-5">
         <div>
-          <h2 id="pin-title" className="text-[20px] font-semibold" style={{ color: INK }}>{say('Who’s working?')}</h2>
+          <h2 id="pin-title" className="text-[20px] font-semibold" style={{ color: INK }}>{say(title)}</h2>
           <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{line}</p>
         </div>
         <div className="flex justify-center gap-3" role="status" aria-label={say('{n} of 4 digits', { n: pin.length })}>

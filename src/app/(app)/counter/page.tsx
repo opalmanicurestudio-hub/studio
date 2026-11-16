@@ -4,12 +4,16 @@
 // order ("C14"); the menu takes it in a few taps (choices and combos too, at the happy-hour price while it's on, and only
 // what's on at this time of day); a first name goes on it; it's sent to the kitchen and paid, in cash with the change
 // worked out or on the card reader. Paid orders wait under "Waiting" until they're ready: "Call" says the name or number
-// out loud on this device and marks it called on every counter screen, and "Handed over" takes it off.
+// out loud on this device and marks it called on every counter screen, and "Handed over" takes it off. "For here or to go"
+// is asked when what goes out with it differs (a box to go: lib/plate-extras); a staff meal is rung in with no money, for
+// the person it's for, and comes off stock at cost (lib/counter-server staffMeal): a manager's to ring in (signed in as
+// one, or their PIN typed here), since it writes the order off and can't be undone.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { send } from '@/lib/outbox';
 import { useKeepPage } from '@/components/pwa/keep-page';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { PinPad } from '@/components/kitchen/PinPad';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
 import type { MenuItem } from '@/lib/menu-server';
@@ -28,9 +32,10 @@ const ON_READER = ['starting', 'on_reader', 'capturing'];
 type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean };
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
-  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null };
+  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
+  toGo?: boolean; staffMeal?: { for: string } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
-type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null };
+type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -89,6 +94,7 @@ export default function CounterPage() {
   const [name, setName] = useState(''); const [cash, setCash] = useState<string | null>(null);
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
+  const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
 
@@ -123,14 +129,14 @@ export default function CounterPage() {
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const act = async (label: string, body: any, after?: (d: any) => void) => {
+  const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
     try {
       const d = await post(body);
       if (d.ok) { if (d.order && lane) setLane((l) => (l ? { ...l, orders: { ...l.orders, [d.order.id]: { ...(l.orders[d.order.id] || {}), ...d.order } } } : l)); after?.(d); }
-      else if (d.error) setNotice({ text: d.error, tone: 'warn' });
+      else if (!onFail?.(d) && d.error) setNotice({ text: d.error, tone: 'warn' });
     } catch { setNotice({ text: 'No connection. Try again.', tone: 'warn' }); }
     finally { acted.current++; setBusy(null); void load(); }
   };
@@ -139,7 +145,16 @@ export default function CounterPage() {
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } if (m.choices.length) setChoiceFor(m); else add(m); };
   const setQty = (l: Line, q: number) => order && act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: rid() } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: rid() });
   const saveName = () => { if (order && name.trim() !== (order.guestName || '')) void post({ action: 'name', orderId: order.id, name: name.trim() }); };
-  const sendIt = () => order && act('send', { action: 'send', orderId: order.id }, () => setNotice({ text: `${order.number} is with the kitchen. Take ${usd(order.total)}.`, tone: 'good' }));
+  const sendIt = () => order && act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' }));
+  // A manager's: one signed in here goes straight through; anyone else is asked for a manager's PIN.
+  const staffDone = (d: any) => { setStaffFor(null); setStaffPin(false); setNotice({ text: `${order?.number}: a staff meal for ${d.for}${d.approvedBy ? `, rung in by ${d.approvedBy}` : ''}. Nothing to take.`, tone: 'good' }); };
+  const staffMeal = () => order && staffFor && staffFor.trim() && act('staff', { action: 'staffMeal', orderId: order.id, for: staffFor.trim() }, staffDone, (d) => { if (!d.needsManager) return false; setStaffPin(true); return true; });
+  const staffPinCheck = async (pin: string) => {
+    if (!order || !staffFor?.trim()) return { ok: false as const, error: 'Type who it’s for first.' };
+    const d = await post({ action: 'staffMeal', orderId: order.id, for: staffFor.trim(), pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    staffDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
+  };
   const paidWords = (d: any, how: string) => (how === 'cash' ? (d.change > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') : 'Paid by card.');
   const pay = (method: 'cash' | 'card', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}) }, (d) => setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' }));
   const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id });
@@ -193,7 +208,7 @@ export default function CounterPage() {
 
         <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl bg-[#fff] p-4 lg:sticky lg:top-4 lg:self-start" style={{ border: `1px solid ${LINE}` }}>
           {!order ? <div className="space-y-3 py-6 text-center"><p className="text-[15px] font-semibold">No guest ordering</p><p className="text-[14px]" style={{ color: MUTED }}>Tap Next guest to start an order. It gets a counter number, like C14, for calling it out.</p></div> : <>
-            <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}</h2>
+            <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}{order.status !== 'building' && order.toGo ? <span className="ml-2 text-[14px] font-medium" style={{ color: MUTED }}>To go</span> : null}</h2>
               {order.status === 'building' && <button type="button" onClick={cancel} disabled={!!busy} className={`${btn} px-3 text-[13.5px]`} style={{ color: MUTED }}>Drop it</button>}</div>
             <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>First name, for calling it out
               <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Optional" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[15px] font-normal outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
@@ -212,8 +227,19 @@ export default function CounterPage() {
               <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{usd(order.tax)}</span></div>
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.total)}</span></div>
             </div>
-            {order.status === 'building' ? <button type="button" disabled={!order.lines.length || !!busy} onClick={() => { saveName(); void sendIt(); }} className={`${btn} min-h-[52px] text-[16px]`} style={dark}>Send and take payment</button>
+            {order.status === 'building' ? <>
+              {lane?.askToGo && <div role="radiogroup" aria-label="For here or to go" className="grid grid-cols-2 gap-1 rounded-xl p-1" style={{ background: SOFT }}>
+                {[{ v: false, label: 'For here' }, { v: true, label: 'To go' }].map((x) => <button key={x.label} type="button" role="radio" aria-checked={toGo === x.v} onClick={() => setToGo(x.v)} className={`min-h-[44px] rounded-lg text-[14.5px] font-semibold ${RING}`} style={toGo === x.v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(22,23,26,0.08)' } : { color: MUTED }}>{x.label}</button>)}
+              </div>}
+              <button type="button" disabled={!order.lines.length || !!busy} onClick={() => { saveName(); void sendIt(); }} className={`${btn} min-h-[52px] text-[16px]`} style={dark}>Send and take payment</button></>
               : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(order.total)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p><button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
+              : staffFor !== null ? <div className="space-y-2">
+                <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Who it’s for
+                  <input autoFocus value={staffFor} onChange={(e) => setStaffFor(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter') void staffMeal(); }} placeholder="First name" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] font-normal outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
+                <p className="text-[13px]" style={{ color: MUTED }}>No money is taken, and it can’t be undone. It comes off stock as usual and shows on Food cost as a staff meal, at what it cost to make. A manager rings it in.</p>
+                <div className="flex gap-2"><button type="button" onClick={() => setStaffFor(null)} className={`${btn} flex-1`} style={quiet}>Back</button>
+                  <button type="button" disabled={!!busy || !staffFor.trim()} onClick={() => void staffMeal()} className={`${btn} flex-[2]`} style={dark}>Ring in as a staff meal</button></div>
+              </div>
               : cash !== null ? <div className="space-y-2">
                 <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Cash handed over
                   <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={order.total.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
@@ -228,6 +254,7 @@ export default function CounterPage() {
                 {readers.length > 1 && <select aria-label="Card reader" value={reader?.id || ''} onChange={(e) => { setReaderId(e.target.value); try { localStorage.setItem(READER_KEY, e.target.value); } catch { /* private window */ } }} className={`min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[14.5px] ${RING}`} style={{ borderColor: LINE }}><option value="">Pick a card reader</option>{readers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
                 {readers.length > 0 && <button type="button" onClick={toReader} disabled={!reader || !!busy} className={`${btn} w-full`} style={quiet}>Card reader{reader && readers.length > 1 ? `: ${reader.label}` : ''}</button>}
                 <button type="button" onClick={() => pay('card')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Paid on another card machine</button>
+                <button type="button" onClick={() => setStaffFor('')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Staff meal</button>
               </div>}
           </>}
         </section>
@@ -240,7 +267,7 @@ export default function CounterPage() {
             const o = g.orderId ? lane?.orders[g.orderId] : undefined; const ready = !!o && (o.kitchen === 'ready' || (o.ticketCount === 0 && o.status !== 'building'));
             return (
               <li key={g.id} className="flex flex-col gap-2 rounded-2xl p-3" style={{ background: ready && !g.calledAt ? GREEN_TINT : SOFT }}>
-                <div><p className="text-[19px] font-semibold">{g.number}{o?.guestName ? ` ${o.guestName}` : ''}</p>
+                <div><p className="text-[19px] font-semibold">{g.number}{o?.guestName ? ` ${o.guestName}` : ''}{o?.staffMeal || o?.toGo ? <span className="ml-2 text-[13.5px] font-medium" style={{ color: MUTED }}>{o.staffMeal ? 'Staff meal' : 'To go'}</span> : null}</p>
                   <p className="text-[13px]" style={{ color: ready && !g.calledAt ? GREEN : MUTED }}>{g.calledAt ? `Called ${minsAgo(g.calledAt, now)}` : ready ? 'Ready' : `Making: ${(o?.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}`}</p></div>
                 {ready && (g.calledAt
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
@@ -249,6 +276,7 @@ export default function CounterPage() {
             ); })}</ul>}
       </section>
     </main>
+    {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q); setChoiceFor(null); }} />}
   </>);
 }

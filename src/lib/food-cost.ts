@@ -7,6 +7,8 @@
 //   ingredient is counted in, more for what trimming and cooking lose), at what one of the ingredient costs: a prep
 //   recipe's from its own recipe at today's costs (lib/prep-recipes). A choice that changes the recipe (lib/choice-recipe)
 //   costs the difference it makes.
+//   What a plate really costs (lib/plate-extras): its recipe, what goes out with it set once (a box to go), and what the
+//   card payment costs, at a table and to go; and so what it keeps.
 import { recipeOf, type RecipeLine } from '@/lib/menu-stock';
 import { costGap, unitCost, unitLabel } from '@/lib/product-cost';
 import { suggestPrice } from '@/lib/food-starters';
@@ -14,6 +16,7 @@ import { hasYield, stockNeed, yieldOf } from '@/lib/kitchen-units';
 import { prepOf } from '@/lib/prep-recipes';
 import { madeWith, optionChanges } from '@/lib/choice-recipe';
 import { choiceGroups, type Picks } from '@/lib/menu-choices';
+import { guestExtras, itemExtras, orderExtras, type Extra, type Mode } from '@/lib/plate-extras';
 
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -83,6 +86,20 @@ export function optionCosts(id: string, item: any, parts: Map<string, any>, base
   }
   return out;
 }
+/** What a plate really costs, at a table or to go: its recipe, what goes out with it (lib/plate-extras), and the card
+ *  fee on its price (on the share paid by card); what that leaves. What goes out once an order or once a guest (a bag to
+ *  go, bread and butter at a table) is counted as if this were all that was ordered (`once`): shared over more, it's
+ *  less. Null while any part of it has no cost. */
+export type PlateCost = { mode: Mode; recipe: number | null; extras: CostLine[]; once: (CostLine & { per: 'order' | 'guest' })[]; extrasCost: number | null; cardFee: number; cardPct: number; cardShare: number; total: number | null; share: number | null; keeps: number | null };
+export function plateCost(item: any, parts: Map<string, any>, recipe: number | null, extras: Extra[], mode: Mode, cardPct: number, cardShare = 1): PlateCost {
+  const price = Math.max(0, num(item?.price)); const ex = linesCost(itemExtras(extras, item, mode), parts);
+  const byOrder = orderExtras(extras, mode); const once = linesCost([...byOrder, ...(mode === 'here' ? guestExtras(extras, 1) : [])], parts);
+  const extrasCost = ex.cost === null || once.cost === null ? null : r2(ex.cost + once.cost);
+  const share = Math.max(0, Math.min(1, cardShare)); const cardFee = r2(price * (Math.max(0, cardPct) / 100) * share);
+  const total = recipe === null || extrasCost === null ? null : r2(recipe + extrasCost + cardFee);
+  return { mode, recipe, extras: ex.lines, once: once.lines.map((l, i) => ({ ...l, per: i < byOrder.length ? 'order' as const : 'guest' as const })), extrasCost, cardFee, cardPct, cardShare: share, total, share: total !== null && price > 0 ? total / price : null, keeps: total !== null ? r2(price - total) : null };
+}
+
 export type ItemCost = {
   id: string; name: string; price: number;
   /** What one costs to make; null while any part has no cost (see gaps). */
@@ -103,10 +120,12 @@ export type ItemCost = {
   needsPrice: boolean;
   /** Its choices that charge something or change the recipe, each with what it costs and keeps. */
   options: OptionCost[];
+  /** What a plate really costs at a table and to go, when the business's extras and card fee are given. */
+  plates?: { here: PlateCost; togo: PlateCost };
 };
 
 /** One menu item's cost to make, from its recipe and each part as Inventory has it (`parts` by id). */
-export function itemCost(id: string, item: any, parts: Map<string, any>, target: number): ItemCost {
+export function itemCost(id: string, item: any, parts: Map<string, any>, target: number, plate?: { extras: Extra[]; cardPct: number; cardShare?: number }): ItemCost {
   const recipe = recipeOf(item, id);
   const price = Math.max(0, num(item?.price));
   let lines: CostLine[] = []; let cost: number | null; let typical: boolean; const gaps: { name: string; why: string }[] = [];
@@ -128,6 +147,7 @@ export function itemCost(id: string, item: any, parts: Map<string, any>, target:
     missing: (Array.isArray(item?.recipeGaps) ? item.recipeGaps : []).map(String).filter(Boolean).slice(0, 10),
     share, target, over, fix: over && cost !== null ? suggestPrice(cost, target) : null,
     biggest: costed.length > 1 ? costed[0] : null, needsPrice: !(price > 0), options: optionCosts(id, item, parts, cost),
+    ...(plate ? { plates: { here: plateCost(item, parts, cost, plate.extras, 'here', plate.cardPct, plate.cardShare), togo: plateCost(item, parts, cost, plate.extras, 'togo', plate.cardPct, plate.cardShare) } } : {}),
   };
 }
 
