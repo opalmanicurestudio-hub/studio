@@ -150,6 +150,42 @@ const src = (p: string) => readFileSync(p, 'utf8');
   r = await R({ action: 'csv', month: prev, kind: 'declared' });
   check('the signed copies as a file', r.body.ok && r.body.csv.includes(`Sam Ortiz,${prev},45,0,30,Sam Ortiz`), r.body.csv);
 
+  console.log('the reports');
+  const KIT = await import('../../src/lib/report-kit');
+  check('a cell as the page shows it: money to the cent with a real minus, a day and a month in words, counts whole', KIT.cellText({ label: 'x', kind: 'money' }, -12.5) === '−$12.50' && KIT.cellText({ label: 'x', kind: 'money' }, 1234) === '$1,234.00'
+    && KIT.cellText({ label: 'x', kind: 'date' }, '2026-10-03') === 'Oct 3' && KIT.cellText({ label: 'x', kind: 'month' }, '2026-10') === 'October 2026' && KIT.cellText({ label: 'x', kind: 'count' }, 1234.4) === '1,234' && KIT.cellText({ label: 'x', kind: 'date' }, 'Not yet') === 'Not yet' && KIT.cellText({ label: 'x', kind: 'money' }, '') === '');
+  check('a big number reads whole, a small one to the cent; a change in words', KIT.kpiDollars(55472.4) === '$55,472' && KIT.kpiDollars(412.5) === '$412.50' && KIT.changeWords(106, 100, 'September')?.text === 'Up 6% on September.' && KIT.changeWords(97, 100, 'September')?.text === 'Down 3% on September.' && KIT.changeWords(100.4, 100, 'September')?.text === 'About the same as September.' && KIT.changeWords(5, 0, 'September') === null);
+  check('the totals row adds the columns marked, to the cent; the spreadsheet has no totals row', JSON.stringify(KIT.totalsOf([{ label: 'A', kind: 'text' }, { label: 'B', kind: 'money', total: true }, { label: 'C', kind: 'text' }], [['x', 0.1, 'a'], ['y', 0.2, 'b']], 'All')) === JSON.stringify(['All', 0.3, null])
+    && KIT.reportCsv({ columns: [{ label: 'A', kind: 'text' }, { label: 'B', kind: 'money' }], rows: [['x', 1.5]] }) === 'A,B\r\nx,1.5\r\n');
+  const report = async (kind: string) => { const x = await R({ action: 'report', month: prev, kind }); const c = await R({ action: 'csv', month: prev, kind }); return { rep: x.body.report, ok: x.body.ok && c.body.ok, csv: c.body.csv as string, today: x.body.today }; };
+  let rp = await report('nights');
+  const tax = rp.rep?.kpis.find((k: any) => k.label === 'Sales tax collected');
+  check('nightly closes as a report: what it is; sales $1,200, the best night $1,000, $96 of tax', rp.ok && /Your accountant uses it/.test(rp.rep.what) && rp.rep.kpis[0].value === '$1,200' && rp.rep.kpis.find((k: any) => k.label === 'Best night').value === '$1,000' && tax.value === '$96.00' && rp.today, rp.rep?.kpis);
+  check('…worth a look: the night with sales that wasn’t closed, with where to close it', rp.rep.notes[0].tone === 'warn' && rp.rep.notes[0].text.includes(KIT.dayWords(dayOf(5))) && /wasn’t closed/.test(rp.rep.notes[0].text) && rp.rep.notes[0].href === '/close', rp.rep.notes);
+  check('…the picture: a bar a day, that night amber and named in the legend, the average marked', rp.rep.chart.bars.length === RL.monthDays(prev, rp.today).length && rp.rep.chart.bars[4].tone === 'warn' && rp.rep.chart.bars[2].value === 1000 && rp.rep.chart.legend.some((l: any) => l.label === 'Not closed') && rp.rep.chart.avg.value === 600, rp.rep.chart.avg);
+  check('…the table: a row a day with the month’s totals; the spreadsheet is the same table, the same columns', rp.rep.rows.length === rp.rep.chart.bars.length && rp.rep.totals[3] === 1200 && rp.rep.totals[4] === 96 && rp.csv === KIT.reportCsv(rp.rep) && rp.csv.split('\r\n')[0] === rp.rep.columns.map((c: any) => c.label).join(',') && rp.rep.file === `north-loft-nightly-closes-${prev}.csv`);
+  check('…and how to read it', rp.rep.glossary.length >= 3 && rp.rep.glossary.some(([t]: any) => t === 'Drawers'));
+  check('…the month’s sales kept by day once it’s over (for next month’s comparison); the spreadsheet alone reads nothing more', JSON.stringify((await get(`${T}/recordsNights/${prev}`))?.byDay?.slice(0, 5)) === JSON.stringify([0, 0, 1000, 0, 200]));
+  await db.doc(`${T}/recordsNights/${RL.prevMonth(prev)}`).delete();
+  await R({ action: 'csv', month: prev, kind: 'nights' }); await R({ action: 'csv', month: prev, kind: 'adjustments' });
+  check('…a spreadsheet works out no comparison', !(await get(`${T}/recordsNights/${RL.prevMonth(prev)}`)));
+  const cur = (await R({ action: 'report', month, kind: 'nights' })).body.report; const nDays = RL.monthDays(month, rp.today).length;
+  check('this month so far is set against the same days of last month (the days already done), never the whole of it', nDays < 6 || new RegExp(`on the first ${nDays - 1} days of ${RL.monthWords(prev).split(' ')[0]}`).test(cur.kpis[0].note), cur.kpis[0].note);
+  rp = await report('declared');
+  check('the average night is over the nights with sales', (await R({ action: 'report', month: prev, kind: 'nights' })).body.report.kpis[1].value === '$600.00');
+  check('cash tips declared: Sam signed, Lee not yet ($25 in cash), 1 of 2 declared', rp.ok && rp.rep.kpis[0].value === '1 of 2' && rp.rep.rows.some((r: any) => r[0] === 'Lee Park' && r[6] === 'Not yet' && r[4] === 25) && rp.rep.notes.some((n: any) => /Lee Park hasn’t declared/.test(n.text)) && rp.csv.includes('Lee Park') && rp.rep.columns[1].kind === 'month', rp.rep?.rows);
+  rp = await report('tips');
+  check('tips by person: what they came to, on cards, against food and drink sales (8.75%, over 8%)', rp.ok && rp.rep.kpis[0].value === '$115.00' && rp.rep.kpis.find((k: any) => /Against/.test(k.label)).value === '8.8%' && rp.rep.kpis.find((k: any) => /Against/.test(k.label)).tone === 'ok' && rp.rep.rows.length === 2, rp.rep?.kpis);
+  rp = await report('stock');
+  check('what one costs reads to the fraction of a cent', KIT.cellText({ label: 'x', kind: 'price' }, 0.0125) === '$0.0125' && KIT.cellText({ label: 'x', kind: 'price' }, 4) === '$4.00');
+  check('stock value: $102 on the shelf now (nothing kept for that month, said), the value by item', rp.ok && rp.rep.kpis[0].value === '$102.00' && rp.rep.kpis[0].tone === 'warn' && rp.rep.notes.some((n: any) => /No stock value was kept/.test(n.text)) && rp.rep.totals[5] === 102, rp.rep?.kpis);
+  rp = await report('purchases');
+  check('purchases: $88.50 on 2 orders from 2 suppliers, with whether each invoice is attached', rp.ok && rp.rep.kpis[0].value === '$88.50' && rp.rep.kpis[1].value === '2' && /of 2/.test(rp.rep.kpis[2].value) && rp.rep.chart?.bars.length === 2, rp.rep?.kpis);
+  rp = await report('adjustments');
+  check('comps and voids: $24 comped, $9 voided, 2.8% of sales, Dev the most', rp.ok && rp.rep.kpis[0].value === '$24.00' && rp.rep.kpis[1].value === '$9.00' && rp.rep.kpis[2].value === '2.8%' && rp.rep.kpis[3].value === 'Dev' && rp.rep.columns[2].label === 'Comped (dollars)', rp.rep?.kpis);
+  check('a report that isn’t one, or a month to come, is said; reports are a manager’s', (await R({ action: 'report', month: prev, kind: 'secrets' })).status === 400 && (await R({ action: 'report', month: '2099-01', kind: 'nights' })).status === 400
+    && await (async () => { manager = false; const x = (await R({ action: 'report', month: prev, kind: 'nights' })).status === 403; manager = true; return x; })());
+
   console.log('the shelf’s value, kept');
   r = await R({ action: 'keepStock', month });
   const kept: any = await get(`${T}/stockValues/${month}`);
@@ -173,6 +209,12 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('the nightly run keeps last month’s only on the business’s first days of a month', /stockSnapshotSweep/.test(src('src/app/api/cron/nightly/route.ts')) && /> 3\) return false/.test(src('src/lib/records-server.ts')));
 
   console.log('the screens');
+  const view = src('src/components/reports/ReportView.tsx'); const rpage = src('src/app/(app)/records/[kind]/page.tsx'); const recs = src('src/app/(app)/records/page.tsx');
+  check('every record opens as a report from Records, beside its spreadsheet', /href=\{`\/records\/\$\{kind\}\?month=/.test(recs) && />CSV</.test(recs.replace(/\{busy === kind \? 'Getting it…' : 'CSV'\}/, '>CSV<')) && /action: 'report'/.test(rpage) && /action: 'csv'/.test(rpage));
+  check('…the report: what it is, the numbers, a picture, worth a look, in detail, how to read it; printed whole with the business and page numbers at the foot', /What this is:/.test(view) && /aria-label="The numbers that matter"/.test(view) && /<BarChart chart=/.test(view) && />Worth a look</.test(view) && />In detail</.test(view) && /How to read it/.test(view)
+    && /Print or save as PDF/.test(view) && /Download spreadsheet \(CSV\)/.test(view) && /counter\(pages\)/.test(view) && /so no name can end the style/.test(view) && /\.replace\(\/\[\^\\p\{L\}\\p\{N\} \.,'&\(\)-\]\/gu, ''\)/.test(view) && /hidden print:table-row/.test(view) && /print:overflow-visible/.test(view));
+  check('…the chart: thin bars rounded at the top, a hairline grid, a value on hover, every number in the table', /Math\.min\(24/.test(view) && /onMouseEnter=\{\(\) => setHover\(i\)\}/.test(view) && /Every value is in the table below/.test(view) && /ResizeObserver/.test(view));
+  check('…in the app’s own words and look', !/uppercase|font-black|\{\/\*| · /.test(view + rpage) && !/[\u{1F300}-\u{1FAFF}]/u.test(view + rpage) && /min-h-\[44px\]/.test(view) && /bg-\[#fff\]/.test(view));
   const files = ['src/app/(app)/records/page.tsx', 'src/components/visit/DeclareTips.tsx'];
   const bad = files.filter((f) => /\{\/\*/.test(src(f)) || /\buppercase\b/.test(src(f)) || /font-black/.test(src(f)) || / · /.test(src(f)) || /contact us|call us/i.test(src(f)));
   check('no JSX comments, capitals, heavy type or dots between words', bad.length === 0, bad);

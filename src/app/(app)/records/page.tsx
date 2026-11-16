@@ -10,6 +10,9 @@ import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { monthWords, recentMonths } from '@/lib/records';
+import { RECORD_REPORTS } from '@/lib/report-kit';
+
+const REPORT_TITLE: Record<string, string> = Object.fromEntries(RECORD_REPORTS.map((x) => [x.kind, x.title]));
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -84,7 +87,12 @@ export default function RecordsPage() {
     if (!current && !r.stock.kept) finish.push('no stock value was kept for the month');
   }
   // Render helpers (plain functions, so nothing is remounted on a re-render and focus stays where it was).
-  const dlBtn = (kind: string) => <button type="button" onClick={() => void download(kind)} disabled={busy === kind} className={BTN} style={{ border: `1px solid ${LINE}` }}>{busy === kind ? 'Getting it…' : 'Download'}</button>;
+  // Each record opens as a report (the numbers that matter, a picture, the table; printed or saved as a PDF), or comes
+  // straight down as a spreadsheet.
+  const dlBtn = (kind: string) => <>
+    <Link href={`/records/${kind}?month=${r?.month || ''}`} className={BTN} style={{ border: `1px solid ${LINE}` }} aria-label={`Open the report: ${REPORT_TITLE[kind] || 'this record'}`}>Open</Link>
+    <button type="button" onClick={() => void download(kind)} disabled={busy === kind} className={BTN} style={{ border: `1px solid ${LINE}` }} aria-label={`Download ${REPORT_TITLE[kind] || 'this record'} as a spreadsheet (CSV)`}>{busy === kind ? 'Getting it…' : 'CSV'}</button>
+  </>;
   const openBtn = (href: string) => <Link href={href} className={BTN} style={{ border: `1px solid ${LINE}` }}>Open</Link>;
   const moreBtn = (id: string, label: string) => (
     <button type="button" onClick={() => setOpen(open === id ? null : id)} aria-expanded={open === id} className={`mt-0.5 inline-flex min-h-[44px] items-center text-[13px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{open === id ? 'Hide' : label}</button>);
@@ -95,7 +103,7 @@ export default function RecordsPage() {
           <p className="flex flex-wrap items-center gap-1.5 text-[14.5px] font-semibold">{x.name}{x.pill}</p>
           <div className="mt-0.5 text-[13px] leading-snug" style={{ color: MUTED }}>{x.sub}</div>
         </div>
-        {x.action}
+        {x.action && <div className="flex shrink-0 gap-2">{x.action}</div>}
       </div>
       {x.more}
     </li>);
@@ -106,7 +114,7 @@ export default function RecordsPage() {
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-[28px] font-semibold tracking-tight">Records</h1>
-            <p className="max-w-2xl text-[15px]" style={{ color: MUTED }}>What your accountant, a payroll check or the IRS asks for, a month at a time. Download each one as a spreadsheet, or open it where it lives.</p>
+            <p className="max-w-2xl text-[15px]" style={{ color: MUTED }}>What your accountant, a payroll check or the IRS asks for, a month at a time. Open each one as a report to read or print, or download it as a spreadsheet (CSV).</p>
           </div>
           {r && (
             <label className="block"><span className="sr-only">Which month</span>

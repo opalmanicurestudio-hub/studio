@@ -6,6 +6,8 @@
 //   log           { tenantId, kind: 'delivery'|'hot'|'cold', item, tempF, supplier?, deliveryKind?, note? } → a reading,
 //                 logged by the manager (the kitchen screen logs them too, api/kitchen 'safetyLog'; cooling is only logged
 //                 there, since the screen asks for each check when it's due)
+//   csv           { tenantId, month? } → every reading that month as a spreadsheet ({ name, csv }): when, the log, what,
+//                 the temperature, its limit, whether it was within it, who took it and what was done
 //   coolDone      { tenantId, logId, done } → what was done about a cooling batch that missed its mark with nothing
 //                 written down (reheated, or thrown out), once
 //   permit        { tenantId, id?, kind, label?, staffId?, expires?, note? } → a certificate or permit added or changed
@@ -20,7 +22,9 @@ import { requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { tonight } from '@/lib/night-close-server';
 import { cleanMonth, monthOfDay } from '@/lib/records';
-import { addIncident, addService, binderView, clearIncident, coolCheck, recordLog, SafetyStop, savePermit } from '@/lib/food-safety-server';
+import { addIncident, addService, binderView, clearIncident, coolCheck, monthSafety, recordLog, SafetyStop, savePermit } from '@/lib/food-safety-server';
+import { fileName } from '@/lib/report-kit';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -31,7 +35,7 @@ export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({}));
   const tenantId = String(b.tenantId || ''); const action = String(b.action || 'view');
   if (!ID.test(tenantId)) return bad('Which business?');
-  if (!['view', 'log', 'coolDone', 'permit', 'permitRemove', 'service', 'incident', 'incidentClear'].includes(action)) return bad('Unknown action.');
+  if (!['view', 'csv', 'log', 'coolDone', 'permit', 'permitRemove', 'service', 'incident', 'incidentClear'].includes(action)) return bad('Unknown action.');
   const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const tenant: any = (await db.doc(T).get()).data() || {};
@@ -41,6 +45,12 @@ export async function POST(req: NextRequest) {
       const today = tonight(tenant); const month = cleanMonth(b.month) || monthOfDay(today);
       if (month > monthOfDay(today)) return bad('That month hasn’t started yet.');
       return ok({ ...(await binderView(db, tenantId, tenant, month)), business: String(tenant.name || '') });
+    }
+    if (action === 'csv') {
+      const today = tonight(tenant); const month = cleanMonth(b.month) || monthOfDay(today);
+      if (month > monthOfDay(today)) return bad('That month hasn’t started yet.');
+      const { safetyCsv } = await import('@/lib/food-safety-server');
+      return ok({ name: fileName(String(tenant.name || ''), 'temperature-logs', month), csv: safetyCsv((await monthSafety(db, tenantId, tenant, month)).logs, tenantTimeZone(tenant)) });
     }
     if (action === 'log') {
       if (!['delivery', 'hot', 'cold'].includes(String(b.kind))) return bad('Cooling is logged on the kitchen screen, which asks for each check when it’s due.');

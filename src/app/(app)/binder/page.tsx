@@ -80,6 +80,16 @@ export default function BinderPage() {
     if (!d.ok) { setFormErr(d.error || 'That didn’t save. Try again.'); return false; }
     setSaid(done); await load(); return true;
   };
+  // Every reading in the month as a spreadsheet, for the inspector or the health department.
+  const downloadCsv = async () => {
+    if (!tenantId || !v) return; setBusy('csv'); setErr('');
+    const d = await post({ tenantId, action: 'csv', month: v.month }); setBusy(null);
+    if (!d.ok) { setErr(d.error || 'That didn’t download. Try again.'); return; }
+    try {
+      const url = URL.createObjectURL(new Blob([d.csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a'); a.href = url; a.download = d.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch { setErr('That didn’t download. Try again.'); }
+  };
   const closeForms = () => { setLogForm(null); setPermitForm(null); setSvc(null); setInc(null); setFormErr(''); setRemoving(null); };
 
   const tz = v?.timeZone;
@@ -184,6 +194,7 @@ export default function BinderPage() {
           {v && (
             <div className="flex flex-wrap items-center gap-2 print:hidden">
               <button type="button" onClick={() => window.print()} className={BTN} style={{ border: `1px solid ${LINE}` }}>Print the binder</button>
+              <button type="button" onClick={() => void downloadCsv()} disabled={busy === 'csv'} className={BTN} style={{ border: `1px solid ${LINE}` }}>{busy === 'csv' ? 'Getting it…' : 'Readings (CSV)'}</button>
               <label className="block"><span className="sr-only">Which month</span>
                 <select value={v.month} onChange={(e) => { setMonth(e.target.value); setOpen(null); setSaid(''); closeForms(); }} className={`min-h-[44px] rounded-full border-0 px-4 text-[14.5px] font-semibold ${RING}`} style={{ background: INK, color: '#fff' }}>
                   {recentMonths(v.today).map((m) => <option key={m} value={m}>{monthWords(m)}</option>)}

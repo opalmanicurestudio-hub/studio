@@ -173,6 +173,9 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00
   check('the month: every reading taken, the closing temperatures (one out) and the dish machine (one out)', r.ok && r.month === month && r.safety.logs.length === 7 && r.safety.closing.nights === 1 && r.safety.closing.readings === 2 && r.safety.closing.out.length === 1 && r.safety.closing.out[0].label === 'Freezer' && r.safety.closing.out[0].tempF === 4 && r.safety.closing.out[0].note === 'Called for service' && r.safety.closing.out[0].day === today && r.safety.machine.readings === 2 && r.safety.machine.out === 1 && r.timeZone === 'UTC' && r.business === 'North Loft', r.safety);
   check('…in the order they were taken, the cooling with its checks and what was done', r.safety.logs[0].kind === 'delivery' && r.safety.logs.find((l: any) => l.id === rice.id).cooling.done === 'Thrown out' && r.safety.logs.find((l: any) => l.id === stock.id).cooling.checks.length === 2);
   check('a month to come isn’t one', (await B({ action: 'view', month: '2099-01' })).status === 400);
+  r = await B({ action: 'csv', month });
+  check('every reading as a spreadsheet: when, the log, what, the temperature, its limit, whether it was within it, who, what was done', r.ok && r.name === `north-loft-temperature-logs-${month}.csv` && r.csv.startsWith('When,Log,What,From,Temperature (°F),Limit,Within the limit,Taken by,What was done')
+    && r.csv.includes('Chicken thighs,Valley Foods,46,41°F or below,No,Kim Lee,Sent back with the driver') && /Rice,,170,.*,No,Kim Lee,"75°F at .*Missed its mark: Thrown out \(Kim Lee\)/.test(r.csv), r.csv?.split('\r\n').slice(0, 4));
 
   console.log('certificates and permits');
   r = await B({ action: 'permit', kind: 'handler' });
@@ -270,7 +273,7 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00
 
   console.log('the screens');
   const page = src('src/app/(app)/binder/page.tsx'); const sheet = src('src/components/kitchen/SafetySheet.tsx'); const kds = src('src/app/kds/[tenantId]/page.tsx');
-  check('the Binder page: the month, print, each part, through the binder’s own server route', /'\/api\/binder'/.test(page) && />Print the binder</.test(page) && /window\.print\(\)/.test(page) && /Temperature logs, \{words\}/.test(page) && /Certificates and permits/.test(page) && /Equipment and service/.test(page) && /Allergens, dish by dish/.test(page) && /Incidents and illness/.test(page) && /recentMonths/.test(page));
+  check('the Binder page: the month, print, the readings as a spreadsheet, each part, through the binder’s own server route', /'\/api\/binder'/.test(page) && />Print the binder</.test(page) && /action: 'csv', month: v\.month/.test(page) && /window\.print\(\)/.test(page) && /Temperature logs, \{words\}/.test(page) && /Certificates and permits/.test(page) && /Equipment and service/.test(page) && /Allergens, dish by dish/.test(page) && /Incidents and illness/.test(page) && /recentMonths/.test(page));
   check('…printed without the app around it, forms left off, every reading on paper', /\[data-sidebar\], \.group\.peer, header \{ display: none !important; \}/.test(page) && /'hidden print:block'/.test(page) && (page.match(/print:hidden/g) || []).length >= 6);
   check('…a missed batch with nothing written asks what was done, right there, and asks again before writing it', /action: 'coolDone', logId: l\.id, done: coolPick\.done/.test(page) && /what was done\?/.test(page) && /It can’t be changed after/.test(page) && /\(written later, by /.test(page));
   check('…no license numbers asked for, and only who and when for someone sent home', /No license or ID numbers here/.test(page) && /Only who and when is kept, never why/.test(page));

@@ -19,7 +19,7 @@ import { addDaysISO } from '@/lib/maintenance';
 import { cleanIncident, cleanLog, cleanPermit, cleanTemp, coolState, daysLeft, limitWords, permitState, REMIND_DAYS, SERVICE_PRESETS, tempOk, type CoolCheck, type LogKind } from '@/lib/food-safety';
 import { ALLERGENS, allergensKnown, itemAllergens } from '@/lib/allergens';
 import { isMenuItem } from '@/lib/menu-server';
-import { monthDays } from '@/lib/records';
+import { monthDays, toCsv } from '@/lib/records';
 
 export class SafetyStop extends Error { constructor(public msg: string, public status = 400) { super(msg); } }
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -138,6 +138,17 @@ export async function todaySafety(db: any, tenantId: string, tenant: any): Promi
   }
   undone.sort((a, b) => String(a.cooling!.dueAt).localeCompare(String(b.cooling!.dueAt)));
   return { day, logs, cooling, undone };
+}
+
+/** Every reading as a spreadsheet, in the order they were taken: when (the business's own clock), the log, what, the
+ *  temperature, its limit, whether it was within it, who took it, and what was done (a cooling batch's checks in words). */
+export function safetyCsv(logs: LogView[], tz: string): string {
+  const when = (iso: string) => { try { return new Date(iso).toLocaleString('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: 'numeric', minute: '2-digit' }); } catch { return iso; } };
+  const kindOf = (l: LogView) => (l.kind === 'delivery' ? `Delivery, ${l.deliveryKind || 'cold'}` : l.kind === 'cooling' ? 'Cooling' : l.kind === 'hot' ? 'Hot holding' : 'Cold holding');
+  const cool = (l: LogView) => { const c = l.cooling; if (!c) return ''; const checks = c.checks.map((k) => `${k.tempF}°F at ${when(k.at)} (${k.by})`).join('; ');
+    return `${checks}${checks ? '. ' : ''}${c.state === 'done' ? 'Cooled in time.' : c.state === 'missed' ? `Missed its mark${c.done ? `: ${c.done}${c.doneBy ? ` (${c.doneBy})` : ''}` : ', nothing written about what was done'}.` : `Still cooling, next ${c.dueWords}.`}`; };
+  return toCsv(['When', 'Log', 'What', 'From', 'Temperature (°F)', 'Limit', 'Within the limit', 'Taken by', 'What was done'],
+    logs.map((l) => [when(l.at), kindOf(l), l.item, l.supplier || '', l.tempF, l.limit, l.kind === 'cooling' ? (l.cooling?.state === 'missed' ? 'No' : l.cooling?.state === 'done' ? 'Yes' : 'Still cooling') : l.ok ? 'Yes' : 'No', l.by, l.kind === 'cooling' ? cool(l) : l.note || '']));
 }
 
 /** The month for the binder: every log, and the closing temperatures and dish machine readings, with what was out. */
