@@ -56,6 +56,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } from '@/lib/confirm-ask';
 import { automationOn } from '@/lib/automation-switches';
 import { onTeam } from '@/lib/team-member';
+import { moduleEnabled } from '@/lib/modules';
 /** A booking that took place (or was booked and held): not cancelled or missed, not waiting on payment, and not a request
  *  that was declined, ran out or was never accepted. Thank-you and review messages go only to these. */
 const NOT_A_VISIT = new Set(['cancelled', 'canceled', 'no_show', 'no-show', 'noshow', 'pending_payment', 'pending', 'requested', 'declined', 'provider_declined', 'asking_provider', 'expired', 'released', 'rejected']);
@@ -72,6 +73,9 @@ export async function GET(req: NextRequest) {
     const tid = tDoc.id;
     // Daily safety net for payment deadlines (the booking page also runs this while busy).
     try { await releaseUnpaidHolds(db, tid); } catch (e) { console.error('[cron] release-unpaid', tid, e); }
+    // Food safety: a batch cooling past its mark with nobody checking is marked missed and the managers told (the kitchen
+    // screen does this every minute while it's open; this catches the rest).
+    if (moduleEnabled(tDoc.data(), 'hospitality')) { try { const { coolingSweep } = await import('@/lib/food-safety-server'); await coolingSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] cooling', tid, e); } }
     // Gift cards set to send on a chosen day (a birthday) go out on the hour they're due.
     try { const { giftGroupSweep } = await import('@/lib/gift-groups'); await giftGroupSweep(db, tid); } catch (e) { console.error('[cron] gift groups', e); }
     try { const { giftSendSweep } = await import('@/lib/gift-cards'); await giftSendSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] gift cards', tid, e); }

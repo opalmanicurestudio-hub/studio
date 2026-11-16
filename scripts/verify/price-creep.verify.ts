@@ -95,7 +95,9 @@ const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
   const moves = r.body.moves || [];
   check('the last 30 days: beef patties first (it pushed the burger over the aim), then oat milk; buns not at all', r.body.ok && moves.map((m: any) => m.id).join() === 'patties,oat' && moves[0].dishes[0].crossed === true && moves[1].options.length === 1, moves.map((m: any) => [m.id, m.pct]));
   r = await fc(req({ tenantId: 't1', action: 'report', period: 'last' }));
-  check('…a stretch with no deliveries has none', r.body.ok && Array.isArray(r.body.moves) && !r.body.moves.some((m: any) => m.id === 'patties' && m.batchId === 'b3'));
+  // A delivery two days ago is in last week when this runs early in the week: the stretch shows what's in it, never what isn't.
+  const inLast = (r.body.days || []).includes(ago(2).slice(0, 10));
+  check('…last week shows only what was delivered in it', r.body.ok && Array.isArray(r.body.moves) && r.body.moves.some((m: any) => m.id === 'patties' && m.batchId === 'b3') === inLast, { inLast, days: r.body.days });
 
   console.log('pricing it');
   const P = (b: any) => fc(req({ tenantId: 't1', action: 'price', ...b }));

@@ -84,6 +84,8 @@ const STUDIO_ASSETS = [
   { href: '/inventory/ordering', icon: ShoppingCart, label: 'Ordering'     },
   { href: '/menu',        icon: Coffee,        label: 'Menu'               },
   { href: '/food-cost',   icon: PieChart,      label: 'Food cost'          },
+  // Every food safety log, certificate and permit in one place, for the inspector (/binder).
+  { href: '/binder',      icon: ClipboardList, label: 'Inspection binder'  },
   { href: '/briefing',    icon: NotebookPen,   label: 'Pre-shift briefing' },
   { href: '/inventory/distribution', icon: Boxes, label: 'Distribution' },
   { href: '/inventory/codes', icon: ScanBarcode, label: 'Codes and listings' },

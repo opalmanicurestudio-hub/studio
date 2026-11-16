@@ -32,6 +32,7 @@ import { timeLeft } from '@/lib/counter-orders';
 import { PinPad as SharedPinPad } from '@/components/kitchen/PinPad';
 import { ExpoView } from '@/components/kitchen/ExpoView';
 import { ClosingSheet } from '@/components/kitchen/ClosingSheet';
+import { SafetySheet } from '@/components/kitchen/SafetySheet';
 import { CallSheet, CallStrip } from '@/components/kitchen/CallSheet';
 import { FloorNoteSheet } from '@/components/kitchen/FloorNoteSheet';
 import { tableLabel } from '@/lib/table-service';
@@ -590,6 +591,9 @@ function KitchenScreenInner() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [soldOpen, setSoldOpen] = useState(false);
   const [closingOpen, setClosingOpen] = useState(false);
+  // Food safety (components/kitchen/SafetySheet): the batches cooling, read every minute, so a check coming due shows here.
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [coolDue, setCoolDue] = useState<{ id: string; item: string; dueAt: string; stage: number; missed?: boolean }[]>([]);
   const [countsOpen, setCountsOpen] = useState(false);
   // Calls to the dish pit and the barback from this screen (components/kitchen/CallSheet, api/back), and who's coming.
   const [callOpen, setCallOpen] = useState(false); const [myCalls, setMyCalls] = useState<Call[]>([]); const [callTick, setCallTick] = useState(0);
@@ -645,6 +649,13 @@ function KitchenScreenInner() {
     const d = await r.json().catch(() => ({}));
     return { status: r.status, d };
   }, [tenantId, key]);
+
+  useEffect(() => {
+    if (!tenantId) return; let stop = false;
+    const go = async () => { const { d } = await post({ action: 'safety' }).catch(() => ({ d: null as any })); if (!stop && d?.ok) setCoolDue([...(d.undone || []).map((c: any) => ({ id: c.id, item: c.item, dueAt: c.cooling.dueAt, stage: c.cooling.stage, missed: true })), ...(d.cooling || []).map((c: any) => ({ id: c.id, item: c.item, dueAt: c.cooling.dueAt, stage: c.cooling.stage })).filter((c: any) => Date.parse(c.dueAt) - Date.now() < 15 * 60000)]); };
+    void go(); const i = setInterval(() => { if (document.visibilityState === 'visible') void go(); }, 60000);
+    return () => { stop = true; clearInterval(i); };
+  }, [tenantId, post, safetyOpen]);
 
   // The dish pit and the barback (api/back), with this screen's key and whoever's working.
   const postBack = useCallback(async (body: any) => {
@@ -938,6 +949,7 @@ function KitchenScreenInner() {
             <button type="button" onClick={() => setCountsOpen(true)} className={btn} style={quiet}>{say('Counts')}</button>
             <button type="button" onClick={() => setCallOpen(true)} className={btn} style={quiet}>{say('Call')}</button>
             <button type="button" onClick={() => setFloorOpen(true)} className={btn} style={(data as any)?.floorNote ? { ...quiet, borderColor: INK } : quiet}>{say('Tell the floor')}</button>
+            <button type="button" onClick={() => setSafetyOpen(true)} className={btn} style={coolDue.length ? { ...quiet, borderColor: AMBER, color: AMBER } : quiet}>{say('Food safety')}</button>
             <button type="button" onClick={() => setClosingOpen(true)} className={btn} style={quiet}>{say('Closing')}</button>
             <button type="button" onClick={toggleSound} className={btn} style={quiet} aria-pressed={soundOn}>{soundOn ? say('Sound on') : say('Sound off')}</button>
             <LangToggle />
@@ -1021,11 +1033,18 @@ function KitchenScreenInner() {
         // Floats over the screen, so it going away after the first tap never moves a button under someone's finger.
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">{say('Tap anywhere to turn on the sound for new tickets')}</div>
       )}
+      {safetyOpen && <SafetySheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSafetyOpen(false)} onPin={() => setPinOpen(true)} />}
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line={say('Your PIN puts your name on the tickets you move. The screen works without it.')} />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
       {countsOpen && <CountsSheet rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
       {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} people tables={callTables} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
       {floorOpen && <FloorNoteSheet post={post} note={(data as any)?.floorNote || null} onClose={() => setFloorOpen(false)} onSent={(m) => { setNotice(m); void load(); }} />}
+      {coolDue.length > 0 && !safetyOpen && (
+        <button type="button" onClick={() => setSafetyOpen(true)} className="fixed bottom-4 right-4 z-30 min-h-[52px] rounded-2xl px-5 text-left text-[15px] font-semibold" style={{ background: AMBER_TINT, color: AMBER, border: `1px solid ${AMBER}`, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+          {coolDue.some((c) => c.missed) && <span className="block">{say('Say what was done')}: {coolDue.filter((c) => c.missed).map((c) => c.item).join(', ')}</span>}
+          {coolDue.some((c) => !c.missed) && <span className="block">{say('Cooling check due')}: {coolDue.filter((c) => !c.missed).map((c) => say('{item}: {mark}', { item: c.item, mark: say('{t}°F by {time}', { t: c.stage === 1 ? 70 : 41, time: new Date(c.dueAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }) })).join(', ')}</span>}
+        </button>
+      )}
       {closingOpen && <ClosingSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setClosingOpen(false)} />}
       {cancelFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-label={say('Cancel this ticket')}>

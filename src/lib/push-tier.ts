@@ -29,6 +29,9 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   event_invoice_overpaid: 'today', event_invoice_refunded: 'today',
   // Food cost (lib/price-creep-server): a delivery that pushed a dish over the business's aim
   price_moved: 'today',
+  // The inspection binder (lib/food-safety-server): a reading outside its limit or a cooling batch past its mark; a
+  // certificate or permit about to run out
+  food_safety: 'now', permit_due: 'today',
   school_tour: 'today', quote_accepted: 'today', quote_declined: 'today', quote_revision: 'today', maintenance: 'today', maintenance_collision: 'today',
   membership_payment_failed: 'today', payroll_draft: 'today', waitlist_join: 'today', appointment: 'today', user: 'today',
 };

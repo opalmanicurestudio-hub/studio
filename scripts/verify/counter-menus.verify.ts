@@ -276,7 +276,7 @@ const at = (iso: string) => new Date(iso);
   check('…orders, tables and courses said in it too', L.tr('es', 'Drive-thru B38') === 'Autoservicio B38' && L.tr('es', 'Dana Wu, Table 3, seat 1') === 'Dana Wu, mesa 3, asiento 1' && L.tr('es', 'Spring dinner, course 1') === 'Spring dinner, tiempo 1');
   const kds = src('src/app/kds/[tenantId]/page.tsx'), dish = src('src/app/dish/[tenantId]/page.tsx'), bb = src('src/app/barback/[tenantId]/page.tsx');
   const sayWords = (s: string) => Array.from(s.matchAll(/say\('((?:[^'\\]|\\.)*)'/g)).map((x) => x[1]);
-  const kitWords = [kds, dish, bb, src('src/components/kitchen/ExpoView.tsx'), src('src/components/kitchen/CallSheet.tsx'), src('src/components/kitchen/ClosingSheet.tsx'), src('src/components/back/CallList.tsx'), src('src/components/back/screen-kit.tsx'), src('src/components/kitchen/PinPad.tsx')].flatMap(sayWords);
+  const kitWords = [kds, dish, bb, src('src/components/kitchen/ExpoView.tsx'), src('src/components/kitchen/CallSheet.tsx'), src('src/components/kitchen/ClosingSheet.tsx'), src('src/components/back/CallList.tsx'), src('src/components/back/screen-kit.tsx'), src('src/components/kitchen/PinPad.tsx'), src('src/components/kitchen/SafetySheet.tsx')].flatMap(sayWords);
   const missing = Array.from(new Set(kitWords.filter((w) => !L.hasSpanish(w))));
   check('every word those screens say through the toggle has its Spanish', kitWords.length > 150 && missing.length === 0, { count: kitWords.length, missing });
   const { CALL_KINDS, TO_WORD } = await import('../../src/lib/back-calls'); const { BREAK_KINDS } = await import('../../src/lib/dish');

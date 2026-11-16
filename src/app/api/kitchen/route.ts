@@ -15,6 +15,9 @@
 //                                                    live (lib/kitchen), the items they use, and today's for the numbers;
 //                                                    each with the station that makes it, the business's stations, and
 //                                                    the tables' courses not fired yet (lib/table-service)
+//   safety { tenantId, key } → today's food safety readings and the batches still cooling (lib/food-safety-server);
+//   safetyLog { tenantId, key, staffPass, kind, item, tempF, supplier?, deliveryKind?, note?, startedAt? } and coolCheck
+//   { tenantId, key, staffPass, logId, tempF, done? } → a reading, with a PIN on a shared tablet (code 'pin')
 //   closing { tenantId, key }, closingCheck { tenantId, key, itemId, done?, value?, note? } → tonight's closing checklist,
 //                                                    the kitchen's and bar's items (lib/night-close)
 //   pin     { tenantId, key, pin }                 → who's working, checked here (lib/pin, with its lockout): a pass for
@@ -314,7 +317,7 @@ export async function POST(req: NextRequest) {
     // its counts and closing checks, and saying an allergy was seen. Those two stay with the kitchen side (their job, or
     // with no job set, a title that says cook or bartender) or a manager; the kitchen's and bar's closing checks too.
     let teamMember: { id: string; name: string } | null = null; let kitchenSide = false; let teamJob = '';
-    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck', 'floorNote'].includes(action)) {
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck', 'floorNote', 'safety', 'safetyLog', 'coolCheck'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -438,6 +441,19 @@ export async function POST(req: NextRequest) {
     const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
 
     if (action === 'menu') return ok({ menu: await readMenu(db, tenantId), staffOk });
+    // Food safety (lib/food-safety): today's readings and the batches still cooling, each with its next mark; a reading
+    // taken here carries a person's name (a PIN on a shared tablet), like the dish machine's.
+    if (action === 'safety' || action === 'safetyLog' || action === 'coolCheck') {
+      const FS = await import('@/lib/food-safety-server');
+      if (action === 'safety') return ok({ ...(await FS.todaySafety(db, tenantId, tenant)), staffOk });
+      if (teamMember && !kitchenSide) return bad('Food safety readings are the kitchen’s. Ask a cook or a manager.', 403);
+      if (!staff) return NextResponse.json({ ok: false, code: 'pin', error: 'Enter your PIN first, so the log shows who took the reading.', staffOk }, { status: 409 });
+      try {
+        const who = { name: staff.name, staffId: staff.id || null };
+        const log = action === 'safetyLog' ? await FS.recordLog(db, tenantId, tenant, b, who) : await FS.coolCheck(db, tenantId, tenant, String(b.logId || ''), b.tempF, b.done, who);
+        return ok({ log, staffOk });
+      } catch (e: any) { if (e instanceof FS.SafetyStop) return bad(e.msg, e.status); throw e; }
+    }
     // Closing the night (lib/night-close): the kitchen's and the bar's items on tonight's checklist, ticked or read here.
     if (action === 'closing' || action === 'closingCheck') {
       const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');

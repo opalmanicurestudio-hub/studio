@@ -1600,6 +1600,8 @@ export async function GET(req: NextRequest) {
       try { const { monthReviewNotice } = await import('@/lib/month-review'); await monthReviewNotice(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] month review', tDoc.id, e); }
       // Records: the month before's stock value, kept on the business's first days of a month unless a manager kept one.
       try { const { stockSnapshotSweep } = await import('@/lib/records-server'); await stockSnapshotSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] stock value', tDoc.id, e); }
+      // The inspection binder: a reminder 60 and 14 days before a certificate or permit runs out, and once it has.
+      try { const { permitSweep } = await import('@/lib/food-safety-server'); await permitSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] permits', tDoc.id, e); }
       if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
       if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } }
       // Problem reports nobody has decided on in two days: one note to the people who can decide (lib/claim-reminder).

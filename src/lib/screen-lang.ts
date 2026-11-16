@@ -10,6 +10,26 @@ export const cleanLang = (v: unknown): Lang => (v === 'es' ? 'es' : 'en');
 
 // The screen's own words: the English, with {name} for what's filled in, and the Spanish.
 const ES: Record<string, string> = {
+  // Food safety on the kitchen screen (components/kitchen/SafetySheet)
+  'Food safety': 'Seguridad alimentaria', 'Readings as they’re taken. Each one carries your name.': 'Lecturas al momento de tomarlas. Cada una lleva tu nombre.',
+  'The readings didn’t load.': 'Las lecturas no cargaron.', 'Tap Who’s working? and put in your PIN, so the log shows who took the reading.': 'Toca ¿Quién trabaja? y pon tu PIN, para que el registro muestre quién tomó la lectura.',
+  'Saved: {what}, {t}°F.': 'Guardado: {what}, {t}°F.', 'Refused, sent back': 'Rechazado, devuelto', 'Reheated to 165°F': 'Recalentado a 165°F', 'Thrown out': 'Desechado',
+  'Moved to the walk-in': 'Pasado a la cámara fría', 'Reheated first': 'Recalentado antes', 'Cooling now': 'Enfriándose ahora', 'Log a reading': 'Registrar una lectura',
+  'Which reading': 'Qué lectura', 'Delivery': 'Entrega', 'Start cooling': 'Empezar a enfriar', 'Hot holding': 'Mantener caliente', 'Cold holding': 'Mantener frío', 'Cooling': 'Enfriamiento',
+  'Cold 41°F or below, frozen 0°F or below, hot 135°F or above. Refuse it if it isn’t.': 'Frío a 41°F o menos, congelado a 0°F o menos, caliente a 135°F o más. Si no, recházalo.',
+  'From 135°F to 70°F within 2 hours, then to 41°F within 4 more. This screen asks at each mark.': 'De 135°F a 70°F en 2 horas, luego a 41°F en 4 más. Esta pantalla pregunta en cada marca.',
+  '135°F or above.': '135°F o más.', '41°F or below.': '41°F o menos.', 'What came in': 'Qué llegó', 'What’s cooling': 'Qué se está enfriando', 'What it is': 'Qué es',
+  'From (the supplier)': 'De (el proveedor)', 'Cold, frozen or hot': 'Frío, congelado o caliente', 'Cold': 'Frío', 'Frozen': 'Congelado', 'Hot': 'Caliente',
+  'When it came off the heat': 'Cuándo salió del fuego', 'Off the heat now': 'Salió del fuego ahora', '{n} min ago': 'hace {n} min', 'Temperature in °F': 'Temperatura en °F',
+  'Outside the limit': 'Fuera del límite', 'Within the limit': 'Dentro del límite', 'What was done?': '¿Qué se hizo?', 'Save the reading': 'Guardar la lectura',
+  'Nothing logged yet today.': 'Nada registrado hoy todavía.', 'Off the heat {t}': 'Salió del fuego a las {t}', 'last {n}°F': 'última {n}°F', 'Next: {mark}': 'Siguiente: {mark}',
+  '{t}°F by {time}': '{t}°F antes de las {time}', '{item} reading in °F': 'Lectura de {item} en °F', 'Needs 70°F or below by the 2-hour mark.': 'Debe estar a 70°F o menos a las 2 horas.',
+  'Needs {n}°F or below by the 6-hour mark.': 'Debe estar a {n}°F o menos a las 6 horas.', 'Cooling check due': 'Toca revisar el enfriamiento', '{item}: {mark}': '{item}: {mark}',
+  'It didn’t reach 70°F within 2 hours. Reheat it to 165°F and cool it again, or throw it out.': 'No llegó a 70°F en 2 horas. Recaliéntalo a 165°F y enfríalo de nuevo, o deséchalo.',
+  'It didn’t reach 41°F within 6 hours. Reheat it to 165°F and cool it again, or throw it out.': 'No llegó a 41°F en 6 horas. Recaliéntalo a 165°F y enfríalo de nuevo, o deséchalo.',
+  'It didn’t reach 70°F within 2 hours. Reheat it to 165°F and cool it again, or throw it out. Say which.': 'No llegó a 70°F en 2 horas. Recaliéntalo a 165°F y enfríalo de nuevo, o deséchalo. Di cuál.',
+  'It didn’t reach 41°F within 6 hours. Reheat it to 165°F and cool it again, or throw it out. Say which.': 'No llegó a 41°F en 6 horas. Recaliéntalo a 165°F y enfríalo de nuevo, o deséchalo. Di cuál.',
+  'Say what was done': 'Di qué se hizo', 'Missed its mark. What was done?': 'Se pasó de la marca. ¿Qué se hizo?',
   // The kitchen screen
   'Kitchen': 'Cocina', 'Kitchen screen': 'Pantalla de cocina', 'Expo, every station': 'Expo, todas las estaciones',
   '{n} ticket up': '{n} comanda en pantalla', '{n} tickets up': '{n} comandas en pantalla',
