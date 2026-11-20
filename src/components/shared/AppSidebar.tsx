@@ -2,14 +2,14 @@
 
 import { guestLogo } from '@/lib/brand';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import {
   Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine } from 'lucide-react';
+import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, ExternalLink, FileText, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine, MonitorSmartphone, ReceiptText } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -19,6 +19,8 @@ import { useAuth, useFirebase, useUser } from '@/firebase';
 import { pageVisible } from '@/lib/modules';
 import { pageHref, runsTheNight, STATION_SCREENS, TONIGHT } from '@/lib/jobs';
 import { isFoodBusiness } from '@/lib/food-setup';
+import { SCREEN_AREAS, shownAreas, screenPath, screenShown, type ScreenArea } from '@/lib/screens';
+import { SCREEN_ICONS } from '@/components/screens/screen-icons';
 import { useMyJob, useNoteMoves } from '@/hooks/use-my-job';
 import { openHelp, useIsHqAdmin } from '@/components/support/HelpDesk';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
@@ -170,56 +172,50 @@ const EVENTS = [
   { href: '/events', icon: PartyPopper, label: 'Events' },
 ];
 
-const PUBLIC_PORTALS = [
+// What guests open on their own phone or computer, at the business's own address (/book/{tenantId}). The tablets and TVs
+// a business sets up once are under Screens (lib/screens), sorted by where they go.
+const GUEST_PAGES: { href: string; icon: any; label: string; when?: (t: any) => boolean }[] = [
   { href: '/book',         icon: Globe,       label: 'Booking page'     },
   { href: '/shop',         icon: ShoppingBag, label: 'Online shop'      },
+  // Ordering ahead from the menu (/order/{tenantId}), while it's on (Menu page).
+  { href: '/order',        icon: ReceiptText, label: 'Order ahead', when: (t) => t?.orderAhead?.on === true },
+  // A member's points and rewards code (/rewards/{tenantId}), while the rewards program is on (Loyalty).
+  { href: '/rewards',      icon: Star,        label: 'Rewards page', when: (t) => t?.loyalty?.on === true },
   // The gift card page (/gift/{tenantId}): buy one online — turned on in Gift cards → Online shop & designs.
   { href: '/gift',         icon: Gift,        label: 'Gift card page'   },
-  // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
-  { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in kiosk'    },
-  // The waiting-room wall screen: who is next, roughly how long, who is free.
-  // Sits directly under the kiosk because they are one pair — the kiosk takes
-  // the guest in, this screen is what she stares at afterwards. Like every entry
-  // in this list it is rendered with isPortal, so NavItem appends the studio id
-  // and opens it in a new tab: /lobby/{tenantId}. Cast it to the lobby TV and
-  // leave it; it polls on its own.
-  { href: '/lobby',        icon: Hourglass,   label: 'Lobby board'      },
-  // The old /kiosk route is now the booth-renter CHECK-IN kiosk.
-  { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in kiosk'   },
-  { href: '/concierge',    icon: Coffee,      label: 'Lounge concierge' },
-  { href: '/kds',          icon: ChefHat,     label: 'Kitchen screen'      },
-  // The dish pit and the barback, each on its own tablet (or a phone), next to the kitchen screen they take calls from.
-  { href: '/dish',         icon: SprayCan,    label: 'Dish'             },
-  { href: '/barback',      icon: Boxes,       label: 'Barback'          },
-  // The host stand's own tablet, set up once (app/host-stand): it signs itself in as the host stand.
-  { href: '/host-stand',   icon: ConciergeBell, label: 'Host stand tablet' },
-  { href: '/drive-thru',   icon: Car,         label: 'Drive-thru'       },
-  { href: '/floor',        icon: Layers,      label: 'Floor staff'      },
-  { href: '/timeclock',    icon: Clock,       label: 'Time clock'       },
-  { href: '/staff-portal', icon: Shield,      label: 'Staff portal'     },
 ];
 
-/** A page in someone's job menu (lib/jobs): its name and icon, wherever it sits in the menu. */
-const PAGE_INFO: Record<string, { icon: any; label: string }> = Object.fromEntries([...DAILY_HUB, ...STUDIO_ASSETS, ...PUBLIC_PORTALS].map((i) => [i.href, { icon: i.icon, label: i.label }]));
+/** A page in someone's job menu (lib/jobs): its name and icon, wherever it sits in the menu. A station screen in a job's
+ *  menu (/kds, /dish) is the screen itself. */
+const SCREEN_INFO = SCREEN_AREAS.flatMap((a) => a.screens.filter((s) => !s.sub && !s.noTenant).map((s) => ({ href: s.page, icon: SCREEN_ICONS[s.id], label: s.label })));
+const PAGE_INFO: Record<string, { icon: any; label: string }> = Object.fromEntries([...DAILY_HUB, ...STUDIO_ASSETS, ...SCREEN_INFO].map((i) => [i.href, { icon: i.icon, label: i.label }]));
 
-/** Every page in the menu, by area — what the header search looks through. */
-export const NAV_AREAS: { area: string; items: { href: string; label: string }[] }[] = [
+/** Every page in the menu, by area — what the header search looks through. A screen is found by its name and opens the
+ *  Screens page on it (/screens?show=kiosk), where it opens here or on a tablet; `gate` is the page its tool goes by. */
+export type NavFind = { href: string; label: string; gate?: string; when?: (t: any) => boolean };
+const SCREEN_FINDS: NavFind[] = [{ href: '/screens', label: 'Screens' },
+  ...SCREEN_AREAS.flatMap((a) => a.screens.map((s) => ({ href: `/screens?show=${s.id}`, label: s.label, gate: s.page, when: (t: any) => screenShown(t, s) })))];
+export const NAV_AREAS: { area: string; items: NavFind[] }[] = [
   { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Business', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
   { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Rentals', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
-] as any;
+  { area: 'Screens', items: SCREEN_FINDS },
+];
 
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
 function NavItem({
-  href, icon: Icon, label, isPortal = false, tenantId, badge,
+  href, icon: Icon, label, isPortal = false, tenantId, badge, newTab = false,
 }: {
   href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string; badge?: number;
+  /** Opens in a new tab as it is (a screen, already at its full address). */
+  newTab?: boolean;
 }) {
   const pathname    = usePathname();
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
 
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
-  const isActive  = !isPortal && shopActive(href, pathname);
+  const outside = isPortal || newTab;
+  const isActive  = !outside && shopActive(href, pathname);
 
   const btn = (
     <SidebarMenuButton
@@ -233,7 +229,7 @@ function NavItem({
         isCollapsed && 'justify-center',
       )}
     >
-      <Link href={finalHref} target={isPortal ? '_blank' : undefined}>
+      <Link href={finalHref} target={outside ? '_blank' : undefined} rel={outside ? 'noopener' : undefined}>
         <div className="relative shrink-0">
           <Icon className="w-[17px] h-[17px]" />
           {badge !== undefined && badge > 0 && (
@@ -243,9 +239,10 @@ function NavItem({
           )}
         </div>
         <span>{label}</span>
-        {isPortal && !isCollapsed && (
-          <ExternalLink className="ml-auto w-3 h-3 opacity-30 shrink-0" />
+        {outside && !isCollapsed && (
+          <ExternalLink className="ml-auto w-3 h-3 opacity-30 shrink-0" aria-hidden />
         )}
+        {outside && <span className="sr-only">(opens in a new tab)</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -258,7 +255,7 @@ function NavItem({
           <TooltipContent
             side="right"
             align="center"
-            className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2 shadow-xl"
+            className="rounded-xl border text-[13px]"
           >
             {label}{badge !== undefined && badge > 0 ? ` (${badge})` : ''}
           </TooltipContent>
@@ -314,6 +311,43 @@ function NavSection({
   );
 }
 
+/** Screens (lib/screens): every tablet and TV screen the business can set up, sorted by where it goes, each opening in a new
+ *  tab, and the Screens page first (open one on a tablet with its code, and the tablets already set up). */
+function ScreensSection({ areas, tenantId, defaultOpen = false }: { areas: ScreenArea[]; tenantId: string; defaultOpen?: boolean }) {
+  const { state } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  const pathname = usePathname();
+  const onPage = pathname === '/screens';
+  const [open, setOpen] = useState<boolean>(onPage || defaultOpen);
+  useEffect(() => { if (onPage) setOpen(true); }, [onPage]);
+  const shown = isCollapsed || open;
+  return (
+    <SidebarGroup className="py-1">
+      {!isCollapsed && (
+        <SidebarGroupLabel asChild className="px-3 mb-0.5 h-8 text-[12.5px] font-medium normal-case tracking-normal text-muted-foreground">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-controls={open ? 'side-screens' : undefined} className="flex w-full items-center justify-between rounded-lg hover:text-foreground">
+            <span>Screens</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? '' : '-rotate-90'}`} aria-hidden />
+          </button>
+        </SidebarGroupLabel>
+      )}
+      {isCollapsed && <div className="mx-auto w-4 h-px bg-border/50 mb-2" />}
+      {shown && (
+        <div id="side-screens">
+          <SidebarMenu className="gap-px px-0"><NavItem href="/screens" icon={MonitorSmartphone} label="All screens" /></SidebarMenu>
+          {areas.map((a) => (
+            <Fragment key={a.id}>
+              {isCollapsed ? <div className="mx-auto my-1.5 h-px w-3 bg-border/60" aria-hidden /> : <p id={`side-screens-${a.id}`} className="px-3 pb-0.5 pt-2.5 text-[12px] font-semibold text-muted-foreground">{a.label}</p>}
+              <SidebarMenu className="gap-px px-0" aria-labelledby={isCollapsed ? undefined : `side-screens-${a.id}`} aria-label={isCollapsed ? a.label : undefined}>
+                {a.screens.map((s) => <NavItem key={s.id} href={screenPath(s, tenantId)} icon={SCREEN_ICONS[s.id]} label={s.label} newTab />)}
+              </SidebarMenu>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </SidebarGroup>
+  );
+}
+
 function CollapseToggle() {
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
@@ -357,13 +391,12 @@ export function AppSidebar() {
   const { myJob } = useMyJob();
   useNoteMoves(pathname);
   const runsNight = !isOwner && !!tenantId && (runsTheNight(myJob?.job || null) || ((role === 'admin' || role === 'manager') && isFoodBusiness(selectedTenant)));
-  const pageItem = (href: string, o: { screen?: boolean } = {}) => ({ href: o.screen ? href : pageHref(href, tenantId || '', { job: myJob?.job, station: myJob?.station }), ...PAGE_INFO[href] });
+  const pageItem = (href: string) => ({ href: pageHref(href, tenantId || '', { job: myJob?.job, station: myJob?.station }), ...PAGE_INFO[href] });
   const visible = (href: string) => !!PAGE_INFO[href] && pageVisible(selectedTenant, href);
   // Signed in with a PIN in the team app (or a host stand tablet): the floor's pages only (components/shared/PortalScope).
   const floorItems = viaPortal ? (screen ? ['/host', '/clear', '/tables'] : ['/tables', '/clear', '/host', '/bar-tabs', '/counter', '/curbside']).filter(visible).map((h) => ({ href: h, ...PAGE_INFO[h] })) : [];
   const workItems = !isOwner && !runsNight && !viaPortal && tenantId && myJob ? myJob.job.menu.filter(visible).map((h) => pageItem(h)) : [];
   const tonightItems = runsNight ? TONIGHT.filter(visible).map((h) => pageItem(h)) : [];
-  const screenItems = runsNight ? STATION_SCREENS.filter(visible).map((h) => pageItem(h, { screen: true })) : [];
   // What's already in their own group isn't listed again underneath.
   const ownHrefs = new Set<string>([...(workItems.length ? myJob?.job.menu || [] : []), ...(tonightItems.length ? TONIGHT : [])]);
 
@@ -519,7 +552,7 @@ export function AppSidebar() {
           {viaPortal && !screen && tenantId && <SidebarMenu className="gap-px px-1.5"><NavItem href={`/staff-portal/${tenantId}`} icon={Shield} label="Back to the team app" /></SidebarMenu>}
           {!viaPortal && workItems.length > 0 && <NavSection label="Your work" items={workItems} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen />}
           {!viaPortal && tonightItems.length > 0 && <NavSection label="Tonight" items={tonightItems} defaultOpen />}
-          {!viaPortal && screenItems.length > 0 && tenantId && <NavSection label="Station screens" items={screenItems} isPortal tenantId={tenantId} defaultOpen />}
+          {!viaPortal && runsNight && tenantId && <ScreensSection areas={shownAreas(selectedTenant, { only: STATION_SCREENS })} tenantId={tenantId} defaultOpen />}
 
           {!viaPortal && <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={dailyItems.filter((i) => !ownHrefs.has(i.href))} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />}
 
@@ -580,11 +613,12 @@ export function AppSidebar() {
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection
-                label="Public pages"
-                items={PUBLIC_PORTALS}
+                label="Guest pages"
+                items={GUEST_PAGES.filter((p) => !p.when || p.when(selectedTenant))}
                 isPortal
                 tenantId={tenantId}
               />
+              <ScreensSection areas={shownAreas(selectedTenant)} tenantId={tenantId} />
             </>
           )}
         </SidebarContent>

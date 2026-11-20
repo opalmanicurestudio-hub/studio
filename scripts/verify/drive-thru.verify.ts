@@ -486,7 +486,8 @@ const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   check('writing rules: no all-caps, no emoji or check marks, no JSX comments, no business-type words, no tool names', !/\buppercase\b|font-black/.test(ui) && !/[\u{1F300}-\u{1FAFF}✓✔✅]/u.test(ui)
     && !/\{\/\*/.test(ui) && !/\b(studio|salon|stylist|booth|chair)s?\b/i.test(strings) && !new RegExp(banned.join('|'), 'i').test(ui), strings.match(/\b(studio|salon|stylist|booth|chair)s?\b/gi));
   check('buttons are 44px or more, and white is solid (never the see-through bg-white)', !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(ui) && !/\bbg-white\b/.test(lane + board + setup + pin));
-  check('the drive-thru is in the menu of screens, and part of Lounge & hospitality', src('src/components/shared/AppSidebar.tsx').includes("href: '/drive-thru'") && src('src/lib/modules.ts').includes("'/drive-thru'"));
+  // The menu's Screens group (lib/screens, design board "Screens in the menu") lists the lane and its screens.
+  check('the drive-thru is in the menu of screens, and part of Lounge & hospitality', src('src/lib/screens.ts').includes("{ id: 'lane', page: '/drive-thru'") && src('src/components/shared/AppSidebar.tsx').includes('<ScreensSection areas={shownAreas(selectedTenant)}') && src('src/lib/modules.ts').includes("'/drive-thru'"));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

@@ -19,7 +19,8 @@ export function AppSearch() {
   const box = React.useRef<HTMLInputElement>(null);
   const { hits: settingHits, loading: settingsLoading } = useRowSearch(selectedTenant, q, 6);
   const all = React.useMemo<Hit[]>(() => {
-    const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => pageVisible(selectedTenant, i.href)).map((i) => ({ title: i.label, where: a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
+    // A screen goes by its own page's tool, and how the business runs (lib/screens): `gate` and `when`.
+    const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => pageVisible(selectedTenant, i.gate || i.href) && (!i.when || i.when(selectedTenant))).map((i) => ({ title: i.label, where: a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
     const settings = (selectedTenant ? visibleGroups(selectedTenant) : []).flatMap((g) => g.pages.map((p) => ({ title: p.title, where: `Settings · ${g.title}`, href: p.href, hay: `${p.title} ${p.meaning} ${p.words || ''} ${g.title}`.toLowerCase() })));
     const seen = new Set<string>(); return [...pages, ...settings].filter((h) => (seen.has(h.href + h.title) ? false : (seen.add(h.href + h.title), true)));
   }, [selectedTenant]);
