@@ -26,6 +26,7 @@ import { menuAnswersOn } from '@/lib/klair-menu';
 import { cleanPicks } from '@/lib/menu-choices';
 import { pickupGeoOf } from '@/lib/pickup-geo';
 import { offerOf } from '@/lib/menu-upgrades';
+import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib/ahead-hours';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -62,17 +63,35 @@ export function aheadSigOk(tenantId: string, orderId: string, sig: unknown): boo
   try { return timingSafeEqual(Buffer.from(want), Buffer.from(got)); } catch { return false; }
 }
 
-/** The pickup times offered: as soon as it's ready (null), then every 15 minutes from 20 minutes out, for `laterHours`,
- *  today only (in the business's own time zone: an order and its code belong to one day). */
 /** The times a guest can pick, every quarter hour from twenty minutes on (later by `delayMin` when the kitchen is
- *  behind, lib/kitchen-pace), until the business's limit, today only. */
-export function pickupTimes(tenant: any, now = Date.now(), delayMin = 0): string[] {
+ *  behind, lib/kitchen-pace), until the business's limit, today only (in the business's own time zone: an order and its
+ *  code belong to one day), and only while it's open (`hours`: its opening hours today, lib/ahead-hours; none set, any
+ *  time). */
+export function pickupTimes(tenant: any, now = Date.now(), delayMin = 0, hours: HoursNow = { set: false }): string[] {
   const { laterHours } = aheadOf(tenant); if (!laterHours) return [];
   const step = SLOT_MIN * 60000; const tz = tenantTimeZone(tenant); const today = todayIn(tz, new Date(now));
   const first = Math.ceil((now + (FIRST_SLOT_MIN + Math.max(0, Math.round(delayMin))) * 60000) / step) * step;
   const out: string[] = [];
-  for (let t = first; t <= now + laterHours * 3600000; t += step) { if (todayIn(tz, new Date(t)) !== today) break; out.push(new Date(t).toISOString()); }
+  for (let t = first; t <= now + laterHours * 3600000; t += step) { if (todayIn(tz, new Date(t)) !== today) break; if (insideHours(hours, t)) out.push(new Date(t).toISOString()); }
   return out;
+}
+/** "As soon as it's ready" is offered while the business is open, with at least the first pickup time's twenty minutes
+ *  before it closes. */
+export const asapNow = (hours: HoursNow, now = Date.now()) => asapOpen(hours, now, FIRST_SLOT_MIN);
+
+/** The business's opening hours as they stand now (Settings → Opening hours; lib/ahead-hours), read at most once a minute
+ *  per business. */
+const hoursCache = new Map<string, { at: number; week: Record<string, any> | null }>();
+export async function aheadHours(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<HoursNow> {
+  const c = hoursCache.get(tenantId); let week: Record<string, any> | null;
+  if (c && now - c.at < 60000) week = c.week;
+  else {
+    const snap = await db.collection(`tenants/${tenantId}/scheduleProfiles`).get().catch(() => null);
+    // (Not readable just now: no limit this time, never a closed page because of a hiccup.)
+    week = snap ? houseWeek(snap.docs.map((d: any) => d.data() || {})) : null;
+    if (snap) { hoursCache.set(tenantId, { at: now, week }); if (hoursCache.size > 500) hoursCache.delete(hoursCache.keys().next().value as string); }
+  }
+  return hoursNow(week, tenantTimeZone(tenant), now);
 }
 
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
@@ -118,13 +137,25 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant);
   const busy = pace.level === 'calm' ? null : { minutes: pace.behindMin };
   // Pickup times that fill (lib/ahead-slots): the times with no room left, fewer items a time when the kitchen is busy.
-  const now = Date.now(); const times = pickupTimes(tenant, now, pickupDelayMin(pace));
+  // Only while it's open (lib/ahead-hours): before opening, times from then; closed for the day, when it opens next.
+  const now = Date.now(); const hours = await aheadHours(db, tenantId, tenant, now); const times = pickupTimes(tenant, now, pickupDelayMin(pace), hours);
+  const asap = asapNow(hours, now); const today = hours.set ? hours.today : null;
+  const opens = today && now < today.open ? new Date(today.open).toISOString() : null;
+  const closes = today ? new Date(today.close).toISOString() : null;
+  const nextOpen = hours.set && !asap && !times.length && hours.next ? new Date(hours.next).toISOString() : null;
+  // Open, but too near closing for anything to be ready in time: said as such, not as closed.
+  const lateToday = !!today && now >= today.open && !asap && !times.length;
   const cap = slotCap(A.slotItems, pace.level as PaceLevel);
   let full: string[] = []; let asapFull = false;
   if (cap !== null) { const used = itemsBySlot(await dayOrders(db, tenantId, tenant, now), now); full = fullTimes(times, used, cap); asapFull = (used.get(asapSlot(now, pickupDelayMin(pace))) || 0) >= cap; }
   // Klair answering menu questions (lib/klair-menu), when the business turns it on.
   const K = klairSettings(tenant); const klair = menuAnswersOn(tenant, K.on) ? { name: K.name } : null;
-  return { ok: true as const, on: payments, business, ways: A.ways, times, full, asapFull, filling: cap !== null && pace.level !== 'calm', busy, klair, sections, timeZone: tenantTimeZone(tenant), // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
+  return { ok: true as const, on: payments, business, ways: A.ways, times, full, asapFull, filling: cap !== null && pace.level !== 'calm', busy, klair, sections, timeZone: tenantTimeZone(tenant),
+    // Whether "as soon as it's ready" is offered, when it opens later today, closing time, and (nothing to pick now) when
+    // it opens next; with no opening hours set, always as soon as it's ready and no limit.
+    // (Too near closing today: lateToday, said as too late rather than closed.)
+    asap, opens, closes, nextOpen, closedNow: hours.set && !asap && !times.length, lateToday,
+    // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
     points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
 }
 
@@ -189,6 +220,13 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
+  // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
+  // (The same order asked again, its answer lost, is still found as it was.)
+  const hours = await aheadHours(db, tenantId, tenant, now);
+  if (hours.set && !(await orderRef.get()).exists) {
+    if (at && !insideHours(hours, Date.parse(at))) return fail('Pick a pickup time again.', 400, 'at');
+    if (!at && !asapNow(hours, now)) return pickupTimes(tenant, now, 0, hours).length ? fail('We’re not open yet. Pick a pickup time.', 409, 'asap_closed') : fail('We’re closed right now, so we can’t take an order for pickup today.', 409, 'closed_now');
+  }
   const made: any = await db.runTransaction(async (tx: any) => {
     const had: any = (await tx.get(orderRef)).data();
     if (had) return { had };
@@ -211,7 +249,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   });
   if (made.busy) return fail('Something went wrong. Try again.', 503);
   if (!made.had) dayCache.delete(tenantId);
-  if (made.full) { dayCache.delete(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
+  if (made.full) { dayCache.delete(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now, 0, hours).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
   const cur: any = made.had || (await orderRef.get()).data();
   if (made.had) {
     if (cur.ahead?.state === 'paid') return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, paid: true };

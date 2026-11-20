@@ -8,7 +8,8 @@
 // It's the table's GUEST PASS too (design canvas "Guest pass", lib/guest-pass): it opens on where their order is, course
 // by course, a way to ask for their server, water or the check, a regular's usual, and what the tab comes to so far;
 // paying or splitting is one tap away. Kept up to date while it's open. When a course runs late or a dish is being made
-// again it says sorry on its own, and a private "Something not right?" tells a manager (lib/table-recovery).
+// again it says sorry on its own, and a private "Something not right?" tells a manager (lib/table-recovery). While the
+// business takes orders ahead, it offers ordering something to take home (the order-ahead page, inside picked).
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
@@ -69,7 +70,9 @@ function PayForm({ claim, post, onPaid, onBack }: { claim: Claim; post: (a: stri
 
 const CHIP: Record<ItemState, { bg: string; fg: string }> = { served: { bg: '#eaf6ef', fg: '#1f7a4d' }, on_way: { bg: '#e7f1fb', fg: '#1d5fa8' }, making: { bg: '#fff7ed', fg: '#b45309' }, ordered: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' }, held: { bg: 'var(--soft, #f3f1ee)', fg: 'var(--muted)' } };
 type Report = { on: boolean; mine: { seen: boolean; said: string; safety: boolean } | null; reasons: ReportReason[]; dishes: { lineId: string; name: string }[] };
-type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean; sorry?: string[]; report?: Report | null; klair?: { name: string } | null };
+type Pass = { courses: PassCourse[]; asks: { id: string; what: AskKind; at: string; seen: boolean; said: string }[]; usual: string | null; payOn: boolean; checkAsked: boolean; sorry?: string[]; report?: Report | null; klair?: { name: string } | null;
+  // Ordering something to take home (the order-ahead page, inside picked), while the business takes orders ahead.
+  takeHome?: string | null };
 type Send = (x: { reasonId: string; lineId: string | null; words: string }) => Promise<string>;
 
 const SAFETY = { background: '#b45309', color: '#fff' };
@@ -167,6 +170,13 @@ function TablePass({ v, pass, onPay, ask, asking, said, send, menuAsk }: { v: an
         </VisitCard>
       )}
       {pass.klair && <VisitCard><MenuAsk name={pass.klair.name} ask={menuAsk} /></VisitCard>}
+      {pass.takeHome && (
+        <VisitCard>
+          <p className="text-[15px] font-semibold">Taking something home?</p>
+          <VisitMuted>Order it here and pay on your phone. Pick it up inside when it’s ready.</VisitMuted>
+          <div className="mt-3"><a href={pass.takeHome} target="_blank" rel="noopener" className="v-pill inline-flex items-center" style={{ minHeight: 44 }}>Order to take home</a></div>
+        </VisitCard>
+      )}
       {lines.length > 0 && (
         <VisitCard>
           <button type="button" onClick={() => setShowCheck(!showCheck)} aria-expanded={showCheck} className="w-full text-left" style={{ minHeight: 44 }}>

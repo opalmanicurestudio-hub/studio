@@ -11,6 +11,8 @@
 // asked for and whether someone has it, and a regular's usual when the business offers it; and
 //   ask    { tenantId, token, what: 'server'|'water'|'check'|'usual' } → their server's phone says so (lib/nudges), the
 //          check asked for shows on the host stand too. Asked again while the last is open: nothing new.
+//          'view' also offers ordering something to take home (the order-ahead page, inside picked) while the business
+//          takes orders ahead for pickup inside, payments are connected and it can be picked up today.
 //   menu_ask { tenantId, token, question } → Klair answers a menu question from the business's recipes and allergen
 //          marks only (lib/klair-menu), when the business turns it on.
 //   report { tenantId, token, reasonId, lineId?, words? } → "Something not right?" (lib/table-recovery): private to the
@@ -36,6 +38,8 @@ import { MAX_QUESTION, menuAnswersOn } from '@/lib/klair-menu';
 import { answerGuest } from '@/lib/klair-menu-server';
 import { tellTableAsk } from '@/lib/floor-buzz';
 import { foldParts, lineTicketIds } from '@/lib/two-stations';
+import { aheadOf, aheadHours, asapNow, pickupTimes } from '@/lib/counter-ahead';
+import { accountOf } from '@/lib/reader-sale';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -233,8 +237,16 @@ export async function POST(req: NextRequest) {
       dishes: offer.length ? tab.filter((l: any) => l && l.itemType !== 'service' && l.lineId).slice(-30).map((l: any) => ({ lineId: String(l.lineId), name: String(l.name || 'Item').slice(0, 60) })) : [] } : null;
     const sorry = R.sorry ? sorryLines(lateCourses(tab, tickets, coursesOf(tenant), Date.now()), remadeNow(tab, tickets)) : [];
     const K = klairSettings(tenant);
+    // Something to take home (lib/counter-ahead): the order-ahead page, picked up inside, paid on their phone; only while
+    // there's a time it can be picked up today (lib/ahead-hours).
+    const A = aheadOf(tenant);
+    let takeHome: string | null = null;
+    if (A.on && A.ways.includes('inside') && !!accountOf(tenant)) {
+      const hrs = await aheadHours(db, tenantId, tenant).catch(() => ({ set: false as const }));
+      if (asapNow(hrs) || pickupTimes(tenant, Date.now(), 0, hrs).length) takeHome = `/order/${encodeURIComponent(tenantId)}?way=inside`;
+    }
     const pass = { courses: passCourses(tab, tickets, coursesOf(tenant)), asks, usual: await usualOf(found.v, party), payOn: s.on, checkAsked: !!party?.checkAt, sorry, report,
-      klair: menuAnswersOn(tenant, K.on) ? { name: K.name } : null };
+      klair: menuAnswersOn(tenant, K.on) ? { name: K.name } : null, takeHome };
     return ok({ ...look, state: why ? 'wait' : 'open', why, table: ck.table || tableLabel(found.v.tableName), pass,
       settings: { ways: s.ways, tips: s.tips, tipBase: s.tipBase, suggest: s.suggest },
       lines: ck.bill.lines.map((l) => ({ lineId: l.lineId, name: l.name, seat: l.seat, price: l.price, comped: l.comped, state: ck.st.covered.has(l.lineId) ? 'paid' : ck.st.busy.has(l.lineId) ? 'busy' : 'open' })),

@@ -128,7 +128,7 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   console.log('the pages');
   const page = read('src/app/order/[tenantId]/page.tsx'); const card = read('src/components/menu/OrderAheadCard.tsx');
   check('the guest’s page: times to tap, full ones marked and not choosable, the soonest open chosen when a time fills', page.includes('function TimeButton') && page.includes('fullWord="Full"') && page.includes("d.code === 'slot_full'") && page.includes('firstOpen(') && page.includes('pickup times fill faster')
-    && page.includes('disabled={placing || !cart.length || chosenFull}') && page.includes('The kitchen’s full right now. Please try again in a few minutes.') && page.includes('menu.times.indexOf(at) >= 7'));
+    && page.includes('disabled={placing || !cart.length || chosenFull || closedNow}') && page.includes('The kitchen’s full right now. Please try again in a few minutes.') && page.includes('menu.times.indexOf(at) >= 7'));
   check('the setting on the menu page', card.includes('Most items for one pickup time') && card.includes('three-quarters as many'));
   const mine = read('src/lib/ahead-slots.ts');
   check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine + page) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine) && !/\{\/\*/.test(page));
