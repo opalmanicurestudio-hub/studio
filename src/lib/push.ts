@@ -37,7 +37,7 @@ const PORTAL_TO_APP: Record<string, string> = { today: '/dashboard', schedule: '
 const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent',
   orders_cutoff: 'orders', orders_missed: 'orders', orders_big_day: 'orders', orders_fast: 'orders' };
 export const MANAGER_ROLES_PUSH = ['owner', 'admin', 'manager'];
-const FLOOR_LINKS = ['/tables', '/clear', '/host'];
+const FLOOR_LINKS = ['/tables', '/clear', '/host', '/curbside'];
 
 export function pushLink(base: string, tenantId: string, link?: string, opts: { role?: string; type?: string } = {}): string {
   const b = String(base || '').replace(/\/+$/, '');
@@ -84,7 +84,7 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
       if (!ok.buzz) { outcome.push(`held: ${ok.why}`); continue; }
       const link = pushLink(base, tenantId, n.link, { role: (p.data() as any)?.role, type: n.type });   // per person — never somewhere that isn't theirs
       try {
-        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: String(((String(n.type || '').startsWith('orders_') || n.type === 'guest_arrived') && n.title) || titleFor(n.type, tenant?.name)).slice(0, 80), body: String(n.message).slice(0, 180) },
+        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: String(((String(n.type || '').startsWith('orders_') || n.type === 'guest_arrived' || n.type === 'curbside_here') && n.title) || titleFor(n.type, tenant?.name)).slice(0, 80), body: String(n.message).slice(0, 180) },
           webpush: { fcmOptions: { link }, notification: { icon: `${base}/icon-192.png`, badge: `${base}/icon-192.png` } } });
         sent += res.successCount || 0;
         outcome.push(res.successCount ? `sent to ${res.successCount} device${res.successCount === 1 ? '' : 's'}` : `failed: ${String(res.responses.find((r: any) => r?.error)?.error?.code || 'unknown')}`);

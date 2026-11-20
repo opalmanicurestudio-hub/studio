@@ -91,7 +91,7 @@ const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySett
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
   const a = t.orderAhead || {}; const A = aheadOf(t);
-  return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
+  return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, curbside: a.curbside === true, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
     link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
 }
 
@@ -203,11 +203,12 @@ export async function POST(req: NextRequest) {
       if (typeof b.on === 'boolean') patch.on = b.on;
       if (typeof b.driveThru === 'boolean') patch.driveThru = b.driveThru;
       if (typeof b.inside === 'boolean') patch.inside = b.inside;
+      if (typeof b.curbside === 'boolean') patch.curbside = b.curbside;
       if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
       // Most items one pickup time takes (lib/ahead-slots); null for no limit.
       if (b.slotItems !== undefined) { const n = cleanSlotItems(b.slotItems); if (n === undefined) return bad(`Items for one pickup time: ${SLOT_ITEMS_MIN} to ${SLOT_ITEMS_MAX}, or no limit.`); patch.slotItems = n; }
       const next = { ...cur, ...patch };
-      if (next.driveThru === false && next.inside === false) return bad('Keep at least one way to pick up.');
+      if (next.driveThru === false && next.inside === false && next.curbside !== true) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
       return ok({ ahead: aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null) });

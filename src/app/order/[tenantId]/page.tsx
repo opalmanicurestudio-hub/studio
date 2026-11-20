@@ -20,7 +20,9 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GR
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font-semibold disabled:opacity-50 ${RING}`;
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
-type Way = 'drive-thru' | 'inside';
+type Way = 'drive-thru' | 'inside' | 'curbside';
+const WAY_WORDS: Record<Way, string> = { 'drive-thru': 'at the drive-thru', inside: 'inside', curbside: 'at the curb: we bring it to your car' };
+const wayList = (ws: Way[]) => (ws.length > 1 ? `${ws.slice(0, -1).map((w) => WAY_WORDS[w].split(':')[0]).join(', ')} or ${WAY_WORDS[ws[ws.length - 1]].split(':')[0]}` : WAY_WORDS[ws[0]] || 'inside');
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null;
   upgrades?: { size: boolean; items: string[] } };
 type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?: string[]; asapFull?: boolean; filling?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
@@ -28,7 +30,7 @@ type CartLine = { key: string; itemId: string; name: string; picks: Picks; choic
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
 async function call(body: any) {
   try { const r = await fetch('/api/counter/ahead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, d: await r.json().catch(() => ({})) }; }
@@ -155,7 +157,17 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
   const [t, setT] = React.useState<Track | null>(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const load = React.useCallback(async () => { const { d } = await call({ action: 'track', tenantId, o, s }); if (d.ok) { setT(d); setErr(''); } else if (!t) setErr(d.error || 'This order isn’t here.'); }, [tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { void load(); const i = setInterval(load, 15000); return () => clearInterval(i); }, [load]);
-  const here = async () => { setBusy(true); const { d } = await call({ action: 'here', tenantId, o, s }); setBusy(false); if (d.ok) void load(); else setErr(d.error || 'That didn’t go through. Try again.'); };
+  // Curbside: where they are (and anything to know) goes with I'm here.
+  // Moved the car? Saying it again changes where they are.
+  const [asking, setAsking] = React.useState(false); const [where, setWhere] = React.useState(''); const [note, setNote] = React.useState(''); const [whereErr, setWhereErr] = React.useState('');
+  const whereBox = React.useRef<HTMLInputElement | null>(null); const outside = React.useRef<HTMLParagraphElement | null>(null);
+  const missing = (msg: string) => { setWhereErr(msg); requestAnimationFrame(() => whereBox.current?.focus()); };
+  const here = async () => {
+    if (t?.way === 'curbside' && !where.trim()) { if (asking) missing('Say where you are: your car, its color, or the spot.'); else setAsking(true); return; }
+    setBusy(true); setWhereErr('');
+    const { d } = await call({ action: 'here', tenantId, o, s, ...(t?.way === 'curbside' ? { where: where.trim(), note: note.trim() } : {}) });
+    setBusy(false); if (d.ok) { setAsking(false); await load(); requestAnimationFrame(() => outside.current?.focus()); } else if (d.code === 'where') missing(d.error); else setErr(d.error || 'That didn’t go through. Try again.');
+  };
   if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">Your order</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>;
   if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your order" /></div>;
   if (t.state === 'canceled') return (
@@ -170,7 +182,7 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
       <p className="text-[15px]" style={{ color: MUTED }}>This page updates once it’s gone through.</p>
     </div>);
   const step = t.kitchen === 'handed' ? 'Picked up. Enjoy!' : t.kitchen === 'ready' ? 'Ready' : t.kitchen === 'later' ? (t.at ? `We’ll start it in time for ${clock(t.at)}` : 'Waiting to start') : 'Being made';
-  const say = t.way === 'drive-thru' ? `At the speaker, say: “I ordered ahead, code ${t.code}.”` : `Say your code at the counter: ${t.code}.`;
+  const say = t.way === 'drive-thru' ? `At the speaker, say: “I ordered ahead, code ${t.code}.”` : t.way === 'curbside' ? 'When you park, tap I’m here and say where you are. We’ll bring it to your car.' : `Say your code at the counter: ${t.code}.`;
   return (
     <div className="space-y-4">
       <section className="space-y-4 rounded-3xl bg-[#fff] p-6 text-center" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
@@ -179,11 +191,25 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
           <p className="text-[15px]" style={{ color: MUTED }}>Your pickup code</p>
           <p className="text-[64px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p>
         </div>
-        <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
-        <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>
+        <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : t.way === 'curbside' ? 'curbside' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
+        {!(t.way === 'curbside' && (t.here || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
         {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
-        {t.kitchen !== 'handed' && (t.here ? <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>
-          : <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>)}
+        {t.kitchen !== 'handed' && t.way === 'curbside' && t.here && (t.curb?.out
+          ? <div role="status"><p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>On its way out to you</p>
+              <p className="mt-2 text-[15px]" style={{ color: MUTED }}>{t.curb.by ? `${t.curb.by} is` : 'Someone’s'} bringing it to your car.</p></div>
+          : !asking && <div><p ref={outside} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>They know you’re outside{t.curb?.where ? `: ${t.curb.where}` : ''}. We’ll bring it out.</p>
+              <button type="button" onClick={() => { setWhere(t.curb?.where || ''); setAsking(true); }} className={`mt-1 min-h-[44px] text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Moved? Say where you are now</button></div>)}
+        {t.kitchen !== 'handed' && (t.way !== 'curbside' || !t.here || (asking && !t.curb?.out)) && (asking && t.way === 'curbside' ? (
+          <div className="space-y-3 text-left">
+            <label className="block"><span className="text-[15px] font-semibold">Where are you?</span>
+              <input ref={whereBox} value={where} onChange={(e) => setWhere(e.target.value.slice(0, 80))} autoFocus aria-describedby="where-help" aria-invalid={!!whereErr} className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${whereErr ? AMBER : LINE}` }} />
+              <span id="where-help" role={whereErr ? 'alert' : undefined} className="mt-1 block text-[13.5px]" style={{ color: whereErr ? AMBER : MUTED }}>{whereErr || 'Your car, its color, or the spot number'}</span></label>
+            <label className="block"><span className="text-[15px] font-semibold">Anything we should know?</span>
+              <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} placeholder="Optional, like “please knock”" className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>
+            <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : 'Tell them I’m here'}</button>
+          </div>)
+          : !t.here ? <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>
+          : <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>)}
       </section>
       <section aria-label="Your order" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}> · {l.choicesText}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
@@ -366,10 +392,11 @@ export default function OrderAhead() {
           </div>)}
         {menu.ways.length > 1 && (
           <fieldset><legend className="text-[15px] font-semibold">How you’ll pick it up</legend>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {menu.ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'drive-thru' ? 'Drive-thru' : 'Inside'}</button>)}
-            </div></fieldset>)}
-        {menu.ways.length === 1 && <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {menu.ways[0] === 'drive-thru' ? 'at the drive-thru' : 'inside'}</p>}
+            <div className={`mt-2 grid gap-2 ${menu.ways.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {menu.ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'drive-thru' ? 'Drive-thru' : w === 'curbside' ? 'Curbside' : 'Inside'}</button>)}
+            </div>
+            {way === 'curbside' && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Park and tap I’m here when you arrive. We’ll bring it to your car.</p>}</fieldset>)}
+        {menu.ways.length === 1 && <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {WAY_WORDS[menu.ways[0]] || 'inside'}</p>}
         <fieldset><legend className="text-[15px] font-semibold">When</legend>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <TimeButton label="As soon as it’s ready" full={!!menu.asapFull} fullWord="Full right now" on={at === ''} onPick={() => setAt('')} wide />
@@ -389,7 +416,7 @@ export default function OrderAhead() {
     <div className="space-y-5">
       <header>
         <h1 className="text-[26px] font-semibold tracking-tight">{menu.business}</h1>
-        <p className="mt-1 text-[15px]" style={{ color: MUTED }}>Order ahead, pay now, and pick it up {menu.ways.length > 1 ? 'at the drive-thru or inside' : menu.ways[0] === 'drive-thru' ? 'at the drive-thru' : 'inside'}.</p>
+        <p className="mt-1 text-[15px]" style={{ color: MUTED }}>Order ahead, pay now, and pick it up {wayList(menu.ways)}.</p>
       </header>
       {menu.sections.length > 1 && (
         <nav aria-label="Menu sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">

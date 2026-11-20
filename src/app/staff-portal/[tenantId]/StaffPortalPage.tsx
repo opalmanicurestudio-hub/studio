@@ -158,6 +158,7 @@ import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/Portal
 import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
 import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
 import { FloorLinks } from '@/components/portal/FloorLinks';
+import { curbsideOn } from '@/lib/modules';
 import { HereForYou } from '@/components/visit/HereForYou';
 import { isFoodBusiness } from '@/lib/food-setup';
 
@@ -4337,7 +4338,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           </div>))}
         {navKey === 'today' && !isRenter && <HereForYou tenantId={tenantId} visits={todaysMine} serviceOf={(v: any) => (services || []).find((x: any) => x.id === v.serviceId)?.name || ''} />}
         {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
-        {navKey === 'today' && !isRenter && isFoodBusiness(portalTenant) && <FloorLinks job={(staffMember as any).job || null} />}
+        {navKey === 'today' && !isRenter && isFoodBusiness(portalTenant) && <FloorLinks job={(staffMember as any).job || null} curbside={curbsideOn(portalTenant)} />}
         {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && (
           <Segments label="Today's view" value={todayView} onChange={pickToday}

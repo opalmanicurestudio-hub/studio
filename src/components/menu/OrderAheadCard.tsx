@@ -1,13 +1,13 @@
 'use client';
 // src/components/menu/OrderAheadCard.tsx — ORDERING AHEAD, on the Menu page (a manager): on or off, how guests can pick
-// up (the drive-thru, inside), how far ahead they can order, and the link (with a code to print) guests order from.
+// up (the drive-thru, inside, curbside), how far ahead they can order, and the link (with a code to print) guests order from.
 // Orders are paid when they're placed, so payments must be connected first. api/menu 'ahead'; lib/counter-ahead.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
-export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; laterHours: number; slotItems?: number | null; payments: boolean; link: string };
+export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; laterHours: number; slotItems?: number | null; payments: boolean; link: string };
 
 export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (body: any) => Promise<any> }) {
   const [a, setA] = useState<AheadSettings>(start);
@@ -25,7 +25,7 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
     if (d.ok) setA(d.ahead); else setErr(d.error || 'That didn’t save. Try again.');
   };
   const copy = async () => { try { await navigator.clipboard.writeText(a.link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setErr('Copy didn’t work. Select the link and copy it.'); } };
-  const check = (on: boolean, label: string, k: 'driveThru' | 'inside') => (
+  const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside') => (
     <label className="flex min-h-[44px] items-center gap-3 text-[15px]">
       <input type="checkbox" checked={on} disabled={!!busy} onChange={(e) => save(k, { [k]: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />{label}
     </label>);
@@ -43,7 +43,8 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
       </div>
       {!a.payments && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>Connect payments in Settings first: orders placed ahead are paid when they’re placed.</p>}
       <div className="grid gap-1 sm:grid-cols-2">
-        <div><p className="text-[14px] font-semibold">How guests pick up</p>{check(a.driveThru, 'At the drive-thru', 'driveThru')}{check(a.inside, 'Inside', 'inside')}</div>
+        <div><p className="text-[14px] font-semibold">How guests pick up</p>{check(a.driveThru, 'At the drive-thru', 'driveThru')}{check(a.inside, 'Inside', 'inside')}{check(!!a.curbside, 'Curbside: we bring it to their car', 'curbside')}
+          {a.curbside && <p className="text-[13px]" style={{ color: MUTED }}>Whoever runs orders out uses the Curbside screen.</p>}</div>
         <label className="block"><span className="text-[14px] font-semibold">How far ahead</span>
           <select value={a.laterHours} disabled={!!busy} onChange={(e) => save('hours', { laterHours: Number(e.target.value) })} className={`mt-2 h-11 w-full rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
             <option value={0}>As soon as it’s ready only</option>

@@ -101,8 +101,15 @@ export function moduleEnabled(tenant: any, id: ModuleId): boolean {
  *  much as a lounge or café does. */
 export const SHARED_PAGES: Record<string, ModuleId[]> = { '/kds': ['hospitality', 'classes_events'], '/floor': ['hospitality', 'classes_events'] };
 
+/** The curbside screen (/curbside): while a shop that's been turned on offers curbside (its pickup tools on too), or
+ *  ordering ahead does. */
+export function curbsideOn(tenant: any): boolean {
+  return (tenant?.modules?.retail === true && moduleEnabled(tenant, 'pickup') && tenant?.retailSettings?.curbsideOffered !== false) || (tenant?.orderAhead?.on === true && tenant?.orderAhead?.curbside === true);
+}
+
 /** Core pages (unclaimed by any module) are always visible. */
 export function pageVisible(tenant: any, href: string): boolean {
+  if (href === '/curbside') return curbsideOn(tenant);
   const shared = SHARED_PAGES[href];
   if (shared) return shared.some((m) => moduleEnabled(tenant, m));
   const owner = PAGE_TO_MODULE[href];

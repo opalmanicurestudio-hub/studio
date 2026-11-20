@@ -32,16 +32,19 @@ const SLOT_MIN = 15, FIRST_SLOT_MIN = 20, UNPAID_MIN = 30, MAX_LINES = 30;
 const nowIso = () => new Date().toISOString();
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const centsOf = (n: unknown) => Math.round(num(n) * 100);
+// Text a guest typed: control and invisible formatting characters out (they'd reorder or hide what staff read), spaces tidied.
+const words = (v: unknown, n: number) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 type Fail = { ok: false; error: string; status: number; code?: string };
 const fail = (error: string, status: number, code?: string): Fail => ({ ok: false, error, status, ...(code ? { code } : {}) });
 const secret = () => String(process.env.ORDER_TRACK_SECRET || process.env.RETAIL_QR_SECRET || process.env.CRON_SECRET || '');
-export type AheadWay = 'drive-thru' | 'inside';
+export type AheadWay = 'drive-thru' | 'inside' | 'curbside';
 
 /** The business's order-ahead settings: whether it's on, how guests can pick up, and how far ahead (hours) they can order. */
 export function aheadOf(tenant: any) {
   const a = tenant?.orderAhead || {};
   const hours = Math.floor(num(a.laterHours));
-  const ways: AheadWay[] = [...(a.driveThru !== false ? ['drive-thru' as const] : []), ...(a.inside !== false ? ['inside' as const] : [])];
+  // Curbside (we bring it to their car: components/orders/CurbsideScreen) only once it's turned on.
+  const ways: AheadWay[] = [...(a.driveThru !== false ? ['drive-thru' as const] : []), ...(a.inside !== false ? ['inside' as const] : []), ...(a.curbside === true ? ['curbside' as const] : [])];
   const cap = cleanSlotItems(a.slotItems);
   return { on: a.on === true && ways.length > 0, ways: ways.length ? ways : (['inside'] as AheadWay[]), laterHours: hours >= 0 && hours <= 12 ? (a.laterHours === undefined ? 3 : hours) : 3,
     // Most items one pickup time takes (lib/ahead-slots); null: no limit.
@@ -77,7 +80,7 @@ const guestItem = (m: MenuItem, shown: Set<string>) => ({ id: m.id, name: m.name
   choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) } });
 
 /** Today and yesterday in the business's own time zone: an order placed just before midnight is still picked up after. */
-function openDays(tenant: any, now = Date.now()): string[] {
+export function openDays(tenant: any, now = Date.now()): string[] {
   const tz = tenantTimeZone(tenant); const today = todayIn(tz, new Date(now)); const before = todayIn(tz, new Date(now - 86400000));
   return today === before ? [today] : [today, before];
 }
@@ -323,6 +326,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     state, paid: !!or.paidAt, code: or.paidAt ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
     kitchen: !or.paidAt ? null : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
     here: !!or.ahead?.hereAt, failed: state === 'canceled' ? String(or.ahead?.failed || '') || null : null,
+    // Curbside: where they said they are, and, once someone's taking it out, their first name.
+    curb: or.ahead?.way === 'curbside' ? { where: or.ahead?.curb?.where || null, out: !!or.ahead?.curb?.outAt, by: or.ahead?.curb?.outBy || null } : null,
     // Points this order earned (never their balance: a page anyone with the link can open).
     earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
     lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null })),
@@ -330,17 +335,34 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
   };
 }
 
-/** The guest says they're here (in the drive-thru line, or inside): the kitchen starts now if it was waiting. */
-export async function aheadHere(db: any, tenantId: string, orderId: string): Promise<{ ok: true; already?: boolean } | Fail> {
+/** The guest says they're here (in the drive-thru line, inside, or parked outside for curbside): the kitchen starts now
+ *  if it was waiting. Curbside says where they are (their car, its color, the spot) and anything to know; saying it again
+ *  only changes those. Managers' phones buzz at once (a 'curbside_here' alert); the Curbside screen shows them either way. */
+export async function aheadHere(db: any, tenantId: string, orderId: string, curb?: { where?: unknown; note?: unknown }): Promise<{ ok: true; already?: boolean } | Fail> {
   const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
+  const where = words(curb?.where, 80); const note = words(curb?.note, 160);
   const r: any = await db.runTransaction(async (tx: any) => {
     const or: any = (await tx.get(ref)).data(); if (!or || or.channel !== 'ahead') return fail('This order isn’t here.', 404);
     if (!or.paidAt) return fail('This order isn’t paid yet.', 409);
-    if (or.ahead?.hereAt) return { ok: true, already: true };
-    tx.set(ref, { ahead: { hereAt: nowIso() } }, { merge: true }); return { ok: true };
+    const curbside = or.ahead?.way === 'curbside';
+    if (curbside && !where) return fail('Say where you are: your car, its color, or the spot.', 400, 'where');
+    if (or.status === 'done') return { ok: true, already: true };
+    const at = or.ahead?.hereAt || nowIso();
+    if (curbside) tx.set(ref, { ahead: { hereAt: at, curb: { where, note: note || or.ahead?.curb?.note || null, arrivedAt: or.ahead?.curb?.arrivedAt || at } } }, { merge: true });
+    else if (!or.ahead?.hereAt) tx.set(ref, { ahead: { hereAt: at } }, { merge: true });
+    return { ok: true, already: !!or.ahead?.hereAt, curbside, number: String(or.number || ''), name: or.guestName || null };
   });
-  if (!r.ok || r.already) return r;
-  await startNow(db, tenantId, orderId);
+  if (!r.ok || r.already) return r.ok ? { ok: true, already: true } : r;
+  if (r.curbside) {
+    // Someone is parked outside: said first, so nothing after can lose it (a second tap is "already").
+    try {
+      const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso(), type: 'curbside_here', link: '/curbside', title: `${r.name ? String(r.name).split(' ')[0] : 'A guest'} is outside`,
+        message: `Order ${r.number} for curbside: ${where}.${note ? ` ${note}` : ''}` });
+      await (await import('@/lib/push')).pushNow(db, tenantId);
+    } catch { /* the curbside screen shows them either way */ }
+  }
+  try { await startNow(db, tenantId, orderId); } catch (e: any) { console.error('[counter-ahead] kitchen not started early', orderId, e?.message); }   // its own time still starts it
   return { ok: true };
 }
 

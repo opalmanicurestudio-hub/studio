@@ -135,7 +135,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('the guest’s own I’m here; a guest with no provider yet, and running late, buzz the floor at once', /const r = await nudgeProvider\(db, tenantId, String\(body\.appointmentId\), \{ via: 'client link', tenant: t \}\); nudged = r\.told \|\| r\.why === 'already told';/.test(ci)
     && /type: st === 'running_late' \? 'guest_running_late' : st === 'arrived' \? 'guest_arrived' : 'on_my_way'/.test(ci) && /if \(st !== 'on_my_way'\) \{ try \{ await \(await import\('@\/lib\/push'\)\)\.pushNow\(db, tenantId\);/.test(ci));
   const tier = src('src/lib/push-tier.ts'); const push = src('src/lib/push.ts');
-  check('both kinds buzz, and the alert carries its own title', /guest_arrived: 'now'/.test(tier) && /guest_running_late: 'now'/.test(tier) && /n\.type === 'guest_arrived'\) && n\.title\)/.test(push));
+  check('both kinds buzz, and the alert carries its own title', /guest_arrived: 'now'/.test(tier) && /guest_running_late: 'now'/.test(tier) && /n\.type === 'guest_arrived' \|\| n\.type === 'curbside_here'\) && n\.title\)/.test(push));
 
   console.log('the screens');
   const { renderToStaticMarkup } = await import('react-dom/server'); const React = await import('react');

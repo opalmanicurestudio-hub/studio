@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       if (o?.channel === 'ahead' && o.paidAt && o.ahead?.pointsPhone) await linkAheadPoints(db, tenantId, tenant, orderId, o);
       const r: any = await aheadView(db, tenantId, tenant, orderId); return reply(r, r.ok ? 200 : r.status);
     }
-    if (action === 'here') { const r: any = await aheadHere(db, tenantId, orderId); return reply(r, r.ok ? 200 : r.status); }
+    if (action === 'here') { const r: any = await aheadHere(db, tenantId, orderId, { where: b.where, note: b.note }); return reply(r, r.ok ? 200 : r.status); }
     // done: whatever the page says, it's the card company that's asked.
     const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
     if (!o || o.channel !== 'ahead') return reply({ ok: false, error: BAD_LINK }, 404);

@@ -261,7 +261,7 @@ const at = (iso: string) => new Date(iso);
   check('…keeps the writing rules', !/uppercase|font-black|\{\/\*/.test(cp) && !/ · /.test(cp) && /min-h-\[44px\]/.test(cp));
   const J = await import('../../src/lib/jobs');
   check('the counter job opens on the counter (the front desk a tap away), in the app’s pages and the team app', J.jobDef('counter')?.home === '/counter' && !!J.jobDef('counter')?.menu.includes('/pos') && /'counter'/.test(src('src/lib/app-theme.ts')) && /hospitality: \{[^}]*'\/counter'/.test(src('src/lib/modules.ts'))
-    && /href: '\/counter'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/bar-tabs', '\/counter'\]/.test(src('src/components/shared/PortalScope.tsx')) && /href: '\/counter'/.test(src('src/components/portal/FloorLinks.tsx')));
+    && /href: '\/counter'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/bar-tabs', '\/counter', '\/curbside'\]/.test(src('src/components/shared/PortalScope.tsx')) && /href: '\/counter'/.test(src('src/components/portal/FloorLinks.tsx')));
   const lp = src('src/app/drive-thru/[tenantId]/page.tsx');
   check('the drive-thru lane shows happy-hour prices and when an item is back too', /const why = m\.off \|\| outWords\(m\)/.test(lp) && /usd\(priceOf\(m\)\)/.test(lp));
 

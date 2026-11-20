@@ -51,6 +51,8 @@ const DAILY_HUB = [
   { href: '/clear',       icon: SprayCan,        label: 'Clear tables'   },
   { href: '/bar-tabs',    icon: Wine,            label: 'Bar tabs'       },
   { href: '/counter',     icon: Receipt,         label: 'Counter'        },
+  // Curbside orders, shop and café, for whoever runs them out (components/orders/CurbsideScreen); shown while it's offered.
+  { href: '/curbside',    icon: Car,             label: 'Curbside'       },
   { href: '/close',       icon: Moon,            label: 'Close the night' },
   { href: '/prep',        icon: ClipboardList,   label: 'Prep list'      },
   { href: '/voice',       icon: Bot,             label: 'Phone assistant'},
@@ -358,7 +360,7 @@ export function AppSidebar() {
   const pageItem = (href: string, o: { screen?: boolean } = {}) => ({ href: o.screen ? href : pageHref(href, tenantId || '', { job: myJob?.job, station: myJob?.station }), ...PAGE_INFO[href] });
   const visible = (href: string) => !!PAGE_INFO[href] && pageVisible(selectedTenant, href);
   // Signed in with a PIN in the team app (or a host stand tablet): the floor's pages only (components/shared/PortalScope).
-  const floorItems = viaPortal ? (screen ? ['/host', '/clear', '/tables'] : ['/tables', '/clear', '/host', '/bar-tabs', '/counter']).filter(visible).map((h) => ({ href: h, ...PAGE_INFO[h] })) : [];
+  const floorItems = viaPortal ? (screen ? ['/host', '/clear', '/tables'] : ['/tables', '/clear', '/host', '/bar-tabs', '/counter', '/curbside']).filter(visible).map((h) => ({ href: h, ...PAGE_INFO[h] })) : [];
   const workItems = !isOwner && !runsNight && !viaPortal && tenantId && myJob ? myJob.job.menu.filter(visible).map((h) => pageItem(h)) : [];
   const tonightItems = runsNight ? TONIGHT.filter(visible).map((h) => pageItem(h)) : [];
   const screenItems = runsNight ? STATION_SCREENS.filter(visible).map((h) => pageItem(h, { screen: true })) : [];

@@ -292,7 +292,7 @@ let day = new Date().toISOString().slice(0, 10);
   check('My tables and the host stand show what the kitchen tells the floor, and My tables the calls for the person', /<FloorWord word=\{d\?\.word\} \/>/.test(tables) && /action: 'callStep', id: c\.id, step/.test(tables) && /<FloorWord word=\{floor\?\.word\} tight \/>/.test(host) && /86 tonight/.test(word));
   const PT = await import('../../src/lib/push-tier'); const J = await import('../../src/lib/jobs'); const scope = src('src/components/shared/PortalScope.tsx');
   check('the buzzes are at once, with the floor’s other kinds', PT.PUSH_TIER.kitchen_call === 'now' && PT.PUSH_TIER.kitchen_note === 'now' && /table_moved kitchen_call kitchen_note/.test(src('src/lib/notify-prefs.ts')));
-  check('Bar tabs: on a bartender’s menu and managers’ Tonight, reachable from the team app', J.jobDef('bartender')?.menu.includes('/bar-tabs') && J.TONIGHT.includes('/bar-tabs') && /'\/bar-tabs', '\/counter'\]/.test(scope) && /hospitality: \{[^}]*'\/bar-tabs'/.test(src('src/lib/modules.ts')));
+  check('Bar tabs: on a bartender’s menu and managers’ Tonight, reachable from the team app', J.jobDef('bartender')?.menu.includes('/bar-tabs') && J.TONIGHT.includes('/bar-tabs') && /'\/bar-tabs', '\/counter', '\/curbside'\]/.test(scope) && /hospitality: \{[^}]*'\/bar-tabs'/.test(src('src/lib/modules.ts')));
   check('the sweep runs with the other reader payments', /await sweepBarHolds\(db, t\.id, tenant\)/.test(src('src/app/api/cron/retail-payments/route.ts')));
   check('new screens keep the house style', ![bar, word, note].some((x) => /uppercase|font-black| · /.test(x)) && ![bar, word, note].some((x) => /\{\/\*/.test(x)));
 

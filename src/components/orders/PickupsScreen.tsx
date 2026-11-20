@@ -209,8 +209,10 @@ function ProsTag({ o, short }: { o: any; short?: boolean }) {
     {short ? <>Pros only<span className="sr-only">, {words}</span></> : `Pros only, ${words}`}</span>;
 }
 
-/** Someone who's here: how long they've waited, where they are, how far along their bag is, and the next step. */
-function HereCard({ o, rs, now, active, onBag, onText, onOut, onHand }: { o: any; rs: any; now: number; active: boolean; onBag: () => void; onText: (mins: number) => Promise<boolean>; onOut: () => Promise<void>; onHand: () => void }) {
+/** Someone who's here: how long they've waited, where they are, how far along their bag is, and the next step. A
+ *  customer who can't come in (bring it to the car) is said first. carFirst (the Curbside screen): the car and spot in
+ *  big type, then who. */
+export function HereCard({ o, rs, now, active, onBag, onText, onOut, onHand, carFirst }: { o: any; rs: any; now: number; active: boolean; onBag: () => void; onText: (mins: number) => Promise<boolean>; onOut: () => Promise<void>; onHand: () => void; carFirst?: boolean }) {
   const [busy, setBusy] = React.useState(''); const [justSent, setJustSent] = React.useState(false);
   // (Sent from any screen: kept on the order, so switching lists or screens doesn't offer it again.)
   const sent = justSent || soonSent(o, now);
@@ -223,10 +225,16 @@ function HereCard({ o, rs, now, active, onBag, onText, onOut, onHand }: { o: any
   const run = async (k: string, f: () => Promise<any>) => { setBusy(k); try { await f(); } finally { setBusy(''); } };
   return (
     <div className="cf-anim-rise rounded-2xl border-2 p-4" style={{ borderColor: long ? C.warn : active ? C.ink : C.line }}>
+      {(o.curbside?.bringToVehicle || o.curbside?.accessNote) && <p className="m-0 mb-2"><span className="inline-block rounded-full px-2.5 py-1 text-[13px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
+        {[o.curbside?.bringToVehicle ? 'Bring it to the car' : '', String(o.curbside?.accessNote || '').trim()].filter(Boolean).join(': ')}</span></p>}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="m-0 truncate text-[22px] font-light">{shortName(o.customerName)}</p>
-          <p className="m-0 mt-0.5 text-[15px]">{where}</p>
+          {carFirst ? <>
+            <p className="m-0 text-[22px] font-semibold leading-tight">{where}</p>
+            <p className="m-0 mt-1 text-[15px]" style={muted}>{o.customerName || 'Customer'}, shop order {String(o.orderNumber ?? '').padStart(4, '0')}</p>
+          </> : <>
+            <p className="m-0 truncate text-[22px] font-light">{shortName(o.customerName)}</p>
+            <p className="m-0 mt-0.5 text-[15px]">{where}</p></>}
           <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px]" style={muted}>{bagged ? `Bagged${o.shelfSlot ? `, shelf ${o.shelfSlot}` : ''}, ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}` : `${p.done} of ${p.total} bagged`}{hasProsOnly(o) && <ProsTag o={o} />}</p>
           {o.collector?.name && <p className="m-0 mt-0.5 text-[14px] font-semibold" style={{ color: C.ok }}>{o.collector.name} is collecting</p>}
         </div>

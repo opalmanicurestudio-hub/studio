@@ -26,7 +26,7 @@ put('team', 'staff_message shoutout task');
 put('clients', 'case_new case_yours case_approval case_redo case_reopened case_late case_check_back case_report case_hint conduct_report refund_on_way refund_near refund_choice');
 put('pay', 'pay_question pay_question_update clock_reminder timeclock clock_fix clock_fix_approved clock_fix_declined payroll_draft');
 put('floor', 'assist assist_escalation floor_assist back_call_waiting dish_machine_out bar_running_out table_ask food_ready table_seated table_given table_moved kitchen_call kitchen_note turnover_due turnover_escalation kit_timer kit_cleansed contact_reached cycle_done linen_timer kit_none_usable kit_short');
-put('orders', 'orders_cutoff orders_missed orders_big_day orders_fast');
+put('orders', 'orders_cutoff orders_missed orders_big_day orders_fast curbside_here');
 put('rent', 'renter_arrived booth_reservation booth_tour booth_application booth_no_show renter_leave renter_document renter_concern renter_message renter_swap credential rent_late renter_barred tour_followup');
 export const groupOf = (type?: string): NotifyGroup => OF[String(type || '')] || 'business';
 
