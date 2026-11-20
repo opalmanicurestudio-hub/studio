@@ -17,10 +17,19 @@ export function curbsideBoard(shopActive: any[], cafe: CafeCurb[], now: number):
     ...shop.filter(isHere).map((o) => ({ kind: 'shop' as const, key: `s:${o.id}`, o, since: ms(o.curbside?.arrivedAt) || now })),
     ...(cafe || []).filter((c) => !!c.hereAt).map((c) => ({ kind: 'cafe' as const, key: `c:${c.id}`, c, since: ms(c.hereAt) || now })),
   ].sort((a, b) => a.since - b.since);
-  const coming: CurbRow[] = shop.filter(onTheWay).map((o) => ({ kind: 'shop' as const, key: `s:${o.id}`, o, since: ms(o.curbside?.onWayAt) || now }));
-  const waiting = [...shop.filter((o) => !isHere(o) && !onTheWay(o)).map((o) => o.pickupAt || o.readyBy || null), ...(cafe || []).filter((c) => !c.hereAt).map((c) => c.at)];
+  const coming: CurbRow[] = [
+    ...shop.filter(onTheWay).map((o) => ({ kind: 'shop' as const, key: `s:${o.id}`, o, since: ms(o.curbside?.onWayAt) || now })),
+    ...(cafe || []).filter((c) => !c.hereAt && !!c.onWayAt).map((c) => ({ kind: 'cafe' as const, key: `c:${c.id}`, c, since: ms(c.onWayAt) || now })),
+  ].sort((a, b) => a.since - b.since);
+  const waiting = [...shop.filter((o) => !isHere(o) && !onTheWay(o)).map((o) => o.pickupAt || o.readyBy || null), ...(cafe || []).filter((c) => !c.hereAt && !c.onWayAt).map((c) => c.at)];
   const times = waiting.filter(Boolean).map(String).filter((t) => ms(t) > now - 3600000).sort((a, b) => ms(a) - ms(b));
   return { outside, coming, later: { count: waiting.length, next: times[0] || null } };
+}
+
+/** About how many minutes away a café guest on their way is now (what they said, less the time since), or null. */
+export function cafeMinutesAway(c: { onWayAt?: string | null; eta?: number | null }, now: number): number | null {
+  const at = ms(c.onWayAt); if (!at || c.eta == null) return null;
+  return Math.max(0, Math.round(Number(c.eta) - (now - at) / 60000));
 }
 
 /** Minutes someone has been outside. */

@@ -24,6 +24,7 @@ import { klairSettings } from '@/lib/klair';
 import { asapSlot, cleanSlotItems, fits, fullTimes, itemCount, itemsBySlot, slotCap, type PaceLevel } from '@/lib/ahead-slots';
 import { menuAnswersOn } from '@/lib/klair-menu';
 import { cleanPicks } from '@/lib/menu-choices';
+import { pickupGeoOf } from '@/lib/pickup-geo';
 import { offerOf } from '@/lib/menu-upgrades';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -327,7 +328,10 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     kitchen: !or.paidAt ? null : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
     here: !!or.ahead?.hereAt, failed: state === 'canceled' ? String(or.ahead?.failed || '') || null : null,
     // Curbside: where they said they are, and, once someone's taking it out, their first name.
-    curb: or.ahead?.way === 'curbside' ? { where: or.ahead?.curb?.where || null, out: !!or.ahead?.curb?.outAt, by: or.ahead?.curb?.outBy || null } : null,
+    curb: or.ahead?.way === 'curbside' ? { where: or.ahead?.curb?.where || null, out: !!or.ahead?.curb?.outAt, by: or.ahead?.curb?.outBy || null,
+      onWay: !!or.ahead?.curb?.onWayAt, eta: or.ahead?.curb?.etaMinutes ?? null, found: or.ahead?.curb?.source === 'geo' } : null,
+    // Where pickups happen (lib/pickup-geo), for a curbside guest not here yet: how far away, and checking in once they pull in.
+    geo: or.ahead?.way === 'curbside' && !or.ahead?.hereAt && or.status !== 'done' ? await pickupGeoOf(db, tenantId, tenant) : null,
     // Points this order earned (never their balance: a page anyone with the link can open).
     earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
     lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null })),
@@ -338,17 +342,23 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
 /** The guest says they're here (in the drive-thru line, inside, or parked outside for curbside): the kitchen starts now
  *  if it was waiting. Curbside says where they are (their car, its color, the spot) and anything to know; saying it again
  *  only changes those. Managers' phones buzz at once (a 'curbside_here' alert); the Curbside screen shows them either way. */
-export async function aheadHere(db: any, tenantId: string, orderId: string, curb?: { where?: unknown; note?: unknown }): Promise<{ ok: true; already?: boolean } | Fail> {
+export async function aheadHere(db: any, tenantId: string, orderId: string, curb?: { where?: unknown; note?: unknown; source?: unknown; distanceM?: unknown }): Promise<{ ok: true; already?: boolean } | Fail> {
   const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
-  const where = words(curb?.where, 80); const note = words(curb?.note, 160);
+  let where = words(curb?.where, 80); const note = words(curb?.note, 160);
+  // Checked in by their phone's location as they pulled in (their page open): where can come later. The distance is kept
+  // as what the phone said, not a claim.
+  const geo = curb?.source === 'geo'; const said = curb?.distanceM != null && curb?.distanceM !== '' && Number.isFinite(Number(curb?.distanceM)); const dist = said ? Math.round(Number(curb?.distanceM)) : -1;
   const r: any = await db.runTransaction(async (tx: any) => {
     const or: any = (await tx.get(ref)).data(); if (!or || or.channel !== 'ahead') return fail('This order isn’t here.', 404);
     if (!or.paidAt) return fail('This order isn’t paid yet.', 409);
     const curbside = or.ahead?.way === 'curbside';
-    if (curbside && !where) return fail('Say where you are: your car, its color, or the spot.', 400, 'where');
+    if (curbside && !where) where = String(or.ahead?.curb?.where || '');   // what they said they're driving, on the way
+    if (curbside && !where && !geo) return fail('Say where you are: your car, its color, or the spot.', 400, 'where');
+    if (curbside && geo && or.ahead?.hereAt) return { ok: true, already: true };   // the phone never changes a check-in already made
     if (or.status === 'done') return { ok: true, already: true };
     const at = or.ahead?.hereAt || nowIso();
-    if (curbside) tx.set(ref, { ahead: { hereAt: at, curb: { where, note: note || or.ahead?.curb?.note || null, arrivedAt: or.ahead?.curb?.arrivedAt || at } } }, { merge: true });
+    if (curbside) tx.set(ref, { ahead: { hereAt: at, curb: { where: where || null, note: note || or.ahead?.curb?.note || null, arrivedAt: or.ahead?.curb?.arrivedAt || at,
+      ...(!or.ahead?.hereAt ? { source: geo ? 'geo' : 'tap', ...(geo && dist >= 0 && dist <= 2000 ? { distanceM: dist } : {}) } : {}) } } }, { merge: true });
     else if (!or.ahead?.hereAt) tx.set(ref, { ahead: { hereAt: at } }, { merge: true });
     return { ok: true, already: !!or.ahead?.hereAt, curbside, number: String(or.number || ''), name: or.guestName || null };
   });
@@ -358,12 +368,28 @@ export async function aheadHere(db: any, tenantId: string, orderId: string, curb
     try {
       const n = db.collection(`tenants/${tenantId}/notifications`).doc();
       await n.set({ id: n.id, userId: null, read: false, createdAt: nowIso(), type: 'curbside_here', link: '/curbside', title: `${r.name ? String(r.name).split(' ')[0] : 'A guest'} is outside`,
-        message: `Order ${r.number} for curbside: ${where}.${note ? ` ${note}` : ''}` });
+        message: `Order ${r.number} for curbside: ${where || 'just pulled in (found by their location)'}.${note ? ` ${note}` : ''}` });
       await (await import('@/lib/push')).pushNow(db, tenantId);
     } catch { /* the curbside screen shows them either way */ }
   }
   try { await startNow(db, tenantId, orderId); } catch (e: any) { console.error('[counter-ahead] kitchen not started early', orderId, e?.message); }   // its own time still starts it
   return { ok: true };
+}
+
+/** A curbside guest on their way: when they set off, about how many minutes out (from a one-time location if they
+ *  allowed it, else nothing: never treated as a promise), and what they're driving if they said. The Curbside screen
+ *  shows them under On the way; nothing is buzzed. Saying it again updates the minutes (kept when no new ones come) and the car. */
+export async function aheadOnWay(db: any, tenantId: string, orderId: string, b: { eta?: unknown; where?: unknown }): Promise<{ ok: true } | Fail> {
+  const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
+  const eta = Math.round(num(b?.eta)); const where = words(b?.where, 80); const sent = b?.eta != null && b?.eta !== '';
+  return db.runTransaction(async (tx: any) => {
+    const or: any = (await tx.get(ref)).data(); if (!or || or.channel !== 'ahead') return fail('This order isn’t here.', 404);
+    if (!or.paidAt) return fail('This order isn’t paid yet.', 409);
+    if (or.ahead?.way !== 'curbside') return fail('This order isn’t for curbside.', 409);
+    if (or.ahead?.hereAt || or.status === 'done') return { ok: true };
+    tx.set(ref, { ahead: { curb: { onWayAt: or.ahead?.curb?.onWayAt || nowIso(), etaMinutes: eta >= 1 && eta <= 60 ? eta : sent ? null : (or.ahead?.curb?.etaMinutes ?? null), ...(where ? { where } : {}) } } }, { merge: true });
+    return { ok: true };
+  });
 }
 
 /** An order's tickets that were waiting until later: the kitchen starts on them now. */

@@ -21,7 +21,7 @@ import { ACTIVE_STAGES, firstName } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { mayEditContact } from '@/lib/contact-change';
 import { minutesAway, shortName, soonText } from '@/lib/pickups-view';
-import { curbsideBoard, isShopCurb, waitedMin, WAIT_WARN_MIN, type CurbRow } from '@/lib/curbside';
+import { cafeMinutesAway, curbsideBoard, isShopCurb, waitedMin, WAIT_WARN_MIN, type CurbRow } from '@/lib/curbside';
 import type { CafeCurb } from '@/lib/curbside-server';
 import { Btn, C, Empty, LargeTitle, UndoBar, feel, muted } from './ui';
 import { OrderWorkspace, type WorkTab } from './workspace/OrderWorkspace';
@@ -132,9 +132,11 @@ export function CurbsideScreen() {
         {board.coming.length > 0 && (
           <section aria-label="On the way" className="px-4 pt-5">
             <h2 className="m-0 pb-2 text-[13px] font-semibold" style={muted}>On the way</h2>
-            <ul className="m-0 list-none overflow-hidden rounded-2xl p-0" style={{ background: C.soft }}>{board.coming.map((r) => { const o = (r as any).o; const m = minutesAway(o, now);
+            <ul className="m-0 list-none overflow-hidden rounded-2xl p-0" style={{ background: C.soft }}>{board.coming.map((r) => {
+              const shop = r.kind === 'shop'; const m = shop ? minutesAway(r.o, now) : cafeMinutesAway(r.c, now);
+              const who = shop ? shortName(r.o.customerName) : shortName(r.c.name || 'Guest'); const car = shop ? r.o.curbside?.spotOrVehicle : r.c.where;
               return <li key={r.key} className="flex min-h-[52px] items-center justify-between gap-3 border-b px-4 last:border-b-0" style={{ borderColor: C.line }}>
-                <span className="min-w-0 truncate text-[15px] font-semibold">{shortName(o.customerName)}<span className="font-normal" style={muted}>{o.curbside?.spotOrVehicle ? `, ${o.curbside.spotOrVehicle}` : ''}</span></span>
+                <span className="min-w-0 truncate text-[15px] font-semibold">{who}<span className="font-normal" style={muted}>{car ? `, ${car}` : ''}{shop ? '' : `, café order ${r.c.number}`}</span></span>
                 <span className="shrink-0 text-[14px]" style={muted}>{m == null ? 'On the way' : m <= 1 ? 'Almost here' : `About ${m} min away`}</span></li>; })}</ul>
           </section>)}
         {board.later.count > 0 && <p className="m-0 px-4 pt-5 text-[14px]" style={muted}>Later today: {board.later.count} more curbside order{board.later.count === 1 ? '' : 's'}{board.later.next ? `, next at ${clock(board.later.next)}` : ''}.</p>}
@@ -160,8 +162,9 @@ export function CafeCard({ c, since, now, onOut, onHanded }: { c: CafeCurb; sinc
       {c.note && <p className="m-0 mb-2"><span className="inline-block rounded-full px-2.5 py-1 text-[13px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>{c.note}</span></p>}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="m-0 text-[22px] font-semibold leading-tight">{c.where || 'Outside'}</p>
+          <p className="m-0 text-[22px] font-semibold leading-tight">{c.where || 'Just pulled in'}</p>
           <p className="m-0 mt-1 text-[15px]" style={muted}>{c.name || 'Guest'}, café order {c.number}{c.summary ? `, ${c.summary}` : ''}</p>
+          {c.found && <p className="m-0 mt-1 text-[13.5px]" style={muted}>Found by their phone’s location{c.where ? '' : '. They haven’t said their car yet: look for them, or ask them to add it.'}</p>}
         </div>
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[14px] font-semibold tabular-nums${long ? ' cf-anim-pulse' : ''}`} style={out ? { background: C.okSoft, color: C.ok } : long ? { background: C.warnSoft, color: C.warn } : { background: C.soft, color: C.muted }}>
           {out ? 'On the way out' : mins < 1 ? 'Just now' : `Waiting ${mins} min`}</span>

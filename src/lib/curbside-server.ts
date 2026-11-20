@@ -17,7 +17,9 @@ type Fail = { ok: false; error: string; status: number };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 
 export type CafeCurb = { kind: 'cafe'; id: string; number: string; name: string | null; where: string | null; note: string | null; hereAt: string | null; outAt: string | null; outBy: string | null;
-  at: string | null; state: 'later' | 'making' | 'ready'; items: number; summary: string };
+  at: string | null; state: 'later' | 'making' | 'ready'; items: number; summary: string;
+  /** On their way (when they set off, about how many minutes out), and checked in by their phone's location. */
+  onWayAt?: string | null; eta?: number | null; found?: boolean };
 
 /** How the kitchen is getting on with one order's tickets: waiting until later, being made, or ready (nothing to make
  *  counts as ready). */
@@ -52,6 +54,7 @@ async function readCafe(db: any, tenantId: string, tenant: any, now: number): Pr
   return orders.map((o: any) => ({
     kind: 'cafe' as const, id: o.id, number: String(o.number || ''), name: o.guestName || null, where: o.ahead?.curb?.where || null, note: o.ahead?.curb?.note || null,
     hereAt: o.ahead?.hereAt || null, outAt: o.ahead?.curb?.outAt || null, outBy: o.ahead?.curb?.outBy || null, at: o.ahead?.at || null,
+    onWayAt: o.ahead?.curb?.onWayAt || null, eta: o.ahead?.curb?.etaMinutes ?? null, found: o.ahead?.curb?.source === 'geo',
     state: kitchenState(tix.get(o.id) || [], now), items: (o.lines || []).reduce((n: number, l: any) => n + num(l.quantity), 0),
     summary: (o.lines || []).slice(0, 3).map((l: any) => `${num(l.quantity) > 1 ? `${num(l.quantity)} ` : ''}${String(l.name || '').toLowerCase()}`).join(', '),
   }));

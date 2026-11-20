@@ -3,14 +3,16 @@
 //   place { tenantId, key, lines, name, way, at, phone?, join? }       → the order (not paid yet) and the secure form's key for its payment
 //   done  { tenantId, o, s }                            → after the form says it went through: asked of the card company
 //   track { tenantId, o, s }                            → how it's going (paid, the pickup code, being made, ready)
-//   here  { tenantId, o, s }                            → "I'm here": the kitchen starts now if it was waiting
+//   here  { tenantId, o, s, where?, note?, source?, distanceM? } → "I'm here": the kitchen starts now if it was waiting;
+//                                                         curbside says where (or 'geo': their phone found them in the lot)
+//   onway { tenantId, o, s, eta?, where? }              → curbside: on their way, about how far, and what they're driving
 //   menu_ask { tenantId, question }                     → Klair answers a menu question from the business's recipes and
 //                                                         allergen marks only (lib/klair-menu), when the business turns it on
 // An order's link is signed for that order: it opens nothing else.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadSigOk, linkAheadPoints } from '@/lib/counter-ahead';
+import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadOnWay, aheadSigOk, linkAheadPoints } from '@/lib/counter-ahead';
 import { ensureWalletDomainsSoon } from '@/lib/wallet-domains';
 import { closedReply } from '@/lib/tenant-open-server';
 import { klairSettings } from '@/lib/klair';
@@ -26,10 +28,10 @@ export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-    if (!ID.test(tenantId) || !['menu', 'place', 'done', 'track', 'here', 'menu_ask'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+    if (!ID.test(tenantId) || !['menu', 'place', 'done', 'track', 'here', 'onway', 'menu_ask'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
     const orderId = String(b.o || '');
     // An order's own link: its signature first (it can't be guessed), so made-up links never use up the business's allowance.
-    if (['done', 'track', 'here'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
+    if (['done', 'track', 'here', 'onway'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
     // An order's own (signed) link is limited per address only, generously: its page asks every few seconds, and a busy
     // day's pages must never use up the business's allowance (nor keep a guest from hearing their payment went through).
     const slow = await limitPublic(req, action === 'place' ? 'order_ahead_place' : action === 'menu' ? 'order_ahead' : action === 'menu_ask' ? 'order_ahead_ask' : 'order_ahead_link', tenantId,
@@ -60,7 +62,9 @@ export async function POST(req: NextRequest) {
       if (o?.channel === 'ahead' && o.paidAt && o.ahead?.pointsPhone) await linkAheadPoints(db, tenantId, tenant, orderId, o);
       const r: any = await aheadView(db, tenantId, tenant, orderId); return reply(r, r.ok ? 200 : r.status);
     }
-    if (action === 'here') { const r: any = await aheadHere(db, tenantId, orderId, { where: b.where, note: b.note }); return reply(r, r.ok ? 200 : r.status); }
+    if (action === 'here') { const r: any = await aheadHere(db, tenantId, orderId, { where: b.where, note: b.note, source: b.source, distanceM: b.distanceM }); return reply(r, r.ok ? 200 : r.status); }
+    // A curbside guest on their way: about how far, and what they're driving (lib/counter-ahead aheadOnWay).
+    if (action === 'onway') { const r: any = await aheadOnWay(db, tenantId, orderId, { eta: b.eta, where: b.where }); return reply(r, r.ok ? 200 : r.status); }
     // done: whatever the page says, it's the card company that's asked.
     const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
     if (!o || o.channel !== 'ahead') return reply({ ok: false, error: BAD_LINK }, 404);

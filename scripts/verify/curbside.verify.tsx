@@ -5,6 +5,8 @@
 // - Ordering ahead: curbside is a way to pick up once it's on; I'm here says where they are; the floor hears at once.
 // - The runner: Bringing it out only once it's ready and they're here (their page says so, with a first name); Handed
 //   over finishes it (the kitchen's tickets are served); renters can't.
+// - On the way and pulling in: I'm on my way (about how far, what they're driving); checked in by their phone's location
+//   once they pull in (where can come after); the runner sees which.
 // - The screen and where it's reached.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/curbside.verify.tsx
 import Module from 'module';
@@ -74,7 +76,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   r = await A.aheadHere(db, 't1', 'o1', { where: 'Spot\u202e 4\u200b\u0085' });
   check('…saying it again only changes where, with invisible and control characters taken out (what to know is kept; no second alert)', r.ok && (await get(`${T}/counterOrders/o1`)).ahead.curb.where === 'Spot 4' && (await get(`${T}/counterOrders/o1`)).ahead.curb.note === 'Please knock' && (await db.collection(`${T}/notifications`).get()).docs.length === 1);
   let v: any = await A.aheadView(db, 't1', TENANT, 'o1');
-  check('their page: where they said, nobody out yet (nothing they asked is shown back to them)', v.way === 'curbside' && v.here && JSON.stringify(v.curb) === JSON.stringify({ where: 'Spot 4', out: false, by: null }), v.curb);
+  check('their page: where they said, nobody out yet (nothing they asked is shown back to them), and no location once they’re here', v.way === 'curbside' && v.here && JSON.stringify(v.curb) === JSON.stringify({ where: 'Spot 4', out: false, by: null, onWay: false, eta: null, found: false }) && v.geo === null, v);
   await order('o2', { ahead: { way: 'inside', code: '1111', state: 'paid' } });
   r = await A.aheadHere(db, 't1', 'o2', {});
   check('inside, I’m here needs nothing more', r.ok && !(await get(`${T}/counterOrders/o2`)).ahead.curb);
@@ -113,6 +115,59 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   r = await C({ action: 'list' });
   check('renters don’t see or move the business’s orders', r.status === 403);
 
+  console.log('on the way, and pulling in');
+  const G = await import('../../src/lib/pickup-geo');
+  const PIN = { ...TENANT, retailSettings: { curbsideLat: 40.7128, curbsideLng: -74.006 } };
+  check('where pickups happen: the spot the shop pinned first', JSON.stringify(await G.pickupGeoOf(db, 't1', { ...PIN, studioLocation: { lat: 1, lng: 1 } })) === JSON.stringify({ lat: 40.7128, lng: -74.006 }));
+  await db.doc(`${T}/locations/l1`).set({ isActive: true, coordinates: { lat: 41.1, lng: -73.2 } });
+  check('…else the one location with coordinates, else the business’s own', JSON.stringify(await G.pickupGeoOf(db, 't1', { ...TENANT, studioLocation: { lat: 1, lng: 1 } })) === JSON.stringify({ lat: 41.1, lng: -73.2 }));
+  await db.doc(`${T}/locations/l2`).set({ isActive: true, coordinates: { lat: 42.2, lng: -72.1 } });
+  check('…the locations are read at most once a minute (a guest’s page asks every few seconds)', JSON.stringify(await G.pickupGeoOf(db, 't1', { ...TENANT, studioLocation: { lat: 1, lng: 1 } })) === JSON.stringify({ lat: 41.1, lng: -73.2 }));
+  G.forgetPickupGeo('t1');
+  check('…two pinned locations is a guess, so not one of them; nothing usable is none', JSON.stringify(await G.pickupGeoOf(db, 't1', { ...TENANT, studioLocation: { lat: 1, lng: 1 } })) === JSON.stringify({ lat: 1, lng: 1 })
+    && (await G.pickupGeoOf(db, 't1', { ...TENANT, studioLocation: { lat: 0, lng: 0 } })) === null && (await G.pickupGeoOf(db, 't1', { retailSettings: { curbsideLat: 'x', curbsideLng: 5 } })) === null);
+  await order('o7'); await order('o8', { paidAt: null }); await order('o9'); await order('o10');
+  v = await A.aheadView(db, 't1', PIN, 'o7');
+  check('their page, not here yet: where to pull in, to say how far and check them in', JSON.stringify(v.geo) === JSON.stringify({ lat: 40.7128, lng: -74.006 }) && v.curb.onWay === false, v);
+  r = await A.aheadOnWay(db, 't1', 'o7', { eta: 7.4, where: ' Red Mini ' }); o = await get(`${T}/counterOrders/o7`);
+  const onWayAt = o.ahead.curb.onWayAt; v = await A.aheadView(db, 't1', PIN, 'o7');
+  check('I’m on my way: when, about how far, and what they’re driving; no alert', r.ok && !!onWayAt && o.ahead.curb.etaMinutes === 7 && o.ahead.curb.where === 'Red Mini' && !o.ahead.hereAt && pushed === 1
+    && v.curb.onWay === true && v.curb.eta === 7 && v.curb.where === 'Red Mini', o.ahead);
+  r = await A.aheadOnWay(db, 't1', 'o7', { eta: null }); o = await get(`${T}/counterOrders/o7`);
+  check('…again with no new minutes: the last ones are kept', r.ok && o.ahead.curb.etaMinutes === 7);
+  r = await A.aheadOnWay(db, 't1', 'o7', { eta: 400 }); o = await get(`${T}/counterOrders/o7`);
+  check('…again: when they set off is kept, and a distance that isn’t a drive away isn’t shown', r.ok && o.ahead.curb.onWayAt === onWayAt && o.ahead.curb.etaMinutes === null && o.ahead.curb.where === 'Red Mini');
+  const bad = [await A.aheadOnWay(db, 't1', 'o2', {}), await A.aheadOnWay(db, 't1', 'o8', {}), await A.aheadOnWay(db, 't1', 'nope', {})] as any[];
+  check('…only for paid curbside orders', bad[0].status === 409 && /isn’t for curbside/.test(bad[0].error) && bad[1].status === 409 && bad[2].status === 404, bad);
+  const listed = await S.cafeCurbside(db, 't1', TENANT, Date.now() + 10000);
+  const w7 = listed.find((x: any) => x.id === 'o7') as any;
+  check('the runner’s list: on the way, with the minutes they said', !!w7 && !!w7.onWayAt && w7.eta === null && w7.where === 'Red Mini' && w7.found === false && w7.hereAt === null, w7);
+  const b2 = L.curbsideBoard([], [{ kind: 'cafe', id: 'w1', hereAt: null, onWayAt: ago(2), eta: 6, at: null, state: 'making' } as any, { kind: 'cafe', id: 'w2', hereAt: null, at: null, state: 'later' } as any], now);
+  check('…under On the way, not later; about how many minutes now', b2.coming.map((x) => x.key).join() === 'c:w1' && b2.later.count === 1 && L.cafeMinutesAway({ onWayAt: ago(2), eta: 6 }, now) === 4
+    && L.cafeMinutesAway({ onWayAt: ago(9), eta: 6 }, now) === 0 && L.cafeMinutesAway({ onWayAt: ago(2), eta: null }, now) === null && L.cafeMinutesAway({ onWayAt: null, eta: 6 }, now) === null);
+  r = await A.aheadHere(db, 't1', 'o7', { source: 'geo', distanceM: 61.6 }); o = await get(`${T}/counterOrders/o7`);
+  let n7 = (await db.collection(`${T}/notifications`).get()).docs.map((d: any) => d.data()).filter((x: any) => /Order 59/.test(x.message));
+  check('pulled in, found by their phone: checked in with the car they said on the way, and the floor hears', r.ok && !!o.ahead.hereAt && o.ahead.curb.where === 'Red Mini' && o.ahead.curb.source === 'geo' && o.ahead.curb.distanceM === 62
+    && n7.length === 1 && n7[0].message === 'Order 59 for curbside: Red Mini.' && pushed === 2, { a: o.ahead, n7 });
+  await A.aheadOnWay(db, 't1', 'o9', {});
+  r = await A.aheadHere(db, 't1', 'o9', { source: 'geo', distanceM: 5000 }); o = await get(`${T}/counterOrders/o9`); v = await A.aheadView(db, 't1', PIN, 'o9');
+  n7 = (await db.collection(`${T}/notifications`).get()).docs.map((d: any) => d.data()).filter((x: any) => /found by their location/.test(x.message));
+  check('…with nothing said about the car, where comes later (and a distance no lot is that big isn’t kept)', r.ok && !!o.ahead.hereAt && o.ahead.curb.where === null && o.ahead.curb.source === 'geo' && o.ahead.curb.distanceM === undefined
+    && n7.length === 1 && n7[0].message === 'Order 59 for curbside: just pulled in (found by their location).' && v.curb.found === true && v.curb.where === null && v.geo === null, { a: o.ahead, v });
+  const hereAt9 = o.ahead.hereAt; const count = (await db.collection(`${T}/notifications`).get()).docs.length;
+  r = await A.aheadHere(db, 't1', 'o9', { source: 'geo', distanceM: 10 }); o = await get(`${T}/counterOrders/o9`);
+  check('…the phone again changes nothing', r.ok && (r as any).already === true && o.ahead.hereAt === hereAt9 && o.ahead.curb.distanceM === undefined && (await db.collection(`${T}/notifications`).get()).docs.length === count);
+  r = await A.aheadHere(db, 't1', 'o9', { where: 'White van, spot 2' }); o = await get(`${T}/counterOrders/o9`);
+  check('…they say where after: kept, still found by their phone, no second alert', r.ok && o.ahead.curb.where === 'White van, spot 2' && o.ahead.curb.source === 'geo' && o.ahead.hereAt === hereAt9 && (await db.collection(`${T}/notifications`).get()).docs.length === count);
+  await order('o11'); r = await A.aheadHere(db, 't1', 'o11', { source: 'geo' }); o = await get(`${T}/counterOrders/o11`);
+  check('…a phone that said no distance doesn’t store one as “in the lot”', r.ok && o.ahead.curb.source === 'geo' && o.ahead.curb.distanceM === undefined, o.ahead.curb);
+  r = await A.aheadHere(db, 't1', 'o10', {});
+  check('a tap with nothing said is still asked where (only the phone can check in without it)', !r.ok && (r as any).code === 'where' && !(await get(`${T}/counterOrders/o10`)).ahead.hereAt);
+  r = await A.aheadOnWay(db, 't1', 'o9', { eta: 5 }); o = await get(`${T}/counterOrders/o9`);
+  check('on my way after they’re here changes nothing', r.ok && o.ahead.curb.etaMinutes === null);
+  const rt = src('src/app/api/counter/ahead/route.ts');
+  check('the guest’s link signs it: on my way only with their order’s signature', /\['done', 'track', 'here', 'onway'\]\.includes\(action\) && \(!ID\.test\(orderId\) \|\| !aheadSigOk/.test(rt) && /source: b\.source, distanceM: b\.distanceM/.test(rt));
+
   console.log('the screen');
   const { renderToStaticMarkup } = await import('react-dom/server'); const React = await import('react');
   const { CafeCard } = await import('../../src/components/orders/CurbsideScreen');
@@ -125,6 +180,10 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('…being made: both wait, and it says why', t2.includes('Being made') && t2.includes('Both open up once the kitchen marks it ready.'));
   const t3 = card({ ...base, outAt: ago(1), outBy: 'Maria' }).replace(/<[^>]+>/g, ' ');
   check('…taken out: who’s taking it, and only Handed over left', t3.includes('Maria is taking it out') && t3.includes('On the way out') && !t3.includes('Bringing it out') && t3.includes('Hand over'));
+  const t4 = card({ ...base, where: null, note: null, found: true }).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  check('…found by their phone with no car said: look for them', t4.includes('Just pulled in') && t4.includes('Found by their phone’s location. They haven’t said their car yet: look for them, or ask them to add it.'), t4);
+  const t5 = card({ ...base, found: true }).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  check('…found with a car said: the car, and how they were found', t5.includes('Silver Civic, spot 3') && t5.includes('Found by their phone’s location') && !t5.includes('haven’t said'));
   const scr = src('src/components/orders/CurbsideScreen.tsx');
   const pk = src('src/components/orders/PickupsScreen.tsx');
   check('a shop customer who can’t come in is said first, on Pickups too', /o\.curbside\?\.bringToVehicle \? 'Bring it to the car' : ''/.test(pk) && /carFirst \? <>/.test(pk));
@@ -140,10 +199,16 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('the guest: Curbside to choose, I’m here asks where (said out loud, focus back on it), they can say where again after moving, and their page says when it’s on its way out', /w === 'curbside' \? 'Curbside'/.test(pg) && /Where are you\?/.test(pg) && /On its way out to you/.test(pg) && /bringing it to your car/.test(pg)
     && /role=\{whereErr \? 'alert' : undefined\}/.test(pg) && /requestAnimationFrame\(\(\) => whereBox\.current\?\.focus\(\)\)/.test(pg) && /Moved\? Say where you are now/.test(pg));
   const ah = src('src/lib/counter-ahead.ts');
+  check('the guest: I’m on my way (car optional; the form says their location is used for how far and to check them in), checked in by it while the page is open (rough until close, then precise; stops once in; a failed one tried again), a location prompt never holds the button, and asked where they parked if they hadn’t said',
+    /I’m on my way/.test(pg) && /send\(open === 'way' \? 'onway' : 'here'\)/.test(pg) && /What are you driving\?/.test(pg) && /getCurrentPosition\(/.test(pg)
+    && /watchPosition\(/.test(pg) && /if \(fired \|\| m > CURBSIDE_GEOFENCE_M \|\| tries\.current >= 3\) return;/.test(pg) && /if \(d\.ok\) \{ navigator\.geolocation\.clearWatch\(id\)/.test(pg) && /source: 'geo', distanceM: Math\.round\(m\)/.test(pg)
+    && /enableHighAccuracy: close/.test(pg) && /if \(!close && m <= 1000\) \{ setClose\(true\); return; \}/.test(pg) && /setTimeout\(\(\) => res\(null\), 10000\)/.test(pg)
+    && /While this page is open, it also checks you in when you pull in\./.test(pg)
+    && /Where did you park\?/.test(pg) && /Keep this page open, and we’ll check you in when you pull in\./.test(pg) && /return \(\) => \{ navigator\.geolocation\.clearWatch\(id\)/.test(pg));
   check('the alert is sent before the kitchen is started, so nothing after it can lose it', ah.indexOf("type: 'curbside_here'") > 0 && ah.indexOf("type: 'curbside_here'") < ah.indexOf('try { await startNow(db, tenantId, orderId); }'));
   check('café orders are read at most every few seconds per business, and a screen with no café curbside asks once', /now - c\.at < 3000/.test(src('src/lib/curbside-server.ts')) && /if \(!cafeOn\) return;/.test(scr));
   check('the Menu page’s switch', /check\(!!a\.curbside, 'Curbside: we bring it to their car', 'curbside'\)/.test(src('src/components/menu/OrderAheadCard.tsx')));
-  const mine = ['src/lib/curbside.ts', 'src/lib/curbside-server.ts', 'src/app/api/curbside/route.ts', 'src/components/orders/CurbsideScreen.tsx', 'src/app/(app)/curbside/page.tsx'].map(src).join('\n');
+  const mine = ['src/lib/curbside.ts', 'src/lib/curbside-server.ts', 'src/app/api/curbside/route.ts', 'src/components/orders/CurbsideScreen.tsx', 'src/app/(app)/curbside/page.tsx', 'src/lib/pickup-geo.ts'].map(src).join('\n');
   check('in the app’s own words and look', !/uppercase|font-black|\{\/\*| · |call us|contact us/i.test(mine) && !/[\u{1F300}-\u{1FAFF}]/u.test(mine) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(mine));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

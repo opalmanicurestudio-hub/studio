@@ -15,6 +15,7 @@ import { TELL_TEAM } from '@/lib/klair-menu';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
+import { CURBSIDE_GEOFENCE_M, distanceMetres, roughEtaMinutes } from '@/lib/retail-orders';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -30,7 +31,7 @@ type CartLine = { key: string; itemId: string; name: string; picks: Picks; choic
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
 async function call(body: any) {
   try { const r = await fetch('/api/counter/ahead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, d: await r.json().catch(() => ({})) }; }
@@ -153,21 +154,86 @@ function PayForm({ total, link, onPaid, onBusy }: { total: number; link: { tenan
   );
 }
 
+/** Curbside on the guest's page (design canvas: Curbside): I'm on my way (what they're driving, and about how far, from
+ *  their phone's location once if they allow it), I'm here (where they are, anything to know), and, while this page is
+ *  open and they're on their way, checked in by their phone's location once they pull in (lib/retail-orders
+ *  CURBSIDE_GEOFENCE_M; a web page can't follow a phone in a pocket, so I'm here always stays). Then: they know you're
+ *  outside, and who's bringing it out. */
+function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
+  const c = t.curb || { where: null, out: false, by: null };
+  const [form, setForm] = React.useState<'here' | 'way' | null>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [where, setWhere] = React.useState(''); const [note, setNote] = React.useState(''); const [whereErr, setWhereErr] = React.useState('');
+  const [watching, setWatching] = React.useState(false); const [found, setFound] = React.useState(false);
+  const whereBox = React.useRef<HTMLInputElement | null>(null); const status = React.useRef<HTMLParagraphElement | null>(null);
+  const missing = (msg: string) => { setWhereErr(msg); requestAnimationFrame(() => whereBox.current?.focus()); };
+  // Found by location, but the car isn't said yet: asked for, so the runner knows what to look for.
+  const needWhere = t.here && !c.where && !c.out;
+  const open = form ?? (needWhere ? 'here' : null);
+  // How far away, once (a prompt nobody answers doesn't hold the button: after 10 seconds it goes without).
+  const howFar = (): Promise<number | null> => new Promise((res) => {
+    if (!t.geo || typeof navigator === 'undefined' || !navigator.geolocation) { res(null); return; }
+    const giveUp = setTimeout(() => res(null), 10000); const done = (v: number | null) => { clearTimeout(giveUp); res(v); };
+    navigator.geolocation.getCurrentPosition((p) => done(roughEtaMinutes(distanceMetres({ lat: p.coords.latitude, lng: p.coords.longitude }, t.geo!))), () => done(null), { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+  });
+  const send = async (action: 'here' | 'onway') => {
+    if (action === 'here' && !where.trim()) { missing('Say where you are: your car, its color, or the spot.'); return; }
+    setBusy(true); setErr(''); setWhereErr('');
+    const eta = action === 'onway' ? await howFar() : null;
+    const { d } = await call({ action, tenantId, o, s, where: where.trim(), ...(action === 'here' ? { note: note.trim() } : { eta }) });
+    setBusy(false);
+    if (d.ok) { setForm(null); await reload(); requestAnimationFrame(() => status.current?.focus()); } else if (d.code === 'where') missing(d.error); else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  // On their way with this page open: checked in once their phone is in the lot (stops the moment it does). Rough
+  // location until they're within a kilometre (easier on the battery), then precise. A check-in that didn't go through
+  // is tried again on the next reading, twice more at most; I'm here is always there too.
+  const lat = t.geo?.lat, lng = t.geo?.lng; const watch = !!c.onWay && !t.here && lat != null && lng != null && t.kitchen !== 'handed';
+  const [close, setClose] = React.useState(false); const tries = React.useRef(0);
+  React.useEffect(() => {
+    if (!watch || typeof navigator === 'undefined' || !navigator.geolocation) return;
+    let fired = false; setWatching(true);
+    const id = navigator.geolocation.watchPosition(async (p) => {
+      const m = distanceMetres({ lat: p.coords.latitude, lng: p.coords.longitude }, { lat: lat!, lng: lng! });
+      if (!close && m <= 1000) { setClose(true); return; }   // starts again, precise
+      if (fired || m > CURBSIDE_GEOFENCE_M || tries.current >= 3) return;
+      fired = true; tries.current += 1;
+      const { d } = await call({ action: 'here', tenantId, o, s, source: 'geo', distanceM: Math.round(m) });
+      if (d.ok) { navigator.geolocation.clearWatch(id); setWatching(false); setFound(true); await reload(); } else fired = false;
+    }, () => setWatching(false), { enableHighAccuracy: close, timeout: 15000, maximumAge: 10000 });
+    return () => { navigator.geolocation.clearWatch(id); setWatching(false); };
+  }, [watch, close, lat, lng, tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
+  const btnDark = `${btn} min-h-[56px] w-full text-[17px]`;
+  if (c.out) return (
+    <div role="status"><p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>On its way out to you</p>
+      <p className="mt-2 text-[15px]" style={{ color: MUTED }}>{c.by ? `${c.by} is` : 'Someone’s'} bringing it to your car.</p></div>);
+  if (open) return (
+    <div className="space-y-3 text-left">
+      {needWhere && !form && <p role="status" className="text-center text-[15px] font-medium" style={{ color: GREEN }}>{found || c.found ? 'We can see you’re here.' : 'They know you’re here.'} Where did you park?</p>}
+      <label className="block"><span className="text-[15px] font-semibold">{open === 'way' ? 'What are you driving?' : needWhere ? 'Your car, or the spot' : 'Where are you?'}</span>
+        <input ref={whereBox} value={where} onChange={(e) => setWhere(e.target.value.slice(0, 80))} autoFocus aria-describedby="where-help" aria-invalid={!!whereErr} className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${whereErr ? AMBER : LINE}` }} />
+        <span id="where-help" role={whereErr ? 'alert' : undefined} className="mt-1 block text-[13.5px]" style={{ color: whereErr ? AMBER : MUTED }}>{whereErr || (open === 'way' ? `Optional: its color and make.${t.geo ? ' We’ll ask your phone where you are to say how far away you are. While this page is open, it also checks you in when you pull in.' : ''}` : 'Your car, its color, or the spot number')}</span></label>
+      {open === 'here' && <label className="block"><span className="text-[15px] font-semibold">Anything we should know?</span>
+        <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} placeholder="Optional, like “please knock”" className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>}
+      <button type="button" onClick={() => send(open === 'way' ? 'onway' : 'here')} disabled={busy} className={btnDark} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : open === 'way' ? 'Tell them I’m on my way' : 'Tell them I’m here'}</button>
+      {form && <button type="button" onClick={() => { setForm(null); setWhereErr(''); }} className={`min-h-[44px] w-full text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Not now</button>}
+      {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
+    </div>);
+  if (t.here) return (
+    <div><p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>{c.found ? 'Checked in by your location. ' : ''}They know you’re outside{c.where ? `: ${c.where}` : ''}. We’ll bring it out.</p>
+      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={`mt-1 min-h-[44px] text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Moved? Say where you are now</button></div>);
+  return (
+    <div className="space-y-2">
+      {c.onWay && <p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>They know you’re on your way{c.eta ? `, about ${c.eta} minutes out` : ''}.{watching ? ' Keep this page open, and we’ll check you in when you pull in.' : ''}</p>}
+      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={btnDark} style={{ background: INK, color: '#fff' }}>I’m here</button>
+      {!c.onWay && <button type="button" onClick={() => { setWhere(''); setForm('way'); }} className={`${btn} min-h-[52px] w-full bg-[#fff] text-[16px]`} style={{ border: `1px solid ${LINE}`, color: INK }}>I’m on my way</button>}
+      {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
+    </div>);
+}
+
 function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: string; onNew: () => void }) {
   const [t, setT] = React.useState<Track | null>(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const load = React.useCallback(async () => { const { d } = await call({ action: 'track', tenantId, o, s }); if (d.ok) { setT(d); setErr(''); } else if (!t) setErr(d.error || 'This order isn’t here.'); }, [tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { void load(); const i = setInterval(load, 15000); return () => clearInterval(i); }, [load]);
-  // Curbside: where they are (and anything to know) goes with I'm here.
-  // Moved the car? Saying it again changes where they are.
-  const [asking, setAsking] = React.useState(false); const [where, setWhere] = React.useState(''); const [note, setNote] = React.useState(''); const [whereErr, setWhereErr] = React.useState('');
-  const whereBox = React.useRef<HTMLInputElement | null>(null); const outside = React.useRef<HTMLParagraphElement | null>(null);
-  const missing = (msg: string) => { setWhereErr(msg); requestAnimationFrame(() => whereBox.current?.focus()); };
-  const here = async () => {
-    if (t?.way === 'curbside' && !where.trim()) { if (asking) missing('Say where you are: your car, its color, or the spot.'); else setAsking(true); return; }
-    setBusy(true); setWhereErr('');
-    const { d } = await call({ action: 'here', tenantId, o, s, ...(t?.way === 'curbside' ? { where: where.trim(), note: note.trim() } : {}) });
-    setBusy(false); if (d.ok) { setAsking(false); await load(); requestAnimationFrame(() => outside.current?.focus()); } else if (d.code === 'where') missing(d.error); else setErr(d.error || 'That didn’t go through. Try again.');
-  };
+  const here = async () => { setBusy(true); const { d } = await call({ action: 'here', tenantId, o, s }); setBusy(false); if (d.ok) void load(); else setErr(d.error || 'That didn’t go through. Try again.'); };
   if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">Your order</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>;
   if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your order" /></div>;
   if (t.state === 'canceled') return (
@@ -182,7 +248,7 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
       <p className="text-[15px]" style={{ color: MUTED }}>This page updates once it’s gone through.</p>
     </div>);
   const step = t.kitchen === 'handed' ? 'Picked up. Enjoy!' : t.kitchen === 'ready' ? 'Ready' : t.kitchen === 'later' ? (t.at ? `We’ll start it in time for ${clock(t.at)}` : 'Waiting to start') : 'Being made';
-  const say = t.way === 'drive-thru' ? `At the speaker, say: “I ordered ahead, code ${t.code}.”` : t.way === 'curbside' ? 'When you park, tap I’m here and say where you are. We’ll bring it to your car.' : `Say your code at the counter: ${t.code}.`;
+  const say = t.way === 'drive-thru' ? `At the speaker, say: “I ordered ahead, code ${t.code}.”` : t.way === 'curbside' ? 'Tap I’m on my way when you set off, and I’m here when you park. We’ll bring it to your car.' : `Say your code at the counter: ${t.code}.`;
   return (
     <div className="space-y-4">
       <section className="space-y-4 rounded-3xl bg-[#fff] p-6 text-center" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
@@ -192,22 +258,9 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
           <p className="text-[64px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p>
         </div>
         <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : t.way === 'curbside' ? 'curbside' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
-        {!(t.way === 'curbside' && (t.here || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
+        {!(t.way === 'curbside' && (t.here || t.curb?.onWay || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
         {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
-        {t.kitchen !== 'handed' && t.way === 'curbside' && t.here && (t.curb?.out
-          ? <div role="status"><p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>On its way out to you</p>
-              <p className="mt-2 text-[15px]" style={{ color: MUTED }}>{t.curb.by ? `${t.curb.by} is` : 'Someone’s'} bringing it to your car.</p></div>
-          : !asking && <div><p ref={outside} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>They know you’re outside{t.curb?.where ? `: ${t.curb.where}` : ''}. We’ll bring it out.</p>
-              <button type="button" onClick={() => { setWhere(t.curb?.where || ''); setAsking(true); }} className={`mt-1 min-h-[44px] text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Moved? Say where you are now</button></div>)}
-        {t.kitchen !== 'handed' && (t.way !== 'curbside' || !t.here || (asking && !t.curb?.out)) && (asking && t.way === 'curbside' ? (
-          <div className="space-y-3 text-left">
-            <label className="block"><span className="text-[15px] font-semibold">Where are you?</span>
-              <input ref={whereBox} value={where} onChange={(e) => setWhere(e.target.value.slice(0, 80))} autoFocus aria-describedby="where-help" aria-invalid={!!whereErr} className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${whereErr ? AMBER : LINE}` }} />
-              <span id="where-help" role={whereErr ? 'alert' : undefined} className="mt-1 block text-[13.5px]" style={{ color: whereErr ? AMBER : MUTED }}>{whereErr || 'Your car, its color, or the spot number'}</span></label>
-            <label className="block"><span className="text-[15px] font-semibold">Anything we should know?</span>
-              <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} placeholder="Optional, like “please knock”" className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>
-            <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : 'Tell them I’m here'}</button>
-          </div>)
+        {t.kitchen !== 'handed' && (t.way === 'curbside' ? <CurbsideSteps t={t} tenantId={tenantId} o={o} s={s} reload={load} />
           : !t.here ? <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>
           : <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>)}
       </section>
