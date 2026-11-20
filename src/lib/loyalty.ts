@@ -10,8 +10,9 @@
 // change is a new version; past sales keep the version they earned under (the ledger records it). A deterministic rules
 // engine decides who earns and redeems — nothing here guesses.
 export type EarnMode = 'per_dollar' | 'per_visit' | 'punch';
-export type RewardKind = 'amount_off' | 'free_service';
-export interface Reward { id: string; name: string; points: number; kind: RewardKind; cents?: number; serviceId?: string | null; costCents?: number; on: boolean }
+/** Money off, a free service (or add-on), or a free menu item (one, for food and drink: the counter and the drive-thru). */
+export type RewardKind = 'amount_off' | 'free_service' | 'free_item';
+export interface Reward { id: string; name: string; points: number; kind: RewardKind; cents?: number; serviceId?: string | null; itemId?: string | null; costCents?: number; on: boolean }
 export interface LoyaltySettings {
   on: boolean; version: number; updatedAt: string | null;
   earn: { mode: EarnMode; perDollar: number; perVisit: number; punchVisits: number; rebookBonus: number };
@@ -76,10 +77,11 @@ export function loyaltyOf(tenant: any): LoyaltySettings {
 }
 export function cleanReward(r: any): Reward | null {
   const points = Math.round(num(r?.points, 1, 100000, 0)); const name = String(r?.name || '').trim().slice(0, 60); if (!points || !name) return null;
-  const kind: RewardKind = r?.kind === 'free_service' ? 'free_service' : 'amount_off';
+  const kind: RewardKind = r?.kind === 'free_service' ? 'free_service' : r?.kind === 'free_item' ? 'free_item' : 'amount_off';
   const cents = kind === 'amount_off' ? Math.round(num(r?.cents, 1, 100000, 0)) : undefined; if (kind === 'amount_off' && !cents) return null;
   const serviceId = kind === 'free_service' ? String(r?.serviceId || '').slice(0, 80) || null : null; if (kind === 'free_service' && !serviceId) return null;
-  return { id: String(r?.id || rid()).slice(0, 40), name, points, kind, ...(cents ? { cents } : {}), ...(serviceId ? { serviceId } : {}), costCents: Math.round(num(r?.costCents, 0, 100000, cents || 0)), on: r?.on !== false };
+  const itemId = kind === 'free_item' ? String(r?.itemId || '').slice(0, 80) || null : null; if (kind === 'free_item' && !itemId) return null;
+  return { id: String(r?.id || rid()).slice(0, 40), name, points, kind, ...(cents ? { cents } : {}), ...(serviceId ? { serviceId } : {}), ...(itemId ? { itemId } : {}), costCents: Math.round(num(r?.costCents, 0, 100000, cents || 0)), on: r?.on !== false };
 }
 /** What gets saved when the owner changes the program: a new version whenever the earning or reward rules change. */
 export function nextLoyalty(prev: LoyaltySettings, raw: any, at = new Date().toISOString()): LoyaltySettings {
@@ -115,9 +117,11 @@ export const pointsBack = (earned: number, basisCents: number, refundCents: numb
 
 // ── Rewards ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** The money a reward takes off this bill (never more than the service it frees or what's left to discount). */
-export function rewardCents(r: Reward, bill: { lines: { serviceId: string | null; cents: number }[]; discountableCents: number }): number {
+export function rewardCents(r: Reward, bill: { lines: { serviceId: string | null; itemId?: string | null; cents: number }[]; discountableCents: number }): number {
   if (r.kind === 'amount_off') return Math.max(0, Math.min(Number(r.cents) || 0, bill.discountableCents));
-  const line = bill.lines.filter((l) => l.serviceId && l.serviceId === r.serviceId).sort((a, b) => b.cents - a.cents)[0];
+  // A free menu item: one of it, the dearest on the bill (`cents` on such a line is one of it).
+  const line = r.kind === 'free_item' ? bill.lines.filter((l) => l.itemId && l.itemId === r.itemId).sort((a, b) => b.cents - a.cents)[0]
+    : bill.lines.filter((l) => l.serviceId && l.serviceId === r.serviceId).sort((a, b) => b.cents - a.cents)[0];
   return line ? Math.max(0, Math.min(line.cents, bill.discountableCents)) : 0;
 }
 /** Rewards they can have now, and the next one to work toward. */

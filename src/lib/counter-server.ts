@@ -372,6 +372,7 @@ export async function staffMeal(db: any, tenantId: string, orderId: string, forN
     if (o.paidAt) return { error: 'That order is paid already.', status: 409 };
     if (o.status !== 'sent' && o.status !== 'done') return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
     if (cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409 };
+    if (o.reward) return { error: 'A reward is on this order. Take it off first.', status: 409 };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     tx.set(orderRef, { paidAt: nowIso, payMethod: 'staff', staffMeal: { for: name, by: who.name, byId: who.id || null, at: nowIso, ...(approver ? { approvedBy: approver.name, approvedById: approver.id || null } : {}) }, updatedAt: nowIso }, { merge: true });
     // Settled: it waits to be handed over, like a paid order.
@@ -387,7 +388,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
-  return db.runTransaction(async (tx: any) => {
+  let gaveBack: string | null = null;
+  const res = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     if (o.status === 'voided' || o.status === 'cancelled') return { ok: true, already: true, returned: 0, wasted: 0 };
     if (o.paidAt) return { error: 'That order is paid. Refund it at the desk instead.', status: 409 };
@@ -498,11 +500,16 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }
     tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}) }, { merge: true });
+    // A reward held for it (never used: it wasn't paid) goes back to them.
+    if (o.reward) { tx.delete(db.doc(`${T}/loyaltyLedger/redeem_counter_${orderId}`)); gaveBack = String(o.clientId || '') || null; }
     // (A car with an order placed ahead going with it carries on to pickup with that: it was paid for.)
     if (car && car.stage !== 'gone' && car.orderId === orderId && ID.test(String(car.aheadId || ''))) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { ...carryOn(car, nowIso), addOnVoided: true }, { merge: true });
     else if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
     return { ok: true, returned, wasted };
   });
+  // (Their balance and wallet card show the reward back.)
+  if (gaveBack && ID.test(gaveBack)) { try { const L = await import('@/lib/loyalty-server'); await L.refreshMember(db, tenantId, gaveBack); } catch { /* the ledger is right; the copy catches up */ } }
+  return res;
 }
 
 export type PayHow = { method: 'card' | 'cash'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string };
@@ -525,6 +532,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     // A kiosk's order (lib/kiosk): its tickets, waiting for the payment, read in the same step so paying lets them go.
+    // A reward held for it (lib/counter-points useReward), read in the same step so paying uses exactly that one.
+    const heldRef = o.reward && !o.paidAt ? db.doc(`${T}/loyaltyLedger/redeem_counter_${orderId}`) : null;
+    const heldReward: any = heldRef ? (await tx.get(heldRef)).data() : null;
     const unpaid = o.channel === 'kiosk' && !o.paidAt ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId))).docs.filter((d: any) => d.data()?.status === 'unpaid') : [];
     // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
     const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
@@ -566,6 +576,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       ...(cardIsThis ? { card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
       ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
     if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
+    // A reward held for it (lib/counter-points useReward) is used now: paid for with it.
+    if (heldRef && heldReward?.held === true) tx.set(heldRef, { held: false, usedAt: nowIso }, { merge: true });
     // Paid at a kiosk: the kitchen gets it now (its time to be ready counted from now), it's counted as sold, and it
     // waits at the counter to be handed over, as a counter order does once it's paid.
     if (o.channel === 'kiosk' && o.status === 'sent') {

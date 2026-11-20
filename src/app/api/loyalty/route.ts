@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const members = (await db.collection(`${T}/clients`).where('loyalty.balance', '>', 0).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {});
     const owed = members.reduce((t: number, c: any) => t + (Number(c.loyalty?.balance) || 0), 0);
     const since = new Date(Date.now() - 30 * 864e5).toISOString();
-    const used = (await db.collection(`${T}/loyaltyLedger`).where('at', '>=', since).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((e: any) => e.type === 'redeem');
+    const used = (await db.collection(`${T}/loyaltyLedger`).where('at', '>=', since).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((e: any) => e.type === 'redeem' && e.held !== true);   // (held for an unpaid drive-thru order: not used yet)
     return j({ ok: true, members: members.length, owedPoints: owed, owedCents: worthCents(S, owed), usedCount: used.length, usedCostCents: used.reduce((t: number, e: any) => t + (Number(e.costCents) || 0), 0) });
   }
   const clientId = String(b.clientId || '').slice(0, 80); if (!clientId) return j({ ok: false, error: 'Choose a client.' }, 400);

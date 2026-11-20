@@ -33,7 +33,9 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item' };
-type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null; points?: { phone: string; earned: number } | null;
+type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null; points?: { phone: string | null; earned: number; verified?: boolean } | null;
+  // A reward used on it (lib/counter-points useReward): what it took off, and the items' own total.
+  reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
   // The card reader's payment for it (lib/counter-card), if one was started.
   card?: { state: string; failed: string | null; readerId: string | null; at: string | null } | null };
@@ -52,7 +54,7 @@ type Ahead = { id: string; number: string; name: string | null; code: string; at
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
 const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -242,6 +244,9 @@ export default function DriveThru() {
   const [cardCheck, setCardCheck] = useState(false);
   // Rewards: the phone number being typed in for this order, and whether they're being asked to join.
   const [pointsOpen, setPointsOpen] = useState(false);
+  // The member on the order shown, when it was given by their rewards code: their balance and what they can use on it.
+  type Member = { orderId: string; name: string; balance: number; unit: string; ready: { id: string; name: string; points: number; cents: number }[] };
+  const [member, setMember] = useState<Member | null>(null);
   // Ordered ahead: the list of today's drive-thru orders placed ahead, and the code being typed in.
   const [aheadOpen, setAheadOpen] = useState(false);
   const [aheadCode, setAheadCode] = useState('');
@@ -406,6 +411,15 @@ export default function DriveThru() {
     applied.current[o.id] = mySeq;
     setLane((l) => (l ? { ...l, orders: { ...l.orders, [o.id]: { ...(l.orders[o.id] || {}), ...o } } } : l));
   };
+  const takeMember = (orderId: string, m: any) => setMember(m ? { orderId, name: String(m.name || ''), balance: Number(m.balance) || 0, unit: String(m.unit || 'points'), ready: Array.isArray(m.ready) ? m.ready : [] } : null);
+  const shownOrderId = order?.id || ''; const shownVerified = !!order?.points?.verified; const shownPaid = !!order?.paidAt;
+  useEffect(() => {
+    if (!shownOrderId || !shownVerified) return;
+    let gone = false;
+    void post({ action: 'rewards', orderId: shownOrderId }).then(({ d }: any) => { if (!gone && d?.ok) takeMember(shownOrderId, d.member); }).catch(() => {});
+    return () => { gone = true; };
+  }, [shownOrderId, shownVerified, shownPaid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const applyReward = (rewardId: string | null) => order && act('reward', { action: 'reward', orderId: order.id, rewardId }, (d) => { takeMember(order.id, d.member); setNotice({ text: rewardId ? `Reward used. New total ${usd(Number(d.total) || 0)}.` : `Reward taken off. Total ${usd(Number(d.total) || 0)}.`, tone: 'good' }); });
   const act = async (label: string, body: any, after?: (d: any) => void, sig?: string, onFail?: (d: any) => void) => {
     // Working on a car that isn't at this screen's spot keeps it on screen (the half minute starts again).
     if (role !== 'all' && car && (role === 'line' ? !inLineNow(car) : car.stage !== ROLE_STAGE[role])) manualAt.current = Date.now();
@@ -622,12 +636,26 @@ export default function DriveThru() {
         have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} /></div>}
       {lane?.pointsOn && order && order.status !== 'voided' && (
         <div className="flex items-center justify-between gap-2 border-t px-4 py-2" style={{ borderColor: LINE }}>
-          {order.points
-            ? <p className="text-[14px]" style={{ color: MUTED }}>Rewards: phone ending <b className="font-semibold tabular-nums" style={{ color: INK }}>{order.points.phone}</b>{order.points.earned ? <span style={{ color: GREEN }}> · earned {order.points.earned}</span> : order.paidAt ? '' : ' · earns when paid'}</p>
-            : <button type="button" onClick={() => setPointsOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Add rewards (their phone number)</button>}
+          {order.points && order.points.verified && member?.orderId === order.id ? (
+            <div className="w-full space-y-2">
+              <p className="text-[14px]" style={{ color: MUTED }}>Rewards: <b className="font-semibold" style={{ color: INK }}>{member.name}</b>, {member.balance} {member.unit}{order.points.earned ? <span style={{ color: GREEN }}>, earned {order.points.earned}</span> : order.paidAt ? '' : ', earns when paid'}</p>
+              {order.reward ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[14px] font-semibold" style={{ color: GREEN }}>Using {order.reward.name}</p>
+                  {!order.paidAt && <button type="button" disabled={!!busy} onClick={() => applyReward(null)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Take it off</button>}
+                </div>
+              ) : !order.paidAt && member.ready.length > 0 ? (order.status === 'sent'
+                ? <div role="group" aria-labelledby="use-reward"><p id="use-reward" className="pb-1.5 text-[13px] font-semibold" style={{ color: MUTED }}>Use a reward</p>
+                  <div className="flex flex-wrap gap-2">{member.ready.map((r) => <button key={r.id} type="button" disabled={!!busy} onClick={() => applyReward(r.id)} aria-label={`Use ${r.name}, ${r.points} ${member.unit}`} className={`${btn} px-3 text-[14px]`} style={quiet}>{r.name} ({r.points})</button>)}</div></div>
+                : <p className="text-[13.5px]" style={{ color: MUTED }}>{member.ready.length === 1 ? 'A reward is' : `${member.ready.length} rewards are`} ready to use once the order is sent.</p>) : null}
+            </div>)
+            : order.points
+            ? <p className="text-[14px]" style={{ color: MUTED }}>Rewards: {order.points.phone ? <>phone ending <b className="font-semibold tabular-nums" style={{ color: INK }}>{order.points.phone}</b></> : 'added'}{order.points.earned ? <span style={{ color: GREEN }}>, earned {order.points.earned}</span> : order.paidAt ? '' : ', earns when paid'}</p>
+            : <button type="button" onClick={() => setPointsOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{lane?.rewardsCodes ? 'Add rewards (their code or phone number)' : 'Add rewards (their phone number)'}</button>}
         </div>)}
       <div className="space-y-1 border-t px-4 py-3 text-[14.5px]" style={{ borderColor: LINE }}>
-        <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order?.subtotal || 0)}</span></div>
+        <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order?.reward ? order.itemsTotal || 0 : order?.subtotal || 0)}</span></div>
+        {order?.reward && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div>}
         {(order?.tax || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>{taxWords(order?.taxLabel || '')}</span><span className="tabular-nums">{usd(order!.tax)}</span></div>}
         <div className="flex items-baseline justify-between pt-1" style={{ color: INK }}><span className="text-[16px] font-semibold">Total</span><span className="text-[24px] font-semibold tabular-nums">{usd(order?.total || 0)}</span></div>
       </div>
@@ -997,7 +1025,10 @@ export default function DriveThru() {
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
-      {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points'} onClose={() => setPointsOpen(false)}
+      {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
+        onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {
+          setPointsOpen(false); takeMember(order.id, d.member); setNotice({ text: d.earned ? `Rewards added for ${d.member?.name || 'them'}: earned ${d.earned}.` : `Rewards added for ${d.member?.name || 'them'}.`, tone: 'good' }); res(null);
+        }, undefined, (d) => res(d.error || 'That didn’t go through.')); })}
         onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
           setPointsOpen(false); setNotice({ text: d.already ? 'Rewards were already on this order.' : d.earned ? `Rewards added: earned ${d.earned} ${d.unit}.` : 'Rewards added. It earns when it’s paid.', tone: 'good' }); res(null);
         }, undefined, (d) => res(d.code === 'not_found' || d.code === 'not_member' ? d.code : d.error || 'That didn’t go through.')); })} />}
@@ -1014,8 +1045,12 @@ export default function DriveThru() {
 // ─── Walking the line: which car it is, by color and kind (optional), so the window knows it ──────────────────────────
 const SWATCH: Record<string, string> = { White: '#ffffff', Black: '#16171a', Gray: '#8a8d93', Silver: '#c9cbd0', Red: '#c0392b', Blue: '#2f5fb3', Green: '#2e7d4f', Brown: '#7a5230', Gold: '#c9a227' };
 // ─── Rewards: the guest's phone number, and joining when they say yes ─────────────────────────────────────────────────
-function PointsSheet({ name, busy, onLink, onClose }: { name: string; busy: boolean; onLink: (phone: string, join: boolean, name: string) => Promise<string | null>; onClose: () => void }) {
+function PointsSheet({ name, busy, codes, onCode, onLink, onClose }: { name: string; busy: boolean; codes: boolean; onCode: (code: string) => Promise<string | null>; onLink: (phone: string, join: boolean, name: string) => Promise<string | null>; onClose: () => void }) {
   const [phone, setPhone] = useState(''); const [ask, setAsk] = useState<'' | 'not_found' | 'not_member'>(''); const [who, setWho] = useState(name); const [err, setErr] = useState('');
+  // Their rewards code first (it can use a reward); a phone number only earns.
+  const [byCode, setByCode] = useState(codes); const [code, setCode] = useState('');
+  const sixDigits = code.replace(/\D/g, '').slice(0, 6);
+  const goCode = async () => { setErr(''); const r = await onCode(sixDigits); if (r) setErr(r); };
   const box = useRef<HTMLDivElement | null>(null); const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input')?.focus();
@@ -1032,8 +1067,16 @@ function PointsSheet({ name, busy, onLink, onClose }: { name: string; busy: bool
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="points-title" className="max-h-[92dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-3xl bg-[#fff] p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 id="points-title" className="text-[20px] font-semibold tracking-tight">Rewards</h2>
-          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Ask for their phone number. The order earns points in their name once it’s paid.</p>
+          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{byCode ? 'Ask for the rewards code on their rewards page. The order earns points in their name, and they can use a reward on it.' : 'Ask for their phone number. The order earns points in their name once it’s paid.'}</p>
         </div>
+        {byCode ? <>
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (sixDigits.length === 6) void goCode(); }}>
+            <label className="sr-only" htmlFor="points-code">Rewards code</label>
+            <input id="points-code" value={code} onChange={(e) => { setCode(e.target.value.replace(/[^\d ]/g, '').slice(0, 7)); setErr(''); }} inputMode="numeric" autoComplete="off" placeholder="6-digit code" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-[22px] font-semibold tracking-[0.08em] tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
+            <button type="submit" disabled={busy || sixDigits.length !== 6} className={`${btn} min-h-[56px] shrink-0 px-5`} style={{ background: INK, color: '#fff' }}>{busy ? 'Finding…' : 'Find them'}</button>
+          </form>
+          <button type="button" onClick={() => { setByCode(false); setErr(''); }} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>No code? Their phone number (earns points only)</button>
+        </> : <>
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (digits.length === 10) void go(false); }}>
           <label className="sr-only" htmlFor="points-phone">Phone number</label>
           <input id="points-phone" value={phone} onChange={(e) => { setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18)); setAsk(''); }} inputMode="tel" autoComplete="off" placeholder="Phone number" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-[20px] font-semibold tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
@@ -1046,6 +1089,8 @@ function PointsSheet({ name, busy, onLink, onClose }: { name: string; busy: bool
               <input value={who} onChange={(e) => setWho(e.target.value.slice(0, 24))} className={`mt-1 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>}
             <button type="button" disabled={busy} onClick={() => void go(true)} className={`${btn} min-h-[52px] w-full`} style={{ background: GREEN, color: '#fff' }}>Yes, they want to join</button>
           </div>)}
+        {codes && <button type="button" onClick={() => { setByCode(true); setErr(''); setAsk(''); }} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>They have a rewards code</button>}
+        </>}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         <button type="button" onClick={onClose} className={`${btn} w-full`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>Close</button>
       </div>

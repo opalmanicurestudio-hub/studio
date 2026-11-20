@@ -23,6 +23,10 @@ async function syncClient(db: any, t: string, clientId: string, extra: any = {})
   return bal;
 }
 
+/** Their balance copied to their client record and wallet cards again, after a change made outside this file (a reward
+ *  held for a drive-thru order, or let go: lib/counter-points). */
+export const refreshMember = (db: any, t: string, clientId: string) => syncClient(db, t, clientId);
+
 /** After a paid sale: the points it earns (once per sale), times their tier's multiplier, plus a milestone bonus when this
  *  visit reaches one and a quiet-time bonus for visits booked into the business's quiet windows. Returns what was added. */
 export async function earnForSale(db: any, t: string, tenant: any, o: { clientId: string | null; saleId: string; sale: SaleForPoints; by: string; at?: string; quiet?: { day: number; min: number; serviceId: string | null }[] }) {

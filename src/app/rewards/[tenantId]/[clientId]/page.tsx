@@ -6,6 +6,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { rewardsKey } from '@/lib/loyalty-link';
 import { loyaltyOf, rewardsFor, worthCents, termsOf, unitOf, tierFor, goalOf, perkWords, activeBoosts } from '@/lib/loyalty';
 import { GoalPicker } from '@/components/loyalty/GoalPicker';
+import { RewardsCode } from '@/components/loyalty/RewardsCode';
 import { walletConfig } from '@/lib/wallet';
 import { ledgerFor } from '@/lib/loyalty-server';
 import { brandAccent } from '@/lib/brand-accent';
@@ -33,6 +34,9 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
   const svcNames = new Map<string, string>(); for (const id of S.tiers.flatMap((x) => (x.upgrade ? [x.upgrade.fromServiceId, x.upgrade.toServiceId] : []))) { const d: any = (await db.doc(`tenants/${tenantId}/services/${id}`).get()).data(); if (d?.name) svcNames.set(id, String(d.name)); }
   const { dayKey } = await import('@/lib/tenant-time'); const boosts = activeBoosts(S, dayKey(new Date(), tz));
   const e12 = ledger.filter((e: any) => (e.type === 'earn' || e.type === 'bonus') && Date.parse(e.at) >= Date.now() - 365 * 864e5).reduce((a: number, e: any) => a + Math.max(0, Number(e.points) || 0), 0); const tr = tierFor(S, e12, c.loyalty?.tier || null);
+  // Their rewards code, for a business with a counter or drive-thru (lib/rewards-code), where it's said or shown.
+  const { anyToolOn } = await import('@/lib/tool-lock'); const { codesOn } = await import('@/lib/rewards-code');
+  const quick = codesOn() && anyToolOn(tenant, ['hospitality']);
   return shell(<>
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{tenant.logoUrl ? <img src={tenant.logoUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} /> : <span style={{ width: 34, height: 34, borderRadius: 10, background: accent, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{name.charAt(0)}</span>}<span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span></div>
     <div><div style={{ fontSize: 14, color: MUTED }}>{first ? `Hi ${first},` : 'Hello,'}</div><h1 style={{ margin: '2px 0 0', fontSize: 30, fontWeight: 300, letterSpacing: '-0.03em' }}>Your rewards</h1></div>
@@ -49,6 +53,7 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
       {!goal && <div style={{ fontSize: 14 }}>{r.ready.length ? 'You have a reward ready.' : 'Earning with every visit.'}</div>}
       {tr.tier && <div style={{ fontSize: 13.5, color: '#c9cace' }}>{tr.tier.name}{perkWords(tr.tier, (id) => svcNames.get(id) || null).length ? ` · ${perkWords(tr.tier, (id) => svcNames.get(id) || null).join(' · ')}` : ''}{tr.next ? ` · ${tr.next.toGo} more this year for ${tr.next.tier.name}` : ''}</div>}
     </div>
+    {quick && <RewardsCode tenantId={tenantId} clientId={clientId} k={String(sp.k)} />}
     <GoalPicker tenantId={tenantId} clientId={clientId} k={String(sp.k)} unit={unit} goalId={c.loyalty?.goalRewardId || null} rewards={S.rewards.filter((x) => x.on).sort((a2, b2) => a2.points - b2.points).map((x) => ({ id: x.id, name: x.name, points: x.points, ready: x.points <= bal }))} />
     {boosts.map((b2) => <div key={b2.id} style={{ borderRadius: 16, background: SOFT, padding: '12px 14px', fontSize: 13.5 }}>{b2.label}: {b2.multiplier === 2 ? 'double' : `${b2.multiplier}×`} points{b2.scope === 'products' ? ' on products' : b2.scope === 'services' ? ' on services' : ''} until {new Date(`${b2.to}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })}.</div>)}
     {(() => { const w = walletConfig(); if (!w.apple && !w.google) return null; const q = `t=${encodeURIComponent(tenantId)}&c=${encodeURIComponent(clientId)}&k=${encodeURIComponent(String(sp.k))}`;

@@ -82,7 +82,9 @@ import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone'
 import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadNothingMore, aheadOf } from '@/lib/counter-ahead';
 import { readyBoardOf, onReadyBoard, BOARD_CHANNELS, LIVE_TICKETS, MAX_MAKING, MAX_READY } from '@/lib/ready-board';
-import { pointsOn, linkOrder } from '@/lib/counter-points';
+import { pointsOn, linkOrder, linkByCode, rewardsOn, useReward } from '@/lib/counter-points';
+import { loyaltyOf } from '@/lib/loyalty';
+import { codesOn } from '@/lib/rewards-code';
 import { pageAccent } from '@/lib/studio-page';
 import { menuNumbers } from '@/lib/menu-numbers';
 import { extrasOf } from '@/lib/plate-extras';
@@ -120,7 +122,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -154,7 +156,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'move', 'call', 'looks', 'here', 'staffMeal'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -183,7 +185,9 @@ export async function POST(req: NextRequest) {
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
         orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [],
           // Rewards for this order (lib/counter-points): the last 4 of the phone given, and what it earned once paid.
-          points: o.clientId && o.points?.phone ? { phone: String(o.points.phone), earned: num(o.points.earned) } : null, subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
+          // (Given by their rewards code, `verified`: they can use a reward on it, which is kept with what it took off.)
+          points: o.clientId && o.points ? { phone: o.points.phone ? String(o.points.phone) : null, earned: num(o.points.earned), verified: o.points.verified === true } : null, subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
+          reward: o.reward ? { name: String(o.reward.name || 'Reward'), cents: num(o.reward.cents) } : null, itemsTotal: o.reward ? num(o.itemsTotal) : null,
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, paidVia: o.paidAt ? (o.paidVia || null) : null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
           // To go (sent so: lib/plate-extras), and a staff meal (settled with no money: lib/counter-server staffMeal).
           toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
@@ -246,7 +250,7 @@ export async function POST(req: NextRequest) {
         // The menu by time of day that's on, and happy hour (lib/menu-time), for the counter's header.
         daypart: daypartNow(tenant), happyHour: inHappyHour(tenant) ? { until: timeWords(happyHourOf(tenant).to) } : null, channel,
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
-        aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant),
+        aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
         askToGo: channel === 'counter' && extrasOf(tenant).some((e) => e.per !== 'guest' && e.when !== 'any'),
@@ -425,6 +429,10 @@ export async function POST(req: NextRequest) {
           // The items and money only while they're paying (a car told where to go, or thanked, doesn't need them).
           lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })) : [],
           subtotal: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.subtotal) : 0, tax: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.tax) : 0, total: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.total) : 0, paid: !!o.paidAt, payMethod: o.paidAt ? (o.payMethod || null) : null,
+          // A reward used on it (what it took off, and the items' own total), and once it's paid, the points it earned
+          // (never their balance: anyone at the window can see it).
+          reward: (shown.mode === 'pay' || shown.mode === 'paid') && o.reward ? { name: String(o.reward.name || 'Reward'), off: num(o.discount), itemsTotal: num(o.itemsTotal) } : null,
+          earned: o.paidAt && num(o.points?.earned) > 0 && shown.mode !== 'pay' ? { points: num(o.points.earned), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points' } : null,
           // Change for cash, while the car is still likely at the window.
           change: o.paidAt && o.payMethod === 'cash' && num(o.changeGiven) > 0 && ageOf(o.paidAt) < 60000 ? num(o.changeGiven) : null,
           card, cardMessage: card === 'declined' ? String(o.card.failed || '') || null : null, kitchen, nextWindow: at === 'pay',
@@ -454,6 +462,17 @@ export async function POST(req: NextRequest) {
       // (Not in the program yet: the lane asks them in its own sheet, so no message across the bottom too.)
       return r.ok ? ok({ earned: r.earned || 0, balance: r.balance ?? null, unit: r.unit || 'points', already: !!r.already, staffOk })
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, quiet: r.code === 'not_found' || r.code === 'not_member', staffOk }, { status: r.status });
+    }
+    // Their rewards code (lib/rewards-code): the order is theirs, and what they can use on it; a reward used or taken off
+    // (lib/counter-points useReward); what they can use now.
+    if (action === 'rewardsCode') {
+      const r: any = await linkByCode(db, tenantId, tenant, String(b.orderId || ''), b.code, who.name);
+      return r.ok ? ok({ earned: r.earned || 0, already: !!r.already, member: r.member || null, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    if (action === 'rewards') return ok({ ...(await rewardsOn(db, tenantId, tenant, String(b.orderId || ''))), staffOk });
+    if (action === 'reward') {
+      const r: any = await useReward(db, tenantId, tenant, String(b.orderId || ''), b.rewardId ?? null, who.name);
+      return r.ok ? ok({ total: r.total, member: r.member || null, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     // "I ordered ahead, code 4821": the order placed ahead becomes this car's (or a new car's), straight to pickup.
     if (action === 'aheadCar') {

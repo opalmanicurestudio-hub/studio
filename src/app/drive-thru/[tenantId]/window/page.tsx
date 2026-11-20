@@ -24,7 +24,9 @@ type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name:
   subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
   card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null;
   // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
-  alsoAhead?: string | null };
+  alsoAhead?: string | null;
+  // A reward used on it (what it took off the items' own total); once paid, the points it earned (never their balance).
+  reward?: { name: string; off: number; itemsTotal: number } | null; earned?: { points: number; unit: string } | null };
 type View = { business: { name: string }; show: Show | null; wallets?: boolean };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const keyName = (t: string) => `cf.drivethru.window.${t}`;
@@ -133,6 +135,7 @@ export default function WindowScreen() {
           <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
             <p className="rounded-full px-[1.2em] py-[0.35em] text-[clamp(18px,2.2vw,32px)] font-semibold" style={{ background: 'rgba(127,209,164,0.16)', color: GREEN_ON_DARK }}>Paid{s.payMethod === 'cash' ? ' in cash' : s.payMethod === 'card' ? ' by card' : ''}</p>
             <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Thank you{hi(s.name)}</p>
+            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>You earned {s.earned.points} {s.earned.points === 1 ? s.earned.unit.replace(/es$|s$/, '') : s.earned.unit}</p>}
             {s.change !== null && s.change > 0 && (
               <p className="text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>Your change <span className="font-semibold tabular-nums" style={{ color: TEXT }}>{usd(s.change)}</span></p>
             )}
@@ -154,6 +157,7 @@ export default function WindowScreen() {
         ) : (
           <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
             <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Thank you{hi(s.name)}</p>
+            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>You earned {s.earned.points} {s.earned.points === 1 ? s.earned.unit.replace(/es$|s$/, '') : s.earned.unit}</p>}
             <p className="text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: SUB }}>Enjoy, and see you next time.</p>
           </section>
         )}
@@ -203,7 +207,8 @@ function OrderLines({ s }: { s: Show }) {
         ))}
       </ul>
       <div className="mt-[2vh] space-y-[0.6vh] pt-[1.5vh] text-[clamp(16px,2vw,30px)]" style={{ borderTop: `1px solid ${RULE}`, color: SUB }}>
-        <p className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{usd(s.subtotal)}</span></p>
+        <p className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{usd(s.reward ? s.reward.itemsTotal : s.subtotal)}</span></p>
+        {s.reward && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">Reward: {s.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(s.reward.off)}</span></p>}
         {s.tax > 0 && <p className="flex justify-between"><span>Tax</span><span className="tabular-nums">{usd(s.tax)}</span></p>}
       </div>
     </div>

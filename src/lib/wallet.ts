@@ -41,7 +41,7 @@ export async function applePass(f: CardFacts, serial: string, origin: string): P
     storeCard: { headerFields: f.tier ? [{ key: 'tier', label: 'TIER', value: f.tier }] : [], primaryFields: [{ key: 'balance', label: f.unit.toUpperCase(), value: f.balance, changeMessage: `You now have %@ ${f.unit}.` }],
       secondaryFields: [{ key: 'saving', label: f.ready ? 'READY' : 'SAVING FOR', value: f.ready || f.saving || 'Earning with every visit', changeMessage: f.ready ? '%@ is ready. Just mention it at your visit.' : undefined }].map((x) => JSON.parse(JSON.stringify(x))),
       auxiliaryFields: [{ key: 'name', label: 'MEMBER', value: f.first }, ...(f.worth ? [{ key: 'worth', label: 'WORTH ABOUT', value: f.worth }] : [])],
-      backFields: [{ key: 'link', label: 'Your rewards', value: f.rewardsUrl, attributedValue: `<a href="${f.rewardsUrl}">See your rewards</a>` }, { key: 'how', label: 'Using a reward', value: 'Just mention it at your visit. Rewards are used at the studio, not online.' }] } };
+      backFields: [{ key: 'link', label: 'Your rewards', value: f.rewardsUrl, attributedValue: `<a href="${f.rewardsUrl}">See your rewards</a>` }, { key: 'how', label: 'Using a reward', value: 'Just mention it when you visit. At a drive-thru or counter, open Your rewards for the code to say or show there. Rewards aren’t used online.' }] } };
   const pass = new PKPass({ 'pass.json': Buffer.from(JSON.stringify(json)), 'icon.png': img('icon.png'), 'icon@2x.png': img('icon@2x.png'), 'icon@3x.png': img('icon@3x.png') },
     { wwdr: pem(process.env.APPLE_WWDR_CERT), signerCert: pem(process.env.APPLE_PASS_CERT), signerKey: pem(process.env.APPLE_PASS_KEY), signerKeyPassphrase: process.env.APPLE_PASS_KEY_PASSPHRASE || undefined } as any);
   return pass.getAsBuffer();
@@ -67,7 +67,7 @@ function googleObject(f: CardFacts, t: string, c: string) {
   const { classId, objectId } = gIds(t, c);
   return { id: objectId, classId, state: 'ACTIVE', accountId: c.slice(0, 20), accountName: f.first, loyaltyPoints: { label: f.unit === 'punches' ? 'Punches' : 'Points', balance: { int: f.balance } },
     textModulesData: [{ id: 'saving', header: f.ready ? 'Ready' : 'Saving for', body: f.ready ? `${f.ready}. Just mention it at your visit.` : f.saving || 'Earning with every visit' }, ...(f.tier ? [{ id: 'tier', header: 'Tier', body: f.tier }] : [])],
-    linksModuleData: { uris: [{ id: 'rewards', uri: f.rewardsUrl, description: 'Your rewards' }] } };
+    linksModuleData: { uris: [{ id: 'rewards', uri: f.rewardsUrl, description: 'Your rewards and rewards code' }] } };
 }
 async function googleKey() { const { importPKCS8 } = await import('jose'); return importPKCS8(pem(process.env.GOOGLE_WALLET_SA_KEY), 'RS256'); }
 /** The "Add to Google Wallet" link: a signed JWT that creates the program (once) and this client's card. */

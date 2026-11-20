@@ -15,7 +15,7 @@ export function ClientRewards({ tenantId, clientId, manager }: { tenantId: strin
   if (!d) return <p className="text-[14px]" style={{ color: MUTED }}>Loading rewards…</p>;
   if (d.off || (!d.on && !(d.ledger || []).length)) return null;
   const unit = d.unit || 'points'; const L: any[] = d.ledger || [];
-  const earned = L.filter((e) => e.type === 'earn' || (e.type === 'adjust' && e.points > 0)).reduce((t, e) => t + e.points, 0); const used = L.filter((e) => e.type === 'redeem');
+  const earned = L.filter((e) => e.type === 'earn' || (e.type === 'adjust' && e.points > 0)).reduce((t, e) => t + e.points, 0); const used = L.filter((e) => e.type === 'redeem' && e.held !== true);
   const save = async () => { if (!adj) return; setMsg(''); const r = await payPost('/api/loyalty', { tenantId, action: 'adjust', clientId, points: Number(adj.points), note: adj.note }); if (r.ok) { setAdj(null); void load(); } else setMsg(r.error || 'That didn’t save.'); };
   let run = d.balance; const rows = L.map((e) => { const r = { ...e, after: run }; run -= Number(e.points) || 0; return r; });
   return (

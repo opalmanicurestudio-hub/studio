@@ -15,9 +15,10 @@ export function monthReview(x: { month: string; openings: any[]; ledger: any[]; 
   const filled = ops.filter((o) => o.status === 'filled');
   const how = { text: 0, call: 0, party: 0, auto: 0, moveUp: 0 };
   for (const o of filled) { const f = o.filledBy || {}; if (f.byCall) how.call++; else if (f.kind === 'party') how.party++; else if (f.auto) how.auto++; else if (f.kind === 'sooner') how.moveUp++; else how.text++; }
+  // (A reward held for an unpaid drive-thru order isn't used until it's paid.)
   const led = x.ledger.filter((l) => inMonth(l.at));
   const sumP = (t: string[]) => led.filter((l) => t.includes(l.type)).reduce((s, l) => s + (Number(l.points) || 0), 0);
-  const redeems = led.filter((l) => l.type === 'redeem'); const givenBack = led.filter((l) => l.type === 'reverse' && l.of === 'redeem').length;
+  const redeems = led.filter((l) => l.type === 'redeem' && (l as any).held !== true); const givenBack = led.filter((l) => l.type === 'reverse' && l.of === 'redeem').length;
   const gifts = led.filter((l) => l.type === 'surprise' || l.type === 'perk');
   const res = x.results.filter((r) => String(r.startTime || '') && inMonth(r.startTime));
   const paid = res.filter((r) => r.state === 'paid'); const oppMade = x.opportunities.filter((o) => inMonth(o.createdAt) && !o.renterId);
@@ -30,7 +31,7 @@ export function monthReview(x: { month: string; openings: any[]; ledger: any[]; 
   return {
     month: x.month, label: monthLabel(x.month),
     waitlist: { openings: ops.length, filled: filled.length, how, unfilled: ops.filter((o) => ['expired', 'closed'].includes(String(o.status))).length },
-    rewards: { earned: sumP(['earn', 'bonus']), used: redeems.length, usedPoints: -sumP(['redeem']), usedValueCents: redeems.reduce((s, l) => s + (Number(l.cents) || 0), 0), costCents: [...redeems, ...gifts].reduce((s, l) => s + (Number(l.costCents ?? l.cents) || 0), 0), givenBack, surprises: gifts.filter((l) => l.type === 'surprise').length, perks: gifts.filter((l) => l.type === 'perk').length, expired: -sumP(['expire']) },
+    rewards: { earned: sumP(['earn', 'bonus']), used: redeems.length, usedPoints: -redeems.reduce((s, l) => s + (Number(l.points) || 0), 0), usedValueCents: redeems.reduce((s, l) => s + (Number(l.cents) || 0), 0), costCents: [...redeems, ...gifts].reduce((s, l) => s + (Number(l.costCents ?? l.cents) || 0), 0), givenBack, surprises: gifts.filter((l) => l.type === 'surprise').length, perks: gifts.filter((l) => l.type === 'perk').length, expired: -sumP(['expire']) },
     opportunities: { found: oppMade.length, contacted: contacted.length, cameBack: paid.length, paidCents: paid.reduce((s, r) => s + (Number(r.paidCents) || 0), 0), stillBooked: res.filter((r) => r.state === 'booked').length },
     calls: { on: x.callsOn, used: x.callsUsed, allowed: x.callsAllowed },
     texts: { sent: msgs.length, failed: failed.length, stops },

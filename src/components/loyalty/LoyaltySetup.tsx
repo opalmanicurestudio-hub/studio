@@ -26,6 +26,8 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
   const setReward = (i: number, patch: Partial<Reward>) => setS((x: any) => ({ ...x, rewards: x.rewards.map((r: Reward, k: number) => (k === i ? { ...r, ...patch } : r)) }));
   const unit = s.earn.mode === 'punch' ? 'punches' : 'points';
   const svcList = (services || []).filter((v: any) => v && v.isActive !== false && !v.archived).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+  // Menu items (food and drink), for a free menu item reward at the counter and the drive-thru.
+  const menuList = (inventory || []).filter((p: any) => p && p.type === 'refreshment' && p.isActive !== false && !p.archived).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
   const save = async () => { setBusy(true); setMsg(null); const r = await payPost('/api/loyalty', { tenantId, action: 'settings', save: s }); setBusy(false);
     if (r.ok) { setS(r.settings); setMsg({ ok: true, t: s.on ? `Saved. Rules version ${r.settings.version}.` : 'Saved. The program is off.' }); } else setMsg({ ok: false, t: r.error || 'That didn’t save.' }); };
   const terms = termsOf(loyaltyOf({ loyalty: s }));
@@ -91,9 +93,11 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
                 <button type="button" onClick={() => setS((x: any) => ({ ...x, rewards: x.rewards.filter((_: any, k: number) => k !== i) }))} className="h-10 rounded-full px-3 text-[12.5px]" style={{ color: MUTED }}>Remove</button>
               </div>
               <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                {[['amount_off', 'Money off'], ['free_service', 'A free service or add-on']].map(([k, l]) => <button key={k} type="button" onClick={() => setReward(i, { kind: k as any })} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill(r.kind === k)}>{l}</button>)}
+                {[['amount_off', 'Money off'], ['free_service', 'A free service or add-on'], ...(menuList.length || r.kind === 'free_item' ? [['free_item', 'A free menu item']] : [])].map(([k, l]) => <button key={k} type="button" onClick={() => setReward(i, { kind: k as any })} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill(r.kind === k)}>{l}</button>)}
                 {r.kind === 'amount_off' ? <label className="flex items-center gap-1">$<input type="number" min={1} value={(r.cents || 0) / 100} onChange={(e) => setReward(i, { cents: Math.round(Number(e.target.value) * 100), costCents: Math.round(Number(e.target.value) * 100) })} aria-label="Amount off" className="h-8 w-20 rounded-[8px] border bg-background px-2 text-[13px]" style={{ borderColor: LINE }} /> off</label>
-                  : <><select value={r.serviceId || ''} onChange={(e) => setReward(i, { serviceId: e.target.value })} aria-label="Which service" className="h-8 rounded-[8px] border bg-background px-2 text-[13px]" style={{ borderColor: LINE }}><option value="">Choose…</option>{svcList.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
+                  : <>{r.kind === 'free_item'
+                    ? <select value={r.itemId || ''} onChange={(e) => setReward(i, { itemId: e.target.value })} aria-label="Which menu item" className="h-8 rounded-[8px] border bg-background px-2 text-[13px]" style={{ borderColor: LINE }}><option value="">Choose…</option>{menuList.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
+                    : <select value={r.serviceId || ''} onChange={(e) => setReward(i, { serviceId: e.target.value })} aria-label="Which service" className="h-8 rounded-[8px] border bg-background px-2 text-[13px]" style={{ borderColor: LINE }}><option value="">Choose…</option>{svcList.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>}
                     <label className="flex items-center gap-1" style={{ color: MUTED }}>costs you about $<input type="number" min={0} value={(r.costCents || 0) / 100} onChange={(e) => setReward(i, { costCents: Math.round(Number(e.target.value) * 100) })} aria-label="What it costs you" className="h-8 w-16 rounded-[8px] border bg-background px-2 text-[13px]" style={{ borderColor: LINE }} /></label></>}
               </div>
             </div>))}</div>

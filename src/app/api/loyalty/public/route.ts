@@ -1,6 +1,8 @@
 // src/app/api/loyalty/public/route.ts — a client's points on the public booking page. Only with the private key from
 // their own rewards link (lib/loyalty-link): typing a phone number never shows anyone's points.
 //   POST { tenantId, clientId, k } → { on, first, balance, unit, ready, next }
+//   POST { …, action: 'code' } → their rewards code now and when the next one starts (lib/rewards-code): said at the
+//   drive-thru's speaker or shown at the window to use their rewards there
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { rewardsKey } from '@/lib/loyalty-link';
@@ -13,6 +15,12 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !clientId || String(b.k || '') !== rewardsKey(tenantId, clientId)) return NextResponse.json({ ok: false }, { status: 403 });
   const db = getAdminDb(); const S = loyaltyOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}); if (!S.on) return NextResponse.json({ ok: true, on: false });
   const c: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data(); if (!c) return NextResponse.json({ ok: false }, { status: 404 });
+  if (b.action === 'code') {
+    if (c.archived || c.status === 'archived' || c.loyaltyOptOut === true) return NextResponse.json({ ok: true, code: null });
+    const { issueCode } = await import('@/lib/rewards-code');
+    const r = await issueCode(db, tenantId, clientId);
+    return NextResponse.json({ ok: true, code: r?.code || null, until: r?.until || null }, { headers: { 'Cache-Control': 'no-store' } });
+  }
   if (b.action === 'goal') { const id = String(b.rewardId || ''); if (!S.rewards.some((x) => x.on && x.id === id)) return NextResponse.json({ ok: false }, { status: 400 });
     await db.doc(`tenants/${tenantId}/clients/${clientId}`).set({ loyalty: { goalRewardId: id, updatedAt: new Date().toISOString() } }, { merge: true });
     try { const { walletRefresh } = await import('@/lib/wallet'); await walletRefresh(db, tenantId, clientId); } catch { /* the card catches up next time */ } return NextResponse.json({ ok: true }); }

@@ -91,11 +91,15 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
   return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item), ...(base.happy ? { happy: true } : {}) } };
 }
 
-/** The order's money: subtotal, the business's sales tax on food and drink, and the total. */
-export function totalsOf(tenant: any, lines: OrderLine[]): { subtotal: number; tax: number; taxLabel: string; total: number } {
-  const subtotal = Math.round(lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
+/** The order's money: subtotal, the business's sales tax on food and drink, and the total. `off`: a reward used on it
+ *  (lib/counter-points useReward), in dollars: the subtotal is what's left after it (what's sold, and what's taxed), and
+ *  the items' own total is kept beside it. */
+export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: number; tax: number; taxLabel: string; total: number; discount?: number; itemsTotal?: number } {
+  const items = Math.round(lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
+  const discount = Math.round(Math.max(0, Math.min(Number(off) || 0, items)) * 100) / 100;
+  const subtotal = Math.round((items - discount) * 100) / 100;
   const tax = posTaxAmount(tenant, { services: 0, products: subtotal });
-  return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax) * 100) / 100 };
+  return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}) };
 }
 
 /** When it should be ready: the channel's target from when it was sent, but never sooner than its slowest line takes. */
