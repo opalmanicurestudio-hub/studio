@@ -14,6 +14,8 @@ export const CHANNELS: Channel[] = ['drive-thru', 'counter', 'kiosk', 'ahead'];
 /** Whether a place in line (a car, or a guest at the counter) is the drive-thru's: everything before the counter had its own
  *  line is. The drive-thru's screens (the order board, the windows, the voice assistant) only ever see these. */
 export const atDriveThru = (c: any) => (c?.channel || 'drive-thru') === 'drive-thru';
+/** The counter's line: its own guests, and kiosk orders once they're paid (they wait at the counter to be handed over). */
+export const counterSide = (channel: unknown) => channel === 'counter' || channel === 'kiosk';
 export const isChannel = (v: unknown): v is Channel => typeof v === 'string' && (CHANNELS as string[]).includes(v);
 
 /** What the number starts with: B for a drive-thru car, C at the counter, K from a kiosk, A for ordered ahead. */

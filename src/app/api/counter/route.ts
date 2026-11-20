@@ -73,7 +73,7 @@ import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
-import { targetsOf, photoOf, spotsOf, pickupOnlyOf, carryOn, RUSH_CARS, inLineNow, CHANNEL_NAME, atDriveThru, type Channel } from '@/lib/counter-orders';
+import { targetsOf, photoOf, spotsOf, pickupOnlyOf, carryOn, RUSH_CARS, inLineNow, CHANNEL_NAME, atDriveThru, counterSide, type Channel } from '@/lib/counter-orders';
 import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder, staffMeal } from '@/lib/counter-server';
 import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -158,14 +158,15 @@ export async function POST(req: NextRequest) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
-      if (xs.some((x) => x && (x.channel === 'counter') !== (channel === 'counter'))) return bad(channel === 'counter' ? 'That order is the drive-thru’s. Open it on the drive-thru screen.' : 'That order is the counter’s. Open it on the counter screen.', 409);
+      // (A kiosk order is the counter's once it's paid: it waits there to be handed over.)
+      if (xs.some((x) => x && counterSide(x.channel) !== (channel === 'counter'))) return bad(channel === 'counter' ? 'That order is the drive-thru’s. Open it on the drive-thru screen.' : 'That order is the counter’s. Open it on the counter screen.', 409);
     }
 
     if (action === 'lane') {
       // Only the cars in the lane now (a car is gone once it's handed over, left, or voided), oldest first.
       // (Read generously and sorted here, so however many were left behind, the cars that just arrived are always shown.)
       const [carSnap, menu] = await Promise.all([db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(), readMenu(db, tenantId)]);
-      const live = carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => (c.channel || 'drive-thru') === channel).sort((a: any, c: any) => String(a.arrivedAt).localeCompare(String(c.arrivedAt))).slice(-40);
+      const live = carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => (counterSide(c.channel) ? 'counter' : 'drive-thru') === channel).sort((a: any, c: any) => String(a.arrivedAt).localeCompare(String(c.arrivedAt))).slice(-40);
       // (Each button carries the number guests order by, as on the menu board: lib/menu-numbers.)
       const laneNums = menuNumbers(menu);
       // (With each car's order placed ahead going with it, if it has one.)
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest) {
           db.collection(`${T}/driveThruCars`).where('arrivedAt', '>=', hourAgo).limit(1000).get(),
           db.collection(`${T}/driveThruCars`).where('goneAt', '>=', halfHourAgo).limit(500).get(),
         ]);
-        const mine = (c: any) => (c.channel || 'drive-thru') === channel;
+        const mine = (c: any) => (counterSide(c.channel) ? 'counter' : 'drive-thru') === channel;
         const gone = goneSnap.docs.map((d: any) => d.data() || {}).filter((c: any) => !c.left && mine(c));
         const span = (c: any, from: string, to: string) => { const a = Date.parse(String(c.stageAt?.[from] || (from === 'speaker' ? c.arrivedAt : ''))), z = Date.parse(String(to === 'gone' ? c.goneAt : c.stageAt?.[to] || '')); const v = (z - a) / 1000; return Number.isFinite(v) && v >= 0 && v < 3600 ? v : null; };
         const avg = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x !== null); return v.length ? Math.round(v.reduce((s2, x) => s2 + x, 0) / v.length) : null; };

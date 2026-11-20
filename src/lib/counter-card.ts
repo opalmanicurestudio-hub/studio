@@ -244,7 +244,7 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
         return { reuse: String(c.id), attempt, amount, number: or.number };
       }
       tx.set(ref, { card: { state: 'starting', attempt: attempt + 1, readerId, at: nowIso(), by, cents: amount, id: null, failed: null, updatedAt: nowIso() }, cardOpen: true }, { merge: true });
-      return { attempt: attempt + 1, amount, number: or.number };
+      return { attempt: attempt + 1, amount, number: or.number, channel: or.channel };
     });
     if (claim.error) return fail(claim.error, claim.status, claim.code);
     if (claim.paid) return { ok: true, state: 'paid', already: true, payMethod: claim.payMethod };
@@ -271,7 +271,7 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
       try {
         pi = await stripe.paymentIntents.create({
           amount: claim.amount, currency: 'usd', payment_method_types: ['card_present'], capture_method: 'manual',
-          description: `Drive-thru order ${claim.number}`,
+          description: `${claim.channel === 'kiosk' ? 'Kiosk' : claim.channel === 'counter' ? 'Counter' : 'Drive-thru'} order ${claim.number}`,
           metadata: { tenantId, source: 'drive_thru', kind: 'counter', orderId, attempt: String(claim.attempt) },
         }, { stripeAccount: acct, idempotencyKey: payKey(tenantId, orderId, claim.attempt) });
       } catch {

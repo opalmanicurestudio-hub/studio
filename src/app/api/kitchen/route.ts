@@ -250,8 +250,10 @@ export async function POST(req: NextRequest) {
       // The drive-thru's outdoor order board gets a key of its own kind, good for nothing but showing the order at the
       // speaker (api/counter 'board'): a screen guests can reach never holds a key that can take a payment.
       // The host stand's tablet (app/host-stand) gets a key that only signs it in as the host stand ('hostToken').
-      const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : b.kind === 'host' ? 'host' : 'kitchen';
-      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : kind === 'host' ? 'Host stand' : 'Kitchen');
+      // A kiosk (app/drive-thru/[tenantId]/kiosk) gets a key that only takes its own guests' orders and payments on its
+      // own card reader (api/kiosk), and does nothing anywhere else.
+      const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : b.kind === 'host' ? 'host' : b.kind === 'kiosk' ? 'kiosk' : 'kitchen';
+      const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : kind === 'host' ? 'Host stand' : kind === 'kiosk' ? 'Kiosk' : 'Kitchen');
       await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
       // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
       // tablet doesn't: nobody would be making them.
@@ -346,7 +348,7 @@ export async function POST(req: NextRequest) {
     }
     // A drive-thru screen's key is for the lane (api/counter): here it can only check a PIN (the lane's "Who's working?").
     // The order board's can do nothing here at all.
-    if (screen.kind === 'drive-thru-board' || screen.kind === 'host' || (screen.kind === 'drive-thru' && action !== 'pin')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
+    if (screen.kind === 'drive-thru-board' || screen.kind === 'host' || screen.kind === 'kiosk' || (screen.kind === 'drive-thru' && action !== 'pin')) return bad('This screen isn’t set up for the kitchen. A manager can set it up here.', 401);
 
     // A paused or closed business has its kitchen screen closed too (as the page itself is, app/kds layout).
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
@@ -391,7 +393,7 @@ export async function POST(req: NextRequest) {
       for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => (f?.measure && num(f.amount) > 0
         // As the cook measures it (2 tbsp, 6 oz), when the recipe was written that way (lib/kitchen-units).
         ? { id: f.id, name: String(f.name || ''), quantityUsed: num(f.amount), unit: String(f.measure) } : { id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
-      const today = [...lt.docs, ...kt.docs].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
+      const today = [...lt.docs, ...kt.docs.filter((d: any) => d.data()?.status !== 'unpaid')].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
       // What's held right now, what the menu says can be, and today's waste from it.
       const [heldSnap, holdItems, tossedSnap] = await Promise.all([
         db.collection(`${T}/holdingBins`).where('status', '==', 'held').limit(200).get(),

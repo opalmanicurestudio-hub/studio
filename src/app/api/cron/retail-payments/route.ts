@@ -56,6 +56,8 @@ export async function GET(req: NextRequest) {
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
     // …and the drive-thru window's: approved ones pay their order, ones left waiting are stopped (lib/counter-card).
     try { const r = await sweepCounterCards(db, t.id, tenant); counts.windowCardsChecked = (counts.windowCardsChecked || 0) + r.checked; counts.windowCardsPaid = (counts.windowCardsPaid || 0) + r.paid; counts.windowCardsStopped = (counts.windowCardsStopped || 0) + r.stopped; } catch { /* next run */ }
+    // …and the kiosks': orders left waiting to be paid are let go, so what they held goes back on the shelf (lib/kiosk).
+    try { const K = await import('@/lib/kiosk'); const r = await K.sweepKiosk(db, t.id, tenant); counts.kioskLetGo = (counts.kioskLetGo || 0) + r.letGo; } catch { /* next run */ }
     // …and the bar's tabs with a card held: let go once the tab's paid another way, a charge whose answer was lost
     // recorded, a long-open tab told to the managers (lib/bar-tab-server).
     try { const r = await sweepBarHolds(db, t.id, tenant); counts.barHoldsChecked = (counts.barHoldsChecked || 0) + r.checked; counts.barHoldsReleased = (counts.barHoldsReleased || 0) + r.released; } catch { /* next run */ }

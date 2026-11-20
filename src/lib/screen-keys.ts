@@ -10,9 +10,12 @@ export const screenHash = (k: string) => createHash('sha256').update(String(k)).
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 
 /** What a screen was set up as: the kitchen screen, a floor board, a drive-thru lane, the drive-thru's outdoor order
- *  board (which only ever shows the order at the speaker), or the host stand's tablet (which only signs itself in). A screen set up before kinds existed is a kitchen screen. */
-export type ScreenKind = 'kitchen' | 'floor' | 'drive-thru' | 'drive-thru-board' | 'host';
-export type Screen = { ref: any; name: string; kind: ScreenKind; passes: Record<string, { id: string; name: string; exp: number }> };
+ *  board (which only ever shows the order at the speaker), the host stand's tablet (which only signs itself in), or a
+ *  kiosk guests order and pay at (only its own orders, on its own card reader: lib/kiosk). A screen set up before kinds
+ *  existed is a kitchen screen. */
+export type ScreenKind = 'kitchen' | 'floor' | 'drive-thru' | 'drive-thru-board' | 'host' | 'kiosk';
+/** `readerId`: a kiosk's card reader, picked by a manager (api/kiosk 'setReader'); `kioskOrder`: the order it's being paid for now. */
+export type Screen = { ref: any; name: string; kind: ScreenKind; passes: Record<string, { id: string; name: string; exp: number }>; readerId?: string | null; kioskOrder?: string | null };
 
 /** The screen this key belongs to (for this business only), or null. Seen-at is kept, at most every few minutes. */
 export async function screenOf(db: any, tenantId: string, key: unknown): Promise<Screen | null> {
@@ -22,8 +25,9 @@ export async function screenOf(db: any, tenantId: string, key: unknown): Promise
   const s: any = (await ref.get()).data();
   if (!s || s.revokedAt || s.tenantId !== tenantId) return null;
   if (!s.lastSeenAt || Date.now() - Date.parse(s.lastSeenAt) > 5 * 60000) await ref.set({ lastSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-  const kind: ScreenKind = ['floor', 'drive-thru', 'drive-thru-board', 'host'].includes(s.kind) ? s.kind : 'kitchen';
-  return { ref, name: String(s.name || 'Kitchen'), kind, passes: (s.passes && typeof s.passes === 'object' ? s.passes : {}) as Screen['passes'] };
+  const kind: ScreenKind = ['floor', 'drive-thru', 'drive-thru-board', 'host', 'kiosk'].includes(s.kind) ? s.kind : 'kitchen';
+  return { ref, name: String(s.name || 'Kitchen'), kind, passes: (s.passes && typeof s.passes === 'object' ? s.passes : {}) as Screen['passes'],
+    ...(kind === 'kiosk' ? { readerId: /^tmr_[A-Za-z0-9]{4,60}$/.test(String(s.readerId || '')) ? String(s.readerId) : null, kioskOrder: ID.test(String(s.kioskOrder || '')) ? String(s.kioskOrder) : null } : {}) };
 }
 
 /** Who a pass (from 'pin') says is working, while it's good; otherwise nobody. */

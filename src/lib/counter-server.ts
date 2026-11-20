@@ -41,10 +41,10 @@ export function cleanName(v: unknown): string {
   return Array.from(s).slice(0, 24).join('').trim();
 }
 /** Who a kitchen ticket is for: "Sam, car B41" at the drive-thru (or "Car B41" with no name), "Maria, C14" at the
- *  counter (or "C14"), the name elsewhere. */
+ *  counter (or "C14"), "Kim, K7" from a kiosk, the name elsewhere. */
 export function ticketWho(o: any): string {
   const name = cleanName(o?.guestName);
-  if (o?.channel === 'counter' && o?.number) return name ? `${name}, ${o.number}` : String(o.number);
+  if ((o?.channel === 'counter' || o?.channel === 'kiosk') && o?.number) return name ? `${name}, ${o.number}` : String(o.number);
   return o?.channel === 'drive-thru' ? (name ? `${name}, car ${o.number}` : `Car ${o.number}`) : String(o?.name || name || o?.number || 'Guest');
 }
 
@@ -173,8 +173,10 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
  *  checked again first (still on the menu, not sold out, its choices still there, enough in stock), and stock (the item
  *  and what its recipe uses) is taken once, here. */
 /** `o.due`: when it's wanted (an order placed ahead for a time); `o.holdUntil`: the kitchen doesn't start before then (the
- *  tickets wait under Later on the kitchen screen until it's time, or until the guest says they're here). */
-export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who, opts: { due?: string | null; holdUntil?: string | null; toGo?: boolean } = {}): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
+ *  tickets wait under Later on the kitchen screen until it's time, or until the guest says they're here). `o.unpaid`: a
+ *  kiosk's order, paid on its card reader next (lib/kiosk): its stock is taken now, so nothing runs out while the guest
+ *  pays, but its tickets are 'unpaid' and no kitchen screen, printer or board shows them until payOrder lets them go. */
+export async function sendOrder(db: any, tenantId: string, tenant: any, orderId: string, who: Who, opts: { due?: string | null; holdUntil?: string | null; toGo?: boolean; unpaid?: boolean } = {}): Promise<{ ok: true; due: string | null; already?: boolean } | Fail> {
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
@@ -292,7 +294,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: also ? partName(dish, also.part) : dish, quantity: l.quantity,
         choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
-        guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
+        guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
@@ -339,14 +341,20 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken, toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
-    const qty = new Map<string, number>();
-    for (const l of lines) { const id = String(l.itemId || ''); if (!ID.test(id)) continue; qty.set(`n_${id}`, (qty.get(`n_${id}`) || 0) + num(l.quantity)); }
-    const sold: Record<string, any> = {}; for (const [k, q] of qty) if (q > 0) sold[k] = FieldValue.increment(q);
+    // (A kiosk's order is counted once it's paid: payOrder.)
     const sDay = todayIn(tenantTimeZone(tenant), now);
-    tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...sold }, { merge: true });
+    if (!opts.unpaid) tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...soldCounts(lines) }, { merge: true });
     if (car && car.stage === 'speaker') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pay', stageAt: { ...(car.stageAt || {}), pay: nowIso } }, { merge: true });
     return { ok: true, due };
   });
+}
+
+/** The day's count of each item on an order, to add to that day's menuSales (the menu board's Popular tags). */
+function soldCounts(lines: OrderLine[]): Record<string, any> {
+  const qty = new Map<string, number>();
+  for (const l of lines) { const id = String(l.itemId || ''); if (!ID.test(id)) continue; qty.set(`n_${id}`, (qty.get(`n_${id}`) || 0) + num(l.quantity)); }
+  const sold: Record<string, any> = {}; for (const [k, q] of qty) if (q > 0) sold[k] = FieldValue.increment(q);
+  return sold;
 }
 
 /** A staff meal (design canvas "Food numbers"): a sent order settled with no money, for a named member of the team, so
@@ -393,7 +401,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     // Lines the kitchen never started go back; the rest was made (or being made) and is waste.
     const back: Record<string, number> = {}; const goesBack = new Set<string>(); let returned = 0, wasted = 0;
     const wastedItems: Record<string, number> = {};   // what was made and thrown away, by item (lib/food-cost wasteOf)
-    const untouched = (t: any) => !t || t.status === 'pending' || t.status === 'cancelled';
+    const untouched = (t: any) => !t || t.status === 'pending' || t.status === 'unpaid' || t.status === 'cancelled';
     // A combo's parts the kitchen never started, line by line ("0", "1"…), when what each took was kept part by part.
     const partsBack = new Map<string, Set<string>>();
     for (const l of lines) {
@@ -516,6 +524,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
   const res: any = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
+    // A kiosk's order (lib/kiosk): its tickets, waiting for the payment, read in the same step so paying lets them go.
+    const unpaid = o.channel === 'kiosk' && !o.paidAt ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId))).docs.filter((d: any) => d.data()?.status === 'unpaid') : [];
     // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
     const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
     // Paid already (another tablet, or the first answer was lost): say how, and the change that was given.
@@ -556,6 +566,18 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       ...(cardIsThis ? { card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
       ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
     if (car && (car.stage === 'speaker' || car.stage === 'pay')) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } }, { merge: true });
+    // Paid at a kiosk: the kitchen gets it now (its time to be ready counted from now), it's counted as sold, and it
+    // waits at the counter to be handed over, as a counter order does once it's paid.
+    if (o.channel === 'kiosk' && o.status === 'sent') {
+      const took = Math.max(0, (Date.parse(String(o.dueAt || '')) || 0) - (Date.parse(String(o.sentAt || '')) || 0));
+      const due = new Date(Date.parse(nowIso) + (took || 300000)).toISOString();
+      for (const d of unpaid) tx.set(d.ref, { status: 'pending', createdAt: nowIso, requestedAt: nowIso, dueAt: due }, { merge: true });
+      tx.set(orderRef, { sentAt: nowIso, dueAt: due, kiosk: { ...(o.kiosk || {}), state: 'paid' } }, { merge: true });
+      if (unpaid.length) tx.set(db.doc(`${T}/menuSales/${String(o.day || nowIso.slice(0, 10))}`), { day: String(o.day || nowIso.slice(0, 10)), ...soldCounts(Array.isArray(o.lines) ? o.lines : []) }, { merge: true });
+      const carRef = db.doc(`${T}/driveThruCars/kiosk_${orderId}`);
+      tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null }, { merge: true });
+      tx.set(orderRef, { carId: carRef.id }, { merge: true });
+    }
     return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };
   });
   // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
