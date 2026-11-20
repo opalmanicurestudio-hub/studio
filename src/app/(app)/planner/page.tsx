@@ -33,7 +33,8 @@ import { saveNewEvents, laterInSeries, laterUpdates, writeUpdates, deleteEvents 
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { arrivalFields, arrivalNotice } from '@/lib/check-in';
+import { arrivalFields } from '@/lib/check-in';
+import { arrivalCall } from '@/lib/arrival-client';
 import { unconfirmedOn } from '@/lib/confirm-ask';
 import { weekNumbers, billsLine } from '@/lib/week-numbers';
 import { ThisWeekSheet } from '@/components/planner/ThisWeekSheet';
@@ -1225,13 +1226,14 @@ function PlannerPageContent() {
     if (apt.checkInToken) {
       batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...fields, tenantId }, { merge: true });
     }
-    // Tell the provider, unless they checked the client in themselves.
-    const notice = arrivalNotice(apt, { byUserId: currentUser?.uid, timeZone: (selectedTenant as any)?.timezone, serviceName: (services || []).find((s: any) => s.id === apt.serviceId)?.name });
-    if (notice) { const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`)); batch.set(nRef, { id: nRef.id, ...notice, createdAt: now }); }
+    // Their provider is nudged once it's saved, unless they checked the client in themselves (the server knows who's
+    // asking): buzzed at once, and they can answer (lib/arrival-nudge).
+    const wasHere = apt.checkInStatus === 'arrived';
     batch.commit()
-      .then(() => toast({ title: 'Checked in', description: `${(clients || []).find((c: any) => c.id === apt.clientId)?.name || 'Guest'} is marked as arrived.` }))
+      .then(() => { if (!wasHere) void arrivalCall({ tenantId, appointmentId: apt.id, action: 'tell', via: 'planner' });
+        toast({ title: 'Checked in', description: `${(clients || []).find((c: any) => c.id === apt.clientId)?.name || 'Guest'} is marked as arrived.` }); })
       .catch(() => toast({ variant: 'destructive', title: 'Check-in failed', description: 'The arrival was not saved. Try again.' }));
-  }, [firestore, tenantId, appointments, clients, toast, currentUser, selectedTenant, services]);
+  }, [firestore, tenantId, appointments, clients, toast]);
 
   const handleUpdateAppointment = (apt: Appointment) => {
     if (!firestore || !tenantId) return;

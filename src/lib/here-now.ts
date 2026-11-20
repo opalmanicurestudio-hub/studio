@@ -6,8 +6,10 @@
 
 import { kitsShort } from '@/lib/kits';
 import { formsStillNeeded, formRulesOf } from '@/lib/forms';
+import { nudgeView } from '@/lib/arrival-nudge';
 export type Outstanding = { key: 'help' | 'forms' | 'deposit' | 'balance' | 'provider' | 'pickup' | 'renter' | 'extra' | 'first' | 'kit' | 'behind' | 'setaside'; label: string; tone: 'alert' | 'warn' | 'info' };
-export type HereRow = { key: string; kind: 'guest' | 'door'; name: string; what: string; since: Date | null; waitMin: number; owner: string; outstanding: Outstanding[]; appointmentId?: string | null; doorId?: string | null; intent?: string | null; urgent: boolean };
+export type HereRow = { key: string; kind: 'guest' | 'door'; name: string; what: string; since: Date | null; waitMin: number; owner: string; outstanding: Outstanding[]; appointmentId?: string | null; doorId?: string | null; /** Their provider was nudged (lib/arrival-nudge): their answer, or how long since, and whether to nudge again. */
+  nudge?: ReturnType<typeof nudgeView>; intent?: string | null; urgent: boolean };
 
 const ms = (v: any) => { const t = Date.parse(String(v?.toDate ? v.toDate().toISOString() : v || '')); return Number.isFinite(t) ? t : 0; };
 
@@ -40,7 +42,7 @@ export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: 
     if (c && (c.totalVisits === 0 || c.visitCount === 0 || c.isNew === true)) out.push({ key: 'first', label: 'First visit', tone: 'info' });
     const deskFirst = out.some((o) => ['forms', 'deposit', 'balance', 'provider'].includes(o.key));
     rows.push({ key: `g:${a.id || w.id}`, kind: 'guest', name: g.name, what: g.service || 'Visit', since: since ? new Date(since) : null, waitMin: since ? Math.max(0, Math.round((now.getTime() - since) / 60000)) : 0,
-      owner: deskFirst ? 'Front desk' : g.staffName || 'Front desk', outstanding: out, appointmentId: a.id || null, urgent: false });
+      owner: deskFirst ? 'Front desk' : g.staffName || 'Front desk', outstanding: out, appointmentId: a.id || null, nudge: a.id ? nudgeView(a, now.getTime()) : null, urgent: false });
   }
   for (const d of input.door) {
     if (String(d.status || 'waiting') !== 'waiting') continue;

@@ -19,6 +19,7 @@ import { format, parseISO } from 'date-fns';
 import { writeBatch, doc, collection } from 'firebase/firestore';
 import { logAuditClient } from '@/lib/audit-client';
 import { Drawer, Btn, Pill, Seg } from './kit';
+import { arrivalCall } from '@/lib/arrival-client';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { arrivalFields } from '@/lib/check-in';
 
@@ -87,12 +88,15 @@ export function DeskCheckIn({ e, accent }: { e: any; accent?: string | null }) {
           ...(rememberNeeds && needs.trim() ? { sensoryNeeds: needs.trim() } : {}),
         }), { merge: true });
       }
-      if (notify && provider) {
+      // A walk-in's provider is told here; a booked visit's provider is nudged by the server once it's saved (below).
+      if (notify && provider && isWalkIn) {
         const n = doc(collection(e.firestore, 'tenants', e.tenantId, 'notifications'));
         b.set(n, { id: n.id, userId: provider.userId || provider.uid || provider.id, read: false, createdAt: nowIso, type: 'guest_arrived', link: 'pos',
           message: `${c.name || 'Your guest'} is here for ${services[0] || 'their appointment'}${at ? ` (${format(at, 'h:mm a')}, ${arrival.toLowerCase()})` : ''}.${note.trim() ? ` Note: ${note.trim()}` : ''}` });
       }
       await b.commit();
+      // Their provider: one nudge, buzzed at once, that they can answer (lib/arrival-nudge; the desk sees the answer).
+      if (notify && provider && !isWalkIn) void arrivalCall({ tenantId: e.tenantId, appointmentId: item.id, action: 'tell', via: 'front desk' });
       await logAuditClient(e.firestore, e.tenantId, { action: 'checkin.front_desk', targetType: isWalkIn ? 'walkIn' : 'appointment', targetId: item.id, summary: `${c.name || 'Guest'} checked in at the front desk — ${arrival.toLowerCase()}`, actor: { type: 'user', id: e.currentUser?.uid || null, name: e.currentUser?.displayName || 'Front desk', role: e.role || 'staff', via: 'front desk' } } as any);
       close();
     } catch (x: any) { setErr('Check-in didn’t save — please try again.'); } finally { setBusy(false); }

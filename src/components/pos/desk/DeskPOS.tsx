@@ -14,6 +14,7 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 //   In service with a provider                       → Finish (provider review → ready to pay)
 //   Ready      ready for checkout                    → Check out (checkout drawer)
 
+import { arrivalCall } from '@/lib/arrival-client';
 import { HereNow } from '@/components/pos/desk/HereNow';
 import { buildHereNow } from '@/lib/here-now';
 import { RunningBehind, useDelays } from '@/components/pos/desk/RunningBehind';
@@ -771,7 +772,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <main className="min-h-0 flex-1 overflow-y-auto px-4 md:px-8" style={{ paddingBottom: phone ? 'calc(env(safe-area-inset-bottom,0px) + 104px)' : 40 }}>
         <RunningBehind tenantId={e.tenantId} margin={delayMargin} delays={delays} appts={todaysAppts} staff={e.staff || []} onOpenVisit={(id: string) => openVisit(id)} />
         <HereNow rows={mode === 'desk' && shown === 'day' ? hereNow.filter((r) => r.kind === 'door') : hereNow} onOpenVisit={(id: string) => openVisit(id)} onOpenPickups={() => { setPickupScan(null); setPickupOpen(true); }}
-          onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })} />
+          onDoorDone={(id: string) => updateDocumentNonBlocking(doc(e.firestore, 'tenants', e.tenantId, 'frontDoor', id), { status: 'handled', handledAt: new Date().toISOString(), handledBy: (e as any).currentUserName || (e as any).currentStaffName || 'Front desk' })}
+          onNudge={async (id: string) => { const r = await arrivalCall({ tenantId: e.tenantId, appointmentId: id, action: 'again' }); return r.ok ? null : r.error || 'That didn’t go through. Try again.'; }} />
         {mode === 'desk' && shown !== 'day' && <section aria-label="Today" className="mb-4">
           <button type="button" onClick={toggleToday} aria-expanded={todayOpen} className="mb-2 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}><span className="inline-flex items-center gap-1">Today<Icon name="chevron" size={14} className={`transition-transform ${todayOpen ? '-rotate-90' : 'rotate-90'}`} /></span></button>
           {todayOpen && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{([

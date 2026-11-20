@@ -1392,6 +1392,9 @@ async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: st
     try { const { syncVisitCopies } = await import('@/lib/visit-sync'); const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
       await syncVisitCopies(db, tenantId, { ...a, checkInStatus: 'arrived', timeline: [...tl, entry] }, tn); } catch { /* best-effort */ }
   }
+  // Their provider is nudged once, at once, and can answer (lib/arrival-nudge-server); sent alongside the forms work
+  // below, and finished before the kiosk is answered.
+  const nudging = already ? Promise.resolve() : import('@/lib/arrival-nudge-server').then(({ nudgeProvider }) => nudgeProvider(db, tenantId, String(ref.id), { via: 'kiosk' })).then(() => undefined, () => undefined);
   let formsDue = 0, formsSent = false, seeDesk = false;
   try {
     const cid = String(a.clientId || ''); const c: any = cid ? ((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {}) : {};
@@ -1428,6 +1431,7 @@ async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: st
     }
     seeDesk = String(a.status || '').toLowerCase() === 'deposit_pending' || Number(a.balanceDueCents) > 0 || Number(c.outstandingBalance) > 0;
   } catch { /* the check-in stands */ }
+  await nudging;
   return { already, formsDue, formsSent, seeDesk };
 }
 

@@ -9,6 +9,8 @@ import * as React from 'react';
 import { format, differenceInMinutes } from 'date-fns';
 import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/components/planner/AgendaView';
 import { shapeOf } from '@/lib/business-shape';
+import { useUser } from '@/firebase';
+import { HereReply, isWaitingHere } from '@/components/visit/HereForYou';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 // format(), but a date that can't be read shows nothing instead of breaking the panel.
@@ -21,6 +23,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
 }) {
   useNow(1000);   // the live timer
   const tenantNow = useTenantOptional()?.selectedTenant;
+  const me = String(useUser()?.user?.uid || '');
   const formDefs = useInventoryOptional()?.consentForms;
   const [confirmDecline, setConfirmDecline] = React.useState(false); const [showMore, setShowMore] = React.useState(false);
   const a = appointment; const client = clients.find((c) => c.id === a.clientId); const service = services.find((s) => s.id === a.serviceId); const prov = staff.find((s) => s.id === a.staffId);
@@ -65,6 +68,10 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
       </div>
       <div className="flex flex-wrap gap-2">{chip(st.word, st.color)}{visits === 0 ? chip('First visit', 'var(--accent)') : chip(`${visits + 1}${['st', 'nd', 'rd'][((visits + 1) % 10) - 1] && (visits + 1) % 100 - (visits + 1) % 10 !== 10 ? ['st', 'nd', 'rd'][((visits + 1) % 10) - 1] : 'th'} visit`)}{paid > 0 && chip(`Deposit ${money(paid)} paid`)}{owed > 0 && chip(`${money(owed)} owed`, 'var(--warn, #b45309)')}{Array.isArray(a.addOnIds) && a.addOnIds.length > 0 && chip(`+${a.addOnIds.length} add-on${a.addOnIds.length === 1 ? '' : 's'}`)}{marks.map((m) => chip(m.label, m.tone === 'info' ? undefined : MARK_COLOR[m.tone]))}</div>
       {live && <div className="flex items-baseline gap-3"><span className="text-[34px] font-light tabular-nums leading-none" style={{ color: st.over ? 'var(--warn, #b45309)' : 'var(--ink)' }} aria-live="off">{live}</span><span className="text-[13px]" style={muted}>in the chair{service?.duration ? ` · booked ${service.duration} min` : ''}</span></div>}
+      {isWaitingHere(a) && (a.tenantId || (tenantNow as any)?.id) && (
+        // Here and waiting: their provider answers the nudge here (lib/arrival-nudge); anyone else sees what they said.
+        <HereReply tenantId={String(a.tenantId || (tenantNow as any)?.id)} visit={a} label={`Answer for ${client?.name || a.clientName || 'your guest'}`}
+          mine={!!me && !!prov && [prov.id, prov.userId, prov.uid, prov.authUid].includes(me.startsWith('portal:') ? me.split(':')[2] : me)} />)}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{actions}</div>
       {extra.some(([, f]) => f) && <div><button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="text-[13px] font-semibold underline underline-offset-2" style={muted}>{showMore ? 'Fewer actions' : 'More actions'}</button>
         {showMore && <div className="mt-2 flex flex-wrap gap-2">{extra.filter(([, f]) => f).map(([l, f]) => <button key={l} type="button" onClick={f} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{l}</button>)}</div>}</div>}

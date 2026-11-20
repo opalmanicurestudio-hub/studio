@@ -574,6 +574,7 @@ export default function CheckInPage() {
                 first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
                 inService={appointmentData?.status === 'servicing'}
                 who={(assignedStaff as any)?.name || null}
+                reply={(appointmentData as any)?.providerReply || null}
                 startTime={appointmentData?.startTime as any}
                 serviceName={service?.name || appointmentData?.serviceName || null}
                 businessName={tenant?.name || null}

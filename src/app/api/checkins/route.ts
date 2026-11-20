@@ -196,14 +196,20 @@ export async function POST(req: NextRequest) {
       }, { merge: true });
       else if (st === 'arrived') await aRef.set({ clientTrip: null }, { merge: true });
       reply = { graceMinutes: grace, withinGrace: st !== 'running_late' || mins <= grace, lateFee: Number(P.late.fee.value) || 0 };
-      // Tell the studio (renters are told above, in their own name).
-      if (!appt.isRenterBooking && (st === 'running_late' || st === 'on_my_way' || st === 'arrived')) {
+      // Tell the team (renters are told above, in their own name). Here: their provider is nudged once, at once, and
+      // can answer (lib/arrival-nudge-server); with no provider yet, the people running the floor are told instead.
+      let nudged = false;
+      if (!appt.isRenterBooking && st === 'arrived' && appt.staffId && !done) {
+        try { const { nudgeProvider } = await import('@/lib/arrival-nudge-server'); const r = await nudgeProvider(db, tenantId, String(body.appointmentId), { via: 'client link', tenant: t }); nudged = r.told || r.why === 'already told'; } catch { nudged = false; }
+      }
+      if (!appt.isRenterBooking && !nudged && (st === 'running_late' || st === 'on_my_way' || (st === 'arrived' && !done))) {
         const when = appt.startTime ? new Date(appt.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: t.timezone || undefined }) : '';
         const who = appt.clientName || 'Your client';
         const n = db.collection(`tenants/${tenantId}/notifications`).doc();
-        await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'running_late' : st === 'arrived' ? 'arrived' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
+        await n.set({ id: n.id, userId: appt.staffId || null, read: false, createdAt: nowIso, type: st === 'running_late' ? 'guest_running_late' : st === 'arrived' ? 'guest_arrived' : 'on_my_way', link: 'pos', appointmentId: String(body.appointmentId),
           message: st === 'running_late' ? `Action needed: ${who} is running about ${mins} minutes late for their ${when} appointment${mins > grace ? `, which is past your ${grace}-minute grace period` : ''}.${clean.lateNote ? ` Their note: “${clean.lateNote}”.` : ''} Please decide what happens from the front desk or planner, and the client will be notified.`
             : st === 'arrived' ? `${who} has arrived for their ${when} appointment.` : `${who} is on the way for their ${when} appointment.` }).catch(() => {});
+        if (st !== 'on_my_way') { try { await (await import('@/lib/push')).pushNow(db, tenantId); } catch { /* the 1-minute job sends it */ } }   // someone is waiting: buzz now
       }
       // Past the grace time → offer them their choices (Booking policies → "Offer late clients their choices").
       if (!done && !appt.isRenterBooking && st === 'running_late' && mins > grace) {

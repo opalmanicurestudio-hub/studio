@@ -4,6 +4,7 @@
 // was your visit?", book again, aftercare, their wallet), all set after finishing the booking, and the plain opening
 // and not-found pages. The day itself is DayOfView. Everything sits in VisitShell: the booking page's own header, color
 // and mood (Soft, Crisp or Night).
+import { guestWaitLine } from '@/lib/arrival-nudge';
 import * as React from 'react';
 import { format, isSameDay, addDays, differenceInCalendarDays, parseISO } from 'date-fns';
 import { Calendar, MessageSquare, Wifi, Phone, Heart } from 'lucide-react';
@@ -138,8 +139,10 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     className="v-pill pub-press" style={{ minHeight: 44 }}>{done ? 'Copied' : 'Copy'}</button>;
 }
 
-export function CheckedInView({ brand, first, inService, who, startTime, serviceName, businessName, phone, wifi, timeline, onMessage }: {
+export function CheckedInView({ brand, first, inService, who, startTime, serviceName, businessName, phone, wifi, timeline, onMessage, reply }: {
   brand: VisitBrand; first?: string | null; inService: boolean; who?: string | null; startTime?: string | null; serviceName?: string | null; businessName?: string | null; phone?: string | null;
+  /** What their provider said when told they're here (lib/arrival-nudge). */
+  reply?: { kind?: string; at?: string | null } | null;
   wifi?: { network?: string | null; password?: string | null } | null;
   timeline?: { items?: { at: string; text: string }[] | null; showTimes?: boolean } | null;
   onMessage?: () => void;
@@ -152,7 +155,7 @@ export function CheckedInView({ brand, first, inService, who, startTime, service
   return (
     <VisitShell brand={brand} chip={inService ? 'In progress' : 'Checked in'} kicker={<span className="mb-2 inline-block"><VisitCheck /></span>}
       title={inService ? <>You’re <b>all set</b></> : <>You’re <b>checked in</b></>}
-      subtitle={inService ? `Enjoy your appointment${first ? `, ${first}` : ''}.` : `${name ? `${name} knows` : 'We know'} you’re here and will be with you ${when}.`}>
+      subtitle={inService ? `Enjoy your appointment${first ? `, ${first}` : ''}.` : guestWaitLine(name || '', when, reply, Date.now())}>
       <VisitRows label="Today" rows={[
         { key: 'v', text: <><span className="block font-semibold">{serviceName || 'Your appointment'}</span>{(name || businessName) && <span className="block text-[13.5px]" style={{ color: 'var(--muted)' }}>{name ? `with ${name}` : businessName}</span>}</>, right: at ? format(at, 'h:mm a') : undefined },
       ]} />

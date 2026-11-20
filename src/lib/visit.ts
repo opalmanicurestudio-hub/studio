@@ -140,5 +140,7 @@ export function visitProjection(a: any, tenant?: any) {
   const stage = stageOf(a);
   return { stage, stageLabel: stageLabel(stage, a, tenant), flags: flagsOf(a), paymentStatus: paymentStatusOf(a), status: a?.status || null, checkInStatus: a?.checkInStatus || null,
     startTime: a?.startTime || null, endTime: a?.endTime || null, staffId: a?.staffId || null, depositStatus: a?.depositStatus || null,
+    // What their provider said when they were told the guest is here (lib/arrival-nudge): the answer and when, nothing else.
+    providerReply: a?.arrivalReply?.kind ? { kind: String(a.arrivalReply.kind), at: a.arrivalReply.at || null } : null,
     timelinePublic: publicTimeline(a?.timeline || [], a, tenant), timelineShowTimes: clientTimelineSettingsOf(tenant).showTimes, visitUpdatedAt: new Date().toISOString() };
 }

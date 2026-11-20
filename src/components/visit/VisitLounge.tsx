@@ -7,6 +7,7 @@
 // Wi-Fi; and other services they can ask about before they go. Every request goes through /api/guest-lounge with this
 // visit's token: a guest isn't signed in, so the browser never writes these itself. Anything that doesn't go through is
 // said on the screen, in amber, never a pop-up.
+import { guestWaitLine } from '@/lib/arrival-nudge';
 import * as React from 'react';
 import { format, startOfMonth, subMonths, subYears, isAfter } from 'date-fns';
 import { Bell, Clock, CreditCard, SunDim, MapPin, User, Sparkles, Wifi, MessageSquare, Award, Calendar, Coffee, Minus, Plus } from 'lucide-react';
@@ -213,7 +214,7 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
   return (
     <VisitShell brand={brand} chip={isWaiting ? 'Checked in' : 'In progress'} kicker={<span className="mb-2 inline-block"><VisitCheck /></span>}
       title={isWaiting ? <>You’re <b>checked in</b></> : <>You’re <b>all set</b></>}
-      subtitle={isWaiting ? `${who ? `${who} knows` : 'We know'} you’re here and will be with you ${when}.` : `Enjoy your appointment${first ? `, ${first}` : ''}.`}>
+      subtitle={isWaiting ? guestWaitLine(who, when, appointment?.providerReply, Date.now()) : `Enjoy your appointment${first ? `, ${first}` : ''}.`}>
 
       {live.length > 0 && <section aria-label="On its way">
         <VisitLabel>On its way</VisitLabel>

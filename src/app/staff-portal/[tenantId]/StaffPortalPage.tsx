@@ -158,6 +158,7 @@ import { PortalSplash, shouldShowSplash } from '@/components/staff-portal/Portal
 import { PortalBoot, rememberBrand } from '@/components/staff-portal/PortalBoot';
 import { isStaleCopy, reloadOnce, reportCrash } from '@/lib/client-crash';
 import { FloorLinks } from '@/components/portal/FloorLinks';
+import { HereForYou } from '@/components/visit/HereForYou';
 import { isFoodBusiness } from '@/lib/food-setup';
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
@@ -4334,6 +4335,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="min-w-0 flex-1"><p className="text-[12px] font-bold" style={{ color: accentColor }}>Your schedule changed</p><p className="text-[14px] font-semibold leading-snug">{n.message}</p></div>
             <button type="button" onClick={() => { updateDoc(doc(firestore, `tenants/${tenantId}/notifications`, n.id), { read: true, ackAt: new Date().toISOString() }).catch(() => {}); }} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-bold text-white" style={{ background: accentColor }}>Got it</button>
           </div>))}
+        {navKey === 'today' && !isRenter && <HereForYou tenantId={tenantId} visits={todaysMine} serviceOf={(v: any) => (services || []).find((x: any) => x.id === v.serviceId)?.name || ''} />}
         {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && isFoodBusiness(portalTenant) && <FloorLinks job={(staffMember as any).job || null} />}
         {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
