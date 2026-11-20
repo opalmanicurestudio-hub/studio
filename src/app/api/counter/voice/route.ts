@@ -26,6 +26,7 @@ import { RUSH_CARS, inLineNow, atDriveThru } from '@/lib/counter-orders';
 import { readMenu } from '@/lib/menu-server';
 import { menuForVoice } from '@/lib/voice-order';
 import { agentOf, voiceOn, markCallEnded } from '@/lib/drive-thru-voice';
+import { noteTurnedAway, refusedAsFull } from '@/lib/voice-capacity';
 import { FieldValue } from 'firebase-admin/firestore';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -139,6 +140,8 @@ export async function POST(req: NextRequest) {
       if (r.status >= 300 || !r.data?.call_id || !CALL.test(String(r.data.call_id))) {
         await carRef.set({ voice: { status: 'failed', at: nowIso } }, { merge: true }).catch(() => undefined);
         console.error('[counter/voice] start', r.status, r.data?.message || r.data?.error_message || '');
+        // Turned away because the shared voice account is taking all the calls it can at once (HQ → System counts these).
+        if (refusedAsFull(r.status, r.data?.message || r.data?.error_message)) { await noteTurnedAway('drive-thru', db); return bad('The voice assistant is on as many calls as it can take right now. Take this order by hand.', 503); }
         return bad('The voice assistant didn’t answer. Take this order by hand.', 502);
       }
       const callId = String(r.data.call_id);

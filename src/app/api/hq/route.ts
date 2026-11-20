@@ -7,6 +7,7 @@
 //   tenant {id}     → one business: signals, setup steps, health reasons,
 //                     owner, tools, and a TIMELINE (bookings, messages,
 //                     audit history, help requests), newest first
+//   voice           → the shared voice account: calls now against its limit, at drive-thrus now, turned away this week
 //   tickets         → the help inbox (all businesses)
 //   ticket-reply    → { ticketId, message, status? } — saved + emailed
 //   ticket-status   → { ticketId, status }
@@ -33,13 +34,14 @@ import { ALL_PRICES } from '@/lib/billing-plans';
 
 // Which permission each action needs (see src/lib/platform-admin.ts).
 const NEEDS: Record<string, HqPerm> = {
-  tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', readiness: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
+  tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', readiness: 'system', voice: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
   'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
   insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
   finance: 'finance', 'finance-sync': 'finance', 'finance-settings': 'finance', 'expense-save': 'finance', 'expense-delete': 'finance',
   'billing-settings': 'finance', 'billing-setup-prices': 'finance', addon: 'fix',
 };
 import { launchReadiness } from '@/lib/launch-readiness';
+import { voiceCapacityView } from '@/lib/voice-capacity';
 
 // Every HQ action that changes something is written here: who, what, when.
 async function audit(db: any, by: string, tenantId: string | null, action: string, summary: string, extra: any = {}) {
@@ -250,6 +252,13 @@ ClarityFlow` }) }).catch(() => null);
   if (b.action === 'readiness') {
     const rows = await launchReadiness().catch((e) => { console.error('[hq readiness]', e); return null; });
     return rows ? NextResponse.json({ ok: true, rows }) : NextResponse.json({ ok: false, error: 'The launch check didn’t load. Please reload.' });
+  }
+
+  // Voice calls (lib/voice-capacity): the shared voice account's calls now against its limit, asked of the voice service,
+  // so on its own, like the launch check.
+  if (b.action === 'voice') {
+    const v = await voiceCapacityView(db).catch((e) => { console.error('[hq voice]', e); return null; });
+    return v ? NextResponse.json({ ok: true, voice: v }) : NextResponse.json({ ok: false, error: 'Voice calls didn’t load. Please reload.' });
   }
 
   if (b.action === 'tickets') {

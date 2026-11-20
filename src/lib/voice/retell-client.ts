@@ -5,6 +5,8 @@
  * so a Retell API change is a one-file fix.
  */
 
+import { noteTurnedAway, refusedAsFull } from '@/lib/voice-capacity';
+
 const RETELL_CREATE_CALL_URL = 'https://api.retellai.com/v2/create-phone-call';
 
 export async function placeRetellCall(opts: {
@@ -35,6 +37,8 @@ export async function placeRetellCall(opts: {
     });
     const data: any = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // Turned away because the shared account is on all the calls it can take at once: counted for HQ → System.
+      if (refusedAsFull(res.status, data?.message)) await noteTurnedAway('phone');
       return { ok: false, error: data?.message || `Retell responded ${res.status}` };
     }
     return { ok: true, callId: data?.call_id || undefined };
