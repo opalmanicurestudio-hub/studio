@@ -3,25 +3,31 @@
 // menu with photos, an item's choices, the order, how and when they'll pick it up, and paying right there on the card
 // company's own secure form. Then the order's own page (?o=…&s=…, the address it moves to once paid, so it can be opened
 // again): the pickup code, how it's going, and I'm here. The order (not yet sent) is kept on the phone, so a guest who
-// leaves the page finds it again.
+// leaves the page finds it again. Right after something's added, what the business offers with it is asked once, on the
+// same sheet (lib/menu-upgrades): the next size up, and things to go with it, each a tap.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { Minus, Plus, ShoppingBag, X } from 'lucide-react';
+import { Check, Minus, Plus, ShoppingBag, X } from 'lucide-react';
 import { MenuAsk } from '@/components/klair/MenuAsk';
 import { TELL_TEAM } from '@/lib/klair-menu';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
+import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-4 font-semibold disabled:opacity-50 ${RING}`;
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside';
-type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null };
+type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null;
+  upgrades?: { size: boolean; items: string[] } };
 type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?: string[]; asapFull?: boolean; filling?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
-type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null };
+type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind };
+/** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
+ *  shown), and what's been taken ('size', or 'item:' and its id). */
+type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
 type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
 
 async function call(body: any) {
@@ -39,7 +45,8 @@ const pickWords = (item: Item, picks: Picks) => { const p = priceChoices(item, p
 function Sheet({ title, onClose, children, foot }: { title: string; onClose: () => void; children: React.ReactNode; foot?: React.ReactNode }) {
   const box = React.useRef<HTMLDivElement>(null); const close = React.useRef(onClose); close.current = onClose;
   React.useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('button, input')?.focus();
+    // (A sheet can say where the focus starts: the first thing marked data-start, else its first button.)
+    const opener = document.activeElement as HTMLElement | null; (box.current?.querySelector<HTMLElement>('[data-start]:not([disabled])') || box.current?.querySelector<HTMLElement>('button, input'))?.focus();
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; document.addEventListener('keydown', k);
     document.body.style.overflow = 'hidden';
     return () => { document.removeEventListener('keydown', k); document.body.style.overflow = ''; opener?.focus?.(); };
@@ -75,6 +82,44 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
       {(item.words || item.calories != null) && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
       <ChoicePicker item={item} picks={picks} onChange={setPicks} />
       {!priced.ok && <p role="status" className="mt-3 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
+    </Sheet>
+  );
+}
+
+/** Right after something's added (design canvas "Food numbers": Offered at the end): what the business offers with it,
+ *  asked once. The size up changes the line just added; something to go with it is a line of its own (one with choices
+ *  of its own opens its sheet, to pick them). Nothing taken: No thanks. */
+function AfterSheet({ after, item, line, onSize, onItem, onClose }: { after: After; item: Item; line: CartLine | undefined; onSize: () => void; onItem: (x: Item) => void; onClose: () => void }) {
+  const done = React.useRef<HTMLButtonElement>(null); const [said, setSaid] = React.useState('');
+  const took = (k: string) => after.took.includes(k);
+  // Only what was just added: one more latte added to two already in the order is the one asked about.
+  // Taken: said out loud, and the focus goes to Done (the button tapped is gone).
+  const tap = (f: () => void, words: string) => { f(); setSaid(words); requestAnimationFrame(() => done.current?.focus()); };
+  const q = Math.max(1, Math.min(after.qty, line?.quantity || 1));
+  const bigger = after.size && line && !took('size') ? priceChoices(item, sizedUp(line.picks, after.size)) : null;
+  const added = (word: string) => <span className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden />{word}</span>;
+  return (
+    <Sheet title="Added to your order" onClose={onClose} foot={
+      <button ref={done} type="button" onClick={onClose} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{after.took.length ? 'Done' : 'No thanks'}</button>}>
+      {line && <p className="flex items-start gap-2.5 text-[15px]">
+        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden /></span>
+        <span className="min-w-0" style={{ color: MUTED }}>{q > 1 ? `${q} ` : ''}{line.name}{line.choicesText ? `, ${line.choicesText}` : ''}. <span className="tabular-nums">{usd(line.each * q)}</span></span></p>}
+      <p className="mt-5 text-[16px] font-semibold">Anything with it?</p>
+      <ul className="mt-3 space-y-2">
+        {after.size && (
+          <li className="flex items-center gap-3 rounded-2xl p-3.5" style={{ border: `1px solid ${LINE}` }}>
+            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">Size up to {after.size.to}</span>
+              {bigger?.ok && <span className="block text-[14px]" style={{ color: MUTED }}>{line!.name}, {bigger.text}. <span className="tabular-nums">{usd(Math.max(0, item.price + bigger.extra) * q)}</span>{q > 1 ? ' for all' : ''}</span>}</span>
+            {took('size') ? added('Changed') : <button type="button" disabled={!bigger?.ok} onClick={() => tap(onSize, `Changed to ${after.size!.to}.`)} data-start aria-label={`Size up to ${after.size.to}, +${usd(after.size.adds * q)}`} className={`${btn} min-h-[44px] shrink-0 text-[15px] tabular-nums`} style={{ background: INK, color: '#fff' }}>+{usd(after.size.adds * q)}</button>}
+          </li>)}
+        {after.items.map((x) => (
+          <li key={x.id} className="flex items-center gap-3 rounded-2xl p-3.5" style={{ border: `1px solid ${LINE}` }}>
+            {x.imageUrl && <img src={x.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" style={{ background: SOFT }} />}
+            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{x.name}</span><span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{x.from ? `From ${usd(x.startPrice)}` : usd(x.price)}</span></span>
+            {took(`item:${x.id}`) ? added('Added') : <button type="button" onClick={() => (x.choices.length ? onItem(x) : tap(() => onItem(x), `${x.name} added.`))} data-start className={`${btn} min-h-[44px] shrink-0 text-[15px]`} aria-label={`Add ${x.name}`} style={{ background: INK, color: '#fff' }}>Add</button>}
+          </li>))}
+      </ul>
+      <p className="sr-only" aria-live="polite">{said}</p>
     </Sheet>
   );
 }
@@ -171,6 +216,10 @@ export default function OrderAhead() {
   const [name, setName] = React.useState(''); const [way, setWay] = React.useState<Way | null>(null); const [at, setAt] = React.useState<string>('');
   const [phone, setPhone] = React.useState(''); const [join, setJoin] = React.useState(false);
   const [moreTimes, setMoreTimes] = React.useState(false);
+  // Offered at the end (lib/menu-upgrades): asked once, right after something's added; not again on this visit for an item
+  // whose offer was turned down. `offered`: the sheet open is for something taken as an offer (added without asking again).
+  const [after, setAfter] = React.useState<After | null>(null); const [passed, setPassed] = React.useState<string[]>([]); const [offered, setOffered] = React.useState(false);
+  const byId = React.useMemo(() => new Map((menu?.sections || []).flatMap((s) => s.items.map((i) => [i.id, i] as [string, Item]))), [menu]);
   // The time chosen is full (or, as soon as it's ready, with every time full): paying waits for one with room.
   const chosenFull = !!menu && (at === '' ? !!menu.asapFull : (menu.full || []).includes(at));
   const noneOpen = !!menu && !!menu.asapFull && !firstOpen(menu);
@@ -190,11 +239,46 @@ export default function OrderAhead() {
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
   React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
-  const add = (item: Item, picks: Picks, qty: number) => {
+  /** Into the order (the same item with the same choices is one line); gives back its line's key. */
+  const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind) => {
     const p = priceChoices(item, picks); const each = Math.max(0, item.price + (p.ok ? p.extra : 0)); const text = pickWords(item, picks);
-    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty) } : l)); return [...c, { key: rid(), itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl }]; });
-    setOpen(null);
+    const key = cart.find((l) => l.itemId === item.id && l.choicesText === text)?.key || rid();
+    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}) }]; });
+    return key;
   };
+  // Added from its sheet: then what's offered with it, if there's anything they could have.
+  const added = (item: Item, picks: Picks, qty: number) => {
+    const key = add(item, picks, qty, offered ? 'item' : undefined); setOpen(null);
+    if (offered) { setOffered(false); return; }
+    if (passed.includes(item.id)) return;
+    const o = offersFor(item, picks, (id) => byId.get(id), (id) => cart.some((l) => l.itemId === id));
+    if (o.size || o.items.length) setAfter({ key, itemId: item.id, qty, size: o.size, items: o.items, took: [] });
+  };
+  // The size up: the ones just added, a size bigger (into the same line when there's one already; the rest of a line
+  // they were added to stays as it was).
+  const takeSize = () => {
+    const a = after; if (!a?.size || a.took.includes('size')) return;
+    const line = cart.find((l) => l.key === a.key); const item = byId.get(a.itemId); if (!line || !item) return;
+    const picks = sizedUp(line.picks, a.size); const p = priceChoices(item, picks); if (!p.ok) return;
+    const n = Math.max(1, Math.min(a.qty, line.quantity)); const rest = line.quantity - n;
+    const twin = cart.find((l) => l.key !== line.key && l.itemId === item.id && l.choicesText === p.text);
+    const upKey = twin ? twin.key : rest > 0 ? rid() : line.key;
+    const up = { picks, choicesText: p.text, each: Math.max(0, item.price + p.extra), offer: 'size' as const };
+    setCart((c) => {
+      let next = c.map((l) => (l.key !== line.key ? l : rest > 0 || twin ? { ...l, quantity: rest } : { ...l, ...up }));
+      if (twin) next = next.map((l) => (l.key === twin.key ? { ...l, quantity: Math.min(20, l.quantity + n), offer: l.offer || 'size' } : l));
+      else if (rest > 0) next = [...next, { ...line, ...up, key: upKey, quantity: n }];
+      return next.filter((l) => l.quantity > 0);
+    });
+    setAfter({ ...a, key: upKey, took: [...a.took, 'size'] });
+  };
+  // Something to go with it: added as it comes, or, with choices of its own, its sheet opened to pick them.
+  const takeItem = (x: Item) => {
+    if (!after) return;
+    if (x.choices.length) { setAfter(null); setOffered(true); setOpen(x); return; }
+    add(x, defaultPicks(x), 1, 'item'); setAfter({ ...after, took: [...after.took, `item:${x.id}`] });
+  };
+  const closeAfter = () => { if (after && !after.took.length) setPassed((p) => [...p, after.itemId]); setAfter(null); };
   const qty = (k: string, d: number) => setCart((c) => c.map((l) => (l.key === k ? { ...l, quantity: Math.max(0, Math.min(20, l.quantity + d)) } : l)).filter((l) => l.quantity > 0));
   const place = async () => {
     if (!way) { setPlaceErr('How will you pick it up?'); return; }
@@ -203,7 +287,7 @@ export default function OrderAhead() {
     if (phone.trim() && digits.length !== 10) { setPlaceErr('A 10-digit phone number for points, or leave it empty.'); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(phone.replace(/\D/g, '').length >= 10 && menu?.points ? { phone: phone.replace(/\D/g, '').slice(-10), join } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks })) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(phone.replace(/\D/g, '').length >= 10 && menu?.points ? { phone: phone.replace(/\D/g, '').slice(-10), join } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
     if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'at' || d.code === 'slot_full') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(m.asapFull ? firstOpen(m) : ''); } }); return; }
@@ -332,7 +416,8 @@ export default function OrderAhead() {
           </div>
         </section>
       ))}
-      {open && <ItemSheet item={open} onAdd={(p, q) => add(open, p, q)} onClose={() => setOpen(null)} />}
+      {open && <ItemSheet item={open} onAdd={(p, q) => added(open, p, q)} onClose={() => { setOpen(null); setOffered(false); }} />}
+      {after && byId.get(after.itemId) && <AfterSheet after={after} item={byId.get(after.itemId)!} line={cart.find((l) => l.key === after.key)} onSize={takeSize} onItem={takeItem} onClose={closeAfter} />}
     </div>,
     count > 0 ? (
       <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-4 pt-2" style={{ background: 'linear-gradient(rgba(245,245,247,0), #f5f5f7 40%)' }}>

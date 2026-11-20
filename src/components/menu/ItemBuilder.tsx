@@ -4,7 +4,8 @@
 // keeps on one as it's picked there:
 //   1 The basics       its name, price and section, a photo and a line guests read; on the menu, members only
 //   2 Sizes            one size, or sizes with what each adds to the price (and to the recipe: a 16 oz uses more milk)
-//   3 Choices          the business's choice sets turned on or off (lib/choice-sets), and any choice only it has
+//   3 Choices          the business's choice sets turned on or off (lib/choice-sets), and any choice only it has; and
+//                      what's offered at the end, once a guest adds it: the size up, and things to go with it (lib/menu-upgrades)
 //   4 What goes in it  its recipe from the business's stock, or, for a combo, the items it always has
 //   5 Where and when   what it contains, where and how long it's made, when it's sold, and the menu board
 // Only the basics are needed to sell it; each step says what it adds. Every step is one draft, saved together through
@@ -25,6 +26,7 @@ import type { MenuItem } from '@/lib/menu-server';
 import type { RecipeLine } from '@/lib/menu-stock';
 import type { Daypart } from '@/lib/menu-time';
 import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
+import { isSizeGroup, MAX_UPGRADE_ITEMS, nextSize, offersFor } from '@/lib/menu-upgrades';
 import { uploadImage } from '@/lib/upload-image';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -47,7 +49,7 @@ const STEPS: { n: Step; title: string; next: string }[] = [
   { n: 4, title: 'What goes in it', next: 'what goes in it' }, { n: 5, title: 'Where and when', next: 'where and when' },
 ];
 /** The sizes it comes in: a "pick one" choice called Size (or Sizes). */
-const isSize = (g: { name: string; pick: string }) => g.pick === 'one' && /^\s*(cup\s+)?sizes?\s*$/i.test(g.name);
+const isSize = isSizeGroup;
 const DRINKS = /coffee|tea|drink|espresso|latte|juice|smoothie|shake|cocktail|wine|beer|soda|beverage|\bbar\b/i;
 /** What it's called in the words on the page: a drink (its section or station says so), else an item. */
 const nounOf = (m: { section?: string | null; station?: string | null }) => (DRINKS.test(`${m.section || ''} ${m.station || ''}`) ? 'drink' : 'item');
@@ -109,6 +111,9 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const [parts, setParts] = useState<string[]>(item.dayparts || []); const [happy, setHappy] = useState(item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2));
   const [combo, setCombo] = useState(!!item.combo); const [inIt, setInIt] = useState<string[]>(item.comboParts || []);
   const others = allItems.filter((x) => x.id !== item.id && !x.combo);
+  // Offered at the end (lib/menu-upgrades): the next size up, and up to two items to go with it; the menu searched to add one.
+  const [upSize, setUpSize] = useState(!!item.upgrades?.size); const [upItems, setUpItems] = useState<string[]>(item.upgrades?.items || []);
+  const [finding, setFinding] = useState(false); const [find, setFind] = useState('');
   const [photo, setPhoto] = useState<string | null>(item.imageUrl || null); const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
 
@@ -126,7 +131,7 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const shell = useRef<HTMLDivElement | null>(null); const head = useRef<HTMLHeadingElement | null>(null); const phoneSteps = useRef<HTMLElement | null>(null);
   const noun = nounOf({ section, station: station || item.station });
 
-  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines]);
+  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines, upSize, upItems]);
   const first = useRef(snap); const dirty = snap !== first.current;
 
   // The recipe and the choices as they stand here, priced and costed by the server's own rules.
@@ -200,6 +205,9 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
     for (const g of groups) { const bad = g.options.find((o) => Number.isNaN(money2(o.price))); if (bad) return stop(g.id === sizeId ? 2 : 3, `What does ${bad.name || 'that option'} add? Type an amount, like 0.75, or leave it at 0.`); }
     const noAmount = lines.find((l) => !(Number(l.q) > 0));
     if (noAmount) return stop(4, `How much ${noAmount.name} goes into one? Type an amount, like 1 or 0.5.`);
+    // Something offered at the end that's since gone from the menu: taken off first (the server won't keep it).
+    const upChanged = upSize !== !!item.upgrades?.size || JSON.stringify(upItems) !== JSON.stringify(item.upgrades?.items || []);
+    if (upChanged && upItems.some((id) => !allItems.some((x) => x.id === id))) return stop(3, 'Something offered at the end isn’t on the menu any more. Take it off under Offered at the end, then save.');
     const batch = Math.floor(Number(batchSize));
     if (held && !(batch >= 1 && batch <= 200)) return stop(5, 'How many in a batch? Between 1 and 200.');
     // The recipe is saved only when it was changed here (one left alone is kept as it is).
@@ -216,22 +224,25 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
       ...(JSON.stringify(parts) !== JSON.stringify(item.dayparts || []) ? { dayparts: parts } : {}),
       ...(JSON.stringify(also) !== JSON.stringify(item.alsoAt || []) ? { alsoAt: also.map((a) => ({ station: a.station, part: a.part.trim() })) } : {}),
       ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
-      ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}) });
+      ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}),
+      ...(upChanged ? { upgrades: { size: upSize, items: upItems } } : {}) });
     setSaving(false); if (e) { setErr(e); return false; } return true;
   };
 
   // Each step's line on the left: what's set so far, in a few words.
   const otherGroups = groups.filter((g) => g.id !== sizeId);
+  const upPicked = upItems.map((id) => allItems.find((x) => x.id === id)).filter((x): x is MenuItem => !!x);
+  const upWords = [...(upSize ? ['the size up'] : []), ...upPicked.map((x) => x.name)];
   const allergenWords = (allergens || []).map((k) => (ALLERGENS.find((a) => a.key === k)?.label || k).toLowerCase());
   const summary: Record<Step, string> = {
     1: `${[name.trim() || 'No name yet', Number(price) > 0 ? money(Number(price)) : 'no price yet', section.trim() || 'no section'].join(', ')}.${photo && words.trim() ? ' A photo and a line guests read.' : photo ? ' A photo.' : words.trim() ? ' A line guests read.' : ''}${onMenu ? '' : ' Not on the menu yet.'}`,
     2: sizeG ? `${andList(sizeG.options.filter((o) => o.name.trim()).map((o) => (Number(o.price) ? `${o.name} (${Number(o.price) > 0 ? '+' : ''}${money(Number(o.price))})` : o.name)))}.${sizeG.options.some((o) => o.changes?.length) ? ' The recipe grows with the size.' : ''}` : 'One size.',
-    3: otherGroups.length ? `${andList(otherGroups.map((g, k) => (k ? g.name.toLowerCase() : g.name)).filter(Boolean))}.` : 'None yet.',
+    3: `${otherGroups.length ? `${andList(otherGroups.map((g, k) => (k ? g.name.toLowerCase() : g.name)).filter(Boolean))}.` : 'None yet.'}${upWords.length ? ` Offered at the end: ${andList(upWords)}.` : ''}`,
     4: combo ? `A combo${inIt.length ? `: ${andList(inIt.map((id) => others.find((x) => x.id === id)?.name || '').filter(Boolean))}` : ''}.`
       : lines.length ? `${andList(lines.slice(0, 4).map((l, k) => (k ? l.name.toLowerCase() : l.name)))}${lines.length > 4 ? ' and more' : ''}${baseCost?.cost !== null && baseCost?.cost !== undefined ? `: costs you ${money(baseCost.cost)}` : ''}.` : 'Nothing yet. With it, stock and cost follow each one sold.',
     5: `${station ? `Made at ${station.toLowerCase().startsWith('the ') ? station : `the ${station.toLowerCase()}`}` : 'Made where its section goes'}, ${takes(makeSeconds)}, ${parts.length ? andList(dayparts.filter((d) => parts.includes(d.id)).map((d) => d.name)) : 'all day'}.${allergens === null ? ' Allergens not said yet.' : allergens.length ? ` Contains ${andList(allergenWords)}.` : ' None of the major allergens.'}`,
   };
-  const done = (n: Step) => (n === 1 ? !!name.trim() && Number(price) > 0 : n === 2 ? !!sizeG || seen.includes(2) : n === 3 ? otherGroups.length > 0 || seen.includes(3) : n === 4 ? lines.length > 0 || combo : seen.includes(5) || allergens !== null);
+  const done = (n: Step) => (n === 1 ? !!name.trim() && Number(price) > 0 : n === 2 ? !!sizeG || seen.includes(2) : n === 3 ? otherGroups.length > 0 || upWords.length > 0 || seen.includes(3) : n === 4 ? lines.length > 0 || combo : seen.includes(5) || allergens !== null);
   const at = STEPS.find((s) => s.n === step)!; const nextStep = STEPS.find((s) => s.n === step + 1);
 
   // What the guest sees: their own picker, starting where theirs starts, and the price as it's picked.
@@ -246,6 +257,17 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const madeCost = formula.length ? costWith(item.id, draft, stockParts, shown) : null;
   const keeps = madeCost === null ? null : Math.round((total - madeCost) * 100) / 100;
   const share = madeCost !== null && total > 0 ? madeCost / total : null;
+  // Offered at the end: the size up as it reads here (from the first size), the menu searched for something to go with it,
+  // and what the guest is asked once it's added, as picked above (only what they could have: on their menu, not sold out).
+  const sizeExample = sizeG && sizeG.options[0] ? nextSize(draft, { [sizeG.id]: [sizeG.options[0].id] }) : null;
+  const q = find.trim().toLowerCase();
+  const canOffer = finding ? allItems.filter((x) => x.id !== item.id && !upItems.includes(x.id) && (!q || `${x.name} ${x.section}`.toLowerCase().includes(q))).slice(0, 6) : [];
+  const stateOf = (x: MenuItem) => (!x.onMenu ? 'not on the menu guests see' : x.membersOnly ? 'members only' : x.soldOut || !x.inStock ? 'sold out right now' : '');
+  const priceOf = (x: MenuItem) => (x.from ? `from ${money(x.startPrice)}` : money(x.price));
+  const upHead = useRef<HTMLParagraphElement | null>(null); const findBox = useRef<HTMLInputElement | null>(null);
+  const offerIt = (id: string) => { const n = upItems.length + 1; setUpItems((xs) => [...xs, id].slice(0, MAX_UPGRADE_ITEMS)); setFind(''); if (n >= MAX_UPGRADE_ITEMS) { setFinding(false); upHead.current?.focus(); } else findBox.current?.focus(); };
+  const asked = useMemo(() => offersFor({ id: item.id, upgrades: { size: upSize, items: upItems }, choices: draft.choices }, shown,
+    (id) => { const x = allItems.find((y) => y.id === id); return x && x.onMenu && !x.membersOnly ? { ...x, soldOut: x.soldOut || !x.inStock } : undefined; }), [item.id, upSize, upItems, draft.choices, shown, allItems]);
   const pickedNotes = priced.ok ? priced.lines.map((l) => optCosts[`${l.groupId}/${l.optionId}`]).filter((c): c is OptionCost => !!c && c.cost !== null && c.changes).slice(0, 2) : [];
 
   const actions = (
@@ -427,6 +449,44 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
                   {STARTERS.filter((x) => x.label !== 'Size').map((x) => <button key={x.label} type="button" onClick={() => { setGroups((gs) => [...gs, x.make()]); setAddingOwn(false); }} className={BTN} style={{ background: SOFT }}>{x.label}</button>)}
                   <button type="button" onClick={() => { setGroups((gs) => [...gs, { id: nid(), name: '', pick: 'one', required: true, max: 1, options: [{ id: nid(), name: '', price: 0, soldOut: false }] }]); setAddingOwn(false); }} className={BTN} style={{ background: SOFT }}>Something else</button>
                 </div>}
+                <div className="space-y-4 rounded-3xl border bg-[#fff] p-5" style={{ borderColor: LINE }}>
+                  <div><h4 className="text-[16px] font-semibold">Offered at the end</h4>
+                    <p className="mt-0.5 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>Asked once, right after a guest adds this {noun} on their phone. Two things at most, so it stays quick.</p></div>
+                  <div className="flex items-start gap-2 rounded-2xl py-2 pl-2 pr-4" style={{ border: `1px solid ${LINE}` }}>
+                    <Toggle on={upSize} label="Offer the next size up" onClick={() => setUpSize((v) => !v)} />
+                    <div className="min-w-0 flex-1 py-1"><p className="text-[15px] font-semibold">The next size up</p>
+                      <p className="mt-0.5 text-[13px] leading-snug" style={{ color: MUTED }}>{!sizeG ? 'It comes in one size now. Give it sizes (step 2), and someone who picks a smaller one is asked about the next one up.'
+                        : sizeExample ? `Someone who picks ${sizeExample.from} is asked about ${sizeExample.to}, for ${money(sizeExample.adds)} more. Nobody who picked the biggest is asked.`
+                        : 'Its sizes cost the same, so a bigger one isn’t offered. Give each bigger size what it adds (step 2).'}</p></div>
+                  </div>
+                  <div className="space-y-2">
+                    <p ref={upHead} tabIndex={-1} className="flex items-baseline justify-between gap-3 rounded-lg outline-none"><span className="text-[15px] font-semibold">Something to go with it</span><span className="text-[12.5px]" style={{ color: MUTED }}>{upItems.length} of {MAX_UPGRADE_ITEMS}</span></p>
+                    {upItems.length > 0 && <ul className="space-y-2">{upItems.map((id) => { const x = allItems.find((y) => y.id === id); const note = x ? stateOf(x) : 'not on the menu any more';
+                      return (
+                        <li key={id} className="flex items-center gap-3 rounded-2xl border px-3 py-2" style={{ borderColor: LINE }}>
+                          <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl" style={{ background: SOFT }}>{x?.imageUrl && <img src={x.imageUrl} alt="" className="h-full w-full object-cover" />}</span>
+                          <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">{x?.name || 'An item'}</span>
+                            <span className="block text-[13px]" style={{ color: note ? AMBER : MUTED }}>{x ? `${x.section}, ${priceOf(x)}` : ''}{note ? `${x ? ', ' : ''}${note}, so it isn’t offered` : ''}</span></span>
+                          <button type="button" onClick={() => { setUpItems((xs) => xs.filter((y) => y !== id)); upHead.current?.focus(); }} aria-label={`Don’t offer ${x?.name || 'it'}`} className={`h-11 w-11 shrink-0 rounded-xl border text-[18px] ${RING}`} style={{ borderColor: LINE, color: MUTED }}>×</button>
+                        </li>); })}</ul>}
+                    {upItems.length < MAX_UPGRADE_ITEMS && !finding && <button type="button" onClick={() => { setFinding(true); setFind(''); }} className={BTN} style={{ border: `1px solid ${LINE}` }}>Pick something</button>}
+                    {finding && upItems.length < MAX_UPGRADE_ITEMS && <div className="space-y-1 rounded-2xl p-3" style={{ border: `2px solid ${INK}` }}>
+                      <div className="flex gap-2">
+                        <input ref={findBox} value={find} onChange={(e) => setFind(e.target.value.slice(0, 40))} placeholder="Search your menu" aria-label="Search your menu" autoFocus className="min-h-[44px] min-w-0 flex-1 rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
+                        <button type="button" onClick={() => { setFinding(false); upHead.current?.focus(); }} className={BTN} style={{ border: `1px solid ${LINE}` }}>Done</button>
+                      </div>
+                      {canOffer.length ? <ul>{canOffer.map((x) => { const note = stateOf(x);
+                        return (
+                          <li key={x.id} className="flex items-center gap-3 py-1">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl" style={{ background: SOFT }}>{x.imageUrl && <img src={x.imageUrl} alt="" className="h-full w-full object-cover" />}</span>
+                            <span className="min-w-0 flex-1 text-[14.5px]"><span className="font-medium">{x.name}</span> <span style={{ color: MUTED }}>{priceOf(x)}{note ? `, ${note}` : ''}</span></span>
+                            <button type="button" onClick={() => offerIt(x.id)} aria-label={`Offer it: ${x.name}`} className={BTN} style={{ border: `1px solid ${LINE}` }}>Offer it</button>
+                          </li>); })}</ul>
+                        : <p className="px-1 py-2 text-[13.5px]" style={{ color: MUTED }}>{q ? `Nothing on your menu matches “${find.trim()}”.` : 'Nothing else on your menu yet.'}</p>}
+                    </div>}
+                  </div>
+                  <p className="text-[13px]" style={{ color: MUTED }}>At its own price, as its own line on the order, made where it’s made. Sold out, or already in their order: not offered.</p>
+                </div>
                 {item.choices.length > 0 && <div className="rounded-3xl border bg-[#fff]" style={{ borderColor: LINE }}>
                   <h4><button type="button" onClick={() => setOutOpen((v) => !v)} aria-expanded={outOpen} className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-3xl px-5 text-left ${RING}`}>
                     <span><span className="block text-[16px] font-semibold">Sold out tonight</span>
@@ -590,6 +650,11 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
                 </div>
                 <ChoicePicker item={draft} picks={shown} onChange={setPicks} />
                 <p className="flex min-h-[48px] items-center justify-center rounded-2xl text-[15.5px] font-semibold" style={{ background: INK, color: '#fff' }}>Add to order, {money(total)}</p>
+                {(asked.size || asked.items.length > 0) && <div className="rounded-2xl border px-3.5 py-3 text-[13px]" style={{ borderColor: LINE }}>
+                  <p className="font-semibold">Then they’re asked</p>
+                  {asked.size && <p className="mt-0.5" style={{ color: MUTED }}>Size up to {asked.size.to}, +{money(asked.size.adds)}</p>}
+                  {asked.items.map((x) => <p key={x.id} className="mt-0.5" style={{ color: MUTED }}>{x.name}, {priceOf(x)}</p>)}
+                </div>}
               </div>
             </div>
             <div className="lg:sticky lg:bottom-0 lg:py-1" style={{ background: SOFT }}>

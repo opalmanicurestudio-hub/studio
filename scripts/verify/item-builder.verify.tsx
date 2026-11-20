@@ -96,6 +96,21 @@ const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, 
   check('a problem on save opens the step it’s on', /return stop\(1, 'What does it cost\?/.test(b) && /return stop\(g\.id === sizeId \? 2 : 3,/.test(b) && /return stop\(4, `How much/.test(b) && /return stop\(5, 'How many in a batch\?/.test(b));
   check('a size or a choice can change the recipe from step 4 (one draft)', /recipe=\{formula\} stock=\{stock\} costs=\{optCosts\} recipeHint="Add what goes in it \(step 4\) first/.test(b) && /recipeHint=\{`Add what goes in it \(step 4\) first, then a size can use something instead\.`\}/.test(b));
   check('a set turned on brings its recipe changes for what the builder shows it costing; New set opens a new one', /\.\.\.\(o\.changes\?\.length \? \{ changes: o\.changes \} : \{\}\)/.test(ed) && /openId === 'new'/.test(panel) && /toSet\('new'\)/.test(b));
+  console.log('offered at the end');
+  const crois = item('crois', 'Butter croissant', 'Pastries', 3.25, [], { words: '' }); const scone = item('scone', 'Scone', 'Pastries', 3, [], { soldOut: true });
+  const upLatte = { ...latte, upgrades: { size: true, items: ['crois'] } };
+  const hu = render(3, upLatte, { allItems: [...all, crois, scone] }); const tu = text(hu);
+  check('the size up, switched on, saying who’s asked about what', /role="switch" aria-checked="true" aria-label="Offer the next size up"/.test(hu) && tu.includes('Someone who picks 12 oz is asked about 16 oz, for $0.75 more. Nobody who picked the biggest is asked.'), tu.slice(-2500));
+  check('…something to go with it: the croissant, one of two, taken off with a button that says so', tu.includes('Something to go with it 1 of 2') && tu.includes('Butter croissant Pastries, $3.25') && /aria-label="Don’t offer Butter croissant"/.test(hu) && tu.includes('Pick something'));
+  check('…beside it, what the guest is asked once it’s added', tu.includes('Then they’re asked Size up to 16 oz, +$0.75 Butter croissant, $3.25'), tu.slice(-1500));
+  check('…and the step’s line says so', tu.includes('Milk and temperature. Offered at the end: the size up and Butter croissant.'));
+  const hs = text(render(3, { ...upLatte, upgrades: { size: false, items: ['scone'] } }, { allItems: [...all, crois, scone] }));
+  check('something sold out stays picked, says it isn’t offered, and isn’t in the guest’s view', hs.includes('Pastries, $3.00, sold out right now, so it isn’t offered') && !hs.includes('Then they’re asked'), hs.slice(-1500));
+  const hp = text(render(3, { ...plain, upgrades: { size: true, items: [] } }));
+  check('…an item in one size says what the size up needs', hp.includes('It comes in one size now. Give it sizes (step 2), and someone who picks a smaller one is asked about the next one up.') && hp.includes('0 of 2'));
+  check('saved with the item only when changed here, and something since gone from the menu is asked about on step 3 first (lib/menu-upgrades, api/menu)', /const upChanged = upSize !== !!item\.upgrades\?\.size \|\| JSON\.stringify\(upItems\) !== JSON\.stringify\(item\.upgrades\?\.items \|\| \[\]\);/.test(b) && /\.\.\.\(upChanged \? \{ upgrades: \{ size: upSize, items: upItems \} \} : \{\}\)/.test(b)
+    && /if \(upChanged && upItems\.some\(\(id\) => !allItems\.some\(\(x\) => x\.id === id\)\)\) return stop\(3, /.test(b));
+
   check('in the app’s own words and look', !/uppercase|font-black|\{\/\*| · |call us|contact us|[\u{1F300}-\u{1FAFF}]/u.test(b + page + ed) && !/\b(salon|stylist|booth|chair)s?\b/i.test(b) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(b) && /bg-\[#fff\]/.test(b));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

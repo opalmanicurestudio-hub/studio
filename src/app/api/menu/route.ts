@@ -29,7 +29,8 @@
 //   create  { tenantId, name, section, price, station?, onHand?, tapKey? } → managers: a new item, on the menu and in
 //             Inventory in one step (its editor opens next); save also takes alsoAt [{ station, part }] (lib/two-stations).
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
-//             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts.
+//             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts,
+//             and upgrades { size, items }: what's offered at the end, once it's added (lib/menu-upgrades).
 //   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 //   prep    { tenantId, prepId?, name, makes, unit, keepsDays?, minutes?, recipe } → managers: a prep recipe added or
@@ -66,6 +67,7 @@ import { forgetCounts, liveCounts, setTonightCount } from '@/lib/dish-counts-ser
 import { accountOf } from '@/lib/reader-sale';
 import { linkOrigin } from '@/lib/app-origin';
 import { cleanAlsoAt, MAX_ALSO } from '@/lib/two-stations';
+import { MAX_UPGRADE_ITEMS, upgradesOf } from '@/lib/menu-upgrades';
 import { buildEntry } from '@/lib/stock-ledger';
 import { canBeIngredient, readPartsDeep, recipeFromScreen, removePrep, savePrep } from '@/lib/prep-recipes-server';
 import { cleanChanges, optionChanges, changeIds, type ChoiceChange } from '@/lib/choice-recipe';
@@ -480,6 +482,19 @@ export async function POST(req: NextRequest) {
       const docs = await Promise.all(partIds.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`).get()));
       const bad1 = docs.findIndex((d: any) => { const x: any = d.data(); return !x || x.type !== 'refreshment' || x.archived === true || x.combo === true; });
       if (bad1 >= 0) { const x: any = docs[bad1].data(); return bad(x?.combo === true ? `${String(x.name || 'That item')} is a combo itself. Pick the items it’s made of.` : 'One of its parts isn’t on the menu any more. Pick another.'); }
+    }
+    // Offered at the end, when given (lib/menu-upgrades): the next size up on or off, and up to two of the business's own
+    // menu items to go with it (never itself).
+    if (x.upgrades !== undefined) {
+      const u: any = x.upgrades && typeof x.upgrades === 'object' && !Array.isArray(x.upgrades) ? x.upgrades : {};
+      const asked = Array.from(new Set<string>((Array.isArray(u.items) ? u.items : []).map((v: unknown) => String(v ?? ''))));
+      if (asked.length > MAX_UPGRADE_ITEMS) return bad(`Up to ${MAX_UPGRADE_ITEMS} things to go with it.`);
+      if (asked.includes(itemId)) return bad('It can’t be offered with itself.');
+      const up = upgradesOf(u, itemId);
+      if (up.items.length !== asked.length) return bad('Pick what goes with it from your menu.');
+      const docs = await Promise.all(up.items.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`).get()));
+      if (docs.some((d: any) => !isMenuItem(d.data()))) return bad('Something offered with it isn’t on the menu any more. Pick another.');
+      timed.upgrades = up;
     }
     const photo: Record<string, string | null> = {};
     if (x.imageUrl !== undefined) {

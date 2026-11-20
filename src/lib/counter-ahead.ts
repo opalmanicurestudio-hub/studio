@@ -23,6 +23,8 @@ import { paceNow } from '@/lib/kitchen-pace-server';
 import { klairSettings } from '@/lib/klair';
 import { asapSlot, cleanSlotItems, fits, fullTimes, itemCount, itemsBySlot, slotCap, type PaceLevel } from '@/lib/ahead-slots';
 import { menuAnswersOn } from '@/lib/klair-menu';
+import { cleanPicks } from '@/lib/menu-choices';
+import { offerOf } from '@/lib/menu-upgrades';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -69,9 +71,10 @@ export function pickupTimes(tenant: any, now = Date.now(), delayMin = 0): string
   return out;
 }
 
-/** What a guest sees of one item (only what's on the menu for everyone; sold out says so). */
-const guestItem = (m: MenuItem) => ({ id: m.id, name: m.name, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
-  choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories });
+/** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
+ *  once it's added (lib/menu-upgrades): only items on this same menu (`shown`). */
+const guestItem = (m: MenuItem, shown: Set<string>) => ({ id: m.id, name: m.name, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
+  choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) } });
 
 /** Today and yesterday in the business's own time zone: an order placed just before midnight is still picked up after. */
 function openDays(tenant: any, now = Date.now()): string[] {
@@ -102,7 +105,8 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   else { all = await readMenu(db, tenantId); menuCache.set(tenantId, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
   const menu = all.filter((m) => m.onMenu && !m.membersOnly);
   const sections: { name: string; items: ReturnType<typeof guestItem>[] }[] = [];
-  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(guestItem(m)); }
+  const shown = new Set(menu.map((m) => m.id));
+  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(guestItem(m, shown)); }
   const payments = !!accountOf(tenant) && !!process.env.STRIPE_SECRET_KEY && !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && !!secret();
   // The rewards program, when it's on: the page asks for a phone number (and, for a program you join, whether they want to).
   const L = loyaltyOf(tenant);
@@ -155,6 +159,12 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     want.set(id, (want.get(id) || 0) + r.line.quantity);
     lines.push(r.line);
   }
+  // Taken as an offer once something else was added (lib/menu-upgrades): kept on the line only when the menu says it
+  // was offered, for how often offers are taken.
+  raw.forEach((l: any, k: number) => {
+    const kind = offerOf(l?.offer, menu.get(lines[k].itemId)!, cleanPicks(l?.choices), lines.filter((_, j) => j !== k).map((x) => menu.get(x.itemId)!));
+    if (kind) lines[k].offer = kind;
+  });
   for (const [id, q] of want) {
     const m = menu.get(id)!;
     if (m.soldOut || !m.inStock) return fail(`${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
