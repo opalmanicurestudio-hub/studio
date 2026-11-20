@@ -661,6 +661,8 @@ export default function DriveThru() {
                   {voiceCfg?.on && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The tablet wired to the speaker, where the voice assistant takes each car’s order.</p>}
                   <a href={`/drive-thru/${tenantId}/window`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the window screen</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Faces the guest at the window: their order, the total, how paying is going, and where to go next.</p>
+                  <a href={`/drive-thru/${tenantId}/ready`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the ready board</a>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>For a TV by the counter: counter and ordered-ahead orders being made and ready to collect, by number and first name.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
                     {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).map(([k, label, hint]) => (

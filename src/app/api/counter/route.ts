@@ -47,6 +47,9 @@
 //   cardCheck / cardStop { tenantId, key, orderId } → how it's going (approved: the order is paid by it) / called off so
 //                                                      it can be paid another way
 //   cardTest { tenantId, key, orderId }             → a test reader only: a test card is presented, to try it end to end
+//   readyBoard { tenantId, key }                  → the ready board by the counter (its own display-only key, like the
+//                                                      board): orders being made and ready to collect, by number and
+//                                                      first name (lib/ready-board)
 //   window { tenantId, key, at: 'pay'|'pickup'|'one' } → the screen facing the guest at a window (its own display-only key,
 //                                                      like the board): the car there, its order and total, how paying is
 //                                                      going, and where to go next
@@ -78,6 +81,7 @@ import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card'
 import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
 import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadNothingMore, aheadOf } from '@/lib/counter-ahead';
+import { readyBoardOf, onReadyBoard, BOARD_CHANNELS, LIVE_TICKETS, MAX_MAKING, MAX_READY } from '@/lib/ready-board';
 import { pointsOn, linkOrder } from '@/lib/counter-points';
 import { pageAccent } from '@/lib/studio-page';
 import { menuNumbers } from '@/lib/menu-numbers';
@@ -106,6 +110,8 @@ const statsCache = new Map<string, { at: number; stats: any }>();
 // (Kept a business and a line of guests: the drive-thru's and the counter's.)
 const forgetStats = (tenantId: string) => { for (const c of ['drive-thru', 'counter']) statsCache.delete(`${tenantId}|${c}`); };
 
+// The ready board, per business, for a few seconds (api 'readyBoard'): however many TVs show it.
+const readyCache = new Map<string, { at: number; body: any }>();
 // The menu board's menu, per business, for a few seconds (api 'menuBoard').
 const menuBoardCache = new Map<string, { at: number; sections: { name: string; items: any[] }[]; popular: Set<string>; popularAt: number }>();
 
@@ -114,7 +120,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -131,7 +137,7 @@ export async function POST(req: NextRequest) {
     }
     // Only a lane screen takes orders and payments here; a screen guests can see (the order board by the speaker, the
     // screen at the window) has a key that only shows. A kitchen or floor screen's key does nothing here.
-    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window' || action === 'menuBoard')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
+    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window' || action === 'menuBoard' || action === 'readyBoard')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
     // The counter's own screen (app/(app)/counter, a team member signed in) takes its orders the same way, as counter
     // orders ("C14"), with its own line of guests (lib/counter-server createCar channel).
     const channel: Channel = screen.kind === 'counter' ? 'counter' : 'drive-thru';
@@ -139,7 +145,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -317,6 +323,28 @@ export async function POST(req: NextRequest) {
         orderAhead: A.on ? `${origin}/order/${encodeURIComponent(tenantId)}` : shopOpen ? `${origin}/shop/${encodeURIComponent(tenantId)}` : null,
         // A pickup-only drive-thru: the board says to order on your phone, not at the speaker.
         pickupOnly: pickupOnlyOf(tenant), now: nowIso });
+    }
+
+    // The ready board (a TV by the counter, lib/ready-board): which counter, kiosk and ordered-ahead orders are being made
+    // and which are ready to collect, by number and first name; nothing else.
+    if (action === 'readyBoard') {
+      const c = readyCache.get(tenantId);
+      if (c && now.getTime() - c.at < 3000) return ok({ ...c.body, now: nowIso });
+      // From the kitchen's live tickets for these orders (being made, held, or ready, not yet handed over), and only their
+      // orders: never a whole day's orders read again every few seconds. Each channel and state asked for by itself, so
+      // tickets from the tables and the lounge never count, and one left live from days ago is let go here.
+      const old = now.getTime() - 14 * 3600000;
+      const tSnaps = await Promise.all(BOARD_CHANNELS.flatMap((c) => LIVE_TICKETS.map((s) => db.collection(`${T}/kdsTickets`).where('channel', '==', c).where('status', '==', s).limit(300).get())));
+      const live = tSnaps.flatMap((x: any) => x.docs.map((d: any) => d.data() || {})).filter((t: any) => ID.test(String(t.orderId || '')) && (Date.parse(String(t.createdAt || '')) || now.getTime()) >= old);
+      const ids: string[] = Array.from(new Set(live.map((t: any) => String(t.orderId)))).slice(0, 300) as string[];
+      const oSnaps: any[] = ids.length ? await db.getAll(...ids.map((id) => db.doc(`${T}/counterOrders/${id}`))) : [];
+      const orders = oSnaps.filter((x: any) => x?.exists).map((x: any) => ({ id: x.id, ...(x.data() || {}) })).filter(onReadyBoard);
+      const r = readyBoardOf(orders, live, now.getTime());
+      const body = { business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Your order' },
+        making: r.making.slice(0, MAX_MAKING).map((x) => ({ number: x.number, name: x.name })), more: Math.max(0, r.making.length - MAX_MAKING),
+        ready: r.ready.slice(0, MAX_READY).map((x) => ({ number: x.number, name: x.name })), moreReady: Math.max(0, r.ready.length - MAX_READY) };
+      readyCache.set(tenantId, { at: now.getTime(), body }); if (readyCache.size > 500) readyCache.delete(readyCache.keys().next().value as string);
+      return ok({ ...body, now: nowIso });
     }
 
     if (action === 'board') {

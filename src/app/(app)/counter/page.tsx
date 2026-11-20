@@ -272,7 +272,10 @@ export default function CounterPage() {
       </div>
 
       <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
-        <h2 id="counter-waiting" className="text-[17px] font-semibold">Waiting</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="counter-waiting" className="text-[17px] font-semibold">Waiting</h2>
+          {tenantId && <a href={`/drive-thru/${tenantId}/ready`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open the ready board</a>}
+        </div>
         {waiting.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>Paid orders wait here until they’re handed over.</p>
           : <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">{waiting.map((g) => {
             const o = g.orderId ? lane?.orders[g.orderId] : undefined; const ready = !!o && (o.kitchen === 'ready' || (o.ticketCount === 0 && o.status !== 'building'));
