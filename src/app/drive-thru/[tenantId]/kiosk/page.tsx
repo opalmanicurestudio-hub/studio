@@ -6,6 +6,8 @@
 //   Set up once by a manager (api/kitchen 'pair', kind 'kiosk'), who then picks its card reader (signed in, or later with
 //   their PIN under Team). Its key only takes this kiosk's orders and payments. Nothing is kept on the tablet but the
 //   key: the order lives in the page, and starts over by itself when it's left alone.
+//   Laid out like a cafe's menu board (design canvas "Self-order kiosk options", B): sections down the side, what's
+//   featured shown big, the menu as a list with pictures, and the order kept like a receipt; in the business's own color.
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
@@ -16,9 +18,14 @@ import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+// (Muted and amber a shade deeper than elsewhere in the app: they sit on a wash of the business's color here, and
+// still read at 4.5:1 on it.)
+const INK = '#16171a', MUTED = '#5b5f65', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#92400e', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const btn = `inline-flex items-center justify-center gap-2 rounded-2xl px-5 font-semibold disabled:opacity-40 ${RING}`;
+/** A button on the business's color: a white ring, set off by that color. */
+const btnOn = btn.replace(RING, 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2');
+const ringOn = (a: string) => ({ ['--tw-ring-offset-color' as any]: a }) as React.CSSProperties;
 const dark = { background: INK, color: '#fff' }, quiet = { background: '#fff', color: INK, border: `1px solid ${LINE}` };
 /** Untouched this long, it asks "Still ordering?", and starts over this long after that. Paying, it waits longer. */
 const IDLE_MS = 60000, ASK_MS = 15000, PAY_IDLE_MS = 120000, PAID_MS = 20000, POLL_MS = 2000;
@@ -28,8 +35,12 @@ const read = (k: string) => { try { return localStorage.getItem(k); } catch { re
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((x) => x.toString(16).padStart(2, '0')).join('');
 
-type Item = { id: string; name: string; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] } };
-type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; items: Item[] }[] };
+type Item = { id: string; name: string; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null };
+type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; items: Item[] }[]; accent?: string | null };
+/** The business's own color (white type reads on it) and a pale wash of it for grounds. */
+const HEX = /^#[0-9a-f]{6}$/i;
+const tintOf = (hex: string) => { const n = parseInt(hex.slice(1), 16); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * 0.1 + 255 * 0.9).toString(16).padStart(2, '0')).join(''); };
+const Accent = React.createContext(INK);
 type Line = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; offer?: OfferKind };
 /** Right after something's added: what's offered with it (kept as first shown), and what's been taken. */
 type After = { key: string; itemId: string; name: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
@@ -43,7 +54,7 @@ async function call(body: any) {
 }
 const pickWords = (item: Item, picks: Picks) => { const p = priceChoices(item, picks); return p.ok ? p.text : ''; };
 
-function Modal({ label, onClose, children, wide }: { label: string; onClose?: () => void; children: React.ReactNode; wide?: boolean }) {
+function Modal({ label, onClose, children, wide, side }: { label: string; onClose?: () => void; children: React.ReactNode; wide?: boolean; side?: boolean }) {
   const box = React.useRef<HTMLDivElement>(null); const close = React.useRef(onClose); close.current = onClose;
   React.useEffect(() => {
     const opener = document.activeElement as HTMLElement | null; (box.current?.querySelector<HTMLElement>('[data-start]:not([disabled])') || box.current?.querySelector<HTMLElement>('button'))?.focus();
@@ -51,8 +62,8 @@ function Modal({ label, onClose, children, wide }: { label: string; onClose?: ()
     return () => { document.removeEventListener('keydown', k); opener?.focus?.(); };
   }, []);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(22,23,26,0.5)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
-      <div ref={box} role="dialog" aria-modal="true" aria-label={label} className={`flex max-h-[92dvh] w-full flex-col rounded-3xl bg-[#fff] text-left ${wide ? 'max-w-2xl' : 'max-w-md'}`} style={{ color: INK }}>{children}</div>
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${side ? 'lg:items-stretch lg:justify-end lg:p-0' : ''}`} style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+      <div ref={box} role="dialog" aria-modal="true" aria-label={label} className={`flex max-h-[92dvh] w-full flex-col rounded-3xl bg-[#fff] text-left ${wide ? 'max-w-2xl' : 'max-w-md'} ${side ? 'lg:max-h-none lg:max-w-[640px] lg:rounded-none lg:rounded-l-[28px]' : ''}`} style={{ color: INK }}>{children}</div>
     </div>
   );
 }
@@ -60,15 +71,16 @@ function Modal({ label, onClose, children, wide }: { label: string; onClose?: ()
 function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
   const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [tried, setTried] = React.useState(false);
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
+  const A = React.useContext(Accent);
   return (
-    <Modal label={item.name} onClose={onClose} wide>
+    <Modal label={item.name} onClose={onClose} wide side>
       <div className="flex items-center justify-between gap-3 px-6 pt-6">
-        <h2 className="min-w-0 truncate text-[24px] font-semibold tracking-tight">{item.name}</h2>
+        <h2 className="min-w-0 truncate text-[30px] font-bold tracking-tight">{item.name}</h2>
         <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ border: `1px solid ${LINE}` }}><X className="h-5 w-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         <div className="flex flex-col gap-4 sm:flex-row">
-          {item.imageUrl && <img src={item.imageUrl} alt="" className="aspect-[4/3] w-full rounded-2xl object-cover sm:w-56" style={{ background: SOFT }} />}
+          {item.imageUrl && <img src={item.imageUrl} alt="" className="aspect-[4/3] w-full rounded-2xl object-cover sm:w-56" style={{ background: tintOf(A) }} />}
           {(item.words || item.calories != null) && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
         </div>
         <div className="mt-4"><ChoicePicker item={item} picks={picks} onChange={(p) => { setTried(false); setPicks(p); }} /></div>
@@ -80,7 +92,7 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
           <span className="w-8 text-center text-[19px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
           <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-5 w-5" /></button>
         </div>
-        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty) : setTried(true))} className={`${btn} min-h-[56px] flex-1 text-[17px] tabular-nums`} style={priced.ok ? dark : { background: LINE, color: MUTED }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty) : setTried(true))} className={`${btn} min-h-[60px] flex-1 rounded-full text-[18px] tabular-nums`} style={priced.ok ? { background: A, color: '#fff' } : { background: LINE, color: MUTED }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
       </div>
     </Modal>
   );
@@ -275,32 +287,43 @@ export default function KioskScreen() {
 
   if (!ready) return <main className="min-h-dvh" style={{ background: SOFT }} />;
   if (!key) return <ScreenSetup kiosk tenantId={tenantId} stopped={stopped} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setStopped(''); setTeam(true); }} />;
+  const A = menu?.accent && HEX.test(menu.accent) ? menu.accent : INK; const tint = tintOf(A); const brand = { background: A, color: '#fff' };
   const items = menu?.sections.find((s) => s.name === section)?.items || [];
+  // What's shown big at the top of a section: what the business featured on its menu board (and isn't sold out).
+  const hero = items.find((m) => m.featured && !m.soldOut) || null;
+  const rest = hero ? items.filter((m) => m !== hero) : items;
+  // On the start screen: what's featured or new; else the first things with pictures; else the first on the menu.
+  const everything = (menu?.sections || []).flatMap((x) => x.items).filter((m) => !m.soldOut);
+  const onToday = [everything.filter((m) => m.featured || m.badge), everything.filter((m) => m.imageUrl), everything].find((xs) => xs.length)?.slice(0, 3) || [];
   const open4 = !!menu && menu.payments && menu.reader && !closed;
+  const price = (m: Item) => `${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}`;
+  const pic = (m: Item, size: number) => m.imageUrl
+    ? <img src={m.imageUrl} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size, background: tint }} />
+    : <span aria-hidden className="inline-flex shrink-0 items-center justify-center rounded-full font-bold" style={{ width: size, height: size, background: tint, color: A, fontSize: size * 0.38 }}>{m.name.slice(0, 1)}</span>;
   const offerBox = after && (after.size || after.items.length) ? (() => {
     const line = cart.find((l) => l.key === after.key); const item = byId.get(after.itemId);
     const q = Math.max(1, Math.min(after.qty, line?.quantity || 1)); const bigger = after.size && line && item && !after.took.includes('size') ? priceChoices(item, sizedUp(line.picks, after.size)) : null;
     const took = (k: string) => after.took.includes(k);
     const addedTag = (w: string) => <span className="inline-flex min-h-[48px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden />{w}</span>;
     return (
-      <div role="group" aria-labelledby="kiosk-offer" className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
-        <p id="kiosk-offer" className="text-[16px] font-semibold">Anything with it?</p>
+      <div role="group" aria-labelledby="kiosk-offer" className="space-y-2 rounded-2xl p-4" style={{ background: tint }}>
+        <p id="kiosk-offer" className="text-[16px] font-semibold">Goes well with it</p>
         <ul className="space-y-2">
           {after.size && <li className="flex items-center gap-3 rounded-xl bg-[#fff] p-2 pl-3">
             <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">Size up to {after.size.to}</b>{bigger?.ok && <span className="block text-[13.5px]" style={{ color: MUTED }}>{after.name}, {bigger.text}</span>}</span>
-            {took('size') ? addedTag('Changed') : <button type="button" disabled={!bigger?.ok} onClick={takeSize} aria-label={`Size up to ${after.size.to}, ${usd(after.size.adds * q)} more`} className={`${btn} min-h-[48px] shrink-0 px-4 text-[15px] tabular-nums`} style={dark}>+{usd(after.size.adds * q)}</button>}
+            {took('size') ? addedTag('Changed') : <button type="button" disabled={!bigger?.ok} onClick={takeSize} aria-label={`Size up to ${after.size.to}, ${usd(after.size.adds * q)} more`} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px] tabular-nums`} style={brand}>+{usd(after.size.adds * q)}</button>}
           </li>}
           {after.items.map((x) => <li key={x.id} className="flex items-center gap-3 rounded-xl bg-[#fff] p-2 pl-3">
             {x.imageUrl && <img src={x.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" style={{ background: SOFT }} />}
             <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">{x.name}</b> <span className="tabular-nums" style={{ color: MUTED }}>{x.from ? `from ${usd(x.startPrice)}` : usd(x.price)}</span></span>
-            {took(`item:${x.id}`) ? addedTag('Added') : <button type="button" onClick={() => takeItem(x)} aria-label={`Add ${x.name}`} className={`${btn} min-h-[48px] shrink-0 px-4 text-[15px]`} style={dark}>Add</button>}
+            {took(`item:${x.id}`) ? addedTag('Added') : <button type="button" onClick={() => takeItem(x)} aria-label={`Add ${x.name}`} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px]`} style={brand}>Add</button>}
           </li>)}
         </ul>
         <button type="button" onClick={closeAfter} className={`${btn} min-h-[48px] bg-[#fff] text-[15px]`} style={{ color: INK }}>{after.took.length ? 'Done' : 'No thanks'}</button>
       </div>);
   })() : null;
-  const lineRows = (big: boolean) => <ul className="space-y-2">{cart.map((l) => (
-    <li key={l.key} className="flex items-center gap-3 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }}>
+  const lineRows = (big: boolean) => <ul>{cart.map((l) => (
+    <li key={l.key} className="flex items-center gap-3 py-3" style={{ borderBottom: '1px dashed #cfd2d6' }}>
       <span className="min-w-0 flex-1"><span className={`block font-semibold ${big ? 'text-[17px]' : 'text-[15.5px]'}`}>{l.name}</span>{l.choicesText && <span className="block text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}<span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</span></span>
       <span className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
         <button type="button" aria-label={l.quantity === 1 ? `Take ${l.name} off` : `One fewer ${l.name}`} onClick={() => qty(l.key, -1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
@@ -312,125 +335,185 @@ export default function KioskScreen() {
     <Modal label={step === 'pay' ? 'Still there?' : 'Still ordering?'}>
       <div className="space-y-2 px-6 pt-6"><h2 className="text-[24px] font-semibold tracking-tight">{step === 'pay' ? 'Still there?' : 'Still ordering?'}</h2>
         <p className="text-[16px]" style={{ color: MUTED }} aria-live="polite">{step === 'pay' ? 'This order will be canceled' : 'We’ll start over'} in {Math.max(0, Math.ceil((ASK_MS - (Date.now() - ask)) / 1000))} seconds.</p></div>
-      <div className="px-6 py-5"><button type="button" data-start onClick={() => { touched.current = Date.now(); setAsk(null); }} className={`${btn} min-h-[56px] w-full text-[17px]`} style={dark}>{step === 'pay' ? 'I’m still here' : 'Keep ordering'}</button></div>
+      <div className="px-6 py-5"><button type="button" data-start onClick={() => { touched.current = Date.now(); setAsk(null); }} className={`${btn} min-h-[56px] w-full rounded-full text-[17px]`} style={brand}>{step === 'pay' ? 'I’m still here' : 'Keep ordering'}</button></div>
     </Modal>);
 
   if (step === 'start') return (
-    <main className="relative flex min-h-dvh flex-col items-center justify-center p-6 text-center" style={{ background: SOFT, color: INK }}>
-      <h1 className="text-[clamp(32px,5vw,56px)] font-semibold tracking-tight">{menu?.business || ' '}</h1>
-      {!menu && !loadErr && !closed && <div className="mt-8 h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading" />}
-      {(loadErr || closed) && <p role="alert" className="mt-4 max-w-md text-[17px]" style={{ color: AMBER }}>{closed || loadErr}</p>}
-      {menu && !closed && (open4 ? <>
-        <p className="mt-3 text-[18px]" style={{ color: MUTED }}>Order here and pay with your card</p>
-        <button type="button" onClick={() => { touched.current = Date.now(); setStep('menu'); }} className={`${btn} mt-10 min-h-[76px] px-12 text-[22px]`} style={dark}>Start your order</button>
-      </> : <div className="mt-6 max-w-md rounded-3xl bg-[#fff] p-6 text-left" style={{ border: `1px solid ${LINE}` }}>
-        <p className="text-[18px] font-semibold">Not taking orders yet</p>
-        <p className="mt-1.5 text-[15.5px]" style={{ color: MUTED }}>Please order at the counter.</p>
-        <p className="mt-3 text-[14px]" style={{ color: MUTED }}>{!menu.payments ? 'For the team: card payments aren’t set up for this business yet.' : 'For the team: pick the card reader beside this tablet under Team.'}</p>
-      </div>)}
-      <button type="button" onClick={() => setTeam(true)} className={`absolute bottom-4 right-4 min-h-[44px] rounded-xl px-4 text-[14px] font-medium ${RING}`} style={{ color: MUTED }}>Team</button>
+    <Accent.Provider value={A}>
+    <main className="relative grid min-h-dvh md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" style={{ background: '#fff', color: INK }}>
+      <section className="flex flex-col justify-center gap-5 p-8 md:p-14" style={{ background: menu ? A : SOFT, color: menu ? '#fff' : INK }}>
+        <h1 className="text-[clamp(40px,6.4vw,80px)] font-bold leading-[0.98] tracking-tight">{menu?.business || ' '}</h1>
+        {!menu && !loadErr && !closed && <div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading" />}
+        {(loadErr || closed) && <p role="alert" className="max-w-md rounded-2xl bg-[#fff] p-4 text-[17px]" style={{ color: AMBER }}>{closed || loadErr}</p>}
+        {menu && !closed && (open4 ? <>
+          <p className="max-w-md text-[20px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.85)' }}>Order here and pay with your card. We’ll call your number when it’s ready.</p>
+          <button type="button" onClick={() => { touched.current = Date.now(); setStep('menu'); }} className={`${btnOn} mt-4 min-h-[80px] self-start rounded-full bg-[#fff] px-12 text-[23px]`} style={{ color: A, ...ringOn(A) }}>Start your order</button>
+        </> : <div className="max-w-md rounded-3xl bg-[#fff] p-6 text-left" style={{ color: INK }}>
+          <p className="text-[18px] font-semibold">Not taking orders yet</p>
+          <p className="mt-1.5 text-[15.5px]" style={{ color: MUTED }}>Please order at the counter.</p>
+          <p className="mt-3 text-[14px]" style={{ color: MUTED }}>{!menu.payments ? 'For the team: card payments aren’t set up for this business yet.' : 'For the team: pick the card reader beside this tablet under Team.'}</p>
+        </div>)}
+      </section>
+      <section aria-labelledby="kiosk-today" className="flex flex-col gap-4 p-8 md:p-12" style={{ background: tint }}>
+        {onToday.length > 0 && <>
+          <h2 id="kiosk-today" className="text-[26px] font-bold">On today</h2>
+          <ul className="space-y-3">{onToday.map((m) => (
+            <li key={m.id} className="flex items-center gap-4 rounded-[22px] bg-[#fff] p-4">
+              {pic(m, 88)}
+              <span className="min-w-0 flex-1"><span className="block text-[21px] font-semibold">{m.name}</span>{m.words && <span className="block truncate text-[15px]" style={{ color: MUTED }}>{m.words}</span>}</span>
+              <span className="text-[18px] font-semibold tabular-nums">{price(m)}</span>
+            </li>))}</ul>
+        </>}
+        {open4 && <p className="mt-auto text-[15px]" style={{ color: MUTED }}>Pay on the card reader by this screen.</p>}
+      </section>
+      <button type="button" onClick={() => setTeam(true)} className={`absolute bottom-3 right-3 min-h-[44px] rounded-xl px-4 text-[14px] font-medium ${RING}`} style={{ color: MUTED }}>Team</button>
       {team && <ReaderSheet tenantId={tenantId} kioskKey={key} onClose={() => { setTeam(false); void loadMenu(); }} onPicked={() => void loadMenu()} />}
-    </main>);
+    </main>
+    </Accent.Provider>);
 
   if (step === 'paid') return (
-    <main className="flex min-h-dvh flex-col items-center justify-center p-6 text-center" style={{ background: SOFT, color: INK }}>
-      <div className="w-full max-w-md rounded-3xl bg-[#fff] p-8" style={{ border: `1px solid ${LINE}` }}>
-        <p className="text-[18px] font-semibold" style={{ color: GREEN }} role="status">Paid. Thank you{paidName ? `, ${paidName}` : ''}</p>
-        <p className="mt-6 text-[16px]" style={{ color: MUTED }}>Your number</p>
-        <p className="text-[96px] font-semibold leading-none tracking-tight tabular-nums">{placed?.number || ''}</p>
-        <p className="mt-6 text-[16px] leading-relaxed" style={{ color: MUTED }}>We’ll call your number when it’s ready.</p>
-        <button type="button" onClick={startOver} className={`${btn} mt-8 min-h-[56px] w-full text-[17px]`} style={quiet}>Done</button>
+    <main className="flex min-h-dvh flex-col items-center justify-center p-6 text-center" style={{ background: tint, color: INK }}>
+      <div className="w-full max-w-xl rounded-[36px] bg-[#fff] p-10">
+        <p className="inline-flex items-center gap-2 text-[19px] font-semibold" style={{ color: GREEN }} role="status"><Check className="h-6 w-6" aria-hidden />Paid. Thank you{paidName ? `, ${paidName}` : ''}</p>
+        <p className="mt-6 text-[18px]" style={{ color: MUTED }}>Your number</p>
+        <p className="text-[clamp(96px,16vw,168px)] font-bold leading-[0.9] tracking-tight tabular-nums" style={{ color: A }}>{placed?.number || ''}</p>
+        <p className="mt-6 text-[18px] leading-relaxed" style={{ color: MUTED }}>We’ll call your number when it’s ready.</p>
+        <button type="button" onClick={startOver} className={`${btn} mt-8 min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>Done</button>
+        <p className="mt-3 text-[14px]" style={{ color: MUTED }}>This screen starts over in a few seconds.</p>
       </div>
     </main>);
 
+  const receipt = (lines: { name: string; quantity: number; choicesText: string | null; price: number }[]) => (
+    <ul>{lines.map((l, k) => (
+      <li key={k} className="py-3" style={{ borderBottom: '1px dashed #cfd2d6' }}>
+        <span className="flex justify-between gap-3 text-[18px]"><span className="font-semibold">{l.quantity} {l.name}</span><span className="tabular-nums">{usd(l.price)}</span></span>
+        {l.choicesText && <span className="block text-[15px]" style={{ color: MUTED }}>{l.choicesText}</span>}
+      </li>))}</ul>);
+
   if (step === 'pay') return (
-    <main className="flex min-h-dvh flex-col items-center justify-center p-6" style={{ background: SOFT, color: INK }}>
-      <div className="w-full max-w-lg space-y-5 rounded-3xl bg-[#fff] p-8" style={{ border: `1px solid ${LINE}` }}>
-        <div><p className="text-[18px] font-semibold">Your order</p>
-          <p className="mt-1 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{(placed?.lines || []).map((l) => `${l.quantity} ${l.name}${l.choicesText ? `, ${l.choicesText}` : ''}`).join('. ')}</p></div>
-        <p className="text-[44px] font-semibold leading-none tabular-nums">{usd(placed?.total || 0)}</p>
+    <main className="grid min-h-dvh md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]" style={{ background: '#fff', color: INK }}>
+      <section aria-labelledby="kiosk-paying" className="space-y-4 p-8 md:p-12">
+        <h1 id="kiosk-paying" className="text-[36px] font-bold tracking-tight">Your order</h1>
+        {receipt(placed?.lines || [])}
+        <p className="flex justify-between pt-1 text-[24px] font-bold"><span>Total</span><span className="tabular-nums">{usd(placed?.total || 0)}</span></p>
+        {name.trim() && <p className="text-[16px]" style={{ color: MUTED }}>For <b className="font-semibold" style={{ color: INK }}>{name.trim().split(' ')[0]}</b>{menu?.askToGo && toGo !== null ? (toGo ? ', to go' : ', for here') : ''}</p>}
+      </section>
+      <section className="flex flex-col items-center justify-center gap-5 p-8 text-center md:p-12" style={brand}>
         {paying?.state === 'declined' || paying?.state === 'trouble' ? (
-          <div className="space-y-3 rounded-2xl p-5" style={{ background: AMBER_TINT }} role="alert">
-            <p className="text-[17px] font-semibold" style={{ color: AMBER }}>{paying.state === 'declined' ? 'The card didn’t go through' : 'That didn’t go through'}</p>
-            {paying.message && <p className="text-[15.5px]" style={{ color: AMBER }}>{paying.message}</p>}
-            <button type="button" disabled={busy} onClick={pay} className={`${btn} min-h-[56px] w-full text-[17px]`} style={dark}>{busy ? 'Starting…' : 'Try again'}</button>
+          <div className="w-full max-w-sm space-y-3 rounded-3xl bg-[#fff] p-6 text-left" role="alert">
+            <p className="text-[19px] font-semibold" style={{ color: AMBER }}>{paying.state === 'declined' ? 'The card didn’t go through' : 'That didn’t go through'}</p>
+            {paying.message && <p className="text-[16px]" style={{ color: AMBER }}>{paying.message}</p>}
+            <button type="button" disabled={busy} onClick={pay} className={`${btn} min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>{busy ? 'Starting…' : 'Try again'}</button>
           </div>
-        ) : (
-          <div className="rounded-2xl p-5 text-[19px] font-semibold" style={dark} role="status">{paying?.state === 'on_reader' ? 'Tap, insert or swipe your card on the reader' : 'Getting the card reader ready…'}</div>
-        )}
-        {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
-        <button type="button" disabled={busy} onClick={() => void letGo('review')} className={`${btn} min-h-[56px] w-full text-[17px]`} style={quiet}>Cancel</button>
-      </div>
+        ) : <>
+          <svg width="150" height="186" viewBox="0 0 170 210" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="35" y="10" width="100" height="150" rx="16" /><rect x="50" y="26" width="70" height="46" rx="6" /><path d="M62 92h46M62 110h46M62 128h30" /><path d="M85 172v26M72 186l13 13 13-13" /></svg>
+          <p className="text-[clamp(26px,3vw,36px)] font-bold leading-tight" role="status">{paying?.state === 'on_reader' ? 'Tap, insert or swipe your card' : 'Getting the card reader ready…'}</p>
+          {paying?.state === 'on_reader' && <p className="text-[18px]" style={{ color: 'rgba(255,255,255,0.85)' }}>on the card reader by this screen</p>}
+          <p className="text-[48px] font-semibold tabular-nums">{usd(placed?.total || 0)}</p>
+        </>}
+        {err && <p role="alert" className="rounded-xl bg-[#fff] px-4 py-2 text-[15px]" style={{ color: AMBER }}>{err}</p>}
+        <button type="button" disabled={busy} onClick={() => void letGo('review')} className={`${btnOn} min-h-[56px] rounded-full border-[1.5px] px-8 text-[17px]`} style={{ borderColor: 'rgba(255,255,255,0.55)', color: '#fff', background: 'transparent', ...ringOn(A) }}>Cancel</button>
+      </section>
       {stillAsk}
     </main>);
 
-  const head = (back: React.ReactNode) => (
-    <header className="flex items-center justify-between gap-4 px-6 pb-3 pt-5">
-      <p className="min-w-0 truncate text-[22px] font-semibold tracking-tight">{menu?.business}</p>
-      {back}
-    </header>);
-  const startOverBtn = <button type="button" onClick={startOver} className={`${btn} min-h-[52px] text-[16px]`} style={quiet}>Start over</button>;
+  const startOverBtn = (onDark = false) => <button type="button" onClick={startOver} className={`${btn} min-h-[52px] rounded-full text-[16px]`} style={onDark ? { background: '#fff', color: INK, border: '1px solid rgba(22,23,26,0.12)' } : quiet}>Start over</button>;
 
   if (step === 'review') return (
-    <main className="min-h-dvh pb-8" style={{ background: SOFT, color: INK }}>
-      {head(startOverBtn)}
-      <div className="mx-auto grid max-w-5xl gap-5 px-6 lg:grid-cols-[1fr_380px]">
-        <section aria-labelledby="kiosk-review" className="space-y-3 self-start rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-          <h1 id="kiosk-review" className="text-[22px] font-semibold tracking-tight">Your order</h1>
+    <Accent.Provider value={A}>
+    <main className="min-h-dvh pb-8" style={{ background: '#fff', color: INK }}>
+      <header className="flex items-center justify-between gap-4 px-6 pb-3 pt-6 md:px-10">
+        <p className="min-w-0 truncate text-[24px] font-bold tracking-tight" style={{ color: A }}>{menu?.business}</p>
+        {startOverBtn()}
+      </header>
+      <div className="mx-auto grid max-w-5xl gap-6 px-6 md:px-10 lg:grid-cols-[1fr_400px]">
+        <section aria-labelledby="kiosk-review" className="space-y-2 self-start">
+          <h1 id="kiosk-review" className="text-[36px] font-bold tracking-tight">Your order</h1>
           {cart.length ? lineRows(true) : <p className="text-[16px]" style={{ color: MUTED }}>Nothing in your order yet.</p>}
-          <button type="button" onClick={() => setStep('menu')} className={`${btn} min-h-[52px] text-[16px]`} style={quiet}>Add more</button>
+          <button type="button" onClick={() => setStep('menu')} className={`${btn} mt-2 min-h-[52px] rounded-full text-[16px]`} style={quiet}>Add more</button>
         </section>
-        <section aria-label="Name and pay" className="space-y-4 self-start rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+        <section aria-label="Name and pay" className="space-y-4 self-start rounded-[28px] p-6" style={{ background: tint }}>
           <label className="block"><span className="text-[15px] font-semibold">Your first name</span> <span className="text-[14px]" style={{ color: MUTED }}>(optional)</span>
-            <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} autoComplete="off" className="mt-1.5 min-h-[56px] w-full rounded-2xl px-4 text-[18px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder="So we can call it" /></label>
+            <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} autoComplete="off" className="mt-1.5 min-h-[56px] w-full rounded-2xl bg-[#fff] px-4 text-[18px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder="So we can call it" /></label>
           {menu?.askToGo && <div role="radiogroup" aria-label="For here or to go" className="grid grid-cols-2 gap-2">
-            {([[false, 'For here'], [true, 'To go']] as [boolean, string][]).map(([v, w]) => <button key={w} type="button" role="radio" aria-checked={toGo === v} onClick={() => { setToGo(v); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={toGo === v ? dark : quiet}>{w}</button>)}
+            {([[false, 'For here'], [true, 'To go']] as [boolean, string][]).map(([v, w]) => <button key={w} type="button" role="radio" aria-checked={toGo === v} onClick={() => { setToGo(v); setErr(''); }} className={`${btn} min-h-[56px] rounded-full text-[17px]`} style={toGo === v ? brand : quiet}>{w}</button>)}
           </div>}
           <dl className="space-y-1 text-[16px]">
             <div className="flex justify-between"><dt style={{ color: MUTED }}>Subtotal</dt><dd className="tabular-nums">{usd(subtotal)}</dd></div>
             <div className="flex justify-between"><dt style={{ color: MUTED }}>Tax</dt><dd className="tabular-nums">{usd(tax)}</dd></div>
-            <div className="flex justify-between text-[20px] font-semibold"><dt>Total</dt><dd className="tabular-nums">{usd(total)}</dd></div>
+            <div className="flex justify-between text-[22px] font-bold"><dt>Total</dt><dd className="tabular-nums">{usd(total)}</dd></div>
           </dl>
           {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
-          <button type="button" disabled={!cart.length || busy} onClick={pay} className={`${btn} min-h-[64px] w-full text-[19px] tabular-nums`} style={dark}>{busy ? 'One moment…' : `Pay ${usd(total)}`}</button>
+          <button type="button" disabled={!cart.length || busy} onClick={pay} className={`${btn} min-h-[64px] w-full rounded-full text-[19px] tabular-nums`} style={brand}>{busy ? 'One moment…' : `Pay ${usd(total)}`}</button>
           <p className="text-[14px]" style={{ color: MUTED }}>You’ll pay on the card reader. The kitchen starts once it’s paid.</p>
         </section>
       </div>
       {stillAsk}
-    </main>);
+    </main>
+    </Accent.Provider>);
+
+  const row = (m: Item) => (
+    <li key={m.id} style={{ borderTop: '1px solid #e8eaec' }}>
+      <button type="button" disabled={m.soldOut} onClick={() => { setErr(''); setOpen(m); }} aria-label={`${m.name}, ${m.soldOut ? 'sold out' : price(m)}`}
+        className={`flex min-h-[88px] w-full items-center gap-4 py-3 text-left disabled:opacity-50 ${RING}`}>
+        {pic(m, 64)}
+        <span className="min-w-0 flex-1"><span className="block text-[19px] font-semibold leading-snug">{m.name}</span>
+          <span className="block truncate text-[14.5px]" style={{ color: m.soldOut ? AMBER : m.happy ? GREEN : MUTED }}>{m.soldOut ? 'Sold out' : m.happy ? 'Happy hour price' : m.words || ''}</span></span>
+        <span className="shrink-0 text-[17px] font-semibold tabular-nums">{m.soldOut ? '' : price(m)}</span>
+      </button>
+    </li>);
+  const sectionBtn = (x: { name: string }, vertical: boolean) => {
+    const on = x.name === section;
+    return <button key={x.name} type="button" role="tab" aria-selected={on} onClick={() => setSection(x.name)}
+      className={`${btn} min-h-[56px] shrink-0 text-[19px] font-semibold ${vertical ? 'w-full !justify-start rounded-2xl px-4' : 'rounded-full'}`}
+      style={on ? brand : vertical ? { background: 'transparent', color: INK } : quiet}>{x.name}</button>;
+  };
 
   return (
-    <main className="min-h-dvh pb-28 lg:pb-6" style={{ background: SOFT, color: INK }}>
-      {head(startOverBtn)}
-      <div className="grid gap-5 px-6 lg:grid-cols-[1fr_380px]">
-        <section aria-label="Menu" className="min-w-0">
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-3" role="tablist" aria-label="Menu sections">
-            {(menu?.sections || []).map((s) => <button key={s.name} type="button" role="tab" aria-selected={s.name === section} onClick={() => setSection(s.name)} className={`${btn} min-h-[52px] shrink-0 rounded-full text-[16px]`} style={s.name === section ? dark : quiet}>{s.name}</button>)}
+    <Accent.Provider value={A}>
+    <main className="min-h-dvh pb-28 lg:grid lg:grid-cols-[210px_minmax(0,1fr)_360px] lg:pb-0" style={{ background: '#fff', color: INK }}>
+      <nav aria-label="Menu" className="hidden flex-col gap-1.5 px-4 py-7 lg:flex lg:min-h-dvh" style={{ background: tint }}>
+        <h1 className="mb-5 px-1 text-[26px] font-bold leading-[1.05] tracking-tight" style={{ color: A }}>{menu?.business}</h1>
+        <div role="tablist" aria-label="Menu sections" aria-orientation="vertical" className="flex flex-col gap-1.5">{(menu?.sections || []).map((x) => sectionBtn(x, true))}</div>
+        <div className="mt-auto pt-4">{startOverBtn(true)}</div>
+      </nav>
+      <header className="flex items-center justify-between gap-4 px-6 pb-2 pt-5 lg:hidden">
+        <h1 className="min-w-0 truncate text-[22px] font-bold tracking-tight" style={{ color: A }}>{menu?.business}</h1>
+        {startOverBtn()}
+      </header>
+      <section aria-label={section || 'Menu'} className="min-w-0 px-6 lg:px-7 lg:py-7">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-3 lg:hidden" role="tablist" aria-label="Menu sections">{(menu?.sections || []).map((x) => sectionBtn(x, false))}</div>
+        {hero && <div className="mb-4 grid items-center gap-5 rounded-[24px] p-4 sm:grid-cols-[minmax(0,240px)_1fr]" style={{ background: tint }}>
+          {hero.imageUrl ? <img src={hero.imageUrl} alt="" className="aspect-[4/3] w-full rounded-[18px] object-cover" style={{ background: '#fff' }} /> : <span aria-hidden className="flex aspect-[4/3] w-full items-center justify-center rounded-[18px] bg-[#fff] text-[64px] font-bold" style={{ color: A }}>{hero.name.slice(0, 1)}</span>}
+          <div className="space-y-2">
+            {hero.badge && <p className="text-[14px] font-semibold" style={{ color: INK }}>{hero.badge === 'new' ? 'New' : 'Limited time'}</p>}
+            <h2 className="text-[clamp(28px,3.2vw,40px)] font-bold leading-none tracking-tight">{hero.name}</h2>
+            {hero.words && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{hero.words}</p>}
+            <div className="flex items-center gap-4 pt-1">
+              <span className="text-[20px] font-semibold tabular-nums">{price(hero)}</span>
+              <button type="button" onClick={() => { setErr(''); setOpen(hero); }} className={`${btn} min-h-[52px] rounded-full px-7 text-[16px]`} style={brand} aria-label={`Add ${hero.name}`}>Add</button>
+            </div>
           </div>
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">{items.map((m) => (
-            <li key={m.id}><button type="button" disabled={m.soldOut} onClick={() => { setErr(''); setOpen(m); }} aria-label={`${m.name}, ${m.soldOut ? 'sold out' : `${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}`}`}
-              className={`flex h-full w-full flex-col overflow-hidden rounded-2xl bg-[#fff] text-left disabled:opacity-50 ${RING}`} style={{ border: `1px solid ${LINE}` }}>
-              {m.imageUrl ? <img src={m.imageUrl} alt="" className="aspect-[4/3] w-full object-cover" style={{ background: SOFT }} /> : <span className="block aspect-[4/3] w-full" style={{ background: SOFT }} aria-hidden />}
-              <span className="block px-3 pb-3 pt-2"><span className="block text-[16px] font-semibold leading-snug">{m.name}</span>
-                <span className="block text-[14.5px] tabular-nums" style={{ color: m.soldOut ? AMBER : m.happy ? GREEN : MUTED }}>{m.soldOut ? 'Sold out' : `${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}${m.happy ? ', happy hour' : ''}`}</span></span>
-            </button></li>))}</ul>
-        </section>
-        <aside aria-labelledby="kiosk-order" className="hidden space-y-3 self-start rounded-3xl bg-[#fff] p-5 lg:sticky lg:top-4 lg:block" style={{ border: `1px solid ${LINE}` }}>
-          <h2 id="kiosk-order" className="text-[19px] font-semibold">Your order</h2>
-          {offerBox}
-          {cart.length ? lineRows(false) : <p className="text-[15.5px]" style={{ color: MUTED }}>Tap something to add it.</p>}
-          <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] w-full text-[18px] tabular-nums`} style={dark}>Review and pay{count ? `, ${usd(subtotal)}` : ''}</button>
-        </aside>
-      </div>
+        </div>}
+        <ul className="grid gap-x-6 xl:grid-cols-2">{rest.map(row)}</ul>
+      </section>
+      <aside aria-labelledby="kiosk-order" className="hidden flex-col gap-3 border-l px-5 py-7 lg:flex lg:min-h-dvh" style={{ borderColor: '#e8eaec' }}>
+        <h2 id="kiosk-order" className="text-[24px] font-bold">Your order</h2>
+        {offerBox}
+        {cart.length ? lineRows(false) : <p className="text-[15.5px]" style={{ color: MUTED }}>Tap something to add it.</p>}
+        <p className="mt-auto flex justify-between pt-3 text-[17px]"><span style={{ color: MUTED }}>{count} {count === 1 ? 'item' : 'items'}</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
+        <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[62px] w-full rounded-full text-[18px]`} style={brand}>Review and pay</button>
+      </aside>
       <div className="fixed inset-x-0 bottom-0 space-y-3 border-t bg-[#fff] px-6 py-4 lg:hidden" style={{ borderColor: LINE }}>
         {offerBox}
         <div className="flex items-center justify-between gap-4">
           <p className="text-[17px] tabular-nums" aria-live="polite">{count ? `${count} ${count === 1 ? 'item' : 'items'}, ${usd(subtotal)}` : 'Tap something to add it.'}</p>
-          <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] text-[18px]`} style={dark}>Review and pay</button>
+          <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] rounded-full text-[18px]`} style={brand}>Review and pay</button>
         </div>
       </div>
       {open && <ItemSheet item={open} onClose={() => { setOpen(null); setOffered(false); }} onAdd={(p, n) => added(open, p, n)} />}
       {stillAsk}
     </main>
+    </Accent.Provider>
   );
 }

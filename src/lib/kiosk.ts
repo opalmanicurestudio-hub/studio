@@ -23,6 +23,7 @@ import { cleanPicks } from '@/lib/menu-choices';
 import { extrasOf } from '@/lib/plate-extras';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { posTaxOf } from '@/lib/pos-tax';
+import { pageAccent } from '@/lib/studio-page';
 import type { Screen } from '@/lib/screen-keys';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -42,7 +43,7 @@ const money2 = (n: number) => Math.round(n * 100) / 100;
 function kioskItem(m: MenuItem, tenant: any, at: Date, shown: Set<string>) {
   const p = priceNow(m, tenant, at);
   return { id: m.id, name: m.name, section: m.section, words: m.words, price: p.price, happy: p.happy, from: m.from, startPrice: Math.max(0, money2(m.startPrice - m.price + p.price)),
-    imageUrl: m.imageUrl, choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories,
+    imageUrl: m.imageUrl, choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, featured: m.featured, badge: m.badge,
     upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) } };
 }
 
@@ -59,6 +60,8 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
   const sections: { name: string; items: ReturnType<typeof kioskItem>[] }[] = [];
   for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(kioskItem(m, tenant, at, shown)); }
   return { ok: true as const, business: String(tenant?.name || tenant?.businessName || '').slice(0, 80) || 'Order here', screen: screen.name,
+    // The business's own color (readable with white type on it), carried through the kiosk as on its menu board.
+    accent: pageAccent(tenant),
     // Paying needs the business's card payments and this kiosk's reader; until then the kiosk says so to the team.
     payments: !!accountOf(tenant) && !!(o.stripe || readerStripe()), reader: !!screen.readerId,
     // For here or to go, when what goes out with an order depends on it (lib/plate-extras), as the counter asks.
