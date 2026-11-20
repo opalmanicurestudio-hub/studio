@@ -6,7 +6,7 @@
 // counter-card), and an order voided when a car drives off without paying.
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
-import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
+import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, carryOn, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
 import { itemSoldOut, picksOf, priceChoices, type Picks } from '@/lib/menu-choices';
 import { isMenuItem } from '@/lib/menu-server';
 import { nextSize, offerOf, sizedUp, upgradesOf } from '@/lib/menu-upgrades';
@@ -490,7 +490,9 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }
     tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}) }, { merge: true });
-    if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
+    // (A car with an order placed ahead going with it carries on to pickup with that: it was paid for.)
+    if (car && car.stage !== 'gone' && car.orderId === orderId && ID.test(String(car.aheadId || ''))) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { ...carryOn(car, nowIso), addOnVoided: true }, { merge: true });
+    else if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
     return { ok: true, returned, wasted };
   });
 }

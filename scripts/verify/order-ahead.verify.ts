@@ -7,8 +7,9 @@
 // - Paid (asked of the card company, whichever hears first): to the kitchen and paid by it, once; a later time waits
 //   until it's time to start, or until I'm here. Sold out since: the money goes back and the guest is told.
 // - Not paid in 30 minutes: let go, code freed.
-// - At the speaker: the code finds the order; it becomes the car (its empty order let go) or a new car, straight to
-//   pickup; never an unpaid order, another car's, or a car that already ordered.
+// - At the speaker: the code finds the order; it goes with the car at the speaker (which can add to it: "Nothing else"
+//   lets its empty order go and sends it to pickup), or a new car, straight to pickup; never an unpaid order, or another
+//   car's. (The rest of the lane with an order placed ahead: ahead-lane.verify.)
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/order-ahead.verify.ts
 import Module from 'module';
 import { makeDb, check, failures, FV, strictTransactions } from './fake-db';
@@ -197,20 +198,27 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   r = await L({ action: 'aheadCar', code: '0000', carId: car.carId });
   check('a code nobody has today: says so', r.status === 404 && r.body.code === 'no_code', r.body);
   r = await L({ action: 'aheadCar', code: o1.ahead.code, carId: car.carId });
-  const carB = await get(`${T}/driveThruCars/${car.carId}`); const empty = await get(`${T}/counterOrders/${car.orderId}`);
-  check('“I ordered ahead, code …”: the order becomes the car at the speaker, its empty order let go, straight to pickup', r.body.ok && r.body.number === 'A1' && carB.orderId === id1 && carB.stage === 'pickup' && carB.number === 'A1' && carB.ahead === true && empty.status === 'voided'
-    && (await get(`${T}/counterOrders/${id1}`)).ahead.carId === car.carId, { body: r.body, carB, empty });
+  let carB = await get(`${T}/driveThruCars/${car.carId}`);
+  check('“I ordered ahead, code …”: the order goes with the car at the speaker, which stays there for anything else, with their name', r.body.ok && r.body.linked && r.body.number === 'A1' && r.body.carNumber === car.number
+    && carB.aheadId === id1 && carB.aheadNumber === 'A1' && carB.stage === 'speaker' && carB.orderId === car.orderId && (await get(`${T}/counterOrders/${car.orderId}`)).guestName === 'Jordan'
+    && (await get(`${T}/counterOrders/${id1}`)).ahead.carId === car.carId, { body: r.body, carB });
+  r = await L({ action: 'aheadDone', carId: car.carId });
+  carB = await get(`${T}/driveThruCars/${car.carId}`); const empty = await get(`${T}/counterOrders/${car.orderId}`);
+  check('…“Nothing else”: straight to pickup with it, under its number, its own empty order let go', r.body.ok && r.body.number === 'A1' && carB.orderId === id1 && carB.stage === 'pickup' && carB.number === 'A1' && carB.ahead === true && !carB.aheadId && empty.status === 'voided', { body: r.body, carB, empty });
   r = await L({ action: 'lane' });
   check('…and it’s off the lane’s list of orders on their way', !(r.body.ahead || []).some((a: any) => a.id === id1) && r.body.cars.some((c: any) => c.id === car.carId && c.stage === 'pickup'), r.body.ahead);
   const car2 = (await L({ action: 'car', carKey: 'carkey-ahead-2' })).body;
   r = await L({ action: 'aheadCar', code: o1.ahead.code, carId: car2.carId });
   check('the same code for another car: it’s with a car already', r.status === 409 && r.body.code === 'taken', r.body);
-  await L({ action: 'add', orderId: car2.orderId, itemId: 'burger', quantity: 1, tapKey: 'tap-ahead-1' });
-  r = await L({ action: 'aheadCar', orderId: id5, carId: car2.carId });
-  check('a car that already ordered something keeps its own order', r.status === 409 && r.body.code === 'has_order', r.body);
   r = await L({ action: 'aheadCar', orderId: id5 });
   const newCar = await get(`${T}/driveThruCars/${r.body.carId}`);
-  check('no car on screen: a car is made for it, at pickup', r.body.ok && newCar.orderId === id5 && newCar.stage === 'pickup', newCar);
+  check('no car on screen: a car is made for it, at pickup', r.body.ok && !r.body.linked && newCar.orderId === id5 && newCar.stage === 'pickup', newCar);
+  r = await A({ ...base, key: nextKey(), name: 'Lee', lines: [{ itemId: 'burger', quantity: 1 }] });
+  const idL = r.body.orderId; paid((await get(`${T}/counterOrders/${idL}`)).ahead.payId); await A({ action: 'done', o: idL, s: r.body.sig });
+  await L({ action: 'add', orderId: car2.orderId, itemId: 'burger', quantity: 1, tapKey: 'tap-ahead-1' });
+  r = await L({ action: 'aheadCar', orderId: idL, carId: car2.carId });
+  const car2b = await get(`${T}/driveThruCars/${car2.carId}`);
+  check('a car that already ordered something: the order placed ahead goes with it too, and its own order stays as it is', r.body.ok && r.body.linked && car2b.aheadId === idL && car2b.stage === 'speaker' && (await get(`${T}/counterOrders/${car2.orderId}`)).lines.length === 1, { body: r.body, car2b });
   r = await A({ ...base, key: nextKey(), name: 'Kim', lines: [{ itemId: 'burger', quantity: 1 }] });
   const unpaidO = await get(`${T}/counterOrders/${r.body.orderId}`);
   const rU: any = await L({ action: 'aheadCar', code: unpaidO.ahead.code });

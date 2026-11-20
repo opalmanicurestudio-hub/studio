@@ -38,7 +38,7 @@ type Item = { id: string; name: string; words: string | null; price: number; fro
   featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null ;
   /** A product from the shop's window (lib/pickup-window): its size, its shades, and Pros only. */
   kind?: 'product'; size?: string | null; prosOnly?: boolean; swatches?: { label: string; color: string | null; soldOut: boolean }[] };
-type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null };
+type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null; pickupOnly?: boolean };
 const BADGE: Record<string, string> = { popular: 'Popular', new: 'New', limited: 'Limited time' };
 const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
 const keyName = (t: string) => `cf.drivethru.menuboard.${t}`;
@@ -318,7 +318,7 @@ export default function MenuBoard() {
         </div>
         {ahead && qr?.url === ahead && (
           <div className="flex shrink-0 items-center gap-[1.4vmin] rounded-[2.2vmin] py-[0.8vmin] pl-[2vmin] pr-[0.8vmin]" style={cardBox}>
-            <div className="text-right"><p className="m-0 font-bold" style={{ fontSize: '2.1vmin' }}>Order ahead</p><p className="m-0" style={{ fontSize: '1.6vmin', color: C.sub }}>Scan with your camera</p></div>
+            <div className="text-right"><p className="m-0 font-bold" style={{ fontSize: '2.1vmin' }}>{board.pickupOnly ? 'Pickup only: order on your phone' : 'Order ahead'}</p><p className="m-0" style={{ fontSize: '1.6vmin', color: C.sub }}>{board.pickupOnly ? 'Scan with your camera, then pull up' : 'Scan with your camera'}</p></div>
             <img src={qr.img} alt="Code to order ahead on your phone" className="rounded-[1.2vmin] bg-[#fff] p-[0.4vmin]" style={{ width: '7.4vmin', height: '7.4vmin' }} />
           </div>)}
       </header>

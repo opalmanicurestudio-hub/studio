@@ -3,6 +3,8 @@
 // from the server side: when the service says so (api/voice/call-events), or when the car it's talking to is gone
 // (handed over, left, voided), so the assistant never keeps talking to an empty lane.
 
+import { pickupOnlyOf } from '@/lib/counter-orders';
+
 const RETELL = 'https://api.retellai.com';
 const CALL = /^[A-Za-z0-9_-]{6,128}$/;
 
@@ -13,8 +15,9 @@ export const agentOf = (tenant: any) => String(tenant?.driveThru?.voiceAgentId |
  *  said where it's set (RETELL_DRIVETHRU_AGENT_VERSION). Not known: 1. What a newer one can do (offers, size up) is only
  *  asked of an assistant that has it. */
 export const assistantVersion = (tenant: any): number => Math.floor(Number(String(tenant?.driveThru?.voiceAgentId || '').trim() ? tenant?.driveThru?.voiceVersion : process.env.RETELL_DRIVETHRU_AGENT_VERSION) || 1);
-/** On here: the service's key and an assistant are set, and the business hasn't switched it off. */
-export const voiceOn = (tenant: any) => !!process.env.RETELL_API_KEY && !!agentOf(tenant) && tenant?.driveThru?.voice !== false;
+/** On here: the service's key and an assistant are set, the business hasn't switched it off, and its drive-thru takes
+ *  orders at the speaker (one that's pickup only has nobody to greet: lib/counter-orders pickupOnlyOf). */
+export const voiceOn = (tenant: any) => !!process.env.RETELL_API_KEY && !!agentOf(tenant) && tenant?.driveThru?.voice !== false && !pickupOnlyOf(tenant);
 
 /** A call is over: kept on the call and on its car (with who took over, if anyone did). Safe to call twice. */
 export async function markCallEnded(db: any, callId: string, why: string): Promise<void> {

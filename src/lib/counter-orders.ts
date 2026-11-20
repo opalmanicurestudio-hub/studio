@@ -38,6 +38,17 @@ export const inLineNow = (cars: { id?: string; arrivedAt?: unknown }[], nowMs: n
   cars.filter((c) => c.id !== except && Date.parse(String(c.arrivedAt || '')) >= nowMs - 3 * 3600000).length;
 /** How many pull-forward spots the drive-thru has (set on the Menu page): 1 to 8, 4 if it hasn't been set. */
 export const spotsOf = (tenant: any): number => { const n = Math.floor(Number(tenant?.driveThru?.spots)); return n >= 1 && n <= 8 ? n : 4; };
+/** Ordering ahead is on with the drive-thru as a way to pick up (lib/counter-ahead aheadOf, Menu page → Ordering ahead). */
+export const aheadAtDriveThru = (tenant: any): boolean => tenant?.orderAhead?.on === true && tenant?.orderAhead?.driveThru !== false;
+/** A drive-thru that only hands out orders placed ahead (Menu page, Service times): nobody orders at the speaker, and the
+ *  voice assistant stays off. Only while orders placed ahead can come to it: with ordering ahead off (or not at the
+ *  drive-thru), cars order at the speaker as usual, whatever was chosen. */
+export const pickupOnlyOf = (tenant: any): boolean => tenant?.driveThru?.pickupOnly === true && aheadAtDriveThru(tenant);
+/** A car with an order placed ahead going with it (car.aheadId: found at the speaker while the car was ordering), whose
+ *  own order ends without being handed over (voided, let go, or nothing added): it carries on to pickup with the order it
+ *  paid for ahead, under that order's number. A paid order is never left behind in the lane. */
+export const carryOn = (car: any, nowIso: string) => ({ orderId: String(car.aheadId), aheadId: null, aheadNumber: null, number: String(car.aheadNumber || car.number || ''), ahead: true,
+  stage: 'pickup', stageAt: { ...(car.stageAt || {}), pickup: nowIso } });
 export const DEFAULT_MAKE_SECONDS = 120;
 
 export function targetsOf(tenant: any): Record<Channel, number> {

@@ -42,7 +42,9 @@ type Reader = { id: string; label: string; online: boolean; test: boolean };
 const ON_READER = ['starting', 'on_reader', 'capturing'];
 type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; stageAt: Record<string, string>; orderId: string | null; takenBy: string | null; spot: string | null; voice?: CarVoice;
   // Taken in line, before the speaker, and how it looks ("Red SUV").
-  inLine?: boolean; wasInLine?: boolean; hereAt?: string | null; looks?: string | null };
+  inLine?: boolean; wasInLine?: boolean; hereAt?: string | null; looks?: string | null;
+  // An order placed ahead going with the car (found at the speaker while it was ordering): handed over with it.
+  aheadId?: string | null; addOnVoided?: boolean };
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
 type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
@@ -50,11 +52,13 @@ type Ahead = { id: string; number: string; name: string | null; code: string; at
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
 const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
 const ROLE_STAGE: Record<Exclude<Role, 'all'>, Stage> = { speaker: 'speaker', line: 'speaker', pay: 'pay', pickup: 'pickup', runner: 'forward' };
+// A pickup-only drive-thru (Menu page) has no speaker or pay window: its screens are at the pickup window, run, or see every car.
+const PICKUP_ROLES: Role[] = ['all', 'pickup', 'runner'];
 // A car taken in line that's still being ordered or paid for (what a phone walking the line works on).
 const inLineNow = (c: CarRow) => !!c.inLine && (c.stage === 'speaker' || c.stage === 'pay');
 const SLOW_WORD: Record<keyof Split, string> = { ordering: 'ordering', toWindow: 'getting to the window', atWindow: 'at the window' };
@@ -95,12 +99,44 @@ function KitchenPill({ o }: { o: Order | undefined }) {
   return <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[13px] font-semibold" style={{ background: SOFT, color: INK }}>{o.ticketCount > 1 && o.readyCount > 0 ? `${o.readyCount} of ${o.ticketCount} ready` : 'Making'}</span>;
 }
 
+// ─── An order placed ahead going with the car on screen: paid already, handed over with it ──────────────────────────
+function AheadWith({ o }: { o: Order }) {
+  return (
+    <section aria-label={`Order ${o.number}, placed ahead and paid`} className="space-y-1 rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
+      <div className="flex items-center justify-between gap-2"><p className="text-[13.5px] font-semibold" style={{ color: MUTED }}>Placed ahead, paid</p><KitchenPill o={o} /></div>
+      <p className="text-[17px] font-semibold">{o.number}{o.guestName ? ` for ${o.guestName}` : ''}</p>
+      <p className="text-[14px]" style={{ color: MUTED }}>{o.lines.map((l) => `${l.quantity} ${l.name}`).join(', ')}</p>
+    </section>
+  );
+}
+function AheadTicket({ o }: { o: Order }) {
+  return (
+    <section aria-label={`Order ${o.number}, placed ahead`} className="rounded-2xl bg-[#fff] pb-2" style={{ border: `1px solid ${LINE}` }}>
+      <div className="flex items-center justify-between gap-2 px-4 pt-4">
+        <h3 className="text-[17px] font-semibold" style={{ color: INK }}>{o.number}, placed ahead</h3>
+        <span className="text-[14px]" style={{ color: MUTED }}>Paid</span>
+      </div>
+      <ul className="px-2 py-2">
+        {o.lines.map((l) => { const waiting = o.waitingOn.some((w) => w.name === l.name); return (
+          <li key={l.lineId} className="flex items-center gap-2 rounded-xl px-2 py-2">
+            <span className="w-9 shrink-0 text-center text-[16px] font-semibold tabular-nums" style={{ color: INK }}>{l.quantity}×</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}</p>
+              {l.choicesText && <p className="text-[14px] leading-snug" style={{ color: MUTED }}>{l.choicesText}</p>}
+              <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>
+            </div>
+          </li>); })}
+      </ul>
+    </section>
+  );
+}
+
 // ─── A car in the lane ───────────────────────────────────────────────────────────────────────────────────────────────
-function CarCard({ c, o, now, target, selected, onAir, onPick }: { c: CarRow; o?: Order; now: number; target: number; selected: boolean; onAir: boolean; onPick: () => void }) {
+function CarCard({ c, o, also, now, target, selected, onAir, onPick }: { c: CarRow; o?: Order; also?: Order; now: number; target: number; selected: boolean; onAir: boolean; onPick: () => void }) {
   const s = (now - Date.parse(c.arrivedAt)) / 1000;
   const items = (o?.lines || []).reduce((n, l) => n + l.quantity, 0);
   return (
-    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}${o?.guestName ? `, ${o.guestName}` : ''}${c.looks ? `, ${c.looks}` : ''}, ${stageWord(c)}${c.spot ? ` in spot ${c.spot}` : ''}, ${mmss(s)} in the lane`}
+    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}${o?.guestName ? `, ${o.guestName}` : ''}${c.looks ? `, ${c.looks}` : ''}, ${stageWord(c)}${c.spot ? ` in spot ${c.spot}` : ''}${also ? `, with ${also.number} placed ahead` : ''}, ${mmss(s)} in the lane`}
       className={`w-full rounded-2xl bg-[#fff] p-3.5 text-left transition-shadow ${RING}`}
       style={{ border: `${selected ? 2 : 1}px solid ${selected ? INK : s > target ? AMBER : LINE}`, boxShadow: selected ? '0 6px 18px rgba(22,23,26,0.10)' : 'none', padding: selected ? 13 : 14 }}>
       <div className="flex items-center justify-between gap-2">
@@ -112,7 +148,7 @@ function CarCard({ c, o, now, target, selected, onAir, onPick }: { c: CarRow; o?
         <span className="shrink-0 rounded-full px-2.5 py-1 text-[15px] font-semibold tabular-nums" style={clockLook(s, target)}>{mmss(s)}</span>
       </div>
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{items ? `${items} ${items === 1 ? 'item' : 'items'} · ${usd(o?.total || 0)}` : 'Taking the order'}{o?.paidAt ? ' · paid' : ''}</span>
+        <span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{items ? `${items} ${items === 1 ? 'item' : 'items'} · ${usd(o?.total || 0)}` : also ? '' : 'Taking the order'}{o?.paidAt ? ' · paid' : ''}{also ? <span style={{ color: INK }}>{items ? ', with' : 'With'} {also.number} placed ahead</span> : null}</span>
         <KitchenPill o={o} />
       </div>
     </button>
@@ -221,7 +257,10 @@ export default function DriveThru() {
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidPin, setVoidPin] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [role, setRoleState] = useState<Role>('all');
+  const [roleSet, setRoleState] = useState<Role>('all');
+  // A pickup-only drive-thru (Menu page): a screen set to the speaker or the pay window works every car instead.
+  const pickupOnly = !!lane?.settings?.pickupOnly;
+  const role: Role = pickupOnly && !PICKUP_ROLES.includes(roleSet) ? 'all' : roleSet;
   const manualAt = useRef(0);
   useEffect(() => { const r = read(`cf.drivethru.role.${tenantId}`) as Role | null; if (r && ROLES.some(([k]) => k === r)) setRoleState(r); }, [tenantId]);
   useEffect(() => { setReaderPickState(read(`cf.drivethru.reader.${tenantId}`)); }, [tenantId]);
@@ -322,6 +361,9 @@ export default function DriveThru() {
   const shownCars = role === 'runner' ? cars.filter((c) => c.stage === 'forward') : role === 'line' ? cars.filter(inLineNow) : cars;
   const car = cars.find((c) => c.id === picked) || null;
   const order = car?.orderId ? lane?.orders[car.orderId] : undefined;
+  // Their order placed ahead, going with the car: paid, handed over with it, and Ready only when both are.
+  const aheadOrder = car?.aheadId ? lane?.orders[car.aheadId] : undefined;
+  const allReady = order?.kitchen === 'ready' && (!aheadOrder || aheadOrder.kitchen === 'ready');
   const target = lane?.stats.target || 210;
   // The car on screen left the lane (handed over, or on another tablet): the next one that needs someone takes its place.
   // A screen set to a spot follows the car at that spot (the newest at the speaker; the first in line at a window), unless
@@ -460,14 +502,18 @@ export default function DriveThru() {
   // A car taken in line has reached the window: from now on the window screens and tablets show it.
   const isHere = (c: CarRow) => act('here', { action: 'here', carId: c.id }, () => { pickCar(c.id); setLane((l) => (l ? { ...l, cars: l.cars.map((x) => (x.id === c.id ? { ...x, inLine: false, wasInLine: true } : x)) } : l)); });
   const handIn = () => act('handIn', { action: 'handIn' }, (d) => { setNotice({ text: d.count ? `Handed in ${usd(d.handedIn)} to the drawer.${d.more ? ' There’s more: hand in again.' : ''}` : 'Nothing to hand in.', tone: 'good' }); void loadPouch(); }, undefined, (d) => { if (d.needsStaff) setPinOpen(true); });
-  // "I ordered ahead": the order placed ahead becomes the car at the speaker (when it hasn't ordered yet), or a new car.
+  // "I ordered ahead": the order placed ahead goes with the car at the speaker (still ordering, or not started), and the
+  // crew asks if they'd like anything else; with no car at the speaker on screen (the window, a pickup-only lane), a car
+  // is made for it, straight to pickup.
   const ahead = lane?.ahead || [];
   const aheadHere = ahead.filter((a) => a.hereAt);
-  const emptyCar = car && car.stage === 'speaker' && order && order.status === 'building' && !order.lines.length ? car : null;
-  const toAhead = (x: { orderId?: string; code?: string }) => act('aheadCar', { action: 'aheadCar', ...x, ...(emptyCar ? { carId: emptyCar.id } : {}) }, (d) => {
+  const speakerCar = car && car.stage === 'speaker' && order && order.status === 'building' && !car.aheadId ? car : null;
+  const toAhead = (x: { orderId?: string; code?: string }, asNew = false) => act('aheadCar', { action: 'aheadCar', ...x, ...(speakerCar && !asNew ? { carId: speakerCar.id } : {}) }, (d) => {
     setAheadOpen(false); setAheadCode(''); pickCar(d.carId);
-    setNotice({ text: `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid. Send them on to the pickup window.`, tone: 'good' });
+    setNotice({ text: d.linked ? `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid and goes with car ${d.carNumber}. Ask if they’d like anything else.` : `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid. Send them on to the pickup window.`, tone: 'good' });
   });
+  // "Nothing else": on to pickup with the order placed ahead.
+  const aheadDone = () => car && act('aheadDone', { action: 'aheadDone', carId: car.id }, (d) => { setJust(null); setNotice({ text: `Order ${d.number} is paid. Send them on to the pickup window.`, tone: 'good' }); });
   // Coming from the line: ordered there, now on their way to the window.
   const fromLine = role === 'line' ? [] : cars.filter((c) => c.inLine && c.stage !== 'speaker');
   const cardOn = !!order && !order.paidAt && ON_READER.includes(String(order.card?.state || ''));
@@ -491,7 +537,7 @@ export default function DriveThru() {
     if (to === 'gone') setNotice({ text: `Car ${car.number} is on its way.`, tone: 'good' });
   });
   // "Not all ready" asks for a second tap, and a second tap within a moment (a double tap) doesn't count.
-  const handOver = () => { if (order?.kitchen === 'ready' || (handAnyway && Date.now() - handAnyway > 700)) void move('gone'); else if (!handAnyway) setHandAnyway(Date.now()); };
+  const handOver = () => { if (allReady || (handAnyway && Date.now() - handAnyway > 700)) void move('gone'); else if (!handAnyway) setHandAnyway(Date.now()); };
   // Voiding a sent order nobody will pay for: a manager's PIN if whoever is working isn't one.
   const doVoid = (reason: string, pass?: string) => order && act('void', { action: 'void', orderId: order.id, reason, ...(pass ? { staffPass: pass } : {}) }, (d) => {
     setVoidOpen(false); setVoidPin(null);
@@ -549,7 +595,7 @@ export default function DriveThru() {
       {editable && order ? <NameField key={order.id} value={order.guestName || ''} onSave={(v) => saveName(order.id, v)} />
         : order?.guestName ? <p className="px-4 pt-1 text-[14px]" style={{ color: MUTED }}>For <b className="font-semibold" style={{ color: INK }}>{order.guestName}</b></p> : null}
       {(order?.lines.length || 0) === 0
-        ? <p className="mx-4 my-4 rounded-xl px-4 py-8 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Tap an item to start the order.</p>
+        ? <p className="mx-4 my-4 rounded-xl px-4 py-8 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{aheadOrder ? 'Tap the menu to add something. It’s paid at the window.' : 'Tap an item to start the order.'}</p>
         : <ul className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {order!.lines.map((l) => {
             const waiting = order!.waitingOn.some((w) => w.name === l.name);
@@ -607,8 +653,8 @@ export default function DriveThru() {
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>Screen</button>
               {menuOpen && (
                 <div className="absolute right-0 z-40 mt-2 max-h-[80dvh] w-72 space-y-1 overflow-y-auto rounded-2xl bg-[#fff] p-2" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
-                  <a href={`/drive-thru/${tenantId}/board`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the order board</a>
-                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>
+                  {!pickupOnly && <a href={`/drive-thru/${tenantId}/board`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the order board</a>}
+                  {!pickupOnly && <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The board shows guests their order as it’s taken. Put it on a screen by the speaker.</p>}
                   <a href={`/drive-thru/${tenantId}/menu`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the menu board</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>The menu with photos and prices, for a screen guests read before they order. Sold out shows by itself.</p>
                   {voiceCfg?.on && <a href={`/drive-thru/${tenantId}/speaker`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open the speaker</a>}
@@ -617,7 +663,7 @@ export default function DriveThru() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Faces the guest at the window: their order, the total, how paying is going, and where to go next.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
-                    {ROLES.map(([k, label, hint]) => (
+                    {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).map(([k, label, hint]) => (
                       <button key={k} type="button" aria-pressed={role === k} onClick={() => setRole(k)} className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left ${RING}`} style={{ background: role === k ? SOFT : 'transparent' }}>
                         <span><span className="block text-[14px] font-medium" style={{ color: INK }}>{label}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{hint}</span></span>
                         <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${role === k ? INK : LINE}` }}>{role === k && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
@@ -690,10 +736,17 @@ export default function DriveThru() {
               )}
             </div>
           )}
+          {pickupOnly ? role !== 'runner' && (
+            <div className="space-y-3 rounded-2xl bg-[#fff] p-3" style={{ border: `1px solid ${LINE}` }} role="group" aria-labelledby="pickup-find">
+              <p id="pickup-find" className="px-1 text-[15px] font-semibold">Pickup only: find their order</p>
+              <AheadFind list={ahead} q={aheadCode} setQ={setAheadCode} busy={busy === 'aheadCar'} cta="It’s here" now={now} inputId="pickup-code" onPick={(x) => toAhead(x, true)} />
+              <button type="button" onClick={() => newCar()} disabled={busy === 'car'} className={`min-h-[44px] rounded-lg px-1 text-[14px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>Take an order here anyway</button>
+            </div>
+          ) : (
           <button type="button" onClick={() => (role === 'line' ? setLooksFor('new') : newCar())} disabled={busy === 'car'} className={`${btn} flex min-h-[64px] w-full items-center justify-center gap-2 text-[17px]`} style={{ background: INK, color: '#fff' }}>
             <Plus className="h-5 w-5" aria-hidden />{role === 'line' ? 'New car in line' : 'New car at the speaker'}
-          </button>
-          {role !== 'line' && (ahead.length > 0 || !!lane?.aheadOn || aheadOpen) && (
+          </button>)}
+          {!pickupOnly && role !== 'line' && (ahead.length > 0 || !!lane?.aheadOn || aheadOpen) && (
             <button type="button" onClick={() => setAheadOpen(true)} className={`${btn} flex w-full items-center justify-between`} style={aheadHere.length ? { background: GREEN_TINT, color: GREEN } : quiet}>
               <span>Ordered ahead{aheadHere.length ? `: ${aheadHere.length} on the way` : ''}</span><span className="tabular-nums">{ahead.length}</span>
             </button>)}
@@ -711,7 +764,7 @@ export default function DriveThru() {
           )}
           {!lane ? <div className="flex justify-center py-10"><div className="h-7 w-7 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the lane" /></div>
             : shownCars.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{role === 'runner' && cars.length ? 'No cars parked in a spot.' : role === 'line' ? 'No cars ordering in line.' : 'No cars in the lane.'}</p>
-            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{shownCars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} now={now} target={target} selected={c.id === picked} onAir={c.id === onAirCar?.id} onPick={() => pickCar(c.id)} /></div>)}</div>}
+            : <div className="flex gap-3 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">{shownCars.map((c) => <div key={c.id} className="w-[260px] shrink-0 lg:w-auto"><CarCard c={c} o={c.orderId ? lane.orders[c.orderId] : undefined} also={c.aheadId ? lane.orders[c.aheadId] : undefined} now={now} target={target} selected={c.id === picked} onAir={c.id === onAirCar?.id} onPick={() => pickCar(c.id)} /></div>)}</div>}
         </aside>
 
         <section aria-label={car ? `Car ${car.number}` : 'No car picked'} className="min-w-0">
@@ -719,7 +772,7 @@ export default function DriveThru() {
             <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 rounded-3xl bg-[#fff] p-8 text-center" style={{ border: `1px solid ${LINE}` }}>
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: SOFT }}><Car className="h-7 w-7" style={{ color: MUTED }} aria-hidden /></span>
               <p className="text-[18px] font-semibold">The lane is clear</p>
-              <p className="max-w-sm text-[15px]" style={{ color: MUTED }}>{role === 'line' ? 'Walk the line with this phone. Tap “New car in line” for each car, take the order and the payment, and send them on to the pickup window.' : 'When a car pulls up to the speaker, tap “New car at the speaker” and take the order.'}</p>
+              <p className="max-w-sm text-[15px]" style={{ color: MUTED }}>{role === 'line' ? 'Walk the line with this phone. Tap “New car in line” for each car, take the order and the payment, and send them on to the pickup window.' : pickupOnly ? 'When a car pulls in, find its order by code or name, and hand it over.' : 'When a car pulls up to the speaker, tap “New car at the speaker” and take the order.'}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -803,9 +856,13 @@ export default function DriveThru() {
                       </div>}
                   </div>
                   <div className="flex flex-col gap-3 xl:sticky xl:top-4 xl:self-start">
+                    {aheadOrder && <AheadWith o={aheadOrder} />}
+                    {aheadOrder && !order.lines.length && <p className="px-1 text-[16px] font-semibold">Anything else?</p>}
                     {ticket(true)}
-                    <button type="button" onClick={send} disabled={!order.lines.length || busy !== null} className={`${btn} min-h-[60px] text-[17px]`} style={{ background: GREEN, color: '#fff' }}>{busy === 'send' ? 'Sending…' : `Send to the kitchen${order.lines.length ? `, ${usd(order.total)}` : ''}`}</button>
-                    <button type="button" onClick={cancel} disabled={busy === 'cancel'} className={btn} style={{ ...quiet, color: RED }}>The car left without ordering</button>
+                    {aheadOrder && !order.lines.length
+                      ? <button type="button" onClick={aheadDone} disabled={busy !== null} className={`${btn} min-h-[60px] text-[17px]`} style={{ background: GREEN, color: '#fff' }}>{busy === 'aheadDone' ? 'Sending…' : 'Nothing else, send to pickup'}</button>
+                      : <button type="button" onClick={send} disabled={!order.lines.length || busy !== null} className={`${btn} min-h-[60px] text-[17px]`} style={{ background: GREEN, color: '#fff' }}>{busy === 'send' ? 'Sending…' : `Send to the kitchen${order.lines.length ? `, ${usd(order.total)}` : ''}`}</button>}
+                    {!aheadOrder && <button type="button" onClick={cancel} disabled={busy === 'cancel'} className={btn} style={{ ...quiet, color: RED }}>The car left without ordering</button>}
                   </div>
                 </div>
               ) : (
@@ -813,7 +870,8 @@ export default function DriveThru() {
                   <div className="min-w-0 space-y-4 rounded-3xl bg-[#fff] p-5 sm:p-6" style={{ border: `1px solid ${LINE}` }}>
                     {!order.paidAt ? (
                       <>
-                        <div><p className="text-[15px] font-medium" style={{ color: MUTED }}>To pay</p><p className="text-[44px] font-semibold leading-tight tracking-tight tabular-nums">{usd(order.total)}</p></div>
+                        <div><p className="text-[15px] font-medium" style={{ color: MUTED }}>To pay</p><p className="text-[44px] font-semibold leading-tight tracking-tight tabular-nums">{usd(order.total)}</p>
+                          {aheadOrder && <p className="text-[14.5px]" style={{ color: MUTED }}>Only what they added. Order {aheadOrder.number}, placed ahead, is paid already.</p>}</div>
                         {voidOpen ? (
                           <div className="space-y-3">
                             <p className="text-[15px] font-semibold">Why won’t this order be paid?</p>
@@ -892,12 +950,14 @@ export default function DriveThru() {
                       <>
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                           <div><p className="text-[15px] font-medium" style={{ color: MUTED }}>Paid {order.payMethod === 'cash' ? 'in cash' : order.paidVia === 'phone' ? 'on their phone' : 'by card'}</p><p className="text-[32px] font-semibold tracking-tight tabular-nums">{usd(order.total)}</p></div>
-                          {order.kitchen === 'ready' ? <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Everything is ready</span>
-                            : <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>{order.waitingOn.length} still being made</span>}
+                          {allReady ? <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Everything is ready</span>
+                            : <span className="rounded-full px-4 py-2 text-[16px] font-semibold" style={{ background: SOFT, color: INK }}>{order.waitingOn.length + (aheadOrder?.waitingOn.length || 0)} still being made</span>}
                         </div>
+                        {aheadOrder && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }}>With <b className="font-semibold">{aheadOrder.number}</b>, placed ahead and paid: hand both over.</p>}
+                        {car.addOnVoided && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>What they added was voided. {order.number} was paid ahead and is still theirs: if they drove off, keep it for when they come back.</p>}
                         {car.stage !== 'forward' && !spotOpen && (
                           <div className="grid gap-3 sm:grid-cols-2">
-                            <button type="button" disabled={busy === 'move-gone'} onClick={handOver} className={`${btn} min-h-[72px] text-[18px]`} style={{ background: order.kitchen === 'ready' ? GREEN : INK, color: '#fff' }}>{handAnyway && order.kitchen !== 'ready' ? 'Not all ready. Tap again to hand over' : 'Handed over'}</button>
+                            <button type="button" disabled={busy === 'move-gone'} onClick={handOver} className={`${btn} min-h-[72px] text-[18px]`} style={{ background: allReady ? GREEN : INK, color: '#fff' }}>{handAnyway && !allReady ? 'Not all ready. Tap again to hand over' : 'Handed over'}</button>
                             <button type="button" onClick={() => setSpotOpen(true)} className={`${btn} min-h-[72px] text-[18px]`} style={quiet}>Pull forward</button>
                             <p className="text-[13.5px] sm:col-span-2" style={{ color: MUTED }}>Waiting on something slow? Pull the car forward to a spot so the cars behind keep moving, and bring it out when it’s ready.</p>
                           </div>
@@ -916,13 +976,13 @@ export default function DriveThru() {
                         {car.stage === 'forward' && (
                           <div className="space-y-3">
                             <p className="rounded-2xl px-4 py-3 text-[16px]" style={{ background: SOFT }}>Parked{car.spot ? ` in spot ${car.spot}` : ''}. Bring it out when it’s ready.</p>
-                            <button type="button" disabled={busy === 'move-gone'} onClick={handOver} className={`${btn} min-h-[72px] w-full text-[18px]`} style={{ background: order.kitchen === 'ready' ? GREEN : INK, color: '#fff' }}>{handAnyway && order.kitchen !== 'ready' ? 'Not all ready. Tap again to hand over' : 'Brought out and handed over'}</button>
+                            <button type="button" disabled={busy === 'move-gone'} onClick={handOver} className={`${btn} min-h-[72px] w-full text-[18px]`} style={{ background: allReady ? GREEN : INK, color: '#fff' }}>{handAnyway && !allReady ? 'Not all ready. Tap again to hand over' : 'Brought out and handed over'}</button>
                           </div>
                         )}
                       </>
                     )}
                   </div>
-                  <div className="xl:sticky xl:top-4 xl:self-start">{ticket(false)}</div>
+                  <div className="space-y-3 xl:sticky xl:top-4 xl:self-start">{ticket(false)}{aheadOrder && <AheadTicket o={aheadOrder} />}</div>
                 </div>
               )}
             </div>
@@ -937,7 +997,7 @@ export default function DriveThru() {
         onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
           setPointsOpen(false); setNotice({ text: d.already ? 'Rewards were already on this order.' : d.earned ? `Rewards added: earned ${d.earned} ${d.unit}.` : 'Rewards added. It earns when it’s paid.', tone: 'good' }); res(null);
         }, undefined, (d) => res(d.code === 'not_found' || d.code === 'not_member' ? d.code : d.error || 'That didn’t go through.')); })} />}
-      {aheadOpen && <AheadSheet list={ahead} code={aheadCode} setCode={setAheadCode} busy={busy === 'aheadCar'} toCar={!!emptyCar} now={now} onPick={(x) => toAhead(x)} onClose={() => { setAheadOpen(false); setAheadCode(''); }} />}
+      {aheadOpen && <AheadSheet list={ahead} code={aheadCode} setCode={setAheadCode} busy={busy === 'aheadCar'} toCar={speakerCar ? speakerCar.number : null} toCarOrdering={!!speakerCar && !!order?.lines.length} choose={role !== 'speaker'} now={now} onPick={(x, asNew) => toAhead(x, asNew)} onClose={() => { setAheadOpen(false); setAheadCode(''); }} />}
       {looksFor && <LooksSheet start={looksFor === 'new' ? null : cars.find((c) => c.id === looksFor)?.looks || null} busy={busy === 'car' || busy === 'looks'}
         title={looksFor === 'new' ? 'A new car in line' : 'How the car looks'} cta={looksFor === 'new' ? 'Start the order' : 'Save'}
         onClose={() => setLooksFor(null)}
@@ -989,9 +1049,44 @@ function PointsSheet({ name, busy, onLink, onClose }: { name: string; busy: bool
   );
 }
 
-// ─── "I ordered ahead": find the order placed ahead by its code, or from today's list ─────────────────────────────────
-function AheadSheet({ list, code, setCode, busy, toCar, now, onPick, onClose }: { list: Ahead[]; code: string; setCode: (v: string) => void; busy: boolean; toCar: boolean; now: number; onPick: (x: { orderId?: string; code?: string }) => void; onClose: () => void }) {
+// ─── "I ordered ahead": the order placed ahead, by its code (four digits find it even before it's on the list), or by
+// name or order number from today's list as it's typed ───────────────────────────────────────────────────────────────
+function AheadFind({ list, q, setQ, busy, cta, now, inputId, onPick }: { list: Ahead[]; q: string; setQ: (v: string) => void; busy: boolean; cta: string; now: number; inputId: string; onPick: (x: { orderId?: string; code?: string }) => void }) {
+  const clockOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const t = q.trim().toLowerCase(); const code = /^\d{4}$/.test(t);
+  const shown = !t ? list : list.filter((a) => a.number.toLowerCase().startsWith(t) || (/^\d+$/.test(t) && a.code.startsWith(t)) || String(a.name || '').toLowerCase().split(/\s+/).some((w) => w.startsWith(t)));
+  return (
+    <div className="space-y-3">
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (code) onPick({ code: t }); else if (shown.length === 1) onPick({ orderId: shown[0].id }); }}>
+        <label className="sr-only" htmlFor={inputId}>Their pickup code or name</label>
+        <input id={inputId} value={q} onChange={(e) => setQ(e.target.value.slice(0, 40))} autoComplete="off" autoCorrect="off" spellCheck={false} placeholder="Code or name" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-[20px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }} />
+        <button type="submit" disabled={busy || !(code || shown.length === 1)} className={`${btn} min-h-[56px] shrink-0 px-5`} style={{ background: INK, color: '#fff' }}>{busy ? 'Finding…' : 'Find'}</button>
+      </form>
+      {list.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[14px] font-semibold" aria-live="polite">{t ? `${shown.length} of ${list.length} today` : 'Today, not picked up yet'}</p>
+          {shown.map((a) => (
+            <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: a.hereAt ? GREEN_TINT : SOFT }}>
+              <span className="min-w-0">
+                <span className="block break-words text-[15px]"><b className="font-semibold tabular-nums">{a.number}</b>{a.name ? ` · ${a.name}` : ''} · code <b className="font-semibold tabular-nums">{a.code}</b></span>
+                <span className="block truncate text-[13px]" style={{ color: a.hereAt ? GREEN : MUTED }}>{a.hereAt ? `On the way, ${Math.max(0, Math.round((now - Date.parse(a.hereAt)) / 60000))} min ago` : a.at ? `For ${clockOf(a.at)}` : 'As soon as it’s ready'} · {a.summary}{a.items > 3 ? '…' : ''}</span>
+              </span>
+              <button type="button" disabled={busy} onClick={() => onPick({ orderId: a.id })} className={`${btn} shrink-0`} style={{ background: INK, color: '#fff' }}>{cta}</button>
+            </div>
+          ))}
+          {t && !shown.length && !code && <p className="rounded-2xl px-3 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>No order today under that name or number. Ask for their code.</p>}
+        </div>)}
+      {!list.length && <p className="text-[14px]" style={{ color: MUTED }}>Nothing placed ahead is waiting today. Their code still finds an order that’s just come in.</p>}
+    </div>
+  );
+}
+
+function AheadSheet({ list, code, setCode, busy, toCar, toCarOrdering, choose, now, onPick, onClose }: { list: Ahead[]; code: string; setCode: (v: string) => void; busy: boolean; toCar: string | null; toCarOrdering: boolean; choose: boolean; now: number; onPick: (x: { orderId?: string; code?: string }, asNew: boolean) => void; onClose: () => void }) {
   const box = useRef<HTMLDivElement | null>(null);
+  // Away from the speaker (a window, or every car), the car there may not be theirs: which it goes with is picked here.
+  // (A car at the speaker already ordering is more likely someone else: a new car unless they say it's that one.)
+  const [withCar, setWithCar] = useState(!toCarOrdering);
+  const linking = !!toCar && (!choose || withCar);
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -1000,32 +1095,19 @@ function AheadSheet({ list, code, setCode, busy, toCar, now, onPick, onClose }: 
     document.addEventListener('keydown', k);
     return () => { document.removeEventListener('keydown', k); prev?.focus?.(); };
   }, []);
-  const clockOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={onClose}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="ahead-title" className="max-h-[92dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-t-3xl bg-[#fff] p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
         <div>
           <h2 id="ahead-title" className="text-[20px] font-semibold tracking-tight">Ordered ahead</h2>
-          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Ask for their pickup code. {toCar ? 'The order becomes the car at the speaker' : 'A car is added for it'}, paid, and goes straight to pickup.</p>
+          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Ask for their code or name. {linking ? `It goes with car ${toCar} at the speaker, and you can ask if they’d like anything else.` : 'A car is added for it, paid, and goes straight to pickup.'}</p>
         </div>
-        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (/^\d{4}$/.test(code)) onPick({ code }); }}>
-          <label className="sr-only" htmlFor="ahead-code">Pickup code</label>
-          <input id="ahead-code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" autoComplete="off" placeholder="4-digit code" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-center text-[24px] font-semibold tracking-[0.2em] tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
-          <button type="submit" disabled={busy || !/^\d{4}$/.test(code)} className={`${btn} min-h-[56px] shrink-0 px-5`} style={{ background: INK, color: '#fff' }}>{busy ? 'Finding…' : 'Find'}</button>
-        </form>
-        {list.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-[14px] font-semibold">Today, not picked up yet</p>
-            {list.map((a) => (
-              <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5" style={{ background: a.hereAt ? GREEN_TINT : SOFT }}>
-                <span className="min-w-0">
-                  <span className="block truncate text-[15px]"><b className="font-semibold tabular-nums">{a.number}</b>{a.name ? ` · ${a.name}` : ''} · code <b className="font-semibold tabular-nums">{a.code}</b></span>
-                  <span className="block truncate text-[13px]" style={{ color: a.hereAt ? GREEN : MUTED }}>{a.hereAt ? `On the way, ${Math.max(0, Math.round((now - Date.parse(a.hereAt)) / 60000))} min ago` : a.at ? `For ${clockOf(a.at)}` : 'As soon as it’s ready'} · {a.summary}{a.items > 3 ? '…' : ''}</span>
-                </span>
-                <button type="button" disabled={busy} onClick={() => onPick({ orderId: a.id })} className={`${btn} shrink-0`} style={{ background: INK, color: '#fff' }}>It’s this car</button>
-              </div>
-            ))}
+        {toCar && choose && (
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Which car it goes with">
+            {([[true, `Car ${toCar} at the speaker`], [false, 'A new car at pickup']] as [boolean, string][]).map(([v, label]) => (
+              <button key={label} type="button" aria-pressed={withCar === v} onClick={() => setWithCar(v)} className={`${btn} min-h-[48px]`} style={withCar === v ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{label}</button>))}
           </div>)}
+        <AheadFind list={list} q={code} setQ={setCode} busy={busy} cta="It’s this car" now={now} inputId="ahead-code" onPick={(x) => onPick(x, !linking)} />
         <button type="button" onClick={onClose} className={`${btn} w-full`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>Close</button>
       </div>
     </div>

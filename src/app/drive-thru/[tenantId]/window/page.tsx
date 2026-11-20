@@ -22,7 +22,9 @@ const ATS: [At, string, string][] = [['one', 'One window', 'Guests pay and pick 
 type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name: string | null; spot: string | null;
   lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl: string | null }[];
   subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
-  card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null };
+  card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null;
+  // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
+  alsoAhead?: string | null };
 type View = { business: { name: string }; show: Show | null; wallets?: boolean };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const keyName = (t: string) => `cf.drivethru.window.${t}`;
@@ -95,6 +97,7 @@ export default function WindowScreen() {
               <div>
                 <p className="text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>{s.tax > 0 ? 'Your total with tax' : 'Your total'}</p>
                 <p className="text-[clamp(56px,8vw,128px)] font-semibold leading-none tracking-tight tabular-nums">{usd(s.total)}</p>
+                {s.alsoAhead && <p className="mt-[1vh] text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Your order placed ahead, {s.alsoAhead}, is paid already.</p>}
               </div>
               <div className="h-px w-full" style={{ background: RULE }} />
               {s.card === 'on_reader' ? (
@@ -134,7 +137,7 @@ export default function WindowScreen() {
               <p className="text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>Your change <span className="font-semibold tabular-nums" style={{ color: TEXT }}>{usd(s.change)}</span></p>
             )}
             <p className="max-w-[28ch] text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: s.nextWindow ? TEXT : SUB }}>
-              {s.nextWindow ? 'Please pull up to the next window.' : s.kitchen === 'ready' ? 'Your order is ready.' : 'Your order is being made.'}
+              {s.nextWindow ? 'Please pull up to the next window.' : s.alsoAhead ? (s.kitchen === 'ready' ? `Your orders are ready, with ${s.alsoAhead} placed ahead.` : `Your orders are being made, with ${s.alsoAhead} placed ahead.`) : s.kitchen === 'ready' ? 'Your order is ready.' : 'Your order is being made.'}
             </p>
           </section>
         ) : s.mode === 'forward' ? (

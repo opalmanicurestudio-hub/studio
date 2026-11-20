@@ -31,7 +31,8 @@
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts,
 //             and upgrades { size, items }: what's offered at the end, once it's added (lib/menu-upgrades).
-//   laneSettings { tenantId, spots } → managers: how many numbered pull-forward spots the drive-thru has (1 to 8)
+//   laneSettings { tenantId, spots | pickupOnly } → managers: how many numbered pull-forward spots the drive-thru has (1 to
+//             8), or whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 //   prep    { tenantId, prepId?, name, makes, unit, keepsDays?, minutes?, recipe } → managers: a prep recipe added or
 //             changed (lib/prep-recipes-server savePrep): what goes into a batch, what a batch makes, how long it keeps
@@ -54,7 +55,7 @@ import { forgetMenuFacts } from '@/lib/klair-menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
-import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
+import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/counter-orders';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, aheadThere: aheadAtDriveThru(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -262,10 +263,16 @@ export async function POST(req: NextRequest) {
       return ok({ dayparts, happyHour });
     }
     if (action === 'laneSettings') {
+      const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      // Pickup only (orders placed ahead, nobody orders at the speaker), or orders and pickup: said on its own.
+      if (typeof b.pickupOnly === 'boolean') {
+        await db.doc(`tenants/${tenantId}`).set({ driveThru: { pickupOnly: b.pickupOnly } }, { merge: true });
+        return ok({ lane: { spots: spotsOf(td), pickupOnly: b.pickupOnly, aheadThere: aheadAtDriveThru(td) } });
+      }
       const n = typeof b.spots === 'number' ? Math.floor(b.spots) : NaN;
       if (!(n >= 1 && n <= 8)) return bad('Between 1 and 8 spots.');
       await db.doc(`tenants/${tenantId}`).set({ driveThru: { spots: n } }, { merge: true });
-      return ok({ lane: { spots: n } });
+      return ok({ lane: { spots: n, pickupOnly: td.driveThru?.pickupOnly === true, aheadThere: aheadAtDriveThru(td) } });
     }
 
     if (action === 'targets') {

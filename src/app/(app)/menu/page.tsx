@@ -80,6 +80,10 @@ export default function MenuPage() {
   const [service, setService] = useState<Service | null>(null);
   const [times, setTimes] = useState<{ dayparts: Daypart[]; happyHour: HappyHour } | null>(null);
   const [spots, setSpots] = useState<number | null>(null);
+  const [pickupOnly, setPickupOnlyState] = useState<boolean | null>(null);
+  // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
+  // applies only then.
+  const [aheadThere, setAheadThere] = useState(true);
   const [ahead, setAhead] = useState<AheadSettings | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
   // New item: on the menu and in Inventory in one step (components/menu/NewItemSheet), its editor opening next.
@@ -98,7 +102,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -139,6 +143,11 @@ export default function MenuPage() {
     const was = spots; setSpots(n); setBusy('spots'); setErr('');
     const d = await call({ action: 'laneSettings', spots: n });
     setBusy(null); if (!d.ok) { setSpots(was); setErr(d.error || 'That didn’t save.'); }
+  };
+  const setPickupOnly = async (v: boolean) => {
+    const was = pickupOnly; setPickupOnlyState(v); setBusy('pickupOnly'); setErr('');
+    const d = await call({ action: 'laneSettings', pickupOnly: v });
+    setBusy(null); if (!d.ok) { setPickupOnlyState(was); setErr(d.error || 'That didn’t save.'); } else setAheadThere(d.lane?.aheadThere !== false);
   };
   const setTarget = async (channel: string, seconds: number) => {
     const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
@@ -203,6 +212,18 @@ export default function MenuPage() {
                     {Array.from(new Set([...TARGET_TIMES, targets[c]])).sort((a, b) => a - b).map((t) => <option key={t} value={t}>{mmss(t)}</option>)}
                   </select>
                 </label>))}
+              {pickupOnly !== null && (
+                <div role="group" aria-labelledby="lane-kind" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span id="lane-kind" className="block text-[15px] font-medium">Your drive-thru</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{pickupOnly ? 'Cars pick up orders placed ahead (Ordering ahead, above). The lane screen finds them by code or name, nobody orders at the speaker, and the voice assistant stays off.' : 'Cars order at the speaker and pay at the window. Orders placed ahead are picked up there too.'}</span>
+                    {pickupOnly && !aheadThere && <span className="mt-1 block text-[13px] font-medium" style={{ color: AMBER }}>Ordering ahead isn’t on for the drive-thru, so cars still order at the speaker. Turn it on under Ordering ahead to make the drive-thru pickup only.</span>}</span>
+                  <span className="flex flex-wrap gap-2">
+                    {([[false, 'Orders and pickup'], [true, 'Pickup only']] as [boolean, string][]).map(([v, label]) => { const on = pickupOnly === v; return (
+                      <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'pickupOnly'} onClick={() => { if (!on && busy !== 'pickupOnly') void setPickupOnly(v); }} className={`${BTN} aria-disabled:opacity-50`}
+                        style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
+                  </span>
+                </div>
+              )}
               {spots !== null && (
                 <label className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
                   <span><span className="block text-[15px] font-medium">Pull-forward spots</span><span className="block text-[13px]" style={{ color: MUTED }}>Numbered spots past the window where a car waits for something slow</span></span>
@@ -214,7 +235,7 @@ export default function MenuPage() {
               {voice && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
                   <span><span className="block text-[15px] font-medium">Voice assistant at the drive-thru speaker</span>
-                    <span className="block text-[13px]" style={{ color: MUTED }}>{voice.setUp ? 'Greets each car and takes the order. The team can listen in and take over from the lane screen.' : voice.canSetUp ? 'Takes each car’s order at the speaker. The team can listen in and take over at any time.' : 'Needs the voice service connected before it can be set up.'}</span></span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{voice.setUp ? 'Greets each car and takes the order. The team can listen in and take over from the lane screen.' : voice.canSetUp ? 'Takes each car’s order at the speaker. The team can listen in and take over at any time.' : 'Needs the voice service connected before it can be set up.'}{pickupOnly && aheadThere && voice.setUp ? ' Off while your drive-thru is pickup only.' : ''}</span></span>
                   {voice.setUp ? <Switch on={voice.on} label="Voice assistant at the drive-thru speaker" busy={busy === 'voice'} onClick={() => setVoiceOn(!voice.on)} color={GREEN} />
                     : voice.canSetUp && <button type="button" onClick={setUpVoice} disabled={busy === 'voice'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voice' ? 'Setting up…' : 'Set it up'}</button>}
                 </div>

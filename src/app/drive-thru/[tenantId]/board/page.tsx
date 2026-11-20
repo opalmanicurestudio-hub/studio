@@ -13,7 +13,7 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', TILE = '#24262b';
 const POLL_MS = 1500, STALE_MS = 20000;
-type Board = { business: { name: string }; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number } };
+type Board = { business: { name: string }; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number; alsoAhead?: string | null } };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const boardKey = (t: string) => `cf.drivethru.board.${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -72,7 +72,7 @@ export default function OrderBoard() {
         <>
           <section className="flex-1 overflow-hidden px-[4vw] py-[3vh]">
             {o.lines.length === 0
-              ? <p className="pt-[8vh] text-center text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>Go ahead whenever you’re ready.</p>
+              ? <p className="pt-[8vh] text-center text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>{o.alsoAhead ? `We have your order ${o.alsoAhead}, paid and being made. Anything else?` : 'Go ahead whenever you’re ready.'}</p>
               : <ul className={dense ? 'space-y-[1.4vh]' : 'space-y-[2.2vh]'}>
                 {o.lines.length > shown && <li className="text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>{o.lines.length - shown} more {o.lines.length - shown === 1 ? 'item' : 'items'} before these</li>}
                 {o.lines.slice(-shown).map((l, i) => (

@@ -12,7 +12,7 @@
 // An order's link is signed for that order (lib: aheadSig), like scan to pay's.
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
-import { lineFor, totalsOf, orderNumber, photoOf, type OrderLine } from '@/lib/counter-orders';
+import { lineFor, totalsOf, orderNumber, photoOf, carryOn, type OrderLine } from '@/lib/counter-orders';
 import { readMenu, type MenuItem } from '@/lib/menu-server';
 import { sendOrder, payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
@@ -417,8 +417,10 @@ export async function aheadForLane(db: any, tenantId: string, tenant: any, now =
 /** Something changed (an order placed ahead went to a car, or was paid): the lane's list is read again. */
 export const aheadChanged = (tenantId: string) => { laneCache.delete(tenantId); };
 
-/** At the speaker: "I ordered ahead, code 4821." The order becomes the car's (the car's own empty order is let go), the
- *  car goes straight to pickup, and the kitchen starts if it was waiting. Without a car on screen, one is made for it. */
+/** At the speaker: "I ordered ahead, code 4821." The order goes with the car at the speaker (car.aheadId), whether it has
+ *  ordered anything yet or not, and the kitchen starts on it if it was waiting: the crew asks if they'd like anything else,
+ *  which is the car's own order, paid at the window ("Nothing else" sends the car on to pickup: aheadNothingMore). Without
+ *  a car at the speaker (the window, a pickup-only lane), a car is made for it, straight to pickup. */
 export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { orderId?: unknown; code?: unknown; carId?: unknown }, who: { id: string | null; name: string }): Promise<any> {
   const T = `tenants/${tenantId}`; const days = openDays(tenant);
   let orderId = String(b.orderId || '');
@@ -440,24 +442,51 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
     if (or.status === 'done') return fail(`Order ${or.number} was picked up already.`, 409, 'done');
     // Already with another car: only while that car is still in the lane with it (one that left, or was taken off, frees it).
     const other: any = or.ahead?.carId && or.ahead.carId !== carRef.id ? (await tx.get(db.doc(`${T}/driveThruCars/${or.ahead.carId}`))).data() : null;
-    if (other && other.stage !== 'gone' && other.orderId === orderId) return fail(`Order ${or.number} is already with a car in the lane.`, 409, 'taken');
+    if (other && other.stage !== 'gone' && (other.orderId === orderId || other.aheadId === orderId)) return fail(`Order ${or.number} is already with a car in the lane.`, 409, 'taken');
     const car: any = carId ? (await tx.get(carRef)).data() : null;
     if (carId && (!car || car.stage === 'gone')) return fail('That car isn’t in the lane any more.', 404);
-    let emptyRef: any = null;
-    if (car && car.orderId && car.orderId !== orderId) {
-      const mine: any = (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data();
-      // Only a car that hasn't ordered anything yet takes it: an order already started there stays as it is.
-      if (mine && (mine.status !== 'building' || (mine.lines || []).length)) return fail('This car already has an order. Start a new car for the order placed ahead.', 409, 'has_order');
-      if (mine) emptyRef = db.doc(`${T}/counterOrders/${car.orderId}`);
+    // Found again for the same car (a second tap): as it is.
+    if (car && (car.orderId === orderId || car.aheadId === orderId)) return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null, linked: car.aheadId === orderId, already: true };
+    const ownRef = car?.orderId ? db.doc(`${T}/counterOrders/${car.orderId}`) : null;
+    const own: any = ownRef ? (await tx.get(ownRef)).data() : null;
+    if (car) {
+      // Only a car still ordering at the speaker: one whose order is with the kitchen has moved on (a new car for it).
+      if (!own || own.status !== 'building') return fail('This car’s order is already with the kitchen. Start a new car for the order placed ahead.', 409, 'has_order');
+      if (car.aheadId) return fail('This car already has an order placed ahead with it. Start a new car for this one.', 409, 'has_ahead');
     }
     const nowS = nowIso();
-    if (emptyRef) tx.set(emptyRef, { status: 'voided', voidedAt: nowS, voidReason: 'Ordered ahead instead', carId: null }, { merge: true });
-    tx.set(carRef, { ...(car ? {} : { id: carRef.id, arrivedAt: nowS, takenBy: who.name, day: days[0] }), number: or.number, orderId, stage: 'pickup', stageAt: { ...(car?.stageAt || {}), pickup: nowS }, ahead: true, inLine: false }, { merge: true });
+    if (car) {
+      tx.set(carRef, { aheadId: orderId, aheadNumber: String(or.number || '') }, { merge: true });
+      // Their name from the order placed ahead, for the board, the window and the kitchen, unless one was given here.
+      if (!own.guestName && or.guestName) tx.set(ownRef, { guestName: or.guestName }, { merge: true });
+    } else tx.set(carRef, { id: carRef.id, arrivedAt: nowS, takenBy: who.name, day: days[0], number: or.number, orderId, stage: 'pickup', stageAt: { pickup: nowS }, ahead: true, inLine: false }, { merge: true });
     tx.set(ref, { carId: carRef.id, ahead: { carId: carRef.id, hereAt: or.ahead?.hereAt || nowS } }, { merge: true });
-    return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null };
+    return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null, linked: !!car, carNumber: car ? String(car.number || '') : String(or.number || '') };
   });
   if (r.ok) { await startNow(db, tenantId, orderId); aheadChanged(tenantId); }
   return r;
+}
+
+/** "Nothing else": the car at the speaker came only for its order placed ahead. Its own order (nothing on it) is let go,
+ *  and the car goes on to pickup with the order it paid for, under that order's number. Once they've added something,
+ *  that goes to the kitchen and is paid at the window instead. */
+export async function aheadNothingMore(db: any, tenantId: string, carId: string): Promise<any> {
+  const T = `tenants/${tenantId}`;
+  if (!ID.test(carId)) return fail('Which car?', 400);
+  const carRef = db.doc(`${T}/driveThruCars/${carId}`);
+  return db.runTransaction(async (tx: any) => {
+    const car: any = (await tx.get(carRef)).data();
+    if (!car || car.stage === 'gone') return fail('That car isn’t in the lane any more.', 404);
+    // (A second tap: already on its way to pickup.)
+    if (!car.aheadId) return car.ahead === true ? { ok: true, already: true, number: String(car.number || '') } : fail('This car has no order placed ahead with it.', 409, 'no_ahead');
+    const ownRef = ID.test(String(car.orderId || '')) ? db.doc(`${T}/counterOrders/${car.orderId}`) : null;
+    const own: any = ownRef ? (await tx.get(ownRef)).data() : null;
+    if (own && (own.status !== 'building' || (own.lines || []).length)) return fail('They added something: send it to the kitchen, and it’s paid at the window.', 409, 'has_order');
+    const nowS = nowIso();
+    if (own) tx.set(ownRef, { status: 'voided', voidedAt: nowS, voidReason: 'Ordered ahead instead', carId: null }, { merge: true });
+    tx.set(carRef, carryOn(car, nowS), { merge: true });
+    return { ok: true, number: String(car.aheadNumber || car.number || '') };
+  });
 }
 
 /** Orders placed ahead and not paid after 30 minutes are let go (the payment called off, the code free again); one paid
