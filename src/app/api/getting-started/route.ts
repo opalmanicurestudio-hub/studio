@@ -1,7 +1,8 @@
 // /api/getting-started — SET UP YOUR BUSINESS (settings/setup, steps in lib/setup-guide). Managers only.
 //   guide           → what the guide needs to know: services on the booking page, starter services still to price and
 //                     team size, plus the booking link and starter menus; for a food business (lib/food-setup) its menu
-//                     items on the menu and still to price, how it set up, and its order-ahead page
+//                     items on the menu and still to price, how it set up, and its order-ahead page; for a business that
+//                     sells (or books and chose the shop), its products priced and still to price, and its shop link
 //   starter { menu } → adds a starter menu (lib/starter-menus): hidden, no prices, until the business checks them
 //   fresh           → "I'm starting fresh": hides the moving-in card (the dashboard then shows how far setup has got)
 //   page-seen       → they've opened their booking page from the setup page
@@ -12,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { STARTER_MENUS, suggestMenu } from '@/lib/starter-menus';
-import { ALL_GUIDE_STEP_IDS } from '@/lib/setup-guide';
+import { ALL_GUIDE_STEP_IDS, guideKind } from '@/lib/setup-guide';
 import { foodAnswersOf, isFoodBusiness, kindLabel } from '@/lib/food-setup';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -74,8 +75,17 @@ export async function POST(req: NextRequest) {
     for (const d of m.docs) { const x: any = d.data() || {}; if (x.archived === true || x.isActive === false) continue;
       if (Number(x.price) > 0 && x.showInConcierge !== false) menuLive++; else if (x.createdVia === 'food-starter' && !(Number(x.price) > 0)) menuToPrice++; }
   }
+  // A business that sells (or books and chose the shop): its products with a price, and ones still waiting for one (each
+  // listing once: its sizes and colors are part of it).
+  const kind = guide ? guideKind(t) : 'book'; const shopSteps = guide && (kind === 'sell' || t.modules?.retail === true);
+  let productsPriced = 0, productsToPrice = 0, productsOnline = 0;
+  if (shopSteps) {
+    const m = await db.collection(`${T}/inventory`).where('type', '==', 'retail').select('msrp', 'status', 'parentId', 'archived', 'showOnline').limit(1000).get();
+    for (const d of m.docs) { const x: any = d.data() || {}; if (x.parentId || x.status === 'archived' || x.archived === true) continue; if (Number(x.msrp) > 0) { productsPriced++; if (x.showOnline === true) productsOnline++; } else productsToPrice++; }
+  }
   const fa = food ? foodAnswersOf(t) : null;
-  if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice, ...(food ? { menuLive, menuToPrice } : {}) }, toPrice,
+  if (guide) return j({ ok: true, facts: { livePriced: live, teamCount: team, toPrice, ...(food ? { menuLive, menuToPrice } : {}), ...(shopSteps ? { productsPriced, productsToPrice, productsOnline } : {}) }, toPrice, kind,
+    shopPath: `/shop/${encodeURIComponent(tenantId)}`,
     food: food ? { set: !!fa, kind: fa?.kind || null, label: fa ? kindLabel(fa.kind) : null, ways: fa?.ways || [], orderPath: `/order/${encodeURIComponent(tenantId)}` } : null, suggest: suggestMenu(t), starterMenu: t.movingIn?.starterMenu || null,
     menus: STARTER_MENUS.map((m) => ({ id: m.id, label: m.label, count: m.services.length })), bookingPath: `/book/${encodeURIComponent(tenantId)}` });
   return j({ ok: true, steps, done: steps.filter((x) => x.done).length, fresh: !!t.movingIn?.fresh, suggest: suggestMenu(t), starterMenu: t.movingIn?.starterMenu || null,

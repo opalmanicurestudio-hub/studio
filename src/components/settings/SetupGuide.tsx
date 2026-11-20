@@ -14,7 +14,9 @@ import { guideSteps, guideProgress, stepAfter, othersLeft, stepHref, type GuideF
 
 export interface GuideData { facts: GuideFacts; toPrice: number; suggest: string; starterMenu: string | null; menus: { id: string; label: string; count: number }[]; bookingPath: string;
   /** A food business (lib/food-setup): whether it's set up for food, as what, how guests order, and its order-ahead page. */
-  food: { set: boolean; kind: string | null; label: string | null; ways: string[]; orderPath: string } | null }
+  food: { set: boolean; kind: string | null; label: string | null; ways: string[]; orderPath: string } | null;
+  /** Which steps it goes through (lib/setup-guide guideKind), and its online shop's link. */
+  kind?: 'food' | 'sell' | 'book'; shopPath?: string }
 
 const isManagerRole = (role: any) => ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
 const notedFor = new Set<string>();
@@ -42,7 +44,7 @@ function fetchGuide(tenantId: string, force: boolean): Promise<GuideData | null>
     const r: any = await payPost('/api/getting-started', { tenantId, action: 'guide' });
     if (asked.get(tenantId) !== mine) return cache.get(tenantId)?.data || null;
     if (!r?.ok || !r.facts) { listeners.forEach((f) => f(tenantId, null)); return null; }
-    const data: GuideData = { facts: r.facts, toPrice: r.toPrice || 0, suggest: r.suggest, starterMenu: r.starterMenu, menus: r.menus || [], bookingPath: r.bookingPath, food: r.food || null };
+    const data: GuideData = { facts: r.facts, toPrice: r.toPrice || 0, suggest: r.suggest, starterMenu: r.starterMenu, menus: r.menus || [], bookingPath: r.bookingPath, food: r.food || null, kind: r.kind, shopPath: r.shopPath };
     cache.set(tenantId, { at: Date.now(), data }); listeners.forEach((f) => f(tenantId, data)); return data;
   })().finally(() => { if (flying.get(tenantId) === p) flying.delete(tenantId); });
   flying.set(tenantId, p); return p;

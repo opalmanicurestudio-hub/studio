@@ -57,9 +57,14 @@ export async function POST(req: NextRequest) {
   const businessName = String(b.businessName || '').trim().slice(0, 80);
   const type = TYPES.includes(b.type) ? b.type : 'other';
   const teamSize = b.teamSize === 'team' ? 'team' : 'solo';
+  // Whether people book time with it (lib/business-shape takesBookings): kept only when said, and never for food and
+  // drink (its own setup).
+  const books = typeof b.books === 'boolean' && type !== 'hospitality' ? b.books : null;
   // The owner's own time zone, from the device they signed up on; New York only when it can't be told. Settings changes it.
   const timezone = isValidTimeZone(String(b.timezone || '')) ? String(b.timezone).trim() : 'America/New_York';
   const tools = (Array.isArray(b.tools) ? b.tools : []).map(String).filter((t: string) => TOOL_BY_ID[t as ToolId]) as ToolId[];
+  // A business that sells: the shop's tools, whatever else was picked (they're what puts prices on its products).
+  if (books === false && !tools.includes('inventory' as ToolId)) tools.push('inventory' as ToolId);
   const code = cleanCode(b.invite);
 
   if (name.length < 2) return NextResponse.json({ ok: false, error: 'Add your name.' }, { status: 400 });
@@ -125,7 +130,7 @@ export async function POST(req: NextRequest) {
     });
     batch.set(db.doc(`tenants/${tenantId}`), {
       id: tenantId, name: businessName, userId, category: CATEGORY_FOR[type] || 'other',
-      businessType: type, teamSize, modules: toTenantModules(tools), signupTools: tools, timezone,
+      businessType: type, teamSize, ...(books !== null ? { shape: { books } } : {}), modules: toTenantModules(tools), signupTools: tools, timezone,
       subscriptionStatus: 'inactive', subscriptionTier: 'none',
       tmhr: 50, employerTaxBurdenPct: 10, createdAt: at, onboardingComplete: false,
       maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25, defaultCancellationMode: 'matrix',

@@ -1,7 +1,8 @@
 'use client';
 // src/components/settings/BusinessShapeCard.tsx — HOW YOUR BUSINESS WORKS (Settings → Business profile). What it does
-// (lib/niche), whether one person sees every client or a team does, whether someone works a front desk, and whether the
-// business keeps clients' health information. Each starts worked out (lib/business-shape) and the owner can say
+// (lib/niche), whether people book time with it or only buy (a shop: its setup then leads with products), whether one
+// person sees every client or a team does, whether someone works a front desk, and whether the business keeps clients'
+// health information. Each starts worked out (lib/business-shape) and the owner can say
 // otherwise; messages and screens then
 // fit: a one-person business is never told to "see the front desk", and a refund is "ready to pick up from Jessica".
 // Saved as you choose (tenant.niche and tenant.shape, and privacy.healthMode, the same switch as Booking policies →
@@ -13,6 +14,7 @@ import { useFirebase } from '@/firebase';
 import { Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { NICHES, nicheOf, nicheChosen } from '@/lib/niche';
 import { useBusinessShape } from '@/hooks/use-business-shape';
+import { takesBookings } from '@/lib/business-shape';
 
 export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
   const { firestore } = useFirebase() as any;
@@ -37,6 +39,11 @@ export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: str
           className={`${cfInput} min-w-[13rem] disabled:opacity-50`} style={cfInputStyle}>
           {NICHES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
         </select>
+      </Row>
+      <Row inline label="People book time with you" help={<>{takesBookings(tenant) ? 'Yes: setting up covers your services and how clients book.' : 'No, they buy: setting up leads with your products and how customers get them, instead of services and booking. Your booking page is still there if you want it.'}
+        {typeof tenant?.shape?.books !== 'boolean' ? worked('Yes until you say otherwise.') : <>{worked('You chose this.')}{reset('shape.books', 'People book time with you')}</>}</>}>
+        <span className={lock}><Choice label="People book time with you" value={takesBookings(tenant) ? 'yes' : 'no'} options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No, they buy' }]}
+          onChange={(v) => { if (canEdit && !busy) void save('shape.books', v === 'yes', v === 'yes' ? 'Saved: people book time with you.' : 'Saved: people buy from you, without booking.'); }} /></span>
       </Row>
       <Row inline label="Who sees clients" help={<>{b.solo ? 'Just you: the desk’s jobs come to you too.' : 'A team: work can pass between people.'}
         {b.guessed.solo ? worked(n != null ? `Worked out from your team (${n} ${n === 1 ? 'person' : 'people'} on it).` : 'Worked out from when you signed up.') : <>{worked('You chose this.')}{reset('shape.solo', 'Who sees clients')}</>}</>}>

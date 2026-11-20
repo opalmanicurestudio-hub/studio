@@ -37,6 +37,10 @@ function Signup() {
   const [type, setType] = useState<string>(() => { const t = sp?.get('type') || ''; return TYPES.some(([k]) => k === t) ? t : ''; });
   const [businessName, setBusinessName] = useState('');
   const [teamSize, setTeamSize] = useState<'solo' | 'team'>('solo');
+  // Whether people book time with the business (lib/business-shape takesBookings): a shop starts on "No, they buy", and
+  // its setup leads with products. Not asked of food and drink, which has its own setup.
+  const [books, setBooks] = useState<boolean | null>(null);
+  const booksNow = books ?? type !== 'shop'; const asksBooks = !!type && type !== 'hospitality';
   const [tools, setTools] = useState<ToolId[]>(() => {
     const fromUrl = String(sp?.get('tools') || '').split(',').filter((x) => TOOL_BY_ID[x as ToolId]) as ToolId[];
     return fromUrl.length ? Array.from(new Set(['booking', ...fromUrl])) as ToolId[] : (RECOMMENDED.other as ToolId[]);
@@ -72,12 +76,13 @@ function Signup() {
   };
   useEffect(() => { if (inviteOnly && invite.length >= 4) void checkInvite(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { if (type && !toolsTouched && !sp?.get('tools')) setTools(RECOMMENDED[type] as ToolId[]); }, [type, toolsTouched, sp]);
+  // What a business like this usually needs; one that sells without bookings gets the shop's tools too.
+  useEffect(() => { if (type && !toolsTouched && !sp?.get('tools')) { const rec = RECOMMENDED[type] as ToolId[]; setTools(!booksNow && !rec.includes('inventory') ? [...rec, 'inventory'] : rec); } }, [type, toolsTouched, sp, booksNow]);
 
   const label = TYPES.find(([k]) => k === type)?.[2] || '';
   const pwOk = me.password.length >= 6;
   const canNext = step === 0 ? !!type && businessName.trim().length >= 2 && (!inviteOnly || invite.trim().length >= 4) : step === 1 ? tools.length > 0 : me.name.trim().length >= 2 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(me.email) && me.phone.replace(/\D/g, '').length >= 7 && pwOk && (step < 2 || agree);
-  const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, 'Opening your booking page'], [businessName, tools.length]);
+  const steps = useMemo(() => ['Creating your account', `Setting up ${businessName.trim() || 'your business'}`, `Turning on ${tools.length} tools`, asksBooks && !booksNow ? 'Getting your shop ready' : 'Opening your booking page'], [businessName, tools.length, asksBooks, booksNow]);
 
   // Everything happens on the server (/api/signup): the invite is checked and
   // reserved, the account and business are created, and we get back a
@@ -87,7 +92,7 @@ function Signup() {
     const tick = window.setInterval(() => setBuilding((x) => (x >= 0 && x < 2 ? x + 1 : x)), 900);
     try {
       const r = await fetch('/api/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password, agreeTerms: agree, termsVersion: TERMS_VERSION,
+        body: JSON.stringify({ invite, type, businessName: businessName.trim(), teamSize, ...(asksBooks ? { books: booksNow } : {}), tools, name: me.name.trim(), email: me.email.trim(), phone: me.phone.trim(), password: me.password, agreeTerms: agree, termsVersion: TERMS_VERSION,
           timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })() }) });
       const d = await r.json().catch(() => null);
       window.clearInterval(tick);
@@ -167,6 +172,14 @@ function Signup() {
                   <button key={k} type="button" onClick={() => setTeamSize(k)} aria-pressed={teamSize === k} className={`h-12 rounded-2xl text-sm ${teamSize === k ? 'bg-stone-900 text-white' : 'glass text-stone-700'}`}>{l}</button>
                 ))}
               </div>
+              {asksBooks && <div role="group" aria-labelledby="books-q">
+                <p id="books-q" className="mb-2 mt-1 px-1 text-[14px] font-medium text-stone-800">Do people book time with you?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([[true, 'Yes, they book'], [false, 'No, they buy']] as const).map(([k, l]) => (
+                    <button key={l} type="button" onClick={() => setBooks(k)} aria-pressed={booksNow === k} className={`h-12 rounded-2xl text-sm ${booksNow === k ? 'bg-stone-900 text-white' : 'glass text-stone-700'}`}>{l}</button>
+                  ))}
+                </div>
+              </div>}
             </div>
           )}
 

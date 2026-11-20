@@ -14,7 +14,7 @@ const none = { livePriced: 0, teamCount: 1 };
 const solo = { modules: { retail: false, team: false } };
 const shop = { modules: { retail: true, team: true } };
 ok(ids(guideSteps(solo, none)) === 'details,hours,services,payments,booking,changes,messages', 'a business without a shop or a team sees only the steps it needs');
-ok(ids(guideSteps(shop, none)) === 'details,hours,services,payments,booking,changes,messages,shop,team', 'the shop and team steps join when those tools are on');
+ok(ids(guideSteps(shop, none)) === 'details,hours,services,products,payments,booking,changes,messages,shop,open,team', 'the shop and team steps join when those tools are on (a shop chosen on purpose brings its products and opening too: seller-setup.verify)');
 ok(GUIDE_STEPS.every((s) => fs.existsSync(`src/app/(app)${s.href.split(/[?#]/)[0] === '/' ? '' : s.href.split(/[?#]/)[0]}/page.tsx`)), 'every step opens a page that exists');
 
 // When a step is done
@@ -73,7 +73,7 @@ const page = src('src/app/(app)/settings/setup/page.tsx');
 ok(page.includes('const hidden = !!(selectedTenant?.setupGuide?.hidden || selectedTenant?.setupGuide?.finishedAt);') && page.includes('aria-disabled={hideBusy}'), 'the hide button says Show whenever the guide is off Settings, and keeps keyboard focus while it saves');
 ok(page.includes('role="progressbar"') && page.includes('aria-valuenow={p.doneCount}'), 'progress is a real progress bar');
 ok(page.includes('g.data.facts.livePriced === 0') && page.includes('Prices are left to you'), 'a starter menu is offered only while nothing is on the booking page, and never sets prices');
-ok(page.includes('download="booking-qr.png"') && page.includes('Copy link'), 'the booking link can be copied or saved as a QR code');
+ok(page.includes(`download={sell ? 'shop-qr.png' : 'booking-qr.png'}`) && page.includes('Copy link'), 'the booking link (a seller’s shop link) can be copied or saved as a QR code');
 ok(page.includes('Setting up the business is for owners and managers.') && page.includes("!g.ready ? <p className=\"text-[15px]\" style={{ color: C.muted }}>Loading…</p>"), 'anyone else is told who it’s for, but not while the business is still loading');
 ok(page.includes('Your steps didn’t load.') && page.includes('Try again') && bar.includes('failed: !!failed && failed === tenantId && !data'), 'if the steps don’t load, the page says so and offers to try again');
 ok(page.includes("setQr(null); setMenu(''); setMsg(''); setCopied(false); }, [tenantId]);"), 'switching business clears the other business’s QR code and messages');

@@ -1,7 +1,7 @@
 // src/lib/business-shape.ts — HOW THE BUSINESS WORKS (client and server safe). One person who sees every client and is
 // also the desk, or a team; someone at a front desk or not; health information kept or not. Each is worked out from what
 // the app can see (who's on the team, a front desk role, the kind of business), and the business can say otherwise in
-// Settings → Business profile → How your business works (tenant.shape { solo?, desk? }; health is privacy.healthMode).
+// Settings → Business profile → How your business works (tenant.shape { solo?, desk?, books? }; health is privacy.healthMode).
 // Screens and messages read it here, and say "from Jessica" or "at the front desk" to match, instead of assuming a team
 // with a front desk. Where a visit happens (the studio, the client's place, online, by phone) is the service's own
 // (lib/service-place) and is read from the visit.
@@ -72,6 +72,11 @@ export async function inPersonFromDb(db: any, tenantId: string, tenant?: any, wh
   try { const t = tenant || (await db.doc(`tenants/${tenantId}`).get()).data() || {}; return inPerson(publicShape(await shapeFromDb(db, tenantId, t)), who); }
   catch { return 'the front desk'; }
 }
+
+/** Whether people book time with the business (tenant.shape.books, asked at sign-up and in How your business works). A
+ *  shop that only sells says no, and setting up leads with its products and how customers get them (lib/setup-guide).
+ *  Not said: yes, as every business always was (nothing is taken away on a guess). */
+export const takesBookings = (tenant: any): boolean => tenant?.shape?.books !== false;
 
 /** What a client's page needs to word things (never the team list). */
 export const publicShape = (b: BusinessShape) => ({ solo: b.solo, desk: b.desk, person: b.person });
