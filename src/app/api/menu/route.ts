@@ -55,7 +55,7 @@ import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/li
 import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, CHANNELS } from '@/lib/counter-orders';
-import { agentOf } from '@/lib/drive-thru-voice';
+import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
 import { nudgeSettingsOf, NUDGE_KEYS } from '@/lib/nudges';
@@ -76,6 +76,7 @@ import { measuresFor, toStockUnits, hasYield, yieldOf, perEachOf } from '@/lib/k
 import { prepOf, isPrep } from '@/lib/prep-recipes';
 import { linesCost, partUnitCost } from '@/lib/food-cost';
 import { unitLabel } from '@/lib/product-cost';
+import { voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest) {
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
       return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
-        voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false,
+        voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
     }
@@ -173,13 +174,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'voice') {
-      const patch: Record<string, boolean> = {};
+      const patch: Record<string, boolean | string> = {};
       if (typeof b.on === 'boolean') patch.voice = b.on;
       if (typeof b.askName === 'boolean') patch.askName = b.askName;
+      // How often it offers what each item offers (lib/voice-offer): with each item, once per order, or never.
+      if (b.offers !== undefined) { if (!['item', 'order', 'off'].includes(String(b.offers))) return bad('With each item, once per order, or not at all?'); patch.offers = String(b.offers); }
       if (!Object.keys(patch).length) return bad('On or off?');
       await db.doc(`tenants/${tenantId}`).set({ driveThru: patch }, { merge: true });
       const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      return ok({ on: td.driveThru?.voice !== false, askName: td.driveThru?.askName !== false });
+      return ok({ on: td.driveThru?.voice !== false, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td) });
     }
 
     if (action === 'voiceUpdate') {

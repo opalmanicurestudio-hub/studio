@@ -31,6 +31,7 @@ import { NewItemSheet } from '@/components/menu/NewItemSheet';
 import { ChoiceSetsPanel } from '@/components/menu/ChoiceSetsPanel';
 import { ItemBuilder } from '@/components/menu/ItemBuilder';
 import type { SetPick } from '@/components/menu/ChoicesEditor';
+import { VOICE_OFFER_MODES, type VoiceOfferMode } from '@/lib/voice-offer';
 
 // The page's three parts: the items first; the choice sets they share; and the settings (ordering ahead, menus by time
 // of day, table service, service times, prep recipes). A link to one of the settings (/menu#order-ahead) opens Settings.
@@ -85,7 +86,7 @@ export default function MenuPage() {
   const [adding, setAdding] = useState(false);
   // An item just made opens on its sizes (its name, section and price were just given).
   const [fresh, setFresh] = useState(false);
-  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; outdated?: boolean } | null>(null);
+  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; offers?: VoiceOfferMode; offersReady?: boolean; outdated?: boolean } | null>(null);
   const [sets, setSets] = useState<SetPick[]>([]);
   const [tab, setTabState] = useState<Tab>(() => { try { const h = window.location.hash.slice(1); if (SETTINGS_IDS.includes(h)) return 'settings'; const t = new URLSearchParams(window.location.search).get('tab'); return t === 'sets' || t === 'settings' ? t : 'items'; } catch { return 'items'; } });
   const [openSet, setOpenSet] = useState<string | null>(null);
@@ -116,6 +117,12 @@ export default function MenuPage() {
   const setAskName = async (askName: boolean) => {
     const was = voice; setVoice((v) => (v ? { ...v, askName } : v)); setBusy('askName'); setErr('');
     const d = await call({ action: 'voice', askName });
+    setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); }
+  };
+  // How often the assistant offers what each item offers (lib/voice-offer).
+  const setOffers = async (offers: VoiceOfferMode) => {
+    const was = voice; setVoice((v) => (v ? { ...v, offers } : v)); setBusy('offers'); setErr('');
+    const d = await call({ action: 'voice', offers });
     setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); }
   };
   const updateVoice = async () => {
@@ -214,7 +221,7 @@ export default function MenuPage() {
               )}
               {voice?.setUp && voice.outdated && (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT }}>
-                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it asks for a name and keeps it short when the line is long.</span>
+                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it offers a bigger size or something to go with it, only as you choose below, and can make what was just ordered bigger.</span>
                   <button type="button" onClick={updateVoice} disabled={busy === 'voiceUpdate'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voiceUpdate' ? 'Updating…' : 'Update the assistant'}</button>
                 </div>
               )}
@@ -223,6 +230,17 @@ export default function MenuPage() {
                   <span><span className="block text-[15px] font-medium">Ask each car for a first name</span>
                     <span className="block text-[13px]" style={{ color: MUTED }}>The assistant asks once, near the end. The name shows on the lane, the order board and the kitchen ticket.</span></span>
                   <Switch on={voice.askName !== false} label="Ask each car for a first name" busy={busy === 'askName'} onClick={() => setAskName(voice.askName === false)} color={GREEN} />
+                </div>
+              )}
+              {voice?.setUp && (
+                <div role="group" aria-labelledby="voice-offers" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span id="voice-offers" className="block text-[15px] font-medium">What the assistant offers</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>A bigger size or something to go with it, from what each item offers under Offered at the end. One short question, never while the line is long.{voice.offersReady === false ? (voice.outdated ? ' Update the assistant first: until then it doesn’t offer.' : ' This assistant doesn’t offer yet.') : ''}</span></span>
+                  <span className="flex flex-wrap gap-2">
+                    {VOICE_OFFER_MODES.map((o) => { const on = (voice.offers || 'item') === o.value; return (
+                      <button key={o.value} type="button" aria-pressed={on} aria-disabled={busy === 'offers'} onClick={() => { if (!on && busy !== 'offers') void setOffers(o.value); }} className={`${BTN} aria-disabled:opacity-50`}
+                        style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{o.label}</button>); })}
+                  </span>
                 </div>
               )}
             </div>}

@@ -6,7 +6,10 @@
 //   other voice tools). The order is found from the call itself (driveThruCalls/{call_id}, made when the call started),
 //   never from anything the assistant says, so it can only ever change the order of the car it's talking to.
 //   get_menu            → what can be ordered right now, with prices and choices
-//   add_item            { item, quantity?, choices?[] } → added, or a question back ("Which size: ...?")
+//   add_item            { item, quantity?, choices?[] } → added, or a question back ("Which size: ...?"); once added,
+//                         what to offer with it, as the business chose (lib/voice-offer), kept on the call so each thing
+//                         is offered once
+//   size_up             { item? } → what was just added in the next size up, when its item offers one
 //   remove_item         { item, quantity? } → taken off (or fewer of it)
 //   change_quantity     { item, quantity } → how many of something already on the order
 //   set_name            { name } → the guest's first name on the order (lib/counter-server setOrderName)
@@ -23,6 +26,8 @@ import { readMenu } from '@/lib/menu-server';
 import { editOrder, sendOrder, setOrderName, cleanName } from '@/lib/counter-server';
 import { readBack } from '@/lib/counter-orders';
 import { askFor, matchChoices, matchItem, menuForVoice, words } from '@/lib/voice-order';
+import { offerInstruction, voiceOffer, voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
+import { assistantVersion } from '@/lib/drive-thru-voice';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -114,9 +119,48 @@ export async function POST(req: NextRequest) {
       }
       if (c.ask) return reply({ result: `Ask: ${askFor(c.ask)} Then add it again with their answer.`, ask: true, ...summary(order) });
       const q = Math.max(1, Math.min(20, Math.floor(Number(args?.quantity) || 1)));
-      const r: any = await editOrder(db, tenantId, tenant, orderId, { action: 'add', itemId: m.item.id, quantity: q, choices: c.picks, tapKey });
+      // Something it was just offered: marked as taken from an offer (lib/counter-server checks the menu offers it).
+      const fromOffer = Array.isArray(call.lastOffer) && call.lastOffer.includes(m.item.id);
+      const r: any = await editOrder(db, tenantId, tenant, orderId, { action: 'add', itemId: m.item.id, quantity: q, choices: c.picks, tapKey, ...(fromOffer ? { offer: 'item' } : {}) });
       if (r.error) return reply({ result: `${r.error} Tell the guest.`, ...summary(order) });
-      return reply({ result: `Added ${q > 1 ? `${q} ` : ''}${r.line?.name || m.item.name}${r.line?.choicesText ? `, ${r.line.choicesText}` : ''}. Ask if there’s anything else.`, ...summary(r.order) });
+      const added = `Added ${q > 1 ? `${q} ` : ''}${r.line?.name || m.item.name}${r.line?.choicesText ? `, ${r.line.choicesText}` : ''}.`;
+      // What to offer with it (never with something it was just offered; only by an assistant that knows how), decided
+      // against the call as it is now, in one step: two adds in one breath never both offer when once per order was
+      // chosen, and what was just added (for size_up) is the last one made. The same tool call sent again (nothing new
+      // added) changes nothing kept, and says the offer it made the first time again, in case that answer was lost.
+      const canOffer = !fromOffer && assistantVersion(tenant) >= VOICE_OFFERS_FROM;
+      const callRef = db.doc(`driveThruCalls/${retellCallId}`);
+      const offerSaid = await db.runTransaction(async (tx: any) => {
+        const now: any = (await tx.get(callRef)).data() || {};
+        if (!r.line) return now.lastOfferFor === m.item.id && typeof now.lastOfferText === 'string' ? { text: now.lastOfferText, say: String(now.lastOfferSay || '') } : null;
+        const offered: string[] = Array.isArray(now.offered) ? now.offered.map(String) : [];
+        const offer = canOffer ? voiceOffer({ mode: voiceOfferMode(tenant), busy: now.busy === true, offered, item: m.item, picks: c.picks, quantity: q, menu,
+          have: (id) => (r.order?.lines || []).some((l: any) => l.itemId === id) }) : null;
+        tx.set(callRef, { lastAdd: { lineId: r.line.lineId, itemId: m.item.id, quantity: q },
+          ...(offer ? { offered: [...offered, m.item.id].slice(-60), lastOffer: offer.items.map((x) => x.id), lastOfferFor: m.item.id, lastOfferSay: offer.say, lastOfferText: offerInstruction(offer), lastOfferAt: new Date().toISOString() }
+            : fromOffer ? {} : { lastOffer: [], lastOfferFor: null }) }, { merge: true });
+        return offer ? { text: offerInstruction(offer), say: offer.say } : null;
+      });
+      return reply({ result: offerSaid ? `${added} ${offerSaid.text}` : `${added} Ask if there’s anything else.`, ...(offerSaid ? { offer: offerSaid.say } : {}), ...summary(r.order) });
+    }
+
+    if (name === 'size_up') {
+      // The same tool call sent again: already done (the line it moved may be gone), so it's said as done.
+      if (Array.isArray(order.taps) && order.taps.includes(tapKey)) return reply({ result: 'Made it bigger. Ask if there’s anything else.', ...summary(order) });
+      // What was just added (said again, or not said at all), else the one line of what they said.
+      const spoken = said(args?.item); const last = call.lastAdd && typeof call.lastAdd === 'object' ? call.lastAdd : null;
+      const lines: any[] = Array.isArray(order.lines) ? order.lines : [];
+      const lastLine = last ? lines.find((l) => l.lineId === last.lineId) : null;
+      const m: any = spoken ? matchItem(menu, spoken) : null;
+      const useLast = lastLine && (!spoken || m?.item?.id === lastLine.itemId);
+      const found = useLast ? [lastLine] : spoken ? lineFor(spoken) : [];
+      if (!found.length) return reply({ result: 'Ask which item they want bigger.', ask: true, ...summary(order) });
+      if (found.length > 1) return reply({ result: `Ask which one: ${found.map((l: any) => `${l.name}${l.choicesText ? `, ${l.choicesText}` : ''}`).join(', or ')}.`, ask: true, ...summary(order) });
+      const l = found[0]; const q = useLast ? Math.min(l.quantity, Math.max(1, Math.floor(Number(last.quantity)) || l.quantity)) : l.quantity;
+      const r: any = await editOrder(db, tenantId, tenant, orderId, { action: 'sizeUp', lineId: l.lineId, quantity: q, tapKey });
+      if (r.error) return reply({ result: `${/no bigger size/.test(r.error) ? `There’s no bigger size of the ${l.name}.` : r.error} Tell the guest, and ask if there’s anything else.`, ...summary(order) });
+      if (useLast && r.line) await db.doc(`driveThruCalls/${retellCallId}`).set({ lastAdd: { lineId: r.line.lineId, itemId: l.itemId, quantity: q } }, { merge: true });
+      return reply({ result: `Made it ${r.line?.choicesText ? `${r.line.name}, ${r.line.choicesText}` : 'the bigger size'}. Ask if there’s anything else.`, ...summary(r.order) });
     }
 
     if (name === 'remove_item' || name === 'change_quantity') {

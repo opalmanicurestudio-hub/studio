@@ -8,6 +8,11 @@ const CALL = /^[A-Za-z0-9_-]{6,128}$/;
 
 /** The assistant this business uses: its own, or the one set up for every business. */
 export const agentOf = (tenant: any) => String(tenant?.driveThru?.voiceAgentId || process.env.RETELL_DRIVETHRU_AGENT_ID || '').trim();
+/** Which version of the instructions and tools the assistant in use was made with (lib/drive-thru-voice-setup
+ *  VOICE_VERSION): the business's own, as kept when it was made or updated, or the one set up for every business, as
+ *  said where it's set (RETELL_DRIVETHRU_AGENT_VERSION). Not known: 1. What a newer one can do (offers, size up) is only
+ *  asked of an assistant that has it. */
+export const assistantVersion = (tenant: any): number => Math.floor(Number(String(tenant?.driveThru?.voiceAgentId || '').trim() ? tenant?.driveThru?.voiceVersion : process.env.RETELL_DRIVETHRU_AGENT_VERSION) || 1);
 /** On here: the service's key and an assistant are set, and the business hasn't switched it off. */
 export const voiceOn = (tenant: any) => !!process.env.RETELL_API_KEY && !!agentOf(tenant) && tenant?.driveThru?.voice !== false;
 

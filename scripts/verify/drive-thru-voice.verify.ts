@@ -355,7 +355,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
     && llm?.body?.general_tools?.some((t: any) => t.type === 'end_call') && agent?.body?.response_engine?.llm_id === 'llm_new1' && (await get(T)).driveThru.voiceAgentId === 'agent_new1' && llm.auth === 'Bearer key_secret_123', { body: r.body, llm, agent });
   r = await V({ action: 'config' });
   check('…and it’s on', r.body.on === true, r.body);
-  check('…made with the newest instructions: it asks for a name, has a rush mode, and can save a name', (await get(T)).driveThru.voiceVersion === 2 && /\{\{ask_name\}\}/.test(llm?.body?.general_prompt) && /\{\{busy\}\}/.test(llm?.body?.general_prompt)
+  check('…made with the newest instructions: it asks for a name, has a rush mode, and can save a name (and size up: counter-offers.verify)', (await get(T)).driveThru.voiceVersion === 3 && /\{\{ask_name\}\}/.test(llm?.body?.general_prompt) && /\{\{busy\}\}/.test(llm?.body?.general_prompt)
     && !!llm?.body?.general_tools?.some((t: any) => t.name === 'set_name') && llm?.body?.default_dynamic_variables?.ask_name === 'yes');
   r = await menuApi(req({ action: 'list', tenantId: 't1' }));
   check('…so it isn’t offered an update', r.body.voice.outdated === false && r.body.voice.askName === true, r.body.voice);
@@ -365,7 +365,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   calls = [];
   r = await menuApi(req({ action: 'voiceUpdate', tenantId: 't1' }));
   const patch = calls.find((c) => c.url.includes('/update-retell-llm/llm_new1'));
-  check('…one tap brings it up to date with the same instructions and tools a new one gets', r.body.ok && patch?.method === 'PATCH' && patch.body.general_tools.some((t: any) => t.name === 'set_name') && (await get(T)).driveThru.voiceVersion === 2, { body: r.body, patch });
+  check('…one tap brings it up to date with the same instructions and tools a new one gets', r.body.ok && patch?.method === 'PATCH' && patch.body.general_tools.some((t: any) => t.name === 'set_name') && patch.body.general_tools.some((t: any) => t.name === 'size_up') && (await get(T)).driveThru.voiceVersion === 3, { body: r.body, patch });
   r = await menuApi(req({ action: 'voice', tenantId: 't1', askName: false }));
   check('a manager switches off asking for names', r.body.ok && r.body.askName === false && (await get(T)).driveThru.askName === false, r.body);
   await menuApi(req({ action: 'voice', tenantId: 't1', askName: true }));

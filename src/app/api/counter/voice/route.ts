@@ -120,14 +120,14 @@ export async function POST(req: NextRequest) {
       });
       if (claim.error) return bad(claim.error, claim.status);
       // From here, anything that goes wrong leaves the car able to be greeted again (never stuck "starting").
-      let r: { status: number; data: any };
+      let r: { status: number; data: any }; let busy = false;
       try {
         const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
         const menu = menuForVoice(menuItems);
         // A long line (this many cars in it, counting this one) puts the assistant in rush mode: no suggestions, a short
         // read-back. Only cars that arrived in the last three hours count, so one left behind yesterday never does.
         const others = inLineNow(laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter(atDriveThru), Date.now(), carId);
-        const busy = others + 1 >= RUSH_CARS;
+        busy = others + 1 >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),
           retell_llm_dynamic_variables: { business_name: String(tenant.name || tenant.businessName || 'our drive-thru').slice(0, 80), order_number: String(claim.car.number || ''), menu: menu.slice(0, 12000),
@@ -143,7 +143,8 @@ export async function POST(req: NextRequest) {
       }
       const callId = String(r.data.call_id);
       await Promise.all([
-        db.doc(`driveThruCalls/${callId}`).set({ callId, tenantId, carId, orderId: claim.car.orderId, number: claim.car.number, startedAt: nowIso, status: 'live' }),
+        // (Whether the line was long when it started: the assistant offers nothing more then, lib/voice-offer.)
+        db.doc(`driveThruCalls/${callId}`).set({ callId, tenantId, carId, orderId: claim.car.orderId, number: claim.car.number, startedAt: nowIso, status: 'live', busy }),
         carRef.set({ voice: { status: 'live', callId, at: nowIso, startedAt: nowIso } }, { merge: true }),
       ]);
       // Only what the browser kit needs to join the call.
