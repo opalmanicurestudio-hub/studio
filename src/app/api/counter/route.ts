@@ -10,8 +10,11 @@
 //                                                      else): the newest car's order as it's built, nothing else
 //   car    { tenantId, key, carKey? }               → a car at the speaker: its number and an empty order (the same
 //                                                      carKey sent twice is the same car)
-//   add    { tenantId, key, orderId, itemId, quantity?, choices?, tapKey? } → a line, priced from the menu (the
-//                                                      same tapKey twice adds it once)
+//   add    { tenantId, key, orderId, itemId, quantity?, choices?, tapKey?, offer? } → a line, priced from the menu (the
+//                                                      same tapKey twice adds it once); offer 'item': taken from what
+//                                                      the last thing added offers (components/menu/OfferAsk)
+//   sizeUp { tenantId, key, orderId, lineId, quantity?, tapKey? } → that many of the line in the next size up, when its
+//                                                      item offers one (lib/menu-upgrades), priced from the menu
 //   remove { tenantId, key, orderId, lineId, tapKey? }  ·  qty { tenantId, key, orderId, lineId, quantity, tapKey? }
 //   send   { tenantId, key, orderId, toGo? }        → to the kitchen: one ticket a line, due by the channel's target
 //                                                      (the drive-thru's is the tightest); stock and recipe parts once;
@@ -105,7 +108,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'menuBoard', 'points', 'call', 'staffMeal'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -139,7 +142,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'move', 'call', 'looks', 'here', 'staffMeal'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'move', 'call', 'looks', 'here', 'staffMeal'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -509,10 +512,12 @@ export async function POST(req: NextRequest) {
     const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
     const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
 
-    if (action === 'add' || action === 'remove' || action === 'qty') {
-      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey }
+    if (action === 'add' || action === 'sizeUp' || action === 'remove' || action === 'qty') {
+      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer }
+        : action === 'sizeUp' ? { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey }
         : action === 'remove' ? { action, lineId: String(b.lineId || ''), tapKey: b.tapKey } : { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey });
-      return r.error ? bad(r.error, r.status) : ok({ order: r.order, staffOk });
+      // The line it went on (an add can join a line already there), for what to offer with it (components/menu/OfferAsk).
+      return r.error ? bad(r.error, r.status) : ok({ order: r.order, line: r.line ? { lineId: r.line.lineId } : null, staffOk });
     }
 
     if (action === 'name') {

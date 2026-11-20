@@ -13,6 +13,7 @@ import { useTenant } from '@/context/TenantContext';
 import { send } from '@/lib/outbox';
 import { useKeepPage } from '@/components/pwa/keep-page';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
 import { PinPad } from '@/components/kitchen/PinPad';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
@@ -30,7 +31,7 @@ const READER_KEY = 'cf.counter.reader';
 const ON_READER = ['starting', 'on_reader', 'capturing'];
 
 type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean };
-type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean };
+type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item' };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
   kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null };
@@ -91,6 +92,8 @@ export default function CounterPage() {
   const [notice, setNotice] = useState<{ text: string; tone: 'good' | 'warn' } | null>(null);
   const [picked, setPicked] = useState<string | null>(null); const [busy, setBusy] = useState<string | null>(null);
   const [section, setSection] = useState(''); const [choiceFor, setChoiceFor] = useState<Item | null>(null);
+  // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
+  const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [name, setName] = useState(''); const [cash, setCash] = useState<string | null>(null);
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
@@ -129,7 +132,7 @@ export default function CounterPage() {
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
@@ -141,11 +144,17 @@ export default function CounterPage() {
     finally { acted.current++; setBusy(null); void load(); }
   };
   const nextGuest = () => act('car', { action: 'car', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
-  const add = (m: Item, picks: Picks = {}, quantity = 1) => order && act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid() });
-  const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } if (m.choices.length) setChoiceFor(m); else add(m); };
-  const setQty = (l: Line, q: number) => order && act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: rid() } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: rid() });
+  // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
+  const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item') => order && act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}) },
+    (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)));
+  const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
+  const takeOffer = (m: Item) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
+  const sizeUp = () => order && just && act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: rid() },
+    (d) => setJust((j) => (j ? { ...j, sized: true, took: true, lineId: d.line?.lineId || j.lineId } : j)));
+  // Anything else changed on the order closes what was being offered.
+  const setQty = (l: Line, q: number) => { if (!order) return; setJust(null); void act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: rid() } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: rid() }); };
   const saveName = () => { if (order && name.trim() !== (order.guestName || '')) void post({ action: 'name', orderId: order.id, name: name.trim() }); };
-  const sendIt = () => order && act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' }));
+  const sendIt = () => { if (!order) return; setJust(null); void act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' })); };
   // A manager's: one signed in here goes straight through; anyone else is asked for a manager's PIN.
   const staffDone = (d: any) => { setStaffFor(null); setStaffPin(false); setNotice({ text: `${order?.number}: a staff meal for ${d.for}${d.approvedBy ? `, rung in by ${d.approvedBy}` : ''}. Nothing to take.`, tone: 'good' }); };
   const staffMeal = () => order && staffFor && staffFor.trim() && act('staff', { action: 'staffMeal', orderId: order.id, for: staffFor.trim() }, staffDone, (d) => { if (!d.needsManager) return false; setStaffPin(true); return true; });
@@ -159,7 +168,7 @@ export default function CounterPage() {
   const pay = (method: 'cash' | 'card', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}) }, (d) => setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' }));
   const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id });
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => setNotice(d.state === 'paid' ? { text: 'The card went through, so it’s paid.', tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' }));
-  const cancel = () => order && act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `${order.number} was dropped.`, tone: 'good' }));
+  const cancel = () => { if (!order) return; setJust(null); void act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `${order.number} was dropped.`, tone: 'good' })); };
   const call = (g: Guest, o?: Order) => { sayOut(g.number, o?.guestName); void act(`call-${g.id}`, { action: 'call', carId: g.id }); };
   const handOver = (g: Guest) => act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${g.number} was handed over.`, tone: 'good' }));
   useEffect(() => {
@@ -215,7 +224,7 @@ export default function CounterPage() {
             {order.lines.length === 0 ? <p className="rounded-2xl px-3 py-5 text-center text-[14px]" style={{ background: SOFT, color: MUTED }}>Tap the menu to add to the order.</p>
               : <ul className="space-y-2">{order.lines.map((l) => (
                 <li key={l.lineId} className="flex items-center justify-between gap-2 text-[14px]">
-                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}</span>
+                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
                     <span className="w-6 text-center tabular-nums">{l.quantity}</span>
@@ -223,6 +232,8 @@ export default function CounterPage() {
                     <span className="w-16 text-right tabular-nums">{usd(l.unitPrice * l.quantity)}</span>
                   </span>
                 </li>))}</ul>}
+            {order.status === 'building' && <OfferAsk just={just} orderId={order.id} item={menu.find((m) => m.id === just?.itemId)} find={(id) => menu.find((m) => m.id === id && !m.off && !outWords(m))}
+              have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} />}
             <div className="space-y-1 border-t pt-3 text-[14px]" style={{ borderColor: LINE }}>
               <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{usd(order.tax)}</span></div>
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.total)}</span></div>
@@ -277,6 +288,6 @@ export default function CounterPage() {
       </section>
     </main>
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
-    {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q); setChoiceFor(null); }} />}
+    {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
   </>);
 }

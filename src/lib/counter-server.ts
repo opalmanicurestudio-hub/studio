@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
 import { itemSoldOut, picksOf, priceChoices, type Picks } from '@/lib/menu-choices';
 import { isMenuItem } from '@/lib/menu-server';
+import { nextSize, offerOf, sizedUp, upgradesOf } from '@/lib/menu-upgrades';
 import { recipeOf, ingredientLeft, ingredientUnit, needsOf, type RecipeLine } from '@/lib/menu-stock';
 import { madeWith } from '@/lib/choice-recipe';
 import { extrasOf, itemExtras, modeOf, orderExtras } from '@/lib/plate-extras';
@@ -97,8 +98,9 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
   });
 }
 
-export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown }
-  | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown };
+export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown }
+  | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
+  | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown };
 
 /** One change to an order still being taken. One tap is one change, however many times it's sent (tapKey), and a tap
  *  that arrives after the order went to the kitchen is answered with the order as it is, not an error. */
@@ -121,9 +123,40 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant });
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
-      // The same item with the same choices is one line with more of it.
+      // Taken as an offer, right after something else was added (components/menu/OfferAsk): marked only where another
+      // line's item offers it (lib/menu-upgrades offerOf), for how often offers are taken. Prices never depend on it.
+      if (op.offer === 'item') {
+        const others = Array.from(new Set(lines.map((l) => l.itemId).filter((id) => id !== made.line.itemId))).slice(0, 40);
+        const docs = await Promise.all(others.map((id) => tx.get(db.doc(`${T}/inventory/${id}`))));
+        if (offerOf('item', { id: made.line.itemId }, {}, docs.map((d: any, k: number) => ({ id: others[k], upgrades: d.data()?.upgrades }))) === 'item') made.line.offer = 'item';
+      }
+      // The same item with the same choices is one line with more of it (taken as an offer stays marked).
       const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice);
-      lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity) } : l)) : [...lines, made.line];
+      lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity), ...(l.offer || made.line.offer ? { offer: l.offer || made.line.offer } : {}) } : l)) : [...lines, made.line];
+      line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
+    } else if (op.action === 'sizeUp') {
+      // The next size up, for what was just added (`quantity` of the line, at most all of it): only when its item offers a
+      // size up (lib/menu-upgrades), priced from the menu like any line. The rest of the line stays as it was.
+      const old = lines.find((l) => l.lineId === String(op.lineId || '')); if (!old) return { error: 'That isn’t on the order.', status: 404 };
+      const it: any = (await tx.get(db.doc(`${T}/inventory/${old.itemId}`))).data();
+      const picks = picksOf(old.choices);
+      const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
+      if (!up) return { error: `There’s no bigger size of ${old.name} to offer.`, status: 409 };
+      const q = Math.min(old.quantity, Math.max(1, Math.floor(num(op.quantity)) || old.quantity));
+      const made = lineFor(it, old.itemId, q, sizedUp(picks, up), randomBytes(5).toString('hex'), { tenant });
+      if (!made.ok) return { error: made.error, status: 400 };
+      made.line.offer = 'size';
+      // Into a line already in that size, only when all of them fit (20 on a line: one tap is all of it or nothing); a new
+      // line only while the order has room for one.
+      const same = lines.find((l) => l !== old && l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice);
+      if (same && same.quantity + q > 20) return { error: 'That’s as many as one line takes. Send this one, and start another.', status: 400 };
+      if (!same && old.quantity > q && lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
+      made.line.quantity = q;
+      const at = lines.indexOf(old);
+      let rest = lines.map((l) => (l === old ? { ...l, quantity: l.quantity - q } : l));
+      if (same) rest = rest.map((l) => (l.lineId === same.lineId ? { ...l, quantity: l.quantity + q, offer: l.offer || 'size' } : l));
+      else rest.splice(at + 1, 0, made.line);   // just after the line it came from, where the team is looking
+      lines = rest.filter((l) => l.quantity > 0);
       line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
     } else {
       const lineId = String(op.lineId || ''); if (!lines.some((l) => l.lineId === lineId)) return { error: 'That isn’t on the order.', status: 404 };

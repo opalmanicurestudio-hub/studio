@@ -17,6 +17,7 @@ import { getAuth, signOut } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
 import { Car, CreditCard, Mic, Minus, Plus, QrCode, Volume2, VolumeX } from 'lucide-react';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
 import { PinPad, type ScreenStaff } from '@/components/kitchen/PinPad';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 import { VoiceBar, useOnTheSpeakerHere, type CarVoice } from '@/components/drive-thru/VoiceBar';
@@ -31,7 +32,7 @@ const POLL_MS = 2000;
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
-type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null };
+type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item' };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null; points?: { phone: string; earned: number } | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
   // The card reader's payment for it (lib/counter-card), if one was started.
@@ -192,6 +193,8 @@ export default function DriveThru() {
   const [picked, setPicked] = useState<string | null>(null);
   const [section, setSection] = useState<string | null>(null);
   const [choiceFor, setChoiceFor] = useState<LaneItem | null>(null);
+  // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
+  const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [staff, setStaff] = useState<ScreenStaff | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -388,16 +391,24 @@ export default function DriveThru() {
     setLane((l) => (l ? { ...l, cars: [...l.cars.filter((c) => c.id !== d.carId), { id: d.carId, number: d.number, stage: 'speaker', arrivedAt: new Date(Date.now() + skew).toISOString(), stageAt: {}, orderId: d.orderId, takenBy: null, spot: null, ...(line ? { inLine: true, looks: line.looks } : {}) }],
       orders: { ...l.orders, [d.orderId]: l.orders[d.orderId] || { id: d.orderId, number: d.number, status: 'building', lines: [], subtotal: 0, tax: 0, taxLabel: 'Tax', total: 0, paidAt: null, payMethod: null, sentAt: null, dueAt: null, kitchen: 'not sent', waitingOn: [], readyCount: 0, ticketCount: 0 } } } : l));
   }, 'car');
-  const add = (m: MenuItem, picks: Picks = {}, quantity = 1) => {
-    if (!order) return; const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}`;
-    void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig) }, undefined, sig);
+  // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
+  const add = (m: MenuItem, picks: Picks = {}, quantity = 1, offer?: 'item') => {
+    if (!order) return; const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}`; const forOrder = order.id;
+    void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig), ...(offer ? { offer } : {}) },
+      (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: forOrder, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)), sig);
   };
-  const tapItem = (m: LaneItem) => { if (m.choices.length) setChoiceFor(m); else add(m); };
+  const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
+  const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
+  const sizeUp = () => {
+    if (!order || !just) return; const sig = `size|${just.lineId}|${just.quantity}`;
+    void act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: keyFor(sig) }, (d) => setJust((j) => (j ? { ...j, sized: true, took: true, lineId: d.line?.lineId || j.lineId } : j)), sig);
+  };
+  // Anything else changed on the order closes what was being offered.
   const setQty = (l: Line, q: number) => {
-    if (!order) return; const sig = `line|${l.lineId}|${q}`;
+    if (!order) return; setJust(null); const sig = `line|${l.lineId}|${q}`;
     void act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: keyFor(sig) } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: keyFor(sig) }, undefined, sig);
   };
-  const send = () => order && act('send', { action: 'send', orderId: order.id }, () => setNotice({ text: `Order ${order.number} is with the kitchen. ${usd(order.total)} at the window.`, tone: 'good' }));
+  const send = () => order && (setJust(null), act('send', { action: 'send', orderId: order.id }, () => setNotice({ text: `Order ${order.number} is with the kitchen. ${usd(order.total)} at the window.`, tone: 'good' })));
   const cancel = () => order && act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `Car ${order.number} left the lane.`, tone: 'good' }));
   // What the server says was paid (and the change it worked out), even when it was paid already on another tablet or
   // the first answer was lost: never a guess here.
@@ -427,6 +438,8 @@ export default function DriveThru() {
   });
   const phoneOn = !!order && !order.paidAt && phoneFor?.orderId === order.id;
   useEffect(() => { if (phoneFor && (!order || order.id !== phoneFor.orderId || order.paidAt)) setPhoneFor(null); }, [order?.id, order?.paidAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Another car picked: what was being offered on the last one is closed (as at the counter).
+  useEffect(() => { setJust(null); }, [order?.id]);
   // While the code is up, whether they've paid (every few seconds; the card company tells the server too).
   useEffect(() => {
     const id = phoneOn ? order?.id : null; if (!id) return;
@@ -550,7 +563,7 @@ export default function DriveThru() {
                   </div>
                 ) : <span className="w-9 shrink-0 text-center text-[16px] font-semibold tabular-nums" style={{ color: INK }}>{l.quantity}×</span>}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}</p>
+                  <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}{editable && l.offer === 'size' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</p>
                   {l.choicesText && <p className="text-[14px] leading-snug" style={{ color: MUTED }}>{l.choicesText}</p>}
                   {!editable && order!.kitchen !== 'not sent' && <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>}
                 </div>
@@ -559,6 +572,8 @@ export default function DriveThru() {
             );
           })}
         </ul>}
+      {editable && order && order.status === 'building' && <div className="px-3 pb-3"><OfferAsk just={just} orderId={order.id} item={lane?.menu.find((m) => m.id === just?.itemId)} find={(id) => lane?.menu.find((m) => m.id === id && !m.off && !outWords(m))}
+        have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} /></div>}
       {lane?.pointsOn && order && order.status !== 'voided' && (
         <div className="flex items-center justify-between gap-2 border-t px-4 py-2" style={{ borderColor: LINE }}>
           {order.points
@@ -916,7 +931,7 @@ export default function DriveThru() {
       </main>
 
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
-      {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q); setChoiceFor(null); }} />}
+      {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
       {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points'} onClose={() => setPointsOpen(false)}
         onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
