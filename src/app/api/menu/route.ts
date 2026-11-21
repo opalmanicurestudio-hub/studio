@@ -31,8 +31,9 @@
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts,
 //             and upgrades { size, items }: what's offered at the end, once it's added (lib/menu-upgrades).
-//   laneSettings { tenantId, spots | pickupOnly } → managers: how many numbered pull-forward spots the drive-thru has (1 to
-//             8), or whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker)
+//   laneSettings { tenantId, spots | pickupOnly | readyTexts } → managers: how many numbered pull-forward spots the drive-thru
+//             has (1 to 8), whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker), or
+//             whether guests can ask for a text when their order is ready (lib/ready-text)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 //   prep    { tenantId, prepId?, name, makes, unit, keepsDays?, minutes?, recipe } → managers: a prep recipe added or
 //             changed (lib/prep-recipes-server savePrep): what goes into a batch, what a batch makes, how long it keeps
@@ -41,6 +42,7 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
+import { smsConfigured } from '@/lib/sms';
 import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
 import { cleanSlotItems, SLOT_ITEMS_MAX, SLOT_ITEMS_MIN } from '@/lib/ahead-slots';
 import { NextRequest, NextResponse } from 'next/server';
@@ -141,7 +143,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, aheadThere: aheadAtDriveThru(td) }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -265,6 +267,11 @@ export async function POST(req: NextRequest) {
     if (action === 'laneSettings') {
       const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
       // Pickup only (orders placed ahead, nobody orders at the speaker), or orders and pickup: said on its own.
+      // A text when it's ready, for guests who ask (lib/ready-text): on, or off for the whole business.
+      if (typeof b.readyTexts === 'boolean') {
+        await db.doc(`tenants/${tenantId}`).set({ readyTexts: { off: !b.readyTexts } }, { merge: true });
+        return ok({ lane: { readyTexts: b.readyTexts } });
+      }
       if (typeof b.pickupOnly === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ driveThru: { pickupOnly: b.pickupOnly } }, { merge: true });
         return ok({ lane: { spots: spotsOf(td), pickupOnly: b.pickupOnly, aheadThere: aheadAtDriveThru(td) } });

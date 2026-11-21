@@ -81,6 +81,8 @@ export default function MenuPage() {
   const [times, setTimes] = useState<{ dayparts: Daypart[]; happyHour: HappyHour } | null>(null);
   const [spots, setSpots] = useState<number | null>(null);
   const [pickupOnly, setPickupOnlyState] = useState<boolean | null>(null);
+  // Guests can ask for a text when their order is ready (lib/ready-text); null: texting isn't set up here.
+  const [readyTexts, setReadyTexts] = useState<boolean | null>(null);
   // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
   // applies only then.
   const [aheadThere, setAheadThere] = useState(true);
@@ -102,7 +104,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -148,6 +150,11 @@ export default function MenuPage() {
     const was = pickupOnly; setPickupOnlyState(v); setBusy('pickupOnly'); setErr('');
     const d = await call({ action: 'laneSettings', pickupOnly: v });
     setBusy(null); if (!d.ok) { setPickupOnlyState(was); setErr(d.error || 'That didn’t save.'); } else setAheadThere(d.lane?.aheadThere !== false);
+  };
+  const setTexts = async (v: boolean) => {
+    const was = readyTexts; setReadyTexts(v); setBusy('readyTexts'); setErr('');
+    const d = await call({ action: 'laneSettings', readyTexts: v });
+    setBusy(null); if (!d.ok) { setReadyTexts(was); setErr(d.error || 'That didn’t save.'); }
   };
   const setTarget = async (channel: string, seconds: number) => {
     const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
@@ -220,6 +227,17 @@ export default function MenuPage() {
                   <span className="flex flex-wrap gap-2">
                     {([[false, 'Orders and pickup'], [true, 'Pickup only']] as [boolean, string][]).map(([v, label]) => { const on = pickupOnly === v; return (
                       <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'pickupOnly'} onClick={() => { if (!on && busy !== 'pickupOnly') void setPickupOnly(v); }} className={`${BTN} aria-disabled:opacity-50`}
+                        style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
+                  </span>
+                </div>
+              )}
+              {readyTexts !== null && (
+                <div role="group" aria-labelledby="ready-texts" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span id="ready-texts" className="block text-[15px] font-medium">A text when it’s ready</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{readyTexts ? 'Guests can ask for one text when their order is ready: at the kiosk, ordering ahead, or at the counter. Only if they ask, and never for anything else.' : 'Guests aren’t offered a text when their order is ready. The counter calls it out, and the ready board shows it.'}</span></span>
+                  <span className="flex flex-wrap gap-2">
+                    {([[true, 'Offer it'], [false, 'Don’t offer it']] as [boolean, string][]).map(([v, label]) => { const on = readyTexts === v; return (
+                      <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'readyTexts'} onClick={() => { if (!on && busy !== 'readyTexts') void setTexts(v); }} className={`${BTN} aria-disabled:opacity-50`}
                         style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
                   </span>
                 </div>

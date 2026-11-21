@@ -499,7 +499,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       }
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }
-    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}) }, { merge: true });
+    // A number left for a ready text (lib/ready-text) goes with it.
+    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}), ...(o.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
     // A reward held for it (never used: it wasn't paid) goes back to them.
     if (o.reward) { tx.delete(db.doc(`${T}/loyaltyLedger/redeem_counter_${orderId}`)); gaveBack = String(o.clientId || '') || null; }
     // (A car with an order placed ahead going with it carries on to pickup with that: it was paid for.)

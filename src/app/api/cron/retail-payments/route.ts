@@ -47,6 +47,8 @@ export async function GET(req: NextRequest) {
     const money = async () => { try { const m = await sweepMoneyOnTheWay(db, t.id, tenant); counts.moneyChecked += m.checked; counts.moneyRecorded += m.recorded; counts.moneyReleased += m.released; counts.moneyWaiting += m.waiting; counts.moneyFailed += m.failed.length; } catch { /* next run */ } };
     // Drivers who stopped sending mid-route (lib/delivery-live-server): where they were isn't kept.
     try { counts.driversCleared = (counts.driversCleared || 0) + await sweepDriverLocations(db, t.id); } catch { /* next run */ }
+    // Numbers left for a ready text that never went (an order never finished, card or cash): let go after a few hours (lib/ready-text).
+    try { const R = await import('@/lib/ready-text'); counts.readyTextsLetGo = (counts.readyTextsLetGo || 0) + await R.sweepReadyTexts(db, t.id); } catch { /* next run */ }
     if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) { await money(); return; }
     // Payments for a new address nobody came back from: the change goes on, or the payment page closes (lib/address-pay).
     try { counts.addressPays = (counts.addressPays || 0) + await sweepAddressPays(db, t.id, tenant); } catch { /* next run */ }

@@ -55,6 +55,7 @@ import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { KITCHEN_SIDE, jobDef } from '@/lib/jobs';
 import { tellPassReady, tellPassReadyMany } from '@/lib/floor-buzz';
+import { textWhenTicketsReady } from '@/lib/ready-text';
 import { runsDone } from '@/lib/back-calls-server';
 import { floorWordNow, forgetWord, setFloorNote } from '@/lib/floor-word-server';
 const noteSent = new Map<string, number>();
@@ -519,7 +520,7 @@ export async function POST(req: NextRequest) {
           return { ok: true, left };
         });
         if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
-        if (!r.already && col === 'kdsTickets') await tellPassReady(db, tenantId, id);
+        if (!r.already && col === 'kdsTickets') { await tellPassReady(db, tenantId, id); await textWhenTicketsReady(db, tenantId, [id]); }
         return ok({ already: !!r.already, left: r.left ?? null, staffOk });
       }
       const binId = String(b.binId || ''); if (!ID.test(binId)) return bad('Which batch?');
@@ -596,6 +597,8 @@ export async function POST(req: NextRequest) {
       // `allergy`: held for "Allergy noted", so a screen without that button (the floor, the desk) can say who to ask.
       if (r.error) return NextResponse.json({ ok: false, error: r.error, ...(r.allergy ? { allergy: true } : {}), staffOk }, { status: r.status || 400 });
       if (step === 'ready' && col === 'kdsTickets' && !r.already) await tellPassReady(db, tenantId, id);
+      // An order all ready now: the text its guest asked for (lib/ready-text); all picked up first, their number goes.
+      if ((step === 'ready' || step === 'deliver') && col === 'kdsTickets' && !r.already) await textWhenTicketsReady(db, tenantId, [id]);
       if (step === 'deliver' && col === 'kdsTickets' && !r.already) await runsDone(db, `tenants/${tenantId}`, [id], staff?.name || screen.name);
       return ok({ ...r, staffOk });
     }
@@ -616,6 +619,8 @@ export async function POST(req: NextRequest) {
       for (const t of lounge) tally(await run(t));
       // A table's course all ready at the pass: its server hears (lib/floor-buzz), once.
       await tellPassReadyMany(db, tenantId, readied);
+      // Orders all ready now: the texts their guests asked for, once each (lib/ready-text).
+      if (kitchen.length) await textWhenTicketsReady(db, tenantId, step === 'ready' ? readied : kitchen.map((t: any) => String(t.id)));
       // Plates sent out: a run called for them is done (lib/back-calls-server).
       if (step === 'deliver' && kitchen.length) await runsDone(db, `tenants/${tenantId}`, kitchen.map((t: any) => String(t.id)), staff?.name || screen.name);
       return ok({ moved, failed, allergy, of: list.length, staffOk });

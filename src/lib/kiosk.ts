@@ -24,6 +24,7 @@ import { extrasOf } from '@/lib/plate-extras';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { posTaxOf } from '@/lib/pos-tax';
 import { pageAccent } from '@/lib/studio-page';
+import { askReadyText, readyTextsOn } from '@/lib/ready-text';
 import type { Screen } from '@/lib/screen-keys';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -67,7 +68,9 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
     // For here or to go, when what goes out with an order depends on it (lib/plate-extras), as the counter asks.
     askToGo: extrasOf(tenant).some((e: any) => e.per !== 'guest' && e.when !== 'any'),
     // The sales tax rate, so the total shows before paying (the server works it out again when the order is placed).
-    taxPct: posTaxOf(tenant).productsPct, sections, now: at.toISOString() };
+    taxPct: posTaxOf(tenant).productsPct, sections, now: at.toISOString(),
+    // "Text me when it's ready" on the paid screen, where the business can text (lib/ready-text).
+    texts: readyTextsOn(tenant) };
 }
 
 /** The order the guest tapped Pay on: priced from the menu, numbered ("K14") and sent to the kitchen as unpaid (its stock
@@ -176,6 +179,13 @@ export async function kioskCheck(db: any, tenantId: string, tenant: any, screen:
   if (!or.paidAt && or.kiosk?.state === 'let_go') return { ok: true, state: 'let_go', number: or.number };
   const r: any = await checkCard(db, tenantId, tenant, or.id, screen.name, o);
   return r.ok ? { ...r, number: or.number } : r;
+}
+
+/** "Text me when it's ready", from the paid screen: this kiosk's own order, paid in the last half hour (lib/ready-text). */
+export async function kioskTextMe(db: any, tenantId: string, tenant: any, screen: Screen, orderId: unknown, phone: unknown): Promise<any> {
+  const or = await ownOrder(db, tenantId, screen, orderId); if (!or) return fail('That order isn’t this kiosk’s.', 404);
+  if (!or.paidAt || Date.now() - (Date.parse(String(or.paidAt)) || 0) > 30 * 60000) return fail('That order is done here. Ask at the counter.', 409, 'closed');
+  return askReadyText(db, tenantId, tenant, or.id, phone, 'kiosk');
 }
 
 /** The guest canceled (or walked away, or the next guest started): the reader stops asking and the order is let go. A

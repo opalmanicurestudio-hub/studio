@@ -5,11 +5,14 @@
 // again): the pickup code, how it's going, and I'm here. The order (not yet sent) is kept on the phone, so a guest who
 // leaves the page finds it again. Right after something's added, what the business offers with it is asked once, on the
 // same sheet (lib/menu-upgrades): the next size up, and things to go with it, each a tap.
+//   A text when it's ready, if they tick it (lib/ready-text), or asked for later on the order's page. Order again (design
+//   board "Ready texts and order again"): the guest's recent orders and favorites, kept on their own phone only, at the top
+//   of the menu; today's menu decides what can be added, and what can't is said.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { Check, Minus, Plus, ShoppingBag, X } from 'lucide-react';
+import { Check, Minus, Plus, ShoppingBag, Star, X } from 'lucide-react';
 import { MenuAsk } from '@/components/klair/MenuAsk';
 import { TELL_TEAM } from '@/lib/klair-menu';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
@@ -29,12 +32,48 @@ type Item = { id: string; name: string; section: string; words: string | null; p
 type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?: string[]; asapFull?: boolean; filling?: boolean;
   // Opening hours (lib/ahead-hours): "as soon as it's ready" offered or not, opening later today, closing, and (nothing to
   // pick now) when it opens next.
+  /** "Text me when it's ready" offered (lib/ready-text). */
+  texts?: boolean;
   asap?: boolean; opens?: string | null; closes?: string | null; nextOpen?: string | null; closedNow?: boolean; lateToday?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind };
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number }[]; total: number };
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks }[]; total: number;
+  /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
+  text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean };
+
+/** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
+type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
+const pastKey = (t: string) => `cf.ahead.past.${t}`;
+const FAVS_MAX = 5, RECENT_MAX = 3;
+const linesSig = (ls: Past['lines']) => JSON.stringify(ls.map((l) => [l.itemId, l.choicesText || '', l.quantity]).sort());
+function readPast(t: string): Past[] {
+  try { const v = JSON.parse(read(pastKey(t)) || '[]'); return Array.isArray(v) ? v.filter((x: any) => x && typeof x.o === 'string' && typeof x.at === 'string' && Array.isArray(x.lines) && x.lines.length).slice(0, FAVS_MAX + RECENT_MAX) : []; } catch { return []; }
+}
+/** Favorites first (the newest few), then the last few others; the same order placed again is one, moved up. */
+function keepPast(t: string, list: Past[]): Past[] {
+  const byNew = [...list].sort((a, b) => b.at.localeCompare(a.at));
+  const out = [...byNew.filter((p) => p.fav).slice(0, FAVS_MAX), ...byNew.filter((p) => !p.fav).slice(0, RECENT_MAX)];
+  write(pastKey(t), out.length ? JSON.stringify(out) : null); return out;
+}
+function rememberPast(t: string, entry: Past, fav?: boolean): Past[] {
+  const list = readPast(t); const same = list.find((p) => p.o === entry.o || linesSig(p.lines) === linesSig(entry.lines));
+  const next = same ? list.map((p) => (p === same ? { ...p, o: entry.o, at: same.o === entry.o ? p.at : entry.at, lines: entry.lines, fav: fav ?? p.fav } : p)) : [{ ...entry, fav: !!fav }, ...list];
+  return keepPast(t, next);
+}
+const pastWords = (p: { lines: Past['lines'] }) => p.lines.map((l) => `${l.quantity > 1 ? `${l.quantity} ` : ''}${l.name}${l.choicesText ? ` (${l.choicesText})` : ''}`).join(', ');
+/** When it was ordered, in words: today, yesterday, a weekday this week, or the date. */
+function whenWords(iso: string, tz?: string): string {
+  const day = (d: Date) => { try { return d.toLocaleDateString('en-CA', tz ? { timeZone: tz } : {}); } catch { return d.toLocaleDateString('en-CA'); } };
+  const then = new Date(iso); const now = new Date(); if (!Number.isFinite(then.getTime())) return '';
+  if (day(then) === day(now)) return 'Today';
+  if (day(then) === day(new Date(now.getTime() - 86400000))) return 'Yesterday';
+  const opts: Intl.DateTimeFormatOptions = now.getTime() - then.getTime() < 6 * 86400000 ? { weekday: 'long' } : { month: 'short', day: 'numeric' };
+  try { return then.toLocaleDateString('en-US', tz ? { ...opts, timeZone: tz } : opts); } catch { return then.toLocaleDateString('en-US', opts); }
+}
+/** A past order's lines, from an order's own page (what was picked comes with each line). */
+const pastLines = (lines: Track['lines']): Past['lines'] => lines.filter((l) => l.itemId).map((l) => ({ itemId: String(l.itemId), picks: l.picks || {}, quantity: l.quantity, name: l.name, choicesText: l.choicesText }));
 
 async function call(body: any) {
   try { const r = await fetch('/api/counter/ahead', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, d: await r.json().catch(() => ({})) }; }
@@ -232,11 +271,59 @@ function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: stri
     </div>);
 }
 
+/** The text when it's ready, on the order's page (lib/ready-text): what was asked for, or asking for it now (while it's
+ *  still being made), or taking it back. */
+function ReadyTextLine({ t, tenantId, o, s, reload }: { t: Track; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
+  const [asking, setAsking] = React.useState(false); const [phone, setPhone] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  React.useEffect(() => { setPhone(read('cf.ahead.phone') || ''); }, []);
+  const digits = phone.replace(/\D/g, '').slice(-10);
+  const send = async (p: string | null) => {
+    setBusy(true); setErr('');
+    const { d } = await call({ action: 'textMe', tenantId, o, s, phone: p });
+    setBusy(false);
+    if (d.ok) { if (p) write('cf.ahead.phone', p); setAsking(false); await reload(); } else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  const quietBtn = { background: '#fff', border: `1px solid ${LINE}`, color: INK };
+  if (t.text) {
+    if (t.text.sent) return t.text.failed ? null : <p className="text-[15px]" style={{ color: MUTED }}>We texted ···{t.text.last4} that it’s ready.</p>;
+    return (
+      <div className="space-y-1">
+        <p className="text-[15px]">We’ll text you at ···{t.text.last4} when it’s ready.</p>
+        <button type="button" onClick={() => send(null)} disabled={busy} className={`min-h-[44px] rounded-xl px-2 text-[14.5px] font-medium underline underline-offset-4 disabled:opacity-50 ${RING}`} style={{ color: MUTED }}>Don’t text me</button>
+        {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
+      </div>);
+  }
+  if (!t.texts || t.kitchen === 'ready' || t.kitchen === 'handed') return null;
+  if (!asking) return <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={quietBtn}>Text me when it’s ready</button>;
+  return (
+    <div className="space-y-2 text-left">
+      <label className="block"><span className="text-[15px] font-semibold">Your mobile number</span>
+        <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter' && digits.length === 10) void send(digits); }} inputMode="tel" autoComplete="tel" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
+      <div className="flex gap-2">
+        <button type="button" onClick={() => send(digits)} disabled={busy || digits.length !== 10} className={`${btn} min-h-[48px] flex-1 text-[15.5px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'One moment…' : 'Text me'}</button>
+        <button type="button" onClick={() => { setAsking(false); setErr(''); }} className={`${btn} min-h-[48px] text-[15.5px]`} style={quietBtn}>Cancel</button>
+      </div>
+      <p className="text-[13px]" style={{ color: MUTED }}>One text, just for this order.</p>
+      {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
+    </div>);
+}
+
 function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: string; onNew: () => void }) {
   const [t, setT] = React.useState<Track | null>(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
   const load = React.useCallback(async () => { const { d } = await call({ action: 'track', tenantId, o, s }); if (d.ok) { setT(d); setErr(''); } else if (!t) setErr(d.error || 'This order isn’t here.'); }, [tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { void load(); const i = setInterval(load, 15000); return () => clearInterval(i); }, [load]);
   const here = async () => { setBusy(true); const { d } = await call({ action: 'here', tenantId, o, s }); setBusy(false); if (d.ok) void load(); else setErr(d.error || 'That didn’t go through. Try again.'); };
+  // Paid: kept on this phone for Order again (on the phone only, never sent anywhere), and whether it's a favorite.
+  const [fav, setFav] = React.useState(false);
+  const paidLines = t?.paid && t.state !== 'canceled' ? pastLines(t.lines) : [];
+  React.useEffect(() => {
+    if (!paidLines.length) return;
+    const list = rememberPast(tenantId, { o, at: new Date().toISOString(), lines: paidLines });
+    setFav(!!list.find((p) => p.o === o)?.fav);
+  }, [paidLines.length, tenantId, o]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleFav = () => { const list = rememberPast(tenantId, { o, at: new Date().toISOString(), lines: paidLines }, !fav); setFav(!!list.find((p) => p.o === o)?.fav); };
+  // Order this again: the same items, checked against today's menu once it's open (Order again, on the menu).
+  const again = () => { write(`cf.ahead.again.${tenantId}`, JSON.stringify(paidLines)); onNew(); };
   if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">Your order</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>;
   if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your order" /></div>;
   if (t.state === 'canceled') return (
@@ -263,6 +350,7 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
         <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : t.way === 'curbside' ? 'curbside' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
         {!(t.way === 'curbside' && (t.here || t.curb?.onWay || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
         {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
+        {t.kitchen !== 'handed' && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={load} />}
         {t.kitchen !== 'handed' && (t.way === 'curbside' ? <CurbsideSteps t={t} tenantId={tenantId} o={o} s={s} reload={load} />
           : !t.here ? <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>
           : <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>)}
@@ -271,6 +359,11 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
         <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}> · {l.choicesText}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
         <p className="mt-3 flex justify-between border-t pt-3 text-[16px] font-semibold" style={{ borderColor: LINE }}><span>Paid</span><span className="tabular-nums">{usd(t.total)}</span></p>
       </section>
+      {paidLines.length > 0 && (
+        <div className="flex gap-2">
+          <button type="button" onClick={again} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Order this again</button>
+          <button type="button" aria-pressed={fav} onClick={toggleFav} className={`${btn} min-h-[52px] text-[16px]`} style={fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}><Star className="h-5 w-5" fill={fav ? 'currentColor' : 'none'} aria-hidden />Favorite</button>
+        </div>)}
       <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
     </div>
   );
@@ -311,6 +404,10 @@ export default function OrderAhead() {
   const [step, setStep] = React.useState<'menu' | 'review' | 'pay'>('menu');
   const [name, setName] = React.useState(''); const [way, setWay] = React.useState<Way | null>(null); const [at, setAt] = React.useState<string>('');
   const [phone, setPhone] = React.useState(''); const [join, setJoin] = React.useState(false);
+  // One text when it's ready, if they tick it (lib/ready-text); remembered on this phone.
+  const [textMe, setTextMe] = React.useState(false);
+  // Order again: recent orders and favorites on this phone, and what adding one did.
+  const [past, setPast] = React.useState<Past[]>([]); const [againSaid, setAgainSaid] = React.useState<{ text: string; warn: boolean } | null>(null);
   const [moreTimes, setMoreTimes] = React.useState(false);
   // Offered at the end (lib/menu-upgrades): asked once, right after something's added; not again on this visit for an item
   // whose offer was turned down. `offered`: the sheet open is for something taken as an offer (added without asking again).
@@ -329,7 +426,7 @@ export default function OrderAhead() {
     const q = new URLSearchParams(window.location.search); const o = q.get('o'), s = q.get('s');
     if (o && s) { setTrack({ o, s }); return; }
     try { const c = JSON.parse(read(cartKey) || '[]'); if (Array.isArray(c)) setCart(c.slice(0, 30)); } catch { /* */ }
-    setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || '');
+    setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || ''); setTextMe(read('cf.ahead.textMe') === '1'); setPast(readPast(tenantId));
     // (Opened from the guest pass at a table: inside is picked, when it's one of the ways.)
     const wantWay = q.get('way');
     void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); else if (wantWay && (d.ways || []).includes(wantWay)) setWay(wantWay as Way); setAt(startAt(d)); } else setErr(d.error || 'This page isn’t here.'); });
@@ -346,7 +443,7 @@ export default function OrderAhead() {
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
   }, [waiting, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
-  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join]);
+  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
   const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind) => {
@@ -355,6 +452,25 @@ export default function OrderAhead() {
     setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}) }]; });
     return key;
   };
+  /** Order again: each item as it was, if today's menu still has it the same way; what can't be is said. */
+  const addAgain = (lines: Past['lines']) => {
+    const missed: string[] = []; let n = 0;
+    for (const l of lines) {
+      const item = byId.get(l.itemId);
+      if (!item) { missed.push(`${l.name} isn’t on the menu now`); continue; }
+      if (item.soldOut) { missed.push(`${item.name} is sold out right now`); continue; }
+      if (!priceChoices(item, l.picks).ok) { missed.push(`${item.name} has new choices, so add it from the menu`); continue; }
+      add(item, l.picks, Math.max(1, Math.min(20, Math.floor(Number(l.quantity)) || 1))); n++;
+    }
+    const why = missed.map((m) => `${m}.`).join(' ');
+    setAgainSaid({ text: n ? `Added to your order.${why ? ` ${why}` : ''}` : `Nothing could be added. ${why}`, warn: missed.length > 0 });
+  };
+  // Order this again from an order's page: added once the menu's here.
+  React.useEffect(() => {
+    if (!menu?.on) return; const k = `cf.ahead.again.${tenantId}`; const raw = read(k); if (!raw) return; write(k, null);
+    try { const ls = JSON.parse(raw); if (Array.isArray(ls) && ls.length) addAgain(ls.slice(0, 30)); } catch { /* */ }
+  }, [menu?.on]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setFavorite = (p: Past, fav: boolean) => setPast(rememberPast(tenantId, p, fav));
   // Added from its sheet: then what's offered with it, if there's anything they could have.
   const added = (item: Item, picks: Picks, qty: number) => {
     const key = add(item, picks, qty, offered ? 'item' : undefined); setOpen(null);
@@ -393,10 +509,12 @@ export default function OrderAhead() {
     if (!way) { setPlaceErr('How will you pick it up?'); return; }
     if (!name.trim()) { setPlaceErr('What name should we put on the order?'); return; }
     const digits = phone.replace(/\D/g, '').slice(-10);
-    if (phone.trim() && digits.length !== 10) { setPlaceErr('A 10-digit phone number for points, or leave it empty.'); return; }
-    setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits);
+    if (phone.trim() && digits.length !== 10) { setPlaceErr('A 10-digit phone number, or leave it empty.'); return; }
+    const wantText = !!menu?.texts && textMe;
+    if (wantText && digits.length !== 10) { setPlaceErr('Add your mobile number for the text, or untick Text me when it’s ready.'); return; }
+    setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(phone.replace(/\D/g, '').length >= 10 && menu?.points ? { phone: phone.replace(/\D/g, '').slice(-10), join } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(digits.length === 10 && (menu?.points || wantText) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
     if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
@@ -466,12 +584,14 @@ export default function OrderAhead() {
       <section className="space-y-4 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <label className="block"><span className="text-[15px] font-semibold">Name for the order</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>
-        {menu.points && (
+        {(menu.points || menu.texts) && (
           <div>
-            <label className="block"><span className="text-[15px] font-semibold">Phone for {menu.points.unit} <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
-              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
-            {menu.points.askJoin && phone.replace(/\D/g, '').length >= 10 && (
-              <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Join the rewards program, if I haven’t already</label>)}
+            <label className="block"><span className="text-[15px] font-semibold">Phone <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" aria-describedby={menu.points ? 'phone-help' : undefined} className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
+            {menu.points && <p id="phone-help" className="mt-1 text-[13.5px]" style={{ color: MUTED }}>It earns your {menu.points.unit}.</p>}
+            {menu.texts && <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={textMe} onChange={(e) => setTextMe(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Text me when it’s ready</label>}
+            {menu.points?.askJoin && phone.replace(/\D/g, '').length >= 10 && (
+              <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Join the rewards program, if I haven’t already</label>)}
           </div>)}
         {menu.ways.length > 1 && (
           <fieldset><legend className="text-[15px] font-semibold">How you’ll pick it up</legend>
@@ -509,6 +629,23 @@ export default function OrderAhead() {
         <p className="mt-1 text-[15px]" style={{ color: MUTED }}>Order ahead, pay now, and pick it up {wayList(menu.ways)}.</p>
         {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? 'Too late for pickup today.' : 'Closed right now.'}</b> {menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. You can look through the menu now.` : 'You can look through the menu now.'}</p>}
       </header>
+      {past.length > 0 && (
+        <section aria-labelledby="again-title" className="rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
+          <h2 id="again-title" className="text-[18px] font-semibold tracking-tight">Order again</h2>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+            {past.map((p) => { const words = pastWords(p); return (
+              <li key={p.o} className="flex flex-col gap-2 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 text-[15px] font-semibold leading-snug">{words}</p>
+                  <button type="button" aria-pressed={!!p.fav} aria-label={`Favorite: ${words}`} onClick={() => setFavorite(p, !p.fav)} className={`-my-1.5 -mr-1.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`}><Star className="h-5 w-5" fill={p.fav ? 'currentColor' : 'none'} style={{ color: p.fav ? INK : MUTED }} aria-hidden /></button>
+                </div>
+                <p className="text-[13.5px]" style={{ color: MUTED }}>{p.fav ? 'Your favorite' : whenWords(p.at, menu.timeZone)}</p>
+                <button type="button" onClick={() => addAgain(p.lines)} aria-label={`Add to order: ${words}`} className={`${btn} mt-auto min-h-[44px] text-[15px]`} style={p.fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Add to order</button>
+              </li>); })}
+          </ul>
+          <p aria-live="polite" className={againSaid ? 'mt-3 rounded-2xl px-4 py-3 text-[14.5px]' : 'sr-only'} style={againSaid ? (againSaid.warn ? { background: AMBER_TINT, color: AMBER } : { background: GREEN_TINT, color: GREEN }) : undefined}>{againSaid?.text || ''}</p>
+        </section>)}
+      {past.length === 0 && againSaid && <p aria-live="polite" className="rounded-2xl px-4 py-3 text-[14.5px]" style={againSaid.warn ? { background: AMBER_TINT, color: AMBER } : { background: GREEN_TINT, color: GREEN }}>{againSaid.text}</p>}
       {menu.sections.length > 1 && (
         <nav aria-label="Menu sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {menu.sections.map((s) => <a key={s.name} href={`#sec-${encodeURIComponent(s.name)}`} className={`inline-flex min-h-[44px] shrink-0 items-center rounded-full bg-[#fff] px-4 text-[15px] font-medium ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}>{s.name}</a>)}

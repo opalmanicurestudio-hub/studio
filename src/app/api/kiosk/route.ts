@@ -5,6 +5,7 @@
 //   menu                              → the menu as a guest sees it now, and whether the kiosk can take payments
 //   place { orderKey, lines, name, toGo } → the order, sent to the kitchen unpaid (its stock held), and its number
 //   pay / check / cancel { orderId }  → the card on this kiosk's reader; paid, the kitchen has it; canceled, it's let go
+//   textMe { orderId, phone }         → "Text me when it's ready" for the order just paid here (lib/ready-text)
 //   readers / setReader { pin?, readerId } → a manager (signed in, or their PIN) picks this kiosk's card reader
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -15,11 +16,11 @@ import { screenOf } from '@/lib/screen-keys';
 import { requireRole } from '@/lib/route-guard';
 import { listReaders } from '@/lib/counter-card';
 import { logAuditAdmin } from '@/lib/audit';
-import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, managerByPin } from '@/lib/kiosk';
+import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, kioskTextMe, managerByPin } from '@/lib/kiosk';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const READER = /^tmr_[A-Za-z0-9]{4,60}$/;
-const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'readers', 'setReader'];
+const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'textMe', 'readers', 'setReader'];
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
 const bad = (error: string, status = 400, extra: any = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 const answer = (r: any) => (r?.ok ? ok(r) : bad(r?.error || 'That didn’t go through. Try again.', r?.status || 500, r?.code ? { code: r.code } : {}));
@@ -50,6 +51,11 @@ export async function POST(req: NextRequest) {
     if (action === 'pay') return answer(await kioskPay(db, tenantId, tenant, screen, b.orderId));
     if (action === 'check') return answer(await kioskCheck(db, tenantId, tenant, screen, b.orderId));
     if (action === 'cancel') return answer(await kioskCancel(db, tenantId, tenant, screen, b.orderId));
+    if (action === 'textMe') {
+      // Each text costs the business something, so a kiosk can ask for only so many an hour.
+      const slow = await limitPublic(req, 'kiosk_text', tenantId, { perHour: 120, perDay: 1500 }); if (slow) return slow;
+      return answer(await kioskTextMe(db, tenantId, tenant, screen, b.orderId, b.phone));
+    }
 
     // readers / setReader: a manager only, signed in here or with their PIN typed on the kiosk.
     let manager: { id: string; name: string };

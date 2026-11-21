@@ -27,6 +27,9 @@ import { cleanPicks } from '@/lib/menu-choices';
 import { pickupGeoOf } from '@/lib/pickup-geo';
 import { offerOf } from '@/lib/menu-upgrades';
 import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib/ahead-hours';
+import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
+import { toE164 } from '@/lib/sms';
+import { picksOf } from '@/lib/menu-choices';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -156,12 +159,14 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
     // (Too near closing today: lateToday, said as too late rather than closed.)
     asap, opens, closes, nextOpen, closedNow: hours.set && !asap && !times.length, lateToday,
     // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
-    points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null };
+    points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null,
+    // "Text me when it's ready", where the business can text (lib/ready-text).
+    texts: readyTextsOn(tenant) };
 }
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -205,9 +210,12 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (m.soldOut || !m.inStock) return fail(`${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
     if (m.canMake !== null && m.canMake < q) return fail(m.canMake > 0 ? `Only ${m.canMake} ${m.name} left. Change your order and try again.` : `${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
   }
-  // A phone number for points (optional): kept with the order, and the order is theirs once it's paid.
+  // A phone number (optional): for points, kept with the order, and the order is theirs once it's paid; and for one text
+  // when it's ready, if they ticked it (lib/ready-text).
   const phone = String(b.phone ?? '').replace(/\D/g, '').slice(-10);
-  if (b.phone && phone.length !== 10) return fail('A 10-digit phone number for points, or leave it empty.', 400, 'phone');
+  if (b.phone && phone.length !== 10) return fail('A 10-digit phone number, or leave it empty.', 400, 'phone');
+  const textTo = b.textMe === true && phone && readyTextsOn(tenant) ? toE164(phone) : null;
+  if (b.textMe === true && phone && readyTextsOn(tenant) && !textTo) return fail('That number can’t get texts. Check it, or untick Text me.', 400, 'phone');
   const money = totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
@@ -217,7 +225,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone });
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
@@ -244,7 +252,8 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
-      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) } });
+      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) },
+      ...(textTo ? { readyText: { to: textTo, last4: lastFour(textTo), via: 'ahead', pendingSince: new Date(now).toISOString(), sentAt: null } } : {}) });
     return { number, code };
   });
   if (made.busy) return fail('Something went wrong. Try again.', 503);
@@ -292,7 +301,7 @@ export async function settleAhead(db: any, tenantId: string, tenant: any, orderI
       const x: any = (await tx.get(ref)).data() || {};
       if (x.paidAt && x.cardPaymentId === pi.id) return;
       tx.set(ref, { ahead: { state: x.paidAt ? 'paid' : 'canceled', ...(x.paidAt ? {} : { failed: why }), settlingAt: null },
-        ...(x.status === 'building' && !x.paidAt ? { status: 'voided', voidedAt: nowIso(), voidReason: why } : {}) }, { merge: true });
+        ...(x.status === 'building' && !x.paidAt ? { status: 'voided', voidedAt: nowIso(), voidReason: why, ...(x.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) } : {}) }, { merge: true });
     });
     return { ok: true, paid: false, notKept: true, why };
   };
@@ -372,7 +381,11 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     geo: or.ahead?.way === 'curbside' && !or.ahead?.hereAt && or.status !== 'done' ? await pickupGeoOf(db, tenantId, tenant) : null,
     // Points this order earned (never their balance: a page anyone with the link can open).
     earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
-    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null })),
+    // (With what was picked, so the page can put the same order together again: Order this again.)
+    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null,
+      itemId: String(l.itemId || ''), picks: picksOf(l.choices) })),
+    // The text when it's ready (lib/ready-text): asked for (its last four digits) or sent, and whether it can be asked.
+    text: readyTextView(or), texts: readyTextsOn(tenant) && or.status === 'sent' && !or.readyText?.sentAt,
     subtotal: num(or.subtotal), tax: num(or.tax), total: num(or.total),
   };
 }
@@ -548,7 +561,8 @@ export async function sweepAhead(db: any, tenantId: string, tenant: any, or: any
     else if (!s?.ok && (s?.status === 503 || !s)) return null;
     else if (!s?.ok) { try { await stripe.paymentIntents.cancel(String(or.ahead.payId), {}, { stripeAccount: acct }); } catch { return null; } }
   } else if (age < UNPAID_MIN * 60000) return null;
-  await ref.set({ status: 'voided', voidedAt: nowIso(), voidReason: 'Not paid', cardOpen: false, ahead: { state: 'abandoned' } }, { merge: true });
+  // (A number given for a ready text goes with it: lib/ready-text.)
+  await ref.set({ status: 'voided', voidedAt: nowIso(), voidReason: 'Not paid', cardOpen: false, ahead: { state: 'abandoned' }, ...(or.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
   if (or.ahead.code && or.day) await db.doc(`tenants/${tenantId}/aheadCodes/${or.day}_${or.ahead.code}`).delete().catch(() => null);
   return 'abandoned';
 }

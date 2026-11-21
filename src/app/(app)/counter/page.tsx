@@ -34,9 +34,12 @@ type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item' };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
   kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
-  toGo?: boolean; staffMeal?: { for: string } | null };
+  toGo?: boolean; staffMeal?: { for: string } | null;
+  /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
+  text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
-type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean };
+type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
+  settings?: { texts?: boolean } };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -95,6 +98,8 @@ export default function CounterPage() {
   // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
   const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [name, setName] = useState(''); const [cash, setCash] = useState<string | null>(null);
+  // A number to text when it's ready, while it's being typed (lib/ready-text).
+  const [textTo, setTextTo] = useState('');
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
@@ -132,7 +137,7 @@ export default function CounterPage() {
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
@@ -153,6 +158,10 @@ export default function CounterPage() {
     (d) => setJust((j) => (j ? { ...j, sized: true, took: true, lineId: d.line?.lineId || j.lineId } : j)));
   // Anything else changed on the order closes what was being offered.
   const setQty = (l: Line, q: number) => { if (!order) return; setJust(null); void act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: rid() } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: rid() }); };
+  // Only when the guest asks: one text when it's all ready. Saved once it's ten digits (or on Enter).
+  const textDigits = textTo.replace(/\D/g, '').slice(-10);
+  const saveText = () => { if (!order || textDigits.length !== 10) return; void act('text', { action: 'readyText', orderId: order.id, phone: textDigits }, (d) => { setTextTo(''); setNotice({ text: d.sent ? `${order.number} is ready, so the text went to ···${d.last4}.` : `${order.number}: we’ll text ···${d.last4} when it’s ready.`, tone: 'good' }); }); };
+  const dropText = () => order && act('text', { action: 'readyText', orderId: order.id, phone: null }, () => setNotice({ text: `${order.number}: no text.`, tone: 'good' }));
   const saveName = () => { if (order && name.trim() !== (order.guestName || '')) void post({ action: 'name', orderId: order.id, name: name.trim() }); };
   const sendIt = () => { if (!order) return; setJust(null); void act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' })); };
   // A manager's: one signed in here goes straight through; anyone else is asked for a manager's PIN.
@@ -221,6 +230,14 @@ export default function CounterPage() {
               {order.status === 'building' && <button type="button" onClick={cancel} disabled={!!busy} className={`${btn} px-3 text-[13.5px]`} style={{ color: MUTED }}>Drop it</button>}</div>
             <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>First name, for calling it out
               <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Optional" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[15px] font-normal outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
+            {lane?.settings?.texts && (order.text
+              ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-1.5 text-[14px]" style={{ background: SOFT }} role="status">
+                  <span style={order.text.failed ? { color: AMBER } : undefined}>{!order.text.sent ? `Texts ···${order.text.last4} when it’s ready.` : order.text.failed ? `The text to ···${order.text.last4} may not have gone. Call it out.` : `Texted ···${order.text.last4} that it’s ready.`}</span>
+                  {!order.text.sent && <button type="button" onClick={dropText} disabled={!!busy} className={btn} style={{ color: MUTED }}>Don’t text</button>}</div>
+              : <div><label htmlFor="counter-text-to" className="block text-[13px] font-semibold" style={{ color: MUTED }}>Text them when it’s ready, if they ask</label>
+                  <div className="mt-1 flex gap-2">
+                    <input id="counter-text-to" value={textTo} onChange={(e) => setTextTo(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter') saveText(); }} inputMode="tel" autoComplete="off" placeholder="Their mobile number" className="block min-h-[44px] min-w-0 flex-1 rounded-xl border bg-[#fff] px-3 text-[15px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} />
+                    <button type="button" onClick={saveText} disabled={textDigits.length !== 10 || !!busy} className={btn} style={dark}>Save</button></div></div>)}
             {order.lines.length === 0 ? <p className="rounded-2xl px-3 py-5 text-center text-[14px]" style={{ background: SOFT, color: MUTED }}>Tap the menu to add to the order.</p>
               : <ul className="space-y-2">{order.lines.map((l) => (
                 <li key={l.lineId} className="flex items-center justify-between gap-2 text-[14px]">
@@ -285,7 +302,8 @@ export default function CounterPage() {
             return (
               <li key={g.id} className="flex flex-col gap-2 rounded-2xl p-3" style={{ background: ready && !g.calledAt ? GREEN_TINT : SOFT }}>
                 <div><p className="text-[19px] font-semibold">{g.number}{o?.guestName ? ` ${o.guestName}` : ''}{o?.staffMeal || o?.toGo ? <span className="ml-2 text-[13.5px] font-medium" style={{ color: MUTED }}>{o.staffMeal ? 'Staff meal' : 'To go'}</span> : null}</p>
-                  <p className="text-[13px]" style={{ color: ready && !g.calledAt ? GREEN : MUTED }}>{g.calledAt ? `Called ${minsAgo(g.calledAt, now)}` : ready ? 'Ready' : `Making: ${(o?.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}`}</p></div>
+                  <p className="text-[13px]" style={{ color: ready && !g.calledAt ? GREEN : MUTED }}>{g.calledAt ? `Called ${minsAgo(g.calledAt, now)}` : ready ? 'Ready' : `Making: ${(o?.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}`}</p>
+                  {o?.text && <p className="text-[13px]" style={{ color: o.text.failed ? AMBER : MUTED }}>{!o.text.sent ? `Gets a text when it’s ready (···${o.text.last4})` : o.text.failed ? 'The text may not have gone' : `Texted${o.text.sentAt ? ` ${minsAgo(o.text.sentAt, now)}` : ''}`}</p>}</div>
                 {ready && (g.calledAt
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
                   : <button type="button" onClick={() => call(g, o)} disabled={busy === `call-${g.id}`} className={`${btn} w-full`} style={dark}>Call {o?.guestName || g.number}</button>)}

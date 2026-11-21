@@ -162,6 +162,10 @@ export type SmsMeta = {
   threadMessageId?: string | null;
   /** Ties the text to the email of the same notice, when the caller knows they're one. */
   noticeKey?: string | null;
+  /** A text for a guest who signed up for nothing (lib/ready-text): the business's own text log keeps the last four digits
+   *  only, and `logBody` in place of the text (a link in it opens their order). The STOP list and first-text record keep
+   *  the number, as for every text, so a STOP is honored. */
+  forget?: boolean; logBody?: string;
 };
 
 async function resolveRecipient(db: any, tenantId: string, e164: string | null) {
@@ -247,7 +251,8 @@ export async function sendTenantSms(
     const ref = db.collection(`tenants/${tenantId}/private`).doc('smsLog')
       .collection('messages').doc();
     await ref.set({
-      id: ref.id, to: toE164(to) || String(to).slice(0, 30), body: hideCodes(meta?.kind, branded).slice(0, 500),
+      id: ref.id, to: meta?.forget ? `···${String(toE164(to) || to).replace(/\D/g, '').slice(-4)}` : toE164(to) || String(to).slice(0, 30),
+      body: hideCodes(meta?.kind, meta?.forget && meta.logBody !== undefined ? `${studioName ? `${studioName}: ` : ''}${meta.logBody}` : branded).slice(0, 500),
       ok: result.ok, via: result.via || 'sms', sid: result.sid || null, error: result.error || null,
       fallbackEmail: (!result.ok || result.via === 'email') ? (fallback?.email || null) : null,
       at: new Date().toISOString(),
