@@ -55,10 +55,10 @@ export type DriverUpdate = { point: LatLng | null; accuracy?: number | null; sha
 
 /** Looks each stop's place up once for its address (a few at a time; a changed address is looked up again). Each
  *  lookup is claimed first, so two updates at once never both pay for it. */
-async function lookUpPlaces(db: any, tenantId: string, route: any[], now: number): Promise<void> {
+export async function lookUpPlaces(db: any, tenantId: string, route: any[], now: number, limit = LOOKUPS_PER_UPDATE): Promise<void> {
   if (!hasMapsKey()) return;
   const due = route.filter((o: any) => { const d = o.delivery || {}; return !(d.destFor === placeKey(o.shippingAddress) && (d.destAt || now - (Date.parse(String(d.destTriedAt || '')) || 0) < LOOKUP_AGAIN_MS)); })
-    .slice(0, LOOKUPS_PER_UPDATE);
+    .slice(0, limit);
   await Promise.all(due.map(async (o: any) => {
     const key = placeKey(o.shippingAddress);
     const oRef = db.doc(`tenants/${tenantId}/retailOrders/${o.id}`);

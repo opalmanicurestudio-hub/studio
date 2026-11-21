@@ -1,7 +1,8 @@
 // src/lib/delivery-run.ts — A DRIVER'S DELIVERIES, FROM THE SHOP'S OWN TEAM (pure). Read by the staff app's Deliveries
 // tab (mockups 4A to 4C), the server's delivery steps (lib/retail-fulfill) and the order pages.
 //   · The run: delivery orders waiting to go (packed or on the ready shelf, and any brought back) that a driver puts in
-//     the van, then their own stops in order (the earliest promise first; one skipped for later goes to the end).
+//     the van, then their own stops in order (as their route was planned, lib/route-server; one skipped for later goes
+//     to the end).
 //   · Proof at the door, as the shop sets it (lib/delivery-plan proof): a photo on every delivery or only when it's left
 //     rather than handed over, and the customer's delivery code on orders at or over an amount.
 //   · Couldn't deliver: what happened, and whose side it was on. The customer's side (no one answered, couldn't get in,
@@ -58,18 +59,33 @@ export function promiseOf(order: any): number {
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
 }
 
+/** A stop's place in its driver's planned route (lib/route-server): the plan it's from, and where in it. */
+export function routeSpot(d: any): { id: string; seq: number } | null {
+  const id = String(d?.routeId || ''); const seq = Number(d?.routeSeq);
+  return /^r\d{10,16}$/.test(id) && Number.isInteger(seq) && seq >= 0 ? { id, seq } : null;
+}
+/** The newest plan among stops (plans are named by when they were made). */
+export const newestPlan = (spots: ({ id: string } | null)[]) => spots.reduce((best: string, s) => (s && Number(s.id.slice(1)) > Number(best.slice(1) || 0) ? s.id : best), '');
+
 /**
  * The run for one driver: what's waiting to go (packed or ready, not out; brought back ones too), and their own stops
- * out with them, in order. A stop they skipped to come back to goes to the end, in the order they skipped them.
+ * out with them, in order: the order their route was planned in (lib/route-server, the least driving that keeps each
+ * window), then any added since by their time (until it's planned again), then a stop they skipped to come back to,
+ * in the order they skipped them. `unplanned`: stops out with them that their plan doesn't have yet.
  */
-export function runFor(orders: any[], driverId: string): { toTake: any[]; route: any[] } {
+export function runFor(orders: any[], driverId: string): { toTake: any[]; route: any[]; unplanned: number } {
   const live = (orders || []).filter((o) => o && o.method === 'delivery' && ['packed', 'ready'].includes(String(o.stage)));
   const byPromise = (a: any, b: any) => promiseOf(a) - promiseOf(b) || (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0);
   const toTake = live.filter((o) => String(o.delivery?.status || 'waiting') !== 'out').sort(byPromise);
   const mine = live.filter((o) => o.delivery?.status === 'out' && String(o.delivery?.driverId || '') === driverId);
   const skipped = (o: any) => Date.parse(String(o.delivery?.skippedAt || '')) || 0;
-  const route = [...mine.filter((o) => !skipped(o)).sort(byPromise), ...mine.filter((o) => skipped(o)).sort((a, b) => skipped(a) - skipped(b))];
-  return { toTake, route };
+  const going = mine.filter((o) => !skipped(o));
+  const plan = newestPlan(going.map((o) => routeSpot(o.delivery)));
+  const inPlan = (o: any) => !!plan && routeSpot(o.delivery)?.id === plan;
+  const planned = going.filter(inPlan).sort((a, b) => routeSpot(a.delivery)!.seq - routeSpot(b.delivery)!.seq);
+  const added = going.filter((o) => !inPlan(o)).sort(byPromise);
+  const route = [...planned, ...added, ...mine.filter((o) => skipped(o)).sort((a, b) => skipped(a) - skipped(b))];
+  return { toTake, route, unplanned: added.length };
 }
 
 /** The street lines of a delivery address (no name): what a driver reads and the customer is told the driver is at. */

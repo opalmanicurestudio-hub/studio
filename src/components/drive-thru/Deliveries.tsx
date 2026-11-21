@@ -21,7 +21,9 @@ const REASONS = [
 export type FoodDriver = { id: string; name: string };
 export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
   step: 'making' | 'ready' | 'out' | 'delivered' | 'failed'; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null;
-  why: string | null; phone: string | null; tip?: number };
+  why: string | null; phone: string | null; tip?: number;
+  /** Ready: another ready one going the same way (adds a few minutes to the trip, both on time). */
+  with?: { orderId: string; number: string; addMin: number } | null };
 
 const clock = (iso: string | null) => { if (!iso) return ''; try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 const since = (iso: string | null, now: number) => Math.max(0, Math.floor((now - (Date.parse(String(iso || '')) || now)) / 60000));
@@ -36,7 +38,14 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
   const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
   const going = rows.filter((r) => r.step !== 'delivered'); const done = rows.filter((r) => r.step === 'delivered');
   const pickedId = driver.startsWith('id:') && drivers.some((d) => d.id === driver.slice(3)) ? driver.slice(3) : '';
-  const out = (r: DeliveryRow) => act(`dout-${r.orderId}`, { action: 'deliveryOut', orderId: r.orderId, ...(pickedId ? { driverId: pickedId } : (other || !drivers.length) && driver.trim() && !driver.startsWith('id:') ? { driver: driver.trim() } : {}) });
+  const outBody = (r: DeliveryRow) => ({ action: 'deliveryOut', orderId: r.orderId, ...(pickedId ? { driverId: pickedId } : (other || !drivers.length) && driver.trim() && !driver.startsWith('id:') ? { driver: driver.trim() } : {}) });
+  const out = (r: DeliveryRow) => act(`dout-${r.orderId}`, outBody(r));
+  // Two ready ones going the same way: offered once, on the first of the two in the list.
+  const pairOf = (r: DeliveryRow): DeliveryRow | null => {
+    const w = r.with ? going.find((x) => x.orderId === r.with!.orderId && x.step === 'ready') : null;
+    if (!w) return null;
+    return going.indexOf(w) > going.indexOf(r) || w.with?.orderId !== r.orderId ? w : null;
+  };
   const field = `block min-h-[44px] rounded-xl px-3 text-[15px] font-normal ${RING}`;
   return (
     <section aria-labelledby="counter-deliveries" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
@@ -69,6 +78,8 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
                 {r.step === 'making' && <span className="ml-2 text-[13.5px]" style={{ color: MUTED }}>Being made{r.leaveAt ? `, ready ${clock(r.leaveAt)}` : ''}</span>}</p>
               <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={chip.style}>{chip.text}</span>
             </div>
+            {r.step === 'ready' && pairOf(r) && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>Goes with {pairOf(r)!.number}: adds about {Math.max(1, r.with!.addMin)} min, both on time.</p>}
+            {r.step === 'ready' && !pairOf(r) && r.with && going.some((x) => x.orderId === r.with!.orderId && x.step === 'ready') && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>Goes with {r.with.number}.</p>}
             <p className="text-[13.5px] leading-relaxed" style={{ color: MUTED }}>{r.to}.{r.arriveAt && r.step !== 'making' ? ` Arrive by ${clock(r.arriveAt)}.` : ''}{r.driveMin ? ` About a ${r.driveMin}-minute drive.` : ''}
               {r.note ? <span className="block" style={{ color: INK }}>Note: {r.note}</span> : null}</p>
             {asking ? (
@@ -81,6 +92,7 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
             ) : (
               <div className="flex flex-wrap gap-2">
                 {r.step === 'ready' && <button type="button" disabled={!!busy} onClick={() => out(r)} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Out for delivery</button>}
+                {r.step === 'ready' && pairOf(r) && <button type="button" disabled={!!busy} onClick={() => act(`dout-${r.orderId}`, outBody(r), () => out(pairOf(r)!))} className={`${btn} flex-1`} style={quiet}>Send both</button>}
                 {r.step === 'out' && <>
                   <button type="button" disabled={!!busy} onClick={() => act(`ddone-${r.orderId}`, { action: 'deliveryDone', orderId: r.orderId })} className={`${btn} flex-1`} style={quiet}>Delivered</button>
                   <button type="button" disabled={!!busy} onClick={() => setFailing(r.orderId)} className={`${btn} flex-1`} style={quiet}>Couldn’t deliver</button></>}

@@ -25,7 +25,7 @@ import { markAtDoor, markDelivered, markDeliveryFailed, markOutForDelivery, skip
 import { bagReply, bagWords, bagsToLoad, parseBagCode } from '@/lib/bag-tag';
 import { approversOf } from '@/lib/scan-rule';
 import { ScanGate } from '@/components/retail/ScanGate';
-import { HotFoodRun } from '@/components/staff-portal/HotFoodRun';
+import { HotFoodRun, type HotRow } from '@/components/staff-portal/HotFoodRun';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', OK = '#1f7a4d', WARN = '#b45309';
 const card: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 20, background: '#fff' };
@@ -148,8 +148,34 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   const [skipFor, setSkipFor] = React.useState<{ id: string; pin: string } | null>(null);
   const [scanSay, setScanSay] = React.useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = React.useState('');
-  // Hot food on its way or waiting for a driver (components/staff-portal/HotFoodRun): how many, for the empty note.
-  const [hot, setHot] = React.useState(0);
+  // Hot food on its way or waiting for a driver (components/staff-portal/HotFoodRun): for the empty note, and the
+  // driver's own hot food stops, which go first in their route.
+  const [hotRows, setHotRows] = React.useState<HotRow[]>([]);
+  const hot = hotRows.length;
+  const hotMine = React.useMemo(() => hotRows.filter((r) => r.step === 'out' && r.driverId === me), [hotRows, me]);
+  const stopsNow = route.length + hotMine.length;
+  // Their stops in the best order (lib/route-server, api/retail/delivery-route): asked for when they set out and again
+  // whenever their stops change (one added, taken, done or brought back); the plan is kept on each stop, so the list
+  // above follows it as it updates.
+  const [routePlan, setRoutePlan] = React.useState<any>(null); const [planning, setPlanning] = React.useState(false);
+  const routeIds = React.useMemo(() => route.map((o: any) => `s:${o.id}${o.delivery?.skippedAt ? '~' : ''}`), [route]);
+  const stopSig = [...routeIds, ...hotMine.map((r) => `h:${r.orderId}`)].sort().join(',');
+  const askPlan = React.useCallback(async (again = false) => {
+    setPlanning(true);
+    try {
+      const r = await fetch('/api/retail/delivery-route', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, again }) });
+      const d = await r.json().catch(() => null);
+      if (d?.ok) setRoutePlan(d.id ? d : null);
+    } catch { /* the stops stay in time order until the next ask */ }
+    setPlanning(false);
+  }, [tenantId]);
+  const asked = React.useRef('');
+  React.useEffect(() => {
+    if (!stopSig) { asked.current = ''; setRoutePlan(null); return; }
+    if (asked.current === stopSig) return;
+    const t = setTimeout(() => { asked.current = stopSig; void askPlan(); }, 800);
+    return () => clearTimeout(t);
+  }, [stopSig, askPlan]);
   const [note, setNote] = React.useState<{ text: string; bad?: boolean } | null>(null);
   React.useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 6000); return () => clearTimeout(t); }, [note]);
 
@@ -195,20 +221,34 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   };
 
   if (!plan?.on) return <p className="text-[15px]" style={{ color: MUTED }}>Local delivery isn’t turned on for this shop.</p>;
-  if (stop && view.kind === 'stop') return <StopScreen key={`${stop.id}-${view.left ? 'left' : 'hand'}`} startLeft={view.left === true} tenantId={tenantId} order={stop} plan={plan} tz={tz} index={route.findIndex((o: any) => o.id === stop.id) + 1} total={route.length} onBack={() => setView({ kind: 'run' })} onFail={() => setView({ kind: 'fail', id: stop.id })} onDone={(m) => { setNote({ text: m }); setView({ kind: 'run' }); }} />;
+  if (stop && view.kind === 'stop') return <StopScreen key={`${stop.id}-${view.left ? 'left' : 'hand'}`} startLeft={view.left === true} tenantId={tenantId} order={stop} plan={plan} tz={tz} index={hotMine.length + route.findIndex((o: any) => o.id === stop.id) + 1} total={stopsNow} onBack={() => setView({ kind: 'run' })} onFail={() => setView({ kind: 'fail', id: stop.id })} onDone={(m) => { setNote({ text: m }); setView({ kind: 'run' }); }} />;
   if (stop && view.kind === 'fail') return <FailScreen tenantId={tenantId} firestore={firestore} order={stop} tz={tz} onBack={() => setView({ kind: 'stop', id: stop.id })} onLeave={() => setView({ kind: 'stop', id: stop.id, left: true })} onDone={(m) => { setNote({ text: m }); setView({ kind: 'run' }); }} />;
 
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
+  const etaOf = (kind: 'shop' | 'hot', id: string) => routePlan?.stops?.find((x: any) => x.kind === kind && x.id === id) || null;
+  const lateCount = (routePlan?.stops || []).filter((x: any) => x.late).length;
   return (
     <div className="space-y-4" style={{ color: INK }}>
       <div>
         <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{first(staffMember?.name)} · {today}</p>
-        <h2 className="text-[28px] font-light tracking-[-0.02em]">{route.length ? `${route.length} stop${route.length === 1 ? '' : 's'}` : 'Deliveries'}</h2>
+        <h2 className="text-[28px] font-light tracking-[-0.02em]">{stopsNow ? `${stopsNow} stop${stopsNow === 1 ? '' : 's'}` : 'Deliveries'}</h2>
         {toTake.length > 0 && <p className="text-[14px]" style={{ color: MUTED }}>{toTake.length} waiting to go out</p>}
       </div>
       {note && <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: note.bad ? '#fff7ed' : '#eaf6ef', color: note.bad ? WARN : OK }}>{note.text}</p>}
       {isLoading && !orders ? <p role="status" className="text-[15px]" style={{ color: MUTED }}>Loading deliveries…</p> : null}
-      <HotFoodRun tenantId={tenantId} tz={tz} me={me} onCount={setHot} />
+      {routePlan && stopsNow > 0 && (
+        <section aria-labelledby="plan-h" className="space-y-2 rounded-[20px] p-4" style={{ background: SOFT }}>
+          <h3 id="plan-h" className="text-[16px] font-semibold">{stopsNow} stop{stopsNow === 1 ? '' : 's'} in the best order, about {routePlan.driveMin} min of driving</h3>
+          <p className="text-[14px]" style={{ color: MUTED }}>{routePlan.miles} miles.{routePlan.backAt ? ` Back at the shop about ${formatTime(routePlan.backAt, tz)}.` : ''}{routePlan.savedMin >= 3 ? ` This order saves about ${routePlan.savedMin} minutes.` : ''}</p>
+          {!routePlan.road && <p className="text-[13px]" style={{ color: MUTED }}>Drive times are worked out from the distance just now, not from the map.</p>}
+          {(routePlan.stops || []).some((x: any) => x.placed === false) && <p className="text-[13px]" style={{ color: MUTED }}>A stop that isn’t found on the map goes after the others, with no time for it. Check its address.</p>}
+          {lateCount > 0 && <p className="text-[14px] font-semibold" style={{ color: WARN }}>{lateCount === 1 ? 'One stop can’t make its time, so it’s marked.' : `${lateCount} stops can’t make their time, so they’re marked.`} Let the customer know.</p>}
+          <div className="flex flex-wrap gap-2">
+            {routePlan.link && <a href={routePlan.link} target="_blank" rel="noreferrer" className="flex h-12 flex-1 items-center justify-center whitespace-nowrap rounded-full px-5 text-[15px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2" style={{ border: `1px solid ${INK}`, color: INK, background: '#fff' }}>{routePlan.linkStops < routePlan.linkOf ? `Open the first ${routePlan.linkStops} stops in Maps` : 'Open the whole route in Maps'}</a>}
+            <Btn disabled={planning} onClick={() => void askPlan(true)} style={{ background: '#fff' }}>{planning ? 'Planning…' : 'Plan again'}</Btn>
+          </div>
+        </section>)}
+      <HotFoodRun tenantId={tenantId} tz={tz} me={me} onRows={setHotRows} />
 
       {toTake.length > 0 && (
         <section aria-labelledby="take-h" className="p-4" style={{ ...card, borderColor: going.length ? INK : LINE, borderWidth: going.length ? 2 : 1 }}>
@@ -276,16 +316,18 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
       {route.length > 0 && (
         <section aria-labelledby="route-h" className="space-y-2">
           <h3 id="route-h" className="text-[13px] font-semibold" style={{ color: MUTED }}>Your route</h3>
-          {route.map((o: any, i: number) => (
-            <button key={o.id} type="button" onClick={() => setView({ kind: 'stop', id: o.id })} className="flex w-full items-start gap-3 p-4 text-left" style={card}>
-              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-[14px] font-bold text-white" style={{ background: INK }}>{i + 1}</span>
+          {route.map((o: any, i: number) => { const e = etaOf('shop', o.id); return (
+            <button key={o.id} type="button" onClick={() => setView({ kind: 'stop', id: o.id })} className="flex w-full items-start gap-3 p-4 text-left" style={{ ...card, ...(e?.late && !o.delivery?.skippedAt ? { borderColor: WARN } : {}) }}>
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-[14px] font-bold text-white" style={{ background: INK }}>{hotMine.length + i + 1}</span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[16px] font-semibold">{shortName(o.customerName)} · {num(o)}</span>
                 <span className="block text-[14px]" style={{ color: MUTED }}>{[streetLines(o.shippingAddress)[0], when(o, tz)].filter(Boolean).join(' · ')}</span>
                 {stopHint(o, plan) && <span className="block text-[14px]">{stopHint(o, plan)}</span>}
+                {e && !o.delivery?.skippedAt && (e.eta ? <span className="block text-[13.5px]" style={{ color: e.late ? WARN : MUTED }}>{e.late ? `Around ${formatTime(e.eta, tz)}, after its time.` : `Around ${formatTime(e.eta, tz)}.`}</span>
+                  : <span className="block text-[13.5px]" style={{ color: MUTED }}>Not found on the map.</span>)}
                 {o.delivery?.skippedAt && <span className="block text-[13px] font-semibold" style={{ color: WARN }}>Coming back to this one</span>}
               </span>
-            </button>))}
+            </button>); })}
         </section>)}
 
       {!toTake.length && !route.length && !hot && orders && <p className="rounded-2xl p-5 text-[15px]" style={{ background: SOFT, color: MUTED }}>Nothing to deliver right now. Packed delivery orders show up here.</p>}

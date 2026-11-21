@@ -9,6 +9,9 @@
 import { addressLine, deliveryStep, FOOD_FAIL_REASONS, OUTSIDE_EVERY_MS, waitingHot } from '@/lib/food-delivery';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { goesWith, TOGETHER_MAX_ADD_MIN } from '@/lib/route-plan';
+import { routeSpot, newestPlan } from '@/lib/delivery-run';
+import { hotDestOf, lookUpHot, shopPlace } from '@/lib/route-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const LIVE_GONE = ['cancelled', 'voided'];
@@ -23,7 +26,11 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
   /** The guest's number, for the counter to reach them (until it's delivered). */
   phone: string | null;
   /** For the team only: the whole address for a maps app, who has it (their team record), and the guest's tip. */
-  mapTo: string; driverId: string | null; tip: number };
+  mapTo: string; driverId: string | null; tip: number;
+  /** Out with a driver: its place in their planned route (lib/route-server) and when it should get there. */
+  route: { id: string; seq: number; eta: string | null; late: boolean } | null;
+  /** Ready: another ready one that goes the same way (adds a few minutes to the trip, and both stay on time). */
+  with: { orderId: string; number: string; addMin: number } | null };
 
 // (Read once every few seconds for the business, however many counter screens and drivers ask; a step taken reads afresh.)
 const cache = new Map<string, { at: number; rows: DeliveryRow[] }>();
@@ -48,6 +55,11 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
     const ids = orders.slice(i, i + 30).map((o: any) => o.id);
     tickets.push(...(await db.collection(`${T}/kdsTickets`).where('orderId', 'in', ids).get()).docs.map((d: any) => d.data() || {}));
   }
+  // Places on the map for the ones still to go (looked up once each, one a read: the next read has it), to see which
+  // go together.
+  const toGo = orders.filter((o: any) => !['out', 'delivered', 'failed'].includes(String(o.ahead.delivery.state || 'waiting')));
+  if (toGo.length > 1 && toGo.some((o: any) => !hotDestOf(o.ahead.delivery))) await lookUpHot(db, tenantId, toGo.map((o: any) => ({ id: o.id, d: o.ahead.delivery })), now, 1).catch(() => null);
+  const dests = new Map<string, any>(toGo.map((o: any) => [o.id, hotDestOf(o.ahead.delivery)]));
   const rows: DeliveryRow[] = orders.map((o: any) => {
     const mine = tickets.filter((t) => t.orderId === o.id && !LIVE_GONE.includes(String(t.status)));
     const ready = mine.length > 0 && mine.every((t) => ['ready', 'delivered', 'served', 'done'].includes(String(t.status)));
@@ -61,10 +73,34 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
       why: d.state === 'failed' ? FOOD_FAIL_REASONS.find((r) => r.code === d.why)?.label || 'Couldn’t deliver' : null,
       phone: step !== 'delivered' && /^\d{10}$/.test(String(d.phone || '')) ? String(d.phone) : null,
       mapTo: [a.line1, a.line2, a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-      driverId: d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null, tip: Math.max(0, Math.round(Number(o.tipCents) || 0)) / 100 };
+      driverId: d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null, tip: Math.max(0, Math.round(Number(o.tipCents) || 0)) / 100,
+      route: d.state === 'out' && routeSpot(d) ? { ...routeSpot(d)!, eta: d.routeEta || null, late: d.routeLate === true } : null, with: null };
   });
+  // Ready ones that go together: the one that adds least to the other's trip, when both stay on time.
+  const ready = rows.filter((r) => r.step === 'ready' && dests.get(r.orderId));
+  if (ready.length > 1) {
+    const shop = await shopPlaceSoon(db, tenantId, tenant, now);
+    if (shop) for (const r of ready) {
+      let best: DeliveryRow['with'] = null;
+      for (const x of ready) {
+        if (x === r) continue;
+        const g = goesWith(shop, { at: dests.get(r.orderId), due: Date.parse(String(r.arriveAt || '')) || null }, { at: dests.get(x.orderId), due: Date.parse(String(x.arriveAt || '')) || null }, now);
+        if (g && g.onTime && g.addMin <= TOGETHER_MAX_ADD_MIN && (!best || g.addMin < best.addMin)) best = { orderId: x.orderId, number: x.number, addMin: g.addMin };
+      }
+      r.with = best;
+    }
+  }
   const rank = { ready: 0, making: 1, out: 2, failed: 3, delivered: 4 } as const;
   return rows.sort((a, b) => rank[a.step] - rank[b.step] || String(a.leaveAt || '').localeCompare(String(b.leaveAt || ''))).slice(0, 60);
+}
+
+/** Where the shop is (kept a few minutes). */
+const shopCache = new Map<string, { at: number; v: any }>();
+async function shopPlaceSoon(db: any, tenantId: string, tenant: any, now: number) {
+  const hit = shopCache.get(tenantId); if (hit && now >= hit.at && now - hit.at < 5 * 60e3) return hit.v?.at || null;
+  const v = await shopPlace(db, tenantId, tenant).catch(() => null);
+  shopCache.set(tenantId, { at: now, v }); if (shopCache.size > 500) shopCache.delete(shopCache.keys().next().value as string);
+  return v?.at || null;
 }
 
 /** The driver's Deliveries tab: their own hot food out with them first, then what's ready to take, then what's being
@@ -72,8 +108,11 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
 export async function foodRun(db: any, tenantId: string, tenant: any, me: string, now = Date.now()): Promise<DeliveryRow[]> {
   const rows = await deliveriesToday(db, tenantId, tenant, now);
   const rank = (r: DeliveryRow) => (r.step === 'out' ? 0 : r.step === 'ready' ? 1 : 2);
+  // Their own in the order their route was planned (lib/route-server), any added since by when they're due.
+  const plan = newestPlan(rows.filter((r) => r.step === 'out' && r.driverId === me).map((r) => r.route));
+  const seq = (r: DeliveryRow) => (r.route && r.route.id === plan ? r.route.seq : 1e6);
   return rows.filter((r) => (r.step === 'out' && r.driverId === me) || r.step === 'ready' || r.step === 'making')
-    .sort((a, b) => rank(a) - rank(b) || String(a.arriveAt || '').localeCompare(String(b.arriveAt || '')))
+    .sort((a, b) => rank(a) - rank(b) || seq(a) - seq(b) || String(a.arriveAt || '').localeCompare(String(b.arriveAt || '')))
     // (The guest's number stays with the counter: the driver texts through the business.)
     .map((r) => ({ ...r, phone: null, tip: r.driverId === me || r.step !== 'out' ? r.tip : 0 }));
 }
