@@ -20,6 +20,7 @@ import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
 import { PinPad } from '@/components/kitchen/PinPad';
 import { AppSoldOut, type AppSoldOutRow } from '@/components/drive-thru/AppSoldOut';
+import { ComingUp, type ComingUpRow } from '@/components/drive-thru/ComingUp';
 import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
 import { Deliveries, type DeliveryRow, type FoodDriver, type DriverNow, type Slow } from '@/components/drive-thru/Deliveries';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
@@ -100,6 +101,8 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   deliveries?: DeliveryRow[]; drivers?: FoodDriver[]; driverNow?: DriverNow | null; slow?: Slow | null;
   /** Sold out here, to mark on each delivery app, or back on there (lib/app-orders appSoldOutTodo). */
   appSoldOut?: AppSoldOutRow[]; appSoldOutTaps?: number;
+  /** Orders for another day still waiting for their day (lib/ahead-days-server). */
+  comingUp?: ComingUpRow[];
   /** The delivery apps it takes orders from (lib/app-orders), for App order. */
   apps?: { code: string; label: string }[] };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
@@ -413,6 +416,7 @@ export default function CounterPage() {
       </div>
 
       <AppSoldOut rows={lane?.appSoldOut || []} taps={lane?.appSoldOutTaps} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} />
+      <ComingUp rows={lane?.comingUp || []} now={now} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done) => setDeliveryPin({ body, line, done })} />
       <Deliveries rows={lane?.deliveries || []} drivers={lane?.drivers || []} now={now} busy={busy} act={act} driverNow={lane?.driverNow || null} slow={lane?.slow || null}
         notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done) => setDeliveryPin({ body, line, done })} />
 

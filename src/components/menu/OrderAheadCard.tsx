@@ -1,7 +1,7 @@
 'use client';
 // src/components/menu/OrderAheadCard.tsx — ORDERING AHEAD, on the Menu page (a manager): on or off, how guests can pick
 // up (the drive-thru, inside, curbside) or have it delivered by the business's own drivers, how far ahead they can order,
-// and the link (with a code to print) guests order from.
+// orders for another day (catering and big orders: lib/ahead-days), and the link (with a code to print) guests order from.
 // Orders are paid when they're placed, so payments must be connected first. api/menu 'ahead'; lib/counter-ahead.
 import { useEffect, useState } from 'react';
 
@@ -9,23 +9,28 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GR
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
 export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryFeeTaxed?: boolean; deliveryReady?: boolean; deliveryByZip?: boolean;
-  laterHours: number; slotItems?: number | null; payments: boolean; link: string };
+  laterHours: number; slotItems?: number | null; payments: boolean; link: string;
+  anotherDay?: { on: boolean; daysAhead: number; noticeHours: number; minCents: number | null } };
 const DRIVES = [10, 15, 20, 30];
+const DAYS = [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '30 days']] as const;
+const NOTICE = [[12, '12 hours'], [24, '1 day'], [48, '2 days'], [72, '3 days']] as const;
 
 export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (body: any) => Promise<any> }) {
   const [a, setA] = useState<AheadSettings>(start);
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [copied, setCopied] = useState(false);
   const [qr, setQr] = useState<string | null>(null);
+  const ad = a.anotherDay || { on: false, daysAhead: 7, noticeHours: 24, minCents: null };
+  const [minTyped, setMinTyped] = useState<string>(ad.minCents ? String(ad.minCents / 100) : '');
   useEffect(() => {
     if (!a.on) return; let live = true;
     void import('qrcode').then((Q: any) => Q.toDataURL(a.link, { margin: 1, width: 480, color: { dark: INK, light: '#ffffff' } })).then((img: string) => { if (live) setQr(img); }).catch(() => null);
     return () => { live = false; };
   }, [a.on, a.link]);
-  const save = async (k: string, patch: Partial<AheadSettings>) => {
+  const save = async (k: string, patch: Partial<AheadSettings> | { anotherDay: Record<string, unknown> }) => {
     setBusy(k); setErr('');
     const d = await call({ action: 'ahead', ...patch });
     setBusy('');
-    if (d.ok) setA(d.ahead); else setErr(d.error || 'That didn’t save. Try again.');
+    if (d.ok) { setA(d.ahead); if (k === 'days-min') setMinTyped(d.ahead.anotherDay?.minCents ? String(d.ahead.anotherDay.minCents / 100) : ''); } else setErr(d.error || 'That didn’t save. Try again.');
   };
   const copy = async () => { try { await navigator.clipboard.writeText(a.link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setErr('Copy didn’t work. Select the link and copy it.'); } };
   const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside' | 'delivery' | 'deliveryFeeTaxed', off = false) => (
@@ -76,6 +81,41 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
             {[4, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50].map((n) => <option key={n} value={n}>{n} items</option>)}
           </select>
           <span id="ahead-slots-help" className="mt-1.5 block text-[13px]" style={{ color: MUTED }}>Each 15-minute pickup time takes this many items, then shows as full. When the kitchen is busy it takes three-quarters as many, and half when slammed. A big order can always have a time to itself.</span></label>
+      </div>
+      <div className="space-y-3 rounded-2xl p-4" style={{ border: `1px solid ${LINE}` }}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p id="ahead-days-title" className="text-[15px] font-semibold">Orders for another day</p>
+            <p className="mt-0.5 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>Catering and big orders, picked up or delivered. Paid when they’re placed, they go to the kitchen on their day, with time to make them.</p>
+          </div>
+          <button type="button" role="switch" aria-checked={ad.on} aria-labelledby="ahead-days-title" disabled={!!busy} onClick={() => save('days-on', { anotherDay: { on: !ad.on } })}
+            className={`relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50 ${RING}`} style={{ background: ad.on ? GREEN : LINE }}>
+            <span className="absolute top-1 h-6 w-6 rounded-full bg-[#fff] shadow transition-all" style={{ left: ad.on ? 28 : 4 }} />
+          </button>
+        </div>
+        {ad.on && <>
+          {([['How far ahead', DAYS, 'daysAhead', ad.daysAhead], ['Notice you need', NOTICE, 'noticeHours', ad.noticeHours]] as const).map(([label, opts, k, cur]) => (
+            <div key={k} role="radiogroup" aria-label={label}>
+              <p className="text-[14px] font-semibold">{label}</p>
+              <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                {opts.map(([v, words]) => { const on = cur === v; return (
+                  <button key={v} type="button" role="radio" aria-checked={on} disabled={!!busy} onClick={() => save(`days-${k}`, { anotherDay: { [k]: v } })}
+                    className={`min-h-[44px] rounded-xl text-[14px] font-semibold disabled:opacity-50 ${RING}`} style={on ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{words}</button>); })}
+              </div>
+            </div>))}
+          <div>
+            <label htmlFor="ahead-days-min" className="text-[14px] font-semibold">Smallest order</label>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[15px]">$</span>
+              <input id="ahead-days-min" value={minTyped} inputMode="decimal" placeholder="Any size" onChange={(e) => setMinTyped(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void save('days-min', { anotherDay: { minOrder: minTyped } }); } }}
+                className={`h-11 w-28 rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`} style={{ border: `1px solid ${LINE}` }} aria-describedby="ahead-days-min-help" />
+              <button type="button" disabled={!!busy || minTyped === (ad.minCents ? String(ad.minCents / 100) : '')} onClick={() => save('days-min', { anotherDay: { minOrder: minTyped } })} className={BTN} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>Save</button>
+            </div>
+            <p id="ahead-days-min-help" className="mt-1.5 text-[13px]" style={{ color: MUTED }}>The food before tax. Leave it empty to take any size.</p>
+          </div>
+          <p className="text-[13px]" style={{ color: MUTED }}>Only days and times you’re open, from your notice on, and never at the drive-thru. Guests can cancel for a full refund until the notice runs out. Each one shows on the counter under Coming up.</p>
+        </>}
       </div>
       {a.on && (
         <div className="flex flex-wrap items-center gap-4 rounded-2xl p-4" style={{ background: SOFT }}>

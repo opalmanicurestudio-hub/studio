@@ -69,6 +69,7 @@ import { sensorsView, newSensor, stopSensor } from '@/lib/lane-entry-server';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
+import { anotherDayOf, cleanMinOrder, DAYS_AHEAD, NOTICE_HOURS, MIN_ORDER_MAX } from '@/lib/ahead-days';
 import { nudgeSettingsOf, NUDGE_KEYS } from '@/lib/nudges';
 import { cleanTablePay, tablePayOf } from '@/lib/table-bill';
 import { askAllergiesOf, finishTogetherOn, compAllowanceCents, compReasonsOf, coursesOf, stationsOf, MAX_COMP_ALLOWANCE_CENTS, MAX_COURSES, MAX_STATIONS } from '@/lib/table-service';
@@ -118,6 +119,8 @@ function aheadSettings(t: any, tenantId: string, origin: string | null) {
   const F = foodDeliveryOf(t);
   return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, curbside: a.curbside === true, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
     delivery: F.on, deliveryMaxMin: F.maxDriveMin, deliveryFeeTaxed: F.feeTaxed, deliveryReady: deliveryReady(t), deliveryByZip: deliveryFrom(t.retailSettings).by === 'postal',
+    // Orders for another day (lib/ahead-days): on, how far ahead, the notice, and the smallest order.
+    anotherDay: anotherDayOf(t),
     link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
 }
 
@@ -268,7 +271,16 @@ export async function POST(req: NextRequest) {
       if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
       // Most items one pickup time takes (lib/ahead-slots); null for no limit.
       if (b.slotItems !== undefined) { const n = cleanSlotItems(b.slotItems); if (n === undefined) return bad(`Items for one pickup time: ${SLOT_ITEMS_MIN} to ${SLOT_ITEMS_MAX}, or no limit.`); patch.slotItems = n; }
-      const next = { ...cur, ...patch };
+      // Orders for another day (lib/ahead-days): on or off, how far ahead, the notice, the smallest order (dollars, empty for any).
+      if (b.anotherDay && typeof b.anotherDay === 'object') {
+        const x = b.anotherDay; const ad: any = {};
+        if (typeof x.on === 'boolean') ad.on = x.on;
+        if (x.daysAhead !== undefined) { if (!(DAYS_AHEAD as readonly number[]).includes(Number(x.daysAhead))) return bad('Pick how far ahead.'); ad.daysAhead = Number(x.daysAhead); }
+        if (x.noticeHours !== undefined) { if (!(NOTICE_HOURS as readonly number[]).includes(Number(x.noticeHours))) return bad('Pick the notice you need.'); ad.noticeHours = Number(x.noticeHours); }
+        if (x.minOrder !== undefined) { const c = cleanMinOrder(x.minOrder); if (c === undefined) return bad(`The smallest order: $0 to $${MIN_ORDER_MAX.toLocaleString('en-US')}, or leave it empty.`); ad.minCents = c; }
+        if (Object.keys(ad).length) patch.anotherDay = ad;
+      }
+      const next = { ...cur, ...patch, ...(patch.anotherDay ? { anotherDay: { ...(cur.anotherDay || {}), ...patch.anotherDay } } : {}) };
       if (next.driveThru === false && next.inside === false && next.curbside !== true && next.delivery !== true) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });

@@ -35,6 +35,8 @@ export function itemsBySlot(orders: any[], now: number, except?: string): Map<st
     // Voided or given back at the counter: it isn't being made, so its room is free again.
     if (['voided', 'refunded', 'canceled', 'cancelled'].includes(String(o.status || ''))) continue;
     if (!slot) continue;
+    // (An order for another day takes no room in its pickup time: it starts early enough for its size. lib/ahead-days)
+    if (a.forDay) continue;
     const live = a.state === 'paid' || (a.state === 'awaiting_pay' && now - Date.parse(String(o.createdAt || '')) < UNPAID_HOLD_MS);
     if (!live) continue;
     const items = Array.isArray(o.lines) ? o.lines.reduce((n: number, l: any) => n + Math.max(1, Math.round(Number(l?.quantity) || 1)), 0) : 1;

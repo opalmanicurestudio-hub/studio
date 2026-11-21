@@ -50,6 +50,10 @@
 //   deliveryRefund { tenantId, orderId, fee?, pin? } → one that couldn't be delivered (or a pickup never collected),
 //                                                      refunded to the card in one step; a manager's (lib/food-delivery-settle-server)
 //   deliveryHanded / deliveryOwed { tenantId, orderId } → picked up instead: handed over; what didn't go back yet, sent again
+//   laterCancel { tenantId, orderId, pin? }         → an order for another day, canceled before it goes to the kitchen: every
+//                                                      line back to the card; a manager's (lib/ahead-days-server)
+//   laterSend { tenantId, orderId }                 → an order for another day, on its day: to the kitchen now (one that
+//                                                      couldn't go by itself, once what stopped it is fixed)
 //   here   { tenantId, key, carId }                 → a car taken in line has reached the window: from now on it's a car
 //                                                      at the window like any other (the window screens show it)
 //   pouch  { tenantId, key, staffPass }             → the cash the person signed in has taken in line and not handed in
@@ -118,6 +122,7 @@ import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
 import { pickupHanded, sendOwed, settleFailed } from '@/lib/food-delivery-settle-server';
+import { cancelLater, comingUp, releaseOne } from '@/lib/ahead-days-server';
 import { appSoldOutTodo, appOrdersOf, appName } from '@/lib/app-orders';
 import { appSend, appCode, appCancel } from '@/lib/app-orders-server';
 import { allergyWords, orderAllergyOf } from '@/lib/order-allergy';
@@ -153,7 +158,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -178,7 +183,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -310,6 +315,8 @@ export async function POST(req: NextRequest) {
         // (The first 30 items, and how many taps there are in all.)
         ...(() => { const all = channel === 'counter' && appOrdersOf(tenant).on ? appSoldOutTodo(menu, appOrdersOf(tenant).apps) : [];
           return { appSoldOut: all.slice(0, 30), appSoldOutTaps: all.reduce((n, r) => n + r.apps.length, 0) }; })(),
+        // Orders for another day still waiting for their day (lib/ahead-days-server), soonest first.
+        comingUp: channel === 'counter' && tenant.orderAhead?.anotherDay ? await comingUp(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
@@ -666,6 +673,28 @@ export async function POST(req: NextRequest) {
       const r: any = await settleFailed(db, tenantId, tenant, id, 'refund', { by: approver.name, guest: false, ...(typeof b.fee === 'boolean' ? { fee: b.fee } : {}) });
       if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.delivery_refunded', targetType: 'order', targetId: id,
         summary: `${approver.name} refunded ${r.number} ($${(r.cents / 100).toFixed(2)}), which couldn’t be delivered${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
+      return r.ok ? ok({ already: !!r.already, cents: r.cents, number: r.number, approvedBy: approver.name, staffOk }) : bad(r.error, r.status);
+    }
+    if (action === 'laterCancel' || action === 'laterSend') {
+      // An order for another day (lib/ahead-days-server): to the kitchen now, on its day; or canceled with every line back to
+      // the card, a manager's (as any refund: signed in or working here as one, or their PIN typed here).
+      if (channel !== 'counter') return bad('Orders for another day are at the counter.', 409);
+      const id = String(b.orderId || ''); if (!ID.test(id)) return bad('Which order?');
+      if (action === 'laterSend') {
+        const o: any = (await db.doc(`${T}/counterOrders/${id}`).get()).data();
+        if (!o?.ahead?.forDay) return bad('That order isn’t here.', 404);
+        if (String(o.ahead.forDay) > todayIn(tenantTimeZone(tenant), now)) return bad('That order is for another day. It goes to the kitchen on its day.', 409);
+        const r: any = await releaseOne(db, tenantId, tenant, id, { id: who.id || null, name: by }, now.getTime());
+        if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.later_sent', targetType: 'order', targetId: id, summary: `${by} sent ${r.number}, an order for another day, to the kitchen.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+        return r.ok ? ok({ already: !!r.already, number: r.number, staffOk }) : bad(r.error, r.status);
+      }
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      const approver = m.approver;
+      if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager cancels it. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await cancelLater(db, tenantId, tenant, id, { by: approver.name, guest: false });
+      if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.later_canceled', targetType: 'order', targetId: id,
+        summary: `${approver.name} canceled ${r.number}, an order for another day, and refunded $${(r.cents / 100).toFixed(2)}${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
       return r.ok ? ok({ already: !!r.already, cents: r.cents, number: r.number, approvedBy: approver.name, staffOk }) : bad(r.error, r.status);
     }
     if (action === 'lineClear') {

@@ -166,7 +166,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   r = await A.aheadOnWay(db, 't1', 'o9', { eta: 5 }); o = await get(`${T}/counterOrders/o9`);
   check('on my way after they’re here changes nothing', r.ok && o.ahead.curb.etaMinutes === null);
   const rt = src('src/app/api/counter/ahead/route.ts');
-  check('the guest’s link signs it: on my way only with their order’s signature', /\['done', 'track', 'here', 'onway', 'textMe'(, 'deliveryChoice')?\]\.includes\(action\) && \(!ID\.test\(orderId\) \|\| !aheadSigOk/.test(rt) && /source: b\.source, distanceM: b\.distanceM/.test(rt));
+  check('the guest’s link signs it: on my way only with their order’s signature', /\['done', 'track', 'here', 'onway', 'textMe'(, 'deliveryChoice')?(, 'cancel')?\]\.includes\(action\) && \(!ID\.test\(orderId\) \|\| !aheadSigOk/.test(rt) && /source: b\.source, distanceM: b\.distanceM/.test(rt));
 
   console.log('the screen');
   const { renderToStaticMarkup } = await import('react-dom/server'); const React = await import('react');

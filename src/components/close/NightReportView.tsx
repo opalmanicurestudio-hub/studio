@@ -88,6 +88,9 @@ export function NightReportView({ r }: { r: NightReport }) {
             {D.apps.length > 0 && <Card title="App orders" sub="Paid out by the apps, never in the drawer">
               {D.apps.map((a) => <div key={a.label} className="space-y-0.5"><Row k={`${a.label}, ${a.orders} ${a.orders === 1 ? 'order' : 'orders'}`} v={c(a.grossCents)} />{a.feeCents > 0 && <Row k="Its share" v={`−${c(a.feeCents)}`} />}</div>)}
             </Card>}
+            {(D.later?.orders || 0) > 0 && <Card title="Orders for another day" sub="In tonight’s sales, made on their own day">
+              <Row k={`${D.later!.orders} paid tonight`} v={c(D.later!.cents)} />
+            </Card>}
           </>); })()}
         <Card title="Drawers">
           {r.drawers.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>No drawer was opened tonight.</p> : r.drawers.map((d, i) => (

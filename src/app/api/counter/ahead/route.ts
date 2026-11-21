@@ -1,9 +1,11 @@
 // src/app/api/counter/ahead/route.ts — ORDERING AHEAD, the guest's side (public). lib/counter-ahead.
 //   menu  { tenantId }                                  → on or off, how they can pick up, the times, the menu
-//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe?, address?, note?, deliveryToken? } → the order (not
-//                                                         paid yet) and the secure form's key for its payment
-//   deliveryCheck { tenantId, address, lines, token? }  → delivered by the business's drivers (lib/food-delivery): whether it
-//                                                         goes there, the fee, the drive, and the arrival times
+//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe?, address?, note?, deliveryToken?, day?, people? } → the
+//                                                         order (not paid yet) and the secure form's key for its payment;
+//                                                         `day`: for another day (lib/ahead-days), with how many people
+//   deliveryCheck { tenantId, address, lines, token?, later? } → delivered by the business's drivers (lib/food-delivery):
+//                                                         whether it goes there, the fee, the drive, and the arrival times
+//                                                         (`later`: for another day, just the fee and the drive)
 //   done  { tenantId, o, s }                            → after the form says it went through: asked of the card company
 //   track { tenantId, o, s }                            → how it's going (paid, the pickup code, being made, ready)
 //   here  { tenantId, o, s, where?, note?, source?, distanceM? } → "I'm here": the kitchen starts now if it was waiting;
@@ -12,6 +14,8 @@
 //   textMe { tenantId, o, s, phone | null }             → one text when it's ready (lib/ready-text), or null: don't text
 //   deliveryChoice { tenantId, o, s, choice: 'pickup' | 'refund' } → a delivery that couldn't be made: picked up instead,
 //                                                         or refunded (lib/food-delivery-settle-server)
+//   cancel { tenantId, o, s }                           → an order for another day, canceled until the notice runs out:
+//                                                         every line back to the card (lib/ahead-days-server)
 //   menu_ask { tenantId, question }                     → Klair answers a menu question from the business's recipes and
 //                                                         allergen marks only (lib/klair-menu), when the business turns it on
 // An order's link is signed for that order: it opens nothing else.
@@ -36,10 +40,10 @@ export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-    if (!ID.test(tenantId) || !['menu', 'place', 'deliveryCheck', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask', 'deliveryChoice'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+    if (!ID.test(tenantId) || !['menu', 'place', 'deliveryCheck', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask', 'deliveryChoice', 'cancel'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
     const orderId = String(b.o || '');
     // An order's own link: its signature first (it can't be guessed), so made-up links never use up the business's allowance.
-    if (['done', 'track', 'here', 'onway', 'textMe', 'deliveryChoice'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
+    if (['done', 'track', 'here', 'onway', 'textMe', 'deliveryChoice', 'cancel'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
     // An order's own (signed) link is limited per address only, generously: its page asks every few seconds, and a busy
     // day's pages must never use up the business's allowance (nor keep a guest from hearing their payment went through).
     // (An address checked finds it on the map, so it's limited like placing an order.)
@@ -87,6 +91,13 @@ export async function POST(req: NextRequest) {
       const how = b.choice === 'pickup' ? 'pickup' : b.choice === 'refund' ? 'refund' : null;
       if (!how) return reply({ ok: false, error: 'Pick it up, or a refund?' }, 400);
       const r: any = await settleFailed(db, tenantId, tenant, orderId, how, { by: 'The guest', guest: true });
+      return reply(r, r.ok ? 200 : r.status);
+    }
+    if (action === 'cancel') {
+      // For another day: canceled for a full refund, until the notice runs out (lib/ahead-days-server).
+      const { cancelLater } = await import('@/lib/ahead-days-server');
+      const r: any = await cancelLater(db, tenantId, tenant, orderId, { by: 'The guest', guest: true });
+      if (r.ok && !r.already) { try { const { logAuditAdmin } = await import('@/lib/audit'); await logAuditAdmin(db, tenantId, { action: 'ahead.later_canceled', targetType: 'order', targetId: orderId, summary: `The guest canceled ${r.number}, an order for another day, and was refunded $${(r.cents / 100).toFixed(2)}.`, actor: { type: 'guest', id: 'guest', name: 'The guest' } } as any); } catch { /* the order itself says so */ } }
       return reply(r, r.ok ? 200 : r.status);
     }
     if (action === 'onway') { const r: any = await aheadOnWay(db, tenantId, orderId, { eta: b.eta, where: b.where }); return reply(r, r.ok ? 200 : r.status); }

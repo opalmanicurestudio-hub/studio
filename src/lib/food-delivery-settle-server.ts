@@ -57,8 +57,9 @@ export async function tellGuestFailed(db: any, tenantId: string, orderId: string
   return ok;
 }
 
-/** Lines of the sale back to the card, each once (one already refunded was counted when it went). What didn't go is left. */
-async function giveBack(db: any, tenantId: string, tenant: any, ids: string[], by: string, notes: string): Promise<{ cents: number; left: string[]; error: string | null }> {
+/** Lines of the sale back to the card, each once (one already refunded was counted when it went). What didn't go is left.
+ *  (Also an order for another day canceled in time: lib/ahead-days-server.) */
+export async function giveBack(db: any, tenantId: string, tenant: any, ids: string[], by: string, notes: string): Promise<{ cents: number; left: string[]; error: string | null }> {
   const { refundSaleToCard } = await import('@/lib/money-refund');
   const T = `tenants/${tenantId}`; let cents = 0; const left: string[] = []; let error: string | null = null;
   for (const id of ids) {

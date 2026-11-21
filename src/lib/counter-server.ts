@@ -246,7 +246,10 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
   return db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
-    if (o.status !== 'building') return { ok: true, already: true, due: o.dueAt || null };
+    // (An order for another day waits as 'scheduled' until its day: lib/ahead-days-server sends it then.)
+    if (o.status !== 'building' && o.status !== 'scheduled') return { ok: true, already: true, due: o.dueAt || null };
+    // (One being canceled, its money on the way back, never goes to the kitchen.)
+    if (o.status === 'scheduled' && o.ahead?.later?.cancel) return { error: 'That order is being canceled.', status: 409 };
     const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) return { error: 'Add something first.', status: 400 };
     // Something added at the speaker to an order placed ahead: the guest's allergies on that order go on this one too
@@ -627,7 +630,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       if (viaReader && o.cardPaymentId !== how.card!.id) return { ok: true, already: true, paidOtherwise: true, payMethod: o.payMethod || null };
       return { ok: true, already: true, change: o.changeGiven ?? null, payMethod: o.payMethod || null };
     }
-    if (o.status !== 'sent' && o.status !== 'done') {
+    // (An order for another day is paid when it's placed and kept until its day: lib/ahead-days.)
+    if (o.status !== 'sent' && o.status !== 'done' && !(o.status === 'scheduled' && o.channel === 'ahead' && o.ahead?.forDay)) {
       if (viaReader && o.status === 'voided') return { ok: true, already: true, paidOtherwise: true, payMethod: null };
       return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
     }

@@ -6,6 +6,7 @@
 //   outside   the driver texts the guest they're outside, from the business's number (never anyone's own)
 //   delivered at the door: the guest's tip (booked when it was paid, with no one on it) is put under the driver's name
 //   failed    couldn't be delivered, and why (a manager refunds it at the desk, or sends it out again)
+import { ownTime } from '@/lib/ahead-days';
 import { addressLine, deliveryStep, etaOf, FOOD_FAIL_REASONS, lineCents, OUTSIDE_EVERY_MS, waitingHot, type FoodStep } from '@/lib/food-delivery';
 import { failedView } from '@/lib/food-delivery-settle-server';
 import { deliveryFrom } from '@/lib/delivery-plan';
@@ -90,7 +91,8 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
     .where('ahead.delivery.state', '==', st).where('day', 'in', [addDays(today, -3), addDays(today, -2), addDays(today, -1), today]).limit(200).get()));
   const done = await deliveredTonight(db, T, [addDays(today, -1), today], now);
   const orders = [...open.flatMap((q: any) => q.docs), ...done].map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-    .filter((o: any) => o.paidAt && o.status !== 'voided' && o.ahead?.delivery)
+    // (One for another day still waiting for the kitchen is under Coming up, not here yet: lib/ahead-days-server.)
+    .filter((o: any) => o.paidAt && o.status !== 'voided' && o.status !== 'scheduled' && o.ahead?.delivery)
     .filter((o: any) => String(o.ahead.delivery.state) !== 'delivered' || nightOf(o.ahead.delivery.deliveredAt) === night)
     .filter((o: any) => String(o.ahead.delivery.state) !== 'picked_up' || owesBack(o));
   if (!orders.length) return [];
@@ -125,7 +127,8 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
       mapTo: [a.line1, a.line2, a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
       driverId: d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null, tip: Math.max(0, Math.round(Number(o.tipCents) || 0)) / 100,
       route: d.state === 'out' && routeSpot(d) ? { ...routeSpot(d)!, eta: d.routeEta || null, late: d.routeLate === true } : null,
-      eta: live.eta, late: live.late, earlier: step !== 'delivered' && nightOf(o.paidAt || o.createdAt) < night, with: null };
+      // (For another day, its own time's night, not the night it was paid: lib/ahead-days.)
+      eta: live.eta, late: live.late, earlier: step !== 'delivered' && nightOf(ownTime(o)) < night, with: null };
   });
   // Ready ones that go together: the one that adds least to the other's trip, when both stay on time.
   const ready = rows.filter((r) => r.step === 'ready' && dests.get(r.orderId));
@@ -315,7 +318,7 @@ export async function deliveryNightly(db: any, tenantId: string, tenant: any, no
   for (const d of left0.docs) { const dl = (d.data() || {}).ahead?.delivery || {}; if (dl.phone || dl.note) await d.ref.set({ ahead: { pointsPhone: null, delivery: { phone: null, note: null, clearedAt: new Date(now).toISOString() } }, readyText: { to: null, last4: null } }, { merge: true }).catch(() => null); }
   const snaps = await Promise.all(OPEN_STATES.map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery').where('ahead.delivery.state', '==', st).where('day', 'in', days).limit(200).get()));
   const left = snaps.flatMap((q: any) => q.docs).filter((d: any) => {
-    const o: any = d.data() || {}; const t = Date.parse(String(o.paidAt || o.createdAt || ''));
+    const o: any = d.data() || {}; const t = Date.parse(ownTime(o));
     return o.paidAt && o.status !== 'voided' && !o.refundedAt && !o.ahead?.delivery?.toldAt && Number.isFinite(t) && tonight(tenant, new Date(t)) < night;
   });
   // Picked up instead, with some of the money (the tip, the fee) still not back on their card.

@@ -26,8 +26,9 @@ export function houseWeek(profiles: any[]): Record<string, any> | null {
 }
 
 const dayName = (date: string) => DAYS[new Date(`${date}T12:00:00Z`).getUTCDay()];
-/** That calendar day's opening window in the business's zone (closing at or before opening runs past midnight), or null. */
-function windowOn(week: Record<string, any>, date: string, tz: string): Window | null {
+/** That calendar day's opening window in the business's zone (closing at or before opening runs past midnight), or null.
+ *  (Also the days ahead, for orders for another day: lib/ahead-days.) */
+export function windowOn(week: Record<string, any>, date: string, tz: string): Window | null {
   const d = week[dayName(date)]; if (!d || d.enabled !== true) return null;
   const a = clockMinutes(d.start), z = clockMinutes(d.end); if (a === null || z === null || a === z) return null;
   const open = wallToUtc(date, Math.floor(a / 60), a % 60, tz).getTime();

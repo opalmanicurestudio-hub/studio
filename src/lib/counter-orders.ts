@@ -79,13 +79,14 @@ export const photoOf = (item: any): string | null => {
 
 /** One line, from the menu item itself (never a price from a screen). With the business (`at`: when it's ordered), an item
  *  in a menu by time of day is sold only while that's on, and happy hour prices it (lib/menu-time). */
-export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string, ctx?: { tenant: any; at?: Date }): { ok: true; line: OrderLine } | { ok: false; error: string } {
+export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string, ctx?: { tenant: any; at?: Date }, maxQty = 20): { ok: true; line: OrderLine } | { ok: false; error: string } {
   // Off the menu (never priced yet, or taken off): not sold, even from a screen that still shows it.
   if (!item || item.type !== 'refreshment' || item.archived === true || item.isActive === false || !offeredOnMenu(item)) return { ok: false, error: 'That isn’t on the menu.' };
   if (itemSoldOut(item)) return { ok: false, error: `${String(item.name || 'That')} is sold out right now.` };
   if (ctx) { const sv = servedNow(item, ctx.tenant, ctx.at); if (!sv.ok) return { ok: false, error: `${String(item.name || 'That')} isn’t on now: ${sv.when}.` }; }
   const q = Math.floor(Number(quantity));
-  if (!Number.isFinite(q) || q < 1 || q > 20) return { ok: false, error: 'How many? Between 1 and 20.' };
+  // (Up to 20 of one thing, or more for an order for another day: lib/ahead-days LATER_MAX_QTY.)
+  if (!Number.isFinite(q) || q < 1 || q > maxQty) return { ok: false, error: `How many? Between 1 and ${maxQty}.` };
   const c = priceChoices(item, picks);
   if (!c.ok) return { ok: false, error: c.error };
   const base = ctx ? priceNow(item, ctx.tenant, ctx.at) : { price: Number(item.price || 0), happy: false };

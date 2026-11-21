@@ -58,6 +58,9 @@ export async function GET(req: NextRequest) {
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
     // …and the drive-thru window's: approved ones pay their order, ones left waiting are stopped (lib/counter-card).
     try { const r = await sweepCounterCards(db, t.id, tenant); counts.windowCardsChecked = (counts.windowCardsChecked || 0) + r.checked; counts.windowCardsPaid = (counts.windowCardsPaid || 0) + r.paid; counts.windowCardsStopped = (counts.windowCardsStopped || 0) + r.stopped; } catch { /* next run */ }
+    // Orders for another day whose time has come go to the kitchen, and the guest's number goes the night after its day
+    // (lib/ahead-days-server). Only for a business that has ever taken them.
+    if (tenant.orderAhead?.anotherDay) { try { const D = await import('@/lib/ahead-days-server'); const r = await D.releaseDue(db, t.id, tenant); counts.laterSent = (counts.laterSent || 0) + r.sent; counts.laterNotSent = (counts.laterNotSent || 0) + r.failed; } catch { /* next run */ } }
     // …and the kiosks': orders left waiting to be paid are let go, so what they held goes back on the shelf (lib/kiosk).
     try { const K = await import('@/lib/kiosk'); const r = await K.sweepKiosk(db, t.id, tenant); counts.kioskLetGo = (counts.kioskLetGo || 0) + r.letGo; } catch { /* next run */ }
     // …and the bar's tabs with a card held: let go once the tab's paid another way, a charge whose answer was lost

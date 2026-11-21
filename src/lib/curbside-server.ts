@@ -44,7 +44,8 @@ async function readCafe(db: any, tenantId: string, tenant: any, now: number): Pr
   const T = `tenants/${tenantId}`;
   const snaps = await Promise.all(openDays(tenant, now).map((day) => db.collection(`${T}/counterOrders`).where('day', '==', day).where('channel', '==', 'ahead').get()));
   const orders = snaps.flatMap((s: any) => s.docs).map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-    .filter((o: any) => o.ahead?.way === 'curbside' && o.paidAt && o.ahead?.state !== 'canceled' && !['done', 'voided', 'cancelled'].includes(String(o.status)));
+    // (An order for another day waiting for the kitchen isn't here yet: lib/ahead-days.)
+    .filter((o: any) => o.ahead?.way === 'curbside' && o.paidAt && o.ahead?.state !== 'canceled' && !['done', 'voided', 'cancelled', 'scheduled'].includes(String(o.status)));
   const tix = new Map<string, any[]>();
   for (let i = 0; i < orders.length; i += 30) {
     const ids = orders.slice(i, i + 30).map((o: any) => o.id);
@@ -64,6 +65,8 @@ async function curbOrder(tx: any, db: any, T: string, orderId: string) {
   const ref = db.doc(`${T}/counterOrders/${orderId}`); const or: any = (await tx.get(ref)).data();
   if (!or || or.channel !== 'ahead' || or.ahead?.way !== 'curbside') return { ref, or: null, err: fail('This curbside order isn’t here.', 404) };
   if (!or.paidAt || or.ahead?.state === 'canceled' || ['voided', 'cancelled'].includes(String(or.status))) return { ref, or: null, err: fail('This order was cancelled.', 409) };
+  // (For another day, still waiting to go to the kitchen: nothing's made yet. lib/ahead-days)
+  if (or.status === 'scheduled') return { ref, or: null, err: fail('This order is for another day. It goes to the kitchen on its day.', 409) };
   return { ref, or, err: null };
 }
 

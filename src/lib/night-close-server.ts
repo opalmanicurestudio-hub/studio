@@ -71,12 +71,15 @@ export function deliveryNight(orders: any[]): DeliveryNight {
   return {
     delivered: hot.filter((o) => st(o) === 'delivered').length, refunded: hot.filter((o) => st(o) === 'refunded').length,
     pickedUp: hot.filter((o) => st(o) === 'pickup' || st(o) === 'picked_up').length, notSettled: hot.filter((o) => st(o) === 'failed').length,
-    going: hot.filter((o) => st(o) === 'waiting' || st(o) === 'out').length,
+    // (One for another day isn't going yet: it's counted under For another day.)
+    going: hot.filter((o) => (st(o) === 'waiting' || st(o) === 'out') && o.status !== 'scheduled').length,
     // The fees kept: every delivery's, less those given back after it couldn't be made (lib/food-delivery-settle-server).
     feeCents: hot.filter((o) => !o.ahead.delivery.feeBack).reduce((n, o) => n + c(o.deliveryFee), 0),
     tips: Array.from(tips, ([name, cents]) => ({ name, cents })).sort((a, b) => b.cents - a.cents),
     tipsWaitingCents: hot.filter((o) => st(o) === 'waiting' || st(o) === 'out').reduce((n, o) => n + Math.max(0, Math.round(num(o.tipCents))), 0),
     apps: Array.from(apps.values()).sort((a, b) => b.grossCents - a.grossCents),
+    // Orders for another day paid tonight (lib/ahead-days): in tonight's sales, made on their own day.
+    later: (() => { const l = orders.filter((o) => o.paidAt && o.ahead?.forDay && o.status !== 'voided'); return { orders: l.length, cents: l.reduce((n, o) => n + c(o.total), 0) }; })(),
   };
 }
 

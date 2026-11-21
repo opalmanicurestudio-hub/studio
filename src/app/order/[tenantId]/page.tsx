@@ -8,6 +8,9 @@
 //   A text when it's ready, if they tick it (lib/ready-text), or asked for later on the order's page. Order again (design
 //   board "Ready texts and order again"): the guest's recent orders and favorites, kept on their own phone only, at the top
 //   of the menu; today's menu decides what can be added, and what can't is said.
+//   Orders for another day (lib/ahead-days; design board "Orders for another day"): Today or Another day, its date and
+//   time (only days and times the business is open, from its notice on), how many people; paid now, and on the order's
+//   page booked for its day, with Cancel and refund until the notice runs out.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
@@ -22,6 +25,7 @@ import type { AllergenKey } from '@/lib/allergens';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 import { CURBSIDE_GEOFENCE_M, distanceMetres, roughEtaMinutes } from '@/lib/retail-orders';
+import { dayWords } from '@/lib/ahead-days';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -57,14 +61,16 @@ type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?
   // pick now) when it opens next.
   /** "Text me when it's ready" offered (lib/ready-text). */
   texts?: boolean;
-  asap?: boolean; opens?: string | null; closes?: string | null; nextOpen?: string | null; closedNow?: boolean; lateToday?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+  asap?: boolean; opens?: string | null; closes?: string | null; nextOpen?: string | null; closedNow?: boolean; lateToday?: boolean; busy?: { minutes: number } | null;
+  /** Orders for another day (lib/ahead-days): the days and their times, how it can be had, the smallest order (cents) and the notice. */
+  later?: Later | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind;
   /** A note for the kitchen about this dish (lib/order-allergy). */
   note?: string };
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; later?: TrackLater | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
@@ -75,6 +81,10 @@ type Track = { business: string; number: string; name: string | null; state: str
     back?: number; owed?: boolean;
     /** Delivered: left at the door, and its photo when the driver took one. */
     left?: boolean; photo?: string | null } };
+
+type Later = { days: { date: string; times: string[] }[]; ways: Way[]; minCents: number | null; noticeHours: number };
+/** For another day, on the order's page: its day, for how many, until when it can be canceled, and once canceled, what went back. */
+type TrackLater = { day: string; people: number | null; cancelBy: string | null; waiting: boolean; canCancel: boolean; canceled: boolean; canceledBy: 'guest' | 'business' | null; back: number; stuck: boolean };
 
 /** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
 type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
@@ -143,7 +153,7 @@ function Sheet({ title, onClose, children, foot }: { title: string; onClose: () 
   );
 }
 
-function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+function ItemSheet({ item, onAdd, onClose, max = 20 }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void; max?: number }) {
   const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [note, setNote] = React.useState('');
   const has = containsLine(item);
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
@@ -153,7 +163,7 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
         <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
           <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-4 w-4" /></button>
           <span className="w-7 text-center text-[17px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
-          <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+          <button type="button" aria-label="One more" disabled={qty >= max} onClick={() => setQty((n) => Math.min(max, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
         </div>
         <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty, note.trim())} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
       </div>}>
@@ -363,6 +373,12 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
   const again = () => { write(`cf.ahead.again.${tenantId}`, JSON.stringify(paidLines)); onNew(); };
   if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">Your order</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>;
   if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your order" /></div>;
+  if (t.later?.canceled) return (
+    <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
+      <p className="text-[22px] font-semibold tracking-tight">Canceled</p>
+      <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{t.later.canceledBy === 'guest' ? 'You canceled' : `${t.business || 'The business'} canceled`} order {t.number} for {dayWords(t.later.day)}. {usd(t.later.back)} is on its way back to your card. It can take a few days to show.</p>
+      <button type="button" onClick={onNew} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>Start a new order</button>
+    </div>);
   if (t.state === 'canceled') return (
     <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
       <p className="text-[22px] font-semibold tracking-tight">This order couldn’t be made</p>
@@ -373,6 +389,13 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
     <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
       <p className="text-[20px] font-semibold">Waiting for your payment</p>
       <p className="text-[15px]" style={{ color: MUTED }}>This page updates once it’s gone through.</p>
+    </div>);
+  // For another day, waiting for its day: booked, and canceled for a full refund until the notice runs out.
+  if (t.later?.waiting) return (
+    <div className="space-y-4">
+      <Booked t={t} L={t.later} tenantId={tenantId} o={o} s={s} reload={load} />
+      <OrderLines t={t} />
+      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
     </div>);
   if (t.delivery) return (
     <div className="space-y-4">
@@ -404,6 +427,41 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
       <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
     </div>
   );
+}
+
+/** Booked for another day: when, for whom and how many, the pickup code (or where it's delivered), and Cancel and refund
+ *  until the notice runs out (asked once more before it goes). */
+function Booked({ t, L, tenantId, o, s, reload }: { t: Track; L: TrackLater; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
+  const [asking, setAsking] = React.useState(false); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const cancel = async () => {
+    setBusy(true); setErr('');
+    const { d } = await call({ action: 'cancel', tenantId, o, s });
+    setBusy(false);
+    if (d.ok) { setAsking(false); await reload(); } else { setErr(d.error || 'That didn’t go through. Try again.'); await reload(); }
+  };
+  const can = L.canCancel || L.stuck;
+  const how = t.way === 'delivery' ? `delivered to ${t.delivery?.to || 'you'}` : t.way === 'curbside' ? 'brought to your car' : 'picked up inside';
+  const arrive = t.way === 'delivery' && t.delivery?.arriveAt ? to5(Date.parse(t.delivery.arriveAt)) : t.at;
+  return (
+    <section className="space-y-4 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
+      <p className="w-max rounded-full px-3 py-1 text-[14px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Booked</p>
+      <p className="text-[24px] font-semibold leading-tight tracking-tight">{dayWords(L.day)}{arrive ? ` at ${clock(arrive)}` : ''}</p>
+      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, {how}{L.people ? `, for ${L.people} people` : ''}. It’s made on the day, in time for you.</p>
+      {t.code && t.way !== 'delivery' && <div><p className="text-[14px]" style={{ color: MUTED }}>Your pickup code</p><p className="text-[44px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p></div>}
+      {can && !asking && <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{L.stuck ? 'Finish the refund' : `Cancel and refund ${usd(t.total)}`}</button>}
+      {can && asking && (
+        <div className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
+          <p className="text-[15px]">Cancel your order and get {usd(t.total)} back on your card?</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={cancel} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'One moment…' : 'Yes, cancel it'}</button>
+            <button type="button" onClick={() => setAsking(false)} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Keep it</button>
+          </div>
+        </div>)}
+      {L.canCancel && L.cancelBy && <p className="text-[14px]" style={{ color: MUTED }}>You can cancel for a full refund until {shortWhen(Date.parse(L.cancelBy))}.</p>}
+      {!can && <p className="text-[14px]" style={{ color: MUTED }}>The time to cancel for a refund has passed.</p>}
+      {L.stuck && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Not all of your refund went through. Tap Finish the refund to try again.</p>}
+      {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
+    </section>);
 }
 
 /** What was ordered and paid (with the delivery fee on its own line, when it's delivered). */
@@ -577,6 +635,37 @@ function TimeButton({ label, full, fullWord, on, onPick, wide }: { label: string
   );
 }
 
+/** "Fri 12:00 PM": until when an order for another day can be canceled. */
+const shortWhen = (ms: number, tz?: string) => { try { return new Date(ms).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) }); } catch { return ''; } };
+
+/** For another day: its date, then its time (for a delivery, when it gets there), and how many people. */
+function LaterPick({ later, day, setDay, at, setAt, people, setPeople, tz, driveMin, subtotal }: { later: Later; day: string; setDay: (d: string) => void; at: string; setAt: (t: string) => void;
+  people: string; setPeople: (p: string) => void; tz?: string; driveMin: number | null; subtotal: number }) {
+  const [moreDays, setMoreDays] = React.useState(false); const [moreTimes, setMoreTimes] = React.useState(false);
+  const d = later.days.find((x) => x.date === day);
+  if (!later.days.length) return <p className="mt-2 text-[14px]" style={{ color: MUTED }}>There are no days to order for right now.</p>;
+  const days = moreDays || later.days.findIndex((x) => x.date === day) >= 8 ? later.days : later.days.slice(0, 8);
+  const times = d ? (moreTimes || d.times.indexOf(at) >= 8 ? d.times : d.times.slice(0, 8)) : [];
+  const short = later.minCents !== null ? later.minCents - Math.round(subtotal * 100) : 0;
+  return (
+    <div className="mt-2 space-y-3">
+      <div role="group" aria-label="Day" className="grid grid-cols-4 gap-2">
+        {days.map((x) => <button key={x.date} type="button" aria-pressed={x.date === day} aria-label={dayWords(x.date)} onClick={() => { setDay(x.date); setAt(''); setMoreTimes(false); }}
+          className={`min-h-[48px] rounded-xl px-1 text-[14.5px] font-semibold ${RING}`} style={x.date === day ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{dayWords(x.date, true)}</button>)}
+      </div>
+      {later.days.length > 8 && <button type="button" onClick={() => setMoreDays((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreDays ? 'Fewer days' : 'More days'}</button>}
+      {d && <div role="group" aria-label={driveMin !== null ? 'When it gets to you' : 'Pickup time'} className="grid grid-cols-2 gap-2">
+        {times.map((t) => <TimeButton key={t} label={clock(driveMin !== null ? arriveFor(t, driveMin) : t, tz)} full={false} fullWord="" on={at === t} onPick={() => setAt(t)} />)}
+      </div>}
+      {d && d.times.length > 8 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
+      {!d && <p className="text-[14px]" style={{ color: MUTED }}>Pick a day to see its times.</p>}
+      <label className="block"><span className="text-[15px] font-semibold">How many people? <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
+        <input value={people} onChange={(e) => setPeople(e.target.value.replace(/\D/g, '').slice(0, 3))} inputMode="numeric" className={`mt-2 block h-12 w-28 rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="20" /></label>
+      {at && <p className="text-[14px]" style={{ color: MUTED }}>Paid now. Cancel for a full refund until {shortWhen(Date.parse(at) - later.noticeHours * 3600000, tz)}.</p>}
+      {short > 0 && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Orders for another day start at {usd((later.minCents || 0) / 100)} before tax. Add {usd(short / 100)} more.</p>}
+    </div>);
+}
+
 export default function OrderAhead() {
   const { tenantId } = useParams() as { tenantId: string };
   const [menu, setMenu] = React.useState<Menu | null>(null); const [err, setErr] = React.useState('');
@@ -597,6 +686,13 @@ export default function OrderAhead() {
   // Order again: recent orders and favorites on this phone, and what adding one did.
   const [past, setPast] = React.useState<Past[]>([]); const [againSaid, setAgainSaid] = React.useState<{ text: string; warn: boolean } | null>(null);
   const [moreTimes, setMoreTimes] = React.useState(false);
+  // Today, or another day (lib/ahead-days): its day, its time, and how many people.
+  const [when, setWhen] = React.useState<'today' | 'later'>('today'); const [lday, setLday] = React.useState(''); const [lat, setLat] = React.useState(''); const [people, setPeople] = React.useState('');
+  const laterMode = when === 'later' && !!menu?.later;
+  const ways: Way[] = menu ? (laterMode ? menu.later!.ways : menu.ways) : [];
+  // The most of one thing: 20, or 100 for another day (lib/ahead-days LATER_MAX_QTY).
+  const maxQ = laterMode ? 100 : 20;
+  const belowMin = laterMode && menu?.later?.minCents != null && Math.round(cart.reduce((n, l) => n + l.each * l.quantity, 0) * 100) < menu.later.minCents;
   // Offered at the end (lib/menu-upgrades): asked once, right after something's added; not again on this visit for an item
   // whose offer was turned down. `offered`: the sheet open is for something taken as an offer (added without asking again).
   const [after, setAfter] = React.useState<After | null>(null); const [passed, setPassed] = React.useState<string[]>([]); const [offered, setOffered] = React.useState(false);
@@ -622,7 +718,9 @@ export default function OrderAhead() {
     setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || ''); setTextMe(read('cf.ahead.textMe') === '1'); setPast(readPast(tenantId));
     // (Opened from the guest pass at a table: inside is picked, when it's one of the ways.)
     const wantWay = q.get('way');
-    void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); else if (wantWay && (d.ways || []).includes(wantWay)) setWay(wantWay as Way); setAt(startAt(d)); } else setErr(d.error || 'This page isn’t here.'); });
+    void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); else if (wantWay && (d.ways || []).includes(wantWay)) setWay(wantWay as Way); setAt(startAt(d));
+      // (Closed today, with days ahead to order for: Another day to start with.)
+      if (d.closedNow && d.later?.days?.length) setWhen('later'); } else setErr(d.error || 'This page isn’t here.'); });
   }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!track) write(cartKey, cart.length ? JSON.stringify(cart) : null); key.current = ''; }, [cart]); // eslint-disable-line react-hooks/exhaustive-deps
   // Closed, or not open yet: the times are read again every minute (and when the page comes back into view), so a page
@@ -636,14 +734,18 @@ export default function OrderAhead() {
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
   }, [waiting, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
-  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote, tip, allergy]);
+  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote, tip, allergy, when, lday, lat, people]);
+  // Another day: never at the drive-thru; and the address is checked again (today's drivers don't come into it).
+  React.useEffect(() => { if (!menu) return; setDcheck(null); setCheckErr(''); if (way && !ways.includes(way)) setWay(ways.length === 1 ? ways[0] : null); else if (!way && ways.length === 1) setWay(ways[0]);
+    // (Back to today: up to 20 of each, said.)
+    if (when === 'today' && cart.some((l) => l.quantity > 20)) { setCart((c) => c.map((l) => (l.quantity > 20 ? { ...l, quantity: 20 } : l))); setPlaceErr('For today, up to 20 of each. Check your order.'); } }, [when]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
   const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind, note = '') => {
     const p = priceChoices(item, picks); const each = Math.max(0, item.price + (p.ok ? p.extra : 0)); const text = pickWords(item, picks);
     // (A note of its own makes a line of its own.)
     const key = cart.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note))?.key || rid();
-    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note)); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}), ...(note ? { note } : {}) }]; });
+    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note)); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(maxQ, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}), ...(note ? { note } : {}) }]; });
     return key;
   };
   /** Order again: each item as it was, if today's menu still has it the same way; what can't be is said. */
@@ -698,11 +800,13 @@ export default function OrderAhead() {
     add(x, defaultPicks(x), 1, 'item'); setAfter({ ...after, took: [...after.took, `item:${x.id}`] });
   };
   const closeAfter = () => { if (after && !after.took.length) setPassed((p) => [...p, after.itemId]); setAfter(null); };
-  const qty = (k: string, d: number) => setCart((c) => c.map((l) => (l.key === k ? { ...l, quantity: Math.max(0, Math.min(20, l.quantity + d)) } : l)).filter((l) => l.quantity > 0));
+  const qty = (k: string, d: number) => setCart((c) => c.map((l) => (l.key === k ? { ...l, quantity: Math.max(0, Math.min(maxQ, l.quantity + d)) } : l)).filter((l) => l.quantity > 0));
+  // (For another day, typed: 1 to 100.)
+  const setQtyTo = (k: string, v: string) => { const n = Math.floor(Number(v.replace(/\D/g, ''))); if (!Number.isFinite(n) || n < 1) return; setCart((c) => c.map((l) => (l.key === k ? { ...l, quantity: Math.min(maxQ, n) } : l))); };
   const checkAddress = async () => {
     if (!addr.line1.trim() || !addr.city.trim() || !addr.state.trim() || !/^\d{5}(-?\d{4})?$/.test(addr.postalCode.trim())) { setCheckErr('Add the street address, town, state and ZIP code.'); return; }
     setChecking(true); setCheckErr('');
-    const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })) });
+    const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })), ...(laterMode ? { later: true } : {}) });
     setChecking(false);
     if (d.ok) { setDcheck({ feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null, leaveFull: Array.isArray(d.leaveFull) ? d.leaveFull : [], leaveFirst: d.leaveFirst || null, asapNoDriver: !!d.asapNoDriver }); write('cf.ahead.address', JSON.stringify(addr)); }
     // (Paused at the counter: when to try again.)
@@ -717,12 +821,16 @@ export default function OrderAhead() {
     if (deliver && !dcheck) { setPlaceErr('Check the address first.'); return; }
     if (deliver && digits.length !== 10) { setPlaceErr('Add your phone number so the driver can reach you.'); return; }
     if (wantText && digits.length !== 10) { setPlaceErr(`Add your mobile number for the text, or untick Text me when ${deliver ? 'it’s on its way' : 'it’s ready'}.`); return; }
+    // For another day: its day and time, a number to reach them about it, and the smallest order.
+    if (laterMode && (!lday || !lat)) { setPlaceErr('Pick a day and a time.'); return; }
+    if (laterMode && digits.length !== 10) { setPlaceErr('Add your phone number, so we can reach you about your order.'); return; }
+    if (belowMin) { setPlaceErr(`Orders for another day start at ${usd((menu?.later?.minCents || 0) / 100)} before tax.`); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: laterMode ? lat : at || null, ...(laterMode ? { day: lday, people: people ? Number(people) : null } : {}), ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver || laterMode) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
+    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); if (laterMode && !(m.later?.days || []).some((x: any) => x.date === lday && x.times.includes(lat))) setLat(''); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -781,8 +889,9 @@ export default function OrderAhead() {
                 <p className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</p></div>
               <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
                 <button type="button" aria-label={l.quantity === 1 ? `Take off ${l.name}` : 'One fewer'} onClick={() => qty(l.key, -1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
-                <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
-                <button type="button" aria-label="One more" disabled={l.quantity >= 20} onClick={() => qty(l.key, 1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+                {laterMode ? <input value={l.quantity} onChange={(e) => setQtyTo(l.key, e.target.value)} inputMode="numeric" aria-label={`How many ${l.name}`} className={`h-9 w-10 rounded-lg text-center text-[16px] font-semibold tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
+                  : <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>}
+                <button type="button" aria-label="One more" disabled={l.quantity >= maxQ} onClick={() => qty(l.key, 1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
               </div>
             </li>
           ))}
@@ -797,28 +906,39 @@ export default function OrderAhead() {
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>
         <AllergyChips value={allergy} onChange={setAllergy} idBase="ahead-allergy" hint="On every ticket in the kitchen. Leave it empty if there are none." />
         {hasAllergy(allergy) && cart.some((l) => { const c = dishConflict(byId.get(l.itemId), allergy); return c === 'unknown' || c.length > 0; }) && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Check the dishes marked above before paying. The kitchen sees your allergy either way.</p>}
-        {(menu.points || menu.texts || way === 'delivery') && (
+        {(menu.points || menu.texts || way === 'delivery' || laterMode) && (
           <div>
-            <label className="block"><span className="text-[15px] font-semibold">Phone <span className="font-normal" style={{ color: MUTED }}>{way === 'delivery' ? '(so the driver can reach you)' : '(optional)'}</span></span>
+            <label className="block"><span className="text-[15px] font-semibold">Phone <span className="font-normal" style={{ color: MUTED }}>{way === 'delivery' ? '(so the driver can reach you)' : laterMode ? '(so we can reach you about it)' : '(optional)'}</span></span>
               <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" aria-describedby={menu.points ? 'phone-help' : undefined} className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
             {menu.points && <p id="phone-help" className="mt-1 text-[13.5px]" style={{ color: MUTED }}>It earns your {menu.points.unit}.</p>}
             {menu.texts && <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={textMe} onChange={(e) => setTextMe(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Text me when {way === 'delivery' ? 'it’s on its way' : 'it’s ready'}</label>}
             {menu.points?.askJoin && phone.replace(/\D/g, '').length >= 10 && (
               <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Join the rewards program, if I haven’t already</label>)}
           </div>)}
-        {menu.ways.length > 1 && (
-          <fieldset><legend className="text-[15px] font-semibold">{menu.ways.includes('delivery') ? 'How you’ll get it' : 'How you’ll pick it up'}</legend>
-            <div className={`mt-2 grid gap-2 ${menu.ways.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              {menu.ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] whitespace-nowrap !px-2 text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{WAY_BUTTON[w] || 'Inside'}</button>)}
+        {menu.later && (
+          <fieldset><legend className="text-[15px] font-semibold">When do you want it?</legend>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(['today', 'later'] as const).map((w) => <button key={w} type="button" aria-pressed={when === w} onClick={() => setWhen(w)} className={`${btn} min-h-[52px] text-[15px]`} style={when === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'today' ? 'Today' : 'Another day'}</button>)}
+            </div>
+            {laterMode && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>For catering and big orders. {menu.later.noticeHours >= 24 ? `${menu.later.noticeHours / 24 === 1 ? 'A day’s' : `${menu.later.noticeHours / 24} days’`}` : `${menu.later.noticeHours} hours’`} notice{menu.later.ways.includes('delivery') ? ', picked up or delivered' : ''}.</p>}
+          </fieldset>)}
+        {ways.length > 1 && (
+          <fieldset><legend className="text-[15px] font-semibold">{ways.includes('delivery') ? 'How you’ll get it' : 'How you’ll pick it up'}</legend>
+            <div className={`mt-2 grid gap-2 ${ways.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] whitespace-nowrap !px-2 text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{WAY_BUTTON[w] || 'Inside'}</button>)}
             </div>
             {way === 'curbside' && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Park and tap I’m here when you arrive. We’ll bring it to your car.</p>}</fieldset>)}
-        {menu.ways.length === 1 && (menu.ways[0] === 'delivery' ? <p className="text-[15px] font-semibold">Delivered to you</p> : <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {WAY_WORDS[menu.ways[0]] || 'inside'}</p>)}
+        {ways.length === 1 && (ways[0] === 'delivery' ? <p className="text-[15px] font-semibold">Delivered to you</p> : <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {WAY_WORDS[ways[0]] || 'inside'}</p>)}
         {way === 'delivery' && <DeliveryFields addr={addr} setAddr={setAddr} note={dnote} setNote={setDnote} check={dcheck} checking={checking} checkErr={checkErr} onCheck={checkAddress} />}
         {way === 'delivery' && dcheck && <TipPick food={subtotal} tip={tip} setTip={setTip} />}
-        {closedNow ? (
+        {laterMode ? (way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">When it gets to you</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>Check the address to see the days and times.</p></fieldset>
+          : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? 'The day, and when it gets to you' : 'The day and time'}</legend>
+            <LaterPick later={menu.later!} day={lday} setDay={setLday} at={lat} setAt={setLat} people={people} setPeople={setPeople} tz={menu.timeZone} driveMin={way === 'delivery' && dcheck ? dcheck.driveMin : null} subtotal={subtotal} />
+          </fieldset>)
+        : closedNow ? (
           <div className="rounded-2xl px-4 py-3" style={{ background: SOFT }} role="status">
             <p className="text-[15px] font-semibold">{menu.lateToday ? 'Too late for pickup today' : 'Closed right now'}</p>
-            <p className="mt-0.5 text-[14px]" style={{ color: MUTED }}>{menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. Order ahead then.` : 'We’re not taking orders for pickup today.'}</p>
+            <p className="mt-0.5 text-[14px]" style={{ color: MUTED }}>{menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. Order ahead then${menu.later?.days.length ? ', or order for another day' : ''}.` : menu.later?.days.length ? 'You can order for another day.' : 'We’re not taking orders for pickup today.'}</p>
           </div>
         ) : way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">When it gets to you</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>Check the address to see when it can get to you.</p></fieldset>
         : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? 'When it gets to you' : 'When'}</legend>
@@ -831,11 +951,12 @@ export default function OrderAhead() {
           {menu.times.length > 7 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`${btn} mt-1 min-h-[44px] px-0 text-[15px] underline underline-offset-4`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
           {menu.closes && menu.times.length > 0 && Date.parse(menu.times[menu.times.length - 1]) > Date.parse(menu.closes) - 15 * 60000 && (moreTimes || menu.times.length <= 7) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{way === 'delivery' && dcheck ? `Last delivery about ${clock(arriveFor(menu.times[menu.times.length - 1], dcheck.driveMin), menu.timeZone)}.` : `Last pickup ${clock(menu.times[menu.times.length - 1], menu.timeZone)}.`}</p>}
         </fieldset>}
-        {menu.busy && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual{menu.filling ? ', and pickup times fill faster' : ''}.</p>}
+        {menu.busy && !laterMode && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual{menu.filling ? ', and pickup times fill faster' : ''}.</p>}
         {placeErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{placeErr}</p>}
-        {noneOpen && <p className="text-[14px]" style={{ color: AMBER }}>The kitchen’s full right now. Please try again in a few minutes.</p>}
-        <button type="button" onClick={place} disabled={placing || !cart.length || chosenFull || closedNow || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : closedNow ? (menu.lateToday ? 'Too late for today' : 'Closed right now') : noneOpen ? 'Full right now' : way === 'delivery' && !dcheck ? 'Check the address first' : chosenFull ? (way === 'delivery' ? 'Pick a delivery time' : 'Pick a pickup time') : 'Continue to pay'}</button>
-        <p className="text-center text-[13px]" style={{ color: MUTED }}>{way === 'delivery' ? 'You pay now, and we bring it to you.' : 'You pay now, so it’s ready when you get here.'}</p>
+        {noneOpen && !laterMode && <p className="text-[14px]" style={{ color: AMBER }}>The kitchen’s full right now. Please try again in a few minutes.</p>}
+        {laterMode ? <button type="button" onClick={place} disabled={placing || !cart.length || !lat || belowMin || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : way === 'delivery' && !dcheck ? 'Check the address first' : !lat ? 'Pick a day and time' : belowMin ? 'Add a little more' : 'Continue to pay'}</button>
+        : <button type="button" onClick={place} disabled={placing || !cart.length || chosenFull || closedNow || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : closedNow ? (menu.lateToday ? 'Too late for today' : 'Closed right now') : noneOpen ? 'Full right now' : way === 'delivery' && !dcheck ? 'Check the address first' : chosenFull ? (way === 'delivery' ? 'Pick a delivery time' : 'Pick a pickup time') : 'Continue to pay'}</button>}
+        <p className="text-center text-[13px]" style={{ color: MUTED }}>{laterMode ? 'You pay now, and it’s made on its day.' : way === 'delivery' ? 'You pay now, and we bring it to you.' : 'You pay now, so it’s ready when you get here.'}</p>
       </section>
     </div>);
 
@@ -844,7 +965,7 @@ export default function OrderAhead() {
       <header>
         <h1 className="text-[26px] font-semibold tracking-tight">{menu.business}</h1>
         <p className="mt-1 text-[15px]" style={{ color: MUTED }}>{headWords(menu.ways)}</p>
-        {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? 'Too late for pickup today.' : 'Closed right now.'}</b> {menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. You can look through the menu now.` : 'You can look through the menu now.'}</p>}
+        {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? 'Too late for pickup today.' : 'Closed right now.'}</b> {menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. ` : ''}{menu.later?.days.length ? 'You can order for another day now.' : 'You can look through the menu now.'}</p>}
       </header>
       {past.length > 0 && (
         <section aria-labelledby="again-title" className="rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
@@ -888,7 +1009,7 @@ export default function OrderAhead() {
           </div>
         </section>
       ))}
-      {open && <ItemSheet item={open} onAdd={(p, q, n) => added(open, p, q, n)} onClose={() => { setOpen(null); setOffered(false); }} />}
+      {open && <ItemSheet item={open} max={maxQ} onAdd={(p, q, n) => added(open, p, q, n)} onClose={() => { setOpen(null); setOffered(false); }} />}
       {after && byId.get(after.itemId) && <AfterSheet after={after} item={byId.get(after.itemId)!} line={cart.find((l) => l.key === after.key)} onSize={takeSize} onItem={takeItem} onClose={closeAfter} />}
     </div>,
     count > 0 ? (
