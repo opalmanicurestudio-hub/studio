@@ -31,6 +31,7 @@ import { noteTurnedAway, refusedAsFull } from '@/lib/voice-capacity';
 import { FieldValue } from 'firebase-admin/firestore';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { lanesOf, laneOf, cleanLane } from '@/lib/drive-lanes';
+import { lineNow } from '@/lib/lane-entry-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -129,10 +130,14 @@ export async function POST(req: NextRequest) {
       try {
         const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
         const menu = menuForVoice(menuItems);
-        // A long line (this many cars in it, counting this one) puts the assistant in rush mode: no suggestions, a short
-        // read-back. Only cars that arrived in the last three hours count, so one left behind yesterday never does.
-        const others = inLineNow(laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter(atDriveThru), Date.now(), carId);
-        busy = others + 1 >= RUSH_CARS;
+        // A long line (this many cars in it, counting this one and those waiting to order) puts the assistant in rush
+        // mode: no suggestions, a short read-back. Only cars that arrived in the last three hours count, so one left behind
+        // yesterday never does.
+        const laneCars = laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+        const others = inLineNow(laneCars.filter(atDriveThru), Date.now(), carId);
+        // (Cars waiting to order before the speaker count too, from the lane entry sensor: lib/lane-entry-server.)
+        const waiting = (await lineNow(db, tenantId, tenant, { cars: laneCars }).catch(() => null))?.waiting || 0;
+        busy = others + 1 + waiting >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),
           retell_llm_dynamic_variables: { business_name: String(tenant.name || tenant.businessName || 'our drive-thru').slice(0, 80), order_number: String(claim.car.number || ''), menu: menu.slice(0, 12000),

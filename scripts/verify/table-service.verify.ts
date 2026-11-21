@@ -178,7 +178,7 @@ const soon = () => new Date(Date.now() + 5 * 60000).toISOString();
   check('without a kitchen screen nothing is held', /course: c && !kitchenOn \? \{ \.\.\.c, hold: false \} : c/.test(src('src/components/host/TableTab.tsx')));
   const tr = src('src/app/api/tab/route.ts');
   check('the allowance is checked again inside the save; a manager’s PIN is given back if the change fails; approvals must name the item', /Counted again here, in the save/.test(tr) && /used: false, usedAt: null/.test(tr) && (tr.match(/covers: \(x: any\) => x\.ref === `\$\{visitId\}:\$\{lineId\}`/g) || []).length === 2);
-  check('the kitchen screen gets each ticket’s station, the stations, and what’s not fired', /t\.madeAt = stationOfItem/.test(kr) && /tickets, unfired, stations, items/.test(kr) && /where\('status', '==', 'unfired'\)/.test(kr));
+  check('the kitchen screen gets each ticket’s station, the stations, and what’s not fired', /t\.madeAt = stationOfItem/.test(kr) && /tickets, unfired,( early,)? stations, items/.test(kr) && /where\('status', '==', 'unfired'\)/.test(kr));
   const kds = src('src/app/kds/[tenantId]/page.tsx');
   check('a station’s screen shows only its own; expo sees the whole pass', /view === 'expo' \|\| !myStation \|\| t\.madeAt === myStation/.test(kds) && /<ExpoView /.test(kds) && /cf\.kitchen\.station/.test(kds));
   const ex = src('src/components/kitchen/ExpoView.tsx');

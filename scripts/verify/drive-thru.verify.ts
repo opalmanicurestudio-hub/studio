@@ -471,7 +471,7 @@ const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   {
     const lanePage = src('src/app/drive-thru/[tenantId]/page.tsx');
     check('each tablet can be set to its spot (taking orders, pay window, pickup window, runner) and opens on the car there', lanePage.includes('This screen is at') && lanePage.includes("['runner', 'Runner',") && lanePage.includes('const ROLE_STAGE') && lanePage.includes("role === 'runner' ? cars.filter((c) => c.stage === 'forward')"));
-    check('a long line and the slow part right now are said on the lane; a spot that’s taken can’t be picked twice', lanePage.includes('Busy: {st.inLineNow ?? st.inLane} cars in the lane.') && lanePage.includes('Slower right now:') && lanePage.includes('aria-disabled={!!there}') && lanePage.includes('x.now >= x.day * 1.25'));
+    check('a long line and the slow part right now are said on the lane; a spot that’s taken can’t be picked twice', lanePage.includes('Busy: {(st.inLineNow ?? st.inLane) + (st.waiting || 0)} cars') && lanePage.includes('Slower right now:') && lanePage.includes('aria-disabled={!!there}') && lanePage.includes('x.now >= x.day * 1.25'));
   }
   const lane = src('src/app/drive-thru/[tenantId]/page.tsx'), board = src('src/app/drive-thru/[tenantId]/board/page.tsx'), setup = src('src/components/drive-thru/ScreenSetup.tsx'), kds = src('src/app/kds/[tenantId]/page.tsx'), menuPage = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')), pin = src('src/components/kitchen/PinPad.tsx');
   check('the lane and the board read no database themselves (only the server)', !/from ['"]firebase\/firestore|useCollection|getDocs|onSnapshot/.test(lane + board + setup));

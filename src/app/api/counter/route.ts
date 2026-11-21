@@ -33,9 +33,11 @@
 //                                                      none; the board, the window and the bag call them by it
 //   readyText { tenantId, key, orderId, phone | null } → a counter or kiosk order: one text to the guest when it's all
 //                                                      ready, if they asked (lib/ready-text); null: don't text
-//   car    { tenantId, key, carKey, inLine?, looks? } → a new car (taken in line before the speaker: never greeted at the
+//   car    { tenantId, key, carKey, inLine?, looks?, lane? } → a new car (taken in line before the speaker: never greeted at the
 //                                                      speaker or shown on its board; told apart by how it looks)
 //   looks  { tenantId, key, carId, looks }          → how a car looks ("Red SUV"), or none
+//   merged { tenantId, key, carId }                → two lanes that merge (lib/drive-lanes): this car merged first
+//   lineClear { tenantId, key, lane? }             → nobody waiting to order before the speaker (lib/lane-entry-server)
 //   here   { tenantId, key, carId }                 → a car taken in line has reached the window: from now on it's a car
 //                                                      at the window like any other (the window screens show it)
 //   pouch  { tenantId, key, staffPass }             → the cash the person signed in has taken in line and not handed in
@@ -99,6 +101,8 @@ import { linkOrigin } from '@/lib/app-origin';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey, byWindow, forLaneScreen } from '@/lib/drive-lanes';
+import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
+import { earlyModeOf } from '@/lib/lane-entry';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -151,7 +155,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -160,7 +164,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -177,6 +181,8 @@ export async function POST(req: NextRequest) {
       const live = carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => (counterSide(c.channel) ? 'counter' : 'drive-thru') === channel).sort(forLaneScreen(twoLanes)).slice(-40);
       // (Each button carries the number guests order by, as on the menu board: lib/menu-numbers.)
       const laneNums = menuNumbers(menu);
+      // The line before the speaker, from the lane entry sensor (lib/lane-entry-server), counting toward a rush.
+      const line = channel === 'drive-thru' ? await lineNow(db, tenantId, tenant, { cars: carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), nowMs: now.getTime() }).catch(() => null) : null;
       // (With each car's order placed ahead going with it, if it has one.)
       const orderIds = Array.from(new Set(live.flatMap((c: any) => [String(c.orderId || ''), String(c.aheadId || '')]).filter((x: string) => ID.test(x))));
       const [orderSnaps, ticketSnaps] = await Promise.all([
@@ -249,7 +255,7 @@ export async function POST(req: NextRequest) {
           calledAt: c.calledAt || null, calls: num(c.calls),
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
-        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS }, settings: { spots: spotsOf(tenant), pickupOnly: pickupOnlyOf(tenant), texts: readyTextsOn(tenant), lanes: channel === 'drive-thru' ? lanesOf(tenant) : 1 }, now: nowIso,
+        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS, waiting: line?.waiting || 0, waitingByLane: line?.byLane || null, sensor: !!line?.sensor }, settings: { spots: spotsOf(tenant), pickupOnly: pickupOnlyOf(tenant), texts: readyTextsOn(tenant), lanes: channel === 'drive-thru' ? lanesOf(tenant) : 1, early: earlyModeOf(tenant) }, now: nowIso,
         // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane, neither paying.
         merge: (() => { const paying = new Set<string>(live.filter((c: any) => { const cd = orders[String(c.orderId || '')]?.card; const st = String(cd?.state || ''); return st === 'on_reader' || st === 'capturing' || (st === 'starting' && now.getTime() - (Date.parse(String(cd?.at || '')) || 0) < 60000); }).map((c: any) => String(c.id)));
           const ask = mergeAsk(live, twoLanes, paying, now.getTime()); return ask ? { next: ask.next.id, other: ask.other.id } : null; })(),
@@ -493,7 +499,7 @@ export async function POST(req: NextRequest) {
     // "I ordered ahead, code 4821": the order placed ahead becomes this car's (or a new car's), straight to pickup.
     if (action === 'aheadCar') {
       const r: any = await aheadToCar(db, tenantId, tenant, { orderId: b.orderId, code: b.code, carId: b.carId }, who);
-      forgetStats(tenantId);
+      forgetStats(tenantId); forgetLine(tenantId);
       return r.ok ? ok({ carId: r.carId, number: r.number, name: r.name, linked: !!r.linked, carNumber: r.carNumber || null, already: !!r.already, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     // "Nothing else": the car came only for its order placed ahead, and goes on to pickup with it.
@@ -506,8 +512,14 @@ export async function POST(req: NextRequest) {
     }
     if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who, { inLine: channel === 'drive-thru' && b.inLine === true, looks: channel === 'drive-thru' ? cleanLooks(b.looks) : null, channel,
       // (Its lane, with two that merge: the speaker's own, or the lane screen's button.)
-      lane: lanesOf(tenant) === 2 ? cleanLane(b.lane) : null }); forgetStats(tenantId); return ok({ ...c, staffOk }); }
+      lane: lanesOf(tenant) === 2 ? cleanLane(b.lane) : null }); forgetStats(tenantId); forgetLine(tenantId); return ok({ ...c, staffOk }); }
 
+    if (action === 'lineClear') {
+      // "Line's clear" (lib/lane-entry-server): nobody waiting to order before the speaker, in a lane or all of them.
+      if (channel !== 'drive-thru') return bad('The counter has no lane.', 409);
+      await lineClear(db, tenantId, lanesOf(tenant) === 2 ? cleanLane(b.lane) : null, now.getTime());
+      return ok({ done: true, staffOk });
+    }
     if (action === 'merged') {
       // The window: "this car merged first" (lib/drive-lanes). Only the front car of either lane, while it's asked.
       const carId = String(b.carId || ''); if (!ID.test(carId)) return bad('Which car?');

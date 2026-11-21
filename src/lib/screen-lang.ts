@@ -87,6 +87,8 @@ const ES: Record<string, string> = {
   'None held now.': 'Nada guardado ahora.', 'Start a batch of {n}': 'Empezar una tanda de {n}',
   'Start a batch of {n} {name}': 'Empezar una tanda de {n} {name}',
   'Monday': 'lunes', 'Tuesday': 'martes', 'Wednesday': 'miércoles', 'Thursday': 'jueves', 'Friday': 'viernes', 'Saturday': 'sábado', 'Sunday': 'domingo',
+  // Orders as they're said at the speaker (lib/lane-entry).
+  'Being ordered': 'Pidiendo ahora', 'Not sent yet': 'Aún no enviado', 'Ordering, {t}': 'Pidiendo, {t}',
   // Two drive-thru lanes that merge (lib/drive-lanes).
   'Lane {n}': 'Carril {n}', 'Next at the window': 'Siguiente en la ventanilla', '1 car ahead': '1 carro antes', '{n} cars ahead': '{n} carros antes',
   'Holding': 'Guardado', '{n} thrown out today': '{n} tirados hoy', 'Nothing thrown out today': 'Nada tirado hoy', '{n} held': '{n} guardados',

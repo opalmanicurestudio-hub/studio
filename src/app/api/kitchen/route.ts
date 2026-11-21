@@ -14,7 +14,8 @@
 //   tickets { tenantId, key, eventId? }            → the tickets waiting, being made and ready, from both places they
 //                                                    live (lib/kitchen), the items they use, and today's for the numbers;
 //                                                    each with the station that makes it, the business's stations, and
-//                                                    the tables' courses not fired yet (lib/table-service)
+//                                                    the tables' courses not fired yet (lib/table-service), and in a
+//                                                    drive-thru rush, what's being said at the speaker (lib/lane-entry)
 //   safety { tenantId, key } → today's food safety readings and the batches still cooling (lib/food-safety-server);
 //   safetyLog { tenantId, key, staffPass, kind, item, tempF, supplier?, deliveryKind?, note?, startedAt? } and coolCheck
 //   { tenantId, key, staffPass, logId, tempF, done? } → a reading, with a PIN on a shared tablet (code 'pin')
@@ -79,6 +80,8 @@ import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
 import { binState, batchSizeOf } from '@/lib/holding';
 import { holdMinutesOf, makeSecondsOf } from '@/lib/counter-orders';
 import { lanesOf, windowPlaces } from '@/lib/drive-lanes';
+import { earlyModeOf, showEarly } from '@/lib/lane-entry';
+import { lineNow, type EarlyOrder } from '@/lib/lane-entry-server';
 import { finishTogetherOn, stationsOf, stationOfItem } from '@/lib/table-service';
 // With two drive-thru lanes that merge: each drive-thru order's place in the line to the window, kept a few seconds.
 const placesCache = new Map<string, { at: number; places: ReturnType<typeof windowPlaces> }>();
@@ -399,13 +402,22 @@ export async function POST(req: NextRequest) {
       const stale = unfiredAll.filter((t: any) => String(t.at) < cutoff).slice(0, 50);
       if (stale.length) await Promise.all(stale.map((t: any) => db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelReason: 'never fired' }, { merge: true }).catch(() => {})));
       const unfired = unfiredAll.filter((t: any) => String(t.at) >= cutoff);
+      // What's being said at a drive-thru speaker before it's sent (lib/lane-entry): in a rush, or always, as the business
+      // sets it. Only shown: no ticket, nothing from stock. (Not for a business with no drive-thru.)
+      const earlyMode = earlyModeOf(tenant);
+      const early: (EarlyOrder & { lines: (EarlyOrder['lines'][number] & { madeAt?: string })[] })[] = [];
+      if (!eventId && earlyMode !== 'off' && (tenant.driveThru || tickets.some((t) => t.channel === 'drive-thru'))) {
+        const line = await lineNow(db, tenantId, tenant, { withOrders: true }).catch(() => null);
+        if (line && showEarly(earlyMode, line.rush)) early.push(...line.ordering.map((x) => ({ ...x, lines: x.lines.map((l) => ({ ...l })) })));
+      }
       // The items they use: a picture and what each is made of (for the label), nothing about cost.
-      const ids = Array.from(new Set([...tickets, ...unfired].map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 150);
+      const ids = Array.from(new Set([...tickets, ...unfired, ...early.flatMap((e) => e.lines)].map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 150);
       const docs = ids.length ? await db.getAll(...ids.map((i) => db.doc(`${T}/inventory/${i}`))) : [];
       // Which station makes each (lib/table-service): its own, else worked out from the item, so every screen agrees.
       const stations = stationsOf(tenant);
       const raw = new Map<string, any>(docs.map((d: any) => [d.id, d.data() || {}]));
       for (const t of [...tickets, ...unfired]) if (!t.madeAt || !stations.includes(t.madeAt)) t.madeAt = stationOfItem(raw.get(String(t.itemId || '')) || {}, stations);
+      for (const e of early) for (const l of e.lines) l.madeAt = stationOfItem(raw.get(l.itemId) || {}, stations);
       const items: Record<string, any> = {};
       for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => (f?.measure && num(f.amount) > 0
         // As the cook measures it (2 tbsp, 6 oz), when the recipe was written that way (lib/kitchen-units).
@@ -431,7 +443,7 @@ export async function POST(req: NextRequest) {
       const printers = PS.printerSummary(await PS.printersCached(db, T).catch(() => []), Date.now(), tz).filter((p) => p.tickets).map((p) => ({ name: p.name, stations: p.stations, ok: p.ok, words: p.words }));
       // How far behind the kitchen is (lib/kitchen-pace): the host stand and ordering ahead are counting it.
       const pace = await paceNow(db, T, tenant);
-      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, cook, printers,
+      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, early, stations, items, today, holds, holdable, tossedToday, cook, printers,
         pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level },
         // What the kitchen told the floor, still up (lib/floor-word), so the screen can change or clear it.
         floorNote: (await floorWordNow(db, tenantId, tenant).catch(() => ({ note: null }))).note, now: new Date().toISOString() });

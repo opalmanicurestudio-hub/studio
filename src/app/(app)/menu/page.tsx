@@ -23,6 +23,7 @@ import { PrepRecipes, type PrepRow } from '@/components/menu/PrepRecipes';
 import { DEFAULT_TARGET } from '@/lib/food-cost';
 import type { ChoiceChange } from '@/lib/choice-recipe';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
+import { LaneEntrySettings, type SensorRow, type EarlyMode } from '@/components/menu/LaneEntrySettings';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
 import { MenuTimesCard } from '@/components/menu/MenuTimesCard';
 import type { Daypart, HappyHour } from '@/lib/menu-time';
@@ -82,6 +83,8 @@ export default function MenuPage() {
   const [spots, setSpots] = useState<number | null>(null);
   const [pickupOnly, setPickupOnlyState] = useState<boolean | null>(null);
   const [lanes, setLanesState] = useState<1 | 2 | null>(null);
+  // The lane entry sensor and when the kitchen sees orders as they're said (components/menu/LaneEntrySettings).
+  const [laneEntry, setLaneEntry] = useState<{ sensors: SensorRow[]; early: EarlyMode } | null>(null);
   // Guests can ask for a text when their order is ready (lib/ready-text); null: texting isn't set up here.
   const [readyTexts, setReadyTexts] = useState<boolean | null>(null);
   // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
@@ -105,7 +108,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -248,6 +251,7 @@ export default function MenuPage() {
                   </span>
                 </div>
               )}
+              {laneEntry && pickupOnly === false && <LaneEntrySettings sensors={laneEntry.sensors} early={laneEntry.early} two={lanes === 2} call={call} />}
               {readyTexts !== null && (
                 <div role="group" aria-labelledby="ready-texts" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
                   <span><span id="ready-texts" className="block text-[15px] font-medium">A text when it’s ready</span>

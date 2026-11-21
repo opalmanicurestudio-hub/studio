@@ -245,7 +245,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…warns when nobody has said what’s in a dish and someone it reaches has a severe allergy; asks before taking an allergy off; checks a counted dish again before ringing it in', /unknown: true/.test(tt) && /Nobody has said what’s in/.test(tt) && /setRemoving\(a\.id\)/.test(tt) && /fresh: true/.test(tt));
   check('…and a sold-out or counted-out dish can’t be rung in, with what’s left beside each counted one', /outOf\(it\)/.test(tt) && /leftWords\(cnt\)/.test(tt) && /action: 'counts'/.test(tt));
   check('the kitchen screen: Allergy noted in place of Ready, the bump says what’s left to note, Counts to set tonight’s numbers', /\{say\('Allergy noted'\)\}<\/button>/.test(kds) && /action: 'allergyNoted'/.test(kds) && /to note first/.test(kds) && /function CountsSheet/.test(kds) && /action: 'count'/.test(kds));
-  check('…and it now gets the stations and held courses the server sends', /unfired: d\.unfired \|\| \[\], stations: d\.stations \|\| \[\]/.test(kds));
+  check('…and it now gets the stations and held courses the server sends', /unfired: d\.unfired \|\| \[\],( early: [^,]+,)? stations: d\.stations \|\| \[\]/.test(kds));
   check('the Menu page: what a dish contains (or none of these) and how many are made each night', /Contains<\/legend>/.test(menu) && /None of these/.test(menu) && /Made each night/.test(menu) && /tonight<\/span>/.test(menu));
   const ex = src('src/components/kitchen/ExpoView.tsx');
   check('the pass: a run waits while a plate’s allergy isn’t noted, and the pass can note it there', /Note the allergy first/.test(ex) && /onNote\(t\)/.test(ex) && /seen: allergySig\(t\)/.test(kds));

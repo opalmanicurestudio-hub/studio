@@ -59,6 +59,8 @@ import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/l
 import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/counter-orders';
 import { lanesOf } from '@/lib/drive-lanes';
+import { earlyModeOf } from '@/lib/lane-entry';
+import { sensorsView, newSensor, stopSensor } from '@/lib/lane-entry-server';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
@@ -144,7 +146,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -272,6 +274,23 @@ export async function POST(req: NextRequest) {
       if (typeof b.readyTexts === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ readyTexts: { off: !b.readyTexts } }, { merge: true });
         return ok({ lane: { readyTexts: b.readyTexts } });
+      }
+      // The lane entry sensor (lib/lane-entry-server): a new link for a lane (shown once; the old one stops), turned off,
+      // or how each is doing (when it last counted a car).
+      if (b.sensor === 'new' || b.sensor === 'stop' || b.sensor === 'check') {
+        const two = lanesOf(td) === 2; const lane = b.lane === 2 && two ? 2 : 1;
+        if (b.sensor === 'new') {
+          const key = await newSensor(db, tenantId, lane, words(g.actor?.name, 60) || 'A manager');
+          const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl?.origin || '').replace(/\/+$/, '');
+          return ok({ lane: { sensors: await sensorsView(db, tenantId, td) }, sensorLink: { lane, link: `${origin}/api/counter/lane-entry?t=${encodeURIComponent(tenantId)}&k=${key}` } });
+        }
+        if (b.sensor === 'stop') await stopSensor(db, tenantId, lane);
+        return ok({ lane: { sensors: await sensorsView(db, tenantId, td) } });
+      }
+      // When the kitchen sees what's being ordered at the speaker before it's sent (lib/lane-entry).
+      if (b.kitchenEarly === 'rush' || b.kitchenEarly === 'always' || b.kitchenEarly === 'off') {
+        await db.doc(`tenants/${tenantId}`).set({ driveThru: { kitchenEarly: b.kitchenEarly } }, { merge: true });
+        return ok({ lane: { kitchenEarly: b.kitchenEarly } });
       }
       // Ordering lanes: one, or two that merge (lib/drive-lanes): each speaker tablet and order board is set to its lane.
       if (b.lanes === 1 || b.lanes === 2) {

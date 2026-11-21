@@ -54,13 +54,15 @@ type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; sta
   // The ordering lane it pulled up to, with two that merge (lib/drive-lanes).
   lane?: 1 | 2 | null };
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
-type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
+type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number };
+  // Cars waiting to order before the speaker, from the lane entry sensor (lib/lane-entry), when there is one.
+  waiting?: number; waitingByLane?: Record<1 | 2, number> | null; sensor?: boolean };
 type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
 // An item as the lane reads it: its price right now (happy hour) and, outside its menus by time of day, when it's back.
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
 const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2 }; menu: LaneItem[];
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
   merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
@@ -755,6 +757,7 @@ export default function DriveThru() {
             <span>Under target <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.servedToday ? `${Math.round((st.underTarget / st.servedToday) * 100)}%` : 'none yet'}</b></span>
             <span>Served <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.servedToday}</b></span>
             <span>Last hour <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.thisHour}</b></span>
+            {st.sensor && <span>Waiting to order <b className="font-semibold tabular-nums" style={{ color: INK }}>{st.waiting || 0}</b></span>}
             {slow && <span className="rounded-md px-2 py-0.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Slower right now: {SLOW_WORD[slow[0]]}, {mmss(slow[1])} a car ({mmss(slow[2])} today)</span>}
             {st.average !== null && <span className="text-[13.5px]">Ordering {st.ordering === null ? '–' : mmss(st.ordering)} · to the window {st.toWindow === null ? '–' : mmss(st.toWindow)} · at the window {st.atWindow === null ? '–' : mmss(st.atWindow)}</span>}
           </div>
@@ -763,9 +766,16 @@ export default function DriveThru() {
 
       <div className="space-y-2 px-4 pt-3 sm:px-6">
         {closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>{closed}</div>}
-        {st && (st.inLineNow ?? st.inLane) >= (st.rushAt || 6) && !closed && (
+        {st && (st.inLineNow ?? st.inLane) + (st.waiting || 0) >= (st.rushAt || 6) && !closed && (
           <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }} role="status">
-            <b className="font-semibold">Busy: {st.inLineNow ?? st.inLane} cars in the lane.</b> {voiceCfg?.on ? 'The assistant is keeping orders short. ' : ''}Pull a car forward as soon as its food is slow, so the window keeps moving.
+            <b className="font-semibold">Busy: {(st.inLineNow ?? st.inLane) + (st.waiting || 0)} cars{st.waiting ? `, ${st.waiting} still waiting to order` : ' in the lane'}.</b> {voiceCfg?.on ? 'The assistant is keeping orders short. ' : ''}{lane?.settings?.early !== 'off' ? 'The kitchen sees orders as they’re said. ' : ''}Pull a car forward as soon as its food is slow, so the window keeps moving.
+          </div>
+        )}
+        {st?.sensor && !!st.waiting && !closed && role !== 'runner' && (
+          // The line before the speaker, from the lane entry sensor: set to none when it's clear (a car that drove off).
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#fff] px-4 py-2.5 text-[15px]" style={{ border: `1px solid ${LINE}` }}>
+            <span><b className="font-semibold" style={{ color: INK }}>{st.waiting} waiting to order</b> <span style={{ color: MUTED }}>{st.waitingByLane && twoLanes ? `(lane 1: ${st.waitingByLane[1]}, lane 2: ${st.waitingByLane[2]})` : 'from the lane entry'}</span></span>
+            <button type="button" onClick={() => void act('lineClear', { action: 'lineClear' })} disabled={busy === 'lineClear'} className={btn} style={quiet}>Line’s clear</button>
           </div>
         )}
         {stale && !closed && <div className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The screen can’t reach the server. What’s here may be out of date; it keeps trying.</div>}

@@ -57,10 +57,12 @@ const WARM_S = 5 * 60, LATE_S = 8 * 60;
 type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
 /** Cook ahead (lib/cook-ahead-server): batches to start, by when (null: now), and the usual stretch it's for. */
+// What's being said at a drive-thru speaker before it's sent (lib/lane-entry): only shown.
+type Early = { orderId: string; number: string; lane: 1 | 2 | null; since: string; lines: { name: string; quantity: number; choicesText: string | null; itemId: string; madeAt?: string }[] };
 type Cook = { itemId: string; name: string; batches: number; batchSize: number; by: string | null; need: number; from: string; to: string; held: number; weekday: string };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook?: Cook[]; counts: CountRow[]; finishTogether?: boolean;
+type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; early?: Early[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook?: Cook[]; counts: CountRow[]; finishTogether?: boolean;
   /** The printers that print tickets, and whether each is answering (lib/printing-server). */
   printers?: { name: string; stations: string[]; ok: boolean; words: string }[] };
 type Staff = { id: string; name: string; pass: string };
@@ -270,6 +272,36 @@ function WindowPlace({ n }: { n: number }) {
   const say = useT();
   const words = n === 1 ? say('Next at the window') : n === 2 ? say('1 car ahead') : say('{n} cars ahead', { n: n - 1 });
   return <span className="rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={n === 1 ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{words}</span>;
+}
+
+// ─── Being ordered: what's said at a drive-thru speaker before it's sent (lib/lane-entry) ─────────────────────────────
+// In a rush (or always, as the business sets it), so the grill can start before the order is sent. Only shown: it has no
+// buttons, nothing is taken from stock, and it turns into tickets once it's sent; an item taken off goes away.
+function BeingOrdered({ rows, now }: { rows: Early[]; now: number }) {
+  const say = useT();
+  const for_ = (iso: string) => { const s = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  return (
+    <section aria-labelledby="being-ordered" className="mb-4 rounded-2xl bg-[#fff] p-3" style={{ border: `1.5px dashed #c9cbd0` }}>
+      <div className="flex items-baseline justify-between gap-3 px-1 pb-2">
+        <h2 id="being-ordered" className="text-[16px] font-semibold" style={{ color: INK }}>{say('Being ordered')}</h2>
+        <span className="text-[13px]" style={{ color: MUTED }}>{say('Not sent yet')}</span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {rows.map((e) => (
+          <div key={e.orderId} className="space-y-1 rounded-xl px-3 py-2.5" style={{ background: SOFT }}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[17px] font-semibold tabular-nums" style={{ color: INK }}>{e.number}</span>
+              {e.lane && <span className="rounded-full bg-[#fff] px-2 py-0.5 text-[12.5px] font-semibold" style={{ color: INK }}>{say('Lane {n}', { n: e.lane })}</span>}
+              <span className="ml-auto text-[13px] tabular-nums" style={{ color: MUTED }}>{say('Ordering, {t}', { t: for_(e.since) })}</span>
+            </div>
+            {e.lines.map((l, i) => (
+              <p key={i} className="text-[15px] leading-snug" style={{ color: INK }}>{l.quantity > 1 ? `${l.quantity} × ` : ''}{l.name}{l.choicesText && <span style={{ color: MUTED }}>, {l.choicesText}</span>}</p>
+            ))}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 // ─── A course or a dish: its tickets in rows, moved along together or one by one ─────────────────────────────────────
@@ -742,7 +774,7 @@ function KitchenScreenInner() {
       if (status === 403 && !key) { forgetHere(d.error || 'This is for the business’s own team.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, cook: Array.isArray(d.cook) ? d.cook : [], counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], early: Array.isArray(d.early) ? d.early : [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, cook: Array.isArray(d.cook) ? d.cook : [], counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
         pace: d.pace && Number(d.pace.behindMin) > 0 ? { behindMin: Math.round(Number(d.pace.behindMin)), level: String(d.pace.level || 'busy') } : null };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
@@ -864,6 +896,8 @@ function KitchenScreenInner() {
   const myStation = station && stations.includes(station) ? station : '';
   const allTickets = (data?.tickets || []).filter((t) => view === 'expo' || !myStation || t.madeAt === myStation);
   const comingHere = (data?.unfired || []).filter((t) => !myStation || t.madeAt === myStation);
+  // Being ordered at the speaker, this station's part of it (or every station's, on expo).
+  const earlyHere = (data?.early || []).map((e) => ({ ...e, lines: e.lines.filter((l) => view === 'expo' || !myStation || l.madeAt === myStation) })).filter((e) => e.lines.length);
   const pickStation = (v: string) => { setStation(v); write('cf.kitchen.station', v || null); };
   const isHeld = (t: KitchenTicket) => t.status === 'pending' && !!t.holdUntil && Date.parse(t.holdUntil) > now;
   // (Worked out again only when one starts waiting or stops, not every second.)
@@ -1041,6 +1075,7 @@ function KitchenScreenInner() {
       </div>
 
       <main className="flex-1 px-4 sm:px-6 py-4">
+        {data && earlyHere.length > 0 && <BeingOrdered rows={earlyHere} now={now} />}
         {!data ? (
           <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={say('Loading tickets')} /></div>
         ) : view === 'lanes' ? (
