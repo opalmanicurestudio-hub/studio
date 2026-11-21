@@ -506,6 +506,21 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await C({ action: 'deliverySlow', mode: 'clear' });
   check('back to normal', r.body.ok && !r.body.slow.paused && r.body.slow.extraMin === 0 && ((await A({ action: 'deliveryCheck', address: addr, lines })) as any).body.ok, r.body.slow);
 
+  console.log('sales tax on the delivery fee');
+  r = await Mn({ action: 'ahead', deliveryFeeTaxed: true });
+  check('a manager can charge sales tax on the delivery fee', r.body.ok && r.body.ahead.deliveryFeeTaxed === true, r.body.ahead);
+  const g1 = await placeOut('Gus', '8325550149');
+  const og1 = await get(`${T}/counterOrders/${g1.id}`);
+  check('…the fee’s tax is in the order’s tax and total, kept apart', og1.deliveryFeeTax === 0.4 && og1.tax === 1.7 && og1.total === 18.69, { tax: og1.tax, ft: og1.deliveryFeeTax, total: og1.total });
+  const gt: any = await get(`${T}/transactions/counter_${g1.id}_tax`); const gft: any = await get(`${T}/transactions/counter_${g1.id}_delivery_tax`);
+  check('…booked: the food’s tax and the fee’s tax on lines of their own', gt?.amount === 1.3 && gft?.amount === 0.4 && gft.category === 'Tax Collected', { gt, gft });
+  await C({ action: 'deliveryFailed', orderId: g1.id, why: 'no_answer' });
+  const gv = ((await A({ action: 'track', o: g1.id, s: g1.sig })) as any).body.delivery?.failed;
+  const bg = S.refunds.length;
+  r = await A({ action: 'deliveryChoice', o: g1.id, s: g1.sig, choice: 'refund' });
+  check('…refunded with the fee kept: the fee’s tax is kept with it', gv?.tax === 1.3 && gv.fee === 4.39 && r.body.ok && r.body.cents === 1430 && S.refunds.length - bg === 2 && !(await get(`${T}/transactions/counter_${g1.id}_delivery_tax`)).refundedAt, { gv, body: r.body });
+  await Mn({ action: 'ahead', deliveryFeeTaxed: false });
+
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });
   r = await A({ ...base, key: nextKey(), phone: '8325550142' });

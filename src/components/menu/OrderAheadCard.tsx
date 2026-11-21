@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
-export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryReady?: boolean; deliveryByZip?: boolean;
+export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryFeeTaxed?: boolean; deliveryReady?: boolean; deliveryByZip?: boolean;
   laterHours: number; slotItems?: number | null; payments: boolean; link: string };
 const DRIVES = [10, 15, 20, 30];
 
@@ -28,7 +28,7 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
     if (d.ok) setA(d.ahead); else setErr(d.error || 'That didn’t save. Try again.');
   };
   const copy = async () => { try { await navigator.clipboard.writeText(a.link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setErr('Copy didn’t work. Select the link and copy it.'); } };
-  const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside' | 'delivery', off = false) => (
+  const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside' | 'delivery' | 'deliveryFeeTaxed', off = false) => (
     <label className="flex min-h-[44px] items-center gap-3 text-[15px]">
       <input type="checkbox" checked={on} disabled={!!busy || off} onChange={(e) => save(k, { [k]: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />{label}
     </label>);
@@ -62,7 +62,9 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
                     className={`min-h-[44px] rounded-xl text-[14px] font-semibold disabled:opacity-50 ${RING}`} style={on ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{m} min</button>); })}
               </div>
               <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>Farther addresses are offered pickup instead.</p>
-            </div>)}</div>
+            </div>)}
+          {a.delivery && <div className="mt-2">{check(!!a.deliveryFeeTaxed, 'Charge sales tax on the delivery fee', 'deliveryFeeTaxed')}
+            <p className="text-[13px]" style={{ color: MUTED }}>Some states tax delivery charges. Check your state’s rule.</p></div>}</div>
         <label className="block"><span className="text-[14px] font-semibold">How far ahead</span>
           <select value={a.laterHours} disabled={!!busy} onChange={(e) => save('hours', { laterHours: Number(e.target.value) })} className={`mt-2 h-11 w-full rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
             <option value={0}>As soon as it’s ready only</option>

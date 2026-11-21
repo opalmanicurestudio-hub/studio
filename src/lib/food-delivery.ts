@@ -34,10 +34,10 @@ export type FoodStep = 'making' | 'ready' | 'out' | 'delivered' | 'failed' | 'pi
 export type FoodAddress = { line1: string; line2: string; city: string; state: string; postalCode: string };
 
 /** The business's food delivery: on (and only with its delivery zones set up), and the longest drive for hot food. */
-export function foodDeliveryOf(tenant: any): { on: boolean; maxDriveMin: number } {
+export function foodDeliveryOf(tenant: any): { on: boolean; maxDriveMin: number; feeTaxed: boolean } {
   const a = tenant?.orderAhead || {};
   const m = Number(a.deliveryMaxMin);
-  return { on: a.delivery === true, maxDriveMin: (DRIVE_MAX_CHOICES as readonly number[]).includes(m) ? m : DEFAULT_DRIVE_MAX };
+  return { on: a.delivery === true, maxDriveMin: (DRIVE_MAX_CHOICES as readonly number[]).includes(m) ? m : DEFAULT_DRIVE_MAX, feeTaxed: a.deliveryFeeTaxed === true };
 }
 
 /** About how long the drive is, in minutes, from the miles (a few to get going, then about 2.5 a mile). */
@@ -66,9 +66,12 @@ export function arrivalTimes(pickupIsos: string[], driveMin: number): { at: stri
 
 /** The order's money with its delivery fee (and the driver's tip): the food's subtotal and tax as they were, the fee and
  *  the tip on their own lines, and the total with them (the one the guest pays). */
-export function withDeliveryFee<M extends { total: number }>(money: M, feeCents: number, tipCents = 0): M & { deliveryFee: number; tipCents: number; total: number } {
+export function withDeliveryFee<M extends { total: number; tax: number }>(money: M, feeCents: number, tipCents = 0, feeTax = 0): M & { deliveryFee: number; tipCents: number; total: number; deliveryFeeTax: number } {
   const fee = Math.max(0, Math.round(feeCents)) / 100; const tip = Math.max(0, Math.round(tipCents));
-  return { ...money, deliveryFee: fee, tipCents: tip, total: Math.round((money.total + fee) * 100 + tip) / 100 };
+  // (Sales tax on the fee, where the business charges it: in the order's tax, and kept apart so a refund that keeps the
+  // fee keeps its tax too.)
+  const ft = Math.max(0, Math.round(Number(feeTax) * 100)) / 100;
+  return { ...money, deliveryFee: fee, tipCents: tip, deliveryFeeTax: ft, tax: Math.round((money.tax + ft) * 100) / 100, total: Math.round((money.total + fee + ft) * 100 + tip) / 100 };
 }
 
 /** The tips offered for the driver: a percent of the food (before tax), or an amount up to this. */
@@ -131,22 +134,26 @@ export const keepsFee = (why: unknown, plan: any): boolean => !!failReasonOf(why
 
 /** What goes back to the card when it couldn't be delivered, in cents: refunded (the food, its tax, the driver's tip,
  *  and the fee when `fee`), or picked up instead (the tip, and the fee when `fee`). */
-export function moneyBack(o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; tipCents?: unknown }, how: 'refund' | 'pickup', fee: boolean) {
+export function moneyBack(o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; deliveryFeeTax?: unknown; tipCents?: unknown }, how: 'refund' | 'pickup', fee: boolean) {
   const c = (v: unknown) => Math.max(0, Math.round((Number(v) || 0) * 100));
-  const food = how === 'refund' ? c(o.subtotal) : 0; const tax = how === 'refund' ? c(o.tax) : 0;
-  const tip = Math.max(0, Math.round(Number(o.tipCents) || 0)); const f = fee ? c(o.deliveryFee) : 0;
+  const ft = c(o.deliveryFeeTax);
+  const food = how === 'refund' ? c(o.subtotal) : 0; const tax = how === 'refund' ? Math.max(0, c(o.tax) - ft) : 0;
+  const tip = Math.max(0, Math.round(Number(o.tipCents) || 0)); const f = fee ? c(o.deliveryFee) + ft : 0;
   return { food, tax, tip, fee: f, total: food + tax + tip + f };
 }
 
-/** The lines in the books each part comes back from (lib/counter-server payOrder): the food, its tax, the tip, the fee. */
+/** The lines in the books each part comes back from (lib/counter-server payOrder): the food, its tax, the tip, the fee
+ *  (and the fee's own tax, where it's charged). */
 export function backLines(orderId: string, how: 'refund' | 'pickup', fee: boolean): string[] {
-  return [...(how === 'refund' ? [`counter_${orderId}`, `counter_${orderId}_tax`] : []), `ftip_${orderId}`, ...(fee ? [`counter_${orderId}_delivery`] : [])];
+  return [...(how === 'refund' ? [`counter_${orderId}`, `counter_${orderId}_tax`] : []), `ftip_${orderId}`, ...(fee ? [`counter_${orderId}_delivery`, `counter_${orderId}_delivery_tax`] : [])];
 }
 /** A line's part of the order, in cents (for what's still to go back). */
-export function lineCents(orderId: string, line: string, o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; tipCents?: unknown }): number {
+export function lineCents(orderId: string, line: string, o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; deliveryFeeTax?: unknown; tipCents?: unknown }): number {
   const c = (v: unknown) => Math.max(0, Math.round((Number(v) || 0) * 100));
   if (line === `counter_${orderId}`) return c(o.subtotal);
-  if (line === `counter_${orderId}_tax`) return c(o.tax);
+  // (The fee's own sales tax, where it's charged, is a line of its own: it goes with the fee.)
+  if (line === `counter_${orderId}_tax`) return Math.max(0, c(o.tax) - c(o.deliveryFeeTax));
+  if (line === `counter_${orderId}_delivery_tax`) return c(o.deliveryFeeTax);
   if (line === `counter_${orderId}_delivery`) return c(o.deliveryFee);
   if (line === `ftip_${orderId}`) return Math.max(0, Math.round(Number(o.tipCents) || 0));
   return 0;

@@ -4,7 +4,7 @@
 // counter-orders), the order sent to the kitchen (one ticket a line, due by the lane's target, stock and recipe parts
 // taken once), an order paid (cash, a card machine of the business's own, or the card reader at the window, lib/
 // counter-card), and an order voided when a car drives off without paying.
-import { appName } from '@/lib/app-orders';
+import { appName, appBooksOn, appWeekId, payoutWeek } from '@/lib/app-orders';
 import { cleanLineNote, cleanOrderAllergy, mergeAllergy, orderAllergyOf, sameAllergy, sameNote, ticketFields, OTHER_KEEP, OTHER_MAX } from '@/lib/order-allergy';
 import { cleanKeys, itemAllergens, ticketAllergyPatch } from '@/lib/allergens';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -642,13 +642,31 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     if (method !== 'app' && o.app?.code) return { error: `${appName(o.app)} is paid on the app. Hand it to the courier.`, status: 409 };
     const saleRef = db.doc(`${T}/transactions/counter_${orderId}`); const taxRef = db.doc(`${T}/transactions/counter_${orderId}_tax`);
     const viaApp = method === 'app';
+    // An app's order (lib/app-orders): booked at what the app charged, with its share and any sales tax the business pays.
+    const am = viaApp ? appBooksOn(o) : null;
+    const appKey = viaApp ? String(o.app.app || 'other') : ''; let week = viaApp ? payoutWeek(String(o.app.day || o.day || nowIso.slice(0, 10))) : '';
+    // (A week whose payout was already checked and its difference booked: counted in the next one, so the booked week
+    // stays as it was. Read here, before anything is written.)
+    for (let i = 0; viaApp && i < 3; i++) { const wk: any = (await tx.get(db.doc(`${T}/private/${appWeekId(appKey, week)}`))).data(); if (!wk?.adjustedAt) break; week = payoutWeek(new Date(Date.parse(`${week}T12:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10)); }
     const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
       ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}), ...(viaApp ? { appName: String(o.app.label || ''), appOrderCode: String(o.app.code || '') } : {}) };
-    tx.set(saleRef, { id: saleRef.id, ...common, description: viaApp ? `${appName(o.app)} (paid out by the app, less its fees)` : `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
-    if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
+    tx.set(saleRef, { id: saleRef.id, ...common, description: viaApp ? `${appName(o.app)} (paid out by the app, less its fees)` : `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: am ? am.appCents / 100 : subtotal,
+      ...(am ? { appKey, appWeek: week, appMenuCents: am.menuCents, appFeeCents: am.feeCents, appTaxCents: am.taxCents, appPayoutCents: am.payoutCents } : {}) });
+    if (am) {
+      // The sales tax the business pays (an app that doesn't collect it), and the app's share, its own expense line.
+      if (am.taxCents > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: `Sales tax on ${appName(o.app)} (yours to pay: it comes in the payout)`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: am.taxCents / 100, hasReceipt: false });
+      if (am.feeCents > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_appfee`); tx.set(feeRef, { id: feeRef.id, ...common, type: 'expense', category: 'Delivery App Fees', taxBucket: 'operating_cost', description: `${String(o.app.label || 'The app')}’s share (${am.feePct}%), ${appName(o.app)}`, clientOrVendor: String(o.app.label || 'Delivery app'), paymentMethod: 'Deducted from payout', amount: am.feeCents / 100, hasReceipt: false, relatedTxnId: saleRef.id }); }
+      // The week's payout from that app, counted as it goes (lib/app-payouts checks it when it comes in).
+      tx.set(db.doc(`${T}/private/${appWeekId(appKey, week)}`), { app: appKey, label: String(o.app.label || ''), week, orders: FieldValue.increment(1), grossCents: FieldValue.increment(am.appCents + am.taxCents), feeCents: FieldValue.increment(am.feeCents), payoutCents: FieldValue.increment(am.payoutCents), updatedAt: nowIso }, { merge: true });
+    }
+    // (The delivery fee's own sales tax, where the business charges it, is a line of its own beside the fee.)
+    const feeTax = Math.min(tax, Math.max(0, num(o.deliveryFeeTax)));
+    const foodTax = Math.round((tax - feeTax) * 100) / 100;
+    if (foodTax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: foodTax, hasReceipt: false });
     // A delivery's fee (lib/food-delivery): on its own line, what the guest paid for delivery, never food sales.
     const fee = num(o.deliveryFee);
     if (fee > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_delivery`); tx.set(feeRef, { id: feeRef.id, ...common, description: `Delivery, order ${o.number}`, category: 'Shipping Charged', taxBucket: 'revenue', amount: fee, hasReceipt: false }); }
+    if (feeTax > 0) { const ftRef = db.doc(`${T}/transactions/counter_${orderId}_delivery_tax`); tx.set(ftRef, { id: ftRef.id, ...common, description: `${o.taxLabel || 'Sales tax'} on delivery, order ${o.number}`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: feeTax, hasReceipt: false }); }
     // Its driver's tip (lib/food-delivery): a tip, never sales, kept with no one on it until it's delivered, when it's put
     // under the driver's name (lib/food-delivery-server). Refunded with the order, it goes back to the card from here.
     const tipC = Math.max(0, Math.round(num(o.tipCents)));

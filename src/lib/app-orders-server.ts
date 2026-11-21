@@ -9,13 +9,16 @@
 //   appCancel  cancelled on the app before it was picked up: voided (lib/counter-server voidOrder, which also frees its
 //              shelf spot and its code, as a manager's void does). Once the kitchen has started on it, a manager okays it.
 //   appNightly the night after: codes from days ago cleared, and the managers told about any order still waiting
-import { appOrdersOf, cleanAppCode, courierDue, freeShelf, appName, appClaimId } from '@/lib/app-orders';
+import { appOrdersOf, cleanAppCode, courierDue, freeShelf, appName, appClaimId, appBooks, type AppMoney } from '@/lib/app-orders';
+import { posTaxAmount } from '@/lib/pos-tax';
 import { sendOrder, voidOrder } from '@/lib/counter-server';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { tonight, addDays } from '@/lib/night-close-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Who = { id: string | null; name: string };
+/** One order's money with an app, by its settings now: frozen on the order when it's sent. */
+const booksFor = (tenant: any, m: AppMoney, subtotal: unknown) => appBooks(Math.round((Number(subtotal) || 0) * 100), m, (d) => posTaxAmount(tenant, { services: 0, products: d }));
 type Fail = { ok: false; error: string; status: number; needsManager?: boolean };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 /** States that hold a shelf spot: being sent to the kitchen, and waiting for the courier. */
@@ -58,8 +61,10 @@ export async function appSend(db: any, tenantId: string, tenant: any, orderId: s
     const shelf = o.app.shelf && o.app.code === code ? o.app.shelf : freeShelf(onShelf.map((w: any) => w.app?.shelf), A.shelves);
     if (old && old.orderId === orderId) tx.delete(db.doc(`${T}/private/${oldId}`));
     tx.set(claimRef, { orderId, number: o.number || null, at: new Date(now).toISOString(), appCodeDay: day });
-    // No sales tax added: the app collects it. The total is what the items come to.
-    tx.set(orderRef, { app: { state: 'sending', app: app.code, label: app.label, code, shelf, courierAt, sentBy: who.name, claimId }, tax: 0, taxLabel: null, total: Math.round(Number(o.subtotal || 0) * 100) / 100 }, { merge: true });
+    // No sales tax added on the order: the guest paid the app. The total is what the items come to on the menu; what the
+    // app charged, its share, and any sales tax the business pays are worked out now, by the app's settings as they are
+    // (lib/app-orders appBooks), and booked when it's picked up.
+    tx.set(orderRef, { app: { state: 'sending', app: app.code, label: app.label, code, shelf, courierAt, sentBy: who.name, claimId, day, money: booksFor(tenant, app, o.subtotal) }, tax: 0, taxLabel: null, total: Math.round(Number(o.subtotal || 0) * 100) / 100 }, { merge: true });
     return { ok: true, shelf };
   });
   // Waiting at the counter for the courier, paid on the app.
@@ -126,7 +131,8 @@ export async function appCode(db: any, tenantId: string, tenant: any, orderId: s
     if (claim && claim.orderId !== orderId) return fail(`${name} is already in, as ${claim.number || 'another order'}.`, 409);
     if (old && old.orderId === orderId) tx.delete(oldRef);
     tx.set(claimRef, { orderId, number: o.number || null, at: new Date(now).toISOString(), appCodeDay: tonight(tenant, new Date(now)) });
-    tx.set(ref, { app: { app: app.code, label: app.label, code, claimId, fixedFrom: was, fixedBy: who.name } }, { merge: true });
+    // (Another app: its own price difference, share and tax.)
+    tx.set(ref, { app: { app: app.code, label: app.label, code, claimId, fixedFrom: was, fixedBy: who.name, ...(o.app.app !== app.code ? { money: booksFor(tenant, app, o.subtotal) } : {}) } }, { merge: true });
     // The kitchen's tickets still to hand over say the new code.
     const station = `${name}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}`;
     for (const d of tix) { const t: any = d.data() || {}; if (!['delivered', 'cancelled'].includes(String(t.status))) tx.set(d.ref, { stationName: station }, { merge: true }); }

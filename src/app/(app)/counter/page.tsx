@@ -87,7 +87,9 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
   text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null;
   /** A delivery app's order (lib/app-orders): which app, its code, its spot on the pickup shelf, when the courier is due. */
-  app?: { state: string; app?: string | null; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null;
+  app?: { state: string; app?: string | null; label: string | null; code: string | null; shelf: string | null; courierAt: string | null;
+    /** What it comes to with the app (lib/app-orders): its price, and the sales tax the business pays when the app doesn't. */
+    money?: { markupPct: number; appCents: number; taxCents: number; appPaysTax: boolean } } | null;
   /** The guest's allergies (lib/order-allergy): on every kitchen ticket. */
   allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
@@ -368,8 +370,9 @@ export default function CounterPage() {
               {order.reward && <>
                 <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order.itemsTotal || 0)}</span></div>
                 <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div></>}
-              <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{order.app ? 'The app collects it' : usd(order.tax)}</span></div>
+              <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{order.app ? (order.app.money && order.app.money.appPaysTax === false ? `Yours to pay, ${usd(order.app.money.taxCents / 100)}` : 'The app collects it') : usd(order.tax)}</span></div>
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.app ? order.subtotal : order.total)}</span></div>
+              {order.app?.money && order.app.money.markupPct > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>On {order.app.label} (+{order.app.money.markupPct}%)</span><span className="tabular-nums">{usd(order.app.money.appCents / 100)}</span></div>}
             </div>
             {order.status === 'building' && order.app ? <AppSend apps={lane?.apps || []} busy={!!busy} empty={!order.lines.length} onSend={(v) => { saveName(); void act('appSend', { action: 'appSend', orderId: order.id, ...v },
                 (d) => setNotice({ text: `${d.name} is with the kitchen${d.shelf ? `, for shelf ${d.shelf}` : ''}. It waits for the courier.`, tone: 'good' })); }} />

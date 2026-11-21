@@ -189,8 +189,10 @@ export async function pickupHanded(db: any, tenantId: string, orderId: string, b
 export function failedView(o: any, tenant: any) {
   const d = o?.ahead?.delivery || {}; const plan = deliveryFrom(tenant?.retailSettings);
   const keep = keepsFee(d.why, plan); const c = (v: unknown) => Math.max(0, Math.round((Number(v) || 0) * 100)) / 100;
+  // (The fee's own sales tax, where it's charged, goes with the fee.)
+  const ft = c(o?.deliveryFeeTax);
   return { why: failReasonOf(d.why)?.label || 'Couldn’t deliver', keepWhen: keep ? failReasonOf(d.why)?.when || '' : '', keepFee: keep,
-    food: c(o?.subtotal), tax: c(o?.tax), tip: Math.max(0, Math.round(num(o?.tipCents))) / 100, fee: c(o?.deliveryFee),
+    food: c(o?.subtotal), tax: Math.max(0, Math.round((c(o?.tax) - ft) * 100) / 100), tip: Math.max(0, Math.round(num(o?.tipCents))) / 100, fee: Math.round((c(o?.deliveryFee) + ft) * 100) / 100,
     // (A refund that didn't finish: asked again from where it stopped.)
     stuck: !!d.settle && !d.settle.at && Array.isArray(d.settle.left) && d.settle.left.length > 0,
     /** Why the last try didn't finish (a refund, or a pickup's money), said at the counter. */

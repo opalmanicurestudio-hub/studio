@@ -31,6 +31,7 @@ import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
 import { failedView } from '@/lib/food-delivery-settle-server';
+import { posTaxAmount } from '@/lib/pos-tax';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
 import { deliveryNowOf, drivableTimes } from '@/lib/driver-load';
@@ -241,7 +242,9 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   // The driver's tip (a delivery only): worked out here from the food, never taken from the page.
   const tipCents = deliv ? tipCentsOf(b.tip, centsOf(totalsOf(tenant, lines).subtotal)) : 0;
   if (tipCents < 0) return fail('Pick a tip again.', 400, 'tip');
-  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents, tipCents) : totalsOf(tenant, lines); const cents = centsOf(money.total);
+  // Sales tax on the delivery fee, where the business charges it (Menu, Ordering ahead): the same rate as the food.
+  const feeTax = deliv && deliv.feeCents > 0 && foodDeliveryOf(tenant).feeTaxed ? posTaxAmount(tenant, { services: 0, products: deliv.feeCents / 100 }) : 0;
+  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents, tipCents, feeTax) : totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
   // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room

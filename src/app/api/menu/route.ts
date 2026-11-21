@@ -61,7 +61,7 @@ import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/c
 import { lanesOf } from '@/lib/drive-lanes';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf, DRIVE_MAX_CHOICES } from '@/lib/food-delivery';
-import { appOrdersOf, cleanAppName, SHELF_CHOICES } from '@/lib/app-orders';
+import { appMoneyFrom, MARKUP_CHOICES, FEE_MAX, appOrdersOf, cleanAppName, SHELF_CHOICES } from '@/lib/app-orders';
 import { deliveryFrom, deliveryProblems } from '@/lib/delivery-plan';
 import { hasMapsKey } from '@/lib/geocode-server';
 import { hasTimeZone } from '@/lib/tenant-time';
@@ -104,7 +104,9 @@ const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySett
 /** Delivery app orders, as the Menu page shows them (lib/app-orders). */
 const APP_CODES = ['doordash', 'ubereats', 'grubhub', 'other'];
 const appSettings = (t: any) => { const a = t?.appOrders || {}; const v = appOrdersOf(t);
-  return { on: a.on === true, apps: Array.isArray(a.apps) ? a.apps.filter((x: any) => APP_CODES.includes(String(x))) : [], otherName: cleanAppName(a.otherName) || '', shelves: v.shelves }; };
+  return { on: a.on === true, apps: Array.isArray(a.apps) ? a.apps.filter((x: any) => APP_CODES.includes(String(x))) : [], otherName: cleanAppName(a.otherName) || '', shelves: v.shelves,
+    // Each app's money (lib/app-orders): its price difference, its share, and who pays the sales tax.
+    money: Object.fromEntries(APP_CODES.map((c) => [c, appMoneyFrom(a.money?.[c])])) }; };
 
 /** The business's delivery is set up and on (zones, fees, days, the time zone), so food can go out with its drivers. */
 const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings); return plan.on && hasTimeZone(t) && !deliveryProblems(plan, { mapsReady: hasMapsKey() }).length; };
@@ -115,7 +117,7 @@ function aheadSettings(t: any, tenantId: string, origin: string | null) {
   // delivery zones are set up (Orders, Delivery), which it needs first.
   const F = foodDeliveryOf(t);
   return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, curbside: a.curbside === true, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
-    delivery: F.on, deliveryMaxMin: F.maxDriveMin, deliveryReady: deliveryReady(t), deliveryByZip: deliveryFrom(t.retailSettings).by === 'postal',
+    delivery: F.on, deliveryMaxMin: F.maxDriveMin, deliveryFeeTaxed: F.feeTaxed, deliveryReady: deliveryReady(t), deliveryByZip: deliveryFrom(t.retailSettings).by === 'postal',
     link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
 }
 
@@ -230,6 +232,19 @@ export async function POST(req: NextRequest) {
       if (b.apps !== undefined) { if (!Array.isArray(b.apps) || b.apps.some((x: any) => !APP_CODES.includes(String(x)))) return bad('Pick the apps from the list.'); patch.apps = Array.from(new Set(b.apps.map(String))); }
       if (b.otherName !== undefined) patch.otherName = cleanAppName(b.otherName) || null;
       if (b.shelves !== undefined) { const n = Number(b.shelves); if (!(SHELF_CHOICES as readonly number[]).includes(n)) return bad('Pick how many spots the shelf has.'); patch.shelves = n; }
+      // One app's money: its price difference (one of the choices), its share (a percent, or empty for not set), and
+      // whether it collects and pays the sales tax. New orders use it from when they're sent.
+      if (b.money !== undefined) {
+        const code = String(b.money?.app || ''); if (!APP_CODES.includes(code)) return bad('Which app?');
+        const cur = appMoneyFrom(t.appOrders?.money?.[code]); const m: any = { ...cur };
+        if (b.money.markupPct !== undefined) { const n = Number(b.money.markupPct); if (!(MARKUP_CHOICES as readonly number[]).includes(n)) return bad('Pick how much higher your prices are on the app.'); m.markupPct = n; }
+        if (b.money.feePct !== undefined) {
+          if (b.money.feePct === null || b.money.feePct === '') m.feePct = null;
+          else { const f = Number(b.money.feePct); if (!Number.isFinite(f) || f < 0 || f > FEE_MAX) return bad(`What the app keeps is a percent from 0 to ${FEE_MAX}.`); m.feePct = Math.round(f * 10) / 10; }
+        }
+        if (typeof b.money.appPaysTax === 'boolean') m.appPaysTax = b.money.appPaysTax;
+        patch.money = { ...(t.appOrders?.money || {}), [code]: m };
+      }
       const next = { ...(t.appOrders || {}), ...patch };
       if ((next.apps || []).includes('other') && !cleanAppName(next.otherName)) return bad('Type the other app’s name.');
       if (next.on === true && !appOrdersOf({ appOrders: { ...next, on: true } }).apps.length) return bad('Pick at least one app first.');
@@ -247,6 +262,8 @@ export async function POST(req: NextRequest) {
       if (typeof b.curbside === 'boolean') patch.curbside = b.curbside;
       if (typeof b.delivery === 'boolean') patch.delivery = b.delivery;
       if (b.deliveryMaxMin !== undefined) { const m = Number(b.deliveryMaxMin); if (!(DRIVE_MAX_CHOICES as readonly number[]).includes(m)) return bad('Pick how far hot food goes.'); patch.deliveryMaxMin = m; }
+      // Sales tax on the hot food delivery fee (lib/food-delivery): some states tax delivery charges.
+      if (typeof b.deliveryFeeTaxed === 'boolean') patch.deliveryFeeTaxed = b.deliveryFeeTaxed;
       if (patch.delivery === true && !deliveryReady(t)) return bad('Set up delivery first: where you deliver and what it costs, under Orders, Delivery.', 409);
       if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
       // Most items one pickup time takes (lib/ahead-slots); null for no limit.

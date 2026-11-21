@@ -10,7 +10,12 @@
 //   the books. Anyone at the counter while the kitchen hasn't started on it; once it has, a manager okays it, as any void.
 // - A courier who doesn't come: the counter shows it late, and the managers hear the night after (lib/app-orders-server
 //   appNightly), so each one ends as picked up or cancelled.
-//   tenants/{t}.appOrders = { on, apps: ('doordash' | 'ubereats' | 'grubhub' | 'other')[], otherName?, shelves }
+// - The money (round 5, design board "App orders in the books at the app's price"): each app has its own price difference
+//   (the business's menu plus a percent), the share the app keeps, and who pays the sales tax (the app, unless the
+//   business says otherwise). Frozen on the order when it's sent; when it's picked up, the sale is booked at the app's
+//   price, the app's share is its own expense line, and the week's payout from that app is counted (lib/app-payouts).
+//   tenants/{t}.appOrders = { on, apps: ('doordash' | 'ubereats' | 'grubhub' | 'other')[], otherName?, shelves,
+//     money?: { [app]: { markupPct, feePct, appPaysTax } } }
 //   tenants/{t}/counterOrders/{id}.app = { state: 'taking' | 'sending' | 'waiting' | 'picked' | 'cancelled', app, label,
 //     code, shelf, courierAt, sentBy, claimId, pickedAt?, cancelledAt?, toldAt? }
 //   tenants/{t}/private/appCode_{day}_{app}_{code} = { orderId, number, appCodeDay } (the same code once a day; read and
@@ -22,6 +27,53 @@ export const APPS = [
   { code: 'grubhub', label: 'Grubhub' },
 ] as const;
 export type AppCode = 'doordash' | 'ubereats' | 'grubhub' | 'other';
+/** The business's prices on an app: its menu plus this much. */
+export const MARKUP_CHOICES = [0, 10, 15, 20, 25, 30] as const;
+/** The most an app's share can be set to (a percent of each order). */
+export const FEE_MAX = 40;
+/** One app's money: its price difference, its share (null: not set, so no fee line and the payout is the whole sale), and
+ *  whether it collects and pays the sales tax. */
+export type AppMoney = { markupPct: number; feePct: number | null; appPaysTax: boolean };
+export const NO_APP_MONEY: AppMoney = { markupPct: 0, feePct: null, appPaysTax: true };
+/** An app's money as kept (anything else: as if not set). */
+export function appMoneyFrom(raw: any): AppMoney {
+  const m = Number(raw?.markupPct); const f = Number(raw?.feePct);
+  return { markupPct: (MARKUP_CHOICES as readonly number[]).includes(m) ? m : 0,
+    feePct: raw?.feePct !== null && raw?.feePct !== undefined && Number.isFinite(f) && f >= 0 && f <= FEE_MAX ? Math.round(f * 10) / 10 : null,
+    appPaysTax: raw?.appPaysTax !== false };
+}
+/** What one order comes to with an app, in cents: on the app (the menu plus its difference), the sales tax the business
+ *  pays (when the app doesn't), the app's share (of the app's price, before tax), and what comes in the payout. `taxOf`:
+ *  the business's sales tax on an amount of food, in dollars (lib/pos-tax). */
+export function appBooks(menuCents: number, m: AppMoney, taxOf: (dollars: number) => number) {
+  const menu = Math.max(0, Math.round(menuCents));
+  const app = Math.round(menu * (100 + m.markupPct) / 100);
+  const tax = m.appPaysTax ? 0 : Math.max(0, Math.round(taxOf(app / 100) * 100));
+  const fee = m.feePct ? Math.round(app * m.feePct / 100) : 0;
+  return { menuCents: menu, appCents: app, taxCents: tax, feeCents: fee, payoutCents: app + tax - fee, ...m };
+}
+export type AppBooks = ReturnType<typeof appBooks>;
+/** What an app order is booked at when it's picked up: as worked out when it was sent (lib/app-orders-server), or, when
+ *  what's on it changed since, the same rule on what it comes to now. An order sent before any of this: the menu's price,
+ *  no fee, the app paying the tax. */
+export function appBooksOn(order: any): AppBooks {
+  const menu = Math.max(0, Math.round((Number(order?.subtotal) || 0) * 100));
+  const m = order?.app?.money;
+  if (!m || typeof m !== 'object') return appBooks(menu, NO_APP_MONEY, () => 0);
+  const money = appMoneyFrom(m);
+  if (Math.round(Number(m.menuCents)) === menu) return { menuCents: menu, appCents: Math.round(Number(m.appCents) || 0), taxCents: Math.round(Number(m.taxCents) || 0), feeCents: Math.round(Number(m.feeCents) || 0), payoutCents: Math.round(Number(m.payoutCents) || 0), ...money };
+  const was = Math.max(1, Math.round(Number(m.appCents) || 0));
+  return appBooks(menu, money, (d) => (Math.round(Number(m.taxCents) || 0) * (d * 100) / was) / 100);
+}
+
+/** The week an app's payout covers: Monday to Sunday, by the business's day (YYYY-MM-DD of its Monday). */
+export function payoutWeek(day: string): string {
+  const t = Date.parse(`${day}T12:00:00Z`); if (!Number.isFinite(t)) return day;
+  const dow = new Date(t).getUTCDay(); const back = (dow + 6) % 7;
+  return new Date(t - back * 864e5).toISOString().slice(0, 10);
+}
+/** The week's running count for one app (tenants/{t}/private/{id}). */
+export const appWeekId = (app: string, week: string) => `appWeek_${app}_${week}`;
 export const SHELF_CHOICES = [4, 8, 12, 16] as const;
 export const DEFAULT_SHELVES = 8;
 /** When the courier gets here, as the counter picks it: now, or in this many minutes. */
@@ -31,13 +83,14 @@ export const COURIER_IN = [0, 10, 20, 30] as const;
 export const cleanAppName = (v: unknown) => String(v ?? '').replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24);
 
 /** The business's delivery apps: on, which ones (by name, in order), and how many spots its pickup shelf has. */
-export function appOrdersOf(tenant: any): { on: boolean; apps: { code: AppCode; label: string }[]; shelves: number } {
+export function appOrdersOf(tenant: any): { on: boolean; apps: ({ code: AppCode; label: string } & AppMoney)[]; shelves: number } {
   const a = tenant?.appOrders || {};
   const picked: string[] = Array.isArray(a.apps) ? a.apps.map(String) : [];
   const other = cleanAppName(a.otherName);
-  const apps: { code: AppCode; label: string }[] = [
-    ...APPS.filter((x) => picked.includes(x.code)).map((x) => ({ code: x.code as AppCode, label: x.label })),
-    ...(picked.includes('other') && other ? [{ code: 'other' as AppCode, label: other }] : []),
+  const money = (code: string) => appMoneyFrom(a.money?.[code]);
+  const apps: ({ code: AppCode; label: string } & AppMoney)[] = [
+    ...APPS.filter((x) => picked.includes(x.code)).map((x) => ({ code: x.code as AppCode, label: x.label, ...money(x.code) })),
+    ...(picked.includes('other') && other ? [{ code: 'other' as AppCode, label: other, ...money('other') }] : []),
   ];
   const n = Number(a.shelves);
   return { on: a.on === true && apps.length > 0, apps, shelves: (SHELF_CHOICES as readonly number[]).includes(n) ? n : DEFAULT_SHELVES };

@@ -227,7 +227,9 @@ export async function POST(req: NextRequest) {
           // To go (sent so: lib/plate-extras), and a staff meal (settled with no money: lib/counter-server staffMeal).
           toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
           // A delivery app's order (lib/app-orders): which app, its code, its spot on the shelf, and when the courier is due.
-          app: o.app ? { state: String(o.app.state || 'taking'), app: o.app.app || null, label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null } : null,
+          app: o.app ? { state: String(o.app.state || 'taking'), app: o.app.app || null, label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null,
+            // (What it comes to with the app: its price, and any sales tax the business pays. lib/app-orders)
+            ...(o.app.money ? { money: { markupPct: Number(o.app.money.markupPct) || 0, appCents: Number(o.app.money.appCents) || 0, taxCents: Number(o.app.money.taxCents) || 0, appPaysTax: o.app.money.appPaysTax !== false } } : {}) } : null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
