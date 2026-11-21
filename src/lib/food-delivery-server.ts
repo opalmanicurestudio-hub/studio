@@ -254,9 +254,11 @@ export async function deliveryEnd(db: any, tenantId: string, orderId: string, ho
       tx.set(tRef, line ? { staffId: driverId, description, deliveredAt: at } : { id: tRef.id, date: nowIso, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', hasReceipt: false,
         amount: tip / 100, staffId: driverId, clientOrVendor: o.guestName || 'Guest', orderId, channel: 'ahead', paymentMethod: 'card', tenantId, description, deliveredAt: at }, { merge: true });
     }
-    return { ok: true };
+    return { ok: true, trip: { id: d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null, name: String(d.driverName || ''), miles: d.miles, driveMin: d.driveMin, outAt: d.outAt || null, orderId } };
   });
   forget(tenantId);
+  // The trip on the driver's miles for the day (lib/mileage-server): delivered or brought back, they drove it.
+  if (r.ok && !r.already && (r as any).trip?.id) { const { logHotTrip } = await import('@/lib/mileage-server'); await logHotTrip(db, tenantId, (r as any).trip, (r as any).trip); }
   // Couldn't be delivered: the guest hears at once, with their page to pick it up or get a refund.
   if (r.ok && !r.already && !how.done) {
     const { tellGuestFailed } = await import('@/lib/food-delivery-settle-server');

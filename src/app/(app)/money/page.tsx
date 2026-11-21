@@ -11,6 +11,7 @@ import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transacti
 import { useAppointmentsByIds } from '@/hooks/use-appointments';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { AppPayoutsCard } from '@/components/money/AppPayoutsCard';
+import { MilesCard } from '@/components/money/MilesCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -2605,6 +2606,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
         </div>
 
         {tenantId && <AppPayoutsCard tenantId={tenantId} />}
+        {tenantId && <MilesCard tenantId={tenantId} />}
         {tenantId && <RestockingFundCard tenantId={tenantId} />}
         {tenantId && <TipShareCard tenantId={tenantId} mode={String((selectedTenant as any)?.tipSharing?.mode || 'direct')} period={(selectedTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />}
 

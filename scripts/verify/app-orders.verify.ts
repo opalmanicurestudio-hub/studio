@@ -200,6 +200,31 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('payouts are the managers’', r.status === 403, r.body);
   check('…matched within a cent an order (the app’s rounding)', P2.matchWithin(3) === 5 && P2.matchWithin(40) === 40);
 
+  console.log('sold out on the apps too');
+  check('the rules: sold out here is to mark on each app not done yet (an ingredient running low isn’t asked about); back here, to turn on where it was marked', (() => {
+    const apps = [{ code: 'doordash', label: 'DoorDash' }, { code: 'ubereats', label: 'Uber Eats' }];
+    const t = A.appSoldOutTodo([{ id: 'a', name: 'Burger', soldOut: true, appOut: { doordash: 'x' } }, { id: 'b', name: 'Fries', soldOut: false, inStock: false }, { id: 'c', name: 'Bowl', soldOut: false, appOut: { ubereats: 'x' } }, { id: 'd', name: 'Tea', soldOut: false }, { id: 'e', name: 'Off', soldOut: true, onMenu: false }], apps);
+    return t.length === 2 && t[0].id === 'a' && t[0].apps.map((x) => x.code).join() === 'ubereats' && t[1].id === 'c' && !t[1].out && t[1].apps.map((x) => x.code).join() === 'ubereats';
+  })());
+  r = await Mn({ action: 'soldout', itemId: 'fries', out: true });
+  lane = (await P({ action: 'lane' })).body;
+  const so = (lane.appSoldOut || []).find((x: any) => x.id === 'fries');
+  check('sold out here: the counter is asked to mark it on each app', r.body.ok && so?.out === true && so.apps.map((x: any) => x.code).join() === 'doordash,ubereats,grubhub', lane.appSoldOut);
+  r = await P({ action: 'appSoldOut', itemId: 'fries', app: 'doordash', out: true });
+  const rX: any = await P({ action: 'appSoldOut', itemId: 'fries', app: 'zoom', out: true });
+  lane = (await P({ action: 'lane' })).body;
+  check('…each app ticked once, as it’s done (only the business’s apps)', r.body.ok && rX.status === 400 && (lane.appSoldOut || []).find((x: any) => x.id === 'fries')?.apps.map((x: any) => x.code).join() === 'ubereats,grubhub', lane.appSoldOut);
+  await P({ action: 'appSoldOut', itemId: 'fries', app: 'ubereats', out: true }); await P({ action: 'appSoldOut', itemId: 'fries', app: 'grubhub', out: true });
+  lane = (await P({ action: 'lane' })).body;
+  check('…every app done: the reminder goes', !(lane.appSoldOut || []).some((x: any) => x.id === 'fries'), lane.appSoldOut);
+  await Mn({ action: 'soldout', itemId: 'fries', out: false });
+  lane = (await P({ action: 'lane' })).body;
+  const back = (lane.appSoldOut || []).find((x: any) => x.id === 'fries');
+  check('back here: turn it back on, on each app it was marked out on', back?.out === false && back.apps.length === 3, back);
+  for (const a of ['doordash', 'ubereats', 'grubhub']) await P({ action: 'appSoldOut', itemId: 'fries', app: a, out: false });
+  lane = (await P({ action: 'lane' })).body;
+  check('…all back on: nothing to do', !(lane.appSoldOut || []).length && !Object.keys((await get(`${T}/inventory/fries`)).appOut || {}).length, { todo: lane.appSoldOut, appOut: (await get(`${T}/inventory/fries`)).appOut });
+
   console.log('cancelled on the app');
   // Ana at the counter isn't a manager now; Lee works here, and Rosa is a manager.
   await db.doc(`${T}/staff/m1`).set({ name: 'Ana Ruiz', role: 'staff', isActive: true });
@@ -313,7 +338,9 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('the Menu page’s settings, and the ready board’s shelf spot', /Delivery apps/.test(card) && /Spots on the pickup shelf/.test(card) && /Shelf \$\{r\.shelf\}/.test(board));
   const payCard = src('src/components/money/AppPayoutsCard.tsx'); const money = src('src/app/(app)/money/page.tsx');
   check('each app’s prices, share and tax on the Menu page; its price at the counter; the payouts on the Money page', /Your prices on \{label\}/.test(card) && /What \{label\} keeps/.test(card) && /collects and pays the sales tax/.test(card) && /On \{order\.app\.label\}/.test(page) && /<AppPayoutsCard tenantId=/.test(money) && /as an app adjustment/.test(payCard) && /Check it/.test(payCard));
-  check('the new screens keep the house style', ![page, card, payCard].some((s) => /\buppercase\b|font-black/.test(s)));
+  const soCard = src('src/components/drive-thru/AppSoldOut.tsx');
+  check('the counter: on the delivery apps, each app’s button', /<AppSoldOut rows=/.test(page) && /On the delivery apps/.test(soCard) && /Sold out on \$\{a\.label\}/.test(soCard) && /Back on, on \$\{a\.label\}/.test(soCard));
+  check('the new screens keep the house style', ![page, card, payCard, soCard].some((s) => /\buppercase\b|font-black/.test(s)));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

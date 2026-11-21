@@ -53,6 +53,21 @@ export function appBooks(menuCents: number, m: AppMoney, taxOf: (dollars: number
   return { menuCents: menu, appCents: app, taxCents: tax, feeCents: fee, payoutCents: app + tax - fee, ...m };
 }
 export type AppBooks = ReturnType<typeof appBooks>;
+/** Sold out here, sold out there (design board "Sold out on the apps too"): the apps can't see what's sold out at the
+ *  counter, so each item marked sold out here (by hand, or its count run out) is to be marked sold out on each app the
+ *  business takes orders from, and each one back here to be turned back on there. (An ingredient running low and coming
+ *  back isn't asked about: it can come and go within minutes.) `appOut`: the apps the counter has marked it out on. */
+export function appSoldOutTodo(items: { id: string; name: string; soldOut: boolean; inStock?: boolean; onMenu?: boolean; soldOutAt?: string | null; appOut?: Record<string, string> }[], apps: { code: string; label: string }[]) {
+  const out: { id: string; name: string; out: boolean; at: string | null; apps: { code: string; label: string }[] }[] = [];
+  for (const it of items) {
+    if (it.onMenu === false) continue;
+    const isOut = it.soldOut; const marked = it.appOut || {};
+    const todo = apps.filter((a) => (isOut ? !marked[a.code] : !!marked[a.code]));
+    if (todo.length) out.push({ id: it.id, name: it.name, out: isOut, at: isOut ? it.soldOutAt || null : null, apps: todo });
+  }
+  return out.sort((a, b) => Number(b.out) - Number(a.out) || a.name.localeCompare(b.name));
+}
+
 /** What an app order is booked at when it's picked up: as worked out when it was sent (lib/app-orders-server), or, when
  *  what's on it changed since, the same rule on what it comes to now. An order sent before any of this: the menu's price,
  *  no fee, the app paying the tax. */

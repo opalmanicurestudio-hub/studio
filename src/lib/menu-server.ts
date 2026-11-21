@@ -19,6 +19,8 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
   soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
+  /** The delivery apps the counter has marked it sold out on (lib/app-orders appSoldOutTodo), and when. */
+  appOut?: Record<string, string>;
   /** Made from a recipe: the first ingredient that's run out (null when there's enough, or it isn't counted), and how
    *  many could be made from what's counted (null: nothing is counted). Without a recipe, `canMake` is its own count. */
   short: string | null; canMake: number | null; byRecipe: boolean;
@@ -56,6 +58,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
     choices: choiceGroups(i, true), soldOut: itemSoldOut(i), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
+    appOut: Object.fromEntries(Object.entries(i.appOut && typeof i.appOut === 'object' ? i.appOut : {}).filter(([k, v]) => /^[a-z]{2,12}$/.test(k) && typeof v === 'string' && v)) as Record<string, string>,
     short: stock.short, canMake: stock.canMake, byRecipe: stock.byRecipe,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
     featured: i.boardFeatured === true, badge: i.boardBadge === 'new' || i.boardBadge === 'limited' ? i.boardBadge : null,

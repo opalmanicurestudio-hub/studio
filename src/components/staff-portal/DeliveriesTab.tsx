@@ -26,6 +26,7 @@ import { bagReply, bagWords, bagsToLoad, parseBagCode } from '@/lib/bag-tag';
 import { approversOf } from '@/lib/scan-rule';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { HotFoodRun, type HotRow } from '@/components/staff-portal/HotFoodRun';
+import { MilesToday } from '@/components/staff-portal/MilesToday';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', OK = '#1f7a4d', WARN = '#b45309';
 const card: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 20, background: '#fff' };
@@ -249,6 +250,7 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
           </div>
         </section>)}
       <HotFoodRun tenantId={tenantId} tz={tz} me={me} onRows={setHotRows} />
+      <MilesToday tenantId={tenantId} />
 
       {toTake.length > 0 && (
         <section aria-labelledby="take-h" className="p-4" style={{ ...card, borderColor: going.length ? INK : LINE, borderWidth: going.length ? 2 : 1 }}>

@@ -118,7 +118,7 @@ import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
 import { pickupHanded, sendOwed, settleFailed } from '@/lib/food-delivery-settle-server';
-import { appOrdersOf, appName } from '@/lib/app-orders';
+import { appSoldOutTodo, appOrdersOf, appName } from '@/lib/app-orders';
 import { appSend, appCode, appCancel } from '@/lib/app-orders-server';
 import { allergyWords, orderAllergyOf } from '@/lib/order-allergy';
 import { deliveryNowOf, EXTRA_CHOICES, PAUSE_CHOICES } from '@/lib/driver-load';
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appCode', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -306,6 +306,10 @@ export async function POST(req: NextRequest) {
         slow: channel === 'counter' && foodDeliveryOf(tenant).on ? deliveryNowOf(tenant, now.getTime()) : null,
         // The delivery apps it takes orders from (lib/app-orders), for the counter's App order.
         apps: channel === 'counter' && appOrdersOf(tenant).on ? appOrdersOf(tenant).apps : [],
+        // Sold out here, to mark on each delivery app (and back on again when it's back): lib/app-orders.
+        // (The first 30 items, and how many taps there are in all.)
+        ...(() => { const all = channel === 'counter' && appOrdersOf(tenant).on ? appSoldOutTodo(menu, appOrdersOf(tenant).apps) : [];
+          return { appSoldOut: all.slice(0, 30), appSoldOutTaps: all.reduce((n, r) => n + r.apps.length, 0) }; })(),
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
@@ -624,6 +628,22 @@ export async function POST(req: NextRequest) {
       if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: action === 'deliveryOut' ? 'counter.delivery_out' : action === 'deliveryDone' ? 'counter.delivery_done' : 'counter.delivery_failed', targetType: 'order', targetId: id,
         summary: action === 'deliveryOut' ? (driver.name === by ? `${by} took a delivery out.` : `${by} sent a delivery out with ${driver.name}.`) : action === 'deliveryDone' ? `${by} marked a delivery delivered.` : `${by} said a delivery couldn’t be made.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
       return r.ok ? ok({ already: !!r.already, staffOk }) : bad(r.error, r.status);
+    }
+    if (action === 'appSoldOut') {
+      // Marked sold out on a delivery app (or back on there), as the counter did it in the app (lib/app-orders
+      // appSoldOutTodo): kept on the item, so the reminder goes once every app is done.
+      if (channel !== 'counter') return bad('Delivery apps are at the counter.', 409);
+      const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which item?');
+      const app = appOrdersOf(tenant).apps.find((x) => x.code === b.app); if (!app) return bad('Which app?');
+      if (typeof b.out !== 'boolean') return bad('Sold out, or back on?');
+      const ref = db.doc(`${T}/inventory/${itemId}`);
+      const r: any = await db.runTransaction(async (tx: any) => {
+        const i: any = (await tx.get(ref)).data(); if (!i) return { error: 'That isn’t on the menu.', status: 404 };
+        tx.set(ref, { appOut: { [app.code]: b.out ? now.toISOString() : FieldValue.delete() }, appOutBy: by }, { merge: true });
+        return { ok: true, name: String(i.name || 'It') };
+      });
+      if (r.error) return bad(r.error, r.status);
+      return ok({ name: r.name, app: app.label, out: b.out, staffOk });
     }
     if (action === 'deliveryRefund' || action === 'deliveryHanded' || action === 'deliveryOwed') {
       // One that couldn't be delivered (lib/food-delivery-settle-server): refunded to the card in one step (a manager's,
