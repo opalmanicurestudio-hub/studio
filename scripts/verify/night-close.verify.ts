@@ -72,6 +72,21 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const txt = N.reportText('Linden', rep);
   check('the email says it plainly', /Sales \$181\.00 from 3 sales, after discounts and \$6\.00 refunded\. Taken \$230\.00 with tax \$18\.00 and tips \$25\.00\./.test(txt) && /Voids \$38\.00 \(2\): 1 before the kitchen started, 1 after\./.test(txt) && /Waste, cost to make: \$16\.60\./.test(txt) && /Worth a look/.test(txt), txt);
 
+  console.log('deliveries and app orders, on their own');
+  const NS = await import('../../src/lib/night-close-server');
+  const dorder = (state: string, x: any = {}) => ({ paidAt: '2026-11-14T23:00:00.000Z', status: 'done', subtotal: 13, tax: 1.3, deliveryFee: 3.99, tipCents: 200, ahead: { way: 'delivery', delivery: { state, driverName: 'Sam Lee', ...(x.d || {}) } }, ...x.o });
+  const dn = NS.deliveryNight([dorder('delivered'), dorder('delivered', { d: { driverName: 'Rio Diaz' } }), dorder('refunded', { d: { feeBack: true } }), dorder('picked_up'), dorder('failed'), dorder('out'),
+    { paidAt: '2026-11-14T23:30:00.000Z', status: 'done', payMethod: 'app', subtotal: 20, app: { code: 'X1', label: 'DoorDash', money: { menuCents: 2000, appCents: 2300, taxCents: 0, feeCents: 345, payoutCents: 1955, markupPct: 15, feePct: 15, appPaysTax: true } } },
+    { paidAt: '2026-11-14T23:40:00.000Z', status: 'done', payMethod: 'app', subtotal: 10, app: { code: 'X2', label: 'DoorDash' } }]);
+  check('hot food by how it ended, the fees kept (not one given back), each driver’s tips, tips still waiting', dn.delivered === 2 && dn.refunded === 1 && dn.pickedUp === 1 && dn.notSettled === 1 && dn.going === 1 && dn.feeCents === 5 * 399
+    && JSON.stringify(dn.tips) === JSON.stringify([{ name: 'Sam Lee', cents: 200 }, { name: 'Rio Diaz', cents: 200 }]) && dn.tipsWaitingCents === 200, dn);
+  check('…app orders by app, at the app’s price, with its share (one sent before prices were set: the menu’s)', dn.apps.length === 1 && dn.apps[0].orders === 2 && dn.apps[0].grossCents === 3300 && dn.apps[0].feeCents === 345, dn.apps);
+  const rep2 = N.nightReport({ day: '2026-11-14', timeZone: 'America/New_York', sales: [], tables: [], adjustments: [], tills: [], tips: { mode: 'direct', rows: [] }, items: d.items, checks: {}, deliveries: dn });
+  const txt2 = N.reportText('Linden', rep2);
+  check('…in the report, worth a look when one is still to settle, and in the email', !!rep2.deliveries && rep2.flags.some((f) => /still to refund or send again/.test(f)) && /Deliveries: 2 delivered; couldn’t be delivered: 1 refunded, 1 picked up instead, 1 still to settle; 1 still going\. Delivery fees \$19\.95\./.test(txt2) && /Driver tips \(in the tips above\):\n    Sam Lee: \$2\.00\n    Rio Diaz: \$2\.00/.test(txt2) && /DoorDash: 2 orders, \$33\.00, its share \$3\.45\. Paid out by the app\./.test(txt2), txt2);
+  const rep3 = N.nightReport({ day: '2026-11-14', timeZone: 'America/New_York', sales: [], tables: [], adjustments: [], tills: [], tips: { mode: 'direct', rows: [] }, items: d.items, checks: {}, deliveries: NS.deliveryNight([]) });
+  check('…and a night with none reads as before', rep3.deliveries === null && !/Deliveries/.test(N.reportText('Linden', rep3)));
+
   console.log('closing, on the server');
   const R = await import('../../src/app/api/close/route');
   const S = await import('../../src/lib/night-close-server');

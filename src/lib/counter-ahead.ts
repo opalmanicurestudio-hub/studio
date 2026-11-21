@@ -488,6 +488,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
       step: or.paidAt ? deliveryStep(or.ahead.delivery, handed ? 'handed' : ready ? 'ready' : 'making') : null,
       driver: or.ahead.delivery.state === 'out' || or.ahead.delivery.state === 'delivered' ? String(or.ahead.delivery.driverName || '').split(' ')[0] || null : null,
       outAt: or.ahead.delivery.outAt || null, deliveredAt: or.ahead.delivery.deliveredAt || null,
+      // Delivered: left at the door (and its photo, when the driver took one), or handed over.
+      ...(or.ahead.delivery.state === 'delivered' ? { left: or.ahead.delivery.left === true, photo: typeof or.ahead.delivery.photo === 'string' ? or.ahead.delivery.photo : null } : {}),
       // Out with a driver: about when it gets there now, and whether it's running late (lib/food-delivery etaOf).
       ...(or.ahead.delivery.state === 'out' ? (() => { const e = etaOf(or.ahead.delivery, Date.now()); return { eta: e.eta, late: e.late }; })() : { eta: null, late: false }),
       // (The driver texted that they're outside, in the last few minutes, while it's out.)

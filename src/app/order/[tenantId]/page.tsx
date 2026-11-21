@@ -72,7 +72,9 @@ type Track = { business: string; number: string; name: string | null; state: str
     /** Couldn't be delivered: why, and what a refund or a pickup gives back (dollars); the fee the business's rule keeps. */
     failed?: { why: string; keepWhen: string; keepFee: boolean; food: number; tax: number; tip: number; fee: number; stuck: boolean };
     /** Picked up instead, or refunded: what went back to their card (dollars), and whether some is still to go. */
-    back?: number; owed?: boolean } };
+    back?: number; owed?: boolean;
+    /** Delivered: left at the door, and its photo when the driver took one. */
+    left?: boolean; photo?: string | null } };
 
 /** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
 type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
@@ -495,6 +497,10 @@ function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNull
           </li>))}
       </ol>}
       {st === 'out' && D.outside && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>Your driver is outside.</p>}
+      {st === 'delivered' && (D.left || D.photo) && <div className="space-y-2">
+        {D.left && <p className="text-[15px]" style={{ color: MUTED }}>Left at the door</p>}
+        {D.photo && <img src={D.photo} alt={D.left ? 'Where your order was left' : 'Your order, delivered'} className="max-h-[320px] w-full rounded-2xl object-cover" />}
+      </div>}
       {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
       {(st === 'making' || st === 'ready' || (st === 'out' && !!t.text?.sent)) && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={reload} onWay />}
     </section>);

@@ -121,7 +121,8 @@ export async function settleFailed(db: any, tenantId: string, tenant: any, order
   const back = await giveBack(db, tenantId, tenant, claim.lines, by, notes);
   if (how === 'pickup') {
     const owed = back.left.reduce((n, l) => n + lineCents(orderId, l, claim.o), 0);
-    await ref.set({ ahead: { delivery: { owed: back.left, owedAt: null, owedError: back.left.length ? String(back.error || '').slice(0, 200) : null, backCents: claim.prior + back.cents } } }, { merge: true });
+    const feeBack = claim.fee && !back.left.includes(`counter_${orderId}_delivery`);
+    await ref.set({ ahead: { delivery: { owed: back.left, owedAt: null, owedError: back.left.length ? String(back.error || '').slice(0, 200) : null, backCents: claim.prior + back.cents, ...(feeBack ? { feeBack: true } : {}) } } }, { merge: true });
     await forget(tenantId);
     return { ok: true, cents: claim.prior + back.cents, number: claim.number, code: claim.code, owed, error: back.error };
   }
@@ -132,7 +133,8 @@ export async function settleFailed(db: any, tenantId: string, tenant: any, order
     return fail(`${back.cents ? `${money(back.cents)} went back, but not all of it. ` : ''}${back.error || 'The card refund didn’t go through.'}`, 502);
   }
   const cents = claim.prior + back.cents;
-  await ref.set({ refundedAt: nowIso, refundedCents: cents, ahead: { delivery: { state: 'refunded', refundedAt: nowIso, refundedBy: by, settle: null, owed: [], backCents: cents } } }, { merge: true });
+  // (The delivery fee given back with it: the night report counts the fees kept. lib/night-close-server)
+  await ref.set({ refundedAt: nowIso, refundedCents: cents, ahead: { delivery: { state: 'refunded', refundedAt: nowIso, refundedBy: by, settle: null, owed: [], backCents: cents, ...(claim.fee ? { feeBack: true } : {}) } } }, { merge: true });
   await forget(tenantId);
   // Refunded at the counter: the guest hears (on their page they see it at once).
   if (!who.guest && claim.phone) {
@@ -160,7 +162,8 @@ export async function sendOwed(db: any, tenantId: string, tenant: any, orderId: 
   if (claim.done) return { ok: true, already: true, cents: claim.cents, number: claim.number, owed: 0 };
   const back = await giveBack(db, tenantId, tenant, claim.owed, String(by || 'Someone').slice(0, 60), `Couldn’t be delivered, order ${claim.number} (picked up instead)`);
   const cents = claim.prior + back.cents;
-  await ref.set({ ahead: { delivery: { owed: back.left, owedAt: null, owedError: back.left.length ? String(back.error || '').slice(0, 200) : null, backCents: cents } } }, { merge: true });
+  const feeBack = claim.owed.includes(`counter_${orderId}_delivery`) && !back.left.includes(`counter_${orderId}_delivery`);
+  await ref.set({ ahead: { delivery: { owed: back.left, owedAt: null, owedError: back.left.length ? String(back.error || '').slice(0, 200) : null, backCents: cents, ...(feeBack ? { feeBack: true } : {}) } } }, { merge: true });
   await forget(tenantId);
   const owed = back.left.reduce((n, l) => n + lineCents(orderId, l, claim.o), 0);
   return back.left.length ? fail(back.error || 'The card refund didn’t go through.', 502) : { ok: true, cents, number: claim.number, owed };

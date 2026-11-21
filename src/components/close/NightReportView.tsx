@@ -1,8 +1,9 @@
 'use client';
 // src/components/close/NightReportView.tsx — THE NIGHT'S REPORT (lib/night-close nightReport), as /close shows it to a
-// manager: the totals, sales by hour, comps, voids and waste, tips as shared, how guests paid, the drawers, and anything
-// worth a look (a reading out of its limit, a drawer short or over, comps well above a usual night).
-import type { NightReport } from '@/lib/night-close';
+// manager: the totals, sales by hour, comps, voids and waste, tips as shared, how guests paid, the drawers, deliveries and
+// app orders on their own, and anything worth a look (a reading out of its limit, a drawer short or over, comps well above
+// a usual night, a delivery still to settle).
+import type { DeliveryNight, NightReport } from '@/lib/night-close';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const $ = (n: number | null | undefined) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -74,6 +75,20 @@ export function NightReportView({ r }: { r: NightReport }) {
             <div key={t.name} className="flex justify-between gap-3 text-[14px] leading-snug"><span>{t.name}{t.shared ? <span style={{ color: MUTED }}>{t.shared > 0 ? `, got ${$(t.shared)}` : `, shared ${$(-t.shared)}`}</span> : null}</span><span className="tabular-nums font-semibold">{$(t.takesHome)}</span></div>
           ))}
         </Card>
+        {(() => { const D = (r as any).deliveries as DeliveryNight | null | undefined; if (!D) return null; const c = (n: number) => $(n / 100);
+          const hot = D.delivered + D.refunded + D.pickedUp + D.notSettled + D.going;
+          return (<>
+            {hot > 0 && <Card title="Deliveries" right={String(D.delivered)} sub="Hot food delivered by your drivers">
+              {(D.refunded + D.pickedUp + D.notSettled) > 0 && <Row k="Couldn’t be delivered" v={[D.refunded ? `${D.refunded} refunded` : '', D.pickedUp ? `${D.pickedUp} picked up` : '', D.notSettled ? `${D.notSettled} to settle` : ''].filter(Boolean).join(', ')} />}
+              {D.going > 0 && <Row k="Still going" v={String(D.going)} />}
+              <Row k="Delivery fees" v={c(D.feeCents)} />
+              {D.tips.length > 0 && <><Sep /><p className="text-[13px]" style={{ color: MUTED }}>Driver tips, in the night’s tips</p>{D.tips.map((t) => <Row key={t.name} k={t.name} v={c(t.cents)} />)}</>}
+              {D.tipsWaitingCents > 0 && <Row k="Tips on deliveries not made yet" v={c(D.tipsWaitingCents)} />}
+            </Card>}
+            {D.apps.length > 0 && <Card title="App orders" sub="Paid out by the apps, never in the drawer">
+              {D.apps.map((a) => <div key={a.label} className="space-y-0.5"><Row k={`${a.label}, ${a.orders} ${a.orders === 1 ? 'order' : 'orders'}`} v={c(a.grossCents)} />{a.feeCents > 0 && <Row k="Its share" v={`−${c(a.feeCents)}`} />}</div>)}
+            </Card>}
+          </>); })()}
         <Card title="Drawers">
           {r.drawers.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>No drawer was opened tonight.</p> : r.drawers.map((d, i) => (
             <div key={i} className="space-y-1 pt-1" style={i ? { borderTop: `1px solid ${LINE}` } : undefined}>

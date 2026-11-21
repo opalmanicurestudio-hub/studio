@@ -24,7 +24,7 @@ const REASONS = [
 export type FoodDriver = { id: string; name: string };
 export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
   step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | 'pickup' | 'picked_up' | 'refunded'; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null;
-  why: string | null; phone: string | null; tip?: number;
+  why: string | null; phone: string | null; tip?: number; driverId?: string | null;
   /** Couldn't be delivered (or picked up instead): what a refund gives back, in dollars; the fee the rule keeps. */
   back?: { why: string; keepWhen: string; keepFee: boolean; food: number; tax: number; tip: number; fee: number; stuck: boolean; stuckWhy?: string | null; textFailed?: boolean } | null;
   /** Picked up instead: their pickup code, and what hasn't gone back to their card yet (dollars). */
@@ -39,7 +39,9 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
 const clock = (iso: string | null) => { if (!iso) return ''; try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 const since = (iso: string | null, now: number) => Math.max(0, Math.floor((now - (Date.parse(String(iso || '')) || now)) / 60000));
 
-export type DriverNow = { onNow: number | null; outNow: number; backAt: string | null };
+export type DriverNow = { onNow: number | null; outNow: number; backAt: string | null;
+  /** Each driver (lib/driver-load-server): out and back about when, here and free, or on later today. */
+  drivers?: { id: string; name: string; state: 'out' | 'free' | 'later'; backAt: string | null; onAt: string | null }[] };
 export type Slow = { paused: boolean; until: string | null; extraMin: number; extraUntil: string | null; by: string | null };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
@@ -103,6 +105,13 @@ export function Deliveries({ rows, drivers = [], now, busy, act, driverNow = nul
               className={`${field} w-[190px]`} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>}
         </div>
       </div>
+      {!!driverNow?.drivers?.length && <ul className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3" aria-label="Your drivers">
+        {driverNow.drivers.map((d) => { const with_ = rows.filter((r) => r.step === 'out' && r.driverId === d.id).map((r) => r.number); return (
+          <li key={d.id} className="flex min-h-[32px] items-center justify-between gap-3 text-[13.5px]">
+            <span className="min-w-0"><span className="font-semibold">{d.name.split(' ')[0]}</span> <span style={{ color: MUTED }}>{d.state === 'out' ? (with_.length ? `out with ${with_.join(', ')}` : 'out') : d.state === 'free' ? 'here' : `on at ${clock(d.onAt)}`}</span></span>
+            {d.state === 'out' ? <span className="whitespace-nowrap">{d.backAt ? `back about ${clock(d.backAt)}` : ''}</span> : d.state === 'free' ? <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Free</span> : null}
+          </li>); })}
+      </ul>}
       {slow && slowOpen && <div className="space-y-2 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="Slow new deliveries down">
         <p className="text-[13.5px] font-semibold">New deliveries</p>
         <div className="grid grid-cols-2 gap-2">{[15, 30].map((m) => <button key={m} type="button" disabled={!!busy} onClick={() => slowDo({ mode: 'extra', minutes: m })} className={`${btn} whitespace-nowrap px-2 text-[14px]`} style={quiet}>Add {m} min</button>)}</div>

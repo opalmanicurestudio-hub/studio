@@ -8,7 +8,8 @@
 //   them (lib/tip-share), for the same day the Money page uses, so approving here and there is the one approval.
 import { tenantTimeZone, wallToUtc } from '@/lib/tenant-time';
 import { businessDayFor, DEFAULT_DAY_CUTOVER_HOUR } from '@/lib/hosting-sessions';
-import { cleanReportTo, closeSettingsOf, nightReport, reportText, weekdayOf, type Adjustment, type CheckMark, type CloseArea, type NightReport, type Sale, type Till, type TipRow } from '@/lib/night-close';
+import { cleanReportTo, closeSettingsOf, nightReport, reportText, weekdayOf, type Adjustment, type CheckMark, type CloseArea, type DeliveryNight, type NightReport, type Sale, type Till, type TipRow } from '@/lib/night-close';
+import { appBooksOn } from '@/lib/app-orders';
 
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -54,6 +55,31 @@ export async function nightTips(db: any, tenantId: string, tenant: any, day: str
 /** Who gets the night's report: kept where only the server reads it (tenants/{t}/private/closing). */
 export async function reportToOf(db: any, T: string): Promise<string[]> { return cleanReportTo(((await db.doc(`${T}/private/closing`).get().catch(() => null))?.data() || {}).reportTo); }
 
+/** The night's deliveries and app orders, from the counter's orders paid that night (lib/night-close DeliveryNight). */
+export function deliveryNight(orders: any[]): DeliveryNight {
+  const c = (v: any) => Math.max(0, Math.round(num(v) * 100));
+  const hot = orders.filter((o) => o.paidAt && o.status !== 'voided' && o.ahead?.way === 'delivery' && o.ahead?.delivery);
+  const st = (o: any) => String(o.ahead.delivery.state || 'waiting');
+  const tips = new Map<string, number>();
+  for (const o of hot.filter((o) => st(o) === 'delivered')) { const t = Math.max(0, Math.round(num(o.tipCents))); if (t > 0) { const n = String(o.ahead.delivery.driverName || 'A driver').slice(0, 60); tips.set(n, (tips.get(n) || 0) + t); } }
+  const apps = new Map<string, { label: string; orders: number; grossCents: number; feeCents: number }>();
+  for (const o of orders.filter((o) => o.paidAt && o.app?.code && o.payMethod === 'app')) {
+    const am = appBooksOn(o); const label = String(o.app.label || 'Delivery app');
+    const g = apps.get(label) || { label, orders: 0, grossCents: 0, feeCents: 0 };
+    g.orders++; g.grossCents += am.appCents + am.taxCents; g.feeCents += am.feeCents; apps.set(label, g);
+  }
+  return {
+    delivered: hot.filter((o) => st(o) === 'delivered').length, refunded: hot.filter((o) => st(o) === 'refunded').length,
+    pickedUp: hot.filter((o) => st(o) === 'pickup' || st(o) === 'picked_up').length, notSettled: hot.filter((o) => st(o) === 'failed').length,
+    going: hot.filter((o) => st(o) === 'waiting' || st(o) === 'out').length,
+    // The fees kept: every delivery's, less those given back after it couldn't be made (lib/food-delivery-settle-server).
+    feeCents: hot.filter((o) => !o.ahead.delivery.feeBack).reduce((n, o) => n + c(o.deliveryFee), 0),
+    tips: Array.from(tips, ([name, cents]) => ({ name, cents })).sort((a, b) => b.cents - a.cents),
+    tipsWaitingCents: hot.filter((o) => st(o) === 'waiting' || st(o) === 'out').reduce((n, o) => n + Math.max(0, Math.round(num(o.tipCents))), 0),
+    apps: Array.from(apps.values()).sort((a, b) => b.grossCents - a.grossCents),
+  };
+}
+
 /** Everything the report reads for a night, and the report. */
 export async function buildNightReport(db: any, tenantId: string, tenant: any, day: string, checks: Record<string, CheckMark | undefined>, opts: { tips?: boolean } = {}): Promise<{ report: NightReport; tills: (Till & { id: string })[] }> {
   const T = `tenants/${tenantId}`; const b = nightBounds(tenant, day);
@@ -74,14 +100,24 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
       total: num(r.total), tip: num(r.tip), tax: num(r.tax), method: String(r.paymentMethod || 'other'),
       payments: Array.isArray(r.payments) ? r.payments.map((p: any) => ({ method: String(p.method || 'other'), amount: num(p.amount), tip: num(p.tip) })) : null })),
     // (A staff meal is settled with no money, lib/counter-server staffMeal: never a sale.)
+    // (An app's order at the app's price, with any sales tax the business pays: lib/app-orders. A delivery's driver tip
+    // is its tip; its fee is in what was taken, never food sales.)
     ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || '')))
-      .map((o: any) => ({ at: String(o.paidAt), net: num(o.subtotal ?? (num(o.total) - num(o.tax))), total: num(o.total), tip: num(o.tip), tax: num(o.tax), method: String(o.payMethod || 'other'), payments: null })),
+      .map((o: any) => { const am = o.app?.code && o.payMethod === 'app' ? appBooksOn(o) : null;
+        // A delivery's tip is a tip once it's delivered (until then, the report lists it as waiting); what went back to
+        // the card after it couldn't be delivered (the tip, the fee) is off what was taken.
+        const dl = o.ahead?.way === 'delivery' ? o.ahead?.delivery : null;
+        const dtip = dl ? (dl.state === 'delivered' ? Math.max(0, num(o.tipCents)) / 100 : 0) : Math.max(0, num(o.tipCents)) / 100;
+        const back = dl ? Math.max(0, num(dl.backCents)) / 100 : 0;
+        return { at: String(o.paidAt), net: am ? am.appCents / 100 : num(o.subtotal ?? (num(o.total) - num(o.tax))), total: am ? (am.appCents + am.taxCents) / 100 : Math.round((num(o.total) - back) * 100) / 100,
+          tip: num(o.tip) + dtip, tax: am ? am.taxCents / 100 : num(o.tax), method: String(o.payMethod || 'other'), payments: null }; }),
   ];
+  const deliveries = deliveryNight(co.docs.map((d: any) => d.data() || {}));
   const adjustments: Adjustment[] = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => ['comp', 'void_item', 'remake'].includes(a.kind) && a.used === true)
     .map((a: any) => ({ kind: a.kind, amount: num(a.amount), reason: String(a.reason || 'No reason'), askedBy: String(a.askedBy || a.requestedBy || 'Someone'), approverName: String(a.approverName || ''), started: a.started === true, wasteCost: a.wasteCost === null || a.wasteCost === undefined ? null : num(a.wasteCost), itemName: String(a.itemName || 'Item') }));
   const tables = tb.docs.map((d: any) => d.data() || {}).filter((a: any) => a.isTable === true).map((a: any) => ({ covers: Math.max(1, num(a.partySize) || 1) }));
   const prev = (usual as any[]).filter((v) => typeof v === 'number');
-  const report = nightReport({ day, timeZone: b.timeZone, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null });
+  const report = nightReport({ day, timeZone: b.timeZone, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
   return { report, tills };
 }
 

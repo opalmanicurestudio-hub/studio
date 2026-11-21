@@ -300,7 +300,9 @@ export async function POST(req: NextRequest) {
         deliveries: channel === 'counter' && foodDeliveryOf(tenant).on ? await deliveriesToday(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         drivers: channel === 'counter' && foodDeliveryOf(tenant).on ? await foodDrivers(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         // The drivers now (lib/driver-load-server: on the schedule, out, the first back), and new deliveries slowed down.
-        driverNow: channel === 'counter' && foodDeliveryOf(tenant).on ? await driverLoad(db, tenantId, tenant, now.getTime()).then((l) => ({ onNow: l.onNow, outNow: l.outNow, backAt: l.backAt })).catch(() => null) : null,
+        // (Each of the drivers by name: out and back about when, here, or on later. lib/driver-load-server)
+        driverNow: channel === 'counter' && foodDeliveryOf(tenant).on ? await Promise.all([driverLoad(db, tenantId, tenant, now.getTime()), foodDrivers(db, tenantId, tenant)]).then(([l, names]) => ({ onNow: l.onNow, outNow: l.outNow, backAt: l.backAt,
+          drivers: l.drivers.map((x) => ({ ...x, name: names.find((n) => n.id === x.id)?.name || null })).filter((x) => x.name) })).catch(() => null) : null,
         slow: channel === 'counter' && foodDeliveryOf(tenant).on ? deliveryNowOf(tenant, now.getTime()) : null,
         // The delivery apps it takes orders from (lib/app-orders), for the counter's App order.
         apps: channel === 'counter' && appOrdersOf(tenant).on ? appOrdersOf(tenant).apps : [],

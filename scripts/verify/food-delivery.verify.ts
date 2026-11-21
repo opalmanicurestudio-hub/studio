@@ -27,6 +27,7 @@ const texts: { to: string; body: string }[] = []; let smsDown = false;
   return { ok: true, status: 201, json: async () => ({ sid: `SM${texts.length}` }) };
 };
 
+const uploads: any[] = [];
 const S: any = { pis: new Map<string, any>(), keys: new Map<string, string>(), n: 0, refunds: [] as any[], refundKeys: new Map<string, any>(), failIn: 0 };
 const clone = (x: any) => JSON.parse(JSON.stringify(x));
 class FakeStripe {
@@ -68,6 +69,7 @@ M._load = function (request: string, ...rest: any[]) {
     return fake(request, { ...real, hasMapsKey: () => true, geocode: async () => ({ lat: 39.95, lng: -75.0, label: '412 Elm St', postal: '08077', confidence: 'exact' }) });
   }
   if (request === '@/lib/stripe-fee' || /\/src\/lib\/stripe-fee(\.ts)?$/.test(request)) return fake(request, { recordChargeFee: async () => 0 });
+  if (request === '@/lib/claim-photo-upload' || /\/src\/lib\/claim-photo-upload(\.ts)?$/.test(request)) return fake(request, { uploadClaimPhotoFromDataUrl: async (t: string, id: string, data: any, folder: string) => { uploads.push({ t, id, folder }); if (/STORAGEDOWN/.test(String(data))) return { url: null, error: 'The photo couldn’t be saved — your report is still open.' }; return /^data:image\//.test(String(data)) ? { url: `https://firebasestorage.googleapis.com/v0/b/x/o/tenants%2F${t}%2F${folder}%2F${id}.jpg?alt=media&token=z` } : { url: null, error: 'Use a JPG, PNG, or WebP photo.' }; } });
   return load.call(this, request, ...rest);
 };
 
@@ -472,6 +474,9 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await C({ action: 'deliveryRefund', orderId: f5.id });
   check('…finished, it’s refunded', r.body.ok && (await get(`${T}/counterOrders/${f5.id}`)).ahead.delivery.state === 'refunded', r.body);
   let told2: any = await FS.deliveryNightly(db, 't1', await get(T), Date.now());
+  const o2c = await get(`${T}/counterOrders/${id2}`);
+  check('the night after it’s done: the guest’s number and the driver’s note are cleared (the address stays)', o2c.ahead.delivery.state === 'delivered' && o2c.ahead.delivery.phone === null && o2c.ahead.delivery.note === null && !!o2c.ahead.delivery.address?.line1 && !!o2c.ahead.delivery.clearedAt
+    && !o2c.readyText?.to && !o2c.readyText?.last4 && !o2c.ahead.pointsPhone, { d: o2c.ahead.delivery, rt: o2c.readyText });
   check('settled ones aren’t in the managers’ night note', !(await get(`${T}/counterOrders/${f1.id}`)).ahead.delivery.toldAt && !(await get(`${T}/counterOrders/${f2.id}`)).ahead.delivery.toldAt && !(await get(`${T}/counterOrders/${f3.id}`)).ahead.delivery.toldAt, told2);
 
   console.log('allergies and a note, ordered ahead');
@@ -520,6 +525,41 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await A({ action: 'deliveryChoice', o: g1.id, s: g1.sig, choice: 'refund' });
   check('…refunded with the fee kept: the fee’s tax is kept with it', gv?.tax === 1.3 && gv.fee === 4.39 && r.body.ok && r.body.cents === 1430 && S.refunds.length - bg === 2 && !(await get(`${T}/transactions/counter_${g1.id}_delivery_tax`)).refundedAt, { gv, body: r.body });
   await Mn({ action: 'ahead', deliveryFeeTaxed: false });
+
+  console.log('at the door: handed over or left, a photo, and no signal');
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  const lst: any = (await Run({ action: 'list' })).body;
+  const h1 = await placeOut('Hal', '8325550150');
+  await db.doc(`${T}/counterOrders/${h1.id}`).set({ ahead: { delivery: { driverId: 'd1', driverName: 'Sam Lee', outAt: new Date(Date.now() - 10 * 60000).toISOString() } } }, { merge: true });
+  r = await Run({ action: 'done', orderId: h1.id, left: true });
+  check('left at the door: a photo first (the business asks for one when it’s left), and the phone knows the setting', r.status === 400 && r.body.code === 'photo' && lst.photo === 'left' && (await get(`${T}/counterOrders/${h1.id}`)).ahead.delivery.state === 'out', [r.body, lst.photo]);
+  const tapped = new Date(Date.now() - 5 * 60000).toISOString();
+  r = await Run({ action: 'done', orderId: h1.id, left: true, dataUrl: 'data:image/jpeg;base64,AAAA', tappedAt: tapped });
+  const oh1 = await get(`${T}/counterOrders/${h1.id}`);
+  check('…with it: delivered when it was tapped (no signal, sent later), left, with its photo', r.body.ok && oh1.ahead.delivery.state === 'delivered' && oh1.ahead.delivery.deliveredAt === tapped && oh1.ahead.delivery.left === true && /delivery-photos/.test(oh1.ahead.delivery.photo) && uploads.length === 1, { body: r.body, d: oh1.ahead.delivery });
+  r = await Run({ action: 'done', orderId: h1.id, left: true, dataUrl: 'data:image/jpeg;base64,AAAA', tappedAt: tapped });
+  check('…sent again from the phone: as it was, with no second photo', r.body.ok && r.body.already === true && uploads.length === 1, r.body);
+  r = await A({ action: 'track', o: h1.id, s: h1.sig });
+  check('…their page: left at the door, with the photo', r.body.delivery?.step === 'delivered' && r.body.delivery.left === true && /delivery-photos/.test(String(r.body.delivery.photo)), r.body.delivery);
+  const h3 = await placeOut('Jay', '8325550152');
+  await db.doc(`${T}/counterOrders/${h3.id}`).set({ ahead: { delivery: { driverId: 'd2', driverName: 'Rio Diaz' } } }, { merge: true });
+  const up0 = uploads.length;
+  r = await Run({ action: 'done', orderId: h3.id, left: true, dataUrl: 'data:image/jpeg;base64,AAAA' });
+  check('another driver’s delivery: refused before any photo is kept', r.status === 403 && uploads.length === up0, r.body);
+  await db.doc(`${T}/counterOrders/${h3.id}`).set({ ahead: { delivery: { driverId: 'd1', driverName: 'Sam Lee' } } }, { merge: true });
+  r = await Run({ action: 'done', orderId: h3.id, left: true, dataUrl: 'data:image/jpeg;base64,AAAA', outAt: '2020-01-01T00:00:00.000Z' });
+  check('an old tap kept on the phone for an earlier trip doesn’t finish this one', r.status === 409 && /sent out again since/.test(r.body.error) && uploads.length === up0 && (await get(`${T}/counterOrders/${h3.id}`)).ahead.delivery.state === 'out', r.body);
+  r = await Run({ action: 'done', orderId: h3.id, left: true, dataUrl: 'data:image/jpeg;base64,STORAGEDOWN' });
+  const r5: any = await Run({ action: 'done', orderId: h3.id, left: true, dataUrl: 'not-a-photo' });
+  check('storage not answering is tried again from the phone (503); a photo it can’t read is said so (422)', r.status === 503 && r5.status === 422 && (await get(`${T}/counterOrders/${h3.id}`)).ahead.delivery.state === 'out', [r.body, r5.body]);
+  const h2 = await placeOut('Ida', '8325550151');
+  await db.doc(`${T}/counterOrders/${h2.id}`).set({ ahead: { delivery: { driverId: 'd1', driverName: 'Sam Lee' } } }, { merge: true });
+  r = await Run({ action: 'done', orderId: h2.id, left: false, tappedAt: '2020-01-01T00:00:00Z' });
+  const oh2 = await get(`${T}/counterOrders/${h2.id}`);
+  check('handed to them: no photo needed; a tapped time that can’t be right is taken as now', r.body.ok && oh2.ahead.delivery.left === false && !oh2.ahead.delivery.photo && Date.now() - Date.parse(oh2.ahead.delivery.deliveredAt) < 60000, oh2.ahead.delivery);
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+  const hp = src('src/components/staff-portal/HotFoodRun.tsx');
+  check('the driver’s phone: handed or left, a photo when asked, kept on the phone with no signal', /Handed it to them/.test(hp) && /Left it at the door/.test(hp) && /capture="environment"/.test(hp) && /keep: true/.test(hp) && /stamp: 'tappedAt'/.test(hp) && /saved on this phone/.test(hp));
 
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });

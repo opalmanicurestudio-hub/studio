@@ -75,6 +75,16 @@ const T = 'tenants/t1';
   check('…never the guest’s own earlier try, read afresh', atSlot(mine) === 1);
   check('hot food out with only hot food on it counts for shop delivery; with one who isn’t a listed driver, not', r.hotOutNow === 1 && r.trips.some((t: any) => t.driverId === 'z7' && t.counts === false), { hotOutNow: r.hotOutNow, trips: r.trips });
 
+  console.log('each driver, for the counter');
+  check('out with what they have, back about when (one on the list but off the schedule, out too)', r.drivers.length === 2 && r.drivers.every((x: any) => x.state === 'out' && !!x.backAt), r.drivers);
+  const w = new Date(now); const wallMin = w.getUTCHours() * 60 + w.getUTCMinutes();
+  await db.doc(`tenants/t3`).set({ name: 'Bay', timezone: 'UTC', retailSettings: { deliveryPlan: { on: true, drivers: ['e1', 'e2', 'e3'] } } });
+  await db.doc(`tenants/t3/shifts/a`).set({ date: day, staffId: 'e1', startTime: '00:00', endTime: '23:59', kind: 'work' });
+  if (wallMin < 1380) await db.doc(`tenants/t3/shifts/b`).set({ date: day, staffId: 'e2', startTime: hm(now + 30 * 60000), endTime: '23:59', kind: 'work' });
+  const r3 = await DL.driverLoad(db, 't3', await (await db.doc('tenants/t3').get()).data(), now);
+  const e2 = r3.drivers.find((x: any) => x.id === 'e2');
+  check('…here and free; on later today (when); one off today isn’t listed', r3.drivers.find((x: any) => x.id === 'e1')?.state === 'free' && !r3.drivers.some((x: any) => x.id === 'e3') && (wallMin >= 1380 || (e2?.state === 'later' && Math.abs(Date.parse(String(e2.onAt)) - (now + 30 * 60000)) < 61000)), r3.drivers);
+
   console.log('the screens and the steps');
   const fs = await import('fs'); const src = (p: string) => fs.readFileSync(p, 'utf8');
   const ahead = src('src/lib/counter-ahead.ts'); const shop = src('src/lib/delivery-server.ts'); const desk = src('src/components/drive-thru/Deliveries.tsx'); const order = src('src/app/order/[tenantId]/page.tsx'); const api = src('src/app/api/counter/route.ts');

@@ -223,8 +223,8 @@ export async function deliveryOut(db: any, tenantId: string, orderId: string, dr
 
 /** Delivered at the door, or couldn't be (and why): only once it's out. `only`: from a driver's phone, only the driver
  *  who has it (a manager may do it for them). Delivered: the guest's tip is the driver's, booked under their name. */
-export async function deliveryEnd(db: any, tenantId: string, orderId: string, how: { done: true } | { done: false; why: unknown }, by: string,
-  only: { id: string; manager?: boolean } | null = null, nowIso = new Date().toISOString()): Promise<{ ok: true; already?: boolean } | Fail> {
+export async function deliveryEnd(db: any, tenantId: string, orderId: string, how: { done: true; left?: boolean; photo?: string | null } | { done: false; why: unknown }, by: string,
+  only: { id: string; manager?: boolean } | null = null, nowIso = new Date().toISOString(), opts: { tappedAt?: unknown } = {}): Promise<{ ok: true; already?: boolean } | Fail> {
   if (!ID.test(orderId)) return fail('Which order?', 400);
   const why = how.done ? null : FOOD_FAIL_REASONS.find((x) => x.code === how.why)?.code || null;
   if (!how.done && !why) return fail('What happened?', 400);
@@ -238,7 +238,12 @@ export async function deliveryEnd(db: any, tenantId: string, orderId: string, ho
     if (only && !only.manager && st === 'out' && String(d.driverId || '') !== only.id) return fail('That delivery is out with someone else.', 403);
     if ((how.done && st === 'delivered') || (!how.done && st === 'failed')) return { ok: true, already: true };
     if (st !== 'out') return fail('It hasn’t gone out yet.', 409);
-    tx.set(ref, { ahead: { delivery: how.done ? { state: 'delivered', deliveredAt: nowIso, deliveredBy: String(by).slice(0, 60) } : { state: 'failed', failedAt: nowIso, why, failedBy: String(by).slice(0, 60), settle: null } } }, { merge: true });
+    // Tapped at the door with no signal and sent once it was back (lib/outbox): delivered when it was tapped, if that's
+    // after it went out and not long ago; otherwise now.
+    const tapped = Date.parse(String(opts.tappedAt || '')); const outMs = Date.parse(String(d.outAt || '')); const nowMs = Date.parse(nowIso);
+    const at = Number.isFinite(tapped) && (!Number.isFinite(outMs) || tapped >= outMs) && tapped <= nowMs && nowMs - tapped < 2 * 3600e3 ? new Date(tapped).toISOString() : nowIso;
+    tx.set(ref, { ahead: { delivery: how.done ? { state: 'delivered', deliveredAt: at, deliveredBy: String(by).slice(0, 60), ...(at !== nowIso ? { receivedAt: nowIso } : {}), ...(typeof how.left === 'boolean' ? { left: how.left } : {}), ...(how.photo ? { photo: how.photo } : {}) }
+      : { state: 'failed', failedAt: nowIso, why, failedBy: String(by).slice(0, 60), settle: null } } }, { merge: true });
     // The tip is the driver's: its line (booked when it was paid, with no one on it) goes under their name, shared by the
     // business's tip policy and paid with their pay like any tip. A driver the counter typed who isn't on the team: it
     // stays with no one on it, for the owner to give out by hand.
@@ -246,8 +251,8 @@ export async function deliveryEnd(db: any, tenantId: string, orderId: string, ho
     if (how.done && tip > 0) {
       const driverId = d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null;
       const description = driverId ? `Driver tip, order ${o.number}` : `Driver tip, order ${o.number} (${String(d.driverName || 'the driver')} isn’t on the team: give it out by hand)`;
-      tx.set(tRef, line ? { staffId: driverId, description, deliveredAt: nowIso } : { id: tRef.id, date: nowIso, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', hasReceipt: false,
-        amount: tip / 100, staffId: driverId, clientOrVendor: o.guestName || 'Guest', orderId, channel: 'ahead', paymentMethod: 'card', tenantId, description, deliveredAt: nowIso }, { merge: true });
+      tx.set(tRef, line ? { staffId: driverId, description, deliveredAt: at } : { id: tRef.id, date: nowIso, type: 'income', context: 'Business', category: 'Tips', taxBucket: 'gratuity', hasReceipt: false,
+        amount: tip / 100, staffId: driverId, clientOrVendor: o.guestName || 'Guest', orderId, channel: 'ahead', paymentMethod: 'card', tenantId, description, deliveredAt: at }, { merge: true });
     }
     return { ok: true };
   });
@@ -289,10 +294,23 @@ export async function deliveryOutside(db: any, tenantId: string, orderId: string
 }
 
 /** The night after: a paid delivery still not settled from an earlier business day (never went out, out and never marked,
- *  or brought back and never refunded or sent again) is told to the managers once, so the money is never left. */
+ *  or brought back and never refunded or sent again) is told to the managers once, so the money is never left. One done
+ *  has the guest's number and the driver's note cleared. */
 export async function deliveryNightly(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ told: number }> {
   const T = `tenants/${tenantId}`; const today = todayIn(tenantTimeZone(tenant), new Date(now)); const night = tonight(tenant, new Date(now));
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, -i));
+  // Done from an earlier night (delivered, refunded, or picked up with nothing still to go back): the guest's number and
+  // the note for the driver (a gate code, say) are cleared. The address stays with the order.
+  const doneSnaps = await Promise.all(['delivered', 'refunded', 'picked_up'].map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery').where('ahead.delivery.state', '==', st).where('day', 'in', days).limit(400).get().catch(() => ({ docs: [] as any[] }))));
+  for (const d of doneSnaps.flatMap((q: any) => q.docs)) {
+    const o: any = d.data() || {}; const dl = o.ahead?.delivery || {};
+    const t = Date.parse(String(dl.deliveredAt || dl.refundedAt || dl.pickedUpAt || o.paidAt || ''));
+    if ((dl.phone || dl.note || o.ahead?.pointsPhone || o.readyText?.to || o.readyText?.last4) && !owesBack(o) && Number.isFinite(t) && tonight(tenant, new Date(t)) < night)
+      await d.ref.set({ ahead: { pointsPhone: null, delivery: { phone: null, note: null, clearedAt: new Date(now).toISOString() } }, readyText: { to: null, last4: null } }, { merge: true }).catch(() => null);
+  }
+  // One never paid for (its checkout left): the number and the note too.
+  const left0 = await db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery').where('ahead.delivery.state', '==', 'abandoned').where('day', 'in', days).limit(400).get().catch(() => ({ docs: [] as any[] }));
+  for (const d of left0.docs) { const dl = (d.data() || {}).ahead?.delivery || {}; if (dl.phone || dl.note) await d.ref.set({ ahead: { pointsPhone: null, delivery: { phone: null, note: null, clearedAt: new Date(now).toISOString() } }, readyText: { to: null, last4: null } }, { merge: true }).catch(() => null); }
   const snaps = await Promise.all(OPEN_STATES.map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery').where('ahead.delivery.state', '==', st).where('day', 'in', days).limit(200).get()));
   const left = snaps.flatMap((q: any) => q.docs).filter((d: any) => {
     const o: any = d.data() || {}; const t = Date.parse(String(o.paidAt || o.createdAt || ''));

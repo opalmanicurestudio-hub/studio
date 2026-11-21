@@ -7,7 +7,7 @@
 //   each driver once, until their route has them back (lib/route-server keeps it).
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { shiftsFor } from '@/lib/pickup-slots-server';
-import { tenantTimeZone, todayIn, wallParts } from '@/lib/tenant-time';
+import { tenantTimeZone, todayIn, wallParts, wallToUtc } from '@/lib/tenant-time';
 import { addDays } from '@/lib/night-close-server';
 import { hotTrip, outAt, shopTrip, type Trip } from '@/lib/driver-load';
 
@@ -20,6 +20,9 @@ export type DriverLoad = {
   onNow: number | null; outNow: number; backAt: string | null;
   /** Drivers kept out by hot food now (for shop delivery "within the hour", which counts its own). */
   hotOutNow: number;
+  /** Each of the drivers now (the counter's list): out (back about when), here and free, or on later today (when).
+   *  One off for the day isn't listed. */
+  drivers: { id: string; state: 'out' | 'free' | 'later'; backAt: string | null; onAt: string | null }[];
 };
 
 const cache = new Map<string, { at: number; v: DriverLoad }>();
@@ -91,5 +94,14 @@ async function readLoad(db: any, tenantId: string, tenant: any, now: number, ski
   const on = onShift(now);
   // (For shop delivery "within the hour", which counts its own runs: drivers out with hot food and no shop stop, who are
   // its drivers.)
-  return { onShift, trips, onNow: on === null ? null : on.length, outNow: outAt(trips, now), hotOutNow: outs.filter((x) => x.hot && !x.shop && x.counts !== false).length, backAt: outs.length ? new Date(Math.min(...outs.map((x) => x.to))).toISOString() : null };
+  // Each driver: out (until their trip has them back), here (on the schedule now), or on later today.
+  const today0 = todayIn(tz, new Date(now)); const w0 = wallParts(new Date(now), tz); const at0 = w0.hour * 60 + w0.minute;
+  const each = drivers.map((id) => {
+    const mine = trips.filter((x) => x.driverId === id && x.from <= now && now < x.to);
+    if (mine.length) return { id, state: 'out' as const, backAt: new Date(Math.max(...mine.map((x) => x.to))).toISOString(), onAt: null };
+    if (on?.includes(id)) return { id, state: 'free' as const, backAt: null, onAt: null };
+    const later = spans.filter((x: any) => x.staffId === id && x.date === today0 && x.start > at0).sort((a: any, b: any) => a.start - b.start)[0];
+    return later ? { id, state: 'later' as const, backAt: null, onAt: wallToUtc(today0, Math.floor(later.start / 60), later.start % 60, tz).toISOString() } : null;
+  }).filter((x): x is NonNullable<typeof x> => !!x);
+  return { onShift, trips, drivers: each, onNow: on === null ? null : on.length, outNow: outAt(trips, now), hotOutNow: outs.filter((x) => x.hot && !x.shop && x.counts !== false).length, backAt: outs.length ? new Date(Math.min(...outs.map((x) => x.to))).toISOString() : null };
 }
