@@ -23,7 +23,8 @@ import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-util
 import { accessLockOf } from '@/lib/tenant-access';
 import { toolLocked } from '@/lib/tool-lock';
 import { readMenu } from '@/lib/menu-server';
-import { editOrder, sendOrder, setOrderName, cleanName } from '@/lib/counter-server';
+import { editOrder, sendOrder, setOrderName, cleanName, setAllergy } from '@/lib/counter-server';
+import { allergyFromWords, allergyWords } from '@/lib/order-allergy';
 import { readBack } from '@/lib/counter-orders';
 import { askFor, matchChoices, matchItem, menuForVoice, words } from '@/lib/voice-order';
 import { offerInstruction, voiceOffer, voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
@@ -100,6 +101,20 @@ export async function POST(req: NextRequest) {
       const r: any = await setOrderName(db, tenantId, orderId, given);
       if (r.error) return reply({ result: 'Carry on without the name.', ...summary(order) });
       return reply({ result: `Saved the name ${r.name}. Now read the order back.`, name: r.name, ...summary(order) });
+    }
+
+    if (name === 'set_allergy') {
+      // A food allergy said at the speaker (lib/order-allergy): the major ones it names, and the rest in their words.
+      // (Every part they said is kept: one of the major allergens it names, or in their words.)
+      const said: string[] = (Array.isArray(args?.allergies) ? args.allergies : [args?.allergies]).map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 8);
+      const heard = allergyFromWords(said, args?.severe === true);
+      if (!heard) return reply({ result: 'Ask what they are allergic to.', ask: true, ...summary(order) });
+      // (Too much to keep, or not saved: the team is told, never a cut-short allergy.)
+      if (heard === 'too_long') return reply({ result: 'Say "I’ll let the team know," and the team will take it from here.', ...summary(order) });
+      // Added to what's on the order inside the save, so one typed on the screen at the same moment is kept too.
+      const r: any = await setAllergy(db, tenantId, orderId, heard, ASSISTANT, { add: true });
+      if (r.error) return reply({ result: 'Say "I’ll let the team know," and the team will take it from here.', ...summary(order) });
+      return reply({ result: `Saved: ${allergyWords(r.allergy)}. Say it back to them, tell them the kitchen will see it on their order, then carry on.`, ...summary(order) });
     }
 
     if (name === 'read_order') return reply({ result: (order.lines || []).length ? `So far: ${readBack(order.lines)} That’s ${money(order.total)}${Number(order.tax) > 0 ? ' with tax' : ''}.` : 'Nothing on the order yet.', ...summary(order) });

@@ -9,8 +9,9 @@ const RETELL = 'https://api.retellai.com';
 
 /** Which version of the instructions and tools an assistant was made with: a business whose assistant is older is
  *  offered an update on the Menu page (2: names on orders, a rush mode, orders placed ahead sent to the window; 3: it
- *  offers only what each item offers, as the business chose, and can size up what was just added). */
-export const VOICE_VERSION = 3;
+ *  offers only what each item offers, as the business chose, and can size up what was just added; 4: a guest's food
+ *  allergy is saved on the order, so every kitchen ticket shows it). */
+export const VOICE_VERSION = 4;
 
 /** What the assistant is told, every call. The menu, the business's name and the car's number come with each call. */
 export const DRIVE_THRU_PROMPT = `You take drive-thru orders for {{business_name}}. You sound friendly, quick and clear, like the best drive-thru crew. Keep every reply short: one or two sentences.
@@ -28,6 +29,7 @@ How to take the order:
 - A name: ask for one if this says yes: {{ask_name}}. If so, once they've finished ordering, ask "Can I get a first name for the order?" once, and save it with set_name. If they'd rather not give one, that's fine.
 - When they're done, call read_order, read the order back (when the line is long, just the items and the total), and ask if that's right. If it is, call finish_order and say what it tells you (the total, and to pull forward to the window). Then say goodbye and end the call.
 - If they're picking up an order they placed ahead, say "Please pull forward to the window, and the team will have it for you," then say goodbye and end the call.
+- If they say anyone has a food allergy, save it with set_allergy in their words (and whether it's severe), say back what set_allergy saved, and say the kitchen will see it on the order. Never say a dish is safe or free of anything.
 - If they ask for a person, or you can't understand them after two tries, say "One moment, someone will be right with you." The team can hear you and will take over.
 - Never make up items, deals or wait times, and talk only about their order.`;
 
@@ -56,6 +58,10 @@ export function driveThruTools(origin: string, secret: string) {
     tool('remove_item', 'Take an item off the order, or fewer of it.', url, secret, { item, quantity: { type: 'integer', description: 'How many to take off. Leave out to take it all off.' } }, ['item']),
     tool('change_quantity', 'Change how many of an item already on the order.', url, secret, { item, quantity: { type: 'integer', description: 'The new number.' } }, ['item', 'quantity']),
     tool('set_name', 'Save the first name the guest gives for the order.', url, secret, { name: { type: 'string', description: 'Their first name, as they said it.' } }, ['name']),
+    tool('set_allergy', 'Save a food allergy the guest mentions, so every kitchen ticket for the order shows it.', url, secret, {
+      allergies: { type: 'array', items: { type: 'string' }, description: 'What they are allergic to, one item each, in their words, for example ["peanuts", "kiwi"].' },
+      severe: { type: 'boolean', description: 'True if they say it is severe, or mention an EpiPen or anaphylaxis.' },
+    }, ['allergies']),
     tool('read_order', 'Get the order so far and its total, to read back.', url, secret),
     tool('finish_order', 'The guest has confirmed the order: send it to the kitchen. Then tell them the total and to pull forward.', url, secret),
     { type: 'end_call', name: 'end_call', description: 'End the call once the order is finished and you have said goodbye.' },

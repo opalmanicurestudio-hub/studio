@@ -15,6 +15,9 @@ import { Check, Minus, Plus, X } from 'lucide-react';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 import { PinPad } from '@/components/kitchen/PinPad';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { AllergyChips, NoteField, NO_ALLERGY, allergyBody, hasAllergy, type AllergyValue } from '@/components/menu/OrderAllergy';
+import { conflictWords, containsLine, dishConflict, sameNote } from '@/lib/order-allergy';
+import type { AllergenKey } from '@/lib/allergens';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 
@@ -35,7 +38,9 @@ const read = (k: string) => { try { return localStorage.getItem(k); } catch { re
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((x) => x.toString(16).padStart(2, '0')).join('');
 
-type Item = { id: string; name: string; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null };
+type Item = { id: string; name: string; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null;
+  /** What it contains of the major allergens, when the business has said (null: nobody has). */
+  allergens?: AllergenKey[] | null };
 type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; items: Item[] }[]; accent?: string | null;
   /** "Text me when it's ready" offered on the paid screen (lib/ready-text). */
   texts?: boolean };
@@ -43,7 +48,7 @@ type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boo
 const HEX = /^#[0-9a-f]{6}$/i;
 const tintOf = (hex: string) => { const n = parseInt(hex.slice(1), 16); return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v * 0.1 + 255 * 0.9).toString(16).padStart(2, '0')).join(''); };
 const Accent = React.createContext(INK);
-type Line = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; offer?: OfferKind };
+type Line = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; offer?: OfferKind; note?: string };
 /** Right after something's added: what's offered with it (kept as first shown), and what's been taken. */
 type After = { key: string; itemId: string; name: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
 type Placed = { orderId: string; number: string; total: number; lines: { name: string; quantity: number; choicesText: string | null; price: number }[] };
@@ -108,8 +113,8 @@ function TextMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: st
   );
 }
 
-function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
-  const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [tried, setTried] = React.useState(false);
+function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+  const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [tried, setTried] = React.useState(false); const [note, setNote] = React.useState('');
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
   const A = React.useContext(Accent);
   return (
@@ -123,7 +128,9 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
           {item.imageUrl && <img src={item.imageUrl} alt="" className="aspect-[4/3] w-full rounded-2xl object-cover sm:w-56" style={{ background: tintOf(A) }} />}
           {(item.words || item.calories != null) && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
         </div>
+        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>{containsLine(item) ? `${containsLine(item)}.${item.choices.length ? ' Choices can change this.' : ''}` : 'Allergens aren’t listed for this one.'}</p>
         <div className="mt-4"><ChoicePicker item={item} picks={picks} onChange={(p) => { setTried(false); setPicks(p); }} /></div>
+        <div className="mt-4"><NoteField value={note} onChange={setNote} id={`kiosk-note-${item.id}`} big /></div>
         {!priced.ok && tried && <p role="alert" className="mt-3 text-[15px] font-semibold" style={{ color: AMBER }}>{priced.error}</p>}
       </div>
       <div className="flex items-center gap-3 border-t px-6 py-4" style={{ borderColor: LINE }}>
@@ -132,7 +139,7 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
           <span className="w-8 text-center text-[19px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
           <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-5 w-5" /></button>
         </div>
-        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty) : setTried(true))} className={`${btn} min-h-[60px] flex-1 rounded-full text-[18px] tabular-nums`} style={priced.ok ? { background: A, color: '#fff' } : { background: LINE, color: MUTED }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty, note.trim()) : setTried(true))} className={`${btn} min-h-[60px] flex-1 rounded-full text-[18px] tabular-nums`} style={priced.ok ? { background: A, color: '#fff' } : { background: LINE, color: MUTED }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
       </div>
     </Modal>
   );
@@ -182,6 +189,8 @@ export default function KioskScreen() {
   const [section, setSection] = React.useState(''); const [cart, setCart] = React.useState<Line[]>([]); const [open, setOpen] = React.useState<Item | null>(null);
   const [after, setAfter] = React.useState<After | null>(null); const [passed, setPassed] = React.useState<string[]>([]); const [offered, setOffered] = React.useState(false);
   const [name, setName] = React.useState(''); const [toGo, setToGo] = React.useState<boolean | null>(null);
+  // The guest's allergies (lib/order-allergy): on every ticket in the kitchen.
+  const [allergy, setAllergy] = React.useState<AllergyValue>(NO_ALLERGY);
   const [placed, setPlaced] = React.useState<Placed | null>(null); const [paying, setPaying] = React.useState<Paying | null>(null); const [paidName, setPaidName] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const [ask, setAsk] = React.useState<number | null>(null); const [, setTick] = React.useState(0);
@@ -209,14 +218,14 @@ export default function KioskScreen() {
     return () => { window.removeEventListener('pointerdown', t); window.removeEventListener('keydown', t); };
   }, []);
   // A new order key whenever the order changes after going back: never the old order paid for.
-  React.useEffect(() => { orderKey.current = ''; }, [cart, name, toGo]);
+  React.useEffect(() => { orderKey.current = ''; }, [cart, name, toGo, allergy]);
 
   const byId = React.useMemo(() => new Map((menu?.sections || []).flatMap((s) => s.items.map((i) => [i.id, i] as [string, Item]))), [menu]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = Math.round(cart.reduce((n, l) => n + l.each * l.quantity, 0) * 100) / 100;
   const tax = Math.round(subtotal * (menu?.taxPct || 0)) / 100; const total = Math.round((subtotal + tax) * 100) / 100;
 
   const startOver = React.useCallback(() => {
-    setCart([]); setName(''); setToGo(null); setPlaced(null); setPaying(null); setAfter(null); setOpen(null); setPassed([]); setOffered(false);
+    setCart([]); setName(''); setToGo(null); setAllergy(NO_ALLERGY); setPlaced(null); setPaying(null); setAfter(null); setOpen(null); setPassed([]); setOffered(false);
     setErr(''); setAsk(null); setLeaving(false); setPaidName(''); setTexting(false); setTexted(null); orderKey.current = ''; setStep('start'); void loadMenu();
   }, [loadMenu]);
   // Let the order go (the reader stops asking; what it held goes back): a card approved at that moment is kept.
@@ -250,15 +259,16 @@ export default function KioskScreen() {
   }, [step, ask, open, team, leaving, letGo, startOver, texting]);
 
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
-  const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind) => {
+  const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind, note = '') => {
     const p = priceChoices(item, picks); const each = Math.max(0, item.price + (p.ok ? p.extra : 0)); const text = pickWords(item, picks);
-    const k = cart.find((l) => l.itemId === item.id && l.choicesText === text)?.key || rid();
-    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key: k, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, ...(offer ? { offer } : {}) }]; });
+    // (A note of its own makes a line of its own.)
+    const k = cart.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note))?.key || rid();
+    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note)); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key: k, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, ...(offer ? { offer } : {}), ...(note ? { note } : {}) }]; });
     return k;
   };
   // Added from its sheet: then what's offered with it, if there's anything they could have (once an item).
-  const added = (item: Item, picks: Picks, qty: number) => {
-    const k = add(item, picks, qty, offered ? 'item' : undefined); setOpen(null);
+  const added = (item: Item, picks: Picks, qty: number, note = '') => {
+    const k = add(item, picks, qty, offered ? 'item' : undefined, note); setOpen(null);
     if (offered) { setOffered(false); return; }
     if (after && !after.took.length) setPassed((p) => [...p, after.itemId]);
     setAfter(null);
@@ -307,7 +317,7 @@ export default function KioskScreen() {
     if (!p) {
       if (!orderKey.current) orderKey.current = rid();
       const { status, d } = await call({ action: 'place', tenantId, key, orderKey: orderKey.current, name: name.trim(), ...(menu?.askToGo ? { toGo: toGo === true } : {}),
-        lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
+        lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
       if (status === 401) { setBusy(false); lost(d); return; }
       if (!d.ok) { setBusy(false); setErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'sold_out' || d.code === 'gone' || d.code === 'line') void loadMenu(); if (d.code === 'closed') orderKey.current = ''; return; }
       if (d.paid) { setBusy(false); setPlaced({ orderId: d.orderId, number: d.number, total: 0, lines: [] }); toPaid(d.number); return; }
@@ -367,7 +377,10 @@ export default function KioskScreen() {
   })() : null;
   const lineRows = (big: boolean) => <ul>{cart.map((l) => (
     <li key={l.key} className="flex items-center gap-3 py-3" style={{ borderBottom: '1px dashed #cfd2d6' }}>
-      <span className="min-w-0 flex-1"><span className={`block font-semibold ${big ? 'text-[17px]' : 'text-[15.5px]'}`}>{l.name}</span>{l.choicesText && <span className="block text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}<span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</span></span>
+      <span className="min-w-0 flex-1"><span className={`block font-semibold ${big ? 'text-[17px]' : 'text-[15.5px]'}`}>{l.name}</span>{l.choicesText && <span className="block text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}
+        {l.note && <span className="block text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</span>}
+        {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest'); return w ? <span className="block text-[14px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
+        <span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</span></span>
       <span className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
         <button type="button" aria-label={l.quantity === 1 ? `Take ${l.name} off` : `One fewer ${l.name}`} onClick={() => qty(l.key, -1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
         <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
@@ -485,6 +498,7 @@ export default function KioskScreen() {
         <section aria-label="Name and pay" className="space-y-4 self-start rounded-[28px] p-6" style={{ background: tint }}>
           <label className="block"><span className="text-[15px] font-semibold">Your first name</span> <span className="text-[14px]" style={{ color: MUTED }}>(optional)</span>
             <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} autoComplete="off" className="mt-1.5 min-h-[56px] w-full rounded-2xl bg-[#fff] px-4 text-[18px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder="So we can call it" /></label>
+          <AllergyChips value={allergy} onChange={setAllergy} idBase="kiosk-allergy" big hint="Leave it empty if there are none." />
           {menu?.askToGo && <div role="radiogroup" aria-label="For here or to go" className="grid grid-cols-2 gap-2">
             {([[false, 'For here'], [true, 'To go']] as [boolean, string][]).map(([v, w]) => <button key={w} type="button" role="radio" aria-checked={toGo === v} onClick={() => { setToGo(v); setErr(''); }} className={`${btn} min-h-[56px] rounded-full text-[17px]`} style={toGo === v ? brand : quiet}>{w}</button>)}
           </div>}
@@ -561,7 +575,7 @@ export default function KioskScreen() {
           <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] rounded-full text-[18px]`} style={brand}>Review and pay</button>
         </div>
       </div>
-      {open && <ItemSheet item={open} onClose={() => { setOpen(null); setOffered(false); }} onAdd={(p, n) => added(open, p, n)} />}
+      {open && <ItemSheet item={open} onClose={() => { setOpen(null); setOffered(false); }} onAdd={(p, n, note) => added(open, p, n, note)} />}
       {stillAsk}
     </main>
     </Accent.Provider>

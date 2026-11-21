@@ -5,6 +5,8 @@
 // taken once), an order paid (cash, a card machine of the business's own, or the card reader at the window, lib/
 // counter-card), and an order voided when a car drives off without paying.
 import { appName } from '@/lib/app-orders';
+import { cleanLineNote, cleanOrderAllergy, mergeAllergy, orderAllergyOf, sameAllergy, sameNote, ticketFields, OTHER_KEEP, OTHER_MAX } from '@/lib/order-allergy';
+import { cleanKeys, itemAllergens, ticketAllergyPatch } from '@/lib/allergens';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
 import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, carryOn, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
@@ -103,9 +105,10 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
   });
 }
 
-export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown }
+export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown }
   | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
-  | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown };
+  | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown }
+  | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown };
 
 /** One change to an order still being taken. One tap is one change, however many times it's sent (tapKey), and a tap
  *  that arrives after the order went to the kitchen is answered with the order as it is, not an error. */
@@ -135,8 +138,10 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
         const docs = await Promise.all(others.map((id) => tx.get(db.doc(`${T}/inventory/${id}`))));
         if (offerOf('item', { id: made.line.itemId }, {}, docs.map((d: any, k: number) => ({ id: others[k], upgrades: d.data()?.upgrades }))) === 'item') made.line.offer = 'item';
       }
-      // The same item with the same choices is one line with more of it (taken as an offer stays marked).
-      const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice);
+      // A note for the kitchen about this dish (lib/order-allergy): a line of its own unless another has the same note.
+      const note = cleanLineNote(op.note); if (note) made.line.note = note;
+      // The same item with the same choices (and the same note) is one line with more of it (taken as an offer stays marked).
+      const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note));
       lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity), ...(l.offer || made.line.offer ? { offer: l.offer || made.line.offer } : {}) } : l)) : [...lines, made.line];
       line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
     } else if (op.action === 'sizeUp') {
@@ -151,9 +156,11 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const made = lineFor(it, old.itemId, q, sizedUp(picks, up), randomBytes(5).toString('hex'), { tenant });
       if (!made.ok) return { error: made.error, status: 400 };
       made.line.offer = 'size';
+      // (Its note goes with it.)
+      if (old.note) made.line.note = old.note;
       // Into a line already in that size, only when all of them fit (20 on a line: one tap is all of it or nothing); a new
       // line only while the order has room for one.
-      const same = lines.find((l) => l !== old && l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice);
+      const same = lines.find((l) => l !== old && l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note));
       if (same && same.quantity + q > 20) return { error: 'That’s as many as one line takes. Send this one, and start another.', status: 400 };
       if (!same && old.quantity > q && lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       made.line.quantity = q;
@@ -166,11 +173,63 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
     } else {
       const lineId = String(op.lineId || ''); if (!lines.some((l) => l.lineId === lineId)) return { error: 'That isn’t on the order.', status: 404 };
       if (op.action === 'remove') lines = lines.filter((l) => l.lineId !== lineId);
+      else if (op.action === 'note') { const note = cleanLineNote(op.note); lines = lines.map((l) => { if (l.lineId !== lineId) return l; const { note: _was, ...rest } = l; return note ? { ...rest, note } : rest; }); }
       else { const q = Math.floor(num(op.quantity)); if (q < 1 || q > 20) return { error: 'How many? Between 1 and 20.', status: 400 }; lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l)); }
     }
     const totals = totalsOf(tenant, lines);
     tx.set(orderRef, { lines, ...totals, updatedAt: nowIso, ...(tapKey ? { taps: [...taps, tapKey].slice(-30) } : {}) }, { merge: true });
     return { order: { id: orderId, number: o.number, status: o.status, lines, ...totals }, line };
+  });
+}
+
+/** The guest's allergies on an order (lib/order-allergy): the major ones, another in their words, and whether it's severe.
+ *  While it's being taken: set, or none clears them; every ticket carries them once it's sent. Once sent (said at the
+ *  window): added to the tickets still being made, and the kitchen taps Allergy noted again. */
+export async function setAllergy(db: any, tenantId: string, orderId: string, raw: unknown, who: Who, opts: { add?: boolean } = {}): Promise<{ ok: true; allergy: any; tickets: number; already?: boolean } | Fail> {
+  if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
+  const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
+  return db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(ref)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
+    // (What a screen sends is kept as long as what's on the order already, when that came from more than one place.)
+    const kept = String(orderAllergyOf(o)?.other || '').length;
+    const a = cleanOrderAllergy(raw, opts.add ? OTHER_KEEP : Math.min(OTHER_KEEP, Math.max(OTHER_MAX, kept)));
+    const allergy = a ? { ...a, by: String(who.name || 'Counter').slice(0, 60), at: new Date().toISOString() } : null;
+    if (o.status === 'building') {
+      // `add` (the voice assistant, what it heard): added to what's on the order, read here, so a save on the counter
+      // screen at the same moment is never lost. Otherwise: as the screen has it.
+      if (opts.add) {
+        if (!a) return { error: 'What are they allergic to?', status: 400 };
+        const had = orderAllergyOf(o); const m = mergeAllergy(had, a);
+        if (!m || m.cut) return { error: 'That’s more than fits on the order. Tell the kitchen the rest.', status: 400 };
+        if (had && sameAllergy(had, m)) return { ok: true, allergy: had, tickets: 0, already: true };
+        const next = { keys: m.keys, other: m.other, severe: m.severe, by: allergy!.by, at: allergy!.at };
+        tx.set(ref, { allergy: next, updatedAt: new Date().toISOString() }, { merge: true }); return { ok: true, allergy: next, tickets: 0 };
+      }
+      tx.set(ref, { allergy, updatedAt: new Date().toISOString() }, { merge: true }); return { ok: true, allergy, tickets: 0 };
+    }
+    // Sent already (the guest said it at the window): only added to, never taken off, and only while something is still
+    // being made. The tickets not out yet carry it, and the kitchen taps Allergy noted again (lib/allergens).
+    if (!a) return { error: 'The kitchen has it already. Tell the kitchen if it was a mistake.', status: 409 };
+    if (o.status !== 'sent') return { error: 'That order is finished. Tell the kitchen.', status: 409 };
+    const had = orderAllergyOf(o);
+    const m = mergeAllergy(had, a);
+    if (m?.cut) return { error: 'That’s more than fits on the order. Tell the kitchen the rest.', status: 400 };
+    if (!m || (had && sameAllergy(had, m))) return { ok: true, allergy: had, tickets: 0, already: true };
+    const merged = { keys: m.keys, other: m.other, severe: m.severe, by: allergy!.by, at: allergy!.at };
+    const tix = (await tx.get(db.collection(`tenants/${tenantId}/kdsTickets`).where('orderId', '==', orderId))).docs;
+    const ids = Array.from(new Set(tix.map((d: any) => String(d.data()?.menuItemId || '')).filter((x: string) => ID.test(x))));
+    const items = await Promise.all(ids.map((id) => tx.get(db.doc(`tenants/${tenantId}/inventory/${id}`))));
+    const itemOf = new Map(ids.map((id, k) => [id, items[k].data() || {}]));
+    let changed = 0;
+    for (const d of tix) {
+      const t: any = d.data() || {}; const patch = ticketAllergyPatch(t, [{ id: 'order', seat: null, keys: merged.keys, other: merged.other, severe: merged.severe, from: 'asked', by: merged.by, at: merged.at }], null, itemAllergens(itemOf.get(String(t.menuItemId || '')) || {}));
+      // (One already ready goes back to being made: it isn't ready to hand over, take out or deliver until the kitchen
+      // taps Allergy noted and marks it ready again.)
+      if (patch) { tx.set(d.ref, { ...patch, ...(t.status === 'ready' ? { status: 'in_progress', readyAt: null, backFromReady: 'allergy' } : {}) }, { merge: true }); changed++; }
+    }
+    if (!changed) return { error: 'Nothing for it is still being made. Tell the kitchen.', status: 409 };
+    tx.set(ref, { allergy: merged, updatedAt: new Date().toISOString() }, { merge: true });
+    return { ok: true, allergy: merged, tickets: changed };
   });
 }
 
@@ -190,6 +249,15 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     if (o.status !== 'building') return { ok: true, already: true, due: o.dueAt || null };
     const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
     if (!lines.length) return { error: 'Add something first.', status: 400 };
+    // Something added at the speaker to an order placed ahead: the guest's allergies on that order go on this one too
+    // (lib/order-allergy), when this one has none of its own.
+    const withCar: any = ID.test(String(o.carId || '')) ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
+    const aheadOrder: any = withCar && ID.test(String(withCar.aheadId || '')) ? (await tx.get(db.doc(`${T}/counterOrders/${withCar.aheadId}`))).data() : null;
+    const aheadAllergy = aheadOrder ? orderAllergyOf(aheadOrder) : null;
+    // (Both, when this one has its own too: every allergen in either.)
+    const joined = aheadAllergy ? mergeAllergy(orderAllergyOf(o), aheadAllergy) : null;
+    // (Never dropped: every allergen and severe from both, and as many of their words as an order keeps.)
+    const fromAhead = joined && !sameAllergy(orderAllergyOf(o), joined) ? { keys: joined.keys, other: joined.other, severe: joined.severe, by: aheadAllergy!.by || 'The guest', at: aheadAllergy!.at || nowIso } : null;
     const lineIds = Array.from(new Set(lines.map((l) => l.itemId)));
     const lineRefs = lineIds.map((id) => db.doc(`${T}/inventory/${id}`));
     const lineItems = (await Promise.all(lineRefs.map((ref) => tx.get(ref)))).map((s: any) => s.data());
@@ -291,6 +359,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       const also = it && it.combo !== true ? alsoAtOf(it, stations) : [];
       return [{ m, id: base, also: null as AlsoAt | null, main: base }, ...also.map((a, k) => ({ m, id: partTicketId(base, k), also: a as AlsoAt | null, main: base }))];
     });
+    const allergy = fromAhead || orderAllergyOf(o);
+    if (fromAhead) tx.set(orderRef, { allergy: { ...fromAhead, from: 'ahead' } }, { merge: true });
     tickets.forEach(({ m, id, also, main }, i) => {
       const l = m.l; const part = m.combo ? items[ids.indexOf(m.itemId)] : null; const it = items[ids.indexOf(m.itemId)];
       const dish = part ? String(part.name || 'Item').slice(0, 80) : l.name;
@@ -300,7 +370,10 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
         choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
         guestName: who2, stationName: o.app?.code ? `${appName(o.app)}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}` : `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
-        line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
+        line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}),
+        // The guest's allergies on every ticket, with what the menu says this dish contains of them; the dish's note on
+        // its own tickets (lib/order-allergy).
+        ...ticketFields(allergy, part || it || {}), ...(l.note ? { note: l.note } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
     // An extra that was only partly there: each line's (and the order's) share of it cut to what came off.

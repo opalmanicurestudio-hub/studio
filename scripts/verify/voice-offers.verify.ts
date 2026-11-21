@@ -147,8 +147,8 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('the Menu page: “What the assistant offers”, three choices, each pressed or not (kept focusable while saving), and “update first” for an older assistant', /What the assistant offers/.test(page) && /VOICE_OFFER_MODES\.map/.test(page) && /aria-pressed=\{on\} aria-disabled=\{busy === 'offers'\}/.test(page) && /role="group" aria-labelledby="voice-offers"/.test(page)
     && /voice\.offersReady === false \? \(voice\.outdated \? ' Update the assistant first: until then it doesn’t offer\.' : ' This assistant doesn’t offer yet\.'\) : ''/.test(page)
     && /label: 'With each item' \}, \{ value: 'order', label: 'Once per order' \}, \{ value: 'off', label: 'Don’t offer' \}/.test(src('src/lib/voice-offer.ts')));
-  check('the assistant: offers only what a tool says, has size_up, and an older one is offered the update', /VOICE_VERSION = 3/.test(setup) && /only when add_item's answer tells you to/.test(setup) && /tool\('size_up'/.test(setup) && !/you may offer one drink or side/.test(setup)
-    && /it offers a bigger size or something to go with it, only as you choose below/.test(page));
+  check('the assistant: offers only what a tool says, has size_up, and an older one is offered the update', /VOICE_VERSION = [34]/.test(setup) && /only when add_item's answer tells you to/.test(setup) && /tool\('size_up'/.test(setup) && !/you may offer one drink or side/.test(setup)
+    && /offers a bigger size or something to go with it,? only as you choose below/.test(page));
   check('a call keeps whether the line was long when it started', /status: 'live', busy \}/.test(vr) && /let busy = false;/.test(vr));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

@@ -75,7 +75,7 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   const h = new Date().getUTCHours();
   await db.doc(T).set({ name: 'North Pier Coffee', timezone: 'UTC', stripeAccountId: 'acct_1', retailSettings: { taxRatePercent: 10 }, salesTax: { configured: true }, ownerId: 'own1',
     menuSettings: { dayparts: [{ id: 'later', name: 'Supper', from: hhmm(h + 3), to: hhmm(h + 4) }], happyHour: { on: true, days: [0, 1, 2, 3, 4, 5, 6], from: '00:00', to: '23:59' } } });
-  await db.doc(`${T}/inventory/latte`).set({ type: 'refreshment', name: 'Latte', category: 'Coffee', price: 4.5, happyPrice: 4, totalStock: 50, upgrades: { size: false, items: ['scone', 'vip'] } });
+  await db.doc(`${T}/inventory/latte`).set({ type: 'refreshment', name: 'Latte', category: 'Coffee', price: 4.5, happyPrice: 4, totalStock: 50, upgrades: { size: false, items: ['scone', 'vip'] }, allergens: ['milk'] });
   await db.doc(`${T}/inventory/scone`).set({ type: 'refreshment', name: 'Scone', category: 'Pastries', price: 3, totalStock: 2 });
   await db.doc(`${T}/inventory/vip`).set({ type: 'refreshment', name: 'Members brew', category: 'Coffee', price: 2, totalStock: 50, isMembersOnly: true });
   await db.doc(`${T}/inventory/stew`).set({ type: 'refreshment', name: 'Stew', category: 'Supper', price: 9, totalStock: 50, dayparts: ['later'] });
@@ -209,6 +209,14 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   check('who a kiosk ticket is for: the first name and number', CS.ticketWho({ channel: 'kiosk', number: 'K7', guestName: 'Kim' }) === 'Kim, K7' && CS.ticketWho({ channel: 'kiosk', number: 'K7' }) === 'K7');
   const cron = src('src/app/api/cron/retail-payments/route.ts');
   check('the sweep runs with the payments sweep', /K\.sweepKiosk\(db, t\.id, tenant\)/.test(cron));
+
+  console.log('allergies and a note');
+  r = await k({ action: 'place', orderKey: 'order-key-008', lines: [{ itemId: 'latte', quantity: 1, note: 'Extra hot' }], allergy: { keys: ['milk', 'nonsense'], severe: true } });
+  const id8 = r.body.orderId; const o8: any = await get(`${T}/counterOrders/${id8}`); const t8 = (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id8);
+  check('the guest’s allergies kept on the order, and on its ticket with what the dish contains; the dish’s note on it', r.body.ok && JSON.stringify(o8.allergy?.keys) === '["milk"]' && o8.allergy.severe === true && o8.allergy.by === 'The guest'
+    && t8.length === 1 && t8[0].allergies.some((a: any) => a.name === 'Milk' && a.severity === 'severe') && JSON.stringify(t8[0].contains) === '["Milk"]' && t8[0].note === 'Extra hot' && o8.lines[0].note === 'Extra hot', { o8: o8?.allergy, t8 });
+  const menuNow: any = await k({ action: 'menu' });
+  check('…and the kiosk’s menu says what a dish contains (or nothing, when nobody has said)', menuNow.body.sections.flatMap((x: any) => x.items).find((i: any) => i.id === 'latte')?.allergens?.join() === 'milk' && menuNow.body.sections.flatMap((x: any) => x.items).find((i: any) => i.id === 'scone')?.allergens === null, menuNow.body.sections?.flatMap((x: any) => x.items).map((i: any) => [i.id, i.allergens]));
 
   console.log('the page');
   const page = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx');

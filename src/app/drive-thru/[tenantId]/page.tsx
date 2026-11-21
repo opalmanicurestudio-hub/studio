@@ -28,6 +28,9 @@ import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { readBack, timeLeft, CAR_COLORS, CAR_KINDS } from '@/lib/counter-orders';
 import { byWindow, laneOf } from '@/lib/drive-lanes';
 import { outWords } from '@/lib/menu-stock';
+import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
+import type { AllergenKey } from '@/lib/allergens';
+import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
@@ -36,13 +39,15 @@ const POLL_MS = 2000;
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
-type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item' };
+type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item'; note?: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null; points?: { phone: string | null; earned: number; verified?: boolean } | null;
   // A reward used on it (lib/counter-points useReward): what it took off, and the items' own total.
   reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
   // The card reader's payment for it (lib/counter-card), if one was started.
-  card?: { state: string; failed: string | null; readerId: string | null; at: string | null } | null };
+  card?: { state: string; failed: string | null; readerId: string | null; at: string | null } | null;
+  // The guest's allergies (lib/order-allergy): on every kitchen ticket.
+  allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 // A card payment the reader is asking for, or taking right now.
 const ON_READER = ['starting', 'on_reader', 'capturing'];
@@ -266,6 +271,7 @@ export default function DriveThru() {
   const [picked, setPicked] = useState<string | null>(null);
   const [section, setSection] = useState<string | null>(null);
   const [choiceFor, setChoiceFor] = useState<LaneItem | null>(null);
+  const [allergyOpen, setAllergyOpen] = useState(false); const [allergyHold, setAllergyHold] = useState<{ carId: string; number: string } | null>(null);
   // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
   const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [staff, setStaff] = useState<ScreenStaff | null>(null);
@@ -503,6 +509,9 @@ export default function DriveThru() {
     void act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: keyFor(sig) }, (d) => setJust((j) => (j ? { ...j, sized: true, took: true, lineId: d.line?.lineId || j.lineId } : j)), sig);
   };
   // Anything else changed on the order closes what was being offered.
+  // The guest's allergies, and a note on a dish (lib/order-allergy): while the order is being taken.
+  const saveAllergy = (v: AllergyValue) => order && act('allergy', { action: 'allergy', orderId: order.id, allergy: allergyBody(v) }, (d) => { setAllergyOpen(false); setNotice({ text: d.already ? `Order ${order.number}: that allergy is on the order already.` : d.tickets ? `Order ${order.number}: allergy added to what’s still being made. Tell the kitchen too.` : d.allergy ? `Order ${order.number}: allergy noted for the kitchen.` : `Order ${order.number}: no allergies.`, tone: 'good' }); });
+  const saveNote = (l: Line, note: string) => order && act(`line-${l.lineId}`, { action: 'note', orderId: order.id, lineId: l.lineId, note, tapKey: rid() });
   const setQty = (l: Line, q: number) => {
     if (!order) return; setJust(null); const sig = `line|${l.lineId}|${q}`;
     void act(`line-${l.lineId}`, q < 1 ? { action: 'remove', orderId: order.id, lineId: l.lineId, tapKey: keyFor(sig) } : { action: 'qty', orderId: order.id, lineId: l.lineId, quantity: q, tapKey: keyFor(sig) }, undefined, sig);
@@ -592,7 +601,9 @@ export default function DriveThru() {
   }, [cardOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (to: 'gone' | 'forward', spot?: string) => car && act(`move-${to}`, { action: 'move', carId: car.id, to, ...(spot ? { spot } : {}) }, () => {
     if (to === 'gone') setNotice({ text: `Car ${car.number} is on its way.`, tone: 'good' });
-  });
+  }, undefined, (d) => { if (d.code === 'allergy') setAllergyHold({ carId: car.id, number: car.number }); });
+  // Handed over with an allergy the kitchen hasn't noted: refused; a manager can hand it over with their PIN (kept on record).
+  const handAllergy = (h: { carId: string; number: string }, pass: string) => act('move-gone', { action: 'move', carId: h.carId, to: 'gone', allergyOverride: true, staffPass: pass }, () => setNotice({ text: `Car ${h.number} was handed over by a manager.`, tone: 'good' }));
   // "Not all ready" asks for a second tap, and a second tap within a moment (a double tap) doesn't count.
   const handOver = () => { if (allReady || (handAnyway && Date.now() - handAnyway > 700)) void move('gone'); else if (!handAnyway) setHandAnyway(Date.now()); };
   // Voiding a sent order nobody will pay for: a manager's PIN if whoever is working isn't one.
@@ -668,6 +679,8 @@ export default function DriveThru() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}{editable && l.offer === 'size' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</p>
                   {l.choicesText && <p className="text-[14px] leading-snug" style={{ color: MUTED }}>{l.choicesText}</p>}
+                  {order!.allergy && (() => { const w = conflictWords(dishConflict(lane?.menu.find((m) => m.id === l.itemId), order!.allergy), order!.allergy); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
+                  <LineNote note={l.note} name={l.name} busy={!!busy} editable={editable && order!.status === 'building'} onSave={(n) => void saveNote(l, n)} />
                   {!editable && order!.kitchen !== 'not sent' && <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>}
                 </div>
                 <span className="shrink-0 text-[15px] tabular-nums" style={{ color: INK }}>{usd(l.unitPrice * l.quantity)}</span>
@@ -675,6 +688,9 @@ export default function DriveThru() {
             );
           })}
         </ul>}
+      {order && ((editable && (order.status === 'building' || order.status === 'sent')) || order.allergy) && <div className="px-3 pb-2"><button type="button" onClick={() => editable && (order.status === 'building' || order.status === 'sent') && setAllergyOpen(true)} disabled={!!busy || !editable || (order.status !== 'building' && order.status !== 'sent')}
+        aria-label={order.allergy ? `Allergy: ${allergyWords(order.allergy)}. Change it` : 'Allergies for this order'} className={`min-h-[44px] w-full rounded-xl px-3 text-left text-[14px] font-semibold disabled:opacity-100 ${RING}`}
+        style={order.allergy ? { background: AMBER_TINT, color: AMBER } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{order.allergy ? `Allergy: ${allergyWords(order.allergy)}` : 'Allergies for this order'}</button></div>}
       {editable && order && order.status === 'building' && <div className="px-3 pb-3"><OfferAsk just={just} orderId={order.id} item={lane?.menu.find((m) => m.id === just?.itemId)} find={(id) => lane?.menu.find((m) => m.id === id && !m.off && !outWords(m))}
         have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} /></div>}
       {lane?.pointsOn && order && order.status !== 'voided' && (
@@ -1073,7 +1089,9 @@ export default function DriveThru() {
       </main>
 
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
+      {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
+      {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
       {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
         onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

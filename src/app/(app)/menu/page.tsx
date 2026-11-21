@@ -284,7 +284,7 @@ export default function MenuPage() {
               )}
               {voice?.setUp && voice.outdated && (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT }}>
-                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it offers a bigger size or something to go with it, only as you choose below, and can make what was just ordered bigger.</span>
+                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it saves a guest’s food allergy on the order for the kitchen, offers a bigger size or something to go with it only as you choose below, and can make what was just ordered bigger.</span>
                   <button type="button" onClick={updateVoice} disabled={busy === 'voiceUpdate'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voiceUpdate' ? 'Updating…' : 'Update the assistant'}</button>
                 </div>
               )}

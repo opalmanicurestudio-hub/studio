@@ -135,7 +135,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
     check(`${name}: a sized-up line says so while the order is being taken, and another order picked closes it`, />Sized up</.test(s) && (/setJust\(null\); \}, \[order\?\.id\]\)/.test(s) || /setJust\(null\); if \(order && nameFor/.test(s)));
   }
   const rt = src('src/app/api/counter/route.ts');
-  check('the screens’ route: size up is the lane’s own action (its order checked as this screen’s), and an add says which line it went on', /'add', 'sizeUp', 'remove', 'qty', 'name', 'send'/.test(rt) && /\['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid'/.test(rt) && /line: r\.line \? \{ lineId: r\.line\.lineId \} : null/.test(rt) && /offer: b\.offer/.test(rt));
+  check('the screens’ route: size up is the lane’s own action (its order checked as this screen’s), and an add says which line it went on', /'add', 'sizeUp', 'remove', 'qty', ('note', 'allergy', )?'name', 'send'/.test(rt) && /\['add', 'sizeUp', 'remove', 'qty', ('note', 'allergy', )?'name', 'send', 'paid'/.test(rt) && /line: r\.line \? \{ lineId: r\.line\.lineId \} : null/.test(rt) && /offer: b\.offer/.test(rt));
   const mine = src('src/components/menu/OfferAsk.tsx');
   check('in the app’s own words and look', !/uppercase|font-black|\{\/\*| · |call us|contact us/i.test(mine) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(mine));
 

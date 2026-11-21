@@ -31,6 +31,7 @@ import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
+import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
 import { deliveryFrom } from '@/lib/delivery-plan';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -104,7 +105,9 @@ export async function aheadHours(db: any, tenantId: string, tenant: any, now = D
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
  *  once it's added (lib/menu-upgrades): only items on this same menu (`shown`). */
 const guestItem = (m: MenuItem, shown: Set<string>) => ({ id: m.id, name: m.name, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
-  choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) } });
+  choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) },
+  // What it contains of the major allergens, when the business has said (null: nobody has, never "none").
+  allergens: m.allergensSet ? m.allergens : null });
 
 /** Today and yesterday in the business's own time zone: an order placed just before midnight is still picked up after. */
 export function openDays(tenant: any, now = Date.now()): string[] {
@@ -170,7 +173,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown; allergy?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -200,6 +203,8 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (!m || !it || !m.onMenu || m.membersOnly) return fail('Something in your order isn’t on the menu any more. Take it off and try again.', 409, 'gone');
     const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`);
     if (!r.ok) return fail(`${m.name}: ${r.error}`, 409, 'line');
+    // (A note for the kitchen about this dish: lib/order-allergy.)
+    const note = cleanLineNote((l as any)?.note); if (note) r.line.note = note;
     want.set(id, (want.get(id) || 0) + r.line.quantity);
     lines.push(r.line);
   }
@@ -242,7 +247,9 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}) });
+  // The guest's allergies (lib/order-allergy): on every ticket.
+  const allergy = cleanOrderAllergy(b.allergy);
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.note || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}), ...(allergy ? { allergy } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
@@ -269,6 +276,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
+      ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: new Date(now).toISOString() } } : {}),
       ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
         // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
         ...(deliv ? { delivery: { ...deliv, arriveAt: new Date(Date.parse(slot) + deliv.driveMin * 60000).toISOString() } } : {}) },
@@ -437,7 +445,9 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     // Points this order earned (never their balance: a page anyone with the link can open).
     earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
     // (With what was picked, so the page can put the same order together again: Order this again.)
-    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null,
+    // (What they told the kitchen: their allergies, and a note on a dish.)
+    allergy: allergyWords(orderAllergyOf(or)) || null,
+    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, note: l.note || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null,
       itemId: String(l.itemId || ''), picks: picksOf(l.choices) })),
     // The text when it's ready (lib/ready-text): asked for (its last four digits) or sent, and whether it can be asked.
     text: readyTextView(or), texts: readyTextsOn(tenant) && or.status === 'sent' && !or.readyText?.sentAt,
@@ -580,6 +590,9 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
       tx.set(carRef, { aheadId: orderId, aheadNumber: String(or.number || '') }, { merge: true });
       // Their name from the order placed ahead, for the board, the window and the kitchen, unless one was given here.
       if (!own.guestName && or.guestName) tx.set(ownRef, { guestName: or.guestName }, { merge: true });
+      // …and their allergies (lib/order-allergy), shown on this screen while it's being taken, on whatever is added here.
+      const had = orderAllergyOf(or); const both = had ? mergeAllergy(orderAllergyOf(own), had) : null;
+      if (both && !sameAllergy(orderAllergyOf(own), both)) tx.set(ownRef, { allergy: { keys: both.keys, other: both.other, severe: both.severe, by: had!.by || 'The guest', at: had!.at || nowS, from: 'ahead' } }, { merge: true });
     } else tx.set(carRef, { id: carRef.id, arrivedAt: nowS, takenBy: who.name, day: days[0], number: or.number, orderId, stage: 'pickup', stageAt: { pickup: nowS }, ahead: true, inLine: false }, { merge: true });
     tx.set(ref, { carId: carRef.id, ahead: { carId: carRef.id, hereAt: or.ahead?.hereAt || nowS } }, { merge: true });
     return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null, linked: !!car, carNumber: car ? String(car.number || '') : String(or.number || '') };

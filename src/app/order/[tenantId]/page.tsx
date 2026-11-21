@@ -16,6 +16,9 @@ import { Check, Minus, Plus, ShoppingBag, Star, X } from 'lucide-react';
 import { MenuAsk } from '@/components/klair/MenuAsk';
 import { TELL_TEAM } from '@/lib/klair-menu';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
+import { AllergyChips, NoteField, NO_ALLERGY, allergyBody, hasAllergy, type AllergyValue } from '@/components/menu/OrderAllergy';
+import { conflictWords, containsLine, dishConflict, sameNote } from '@/lib/order-allergy';
+import type { AllergenKey } from '@/lib/allergens';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 import { CURBSIDE_GEOFENCE_M, distanceMetres, roughEtaMinutes } from '@/lib/retail-orders';
@@ -43,18 +46,22 @@ const headWords = (ws: Way[]) => { const pick = ws.filter((w) => w !== 'delivery
   return pick.length ? `Order ahead, pay now, and pick it up ${wayList(pick)}${del ? ', or have it delivered' : ''}.` : 'Order ahead, pay now, and have it delivered.'; };
 const wayList = (ws: Way[]) => (ws.length > 1 ? `${ws.slice(0, -1).map((w) => WAY_WORDS[w].split(':')[0]).join(', ')} or ${WAY_WORDS[ws[ws.length - 1]].split(':')[0]}` : WAY_WORDS[ws[0]] || 'inside');
 type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null;
-  upgrades?: { size: boolean; items: string[] } };
+  upgrades?: { size: boolean; items: string[] };
+  /** What it contains of the major allergens, when the business has said (null: nobody has). */
+  allergens?: AllergenKey[] | null };
 type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?: string[]; asapFull?: boolean; filling?: boolean;
   // Opening hours (lib/ahead-hours): "as soon as it's ready" offered or not, opening later today, closing, and (nothing to
   // pick now) when it opens next.
   /** "Text me when it's ready" offered (lib/ready-text). */
   texts?: boolean;
   asap?: boolean; opens?: string | null; closes?: string | null; nextOpen?: string | null; closedNow?: boolean; lateToday?: boolean; busy?: { minutes: number } | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
-type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind };
+type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind;
+  /** A note for the kitchen about this dish (lib/order-allergy). */
+  note?: string };
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks }[]; total: number;
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
@@ -127,8 +134,9 @@ function Sheet({ title, onClose, children, foot }: { title: string; onClose: () 
   );
 }
 
-function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
-  const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1);
+function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+  const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [note, setNote] = React.useState('');
+  const has = containsLine(item);
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
   return (
     <Sheet title={item.name} onClose={onClose} foot={
@@ -138,11 +146,13 @@ function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks,
           <span className="w-7 text-center text-[17px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
           <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
         </div>
-        <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+        <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty, note.trim())} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
       </div>}>
       {item.imageUrl && <img src={item.imageUrl} alt="" className="mb-4 aspect-[4/3] w-full rounded-2xl object-cover" style={{ background: SOFT }} />}
       {(item.words || item.calories != null) && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
+      <p className="mb-4 text-[14px]" style={{ color: MUTED }}>{has ? `${has}.${item.choices.length ? ' Choices can change this.' : ''}` : 'Allergens aren’t listed for this one.'}</p>
       <ChoicePicker item={item} picks={picks} onChange={setPicks} />
+      <div className="mt-4"><NoteField value={note} onChange={setNote} id={`note-${item.id}`} /></div>
       {!priced.ok && <p role="status" className="mt-3 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
     </Sheet>
   );
@@ -391,7 +401,8 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
 function OrderLines({ t }: { t: Track }) {
   return (
     <section aria-label="Your order" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-      <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}>, {l.choicesText}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
+      <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}>, {l.choicesText}</span> : null}{l.note ? <span className="block text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
+      {t.allergy && <p className="mt-2 text-[14px] font-medium" style={{ color: AMBER }}>Allergy told to the kitchen: {t.allergy}</p>}
       {!!t.deliveryFee && <p className="mt-2 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Delivery</span><span className="tabular-nums">{usd(t.deliveryFee)}</span></p>}
       {!!t.tip && <p className="mt-1 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Driver tip</span><span className="tabular-nums">{usd(t.tip)}</span></p>}
       <p className="mt-3 flex justify-between border-t pt-3 text-[16px] font-semibold" style={{ borderColor: LINE }}><span>Paid</span><span className="tabular-nums">{usd(t.total)}</span></p>
@@ -523,6 +534,8 @@ export default function OrderAhead() {
   // Delivered: the address (remembered on this phone), the driver's note, and the check (the fee and the drive). A changed
   // address is checked again.
   const [addr, setAddrNow] = React.useState<Addr>(NO_ADDR); const [dnote, setDnote] = React.useState('');
+  // The guest's allergies (lib/order-allergy): on every ticket in the kitchen.
+  const [allergy, setAllergy] = React.useState<AllergyValue>(NO_ALLERGY);
   const [dcheck, setDcheck] = React.useState<DCheck | null>(null); const [checking, setChecking] = React.useState(false); const [checkErr, setCheckErr] = React.useState('');
   const setAddr = (a: Addr) => { setAddrNow(a); setDcheck(null); setCheckErr(''); };
   const [tip, setTip] = React.useState<Tip>(null);
@@ -564,13 +577,14 @@ export default function OrderAhead() {
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
   }, [waiting, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
-  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote, tip]);
+  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote, tip, allergy]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
-  const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind) => {
+  const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind, note = '') => {
     const p = priceChoices(item, picks); const each = Math.max(0, item.price + (p.ok ? p.extra : 0)); const text = pickWords(item, picks);
-    const key = cart.find((l) => l.itemId === item.id && l.choicesText === text)?.key || rid();
-    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}) }]; });
+    // (A note of its own makes a line of its own.)
+    const key = cart.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note))?.key || rid();
+    setCart((c) => { const same = c.find((l) => l.itemId === item.id && l.choicesText === text && sameNote(l.note, note)); if (same) return c.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + qty), ...(offer && !l.offer ? { offer } : {}) } : l)); return [...c, { key, itemId: item.id, name: item.name, picks, choicesText: text, quantity: qty, each, imageUrl: item.imageUrl, ...(offer ? { offer } : {}), ...(note ? { note } : {}) }]; });
     return key;
   };
   /** Order again: each item as it was, if today's menu still has it the same way; what can't be is said. */
@@ -593,8 +607,8 @@ export default function OrderAhead() {
   }, [menu?.on]); // eslint-disable-line react-hooks/exhaustive-deps
   const setFavorite = (p: Past, fav: boolean) => setPast(rememberPast(tenantId, p, fav));
   // Added from its sheet: then what's offered with it, if there's anything they could have.
-  const added = (item: Item, picks: Picks, qty: number) => {
-    const key = add(item, picks, qty, offered ? 'item' : undefined); setOpen(null);
+  const added = (item: Item, picks: Picks, qty: number, note = '') => {
+    const key = add(item, picks, qty, offered ? 'item' : undefined, note); setOpen(null);
     if (offered) { setOffered(false); return; }
     if (passed.includes(item.id)) return;
     const o = offersFor(item, picks, (id) => byId.get(id), (id) => cart.some((l) => l.itemId === id));
@@ -645,7 +659,7 @@ export default function OrderAhead() {
     if (wantText && digits.length !== 10) { setPlaceErr(`Add your mobile number for the text, or untick Text me when ${deliver ? 'it’s on its way' : 'it’s ready'}.`); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
     if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
@@ -701,7 +715,10 @@ export default function OrderAhead() {
           {cart.map((l) => (
             <li key={l.key} className="flex items-center gap-3">
               {l.imageUrl && <img src={l.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" style={{ background: SOFT }} />}
-              <div className="min-w-0 flex-1"><p className="truncate text-[16px] font-medium">{l.name}</p>{l.choicesText && <p className="truncate text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</p>}<p className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-[16px] font-medium">{l.name}</p>{l.choicesText && <p className="truncate text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</p>}
+                {l.note && <p className="text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</p>}
+                {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest'); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
+                <p className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</p></div>
               <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
                 <button type="button" aria-label={l.quantity === 1 ? `Take off ${l.name}` : 'One fewer'} onClick={() => qty(l.key, -1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
                 <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
@@ -718,6 +735,8 @@ export default function OrderAhead() {
       <section className="space-y-4 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <label className="block"><span className="text-[15px] font-semibold">Name for the order</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>
+        <AllergyChips value={allergy} onChange={setAllergy} idBase="ahead-allergy" hint="On every ticket in the kitchen. Leave it empty if there are none." />
+        {hasAllergy(allergy) && cart.some((l) => { const c = dishConflict(byId.get(l.itemId), allergy); return c === 'unknown' || c.length > 0; }) && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Check the dishes marked above before paying. The kitchen sees your allergy either way.</p>}
         {(menu.points || menu.texts || way === 'delivery') && (
           <div>
             <label className="block"><span className="text-[15px] font-semibold">Phone <span className="font-normal" style={{ color: MUTED }}>{way === 'delivery' ? '(so the driver can reach you)' : '(optional)'}</span></span>
@@ -808,7 +827,7 @@ export default function OrderAhead() {
           </div>
         </section>
       ))}
-      {open && <ItemSheet item={open} onAdd={(p, q) => added(open, p, q)} onClose={() => { setOpen(null); setOffered(false); }} />}
+      {open && <ItemSheet item={open} onAdd={(p, q, n) => added(open, p, q, n)} onClose={() => { setOpen(null); setOffered(false); }} />}
       {after && byId.get(after.itemId) && <AfterSheet after={after} item={byId.get(after.itemId)!} line={cart.find((l) => l.key === after.key)} onSize={takeSize} onItem={takeItem} onClose={closeAfter} />}
     </div>,
     count > 0 ? (

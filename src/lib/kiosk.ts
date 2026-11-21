@@ -10,6 +10,7 @@
 // shelf (voidOrder). Nothing is ever made for an order that isn't paid.
 //   tenants/{t}/counterOrders/{id}.kiosk = { screen, state: 'awaiting_pay' | 'paid' | 'let_go' }
 //   kitchenScreens/{hash}.readerId, .kioskOrder   (its reader, picked by a manager; the order it's being paid for now)
+import { cleanLineNote, cleanOrderAllergy } from '@/lib/order-allergy';
 import { createHash } from 'crypto';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { lineFor, totalsOf, orderNumber, type OrderLine } from '@/lib/counter-orders';
@@ -45,7 +46,9 @@ function kioskItem(m: MenuItem, tenant: any, at: Date, shown: Set<string>) {
   const p = priceNow(m, tenant, at);
   return { id: m.id, name: m.name, section: m.section, words: m.words, price: p.price, happy: p.happy, from: m.from, startPrice: Math.max(0, money2(m.startPrice - m.price + p.price)),
     imageUrl: m.imageUrl, choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, featured: m.featured, badge: m.badge,
-    upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) } };
+    upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) },
+    // What it contains of the major allergens, when the business has said (null: nobody has, never "none").
+    allergens: m.allergensSet ? m.allergens : null };
 }
 
 /** The kiosk's menu: everything on the menu for everyone that's served at this time of day, by section. The menu itself
@@ -76,7 +79,7 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
 /** The order the guest tapped Pay on: priced from the menu, numbered ("K14") and sent to the kitchen as unpaid (its stock
  *  held). The same key and the same order again (a second tap, a lost answer) is the same order; one this kiosk left
  *  waiting to be paid (the guest before walked away) is let go first, so a kiosk only ever holds one. */
-export async function kioskPlace(db: any, tenantId: string, tenant: any, screen: Screen, b: { key?: unknown; lines?: unknown; name?: unknown; toGo?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function kioskPlace(db: any, tenantId: string, tenant: any, screen: Screen, b: { key?: unknown; lines?: unknown; name?: unknown; toGo?: unknown; allergy?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   if (!accountOf(tenant) || !(o.stripe || readerStripe())) return fail('Paying by card isn’t set up here yet. Please order at the counter.', 409, 'no_payments');
   if (!screen.readerId) return fail('This kiosk’s card reader isn’t picked yet. Please order at the counter.', 409, 'no_reader');
   const key = String(b.key || ''); if (!KEY.test(key)) return fail('Something went wrong. Try again.', 400);
@@ -97,6 +100,8 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     // Priced now (happy hour), and only what's served now (lib/menu-time), as at the counter.
     const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, { tenant, at });
     if (!r.ok) return fail(`${m.name}: ${r.error}`, 409, 'line');
+    // (A note for the kitchen about this dish: lib/order-allergy.)
+    const note = cleanLineNote((l as any)?.note); if (note) r.line.note = note;
     want.set(id, (want.get(id) || 0) + r.line.quantity);
     lines.push(r.line);
   }
@@ -113,7 +118,9 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
   const money = totalsOf(tenant, lines);
   if (Math.round(money.total * 100) < 50) return fail('Card payments start at $0.50. Add something, or order at the counter.', 400, 'too_small');
   // The same order only for the same key AND the same details: changed after going back, it's a new order.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.unitPrice]), name, toGo });
+  // The guest's allergies (lib/order-allergy): on every ticket.
+  const allergy = cleanOrderAllergy(b.allergy);
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.unitPrice, l.note || '']), name, toGo, ...(allergy ? { allergy } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/kiosk_${createHash('sha256').update(`${tenantId}/${screen.ref.id}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // (Asked again: as it stands. One made but not sent yet, its answer lost partway, is sent now.)
@@ -133,6 +140,7 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     const n = Math.floor(num(c.kiosk)) + 1; const number = orderNumber('kiosk', n);
     tx.set(counterRef, { kiosk: n, day }, { merge: true });
     tx.set(orderRef, { id: orderId, number, channel: 'kiosk', status: 'building', lines, ...money, guestName: name, toGo, createdAt: at.toISOString(), createdBy: screen.name, day,
+      ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: at.toISOString() } } : {}),
       kiosk: { screen: screen.ref.id, state: 'awaiting_pay' } });
     return { number };
   });

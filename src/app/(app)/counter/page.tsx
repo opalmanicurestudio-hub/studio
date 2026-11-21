@@ -24,6 +24,9 @@ import { Deliveries, type DeliveryRow, type FoodDriver } from '@/components/driv
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
 import { courierLate } from '@/lib/app-orders';
+import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
+import type { AllergenKey } from '@/lib/allergens';
+import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
@@ -74,7 +77,7 @@ const READER_KEY = 'cf.counter.reader';
 const ON_READER = ['starting', 'on_reader', 'capturing'];
 
 type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean };
-type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item' };
+type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item'; note?: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
   kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null;
@@ -84,7 +87,9 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
   text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null;
   /** A delivery app's order (lib/app-orders): which app, its code, its spot on the pickup shelf, when the courier is due. */
-  app?: { state: string; app?: string | null; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null };
+  app?: { state: string; app?: string | null; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null;
+  /** The guest's allergies (lib/order-allergy): on every kitchen ticket. */
+  allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
@@ -159,7 +164,7 @@ export default function CounterPage() {
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
-  const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null); const [appFix, setAppFix] = useState<string | null>(null);
+  const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null); const [appFix, setAppFix] = useState<string | null>(null); const [allergyOpen, setAllergyOpen] = useState(false); const [allergyHold, setAllergyHold] = useState<{ carId: string; label: string } | null>(null);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
 
@@ -210,6 +215,17 @@ export default function CounterPage() {
   // Cancelled on the app: asked once more first; once the kitchen started on it, a manager's PIN (unless one is signed in).
   const appCancelDone = (d: any) => { setAppOff(null); setAppPin(null); setNotice({ text: `${d.name} was taken off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${d.returned ? ' What the kitchen hadn’t started went back.' : ''}`, tone: 'good' }); };
   const appCancel = (o: Order) => act(`appCancel-${o.id}`, { action: 'appCancel', orderId: o.id }, appCancelDone, (d) => { if (!d.needsManager) return false; setAppPin(o); return true; });
+  // The guest's allergies, and a note on a dish (lib/order-allergy): while the order is being taken.
+  const saveAllergy = (v: AllergyValue) => order && act('allergy', { action: 'allergy', orderId: order.id, allergy: allergyBody(v) }, (d) => { setAllergyOpen(false); setNotice({ text: d.already ? `${order.number}: that allergy is on the order already.` : d.tickets ? `${order.number}: allergy added to what’s still being made. Tell the kitchen too.` : d.allergy ? `${order.number}: allergy noted for the kitchen.` : `${order.number}: no allergies.`, tone: 'good' }); });
+  // Handed over with an allergy the kitchen hasn't noted: refused; a manager can hand it over with their PIN.
+  const holdFor = (carId: string, label: string) => (d: any) => { if (d.code !== 'allergy') return false; setAllergyHold({ carId, label }); setNotice({ text: d.error, tone: 'warn' }); return true; };
+  const allergyPinCheck = async (pin: string) => {
+    if (!allergyHold) return { ok: false as const, error: 'Pick the order again.' };
+    const d = await post({ action: 'move', carId: allergyHold.carId, to: 'gone', allergyOverride: true, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    setNotice({ text: `${allergyHold.label} was handed over by a manager.`, tone: 'good' }); setAllergyHold(null); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: '', pass: '' } };
+  };
+  const saveNote = (l: Line, note: string) => order && act(`note-${l.lineId}`, { action: 'note', orderId: order.id, lineId: l.lineId, note, tapKey: rid() });
   const appCodeFix = (o: Order, v: { app: string; code: string }) => act(`appCode-${o.id}`, { action: 'appCode', orderId: o.id, app: v.app, code: v.code }, (d) => { setAppFix(null); setNotice({ text: d.already ? `${d.name}: no change.` : `Fixed: ${d.was} is now ${d.name}.`, tone: 'good' }); });
   const appPinCheck = async (pin: string) => {
     if (!appPin) return { ok: false as const, error: 'Pick the order again.' };
@@ -257,7 +273,7 @@ export default function CounterPage() {
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => setNotice(d.state === 'paid' ? { text: 'The card went through, so it’s paid.', tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' }));
   const cancel = () => { if (!order) return; setJust(null); void act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `${order.number} was dropped.`, tone: 'good' })); };
   const call = (g: Guest, o?: Order) => { sayOut(g.number, o?.guestName); void act(`call-${g.id}`, { action: 'call', carId: g.id }); };
-  const handOver = (g: Guest) => act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${g.number} was handed over.`, tone: 'good' }));
+  const handOver = (g: Guest) => act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${g.number} was handed over.`, tone: 'good' }), holdFor(g.id, g.number));
   useEffect(() => {
     const id = order?.id; if (!cardOn || !id) return;
     let live = true;
@@ -322,7 +338,9 @@ export default function CounterPage() {
             {order.lines.length === 0 ? <p className="rounded-2xl px-3 py-5 text-center text-[14px]" style={{ background: SOFT, color: MUTED }}>Tap the menu to add to the order.</p>
               : <ul className="space-y-2">{order.lines.map((l) => (
                 <li key={l.lineId} className="flex items-center justify-between gap-2 text-[14px]">
-                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}</span>
+                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}
+                    {order.allergy && (() => { const w = conflictWords(dishConflict(menu.find((m) => m.id === l.itemId), order.allergy), order.allergy); return w ? <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
+                    <LineNote note={l.note} name={l.name} busy={!!busy} editable={order.status === 'building'} onSave={(n) => void saveNote(l, n)} /></span>
                   <span className="flex shrink-0 items-center gap-1">
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
                     <span className="w-6 text-center tabular-nums">{l.quantity}</span>
@@ -330,6 +348,8 @@ export default function CounterPage() {
                     <span className="w-16 text-right tabular-nums">{usd(l.unitPrice * l.quantity)}</span>
                   </span>
                 </li>))}</ul>}
+            {(order.status === 'building' || order.status === 'sent' || order.allergy) && <button type="button" onClick={() => (order.status === 'building' || order.status === 'sent') && setAllergyOpen(true)} disabled={!!busy || (order.status !== 'building' && order.status !== 'sent')} aria-label={order.allergy ? `Allergy: ${allergyWords(order.allergy)}. Change it` : 'Allergies for this order'}
+              className={`${btn} w-full justify-start text-left text-[14px] disabled:opacity-100`} style={order.allergy ? { background: AMBER_TINT, color: AMBER, border: `1px solid ${AMBER_TINT}` } : quiet}>{order.allergy ? `Allergy: ${allergyWords(order.allergy)}` : 'Allergies for this order'}</button>}
             {order.status === 'building' && <OfferAsk just={just} orderId={order.id} item={menu.find((m) => m.id === just?.itemId)} find={(id) => menu.find((m) => m.id === id && !m.off && !outWords(m))}
               have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} />}
             {lane?.pointsOn && !order.staffMeal && !order.app && <div className="border-t pt-2" style={{ borderColor: LINE }}>
@@ -403,7 +423,7 @@ export default function CounterPage() {
                   <p className="text-[13px]" style={{ color: ready && !g.calledAt ? GREEN : MUTED }}>{g.calledAt ? `Called ${minsAgo(g.calledAt, now)}` : ready ? 'Ready' : `Making: ${(o?.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}`}</p>
                   {o?.text && <p className="text-[13px]" style={{ color: o.text.failed ? AMBER : MUTED }}>{!o.text.sent ? `Gets a text when it’s ready (···${o.text.last4})` : o.text.failed ? 'The text may not have gone' : `Texted${o.text.sentAt ? ` ${minsAgo(o.text.sentAt, now)}` : ''}`}</p>}</div>}
                 {o?.app?.code ? <>
-                  {ready && <button type="button" onClick={() => void act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${o.app!.label} ${o.app!.code} was picked up.`, tone: 'good' }))} disabled={busy === `gone-${g.id}`} className={`${btn} w-full`} style={dark}>Picked up by the courier</button>}
+                  {ready && <button type="button" onClick={() => void act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${o.app!.label} ${o.app!.code} was picked up.`, tone: 'good' }), holdFor(g.id, `${o.app!.label} ${o.app!.code}`))} disabled={busy === `gone-${g.id}`} className={`${btn} w-full`} style={dark}>Picked up by the courier</button>}
                   {appFix === o.id ? <AppFix id={o.id} apps={lane?.apps || []} start={{ app: String(o.app.app || ''), code: String(o.app.code || '') }} busy={!!busy} onSave={(v) => void appCodeFix(o, v)} onKeep={() => setAppFix(null)} />
                   : appOff === o.id ? <div className="space-y-2 rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
                     <p className="text-[13.5px]">Cancelled on {o.app.label}? It comes off the shelf, and anything already made is thrown out.</p>
@@ -423,6 +443,8 @@ export default function CounterPage() {
             ); })}</ul>}
       </section>
     </main>
+    {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || order.number} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
+    {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}

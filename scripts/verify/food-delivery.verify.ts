@@ -362,6 +362,15 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   check('…a driver isn’t offered yesterday’s one (the counter settles it)', r.body.ok && !(r.body.rows || []).some((x: any) => x.orderId === id7), r.body.rows);
   actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
 
+  console.log('allergies and a note, ordered ahead');
+  r = await A({ ...base, key: nextKey(), name: 'Ivy', phone: '8325550144', lines: [{ itemId: 'burger', quantity: 2, note: 'No onions' }, { itemId: 'fries', quantity: 1 }], allergy: { keys: ['sesame'], other: 'Mustard' } });
+  const id9 = r.body.orderId; const s9 = r.body.sig; paid(S.pis.get((await get(`${T}/counterOrders/${id9}`)).ahead.payId).id); await A({ action: 'done', o: id9, s: s9 });
+  const t9 = (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id9);
+  const burger9 = t9.find((t: any) => t.menuItemId === 'burger'); const fries9 = t9.find((t: any) => t.menuItemId === 'fries');
+  check('the guest’s allergies on every ticket; the note on the burger only', r.body.ok && t9.length === 2 && t9.every((t: any) => t.allergies?.some((a: any) => a.name === 'Sesame') && t.allergies.some((a: any) => a.name === 'Mustard')) && burger9?.note === 'No onions' && !fries9?.note, t9.map((t: any) => [t.menuItemId, t.allergies, t.note]));
+  r = await A({ action: 'track', o: id9, s: s9 });
+  check('…and their page shows what they told the kitchen', r.body.allergy === 'Sesame, Mustard' && r.body.lines.find((l: any) => l.name === 'Burger')?.note === 'No onions', { a: r.body.allergy, l: r.body.lines });
+
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });
   r = await A({ ...base, key: nextKey(), phone: '8325550142' });

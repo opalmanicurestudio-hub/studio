@@ -67,7 +67,9 @@ export const holdMinutesOf = (item: any) => { const n = Math.floor(Number(item?.
 
 export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number; imageUrl?: string | null; happy?: boolean;
   /** Taken as an offer, right after something else was added (lib/menu-upgrades): a size up, or something to go with it. */
-  offer?: 'size' | 'item' };
+  offer?: 'size' | 'item';
+  /** A note for the kitchen about this dish ("no onions"), on its tickets only (lib/order-allergy). */
+  note?: string | null };
 
 /** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
 export const photoOf = (item: any): string | null => {

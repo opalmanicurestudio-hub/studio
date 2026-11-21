@@ -87,7 +87,7 @@ import { toolLocked } from '@/lib/tool-lock';
 import { screenOf, teamInstead, workingNow } from '@/lib/screen-keys';
 import { readMenu } from '@/lib/menu-server';
 import { targetsOf, photoOf, spotsOf, pickupOnlyOf, carryOn, RUSH_CARS, inLineNow, CHANNEL_NAME, atDriveThru, counterSide, type Channel } from '@/lib/counter-orders';
-import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder, staffMeal } from '@/lib/counter-server';
+import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder, staffMeal, setAllergy } from '@/lib/counter-server';
 import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
@@ -114,8 +114,10 @@ import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
-import { appOrdersOf } from '@/lib/app-orders';
+import { appOrdersOf, appName } from '@/lib/app-orders';
 import { appSend, appCode, appCancel } from '@/lib/app-orders-server';
+import { allergyWords, orderAllergyOf } from '@/lib/order-allergy';
+import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -144,7 +146,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -178,7 +180,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -209,7 +211,7 @@ export async function POST(req: NextRequest) {
         const o: any = s.data(); if (!o) continue;
         const mine = tickets.filter((t: any) => t.orderId === s.id && t.status !== 'cancelled');
         const waitingOn = mine.filter((t: any) => t.status === 'pending' || t.status === 'in_progress').map((t: any) => ({ name: String(t.menuItemName || 'Item'), quantity: num(t.quantity) || 1 }));
-        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [],
+        orders[s.id] = { id: s.id, number: o.number, channel: o.channel, status: o.status, guestName: cleanName(o.guestName) || null, lines: o.lines || [], allergy: orderAllergyOf(o),
           // Rewards for this order (lib/counter-points): the last 4 of the phone given, and what it earned once paid.
           // (Given by their rewards code, `verified`: they can use a reward on it, which is kept with what it took off.)
           points: o.clientId && o.points ? { phone: o.points.phone ? String(o.points.phone) : null, earned: num(o.points.earned), verified: o.points.verified === true } : null, subtotal: o.subtotal || 0, tax: o.tax || 0, taxLabel: o.taxLabel || 'Tax', total: o.total || 0,
@@ -677,11 +679,24 @@ export async function POST(req: NextRequest) {
       const carId = String(b.carId || ''); const to = String(b.to || '') as Stage;
       if (!ID.test(carId) || !STAGES.includes(to) || to === 'speaker') return bad('Where to?');
       const carRef = db.doc(`${T}/driveThruCars/${carId}`);
+      // Handed over with an allergy the kitchen hasn't noted (lib/order-allergy, lib/kitchen needsAllergyNote): refused,
+      // unless a manager hands it over themselves (signed in, or their PIN here), which is kept on record.
+      let allergyOk: { id: string; name: string } | null = null;
+      if (to === 'gone' && b.allergyOverride === true) {
+        const m = await managerFor(db, tenantId, staff, b.pin);
+        if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+        if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager hands it over without the kitchen’s Allergy noted. Their PIN, or ask one to.', staffOk }, { status: 403 });
+        allergyOk = m.approver;
+      }
+      const unnoted = (docs: any[]) => docs.some((d: any) => { const t: any = d.data() || {}; return !['delivered', 'cancelled'].includes(String(t.status)) && needsAllergyNote(ticketFrom({ ...t, id: d.id }, 'kdsTickets') as any); });
+      const allergyWait = (number: string) => ({ error: `${number || 'This order'} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over.`, status: 409, code: 'allergy' });
       // A delivery app's order handed to its courier (lib/app-orders): in the books first, as the app's sale (no tax
       // added, nothing in the drawer), then handed over as any order is.
       if (to === 'gone') {
         const c0: any = (await carRef.get()).data();
         const o0: any = c0 && ID.test(String(c0.orderId || '')) ? (await db.doc(`${T}/counterOrders/${c0.orderId}`).get()).data() : null;
+        // (Checked before anything is booked; checked again as it's handed over.)
+        if (!allergyOk && o0?.app?.code && unnoted((await db.collection(`${T}/kdsTickets`).where('orderId', '==', String(c0.orderId)).get()).docs)) return NextResponse.json({ ok: false, ...allergyWait(appName(o0.app)), staffOk }, { status: 409 });
         if (o0?.app?.code && o0.status === 'sent' && !o0.paidAt) {
           const p: any = await payOrder(db, tenantId, String(c0.orderId), { method: 'app', by, byId: staff?.id || null, day: todayIn(tz, now) });
           if (!p.ok) return bad(p.error, p.status);
@@ -701,6 +716,7 @@ export async function POST(req: NextRequest) {
         if (STAGES.indexOf(to) <= STAGES.indexOf(car.stage)) return { already: true };
         if (to === 'gone' && order && order.status !== 'building' && !order.paidAt) return { error: 'Take payment first. If they drove off, void the order.', status: 409 };
         if ((to === 'pickup' || to === 'forward') && order && !order.paidAt && !order.app?.code) return { error: 'Take payment first.', status: 409 };
+        if (to === 'gone' && !allergyOk && unnoted([...(order && order.status !== 'building' ? tix : []), ...aheadTix])) return allergyWait(String(car.number || order?.number || ''));
         // A spot is one of the business's own numbered spots (Menu page), and free; or none at all.
         const asked = to === 'forward' && b.spot !== undefined && b.spot !== null && String(b.spot) !== '' ? String(b.spot) : null;
         if (asked !== null && !(/^[1-8]$/.test(asked) && Number(asked) <= spotsOf(tenant))) return { error: 'That spot isn’t there anymore. Pick another.', status: 409 };
@@ -731,7 +747,8 @@ export async function POST(req: NextRequest) {
       forgetStats(tenantId);   // again once it's done, so a read in between never keeps the old numbers
       // Handed over or gone: the voice assistant (if it's still on with this car) hangs up.
       if (!r.error && to === 'gone') await stopCarCall(db, tenantId, carId, 'car gone');
-      return r.error ? bad(r.error, r.status) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
+      if (!r.error && !r.already && allergyOk) await logAuditAdmin(db, tenantId, { action: 'counter.allergy_handover', targetType: 'car', targetId: carId, summary: `${allergyOk.name} handed over an order with an allergy the kitchen hadn’t noted${allergyOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: allergyOk.id, name: allergyOk.name } } as any).catch(() => {});
+      return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
     }
 
     const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
@@ -747,9 +764,10 @@ export async function POST(req: NextRequest) {
     };
     const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
 
-    if (action === 'add' || action === 'sizeUp' || action === 'remove' || action === 'qty') {
-      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer }
+    if (action === 'add' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
+      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }
         : action === 'sizeUp' ? { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey }
+        : action === 'note' ? { action, lineId: String(b.lineId || ''), note: b.note, tapKey: b.tapKey }
         : action === 'remove' ? { action, lineId: String(b.lineId || ''), tapKey: b.tapKey } : { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey });
       // The line it went on (an add can join a line already there), for what to offer with it (components/menu/OfferAsk).
       return r.error ? bad(r.error, r.status) : ok({ order: r.order, line: r.line ? { lineId: r.line.lineId } : null, staffOk });
@@ -759,6 +777,14 @@ export async function POST(req: NextRequest) {
       const r: any = await askReadyText(db, tenantId, tenant, orderId, b.phone === null ? null : b.phone, 'counter');
       if (r.ok) await logAuditAdmin(db, tenantId, { action: 'counter.ready_text', targetType: 'order', targetId: orderId, summary: r.last4 ? `${by} set a text to ···${r.last4} for when the order is ready.` : `${by} took off the text for when the order is ready.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
       return r.ok ? ok({ last4: r.last4, sent: r.sent, staffOk }) : bad(r.error, r.status);
+    }
+
+    if (action === 'allergy') {
+      // The guest's allergies (lib/order-allergy): on every ticket once it's sent.
+      const r: any = await setAllergy(db, tenantId, orderId, b.allergy, who);
+      if (r.error) return bad(r.error, r.status);
+      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.allergy', targetType: 'order', targetId: orderId, summary: r.allergy ? `${by} noted an allergy on the order: ${allergyWords(r.allergy)}${r.tickets ? `, after it was sent (on ${r.tickets} ${r.tickets === 1 ? 'ticket' : 'tickets'} still being made)` : ''}.` : `${by} took the allergy off the order.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+      return ok({ allergy: r.allergy, tickets: r.tickets || 0, already: !!r.already, staffOk });
     }
 
     if (action === 'name') {
