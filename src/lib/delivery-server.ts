@@ -10,6 +10,8 @@ import {
 } from '@/lib/delivery-plan';
 import { planFrom, type PickupPlan, type PickupWindow } from '@/lib/pickup-slots';
 import { geocode, hasMapsKey, preciseEnough } from '@/lib/geocode-server';
+import { deliveryNowOf } from '@/lib/driver-load';
+import { driverLoad } from '@/lib/driver-load-server';
 import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { onTeam } from '@/lib/team-member';
 
@@ -138,6 +140,11 @@ export async function deliveryFor(db: any, tenantId: string, tenant: any, addres
   const lookup = plan.perDriver !== null && plan.drivers.length ? driverLookup(spans, plan.drivers, tz) : undefined;
   const windows = deliveryWindows(plan, shop, now, tz, booked, lookup);
   const driverSet = new Set(plan.drivers);
-  const asap = asapOffer(plan, shop, z.zone, now, tz, plan.drivers.length ? driversOnNow(spans.filter((s) => driverSet.has(s.staffId)), now, tz) : null, out);
+  // Shared with hot food (lib/driver-load): a driver out with hot food is out for these too, and a pause at the counter
+  // stops "within the hour" (scheduled windows aren't changed).
+  const slow = deliveryNowOf(tenant, now);
+  const hotOut = plan.asap.on && z.zone.expressCents !== null && plan.drivers.length ? await driverLoad(db, tenantId, tenant, now).then((l) => l.hotOutNow).catch(() => 0) : 0;
+  const asap0 = asapOffer(plan, shop, z.zone, now, tz, plan.drivers.length ? driversOnNow(spans.filter((s) => driverSet.has(s.staffId)), now, tz) : null, out + hotOut);
+  const asap: AsapAnswer = slow.paused && asap0.ok ? { ok: false, why: 'busy' } : asap0;
   return { ok: true, plan, shop, tz, zone: z.zone, miles: z.miles, fee, windows, booked, asap, token: miles === null ? null : milesToken(tenantId, address, miles, plan.origin, now) };
 }

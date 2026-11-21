@@ -13,6 +13,7 @@ import { tonight, addDays } from '@/lib/night-close-server';
 import { goesWith, TOGETHER_MAX_ADD_MIN } from '@/lib/route-plan';
 import { routeSpot, newestPlan } from '@/lib/delivery-run';
 import { hotDestOf, lookUpHot, shopPlace } from '@/lib/route-server';
+import { forgetDriverLoad } from '@/lib/driver-load-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const LIVE_GONE = ['cancelled', 'voided'];
@@ -40,7 +41,8 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
 
 // (Read once every few seconds for the business, however many counter screens and drivers ask; a step taken reads afresh.)
 const cache = new Map<string, { at: number; rows: DeliveryRow[] }>();
-const forget = (tenantId: string) => { cache.delete(tenantId); for (const k of Array.from(doneCache.keys())) if (k.startsWith(`tenants/${tenantId}|`)) doneCache.delete(k); };
+// (A step taken: the drivers' load too, lib/driver-load-server, so the counter and the order page see it at once.)
+const forget = (tenantId: string) => { cache.delete(tenantId); for (const k of Array.from(doneCache.keys())) if (k.startsWith(`tenants/${tenantId}|`)) doneCache.delete(k); forgetDriverLoad(tenantId); };
 
 /** The business's deliveries for its day (from its cutover hour, lib/night-close-server tonight, so food out after
  *  midnight stays on): the ones still to go first, by when they should leave; delivered ones last. */

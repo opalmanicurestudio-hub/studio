@@ -117,6 +117,9 @@ import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/fo
 import { appOrdersOf, appName } from '@/lib/app-orders';
 import { appSend, appCode, appCancel } from '@/lib/app-orders-server';
 import { allergyWords, orderAllergyOf } from '@/lib/order-allergy';
+import { deliveryNowOf, EXTRA_CHOICES, PAUSE_CHOICES } from '@/lib/driver-load';
+import { driverLoad } from '@/lib/driver-load-server';
+import { nightBounds, tonight } from '@/lib/night-close-server';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -146,7 +149,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliverySlow', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -290,6 +293,9 @@ export async function POST(req: NextRequest) {
         // Hot food going out with the business's own drivers today (lib/food-delivery-server), at the counter.
         deliveries: channel === 'counter' && foodDeliveryOf(tenant).on ? await deliveriesToday(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         drivers: channel === 'counter' && foodDeliveryOf(tenant).on ? await foodDrivers(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
+        // The drivers now (lib/driver-load-server: on the schedule, out, the first back), and new deliveries slowed down.
+        driverNow: channel === 'counter' && foodDeliveryOf(tenant).on ? await driverLoad(db, tenantId, tenant, now.getTime()).then((l) => ({ onNow: l.onNow, outNow: l.outNow, backAt: l.backAt })).catch(() => null) : null,
+        slow: channel === 'counter' && foodDeliveryOf(tenant).on ? deliveryNowOf(tenant, now.getTime()) : null,
         // The delivery apps it takes orders from (lib/app-orders), for the counter's App order.
         apps: channel === 'counter' && appOrdersOf(tenant).on ? appOrdersOf(tenant).apps : [],
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
@@ -575,6 +581,25 @@ export async function POST(req: NextRequest) {
     if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who, { inLine: channel === 'drive-thru' && b.inLine === true, looks: channel === 'drive-thru' ? cleanLooks(b.looks) : null, channel,
       // (Its lane, with two that merge: the speaker's own, or the lane screen's button.)
       lane: lanesOf(tenant) === 2 ? cleanLane(b.lane) : null }); forgetStats(tenantId); forgetLine(tenantId); return ok({ ...c, staffOk }); }
+
+    if (action === 'deliverySlow') {
+      // New deliveries slowed down from the counter (lib/driver-load): more minutes on their times for an hour, a pause for
+      // a while or the rest of the business's day, or back to normal. Orders already placed keep their times.
+      if (channel !== 'counter') return bad('Deliveries are handled at the counter.', 409);
+      const mode = String(b.mode || ''); const n = now.getTime(); const iso = (ms: number) => new Date(ms).toISOString();
+      let patch: any;
+      if (mode === 'extra' && (EXTRA_CHOICES as readonly number[]).includes(Number(b.minutes))) patch = { extraMin: Number(b.minutes), extraUntil: iso(n + 60 * 60000) };
+      else if (mode === 'pause' && b.minutes === 'day') patch = { pausedUntil: nightBounds(tenant, tonight(tenant, now)).end };
+      else if (mode === 'pause' && (PAUSE_CHOICES as readonly number[]).includes(Number(b.minutes))) patch = { pausedUntil: iso(n + Number(b.minutes) * 60000) };
+      else if (mode === 'clear') patch = { pausedUntil: null, extraMin: 0, extraUntil: null };
+      else return bad('Add time, pause, or back to normal?');
+      await db.doc(T).set({ deliveryNow: { ...patch, by, at: now.toISOString() } }, { merge: true });
+      const after = deliveryNowOf({ deliveryNow: { ...(tenant.deliveryNow || {}), ...patch } }, n);
+      await logAuditAdmin(db, tenantId, { action: 'counter.delivery_slow', targetType: 'tenant', targetId: tenantId,
+        summary: mode === 'clear' ? `${by} put new deliveries back to normal.` : mode === 'extra' ? `${by} added ${patch.extraMin} minutes to new deliveries for an hour.` : `${by} paused new deliveries${b.minutes === 'day' ? ' for the rest of the day' : ` for ${b.minutes} minutes`}.`,
+        actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+      return ok({ slow: after, staffOk });
+    }
 
     if (action === 'deliveryOut' || action === 'deliveryDone' || action === 'deliveryFailed') {
       // Hot food with the business's own drivers (lib/food-delivery-server): out with a driver (the person doing it),

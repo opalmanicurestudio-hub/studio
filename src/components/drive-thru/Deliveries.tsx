@@ -32,13 +32,19 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
 const clock = (iso: string | null) => { if (!iso) return ''; try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 const since = (iso: string | null, now: number) => Math.max(0, Math.floor((now - (Date.parse(String(iso || '')) || now)) / 60000));
 
-export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: DeliveryRow[]; drivers?: FoodDriver[]; now: number; busy: string | null;
-  act: (label: string, body: any, after?: (d: any) => void) => void }) {
+export type DriverNow = { onNow: number | null; outNow: number; backAt: string | null };
+export type Slow = { paused: boolean; until: string | null; extraMin: number; extraUntil: string | null; by: string | null };
+
+export function Deliveries({ rows, drivers = [], now, busy, act, driverNow = null, slow = null }: { rows: DeliveryRow[]; drivers?: FoodDriver[]; now: number; busy: string | null;
+  act: (label: string, body: any, after?: (d: any) => void) => void; driverNow?: DriverNow | null; slow?: Slow | null }) {
   // Kept as 'id:<their team record>' for one of the drivers, or the name typed for someone else.
-  const [driver, setDriver] = useState(''); const [other, setOther] = useState(false); const [failing, setFailing] = useState<string | null>(null);
+  const [driver, setDriver] = useState(''); const [other, setOther] = useState(false); const [failing, setFailing] = useState<string | null>(null); const [slowOpen, setSlowOpen] = useState(false);
   useEffect(() => { try { const v = localStorage.getItem(DRIVER_KEY) || ''; setDriver(v); setOther(!!v && !v.startsWith('id:')); } catch { /* private window */ } }, []);
   const keepDriver = (v: string) => { setDriver(v); try { if (v.trim()) localStorage.setItem(DRIVER_KEY, v.trim()); else localStorage.removeItem(DRIVER_KEY); } catch { /* private window */ } };
-  if (!rows.length) return null;
+  // (With delivery on, the section shows even before the first order: to slow new deliveries down ahead of a rush.)
+  if (!rows.length && !driverNow && !slow) return null;
+  const slowed = !!slow && (slow.paused || slow.extraMin > 0);
+  const slowDo = (body: any) => act('slow', { action: 'deliverySlow', ...body }, () => setSlowOpen(false));
   const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
   const going = rows.filter((r) => r.step !== 'delivered'); const done = rows.filter((r) => r.step === 'delivered');
   const pickedId = driver.startsWith('id:') && drivers.some((d) => d.id === driver.slice(3)) ? driver.slice(3) : '';
@@ -55,8 +61,11 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
     <section aria-labelledby="counter-deliveries" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 id="counter-deliveries" className="text-[17px] font-semibold">Deliveries</h2>
-          <p className="text-[13px]" style={{ color: MUTED }}>Hot food goes out as soon as it’s ready.</p></div>
+          <p className="text-[13px]" style={{ color: MUTED }}>{driverNow && driverNow.onNow !== null
+            ? `${driverNow.onNow} ${driverNow.onNow === 1 ? 'driver' : 'drivers'} on now.${driverNow.outNow ? ` ${driverNow.outNow} out${driverNow.backAt ? `, back about ${clock(driverNow.backAt)}` : ''}.` : ''}`
+            : 'Hot food goes out as soon as it’s ready.'}</p></div>
         <div className="flex flex-wrap items-center gap-2">
+          {slow && <button type="button" aria-expanded={slowOpen} onClick={() => setSlowOpen((v) => !v)} className={`${btn} px-3 text-[14px]`} style={quiet}>Slow it down</button>}
           {drivers.length > 0 && <label className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: MUTED }}>Driver
             <select value={pickedId ? `id:${pickedId}` : other ? 'other' : ''} onChange={(e) => { const v = e.target.value; setOther(v === 'other'); keepDriver(v === 'other' ? '' : v); }}
               className={`${field} w-[190px] bg-[#fff]`} style={{ border: `1px solid ${LINE}`, color: INK }}>
@@ -69,6 +78,15 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
               className={`${field} w-[190px]`} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>}
         </div>
       </div>
+      {slow && slowOpen && <div className="space-y-2 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="Slow new deliveries down">
+        <p className="text-[13.5px] font-semibold">New deliveries</p>
+        <div className="grid grid-cols-2 gap-2">{[15, 30].map((m) => <button key={m} type="button" disabled={!!busy} onClick={() => slowDo({ mode: 'extra', minutes: m })} className={`${btn} whitespace-nowrap px-2 text-[14px]`} style={quiet}>Add {m} min</button>)}</div>
+        <div className="grid grid-cols-3 gap-2">{([[30, 'Pause 30 min'], [60, 'Pause 1 hour'], ['day', 'Pause for today']] as [number | 'day', string][]).map(([m, w]) => <button key={String(m)} type="button" disabled={!!busy} onClick={() => slowDo({ mode: 'pause', minutes: m })} className={`${btn} whitespace-nowrap px-2 text-[14px]`} style={quiet}>{w}</button>)}</div>
+        <p className="text-[12.5px]" style={{ color: MUTED }}>Orders already placed keep their times. Added time lasts an hour. Shop orders in a delivery window aren’t changed.</p>
+      </div>}
+      {slowed && <p role="status" className="flex flex-wrap items-center gap-x-2 rounded-xl px-3 py-1.5 text-[13.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>
+        {slow!.paused ? `New deliveries paused until ${clock(slow!.until)}.` : `New deliveries: ${slow!.extraMin} minutes added until ${clock(slow!.extraUntil)}.`}
+        <button type="button" disabled={!!busy} onClick={() => slowDo({ mode: 'clear' })} className={`inline-flex min-h-[44px] items-center font-semibold underline underline-offset-4 ${RING}`} style={{ color: AMBER }}>{slow!.paused ? 'Take orders again' : 'Back to normal'}</button></p>}
       {going.length > 0 && <ul className="grid grid-cols-1 items-start gap-2.5 lg:grid-cols-2">{going.map((r) => {
         const chip = r.earlier && (r.step === 'ready' || r.step === 'making') ? { text: 'From yesterday', style: { background: AMBER_TINT, color: AMBER } }
           : r.step === 'ready' ? { text: `Ready ${r.readyFor ? `${r.readyFor} min` : 'now'}: leave now`, style: { background: AMBER_TINT, color: AMBER } }

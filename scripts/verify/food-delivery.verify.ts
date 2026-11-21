@@ -371,6 +371,29 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await A({ action: 'track', o: id9, s: s9 });
   check('…and their page shows what they told the kitchen', r.body.allergy === 'Sesame, Mustard' && r.body.lines.find((l: any) => l.name === 'Burger')?.note === 'No onions', { a: r.body.allergy, l: r.body.lines });
 
+  console.log('slowed down at the counter');
+  const keyR = nextKey(); const plR: any = await A({ ...base, key: keyR, phone: '8325550156' });
+  r = await C({ action: 'deliverySlow', mode: 'pause', minutes: 30 });
+  const plR2: any = await A({ ...base, key: keyR, phone: '8325550156' });
+  check('an order placed before the pause, asked again (its answer lost), is found as it was', plR.body.ok && plR2.body.ok && plR2.body.orderId === plR.body.orderId, [plR.body, plR2.body]);
+  const chkP: any = await A({ action: 'deliveryCheck', address: addr, lines });
+  check('paused: the address check says so, with when to try again', r.body.ok && r.body.slow.paused && chkP.status === 409 && chkP.body.code === 'paused' && !!chkP.body.until, [r.body, chkP.body]);
+  const plP: any = await A({ ...base, key: nextKey(), phone: '8325550155' });
+  check('…and a delivery can’t be placed', plP.status === 409 && plP.body.code === 'paused', plP.body);
+  let lane2: any = (await C({ action: 'lane' })).body;
+  check('…the counter shows it', lane2.slow?.paused === true && !!lane2.slow.until, lane2.slow);
+  await C({ action: 'deliverySlow', mode: 'clear' });
+  const chk0: any = await A({ action: 'deliveryCheck', address: addr, lines });
+  r = await C({ action: 'deliverySlow', mode: 'extra', minutes: 15 });
+  const chk15: any = await A({ action: 'deliveryCheck', address: addr, lines });
+  check('15 minutes added: the first delivery time is that much later, for an hour', chk0.body.ok && chk15.body.ok && Date.parse(chk15.body.leaveFirst) - Date.parse(chk0.body.leaveFirst) >= 15 * 60000 && r.body.slow.extraMin === 15 && Date.parse(r.body.slow.extraUntil) > Date.now() + 59 * 60000, [chk0.body.leaveFirst, chk15.body.leaveFirst, r.body.slow]);
+  r = await C({ action: 'deliverySlow', mode: 'extra', minutes: 45 });
+  check('…only the choices', r.status === 400, r.body);
+  r = await C({ action: 'deliverySlow', mode: 'pause', minutes: 'day' });
+  check('paused for the rest of the business’s day', r.body.ok && r.body.slow.paused && Date.parse(r.body.slow.until) > Date.now(), r.body.slow);
+  r = await C({ action: 'deliverySlow', mode: 'clear' });
+  check('back to normal', r.body.ok && !r.body.slow.paused && r.body.slow.extraMin === 0 && ((await A({ action: 'deliveryCheck', address: addr, lines })) as any).body.ok, r.body.slow);
+
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });
   r = await A({ ...base, key: nextKey(), phone: '8325550142' });

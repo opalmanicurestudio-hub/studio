@@ -32,6 +32,8 @@ import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
+import { deliveryNowOf, drivableTimes } from '@/lib/driver-load';
+import { driverLoad, forgetDriverLoad } from '@/lib/driver-load-server';
 import { deliveryFrom } from '@/lib/delivery-plan';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -244,7 +246,9 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room
   // in it is checked in the same step the order is made, so two guests can't both take the last of it.
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
-  const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
+  // A delivery slowed down at the counter: more minutes on its time (lib/driver-load).
+  const slowMin = deliv ? deliveryNowOf(tenant, now).extraMin : 0;
+  const slot = at || asapSlot(now, pickupDelayMin(pace) + slowMin); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
   // The guest's allergies (lib/order-allergy): on every ticket.
@@ -252,10 +256,21 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.note || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}), ...(allergy ? { allergy } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
+  // (The same order asked again, its answer lost, is still found as it was: never refused by what changed since.)
+  const prior = (await orderRef.get()).exists;
+  if (deliv && !prior) {
+    // Paused at the counter (lib/driver-load): no new deliveries until it's over.
+    const slow = deliveryNowOf(tenant, now);
+    if (slow.paused) return { ...fail('We’re not taking deliveries for a little while. Pick it up instead, or try again later.', 409, 'paused'), until: slow.until };
+    if (at && slowMin && Date.parse(at) < Date.parse(asapSlot(now, pickupDelayMin(pace) + slowMin))) return fail('Deliveries are taking a little longer right now. Pick a later time.', 409, 'at');
+    // A driver free for it, there and back (read afresh, with deliveries others are paying for now; never this guest's own
+    // earlier try), or a later time is asked for.
+    const load = await driverLoad(db, tenantId, tenant, now, { skipCheckout: key }).catch(() => null);
+    if (load && !drivableTimes([slot], deliv.driveMin, load.onShift, load.trips).ok.length) return fail(at ? 'Our drivers are all out then. Pick a later time.' : 'Our drivers are all out right now. Pick a later time.', 409, 'no_driver');
+  }
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
-  // (The same order asked again, its answer lost, is still found as it was.)
   const hours = await aheadHours(db, tenantId, tenant, now);
-  if (hours.set && !(await orderRef.get()).exists) {
+  if (hours.set && !prior) {
     if (at && !insideHours(hours, Date.parse(at))) return fail('Pick a pickup time again.', 400, 'at');
     if (!at && !asapNow(hours, now)) return pickupTimes(tenant, now, 0, hours).length ? fail('We’re not open yet. Pick a pickup time.', 409, 'asap_closed') : fail('We’re closed right now, so we can’t take an order for pickup today.', 409, 'closed_now');
   }
@@ -277,7 +292,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
       ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: new Date(now).toISOString() } } : {}),
-      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
+      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(deliv ? { checkout: key } : {}), ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
         // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
         ...(deliv ? { delivery: { ...deliv, arriveAt: new Date(Date.parse(slot) + deliv.driveMin * 60000).toISOString() } } : {}) },
       ...(textTo ? { readyText: { to: textTo, last4: lastFour(textTo), via: 'ahead', pendingSince: new Date(now).toISOString(), sentAt: null } } : {}) });
@@ -286,6 +301,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (made.busy) return fail('Something went wrong. Try again.', 503);
   if (!made.had) dayCache.delete(tenantId);
   if (made.full) { dayCache.delete(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now, 0, hours).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
+  if (deliv && !made.had) forgetDriverLoad(tenantId);
   const cur: any = made.had || (await orderRef.get()).data();
   if (made.had) {
     if (cur.ahead?.state === 'paid') return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, paid: true };
@@ -412,12 +428,20 @@ export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: {
   const itemsCents = raw.reduce((s: number, l: any) => { const m = menu.get(String(l?.itemId || '')); return s + (m ? Math.round(num(m.price) * 100) * Math.max(1, Math.min(99, Math.floor(num(l?.quantity) || 1))) : 0); }, 0);
   const r = await deliveryQuote(db, tenantId, tenant, b.address, itemsCents, b.token, now);
   if (!r.ok) return r;
+  // Slowed down at the counter (lib/driver-load): paused, or more minutes on new deliveries' times.
+  const slow = deliveryNowOf(tenant, now);
+  if (slow.paused) return { ...fail('We’re not taking deliveries for a little while. Pick it up instead, or try again later.', 409, 'paused'), until: slow.until };
   const hours = await aheadHours(db, tenantId, tenant, now);
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
-  const asap = asapNow(hours, now) ? asapSlot(now, pickupDelayMin(pace)) : null;
+  const asap = asapNow(hours, now) ? asapSlot(now, pickupDelayMin(pace) + slow.extraMin) : null;
+  // Only times a driver on the schedule can make, there and back (lib/driver-load); with nobody on it as a driver, all.
+  const load = await driverLoad(db, tenantId, tenant, now).catch(() => null);
+  const leave = pickupTimes(tenant, now, pickupDelayMin(pace) + slow.extraMin, hours);
+  const can = load ? drivableTimes(leave, r.driveMin, load.onShift, load.trips) : { ok: leave, full: [] as string[] };
+  const asapOk = !!asap && (!load || drivableTimes([asap], r.driveMin, load.onShift, load.trips).ok.length > 0);
   return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token,
-    asapArrive: asap ? new Date(Date.parse(asap) + r.driveMin * 60000).toISOString() : null,
-    times: arrivalTimes(pickupTimes(tenant, now, 0, hours), r.driveMin) };
+    asapArrive: asapOk ? new Date(Date.parse(asap!) + r.driveMin * 60000).toISOString() : null, asapNoDriver: !!asap && !asapOk,
+    times: arrivalTimes(can.ok, r.driveMin), leaveFull: can.full, leaveFirst: leave[0] || null, slowMin: slow.extraMin };
 }
 
 export async function aheadView(db: any, tenantId: string, tenant: any, orderId: string) {

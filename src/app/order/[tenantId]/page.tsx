@@ -33,7 +33,10 @@ const WAY_BUTTON: Record<Way, string> = { 'drive-thru': 'Drive-thru', inside: 'I
 // Delivered by the business's own drivers (lib/food-delivery): the address, checked for the fee and the drive.
 type Addr = { line1: string; line2: string; city: string; state: string; postalCode: string };
 const NO_ADDR: Addr = { line1: '', line2: '', city: '', state: '', postalCode: '' };
-type DCheck = { feeCents: number; free: boolean; driveMin: number; token: string | null; asapArrive: string | null };
+type DCheck = { feeCents: number; free: boolean; driveMin: number; token: string | null; asapArrive: string | null;
+  /** Leave times no driver can make (lib/driver-load), the first one offered (later when deliveries are slowed down), and
+   *  whether "as soon as it's ready" has no driver free. */
+  leaveFull: string[]; leaveFirst: string | null; asapNoDriver: boolean };
 type Tip = { pct: number } | { cents: number } | null;
 const TIP_PCTS = [15, 18, 20];
 /** The driver's tip in cents for the food's subtotal (the order works it out again when it's placed). */
@@ -547,7 +550,11 @@ export default function OrderAhead() {
   const [after, setAfter] = React.useState<After | null>(null); const [passed, setPassed] = React.useState<string[]>([]); const [offered, setOffered] = React.useState(false);
   const byId = React.useMemo(() => new Map((menu?.sections || []).flatMap((s) => s.items.map((i) => [i.id, i] as [string, Item]))), [menu]);
   // The time chosen is full (or, as soon as it's ready, with every time full): paying waits for one with room.
-  const chosenFull = !!menu && (at === '' ? !!menu.asapFull || menu.asap === false : (menu.full || []).includes(at));
+  // Delivered: also a time no driver can make (lib/driver-load), or before the first one while deliveries are slowed down.
+  const noDriver = (t: string) => way === 'delivery' && !!dcheck && (dcheck.leaveFull.includes(t) || (!!dcheck.leaveFirst && Date.parse(t) < Date.parse(dcheck.leaveFirst)));
+  const timeFull = (t: string) => !!menu && ((menu.full || []).includes(t) || noDriver(t));
+  const asapFullNow = !!menu && (!!menu.asapFull || menu.asap === false || (way === 'delivery' && !!dcheck?.asapNoDriver));
+  const chosenFull = !!menu && (at === '' ? asapFullNow : timeFull(at));
   const closedNow = !!menu?.closedNow;
   const noneOpen = !!menu && !closedNow && (!!menu.asapFull || menu.asap === false) && !firstOpen(menu);
   const [placing, setPlacing] = React.useState(false); const [payBusy, setPayBusy] = React.useState(false); const [placeErr, setPlaceErr] = React.useState('');
@@ -645,8 +652,9 @@ export default function OrderAhead() {
     setChecking(true); setCheckErr('');
     const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })) });
     setChecking(false);
-    if (d.ok) { setDcheck({ feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null }); write('cf.ahead.address', JSON.stringify(addr)); }
-    else setCheckErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) { setDcheck({ feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null, leaveFull: Array.isArray(d.leaveFull) ? d.leaveFull : [], leaveFirst: d.leaveFirst || null, asapNoDriver: !!d.asapNoDriver }); write('cf.ahead.address', JSON.stringify(addr)); }
+    // (Paused at the counter: when to try again.)
+    else setCheckErr(d.code === 'paused' && d.until ? `We’re not taking deliveries for a little while. Pick it up instead, or try again after ${clock(d.until, menu?.timeZone)}.` : d.error || 'That didn’t go through. Try again.');
   };
   const place = async () => {
     if (!way) { setPlaceErr(menu?.ways.includes('delivery') ? 'How will you get it?' : 'How will you pick it up?'); return; }
@@ -662,7 +670,7 @@ export default function OrderAhead() {
     const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
+    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -764,9 +772,10 @@ export default function OrderAhead() {
         : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? 'When it gets to you' : 'When'}</legend>
           {menu.opens && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>We open {opensWords(menu.opens, menu.timeZone)}. Pick a time from then.</p>}
           <div className="mt-2 grid grid-cols-2 gap-2">
-            {menu.asap !== false && <TimeButton label={way === 'delivery' && dcheck?.asapArrive ? `As soon as it’s ready, about ${clock(to5(Date.parse(dcheck.asapArrive)), menu.timeZone)}` : 'As soon as it’s ready'} full={!!menu.asapFull} fullWord="Full right now" on={at === ''} onPick={() => setAt('')} wide />}
-            {menu.times.slice(0, moreTimes || menu.times.indexOf(at) >= 7 ? undefined : 7).map((t) => <TimeButton key={t} label={clock(way === 'delivery' && dcheck ? arriveFor(t, dcheck.driveMin) : t, menu.timeZone)} full={(menu.full || []).includes(t)} fullWord="Full" on={at === t} onPick={() => setAt(t)} />)}
+            {menu.asap !== false && <TimeButton label={way === 'delivery' && dcheck?.asapArrive ? `As soon as it’s ready, about ${clock(to5(Date.parse(dcheck.asapArrive)), menu.timeZone)}` : 'As soon as it’s ready'} full={asapFullNow} fullWord={way === 'delivery' && dcheck?.asapNoDriver && !menu.asapFull ? 'No driver free' : 'Full right now'} on={at === ''} onPick={() => setAt('')} wide />}
+            {menu.times.slice(0, moreTimes || menu.times.indexOf(at) >= 7 ? undefined : 7).map((t) => <TimeButton key={t} label={clock(way === 'delivery' && dcheck ? arriveFor(t, dcheck.driveMin) : t, menu.timeZone)} full={timeFull(t)} fullWord="Full" on={at === t} onPick={() => setAt(t)} />)}
           </div>
+          {way === 'delivery' && dcheck && (dcheck.asapNoDriver || dcheck.leaveFull.length > 0) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Times marked full: our drivers are out then.</p>}
           {menu.times.length > 7 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`${btn} mt-1 min-h-[44px] px-0 text-[15px] underline underline-offset-4`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
           {menu.closes && menu.times.length > 0 && Date.parse(menu.times[menu.times.length - 1]) > Date.parse(menu.closes) - 15 * 60000 && (moreTimes || menu.times.length <= 7) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{way === 'delivery' && dcheck ? `Last delivery about ${clock(arriveFor(menu.times[menu.times.length - 1], dcheck.driveMin), menu.timeZone)}.` : `Last pickup ${clock(menu.times[menu.times.length - 1], menu.timeZone)}.`}</p>}
         </fieldset>}
