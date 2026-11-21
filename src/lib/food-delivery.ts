@@ -15,15 +15,22 @@
 //   the guest they're outside, from the business's number.
 // - A tip for the driver, chosen when ordering (a percent of the food, or an amount): all of it is theirs, booked under
 //   their name as a tip when it's delivered (never food sales, no tax on it).
+// - Couldn't be delivered (round 4, design board "When hot food can't be delivered"; lib/food-delivery-settle-server): the
+//   guest is texted, and their page asks whether they'll pick it up or want a refund; the counter can send it out again
+//   or refund it. Refunded: the food, its tax and the tip, and the delivery fee unless it failed on the guest's side and
+//   the second-try rule keeps it. Picked up instead: the tip comes back, and the fee by the same rule.
 //   tenants/{t}/counterOrders/{id}.ahead.delivery = { address, note, phone (for the driver), feeCents, miles, driveMin, zone, arriveAt,
-//     state: 'waiting' | 'out' | 'delivered' | 'failed', driverName?, driverId?, outAt?, outsideAt?, deliveredAt?, failedAt?, why? }
+//     state: 'waiting' | 'out' | 'delivered' | 'failed' | 'pickup' | 'picked_up' | 'refunded', driverName?, driverId?, outAt?,
+//     outsideAt?, deliveredAt?, failedAt?, why?, failText?, settle?, owed?, backCents?, pickupAt?, pickedUpAt?, refundedAt? }
 //   and on the order: deliveryFee (dollars), tipCents, tipFor: 'driver'
 
 export const DRIVE_MAX_CHOICES = [10, 15, 20, 30] as const;
 export const DEFAULT_DRIVE_MAX = 15;
 /** A usual drive when the zone is a ZIP code (no miles to go on). */
 export const USUAL_DRIVE_MIN = 15;
-export type FoodDeliveryState = 'waiting' | 'out' | 'delivered' | 'failed';
+export type FoodDeliveryState = 'waiting' | 'out' | 'delivered' | 'failed' | 'pickup' | 'picked_up' | 'refunded';
+/** How it's going, for the counter and the guest (the kitchen's part while it's here). */
+export type FoodStep = 'making' | 'ready' | 'out' | 'delivered' | 'failed' | 'pickup' | 'picked_up' | 'refunded';
 export type FoodAddress = { line1: string; line2: string; city: string; state: string; postalCode: string };
 
 /** The business's food delivery: on (and only with its delivery zones set up), and the longest drive for hot food. */
@@ -82,9 +89,9 @@ export const OUTSIDE_EVERY_MS = 2 * 60_000;
 
 /** How the delivery is going, for the counter and the guest: waiting (being made, or ready to go), out with a driver,
  *  delivered, or not. `kitchen`: 'making' | 'ready' | 'handed' from the tickets. */
-export function deliveryStep(d: { state?: string } | null | undefined, kitchen: string): 'making' | 'ready' | 'out' | 'delivered' | 'failed' {
+export function deliveryStep(d: { state?: string } | null | undefined, kitchen: string): FoodStep {
   const s = String(d?.state || 'waiting');
-  if (s === 'delivered' || s === 'failed' || s === 'out') return s;
+  if (s === 'delivered' || s === 'failed' || s === 'out' || s === 'pickup' || s === 'picked_up' || s === 'refunded') return s;
   return kitchen === 'ready' || kitchen === 'handed' ? 'ready' : 'making';
 }
 
@@ -108,10 +115,45 @@ export function etaOf(d: { routeEta?: unknown; outAt?: unknown; driveMin?: unkno
 /** Ready and still here this long (minutes): hot food waiting on a driver. Over five: leave now. */
 export const waitingHot = (readyAtMs: number, now: number) => Math.max(0, Math.floor((now - readyAtMs) / 60000));
 
-/** Why it couldn't be delivered (said at the counter; a manager refunds or sends it again). */
-export const FOOD_FAIL_REASONS: { code: string; label: string }[] = [
-  { code: 'no_answer', label: 'No one answered' },
-  { code: 'no_access', label: 'Couldn’t get in' },
-  { code: 'bad_address', label: 'Wrong or missing address' },
-  { code: 'other', label: 'Something else' },
+/** Why it couldn't be delivered (said at the counter and to the guest). `guest`: on the guest's side; `told`: why, in
+ *  the guest's text; `when`: the delivery fee isn't refunded "when …", said when the business's rule keeps it. */
+export const FOOD_FAIL_REASONS: { code: string; label: string; guest: boolean; told: string; when: string }[] = [
+  { code: 'no_answer', label: 'No one answered', guest: true, told: 'no one answered', when: 'no one answers' },
+  { code: 'no_access', label: 'Couldn’t get in', guest: true, told: 'they couldn’t get in', when: 'the driver can’t get in' },
+  { code: 'bad_address', label: 'Wrong or missing address', guest: true, told: 'the address was wrong or missing', when: 'the address is wrong or missing' },
+  { code: 'other', label: 'Something else', guest: false, told: '', when: '' },
 ];
+export const failReasonOf = (why: unknown) => FOOD_FAIL_REASONS.find((r) => r.code === why) || null;
+
+/** The delivery fee is kept when it failed on the guest's side and the business's second-try rule (Orders, Delivery:
+ *  lib/delivery-plan secondTry) charges for another try; otherwise it comes back with a refund or a pickup. */
+export const keepsFee = (why: unknown, plan: any): boolean => !!failReasonOf(why)?.guest && plan?.secondTry?.customer !== 'free';
+
+/** What goes back to the card when it couldn't be delivered, in cents: refunded (the food, its tax, the driver's tip,
+ *  and the fee when `fee`), or picked up instead (the tip, and the fee when `fee`). */
+export function moneyBack(o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; tipCents?: unknown }, how: 'refund' | 'pickup', fee: boolean) {
+  const c = (v: unknown) => Math.max(0, Math.round((Number(v) || 0) * 100));
+  const food = how === 'refund' ? c(o.subtotal) : 0; const tax = how === 'refund' ? c(o.tax) : 0;
+  const tip = Math.max(0, Math.round(Number(o.tipCents) || 0)); const f = fee ? c(o.deliveryFee) : 0;
+  return { food, tax, tip, fee: f, total: food + tax + tip + f };
+}
+
+/** The lines in the books each part comes back from (lib/counter-server payOrder): the food, its tax, the tip, the fee. */
+export function backLines(orderId: string, how: 'refund' | 'pickup', fee: boolean): string[] {
+  return [...(how === 'refund' ? [`counter_${orderId}`, `counter_${orderId}_tax`] : []), `ftip_${orderId}`, ...(fee ? [`counter_${orderId}_delivery`] : [])];
+}
+/** A line's part of the order, in cents (for what's still to go back). */
+export function lineCents(orderId: string, line: string, o: { subtotal?: unknown; tax?: unknown; deliveryFee?: unknown; tipCents?: unknown }): number {
+  const c = (v: unknown) => Math.max(0, Math.round((Number(v) || 0) * 100));
+  if (line === `counter_${orderId}`) return c(o.subtotal);
+  if (line === `counter_${orderId}_tax`) return c(o.tax);
+  if (line === `counter_${orderId}_delivery`) return c(o.deliveryFee);
+  if (line === `ftip_${orderId}`) return Math.max(0, Math.round(Number(o.tipCents) || 0));
+  return 0;
+}
+
+/** The guest's text when it couldn't be delivered: why, and their page to pick it up or get a refund. */
+export function failedWords(number: string, why: unknown, link: string | null): string {
+  const r = failReasonOf(why); const n = String(number || '').trim();
+  return `Our driver couldn’t get ${n ? `order ${n}` : 'your order'} to you${r?.told ? ` (${r.told})` : ''}. Pick it up, or get a refund${link ? `: ${link}` : ' on your order page.'}`;
+}

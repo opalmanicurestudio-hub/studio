@@ -30,6 +30,7 @@ import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib
 import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
+import { failedView } from '@/lib/food-delivery-settle-server';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
 import { deliveryNowOf, drivableTimes } from '@/lib/driver-load';
@@ -458,7 +459,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
   const state = String(or.ahead?.state || '');
   return {
     ok: true as const, business: String(tenant?.name || tenant?.businessName || '').slice(0, 80), number: String(or.number || ''), name: or.guestName || null,
-    state, paid: !!or.paidAt, code: or.paidAt && or.ahead?.way !== 'delivery' ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
+    // (A delivery has no pickup code, unless it's being picked up instead after it couldn't be delivered.)
+    state, paid: !!or.paidAt, code: or.paidAt && (or.ahead?.way !== 'delivery' || ['pickup', 'picked_up'].includes(String(or.ahead?.delivery?.state || ''))) ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
     kitchen: !or.paidAt ? null : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
     here: !!or.ahead?.hereAt, failed: state === 'canceled' ? String(or.ahead?.failed || '') || null : null,
     // Curbside: where they said they are, and, once someone's taking it out, their first name.
@@ -486,7 +488,11 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
       // Out with a driver: about when it gets there now, and whether it's running late (lib/food-delivery etaOf).
       ...(or.ahead.delivery.state === 'out' ? (() => { const e = etaOf(or.ahead.delivery, Date.now()); return { eta: e.eta, late: e.late }; })() : { eta: null, late: false }),
       // (The driver texted that they're outside, in the last few minutes, while it's out.)
-      outside: or.ahead.delivery.state === 'out' && Date.now() - (Date.parse(String(or.ahead.delivery.outsideAt || '')) || 0) < 15 * 60000 } } : {}),
+      outside: or.ahead.delivery.state === 'out' && Date.now() - (Date.parse(String(or.ahead.delivery.outsideAt || '')) || 0) < 15 * 60000,
+      // Couldn't be delivered (lib/food-delivery-settle-server): why, and what a refund or a pickup gives back; once
+      // it's settled, what went back to their card.
+      ...(or.ahead.delivery.state === 'failed' ? { failed: failedView(or, tenant) } : {}),
+      ...(['pickup', 'picked_up', 'refunded'].includes(String(or.ahead.delivery.state)) ? { back: Math.max(0, Math.round(num(or.ahead.delivery.backCents))) / 100, owed: Array.isArray(or.ahead.delivery.owed) && or.ahead.delivery.owed.length > 0 } : {}) } } : {}),
   };
 }
 

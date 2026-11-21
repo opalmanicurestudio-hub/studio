@@ -10,12 +10,15 @@
 //                                                         curbside says where (or 'geo': their phone found them in the lot)
 //   onway { tenantId, o, s, eta?, where? }              → curbside: on their way, about how far, and what they're driving
 //   textMe { tenantId, o, s, phone | null }             → one text when it's ready (lib/ready-text), or null: don't text
+//   deliveryChoice { tenantId, o, s, choice: 'pickup' | 'refund' } → a delivery that couldn't be made: picked up instead,
+//                                                         or refunded (lib/food-delivery-settle-server)
 //   menu_ask { tenantId, question }                     → Klair answers a menu question from the business's recipes and
 //                                                         allergen marks only (lib/klair-menu), when the business turns it on
 // An order's link is signed for that order: it opens nothing else.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
+import { settleFailed } from '@/lib/food-delivery-settle-server';
 import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadOnWay, aheadSigOk, linkAheadPoints, deliveryCheck } from '@/lib/counter-ahead';
 import { askReadyText } from '@/lib/ready-text';
 import { ensureWalletDomainsSoon } from '@/lib/wallet-domains';
@@ -33,10 +36,10 @@ export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-    if (!ID.test(tenantId) || !['menu', 'place', 'deliveryCheck', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+    if (!ID.test(tenantId) || !['menu', 'place', 'deliveryCheck', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask', 'deliveryChoice'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
     const orderId = String(b.o || '');
     // An order's own link: its signature first (it can't be guessed), so made-up links never use up the business's allowance.
-    if (['done', 'track', 'here', 'onway', 'textMe'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
+    if (['done', 'track', 'here', 'onway', 'textMe', 'deliveryChoice'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
     // An order's own (signed) link is limited per address only, generously: its page asks every few seconds, and a busy
     // day's pages must never use up the business's allowance (nor keep a guest from hearing their payment went through).
     // (An address checked finds it on the map, so it's limited like placing an order.)
@@ -78,6 +81,13 @@ export async function POST(req: NextRequest) {
       const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
       if (!o || o.channel !== 'ahead' || !o.paidAt) return reply({ ok: false, error: 'Once it’s paid, you can ask for a text.' }, 409);
       const r: any = await askReadyText(db, tenantId, tenant, orderId, b.phone === null ? null : b.phone, 'ahead'); return reply(r, r.ok ? 200 : r.status);
+    }
+    if (action === 'deliveryChoice') {
+      // Couldn't be delivered: the guest picks it up instead, or takes a refund (lib/food-delivery-settle-server).
+      const how = b.choice === 'pickup' ? 'pickup' : b.choice === 'refund' ? 'refund' : null;
+      if (!how) return reply({ ok: false, error: 'Pick it up, or a refund?' }, 400);
+      const r: any = await settleFailed(db, tenantId, tenant, orderId, how, { by: 'The guest', guest: true });
+      return reply(r, r.ok ? 200 : r.status);
     }
     if (action === 'onway') { const r: any = await aheadOnWay(db, tenantId, orderId, { eta: b.eta, where: b.where }); return reply(r, r.ok ? 200 : r.status); }
     // done: whatever the page says, it's the card company that's asked.

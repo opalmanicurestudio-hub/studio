@@ -164,6 +164,7 @@ export default function CounterPage() {
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
+  const [deliveryPin, setDeliveryPin] = useState<{ body: any; line: string; done: (d: any) => void } | null>(null);
   const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null); const [appFix, setAppFix] = useState<string | null>(null); const [allergyOpen, setAllergyOpen] = useState(false); const [allergyHold, setAllergyHold] = useState<{ carId: string; label: string } | null>(null);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
@@ -227,6 +228,13 @@ export default function CounterPage() {
   };
   const saveNote = (l: Line, note: string) => order && act(`note-${l.lineId}`, { action: 'note', orderId: order.id, lineId: l.lineId, note, tapKey: rid() });
   const appCodeFix = (o: Order, v: { app: string; code: string }) => act(`appCode-${o.id}`, { action: 'appCode', orderId: o.id, app: v.app, code: v.code }, (d) => { setAppFix(null); setNotice({ text: d.already ? `${d.name}: no change.` : `Fixed: ${d.was} is now ${d.name}.`, tone: 'good' }); });
+  // A delivery refunded at the counter (lib/food-delivery-settle-server) by someone who isn't a manager: a manager's PIN.
+  const deliveryPinCheck = async (pin: string) => {
+    if (!deliveryPin) return { ok: false as const, error: 'Pick the delivery again.' };
+    const d = await post({ ...deliveryPin.body, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    deliveryPin.done(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
+  };
   const appPinCheck = async (pin: string) => {
     if (!appPin) return { ok: false as const, error: 'Pick the order again.' };
     const d = await post({ action: 'appCancel', orderId: appPin.id, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -398,7 +406,8 @@ export default function CounterPage() {
         </section>
       </div>
 
-      <Deliveries rows={lane?.deliveries || []} drivers={lane?.drivers || []} now={now} busy={busy} act={act} driverNow={lane?.driverNow || null} slow={lane?.slow || null} />
+      <Deliveries rows={lane?.deliveries || []} drivers={lane?.drivers || []} now={now} busy={busy} act={act} driverNow={lane?.driverNow || null} slow={lane?.slow || null}
+        notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done) => setDeliveryPin({ body, line, done })} />
 
       <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -446,6 +455,7 @@ export default function CounterPage() {
     {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || order.number} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
     {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
+    {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
       onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

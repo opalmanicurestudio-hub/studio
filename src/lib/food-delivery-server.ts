@@ -6,7 +6,8 @@
 //   outside   the driver texts the guest they're outside, from the business's number (never anyone's own)
 //   delivered at the door: the guest's tip (booked when it was paid, with no one on it) is put under the driver's name
 //   failed    couldn't be delivered, and why (a manager refunds it at the desk, or sends it out again)
-import { addressLine, deliveryStep, etaOf, FOOD_FAIL_REASONS, OUTSIDE_EVERY_MS, waitingHot } from '@/lib/food-delivery';
+import { addressLine, deliveryStep, etaOf, FOOD_FAIL_REASONS, lineCents, OUTSIDE_EVERY_MS, waitingHot, type FoodStep } from '@/lib/food-delivery';
+import { failedView } from '@/lib/food-delivery-settle-server';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { tonight, addDays } from '@/lib/night-close-server';
@@ -24,7 +25,11 @@ export type Driver = { name: string; id: string | null };
 const driverOf = (d: string | Driver): Driver => (typeof d === 'string' ? { name: d, id: null } : { name: d.name, id: d.id && ID.test(d.id) ? d.id : null });
 
 export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
-  step: 'making' | 'ready' | 'out' | 'delivered' | 'failed'; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null; why: string | null;
+  step: FoodStep; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null; why: string | null;
+  /** Couldn't be delivered: what a refund gives back (the fee, which the rule may keep), and a refund that didn't finish. */
+  back: ReturnType<typeof failedView> | null;
+  /** Picking it up instead: their pickup code, and money (dollars) that hasn't gone back to their card yet. */
+  code: string | null; owed: number;
   /** The guest's number, for the counter to reach them (until it's delivered). */
   phone: string | null;
   /** For the team only: the whole address for a maps app, who has it (their team record), and the guest's tip. */
@@ -43,6 +48,8 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
 const cache = new Map<string, { at: number; rows: DeliveryRow[] }>();
 // (A step taken: the drivers' load too, lib/driver-load-server, so the counter and the order page see it at once.)
 const forget = (tenantId: string) => { cache.delete(tenantId); for (const k of Array.from(doneCache.keys())) if (k.startsWith(`tenants/${tenantId}|`)) doneCache.delete(k); forgetDriverLoad(tenantId); };
+/** (For a delivery settled elsewhere: lib/food-delivery-settle-server.) */
+export const forgetDeliveries = forget;
 
 /** The business's deliveries for its day (from its cutover hour, lib/night-close-server tonight, so food out after
  *  midnight stays on): the ones still to go first, by when they should leave; delivered ones last. */
@@ -53,8 +60,12 @@ export async function deliveriesToday(db: any, tenantId: string, tenant: any, no
   return rows;
 }
 
-/** The states still going (read every few seconds). */
+/** The states still going (read every few seconds): the ones the managers hear about the night after if they're left. */
 const OPEN_STATES = ['waiting', 'out', 'failed'] as const;
+/** …and on the counter, one being picked up instead (settled, but still to hand over), or picked up with money still to
+ *  go back to their card. */
+const LIST_STATES = [...OPEN_STATES, 'pickup', 'picked_up'] as const;
+const owesBack = (o: any) => Array.isArray(o?.ahead?.delivery?.owed) && o.ahead.delivery.owed.length > 0;
 /** Delivered ones (for the counter's short line): read at most every half a minute. */
 const doneCache = new Map<string, { at: number; docs: any[] }>();
 async function deliveredTonight(db: any, T: string, days: string[], now: number): Promise<any[]> {
@@ -75,12 +86,13 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
   const nightOf = (iso: unknown) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? tonight(tenant, new Date(t)) : night; };
   // Only the ones still going are read every few seconds, each state its own query (so a busy day can't push one off the
   // list; one never paid for is 'abandoned', never read). Delivered ones only for the night's short line, kept a little.
-  const open = await Promise.all(OPEN_STATES.map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery')
+  const open = await Promise.all(LIST_STATES.map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery')
     .where('ahead.delivery.state', '==', st).where('day', 'in', [addDays(today, -3), addDays(today, -2), addDays(today, -1), today]).limit(200).get()));
   const done = await deliveredTonight(db, T, [addDays(today, -1), today], now);
   const orders = [...open.flatMap((q: any) => q.docs), ...done].map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((o: any) => o.paidAt && o.status !== 'voided' && o.ahead?.delivery)
-    .filter((o: any) => String(o.ahead.delivery.state) !== 'delivered' || nightOf(o.ahead.delivery.deliveredAt) === night);
+    .filter((o: any) => String(o.ahead.delivery.state) !== 'delivered' || nightOf(o.ahead.delivery.deliveredAt) === night)
+    .filter((o: any) => String(o.ahead.delivery.state) !== 'picked_up' || owesBack(o));
   if (!orders.length) return [];
   // The kitchen's tickets, only for the ones not out yet (whether they're being made or ready).
   const waiting = orders.filter((o: any) => String(o.ahead.delivery.state || 'waiting') === 'waiting');
@@ -106,6 +118,9 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
       driveMin: Math.round(Number(d.driveMin) || 0), step, readyFor: step === 'ready' && readyAt ? waitingHot(readyAt, now) : null,
       leaveAt: Number.isFinite(leave) ? new Date(leave).toISOString() : null, driver: d.driverName || null, outAt: d.outAt || null, deliveredAt: d.deliveredAt || null,
       why: d.state === 'failed' ? FOOD_FAIL_REASONS.find((r) => r.code === d.why)?.label || 'Couldn’t deliver' : null,
+      back: d.state === 'failed' || d.state === 'pickup' || d.state === 'picked_up' ? failedView(o, tenant) : null,
+      code: d.state === 'pickup' ? String(o.ahead.code || '') || null : null,
+      owed: (d.state === 'pickup' || d.state === 'picked_up') && Array.isArray(d.owed) ? d.owed.reduce((n: number, l: unknown) => n + lineCents(o.id, String(l), o), 0) / 100 : 0,
       phone: step !== 'delivered' && /^\d{10}$/.test(String(d.phone || '')) ? String(d.phone) : null,
       mapTo: [a.line1, a.line2, a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
       driverId: d.driverId && ID.test(String(d.driverId)) ? String(d.driverId) : null, tip: Math.max(0, Math.round(Number(o.tipCents) || 0)) / 100,
@@ -126,7 +141,7 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
       r.with = best;
     }
   }
-  const rank = { ready: 0, making: 1, out: 2, failed: 3, delivered: 4 } as const;
+  const rank = { ready: 0, making: 1, out: 2, failed: 3, pickup: 3, delivered: 4, picked_up: 5, refunded: 5 } as const;
   return rows.sort((a, b) => rank[a.step] - rank[b.step] || String(a.leaveAt || '').localeCompare(String(b.leaveAt || ''))).slice(0, 60);
 }
 
@@ -182,6 +197,10 @@ export async function deliveryOut(db: any, tenantId: string, orderId: string, dr
     const st = String(o.ahead.delivery.state || 'waiting');
     if (st === 'out' && who.id && String(o.ahead.delivery.driverId || '') !== who.id) return fail(`${o.number} is already out with ${o.ahead.delivery.driverName || 'another driver'}.`, 409);
     if (st === 'out' || st === 'delivered') return { ok: true, already: true };
+    // (Settled once it came back: picked up instead, or refunded. lib/food-delivery-settle-server)
+    if (st === 'pickup' || st === 'picked_up') return fail('They’re picking this one up at the counter.', 409);
+    if (st === 'refunded') return fail('This one was refunded.', 409);
+    if (st === 'failed' && o.ahead.delivery.settle) return fail('A refund for this one was started. Refund it again to finish.', 409);
     // (One brought back goes out again from the counter, by a manager's say: never picked up again from a driver's phone.)
     if (st === 'failed' && opts.fromWaiting) return fail('This one was brought back. A manager sends it out again from the counter.', 409);
     // Only once the kitchen has it all ready (or it went out once already and is going again).
@@ -219,7 +238,7 @@ export async function deliveryEnd(db: any, tenantId: string, orderId: string, ho
     if (only && !only.manager && st === 'out' && String(d.driverId || '') !== only.id) return fail('That delivery is out with someone else.', 403);
     if ((how.done && st === 'delivered') || (!how.done && st === 'failed')) return { ok: true, already: true };
     if (st !== 'out') return fail('It hasn’t gone out yet.', 409);
-    tx.set(ref, { ahead: { delivery: how.done ? { state: 'delivered', deliveredAt: nowIso, deliveredBy: String(by).slice(0, 60) } : { state: 'failed', failedAt: nowIso, why, failedBy: String(by).slice(0, 60) } } }, { merge: true });
+    tx.set(ref, { ahead: { delivery: how.done ? { state: 'delivered', deliveredAt: nowIso, deliveredBy: String(by).slice(0, 60) } : { state: 'failed', failedAt: nowIso, why, failedBy: String(by).slice(0, 60), settle: null } } }, { merge: true });
     // The tip is the driver's: its line (booked when it was paid, with no one on it) goes under their name, shared by the
     // business's tip policy and paid with their pay like any tip. A driver the counter typed who isn't on the team: it
     // stays with no one on it, for the owner to give out by hand.
@@ -233,10 +252,15 @@ export async function deliveryEnd(db: any, tenantId: string, orderId: string, ho
     return { ok: true };
   });
   forget(tenantId);
+  // Couldn't be delivered: the guest hears at once, with their page to pick it up or get a refund.
+  if (r.ok && !r.already && !how.done) {
+    const { tellGuestFailed } = await import('@/lib/food-delivery-settle-server');
+    await tellGuestFailed(db, tenantId, orderId).catch(() => false);
+  }
   return r;
 }
 
-/** The driver's "I'm outside": one text to the guest from the business's number (every couple of minutes at most), and
+/** The driver's: one text to the guest from the business's number (every couple of minutes at most), and
  *  their order page says so. Only the driver who has it. */
 export async function deliveryOutside(db: any, tenantId: string, orderId: string, me: { id: string; manager?: boolean }, now = Date.now()): Promise<{ ok: true; sent: boolean; why?: 'soon' | 'no_phone' | 'failed' } | Fail> {
   if (!ID.test(orderId)) return fail('Which order?', 400);
@@ -274,14 +298,25 @@ export async function deliveryNightly(db: any, tenantId: string, tenant: any, no
     const o: any = d.data() || {}; const t = Date.parse(String(o.paidAt || o.createdAt || ''));
     return o.paidAt && o.status !== 'voided' && !o.refundedAt && !o.ahead?.delivery?.toldAt && Number.isFinite(t) && tonight(tenant, new Date(t)) < night;
   });
-  if (!left.length) return { told: 0 };
-  const nums = left.map((d: any) => String(d.data()?.number || '')).filter(Boolean);
+  // Picked up instead, with some of the money (the tip, the fee) still not back on their card.
+  const owing = (await Promise.all(['pickup', 'picked_up'].map((st) => db.collection(`${T}/counterOrders`).where('ahead.way', '==', 'delivery').where('ahead.delivery.state', '==', st).where('day', 'in', days).limit(200).get())))
+    .flatMap((q: any) => q.docs).filter((d: any) => { const o: any = d.data() || {}; const t = Date.parse(String(o.ahead?.delivery?.pickupAt || o.paidAt || ''));
+      return owesBack(o) && !o.ahead?.delivery?.owedToldAt && Number.isFinite(t) && tonight(tenant, new Date(t)) < night; });
   const { tellManagers } = await import('@/lib/tell-managers');
+  let owedTold = 0;
+  if (owing.length) {
+    const on = owing.map((d: any) => String(d.data()?.number || '')).filter(Boolean);
+    const sent = await tellManagers(db, tenantId, tenant, { type: 'delivery_unsettled', link: '/counter',
+      message: `${on.length === 1 ? `Delivery ${on[0]} was picked up instead, but some of its money` : `${on.length} deliveries were picked up instead, but some of their money`} didn’t go back to the card${on.length > 1 ? ` (${on.slice(0, 5).join(', ')}${on.length > 5 ? ', and more' : ''})` : ''}. Send it again from the counter, under Deliveries.` });
+    if (sent > 0) { const at = new Date(now).toISOString(); for (const d of owing) await d.ref.set({ ahead: { delivery: { owedToldAt: at } } }, { merge: true }); owedTold = owing.length; }
+  }
+  if (!left.length) return { told: owedTold };
+  const nums = left.map((d: any) => String(d.data()?.number || '')).filter(Boolean);
   const n = await tellManagers(db, tenantId, tenant, { type: 'delivery_unsettled', link: '/counter',
     message: `${nums.length === 1 ? `Delivery ${nums[0]} was paid for and` : `${nums.length} deliveries were paid for and`} never marked delivered${nums.length > 1 ? ` (${nums.slice(0, 5).join(', ')}${nums.length > 5 ? ', and more' : ''})` : ''}. Check with the driver, then mark ${nums.length === 1 ? 'it' : 'each one'} delivered, or refund ${nums.length === 1 ? 'it' : 'them'}.` });
   // (Nobody to tell, or not written: tried again the next night.)
-  if (n <= 0) return { told: 0 };
+  if (n <= 0) return { told: owedTold };
   const at = new Date(now).toISOString();
   for (const d of left) await d.ref.set({ ahead: { delivery: { toldAt: at } } }, { merge: true });
-  return { told: left.length };
+  return { told: left.length + owedTold };
 }

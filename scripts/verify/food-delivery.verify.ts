@@ -27,7 +27,7 @@ const texts: { to: string; body: string }[] = []; let smsDown = false;
   return { ok: true, status: 201, json: async () => ({ sid: `SM${texts.length}` }) };
 };
 
-const S: any = { pis: new Map<string, any>(), keys: new Map<string, string>(), n: 0 };
+const S: any = { pis: new Map<string, any>(), keys: new Map<string, string>(), n: 0, refunds: [] as any[], refundKeys: new Map<string, any>(), failIn: 0 };
 const clone = (x: any) => JSON.parse(JSON.stringify(x));
 class FakeStripe {
   paymentIntents = {
@@ -39,7 +39,12 @@ class FakeStripe {
     retrieve: async (id: string) => clone(S.pis.get(id)),
     cancel: async (id: string) => { const pi = S.pis.get(id); pi.status = 'canceled'; return clone(pi); },
   };
-  refunds = { create: async (p: any) => ({ id: 're_1', status: 'succeeded', amount: p.amount }) };
+  // (Card refunds: kept, one per key; `failIn` makes that many-th one from now say no.)
+  refunds = { create: async (p: any, o: any) => {
+    if (o?.idempotencyKey && S.refundKeys.has(o.idempotencyKey)) return S.refundKeys.get(o.idempotencyKey);
+    if (S.failIn > 0 && --S.failIn === 0) throw Object.assign(new Error('The card company said no.'), { type: 'StripeInvalidRequestError' });
+    const r = { id: `re_${S.refunds.length + 1}`, status: 'succeeded', amount: p.amount, payment_intent: p.payment_intent }; S.refunds.push(r); if (o?.idempotencyKey) S.refundKeys.set(o.idempotencyKey, r); return r;
+  }, list: async () => ({ data: [] }) };
 }
 const paid = (piId: string) => { const pi = S.pis.get(piId); pi.status = 'succeeded'; pi.amount_received = pi.amount; };
 
@@ -216,8 +221,9 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await C({ action: 'deliveryFailed', orderId: id2, why: 'no_answer' });
   const rowsF: any[] = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 5000);
   check('couldn’t deliver: said why, on the counter', r.body.ok && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'failed' && rowsF.find((x: any) => x.orderId === id2)?.why === 'No one answered', rowsF);
+  check('…and the guest is texted at once, why, with their page to pick it up or get a refund', texts.length === 2 && texts[1].to === '+18325550177' && /^Northside: Our driver couldn’t get order A\d+ to you \(no one answered\)\. Pick it up, or get a refund: https:\/\/app\.test\/order\/t1\?o=/.test(texts[1].body), texts);
   r = await C({ action: 'deliveryOut', orderId: id2 });
-  check('…sent out again (whoever’s signed in drives)', r.body.ok && !r.body.already && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'out' && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.driverName === 'Ana Ruiz' && texts.length === 1, r.body);
+  check('…sent out again (whoever’s signed in drives)', r.body.ok && !r.body.already && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'out' && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.driverName === 'Ana Ruiz' && texts.length === 2, r.body);
   r = await C({ action: 'deliveryDone', orderId: id2 });
   const rowsD: any[] = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 10000);
   check('delivered: last on the counter, and its phone isn’t shown any more', r.body.ok && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'delivered' && rowsD[rowsD.length - 1].orderId === id2 && rowsD[rowsD.length - 1].step === 'delivered' && rowsD[rowsD.length - 1].phone === null, rowsD);
@@ -361,6 +367,112 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await Run({ action: 'list' });
   check('…a driver isn’t offered yesterday’s one (the counter settles it)', r.body.ok && !(r.body.rows || []).some((x: any) => x.orderId === id7), r.body.rows);
   actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+
+  console.log('couldn’t be delivered: picked up instead, or refunded');
+  const placeOut = async (name: string, phone: string, extra: any = {}) => {
+    const p: any = await A({ ...base, key: nextKey(), name, phone, ...extra });
+    const id = p.body.orderId; const sig = p.body.sig;
+    paid(S.pis.get((await get(`${T}/counterOrders/${id}`)).ahead.payId).id); await A({ action: 'done', o: id, s: sig });
+    for (const t of (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id)) await db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'ready' }, { merge: true });
+    await C({ action: 'deliveryOut', orderId: id, driver: 'Sam Lee' });
+    return { id, sig };
+  };
+  texts.length = 0;
+  const f1 = await placeOut('Mo', '8325550144', { tip: { pct: 18 } });
+  r = await C({ action: 'deliveryFailed', orderId: f1.id, why: 'no_answer' });
+  check('couldn’t deliver: the guest’s text, once', r.body.ok && texts.length === 1 && texts[0].to === '+18325550144' && /\(no one answered\)/.test(texts[0].body), texts);
+  r = await A({ action: 'track', o: f1.id, s: f1.sig });
+  const fv = r.body.delivery?.failed;
+  check('their page: couldn’t be delivered, why, and what a refund gives back (the fee kept: their side, and second tries are charged)', r.body.delivery?.step === 'failed' && fv?.why === 'No one answered' && fv.keepFee === true && fv.keepWhen === 'no one answers' && fv.food === 13 && fv.tax === 1.3 && fv.tip === 2.34 && fv.fee === 3.99 && !fv.stuck, r.body.delivery);
+  const rowF1 = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 40000)).find((x: any) => x.orderId === f1.id);
+  check('…and the counter the same, to refund it', rowF1?.step === 'failed' && rowF1.back?.keepFee === true && rowF1.back.tip === 2.34 && rowF1.back.fee === 3.99, rowF1);
+  const before = S.refunds.length;
+  r = await A({ action: 'deliveryChoice', o: f1.id, s: f1.sig, choice: 'refund' });
+  const of1 = await get(`${T}/counterOrders/${f1.id}`);
+  const sent1 = S.refunds.slice(before).map((x: any) => x.amount).sort((a: number, b: number) => a - b);
+  check('Refund me: the food, its tax and the tip back to their card in one step, not the fee', r.body.ok && r.body.cents === 1664 && sent1.join() === '130,234,1300' && of1.ahead.delivery.state === 'refunded' && !!of1.refundedAt && of1.refundedCents === 1664, { body: r.body, sent1, d: of1.ahead.delivery });
+  const books1 = await Promise.all([`counter_${f1.id}`, `counter_${f1.id}_tax`, `ftip_${f1.id}`, `counter_${f1.id}_delivery`].map((x) => get(`${T}/transactions/${x}`)));
+  check('…the books show each line refunded (the fee’s line not)', !!books1[0]?.refundedAt && !!books1[1]?.refundedAt && !!books1[2]?.refundedAt && !books1[3]?.refundedAt && !!(await get(`${T}/transactions/refund_counter_${f1.id}`)) && !!(await get(`${T}/transactions/refund_ftip_${f1.id}`)), books1.map((b: any) => b?.refundedAt || null));
+  r = await A({ action: 'deliveryChoice', o: f1.id, s: f1.sig, choice: 'refund' });
+  let r2: any = await A({ action: 'deliveryChoice', o: f1.id, s: f1.sig, choice: 'pickup' });
+  check('…asked again: as it was, nothing twice; and it can’t become a pickup now', r.body.ok && r.body.already === true && S.refunds.length === before + 3 && r2.status === 409, [r.body, r2.body]);
+  r = await A({ action: 'track', o: f1.id, s: f1.sig });
+  r2 = await C({ action: 'deliveryOut', orderId: f1.id });
+  check('…their page says refunded, and how much; it can’t go out again', r.body.delivery?.step === 'refunded' && r.body.delivery.back === 16.64 && r2.status === 409, [r.body.delivery, r2.body]);
+  r = await A({ action: 'deliveryChoice', o: id6, s: s6, choice: 'refund' });
+  check('a delivery that hasn’t come back can’t be refunded from the guest’s page', r.status === 409, r.body);
+
+  const f2 = await placeOut('Jo', '8325550145', { tip: { pct: 18 } });
+  await C({ action: 'deliveryFailed', orderId: f2.id, why: 'other' });
+  const b2 = S.refunds.length;
+  r = await A({ action: 'deliveryChoice', o: f2.id, s: f2.sig, choice: 'pickup' });
+  const of2 = await get(`${T}/counterOrders/${f2.id}`);
+  const sent2 = S.refunds.slice(b2).map((x: any) => x.amount).sort((a: number, b: number) => a - b);
+  check('I’ll pick it up: a pickup with their code; the tip comes back, and the fee (the business’s side)', r.body.ok && of2.ahead.delivery.state === 'pickup' && r.body.code === of2.ahead.code && sent2.join() === '234,399' && r.body.cents === 633 && !of2.refundedAt, { body: r.body, sent2, d: of2.ahead.delivery });
+  r = await A({ action: 'track', o: f2.id, s: f2.sig });
+  check('…their page: come pick it up, their code, and what’s on its way back', r.body.delivery?.step === 'pickup' && r.body.code === of2.ahead.code && r.body.delivery.back === 6.33 && !r.body.delivery.owed, r.body);
+  const rowP = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 41000)).find((x: any) => x.orderId === f2.id);
+  r = await C({ action: 'deliveryOut', orderId: f2.id });
+  check('…the counter: picking it up, with their code; not sent out again', rowP?.step === 'pickup' && rowP.code === of2.ahead.code && rowP.owed === 0 && r.status === 409 && /picking this one up/.test(r.body.error), { rowP, r: r.body });
+  r = await C({ action: 'deliveryHanded', orderId: f2.id });
+  r2 = await C({ action: 'deliveryHanded', orderId: f2.id });
+  check('Handed over: done, once', r.body.ok && (await get(`${T}/counterOrders/${f2.id}`)).ahead.delivery.state === 'picked_up' && r2.body.ok && r2.body.already === true, [r.body, r2.body]);
+
+  const f3 = await placeOut('Ty', '8325550146');
+  await C({ action: 'deliveryFailed', orderId: f3.id, why: 'no_access' });
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  r = await C({ action: 'deliveryRefund', orderId: f3.id, fee: true });
+  check('the counter’s Refund it: a manager’s (their PIN, or ask one)', r.status === 403 && r.body.needsManager === true && (await get(`${T}/counterOrders/${f3.id}`)).ahead.delivery.state === 'failed', r.body);
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+  const b3 = S.refunds.length; S.failIn = 2; texts.length = 0;
+  r = await C({ action: 'deliveryRefund', orderId: f3.id, fee: true });
+  let of3 = await get(`${T}/counterOrders/${f3.id}`);
+  const rowS = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 42000)).find((x: any) => x.orderId === f3.id);
+  check('…a card refund that says no partway: what went is kept, and the counter says to finish it', r.status === 502 && /went back, but not all of it/.test(r.body.error) && of3.ahead.delivery.state === 'failed' && rowS?.back?.stuck === true && S.refunds.length - b3 === 2, { body: r.body, d: of3.ahead.delivery, rowS });
+  r = await C({ action: 'deliveryOut', orderId: f3.id });
+  check('…and with money already going back, it isn’t sent out again', r.status === 409 && /refund for this one was started/.test(r.body.error), r.body);
+  r = await C({ action: 'deliveryRefund', orderId: f3.id, fee: false });
+  of3 = await get(`${T}/counterOrders/${f3.id}`);
+  check('…asked again: the rest goes (nothing twice), the fee too as first decided, and the guest is texted', r.body.ok && r.body.cents === 1829 && of3.ahead.delivery.state === 'refunded' && S.refunds.length - b3 === 3 && texts.some((x) => x.to === '+18325550146' && /\$18\.29 is on its way back to your card/.test(x.body)), { body: r.body, n: S.refunds.length - b3, texts });
+  // A pickup whose tip is still going back, and a manager's refund at the same moment: one at a time.
+  const f4 = await placeOut('Al', '8325550147', { tip: { pct: 18 } });
+  smsDown = true;
+  await C({ action: 'deliveryFailed', orderId: f4.id, why: 'other' });
+  smsDown = false;
+  const rowT = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 43000)).find((x: any) => x.orderId === f4.id);
+  check('the text to them didn’t go: the counter is told to phone them', rowT?.back?.textFailed === true, rowT?.back);
+  S.failIn = 1;
+  r = await A({ action: 'deliveryChoice', o: f4.id, s: f4.sig, choice: 'pickup' });
+  let of4 = await get(`${T}/counterOrders/${f4.id}`);
+  const rowO = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 44000)).find((x: any) => x.orderId === f4.id);
+  check('a pickup whose tip didn’t go back: the counter shows what’s owed, and why', r.body.ok && of4.ahead.delivery.state === 'pickup' && of4.ahead.delivery.owed.length === 1 && rowO?.owed === 2.34 && /said no/.test(String(rowO?.back?.stuckWhy)), { body: r.body, rowO });
+  await db.doc(`${T}/counterOrders/${f4.id}`).set({ ahead: { delivery: { owedAt: new Date().toISOString() } } }, { merge: true });
+  r = await C({ action: 'deliveryRefund', orderId: f4.id });
+  check('…while it’s being sent again, a manager’s refund waits (one step at a time on its money)', r.status === 409 && /Give it a moment/.test(r.body.error), r.body);
+  await db.doc(`${T}/counterOrders/${f4.id}`).set({ ahead: { delivery: { owedAt: null } } }, { merge: true });
+  await C({ action: 'deliveryHanded', orderId: f4.id });
+  const rowH = (await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 45000)).find((x: any) => x.orderId === f4.id);
+  check('…handed over, it stays on the counter until the money goes back', rowH?.step === 'picked_up' && rowH.owed === 2.34, rowH);
+  const yIso = new Date(Date.now() - 30 * 3600e3).toISOString();
+  await db.doc(`${T}/counterOrders/${f4.id}`).set({ ahead: { delivery: { pickupAt: yIso } } }, { merge: true });
+  await FS.deliveryNightly(db, 't1', await get(T), Date.now());
+  check('…and the managers hear the night after', !!(await get(`${T}/counterOrders/${f4.id}`)).ahead.delivery.owedToldAt && (await all(`${T}/notifications`)).some((n: any) => /picked up instead, but some of its money/.test(String(n.message))));
+  r = await C({ action: 'deliveryOwed', orderId: f4.id });
+  of4 = await get(`${T}/counterOrders/${f4.id}`);
+  const rowsAfter = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 46000);
+  check('Send it again: it goes, and it’s off the counter', r.body.ok && r.body.owed === 0 && of4.ahead.delivery.owed.length === 0 && of4.ahead.delivery.backCents === 633 && !rowsAfter.some((x: any) => x.orderId === f4.id), { body: r.body, d: of4.ahead.delivery });
+  // A pickup refunded at the counter that stopped partway can't be handed over until the refund is finished.
+  const f5 = await placeOut('Bea', '8325550148');
+  await C({ action: 'deliveryFailed', orderId: f5.id, why: 'no_answer' });
+  await A({ action: 'deliveryChoice', o: f5.id, s: f5.sig, choice: 'pickup' });
+  S.failIn = 2;
+  r = await C({ action: 'deliveryRefund', orderId: f5.id });
+  r2 = await C({ action: 'deliveryHanded', orderId: f5.id });
+  check('a pickup whose refund stopped partway isn’t handed over until it’s finished', r.status === 502 && r2.status === 409 && /Refund it again to finish/.test(r2.body.error) && (await get(`${T}/counterOrders/${f5.id}`)).ahead.delivery.state === 'pickup', [r.body, r2.body]);
+  r = await C({ action: 'deliveryRefund', orderId: f5.id });
+  check('…finished, it’s refunded', r.body.ok && (await get(`${T}/counterOrders/${f5.id}`)).ahead.delivery.state === 'refunded', r.body);
+  let told2: any = await FS.deliveryNightly(db, 't1', await get(T), Date.now());
+  check('settled ones aren’t in the managers’ night note', !(await get(`${T}/counterOrders/${f1.id}`)).ahead.delivery.toldAt && !(await get(`${T}/counterOrders/${f2.id}`)).ahead.delivery.toldAt && !(await get(`${T}/counterOrders/${f3.id}`)).ahead.delivery.toldAt, told2);
 
   console.log('allergies and a note, ordered ahead');
   r = await A({ ...base, key: nextKey(), name: 'Ivy', phone: '8325550144', lines: [{ itemId: 'burger', quantity: 2, note: 'No onions' }, { itemId: 'fries', quantity: 1 }], allergy: { keys: ['sesame'], other: 'Mustard' } });

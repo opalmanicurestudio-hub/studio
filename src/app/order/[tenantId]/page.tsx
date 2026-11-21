@@ -68,7 +68,11 @@ type Track = { business: string; number: string; name: string | null; state: str
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
-  deliveryFee?: number; tip?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | null; driver: string | null; outAt: string | null; deliveredAt: string | null; outside?: boolean; eta?: string | null; late?: boolean } };
+  deliveryFee?: number; tip?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | 'pickup' | 'picked_up' | 'refunded' | null; driver: string | null; outAt: string | null; deliveredAt: string | null; outside?: boolean; eta?: string | null; late?: boolean;
+    /** Couldn't be delivered: why, and what a refund or a pickup gives back (dollars); the fee the business's rule keeps. */
+    failed?: { why: string; keepWhen: string; keepFee: boolean; food: number; tax: number; tip: number; fee: number; stuck: boolean };
+    /** Picked up instead, or refunded: what went back to their card (dollars), and whether some is still to go. */
+    back?: number; owed?: boolean } };
 
 /** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
 type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
@@ -420,13 +424,51 @@ function AgainRow({ again, fav, toggleFav }: { again: () => void; fav: boolean; 
     </div>);
 }
 
+/** Couldn't be delivered (design board "When hot food can't be delivered"): pick it up instead, or a refund. Picking it
+ *  up gives back the tip, and the fee unless the business's rule keeps it; a refund, the food and its tax too. */
+function FailedChoice({ f, tenantId, o, s, reload }: { f: NonNullable<NonNullable<Track['delivery']>['failed']>; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
+  const [asking, setAsking] = React.useState(false); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const fee = f.keepFee ? 0 : f.fee;
+  const refund = f.food + f.tax + f.tip + fee;
+  const pickWords = f.tip > 0 && fee > 0 ? `your ${usd(f.tip)} tip and the ${usd(fee)} delivery fee come back` : f.tip > 0 ? `your ${usd(f.tip)} tip comes back` : fee > 0 ? `the ${usd(fee)} delivery fee comes back` : '';
+  const choose = async (choice: 'pickup' | 'refund') => {
+    setBusy(true); setErr('');
+    const { d } = await call({ action: 'deliveryChoice', tenantId, o, s, choice });
+    setBusy(false);
+    if (d.ok) { setAsking(false); await reload(); } else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  const quietBtn = { background: '#fff', border: `1px solid ${LINE}`, color: INK };
+  return (
+    <div className="space-y-3">
+      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{f.why}. What would you like?</p>
+      {!asking ? <>
+        <button type="button" disabled={busy} onClick={() => choose('pickup')} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>I’ll pick it up</button>
+        {pickWords && <p className="text-[14px]" style={{ color: MUTED }}>If you pick it up, {pickWords} to your card.</p>}
+        <button type="button" disabled={busy} onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={quietBtn}>Refund me {usd(refund)}</button>
+      </> : <>
+        <p className="text-[17px] font-semibold">Refund {usd(refund)} to your card?</p>
+        <div className="flex gap-2">
+          <button type="button" disabled={busy} onClick={() => choose('refund')} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Yes, refund it</button>
+          <button type="button" disabled={busy} onClick={() => setAsking(false)} className={`${btn} min-h-[52px] text-[16px]`} style={quietBtn}>Back</button>
+        </div>
+      </>}
+      {f.keepFee && f.fee > 0 && f.keepWhen && <p className="text-[14px]" style={{ color: MUTED }}>The {usd(f.fee)} delivery fee isn’t refunded when {f.keepWhen}.</p>}
+      {f.stuck && <p className="text-[14px] font-medium" style={{ color: AMBER }}>Your refund started but didn’t finish. Tap Refund me to finish it.</p>}
+      {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
+    </div>);
+}
+
 /** A delivery's page after paying: about when it gets there, and each step (made, out with a driver, delivered). */
 function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNullable<Track['delivery']>; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
   const st = D.step || 'making'; const gone = st === 'out' || st === 'delivered';
-  const chip = st === 'delivered' ? 'Delivered. Enjoy!' : st === 'out' ? 'On its way' : st === 'failed' ? 'Couldn’t be delivered' : st === 'ready' ? 'Ready, going out soon' : t.kitchen === 'later' ? 'Waiting to start' : 'Being made';
+  // (Settled after it couldn't be delivered: picked up instead, or refunded.)
+  const settled = st === 'pickup' || st === 'picked_up' || st === 'refunded';
+  const chip = st === 'delivered' ? 'Delivered. Enjoy!' : st === 'out' ? 'On its way' : st === 'failed' ? 'Couldn’t be delivered' : st === 'pickup' ? 'Picking it up' : st === 'picked_up' ? 'Picked up' : st === 'refunded' ? 'Refunded'
+    : st === 'ready' ? 'Ready, going out soon' : t.kitchen === 'later' ? 'Waiting to start' : 'Being made';
   // (Out with a driver: the time it should get there now, which moves with the driver's route.)
   const when = st === 'out' && D.eta ? D.eta : D.arriveAt;
-  const big = st === 'delivered' ? (D.deliveredAt ? `Delivered at ${clock(D.deliveredAt)}` : 'Delivered') : st === 'failed' ? 'We couldn’t get it to you' : when ? `There around ${clock(when)}` : 'On its way soon';
+  const big = st === 'delivered' ? (D.deliveredAt ? `Delivered at ${clock(D.deliveredAt)}` : 'Delivered') : st === 'failed' ? 'We couldn’t get it to you' : st === 'pickup' ? 'Come pick it up'
+    : st === 'picked_up' ? 'Picked up. Enjoy!' : st === 'refunded' ? (D.back ? `${usd(D.back)} is on its way back to your card` : 'Refunded') : when ? `There around ${clock(when)}` : 'On its way soon';
   const steps = [
     { on: true, text: t.kitchen === 'later' && !gone ? 'Paid. The kitchen starts it in time.' : 'Paid, being made' },
     { on: gone, text: gone && D.outAt ? `Left${D.driver ? ` with ${D.driver}` : ''} at ${clock(D.outAt)}` : 'Out with a driver' },
@@ -434,21 +476,25 @@ function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNull
   ];
   return (
     <section className="space-y-4 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
-      <p className="w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={gone ? { background: GREEN_TINT, color: GREEN } : st === 'failed' ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }}>{chip}</p>
+      <p className="w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={gone || settled ? { background: GREEN_TINT, color: GREEN } : st === 'failed' ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }}>{chip}</p>
       <div>
         <p className="text-[26px] font-semibold leading-tight tracking-tight">{big}</p>
         {st === 'out' && D.late && D.arriveAt && <p className="mt-1.5 text-[15.5px] font-medium" style={{ color: AMBER }}>Running a little late. It was due at {clock(D.arriveAt)}.</p>}
-        <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, to {D.to}</p>
+        {st === 'refunded' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>. It can take a few days to show.</p>
+          : st === 'pickup' || st === 'picked_up' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}{st === 'pickup' && t.code ? <>. Your pickup code is <b className="font-semibold" style={{ color: INK }}>{t.code}</b>: say it at the counter.</> : '.'}</p>
+          : <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, to {D.to}</p>}
       </div>
-      <ol className="space-y-3" aria-label="How it’s going">
+      {st === 'failed' && D.failed && <FailedChoice f={D.failed} tenantId={tenantId} o={o} s={s} reload={reload} />}
+      {(st === 'pickup' || st === 'picked_up') && !!D.back && <p className="text-[15px]" style={{ color: MUTED }}>{usd(D.back)} is on its way back to your card. It can take a few days to show.</p>}
+      {(st === 'pickup' || st === 'picked_up' || st === 'refunded') && D.owed && <p className="text-[15px]" style={{ color: MUTED }}>The rest is still going back to your card. The team is on it.</p>}
+      {st !== 'failed' && !settled && <ol className="space-y-3" aria-label="How it’s going">
         {steps.map((x, i) => (
           <li key={i} className="flex items-center gap-3 text-[15.5px]">
             <span aria-hidden className="h-3 w-3 shrink-0 rounded-full" style={{ background: x.on ? GREEN : '#dcdde0' }} />
             <span style={{ color: x.on ? INK : MUTED }}>{x.text}{x.on ? <span className="sr-only"> (done)</span> : null}</span>
           </li>))}
-      </ol>
+      </ol>}
       {st === 'out' && D.outside && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>Your driver is outside.</p>}
-      {st === 'failed' && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The driver couldn’t deliver it, and the team knows. They’ll refund it or send it again.</p>}
       {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
       {(st === 'making' || st === 'ready' || (st === 'out' && !!t.text?.sent)) && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={reload} onWay />}
     </section>);
