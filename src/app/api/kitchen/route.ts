@@ -49,6 +49,8 @@
 //   holdUse  { tenantId, key, binId, quantity }    → some taken from a batch by hand
 //   holdToss { tenantId, key, binId }              → a batch thrown out (kept, for the day's waste)
 //   fromHold { tenantId, key, col, id, binId }     → a ticket made from a held batch: taken from it and marked ready
+import { bizLocationsOf, hereFor, hereOf, severalLocations } from '@/lib/here-server';
+import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -261,15 +263,28 @@ export async function POST(req: NextRequest) {
       // own card reader (api/kiosk), and does nothing anywhere else.
       const kind = b.kind === 'floor' ? 'floor' : b.kind === 'drive-thru' ? 'drive-thru' : b.kind === 'drive-thru-board' ? 'drive-thru-board' : b.kind === 'host' ? 'host' : b.kind === 'kiosk' ? 'kiosk' : 'kitchen';
       const name = String(b.name || '').trim().slice(0, 40) || (kind === 'floor' ? 'Floor' : kind === 'drive-thru' ? 'Drive-thru' : kind === 'drive-thru-board' ? 'Order board' : kind === 'host' ? 'Host stand' : kind === 'kiosk' ? 'Kiosk' : 'Kitchen');
-      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString() });
+      // With more than one location (lib/here-server): the one it's set up for, so it shows only that location's orders.
+      const placeAt = await hereOf(db, tenantId, b.locationId);
+      if (!placeAt && await severalLocations(db, tenantId)) return bad('Pick where this tablet is.');
+      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString(), ...(placeAt ? { locationId: placeAt } : {}) });
       // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
       // tablet doesn't: nobody would be making them.
       const tRef = db.doc(`tenants/${tenantId}`); const t0: any = (await tRef.get()).data() || {};
       if (kind === 'kitchen' && !t0.kitchenSettings?.loungeOrdersMadeBy) await tRef.set({ kitchenSettings: { loungeOrdersMadeBy: 'kitchen' } }, { merge: true });
       return ok({ key, name, maker: t0.kitchenSettings?.loungeOrdersMadeBy || (kind === 'kitchen' ? 'kitchen' : 'desk') });
     }
-    if (action === 'screens' || action === 'revoke' || action === 'maker') {
+    if (action === 'screens' || action === 'revoke' || action === 'maker' || action === 'screenPlace') {
       const g: any = await requireRole(req, tenantId, 'manager'); if (g.deny) return g.deny;
+      if (action === 'screenPlace') {
+        // Which location a screen is at (lib/here-server), changed by a manager: it shows only that location's from now on.
+        const id = String(b.id || ''); if (!/^[0-9a-f]{64}$/.test(id)) return bad('Which screen?');
+        const ref = db.doc(`kitchenScreens/${id}`); const sc: any = (await ref.get()).data();
+        if (!sc || sc.tenantId !== tenantId || sc.revokedAt) return bad('That screen isn’t here.', 404);
+        const at = b.locationId ? await hereOf(db, tenantId, b.locationId) : null;
+        if (b.locationId && !at) return bad('Pick one of your locations.');
+        await ref.set({ locationId: at || null }, { merge: true });
+        return ok({ id, locationId: at || null });
+      }
       if (action === 'maker') {
         const to = b.maker === 'kitchen' ? 'kitchen' : b.maker === 'desk' ? 'desk' : null; if (!to) return bad('The kitchen or the desk?');
         // Not while an order is being made: it would drop off the one screen without landing on the other.
@@ -293,9 +308,11 @@ export async function POST(req: NextRequest) {
         return ok();
       }
       const snap = await db.collection('kitchenScreens').where('tenantId', '==', tenantId).limit(50).get();
-      const screens = snap.docs.map((d: any) => { const x: any = d.data() || {}; return { id: d.id, name: String(x.name || 'Kitchen'), kind: String(x.kind || 'kitchen'), createdAt: x.createdAt || null, createdBy: x.createdBy || null, lastSeenAt: x.lastSeenAt || null }; })
+      const screens = snap.docs.map((d: any) => { const x: any = d.data() || {}; return { id: d.id, name: String(x.name || 'Kitchen'), kind: String(x.kind || 'kitchen'), createdAt: x.createdAt || null, createdBy: x.createdBy || null, lastSeenAt: x.lastSeenAt || null, locationId: x.locationId || null }; })
         .filter((_: any, i: number) => !(snap.docs[i].data() || {}).revokedAt).sort((a: any, b2: any) => String(b2.lastSeenAt || '').localeCompare(String(a.lastSeenAt || '')));
-      return ok({ screens, maker: loungeMaker((await db.doc(`tenants/${tenantId}`).get()).data()) });
+      // (With more than one location, which each is at: lib/here-server.)
+      const locs = await bizLocationsOf(db, tenantId);
+      return ok({ screens, maker: loungeMaker((await db.doc(`tenants/${tenantId}`).get()).data()), locations: locs.length > 1 ? locs.map((l) => ({ id: l.id, name: l.name })) : [] });
     }
 
     // THE HOST STAND'S TABLET (app/host-stand): its key signs it in as the host stand, a team sign-in of its own
@@ -381,15 +398,19 @@ export async function POST(req: NextRequest) {
       const lounge = loungeMaker(tenant) === 'kitchen' ? la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')) : [];
       let tickets = [...lounge, ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
       if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
+      // With more than one location: this screen's (or, signed in on a device, the one picked) only (lib/here-server).
+      const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
+      if (here) tickets = tickets.filter((t: any) => atHere(t, here));
       // With two ordering lanes that merge (lib/drive-lanes), each drive-thru order's place in the line to the window and
       // its lane, so the kitchen bags in the order cars reach the window. (Only then, and only with a drive-thru ticket up.)
       if (lanesOf(tenant) === 2 && tickets.some((t) => t.channel === 'drive-thru' && t.status !== 'delivered' && t.status !== 'cancelled')) {
         // (Read once every few seconds for the business, however many kitchen screens ask.)
-        let pc = placesCache.get(tenantId);
+        // (Each location's own window line, with more than one.)
+        const pk = `${tenantId}|${here || ''}`; let pc = placesCache.get(pk);
         if (!pc || Date.now() - pc.at > 2500) {
           const carSnap = await db.collection(`${T}/driveThruCars`).where('stage', 'in', ['pay', 'pickup']).limit(300).get().catch(() => ({ docs: [] as any[] }));
-          pc = { at: Date.now(), places: windowPlaces(carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), true) };
-          placesCache.set(tenantId, pc); if (placesCache.size > 500) placesCache.delete(placesCache.keys().next().value as string);
+          pc = { at: Date.now(), places: windowPlaces(carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => atHere(c, here)), true) };
+          placesCache.set(pk, pc); if (placesCache.size > 500) placesCache.delete(placesCache.keys().next().value as string);
         }
         const places = pc.places;
         for (const t of tickets) { const p = t.channel === 'drive-thru' && t.orderId ? places.get(t.orderId) : null; if (p) { t.windowPlace = p.place; t.lane = p.lane; } }
@@ -401,14 +422,14 @@ export async function POST(req: NextRequest) {
       // One left behind (a table that left without firing it) is taken off for good, so the held list never fills up.
       const stale = unfiredAll.filter((t: any) => String(t.at) < cutoff).slice(0, 50);
       if (stale.length) await Promise.all(stale.map((t: any) => db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelReason: 'never fired' }, { merge: true }).catch(() => {})));
-      const unfired = unfiredAll.filter((t: any) => String(t.at) >= cutoff);
+      const unfired = unfiredAll.filter((t: any) => String(t.at) >= cutoff && atHere(t, here));
       // What's being said at a drive-thru speaker before it's sent (lib/lane-entry): in a rush, or always, as the business
       // sets it. Only shown: no ticket, nothing from stock. (Not for a business with no drive-thru.)
       const earlyMode = earlyModeOf(tenant);
       const early: (EarlyOrder & { lines: (EarlyOrder['lines'][number] & { madeAt?: string })[] })[] = [];
       if (!eventId && earlyMode !== 'off' && (tenant.driveThru || tickets.some((t) => t.channel === 'drive-thru'))) {
         const line = await lineNow(db, tenantId, tenant, { withOrders: true }).catch(() => null);
-        if (line && showEarly(earlyMode, line.rush)) early.push(...line.ordering.map((x) => ({ ...x, lines: x.lines.map((l) => ({ ...l })) })));
+        if (line && showEarly(earlyMode, line.rush)) early.push(...line.ordering.filter((x: any) => atHere(x, here)).map((x) => ({ ...x, lines: x.lines.map((l) => ({ ...l })) })));
       }
       // The items they use: a picture and what each is made of (for the label), nothing about cost.
       const ids = Array.from(new Set([...tickets, ...unfired, ...early.flatMap((e) => e.lines)].map((t) => String(t.itemId || '')).filter((x) => ID.test(x)))).slice(0, 150);
@@ -422,7 +443,7 @@ export async function POST(req: NextRequest) {
       for (const d of docs) { const x: any = d.data(); if (!x) continue; items[d.id] = { id: d.id, name: String(x.name || ''), imageUrl: x.imageUrl || null, unit: x.unit || null, formula: (Array.isArray(x.formula) ? x.formula : []).map((f: any) => (f?.measure && num(f.amount) > 0
         // As the cook measures it (2 tbsp, 6 oz), when the recipe was written that way (lib/kitchen-units).
         ? { id: f.id, name: String(f.name || ''), quantityUsed: num(f.amount), unit: String(f.measure) } : { id: f.id, name: String(f.name || ''), quantityUsed: num(f.quantityUsed), unit: String(f.unit || '') })) }; }
-      const today = [...lt.docs, ...kt.docs.filter((d: any) => d.data()?.status !== 'unpaid')].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
+      const today = [...lt.docs, ...kt.docs.filter((d: any) => d.data()?.status !== 'unpaid' && atHere(d.data(), here))].map((d: any) => { const x: any = d.data() || {}; return { status: String(x.status || ''), at: String(x.requestedAt || x.createdAt || ''), deliveredAt: x.deliveredAt || null, item: String(x.itemName || x.menuItemName || '') }; });
       // What's held right now, what the menu says can be, and today's waste from it.
       const [heldSnap, holdItems, tossedSnap] = await Promise.all([
         db.collection(`${T}/holdingBins`).where('status', '==', 'held').limit(200).get(),

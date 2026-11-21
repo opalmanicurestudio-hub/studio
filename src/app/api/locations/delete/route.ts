@@ -15,6 +15,7 @@
 //
 // Owner / manager only.
 
+import { forgetLocations, unplaceScreens } from '@/lib/here-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -159,6 +160,8 @@ export async function POST(req: NextRequest) {
       } catch { /* no staff access lists */ }
       mergedNames.push(String((lSnap.data() as any)?.name || id));
       await db.doc(`tenants/${tenantId}/locations/${id}`).delete();
+      // (Tablets set up for it move to the one it's merged into: lib/here-server.)
+      await unplaceScreens(db, tenantId, id, targetId).catch(() => 0);
     }
     try {
       const aRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
@@ -222,7 +225,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: mode === 'check', canDelete: !blocked, isLast, refs, reason, ...(mode === 'delete' ? { error: reason } : {}) }, { status: mode === 'delete' ? 409 : 200 });
   }
 
-  await ref.delete();
+  await ref.delete(); await unplaceScreens(db, tenantId, locationId).catch(() => 0);
 
   await fixMainPointer(db, tenantId);
   try {

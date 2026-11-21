@@ -25,7 +25,7 @@ const fail = (error: string, status: number): Fail => ({ ok: false, error, statu
 export type Driver = { name: string; id: string | null };
 const driverOf = (d: string | Driver): Driver => (typeof d === 'string' ? { name: d, id: null } : { name: d.name, id: d.id && ID.test(d.id) ? d.id : null });
 
-export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
+export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number; locationId?: string | null;
   step: FoodStep; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null; why: string | null;
   /** Couldn't be delivered: what a refund gives back (the fee, which the rule may keep), and a refund that didn't finish. */
   back: ReturnType<typeof failedView> | null;
@@ -116,7 +116,7 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
     const leave = Date.parse(String(o.ahead.slot || o.ahead.at || ''));
     const a = d.address || {};
     const live = step === 'out' ? etaOf(d, now) : { eta: null, late: false };
-    return { orderId: o.id, number: String(o.number || ''), name: o.guestName || null, to: addressLine(a), note: d.note || null, arriveAt: d.arriveAt || null,
+    return { orderId: o.id, number: String(o.number || ''), name: o.guestName || null, to: addressLine(a), note: d.note || null, arriveAt: d.arriveAt || null, locationId: o.locationId ? String(o.locationId) : null,
       driveMin: Math.round(Number(d.driveMin) || 0), step, readyFor: step === 'ready' && readyAt ? waitingHot(readyAt, now) : null,
       leaveAt: Number.isFinite(leave) ? new Date(leave).toISOString() : null, driver: d.driverName || null, outAt: d.outAt || null, deliveredAt: d.deliveredAt || null,
       why: d.state === 'failed' ? FOOD_FAIL_REASONS.find((r) => r.code === d.why)?.label || 'Couldn’t deliver' : null,

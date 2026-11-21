@@ -4,6 +4,7 @@
 // counter-orders), the order sent to the kitchen (one ticket a line, due by the lane's target, stock and recipe parts
 // taken once), an order paid (cash, a card machine of the business's own, or the card reader at the window, lib/
 // counter-card), and an order voided when a car drives off without paying.
+import { dayKey } from '@/lib/business-locations';
 import { appName, appBooksOn, appWeekId, payoutWeek } from '@/lib/app-orders';
 import { cleanLineNote, cleanOrderAllergy, mergeAllergy, orderAllergyOf, sameAllergy, sameNote, ticketFields, OTHER_KEEP, OTHER_MAX } from '@/lib/order-allergy';
 import { cleanKeys, itemAllergens, ticketAllergyPatch } from '@/lib/allergens';
@@ -77,13 +78,15 @@ export async function setOrderName(db: any, tenantId: string, orderId: string, n
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
 /** A car in the lane, with its empty order. `inLine`: taken by someone walking the line before the speaker (the speaker
  *  never greets it, and the order board by the speaker never shows it), told apart by how it looks. */
-export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel; lane?: 1 | 2 | null; app?: boolean } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel; lane?: 1 | 2 | null; app?: boolean; locationId?: string | null } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
   // A guest at the counter is the same kind of place in line as a car (ordering, paying, waiting, handed over), numbered
   // as a counter order ("C14").
   const channel: Channel = opts.channel === 'counter' ? 'counter' : 'drive-thru';
   const T = `tenants/${tenantId}`; const now = new Date(); const nowIso = now.toISOString();
   const day = todayIn(tenantTimeZone(tenant), now);
-  const counterRef = db.doc(`${T}/orderCounters/${day}`);
+  // With more than one location (lib/here-server): stamped with the screen's, and numbered at that location ("C1" at each).
+  const here = opts.locationId && /^[A-Za-z0-9_-]{1,160}$/.test(opts.locationId) ? opts.locationId : null;
+  const counterRef = db.doc(`${T}/orderCounters/${dayKey(day, here)}`);
   const k = KEY.test(String(carKey || '')) ? String(carKey) : null;
   const carRef = k ? db.doc(`${T}/driveThruCars/car_${k}`) : db.collection(`${T}/driveThruCars`).doc();
   const orderRef = db.collection(`${T}/counterOrders`).doc();
@@ -94,10 +97,10 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     const n = Math.floor(num(c[channel])) + 1;
     const number = orderNumber(channel, n);
     tx.set(counterRef, { [channel]: n, day }, { merge: true });
-    tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day,
+    tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day, ...(here ? { locationId: here } : {}),
       // A delivery app's order being rung in at the counter (lib/app-orders): which app and its code come when it's sent.
       ...(opts.app && channel === 'counter' ? { app: { state: 'taking' } } : {}) });
-    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel,
+    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel, ...(here ? { locationId: here } : {}),
       ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}),
       // The ordering lane it pulled up to, with two that merge (lib/drive-lanes); never for one taken in line.
       ...(opts.lane && !opts.inLine && channel === 'drive-thru' ? { lane: opts.lane } : {}) });
@@ -374,6 +377,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
         guestName: who2, stationName: o.app?.code ? `${appName(o.app)}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}` : `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}),
+        // (Made at the order's location, with more than one: that location's kitchen screen shows it. lib/here-server)
+        ...(o.locationId ? { locationId: String(o.locationId) } : {}),
         // The guest's allergies on every ticket, with what the menu says this dish contains of them; the dish's note on
         // its own tickets (lib/order-allergy).
         ...ticketFields(allergy, part || it || {}), ...(l.note ? { note: l.note } : {}) });
@@ -704,7 +709,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       tx.set(orderRef, { sentAt: nowIso, dueAt: due, kiosk: { ...(o.kiosk || {}), state: 'paid' } }, { merge: true });
       if (unpaid.length) tx.set(db.doc(`${T}/menuSales/${String(o.day || nowIso.slice(0, 10))}`), { day: String(o.day || nowIso.slice(0, 10)), ...soldCounts(Array.isArray(o.lines) ? o.lines : []) }, { merge: true });
       const carRef = db.doc(`${T}/driveThruCars/kiosk_${orderId}`);
-      tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null }, { merge: true });
+      tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null, ...(o.locationId ? { locationId: String(o.locationId) } : {}) }, { merge: true });
       tx.set(orderRef, { carId: carRef.id }, { merge: true });
     }
     return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };

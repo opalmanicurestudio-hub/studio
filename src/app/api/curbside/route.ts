@@ -5,6 +5,8 @@
 //   out     { tenantId, orderId } → someone's taking it out (ready, and they're here): their page says so
 //   handed  { tenantId, orderId } → handed over: done
 // Renters, who run their own business here, don't see or move the business's orders.
+import { hereOf } from '@/lib/here-server';
+import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -22,7 +24,8 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return fail(auth.error, auth.status);
   if (auth.actor.isRenter) return fail('Renters don’t take the business’s orders out.', 403);
   const db = getAdminDb();
-  if (action === 'list') return NextResponse.json({ ok: true, cafe: await cafeCurbside(db, tenantId, auth.tenant), on: auth.tenant?.orderAhead?.curbside === true });
+  // (With more than one location, the one picked in the app: its curbside orders only. lib/here-server)
+  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, cafe: (await cafeCurbside(db, tenantId, auth.tenant)).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
   const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return fail('Which order?');
   if (action === 'out' || action === 'handed') {
     const r = action === 'out' ? await cafeOut(db, tenantId, orderId, auth.actor) : await cafeHanded(db, tenantId, orderId, auth.actor);

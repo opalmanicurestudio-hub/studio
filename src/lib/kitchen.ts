@@ -53,6 +53,8 @@ export function ticketFrom(d: any, col: KitchenCol) {
   return {
     id: String(r.id || ''), col, source,
     status: String(r.status || 'pending'),
+    // The location it's made at, with more than one (lib/here-server); none: every location's kitchen shows it.
+    locationId: r.locationId ? String(r.locationId) : null,
     name: String(r.clientName || r.guestName || 'Guest'),
     item: String(r.itemName || r.menuItemName || 'Item'),
     // The guest's choices for it (lib/menu-choices), as the kitchen reads them: "Large, Oat, Extra shot".

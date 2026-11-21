@@ -3,6 +3,7 @@
 //   create    { tenantId, name, … } → owner/manager only; re-checks the limit at the moment of creation, creates the
 //                                     location, then updates the ClarityFlow subscription so the extra one is billed.
 // Browsers can't create business locations directly (firestore.rules allows them only inventory storage areas).
+import { forgetLocations } from '@/lib/here-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
   if (b.coordinates && Number.isFinite(Number(b.coordinates.lat)) && Number.isFinite(Number(b.coordinates.lng))) loc.coordinates = { lat: Number(b.coordinates.lat), lng: Number(b.coordinates.lng) };
   for (const k of ['geoFenceRadiusMeters', 'geoFenceBreakRadiusMeters']) if (Number.isFinite(Number(b[k])) && Number(b[k]) > 0) loc[k] = Math.round(Number(b[k]));
   const ref = db.collection(`tenants/${tenantId}/locations`).doc(); await ref.set(loc);
+  forgetLocations(tenantId);
   let billing: string | null = null;
   if (allow.extraMonthly) {   // subscribed + beyond the included/granted ones → add it to the subscription (prorated)
     try { const { syncSubscription } = await import('@/lib/billing'); const r: any = await syncSubscription(tenantId); billing = r?.changed ? `Your subscription now includes this location (+$${allow.extraMonthly}/month, prorated).` : null; }

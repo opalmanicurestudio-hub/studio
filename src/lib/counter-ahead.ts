@@ -634,7 +634,7 @@ export async function aheadForLane(db: any, tenantId: string, tenant: any, now =
   const snaps = await Promise.all(openDays(tenant, now).map((day) => db.collection(`tenants/${tenantId}/counterOrders`).where('day', '==', day).where('channel', '==', 'ahead').get()));
   const rows = snaps.flatMap((s: any) => s.docs).map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((o: any) => o.ahead?.way === 'drive-thru' && o.paidAt && !o.ahead?.carId && o.status !== 'done' && o.status !== 'voided')
-    .map((o: any) => ({ id: o.id, number: String(o.number || ''), name: o.guestName || null, code: String(o.ahead?.code || ''), at: o.ahead?.at || null, hereAt: o.ahead?.hereAt || null,
+    .map((o: any) => ({ id: o.id, number: String(o.number || ''), name: o.guestName || null, code: String(o.ahead?.code || ''), at: o.ahead?.at || null, hereAt: o.ahead?.hereAt || null, locationId: o.locationId ? String(o.locationId) : null,
       items: (o.lines || []).reduce((n: number, l: any) => n + num(l.quantity), 0), total: num(o.total), summary: (o.lines || []).slice(0, 3).map((l: any) => `${num(l.quantity)} ${String(l.name || '')}`).join(', ') }))
     .sort((a: any, b: any) => Number(!!b.hereAt) - Number(!!a.hereAt) || String(a.hereAt || a.at || '9').localeCompare(String(b.hereAt || b.at || '9')));
   laneCache.set(tenantId, { at: now, rows }); if (laneCache.size > 500) laneCache.delete(laneCache.keys().next().value as string);
@@ -647,7 +647,7 @@ export const aheadChanged = (tenantId: string) => { laneCache.delete(tenantId); 
  *  ordered anything yet or not, and the kitchen starts on it if it was waiting: the crew asks if they'd like anything else,
  *  which is the car's own order, paid at the window ("Nothing else" sends the car on to pickup: aheadNothingMore). Without
  *  a car at the speaker (the window, a pickup-only lane), a car is made for it, straight to pickup. */
-export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { orderId?: unknown; code?: unknown; carId?: unknown }, who: { id: string | null; name: string }): Promise<any> {
+export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { orderId?: unknown; code?: unknown; carId?: unknown }, who: { id: string | null; name: string }, here: string | null = null): Promise<any> {
   const T = `tenants/${tenantId}`; const days = openDays(tenant);
   let orderId = String(b.orderId || '');
   // The code: today's first, then last night's (an order placed just before midnight).
@@ -690,7 +690,7 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
       // …and their allergies (lib/order-allergy), shown on this screen while it's being taken, on whatever is added here.
       const had = orderAllergyOf(or); const both = had ? mergeAllergy(orderAllergyOf(own), had) : null;
       if (both && !sameAllergy(orderAllergyOf(own), both)) tx.set(ownRef, { allergy: { keys: both.keys, other: both.other, severe: both.severe, by: had!.by || 'The guest', at: had!.at || nowS, from: 'ahead' } }, { merge: true });
-    } else tx.set(carRef, { id: carRef.id, arrivedAt: nowS, takenBy: who.name, day: days[0], number: or.number, orderId, stage: 'pickup', stageAt: { pickup: nowS }, ahead: true, inLine: false }, { merge: true });
+    } else tx.set(carRef, { id: carRef.id, arrivedAt: nowS, takenBy: who.name, day: days[0], number: or.number, orderId, stage: 'pickup', stageAt: { pickup: nowS }, ahead: true, inLine: false, ...(here || or.locationId ? { locationId: String(here || or.locationId) } : {}) }, { merge: true });
     tx.set(ref, { carId: carRef.id, ahead: { carId: carRef.id, hereAt: or.ahead?.hereAt || nowS } }, { merge: true });
     return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null, linked: !!car, carNumber: car ? String(car.number || '') : String(or.number || '') };
   });

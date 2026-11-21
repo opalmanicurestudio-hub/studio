@@ -36,3 +36,13 @@ export function homeLocation(person: any): string | null {
   const ids: string[] = Array.isArray(person?.locationIds) ? person.locationIds.filter(Boolean) : [];
   return ids.length === 1 ? ids[0] : null;
 }
+
+/** For the quick-service screens (the counter, a lane, the kitchen, the ready board): whether something belongs at the
+ *  location a screen is set up for. No location (one location only, or a screen not set up for one) shows everything;
+ *  something not stamped with a location (made before there were several) shows at every one. */
+export function atHere(rec: any, here: string | null | undefined): boolean {
+  return !here || !rec?.locationId || String(rec.locationId) === here;
+}
+
+/** The key a day's order numbers and pickup codes are kept under: each location counts its own ("C1" at each). */
+export const dayKey = (day: string, here: string | null | undefined) => (here ? `${day}_${here}` : day);

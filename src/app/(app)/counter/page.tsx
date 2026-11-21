@@ -67,6 +67,8 @@ function AppFix({ id, apps, start, busy, onSave, onKeep }: { id: string; apps: {
 }
 const clockOf = (iso: string) => { try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 
+/** The location picked in the app (lib/here-server), with more than one. */
+const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
 const GREEN_TINT = '#ecf6f0', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -96,6 +98,8 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
+  /** The location this counter is at, with more than one (lib/here-server). */
+  location?: { id: string; name: string | null } | null;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Today's hot food deliveries by the business's own drivers (lib/food-delivery-server), when delivery is on. */
   deliveries?: DeliveryRow[]; drivers?: FoodDriver[]; driverNow?: DriverNow | null; slow?: Slow | null;
@@ -177,8 +181,10 @@ export default function CounterPage() {
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
 
+  // With more than one location, the one picked in the app's location switcher (lib/here-server): this counter's
+  // orders, cars and deliveries. (Read on every call, so switching shows the other location on the next refresh.)
   const post = useCallback(async (body: any) => {
-    const r = await send('/api/counter', { tenantId, channel: 'counter', ...body }, { label: 'Counter', auth: 'user', keep: false, tenantId: String(tenantId || '') });
+    const r = await send('/api/counter', { tenantId, channel: 'counter', ...hereAsked(), ...body }, { label: 'Counter', auth: 'user', keep: false, tenantId: String(tenantId || '') });
     return r.d && typeof r.d === 'object' ? r.d : { ok: false, error: 'That didn’t go through. Try again.' };
   }, [tenantId]);
   const load = useCallback(async () => {
@@ -304,6 +310,7 @@ export default function CounterPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="mr-1 text-[24px] font-semibold tracking-tight">Counter</h1>
+          {lane?.location?.name && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: SOFT, color: INK }}>{lane.location.name}</span>}
           {lane?.daypart && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>{lane.daypart.name} until {lane.daypart.until}</span>}
           {lane?.happyHour && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Happy hour until {lane.happyHour.until}</span>}
         </div>

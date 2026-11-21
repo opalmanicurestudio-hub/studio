@@ -146,7 +146,7 @@ export async function cancelLater(db: any, tenantId: string, tenant: any, orderI
   return { ok: true, cents: all, number: claim.number };
 }
 
-export type ComingUpRow = { orderId: string; number: string; name: string | null; day: string; at: string; way: string; people: number | null; items: number; total: number;
+export type ComingUpRow = { orderId: string; number: string; name: string | null; day: string; locationId: string | null; at: string; way: string; people: number | null; items: number; total: number;
   to: string | null; startsAt: string; releaseAt: string; phone: string | null; cancelBy: string | null; failed: string | null; stuck: string | null; today: boolean };
 /** The counter's Coming up: orders for another day still waiting (paid, not yet sent to the kitchen), soonest first.
  *  Read at most every 20 seconds per business, however many counters poll. */
@@ -159,7 +159,7 @@ export async function comingUp(db: any, tenantId: string, tenant: any, nowMs = D
   const rows: ComingUpRow[] = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((o: any) => o.status === 'scheduled' && o.paidAt && o.channel === 'ahead' && isLater(o) && Number.isFinite(Date.parse(String(o.ahead.at || ''))))
     .map((o: any) => { const at = Date.parse(String(o.ahead.at)); const lines = Array.isArray(o.lines) ? o.lines : []; const L = o.ahead.later || {};
-      return { orderId: o.id, number: String(o.number || ''), name: o.guestName || null, day: String(o.ahead.forDay), at: new Date(at).toISOString(), way: String(o.ahead.way || 'inside'),
+      return { orderId: o.id, number: String(o.number || ''), name: o.guestName || null, day: String(o.ahead.forDay), locationId: o.locationId ? String(o.locationId) : null, at: new Date(at).toISOString(), way: String(o.ahead.way || 'inside'),
         people: Number(L.people) || null, items: lines.reduce((n: number, l: any) => n + Math.max(1, Math.round(num(l.quantity) || 1)), 0), total: num(o.total),
         to: o.ahead.way === 'delivery' ? addressLine(o.ahead.delivery?.address) || null : null,
         startsAt: new Date(startsAt(at, lines)).toISOString(), releaseAt: new Date(Date.parse(String(L.releaseAt || '')) || releaseAt(at, lines)).toISOString(),

@@ -4,6 +4,7 @@
 // manager signed in on it does it once (api/kitchen 'pair', kind 'drive-thru', 'drive-thru-board' for a screen guests
 // see, whose key can only show, or 'kiosk', whose key only takes its own guests' orders and payments), and from then on
 // the screen carries its own key and keeps working when they sign out.
+import { PlacePick, usePlaces } from '@/components/drive-thru/PlacePick';
 import { useState } from 'react';
 import { Car } from 'lucide-react';
 import { useFirebase } from '@/firebase';
@@ -14,12 +15,14 @@ const btn = `min-h-[44px] px-4 rounded-xl text-[15px] font-semibold disabled:opa
 
 export function ScreenSetup({ tenantId, stopped, onPaired, board = false, window: atWindow = false, menu = false, ready = false, kiosk = false }: { tenantId: string; stopped: string; onPaired: (key: string) => void; board?: boolean; window?: boolean; menu?: boolean; ready?: boolean; kiosk?: boolean }) {
   const { user, isUserLoading } = useFirebase() as any;
+  // With more than one location, which one it's at (components/drive-thru/PlacePick).
+  const places = usePlaces(tenantId, !!user);
   const shows = board || atWindow || menu || ready;
   const [name, setName] = useState(kiosk ? 'Kiosk' : ready ? 'Ready board' : menu ? 'Menu board' : atWindow ? 'Window screen' : board ? 'Order board' : 'Drive-thru window'); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const pair = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pair', tenantId, name, kind: kiosk ? 'kiosk' : shows ? 'drive-thru-board' : 'drive-thru' }) });
+      const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pair', tenantId, name, kind: kiosk ? 'kiosk' : shows ? 'drive-thru-board' : 'drive-thru', ...(places.at ? { locationId: places.at } : {}) }) });
       const d = await r.json().catch(() => ({}));
       if (d.ok && d.key) onPaired(String(d.key)); else setErr(d.error || 'That didn’t go through. Try again.');
     } catch { setErr('No connection. Try again.'); }
@@ -48,6 +51,7 @@ export function ScreenSetup({ tenantId, stopped, onPaired, board = false, window
         {isUserLoading ? <div className="mx-auto h-7 w-7 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading" />
           : user ? (
             <div className="space-y-3">
+              <PlacePick {...places} />
               <label className="block"><span className="text-[14px] font-medium">Name this screen</span>
                 <input value={name} onChange={(e) => setName(e.target.value.slice(0, 40))} className="mt-1.5 min-h-[44px] w-full rounded-xl px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder={kiosk ? 'Kiosk by the door' : ready ? 'Ready board' : menu ? 'Menu board' : atWindow ? 'Pay window' : board ? 'Order board' : 'Speaker, Window'} /></label>
               {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}

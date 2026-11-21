@@ -29,6 +29,8 @@ import { HandoverSheet } from './HandoverSheet';
 import { HereCard } from './PickupsScreen';
 import { useArrivalAlerts } from './use-arrival-alerts';
 
+/** With more than one location, the one picked in the app (lib/here-server). */
+const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
 const clock = (iso: string | null) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''; };
 
 export function CurbsideScreen() {
@@ -62,7 +64,7 @@ export function CurbsideScreen() {
   const loadCafe = React.useCallback(async () => {
     if (!tenantId) return;
     try {
-      const r = await fetch('/api/curbside', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'list' }) });
+      const r = await fetch('/api/curbside', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'list', ...hereAsked() }) });
       const d = await r.json().catch(() => ({}));
       if (d.ok) { setCafe(d.cafe || []); setCafeErr(''); setCafeOn(d.on === true || (d.cafe || []).length > 0); } else setCafeErr(d.error || 'Café orders didn’t load.');
     } catch { setCafeErr('No connection. Café orders will show again when it’s back.'); } finally { setCafeLoaded(true); }

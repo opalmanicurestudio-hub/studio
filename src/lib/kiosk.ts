@@ -10,6 +10,8 @@
 // shelf (voidOrder). Nothing is ever made for an order that isn't paid.
 //   tenants/{t}/counterOrders/{id}.kiosk = { screen, state: 'awaiting_pay' | 'paid' | 'let_go' }
 //   kitchenScreens/{hash}.readerId, .kioskOrder   (its reader, picked by a manager; the order it's being paid for now)
+import { hereFor } from '@/lib/here-server';
+import { dayKey } from '@/lib/business-locations';
 import { cleanLineNote, cleanOrderAllergy } from '@/lib/order-allergy';
 import { createHash } from 'crypto';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
@@ -133,13 +135,16 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     if (prev?.state === 'busy') return prev.code === 'processing' ? fail('The card reader is finishing another payment. Try again in a moment.', 409, 'processing') : fail(prev.error, prev.status, prev.code);
   }
   const day = todayIn(tenantTimeZone(tenant), at);
+  // (At the kiosk's location, while it's still one of the business's: lib/here-server.)
+  const here = await hereFor(db, tenantId, { screen });
   const made: any = had ? { number: had.number } : await db.runTransaction(async (tx: any) => {
     const again: any = (await tx.get(orderRef)).data(); if (again) return { had: again };
-    const counterRef = db.doc(`${T}/orderCounters/${day}`);
+    // (At the kiosk's location, with more than one: stamped and numbered there. lib/here-server)
+    const counterRef = db.doc(`${T}/orderCounters/${dayKey(day, here)}`);
     const c: any = (await tx.get(counterRef)).data() || {};
     const n = Math.floor(num(c.kiosk)) + 1; const number = orderNumber('kiosk', n);
     tx.set(counterRef, { kiosk: n, day }, { merge: true });
-    tx.set(orderRef, { id: orderId, number, channel: 'kiosk', status: 'building', lines, ...money, guestName: name, toGo, createdAt: at.toISOString(), createdBy: screen.name, day,
+    tx.set(orderRef, { id: orderId, number, channel: 'kiosk', status: 'building', lines, ...money, guestName: name, toGo, createdAt: at.toISOString(), createdBy: screen.name, day, ...(here ? { locationId: here } : {}),
       ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: at.toISOString() } } : {}),
       kiosk: { screen: screen.ref.id, state: 'awaiting_pay' } });
     return { number };

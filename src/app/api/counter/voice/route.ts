@@ -17,6 +17,8 @@
 //                                                  business's own calls
 //   ended   { tenantId, key, callId }           → the speaker tablet says the call is over
 // Only a drive-thru lane screen's key (or a team member signed in) is accepted, and only while Lounge & hospitality is on.
+import { hereFor } from '@/lib/here-server';
+import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
@@ -85,6 +87,8 @@ export async function POST(req: NextRequest) {
     // Taking over or hanging up a call already going always works; starting one needs the tool on.
     if (action === 'start' || action === 'speaker') { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const nowIso = new Date().toISOString();
+    // With more than one location (lib/here-server): the speaker greets only its own location's cars.
+    const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: screen.member?.id || null });
 
     if (action === 'config') return ok({ on: voiceOn(tenant), publicKey: voiceOn(tenant) ? (process.env.RETELL_PUBLIC_KEY || null) : null, setUp: !!process.env.RETELL_API_KEY && !!agentOf(tenant), lanes: lanesOf(tenant) });
 
@@ -94,7 +98,7 @@ export async function POST(req: NextRequest) {
       // (A car taken in line, before the speaker, already has someone with it: never greeted.)
       // (With two ordering lanes that merge, a speaker set to its lane greets only its own cars: lib/drive-lanes.)
       const myLane = lanesOf(tenant) === 2 ? cleanLane(b.lane) : null;
-      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true && atDriveThru(c) && (!myLane || laneOf(c) === myLane)).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
+      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true && atDriveThru(c) && atHere(c, here) && (!myLane || laneOf(c) === myLane)).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
       const o: any = car?.orderId && ID.test(String(car.orderId)) ? (await db.doc(`${T}/counterOrders/${car.orderId}`).get()).data() : null;
       return ok({ on: voiceOn(tenant), now: nowIso, lanes: lanesOf(tenant), car: car ? { id: car.id, number: car.number, orderId: car.orderId || null, arrivedAt: car.arrivedAt, voice: car.voice || null, items: Array.isArray(o?.lines) ? o.lines.length : 0 } : null });
     }

@@ -21,7 +21,7 @@ const btn = `inline-flex min-h-[44px] items-center justify-center whitespace-now
 const dark = { background: INK, color: '#fff' } as const;
 const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
 
-type SetUp = { id: string; name: string; kind: string; lastSeenAt: string | null };
+type SetUp = { id: string; name: string; kind: string; lastSeenAt: string | null; locationId?: string | null };
 // What each tablet was set up as (lib/screen-keys ScreenKind). The boards and the window screen share one kind: they only show.
 const KIND_WORD: Record<string, string> = { kitchen: 'Kitchen, dish or barback screen', floor: 'Floor staff', 'drive-thru': 'Drive-thru lane or speaker', 'drive-thru-board': 'A board or the window screen', host: 'Host stand tablet', kiosk: 'Kiosk' };
 
@@ -102,6 +102,8 @@ function SetUpList({ tenantId }: { tenantId: string }) {
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState('');
+  // With more than one location (lib/here-server): which each tablet is at; it shows only that location's orders.
+  const [locs, setLocs] = useState<{ id: string; name: string }[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const saidRef = React.useRef<HTMLParagraphElement>(null);
   // Asked to stop: on Keep it (the safe one). Kept: back on Stop. Stopped: on what was said.
@@ -110,7 +112,7 @@ function SetUpList({ tenantId }: { tenantId: string }) {
     setErr('');
     try {
       const { status, d } = await call('/api/kitchen', { tenantId, action: 'screens' });
-      if (d.ok) setList((d.screens || []).map((x: any) => ({ id: String(x.id), name: String(x.name || ''), kind: String(x.kind || 'kitchen'), lastSeenAt: x.lastSeenAt || null })));
+      if (d.ok) { setList((d.screens || []).map((x: any) => ({ id: String(x.id), name: String(x.name || ''), kind: String(x.kind || 'kitchen'), lastSeenAt: x.lastSeenAt || null, locationId: x.locationId || null }))); setLocs(Array.isArray(d.locations) ? d.locations : []); }
       else if (status === 401 || status === 403) setHidden(true);
       else setErr(d.error || 'The tablets set up couldn’t be loaded. Try again.');
     } catch { setErr('No connection. Try again.'); }
@@ -124,6 +126,15 @@ function SetUpList({ tenantId }: { tenantId: string }) {
       const { d } = await call('/api/kitchen', { tenantId, action: 'revoke', id: x.id });
       if (d.ok) { setList((l) => (l || []).filter((y) => y.id !== x.id)); setAsking(null); setSaid(d.warning || `${x.name} is stopped. To use that tablet again, open its screen there and set it up.`); setTimeout(() => saidRef.current?.focus(), 0); }
       else setErr(d.error || 'That tablet couldn’t be stopped. Try again.');
+    } catch { setErr('No connection. Try again.'); }
+    setBusy(null);
+  };
+  const place = async (x: SetUp, locationId: string) => {
+    setBusy(x.id); setErr(''); setSaid('');
+    try {
+      const { d } = await call('/api/kitchen', { tenantId, action: 'screenPlace', id: x.id, locationId: locationId || null });
+      if (d.ok) { setList((l) => (l || []).map((y) => (y.id === x.id ? { ...y, locationId: d.locationId || null } : y))); setSaid(`${x.name} is at ${locs.find((l) => l.id === d.locationId)?.name || 'every location'} now.`); }
+      else setErr(d.error || 'That didn’t change. Try again.');
     } catch { setErr('No connection. Try again.'); }
     setBusy(null);
   };
@@ -147,6 +158,11 @@ function SetUpList({ tenantId }: { tenantId: string }) {
                     <p className="truncate text-[15px] font-semibold">{x.name}</p>
                     <p className="text-[13.5px]" style={{ color: MUTED }}>{KIND_WORD[x.kind] || KIND_WORD.kitchen}. {lastUsed(x.lastSeenAt, now)}</p>
                   </div>
+                  {locs.length > 1 && <label className="block basis-[160px]"><span className="sr-only">Where {x.name} is</span>
+                    <select value={x.locationId || ''} disabled={busy === x.id} onChange={(e) => void place(x, e.target.value)} className={`min-h-[44px] w-full rounded-xl bg-[#fff] px-3 text-[14.5px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
+                      <option value="">Every location</option>
+                      {locs.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select></label>}
                   {asking !== x.id && <button id={`stop-${x.id}`} type="button" onClick={() => ask(x.id)} className={btn} style={{ ...quiet, color: 'var(--bad-ink)' }} aria-label={`Stop ${x.name}`}>Stop</button>}
                 </div>
                 {asking === x.id && (

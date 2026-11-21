@@ -151,8 +151,8 @@ const at = (iso: string) => new Date(iso);
   r = await P({ action: 'add', carId: c2.carId, orderId: b1.orderId, itemId: 'fries', tapKey: 'x3', channel: 'counter' });
   check('…even carrying one of its own guests beside the car’s order', r.status === 409 && /drive-thru’s/.test(r.body.error), r.body);
   const vr = src('src/app/api/counter/voice/route.ts'), cr = src('src/app/api/counter/route.ts');
-  check('…the windows and the voice assistant see only the drive-thru’s cars', /c\.inLine !== true && atDriveThru\(c\)( && \(!myLane \|\| laneOf\(c\) === myLane\))?\)\.sort/.test(vr) && /if \(!atDriveThru\(car\)\) return/.test(vr) && /\.filter\(atDriveThru\), Date\.now\(\), carId\)/.test(vr)
-    && /c\.inLine !== true && atDriveThru\(c\)\)\s*\n?\s*\.sort/.test(cr) && /ageOf\(c\.goneAt\) < 8000 && atDriveThru\(c\)/.test(cr));
+  check('…the windows and the voice assistant see only the drive-thru’s cars', /c\.inLine !== true && atDriveThru\(c\)( && atHere\(c, here\))?( && \(!myLane \|\| laneOf\(c\) === myLane\))?\)\.sort/.test(vr) && /if \(!atDriveThru\(car\)\) return/.test(vr) && /\.filter\(atDriveThru\), Date\.now\(\), carId\)/.test(vr)
+    && /c\.inLine !== true && atDriveThru\(c\)( && atHere\(c, here\))?\)\s*\n?\s*\.sort/.test(cr) && /ageOf\(c\.goneAt\) < 8000 && atDriveThru\(c\)/.test(cr));
 
   console.log('a combo voided');
   await P({ action: 'add', channel: 'counter', orderId: c2.orderId, itemId: 'meal', choices: { side: ['s'], drink: ['t'] }, tapKey: 't4' });
@@ -254,7 +254,7 @@ const at = (iso: string) => new Date(iso);
 
   console.log('the counter page');
   const cp = src('src/app/(app)/counter/page.tsx');
-  check('the counter page asks the server for everything, as counter orders', /send\('\/api\/counter', \{ tenantId, channel: 'counter', \.\.\.body \}/.test(cp) && !/firebase\/firestore/.test(cp));
+  check('the counter page asks the server for everything, as counter orders', /send\('\/api\/counter', \{ tenantId, channel: 'counter', (\.\.\.hereAsked\(\), )?\.\.\.body \}/.test(cp) && !/firebase\/firestore/.test(cp));
   check('…Next guest, the menu with happy-hour prices and when the rest is back, and the order with a first name', /Next guest/.test(cp) && /m\.off \|\| outWords\(m\)/.test(cp) && /<s>\{usd\(fullOf\(m\)\)\}<\/s>/.test(cp) && /First name, for calling it out/.test(cp));
   check('…send and take payment: cash with the change, or the card reader', /Send and take payment/.test(cp) && /Change: \{usd\(tendered - order\.total\)\}/.test(cp) && /action: 'card', orderId: order\.id, readerId: reader\.id/.test(cp));
   check('…Waiting: Call says it out loud and marks it called; Handed over takes it off', /new SpeechSynthesisUtterance/.test(cp) && /action: 'call', carId: g\.id/.test(cp) && /action: 'move', carId: g\.id, to: 'gone'/.test(cp) && /Called \$\{minsAgo/.test(cp));

@@ -33,6 +33,8 @@ import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 
+/** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
+const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', RED = '#b42318';
 const AMBER_TINT = '#fff7ed', GREEN_TINT = '#ecf6f0';
 const POLL_MS = 2000;
@@ -360,7 +362,7 @@ export default function DriveThru() {
   useEffect(() => { const evs = ['click', 'touchend', 'keydown']; for (const e of evs) window.addEventListener(e, unlock, { passive: true }); return () => { for (const e of evs) window.removeEventListener(e, unlock); }; }, [unlock]);
 
   const post = useCallback(async (body: any) => {
-    const r = await fetch('/api/counter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...body }) });
+    const r = await fetch('/api/counter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...(!key ? hereAsked() : {}), ...body }) });
     const d = await r.json().catch(() => ({}));
     if (r.status === 401) { write(keyName(tenantId), null); setKey(null); setLane(null); setStopped(d.error || 'This screen was stopped. A manager can set it up again.'); }
     // The working person's own pass no longer counts (a one-off manager's PIN for a void is never theirs).

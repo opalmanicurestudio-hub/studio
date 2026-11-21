@@ -477,7 +477,7 @@ const num0 = (v: unknown) => Math.round((Number(v) || 0) * 100) / 100;
   check('the lane and the board read no database themselves (only the server)', !/from ['"]firebase\/firestore|useCollection|getDocs|onSnapshot/.test(lane + board + setup));
   check('the lane: one tap for a car, choices on the shared picker, the order read back, card or cash with the change, pull forward to a spot', lane.includes("action: 'car', carKey") && lane.includes('<ChoicePicker') && lane.includes('readBack(order!.lines)')
     && lane.includes("paid('cash', cash)") && /move\('forward', s\)/.test(lane) && lane.includes('tapKey: keyFor(sig)'));
-  check('a manager’s one-off PIN for a void is what’s sent, never replaced by whoever is working', lane.includes("JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...body })"));
+  check('a manager’s one-off PIN for a void is what’s sent, never replaced by whoever is working', lane.includes("JSON.stringify({ tenantId, key, ...(staff ? { staffPass: staff.pass } : {}), ...(!key ? hereAsked() : {}), ...body })"));
   check('the board goes back to its welcome when it loses touch, rather than show an old order', /STALE_MS/.test(board) && board.includes('const o = fresh ? board?.order || null : null;'));
   check('the kitchen screen: drive-thru first, countdowns, by order, holding', kds.includes('.sort(kitchenOrder)') && kds.includes("['order', 'By order']") && kds.includes('<HoldingStrip') && kds.includes('Take from holding'));
   const ui = [lane, board, setup, pin, menuPage].join('\n');

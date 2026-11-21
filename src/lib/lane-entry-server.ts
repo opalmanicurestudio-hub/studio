@@ -83,7 +83,7 @@ export async function lineClear(db: any, tenantId: string, lane: 1 | 2 | null, n
   forget(tenantId);
 }
 
-export type EarlyOrder = { orderId: string; number: string; lane: 1 | 2 | null; since: string; lines: EarlyLine[] };
+export type EarlyOrder = { orderId: string; number: string; lane: 1 | 2 | null; since: string; lines: EarlyLine[]; locationId?: string };
 export type LineNow = { inLane: number; waiting: number; byLane: Record<1 | 2, number>; sensor: boolean; rush: boolean; ordering: EarlyOrder[] };
 
 const cache = new Map<string, { at: number; v: LineNow }>();
@@ -128,7 +128,7 @@ export async function lineNow(db: any, tenantId: string, tenant: any, o: { nowMs
     // one left at the speaker over 15 minutes is a car that drove off, not an order coming.
     const at = lane.filter((c: any) => c.stage === 'speaker' && c.orderId && nowMs - Date.parse(String(c.arrivedAt || '')) < 15 * 60000).slice(0, 12);
     const docs = at.length ? await db.getAll(...at.map((c: any) => db.doc(`${T}/counterOrders/${c.orderId}`))) : [];
-    ordering = at.map((c: any, i: number) => ({ orderId: String(c.orderId), number: String(c.number || ''), lane: two ? cleanLane(c.lane) : null, since: String(c.arrivedAt || ''), lines: earlyLines(docs[i]?.data?.()) }))
+    ordering = at.map((c: any, i: number) => ({ orderId: String(c.orderId), number: String(c.number || ''), lane: two ? cleanLane(c.lane) : null, since: String(c.arrivedAt || ''), lines: earlyLines(docs[i]?.data?.()), ...(c.locationId ? { locationId: String(c.locationId) } : {}) }))
       .filter((x: EarlyOrder) => x.lines.length).sort((a: EarlyOrder, b: EarlyOrder) => a.since.localeCompare(b.since));
   }
   const v: LineNow = { inLane, waiting, byLane, sensor, rush: isRush(inLane, waiting), ordering };

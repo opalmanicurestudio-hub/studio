@@ -16,7 +16,7 @@ const READY = ['ready', 'delivered', 'served', 'done'];
 type Fail = { ok: false; error: string; status: number };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 
-export type CafeCurb = { kind: 'cafe'; id: string; number: string; name: string | null; where: string | null; note: string | null; hereAt: string | null; outAt: string | null; outBy: string | null;
+export type CafeCurb = { kind: 'cafe'; id: string; locationId?: string | null; number: string; name: string | null; where: string | null; note: string | null; hereAt: string | null; outAt: string | null; outBy: string | null;
   at: string | null; state: 'later' | 'making' | 'ready'; items: number; summary: string;
   /** On their way (when they set off, about how many minutes out), and checked in by their phone's location. */
   onWayAt?: string | null; eta?: number | null; found?: boolean };
@@ -52,7 +52,7 @@ async function readCafe(db: any, tenantId: string, tenant: any, now: number): Pr
     const s = await db.collection(`${T}/kdsTickets`).where('orderId', 'in', ids).get();
     for (const d of s.docs) { const t = d.data() || {}; tix.set(t.orderId, [...(tix.get(t.orderId) || []), t]); }
   }
-  return orders.map((o: any) => ({
+  return orders.map((o: any) => ({ locationId: o.locationId ? String(o.locationId) : null,
     kind: 'cafe' as const, id: o.id, number: String(o.number || ''), name: o.guestName || null, where: o.ahead?.curb?.where || null, note: o.ahead?.curb?.note || null,
     hereAt: o.ahead?.hereAt || null, outAt: o.ahead?.curb?.outAt || null, outBy: o.ahead?.curb?.outBy || null, at: o.ahead?.at || null,
     onWayAt: o.ahead?.curb?.onWayAt || null, eta: o.ahead?.curb?.etaMinutes ?? null, found: o.ahead?.curb?.source === 'geo',
