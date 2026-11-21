@@ -45,7 +45,8 @@ export async function storeDelivery(db: any, tenantId: string, tenant: any, addr
   Promise<{ v: DeliveryView; from: BizLocation | null; changed?: boolean }> {
   const { deliveryFor } = await import('@/lib/delivery-server');
   // (Each store's delivery times on its own clock, when it keeps one.)
-  const ask = (s: BizLocation) => deliveryFor(db, tenantId, zonedFor(tenant, s), address, { itemsCents: opts.itemsCents, now: opts.now, sameCheckout: opts.sameCheckout, token: opts.token, origin: s.coordinates });
+  // (Its own deliveries fill its times, with the drivers who work there: lib/delivery-server deliveryFor `store`.)
+  const ask = (s: BizLocation) => deliveryFor(db, tenantId, zonedFor(tenant, s), address, { itemsCents: opts.itemsCents, now: opts.now, sameCheckout: opts.sameCheckout, token: opts.token, origin: s.coordinates, store: s.id });
   const deliverers = stores.filter((s) => s.ordering.delivery);
   if (!deliverers.length) return { v: NO_STORE, from: null, ...(opts.hint ? { changed: true } : {}) };
   const can = deliverers.filter((s) => s.coordinates);

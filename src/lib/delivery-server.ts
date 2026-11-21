@@ -11,15 +11,17 @@ import {
 import { planFrom, type PickupPlan, type PickupWindow } from '@/lib/pickup-slots';
 import { geocode, hasMapsKey, preciseEnough } from '@/lib/geocode-server';
 import { deliveryNowOf } from '@/lib/driver-load';
-import { driverLoad } from '@/lib/driver-load-server';
+import { driverLoad, driversAt } from '@/lib/driver-load-server';
+import { atHere } from '@/lib/business-locations';
 import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { onTeam } from '@/lib/team-member';
 
 /** Orders already in each delivery window over the days offered, by window key (not counting `sameCheckout`'s own earlier try). */
-export async function bookedDelivery(db: any, tenantId: string, firstDay: string, lastDay: string, now: number, sameCheckout = ''): Promise<Record<string, number>> {
+export async function bookedDelivery(db: any, tenantId: string, firstDay: string, lastDay: string, now: number, sameCheckout = '', at: string | null = null): Promise<Record<string, number>> {
   const snap = await db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryWindowKey', '>=', firstDay).where('deliveryWindowKey', '<=', `${lastDay}~`).limit(5000).get();
   const out: Record<string, number> = {};
-  for (const d of snap.docs) { const o: any = d.data() || {}; if (holdsPlace(o, now, sameCheckout)) out[String(o.deliveryWindowKey)] = (out[String(o.deliveryWindowKey)] || 0) + 1; }
+  // (From one of several stores, `at`: only its own deliveries, and any from before there were stores.)
+  for (const d of snap.docs) { const o: any = d.data() || {}; if (holdsPlace(o, now, sameCheckout) && atHere(o, at)) out[String(o.deliveryWindowKey)] = (out[String(o.deliveryWindowKey)] || 0) + 1; }
   return out;
 }
 
@@ -86,10 +88,10 @@ export function milesFromToken(tenantId: string, a: DeliveryAddress, token: any,
 }
 
 /** Delivery orders still on their way that were promised within minutes (they each keep a driver busy). */
-export async function asapOut(db: any, tenantId: string, plan: DeliveryPlan, now: number, sameCheckout = ''): Promise<number> {
+export async function asapOut(db: any, tenantId: string, plan: DeliveryPlan, now: number, sameCheckout = '', at: string | null = null): Promise<number> {
   const since = new Date(now - Math.max(plan.asap.minutes, 60) * 2 * 60e3).toISOString();
   const snap = await db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryAsapAt', '>=', since).limit(500).get();
-  return snap.docs.filter((d: any) => asapBusy(d.data() || {}, now, sameCheckout)).length;
+  return snap.docs.filter((d: any) => asapBusy(d.data() || {}, now, sameCheckout) && atHere(d.data() || {}, at)).length;
 }
 /** An order promised within minutes that still keeps a driver busy: held or paid, and not yet delivered or brought back. */
 export function asapBusy(o: any, now: number, sameCheckout = ''): boolean {
@@ -107,7 +109,7 @@ export type DeliveryView =
  * delivers there, the fee for items worth `itemsCents`, the windows with room, and whether "within N minutes" is on
  * offer right now. `token` is the signed distance from an earlier check of the same address.
  */
-export async function deliveryFor(db: any, tenantId: string, tenant: any, address: DeliveryAddress, opts: { itemsCents: number; now?: number; sameCheckout?: string; token?: any; origin?: { lat: number; lng: number } | null }): Promise<DeliveryView> {
+export async function deliveryFor(db: any, tenantId: string, tenant: any, address: DeliveryAddress, opts: { itemsCents: number; now?: number; sameCheckout?: string; token?: any; origin?: { lat: number; lng: number } | null; store?: string | null }): Promise<DeliveryView> {
   const now = opts.now ?? Date.now();
   const rs = tenant?.retailSettings || {};
   // From another of the business's locations (lib/ahead-places, with more than one): its own address measures the miles.
@@ -133,19 +135,26 @@ export async function deliveryFor(db: any, tenantId: string, tenant: any, addres
   const tz = tenantTimeZone(tenant);
   const today = todayIn(tz, new Date(now));
   const days = Array.from({ length: plan.daysAhead }, (_, i) => new Date(Date.parse(`${today}T12:00:00Z`) + i * 864e5).toISOString().slice(0, 10));
+  // From one of several stores (`store`, lib/shop-stores-server): its own deliveries fill its times, with the drivers who
+  // work there (each person's locations, Staff page; none set: every store).
+  const at = opts.store || null;
+  const drivers = at ? await driversAt(db, tenantId, plan.drivers, at) : plan.drivers;
+  // (The business has drivers and none works at this store: it doesn't deliver; the next nearest is asked. The same rule
+  // as hot food's, lib/driver-load-server.)
+  if (at && plan.drivers.length && !drivers.length) return { ok: false, reason: 'outside', message: 'We don’t deliver to that address right now. Choose another way to get your order.' };
   const [booked, spans, out] = await Promise.all([
-    bookedDelivery(db, tenantId, days[0], days[days.length - 1], now, opts.sameCheckout || ''),
+    bookedDelivery(db, tenantId, days[0], days[days.length - 1], now, opts.sameCheckout || '', at),
     plan.drivers.length ? shiftsFor(db, tenantId, days) : Promise.resolve([] as ShiftSpan[]),
-    plan.asap.on && z.zone.expressCents !== null ? asapOut(db, tenantId, plan, now, opts.sameCheckout || '') : Promise.resolve(0),
+    plan.asap.on && z.zone.expressCents !== null ? asapOut(db, tenantId, plan, now, opts.sameCheckout || '', at) : Promise.resolve(0),
   ]);
   // Everyone's shifts, so a day with the schedule out but no driver on it offers nothing, rather than no limit.
-  const lookup = plan.perDriver !== null && plan.drivers.length ? driverLookup(spans, plan.drivers, tz) : undefined;
+  const lookup = plan.perDriver !== null && plan.drivers.length ? driverLookup(spans, drivers, tz) : undefined;
   const windows = deliveryWindows(plan, shop, now, tz, booked, lookup);
-  const driverSet = new Set(plan.drivers);
+  const driverSet = new Set(drivers);
   // Shared with hot food (lib/driver-load): a driver out with hot food is out for these too, and a pause at the counter
   // stops "within the hour" (scheduled windows aren't changed).
   const slow = deliveryNowOf(tenant, now);
-  const hotOut = plan.asap.on && z.zone.expressCents !== null && plan.drivers.length ? await driverLoad(db, tenantId, tenant, now).then((l) => l.hotOutNow).catch(() => 0) : 0;
+  const hotOut = plan.asap.on && z.zone.expressCents !== null && plan.drivers.length ? await driverLoad(db, tenantId, tenant, now, { at }).then((l) => l.hotOutNow).catch(() => 0) : 0;
   const asap0 = asapOffer(plan, shop, z.zone, now, tz, plan.drivers.length ? driversOnNow(spans.filter((s) => driverSet.has(s.staffId)), now, tz) : null, out + hotOut);
   const asap: AsapAnswer = slow.paused && asap0.ok ? { ok: false, why: 'busy' } : asap0;
   return { ok: true, plan, shop, tz, zone: z.zone, miles: z.miles, fee, windows, booked, asap, token: miles === null ? null : milesToken(tenantId, address, miles, plan.origin, now) };

@@ -314,10 +314,10 @@ export async function POST(req: NextRequest) {
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
         // Hot food going out with the business's own drivers today (lib/food-delivery-server), at the counter.
         deliveries: channel === 'counter' && foodDeliveryOf(tenant).on ? (await deliveriesToday(db, tenantId, tenant, now.getTime()).catch(() => [])).filter((r: any) => atHere(r, here)) : [],
-        drivers: channel === 'counter' && foodDeliveryOf(tenant).on ? await foodDrivers(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
+        drivers: channel === 'counter' && foodDeliveryOf(tenant).on ? await foodDrivers(db, tenantId, tenant, now.getTime(), here).catch(() => []) : [],
         // The drivers now (lib/driver-load-server: on the schedule, out, the first back), and new deliveries slowed down.
         // (Each of the drivers by name: out and back about when, here, or on later. lib/driver-load-server)
-        driverNow: channel === 'counter' && foodDeliveryOf(tenant).on ? await Promise.all([driverLoad(db, tenantId, tenant, now.getTime()), foodDrivers(db, tenantId, tenant)]).then(([l, names]) => ({ onNow: l.onNow, outNow: l.outNow, backAt: l.backAt,
+        driverNow: channel === 'counter' && foodDeliveryOf(tenant).on ? await Promise.all([driverLoad(db, tenantId, tenant, now.getTime(), { at: here }), foodDrivers(db, tenantId, tenant, now.getTime(), here)]).then(([l, names]) => ({ onNow: l.onNow, outNow: l.outNow, backAt: l.backAt,
           drivers: l.drivers.map((x) => ({ ...x, name: names.find((n) => n.id === x.id)?.name || null })).filter((x) => x.name) })).catch(() => null) : null,
         slow: channel === 'counter' && foodDeliveryOf(tenant).on ? deliveryNowOf(tenant, now.getTime()) : null,
         // The delivery apps it takes orders from (lib/app-orders), for the counter's App order.
@@ -639,7 +639,7 @@ export async function POST(req: NextRequest) {
       const id = String(b.orderId || '');
       // (Who's driving, typed on the counter screen; or whoever's signed in.)
       // One of the business's drivers (their tip is theirs), a name typed for someone else, or whoever's signed in.
-      const pickId = String(b.driverId || ''); const picked = pickId ? (await foodDrivers(db, tenantId, tenant)).find((x) => x.id === pickId) : null;
+      const pickId = String(b.driverId || ''); const picked = pickId ? (await foodDrivers(db, tenantId, tenant, Date.now(), here)).find((x) => x.id === pickId) : null;
       if (pickId && !picked) return bad('Pick the driver again: they aren’t one of your drivers now.', 400);
       const typed = String(b.driver ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
       const driver = picked || (typed ? { name: typed, id: null } : { name: by, id: who.id ? await staffIdForLogin(db, tenantId, who.id).catch(() => null) : null });

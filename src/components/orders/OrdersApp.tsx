@@ -22,6 +22,7 @@ import { scanInto, startPacking } from '@/lib/orders-flow';
 import { orderTags } from '@/lib/order-tags';
 import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type NeedItem, type OrdersTab } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { atHere } from '@/lib/business-locations';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
 import { lineProductId } from '@/lib/product-codes';
@@ -78,7 +79,16 @@ export function OrdersApp() {
   const layout: Layout = !wide ? 'phone' : widest ? 'three' : 'two';
   const canEditContact = mayEditContact(selectedTenant, { role, isTenantOwner: !!user?.uid && (selectedTenant as any)?.userId === user.uid });
 
-  const [orders, setOrders] = React.useState<any[]>([]);
+  const [allOrders, setOrders] = React.useState<any[]>([]);
+  // More than one store (lib/shop-stores-server): the orders for the store this device is at (the location picked in the
+  // app), shipping ones and any from before there were stores; Every store shows them all.
+  const [atStore, setAtStore] = React.useState('');
+  const [everyStore, setEveryStore] = React.useState(false);
+  React.useEffect(() => { try { setAtStore(localStorage.getItem('selectedLocationId') || ''); } catch { /* every store */ } }, []);
+  const storeNames = React.useMemo(() => new Map<string, string>(allOrders.map((o) => [String(o.pickupStore?.id || o.deliveryFrom?.id || ''), String(o.pickupStore?.name || o.deliveryFrom?.name || '')]).filter(([k]) => !!k) as [string, string][]), [allOrders]);
+  const byStore = storeNames.size > 0 && !!atStore;
+  const orders = React.useMemo(() => (byStore && !everyStore ? allOrders.filter((o) => atHere(o, atStore)) : allOrders), [allOrders, byStore, everyStore, atStore]);
+  const storeWord = storeNames.get(atStore) || 'this store';
   const [done, setDone] = React.useState<any[]>([]);
   const [batches, setBatches] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -168,7 +178,7 @@ export function OrdersApp() {
   const photoFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const u = (Array.isArray(i.imageUrls) && i.imageUrls.find((x: any) => typeof x === 'string' && x.trim())) || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : ''); if (u) m.set(i.id, String(u)); }); return m; }, [inventory]);
   const shelfFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const s = String(i.storageLocation || i.shelf || i.binLocation || '').trim(); if (s) m.set(i.id, s); }); return m; }, [inventory]);
 
-  const byId = React.useMemo(() => new Map([...unscanned, ...done, ...orders].map((o) => [o.id, o])), [orders, done, unscanned]);
+  const byId = React.useMemo(() => new Map([...unscanned, ...done, ...allOrders].map((o) => [o.id, o])), [allOrders, done, unscanned]);
   const solo = React.useMemo(() => soloShop(staff || [], (m: any) => permissionsFor(m)), [staff]);
   const queue = React.useMemo(() => packQueue(orders, rs, now, shopZone), [orders, rs, now, shopZone]);
   const needs = React.useMemo(() => needsYou([...orders, ...unscanned.filter((u) => !orders.some((o) => o.id === u.id))], now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, unscanned, now, rs.readyStaleHours]);
@@ -412,6 +422,11 @@ export function OrdersApp() {
         <IconBtn label="Search orders" onClick={() => setSearching((s) => !s)}>{Ic.search}</IconBtn>
       </div>
       <LargeTitle title="Orders" sub={`${counts.pack} to pack · ${counts.ready} ready`} />
+      {byStore && (
+        <p className="m-0 mt-1 flex flex-wrap items-center gap-x-3 text-[14px]" style={muted}>
+          <span>{everyStore ? 'Every store’s orders.' : `${storeWord.charAt(0).toUpperCase()}${storeWord.slice(1)}’s orders.`}</span>
+          <button type="button" onClick={() => setEveryStore((v) => !v)} className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" style={{ color: C.ink }}>{everyStore ? `Just ${storeWord}` : 'Every store'}</button>
+        </p>)}
       {wide && (<>
         <label className="mt-3 flex h-11 items-center gap-2 rounded-full border px-4" style={{ borderColor: C.line }}><span style={muted}>{Ic.search}</span><input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>
         <div className="mt-2.5 flex gap-2">

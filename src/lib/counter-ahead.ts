@@ -41,7 +41,7 @@ import { posTaxAmount } from '@/lib/pos-tax';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
 import { deliveryNowOf, drivableTimes } from '@/lib/driver-load';
-import { driverLoad, forgetDriverLoad } from '@/lib/driver-load-server';
+import { driverLoad, driversAt, forgetDriverLoad } from '@/lib/driver-load-server';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { anotherDayOf, cancelBy, cleanPeople, dayChoices, isLater, laterOk, releaseAt, LATER_MAX_QTY } from '@/lib/ahead-days';
 
@@ -333,7 +333,8 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (at && slowMin && Date.parse(at) < Date.parse(asapSlot(now, pickupDelayMin(pace) + slowMin))) return fail('Deliveries are taking a little longer right now. Pick a later time.', 409, 'at');
     // A driver free for it, there and back (read afresh, with deliveries others are paying for now; never this guest's own
     // earlier try), or a later time is asked for.
-    const load = await driverLoad(db, tenantId, tenant, now, { skipCheckout: key }).catch(() => null);
+    // (With more than one location: the drivers of the one it goes from.)
+    const load = await driverLoad(db, tenantId, tenant, now, { skipCheckout: key, at: ep?.id ?? null }).catch(() => null);
     if (load && !drivableTimes([slot], deliv.driveMin, load.onShift, load.trips).ok.length) return fail(at ? 'Our drivers are all out then. Pick a later time.' : 'Our drivers are all out right now. Pick a later time.', 409, 'no_driver');
   }
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
@@ -513,7 +514,11 @@ export async function deliveryQuote(db: any, tenantId: string, tenant: any, rawA
   const { several, places } = await aheadPlacesAll(db, tenantId);
   if (several && !places.length) return fail('Delivery isn’t on here right now. Pick it up instead.', 409, 'delivery_off');
   if (!places.length) return answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now }), null);
-  const deliverers = places.filter((p) => p.ordering.delivery);
+  // (One where none of the business's drivers works doesn't deliver: lib/driver-load-server driversAt.)
+  const listed = deliveryFrom(tenant?.retailSettings).drivers;
+  const deliverers = listed.length
+    ? (await Promise.all(places.filter((p) => p.ordering.delivery).map(async (p) => ((await driversAt(db, tenantId, listed, p.id)).length ? p : null)))).filter((p): p is BizLocation => !!p)
+    : places.filter((p) => p.ordering.delivery);
   const changed = () => fail('Where it would come from just changed. Check the address again.', 409, 'delivery_changed');
   if (!deliverers.length) return hint ? changed() : fail('None of our locations deliver right now. Pick it up instead.', 409, 'delivery_off');
   const can = deliverers.filter((p) => p.coordinates);
@@ -569,7 +574,7 @@ export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: {
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
   const asap = asapNow(hours, now) ? asapSlot(now, pickupDelayMin(pace) + slow.extraMin) : null;
   // Only times a driver on the schedule can make, there and back (lib/driver-load); with nobody on it as a driver, all.
-  const load = await driverLoad(db, tenantId, tenant, now).catch(() => null);
+  const load = await driverLoad(db, tenantId, tenant, now, { at: (r.from || picked)?.id ?? null }).catch(() => null);
   const leave = pickupTimes(tenant, now, pickupDelayMin(pace) + slow.extraMin, hours);
   const can = load ? drivableTimes(leave, r.driveMin, load.onShift, load.trips) : { ok: leave, full: [] as string[] };
   const asapOk = !!asap && (!load || drivableTimes([asap], r.driveMin, load.onShift, load.trips).ok.length > 0);

@@ -16,6 +16,8 @@ import { goesWith, TOGETHER_MAX_ADD_MIN } from '@/lib/route-plan';
 import { routeSpot, newestPlan } from '@/lib/delivery-run';
 import { hotDestOf, lookUpHot, shopPlace } from '@/lib/route-server';
 import { forgetDriverLoad } from '@/lib/driver-load-server';
+import { worksAt } from '@/lib/business-locations';
+import { bizLocationsOf } from '@/lib/here-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const LIVE_GONE = ['cancelled', 'voided'];
@@ -48,16 +50,18 @@ export type DeliveryRow = { orderId: string; number: string; name: string | null
 // (Read once every few seconds for the business, however many counter screens and drivers ask; a step taken reads afresh.)
 const cache = new Map<string, { at: number; rows: DeliveryRow[] }>();
 // (A step taken: the drivers' load too, lib/driver-load-server, so the counter and the order page see it at once.)
-const forget = (tenantId: string) => { cache.delete(tenantId); for (const k of Array.from(doneCache.keys())) if (k.startsWith(`tenants/${tenantId}|`)) doneCache.delete(k); forgetDriverLoad(tenantId); };
+const forget = (tenantId: string) => { for (const k of [...cache.keys()]) if (k === tenantId || k.startsWith(`${tenantId}|`)) cache.delete(k); for (const k of Array.from(doneCache.keys())) if (k.startsWith(`tenants/${tenantId}|`)) doneCache.delete(k); forgetDriverLoad(tenantId); };
 /** (For a delivery settled elsewhere: lib/food-delivery-settle-server.) */
 export const forgetDeliveries = forget;
 
 /** The business's deliveries for its day (from its cutover hour, lib/night-close-server tonight, so food out after
  *  midnight stays on): the ones still to go first, by when they should leave; delivered ones last. */
 export async function deliveriesToday(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<DeliveryRow[]> {
-  const hit = cache.get(tenantId); if (hit && now >= hit.at && now - hit.at < 3000) return hit.rows;
+  // (Kept for each clock: a counter at a location in another time zone has its own night. lib/here-server)
+  const key = `${tenantId}|${tenantTimeZone(tenant)}`;
+  const hit = cache.get(key); if (hit && now >= hit.at && now - hit.at < 3000) return hit.rows;
   const rows = await readToday(db, tenantId, tenant, now);
-  cache.set(tenantId, { at: now, rows }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
+  cache.set(key, { at: now, rows }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   return rows;
 }
 
@@ -133,11 +137,15 @@ async function readToday(db: any, tenantId: string, tenant: any, now: number): P
   // Ready ones that go together: the one that adds least to the other's trip, when both stay on time.
   const ready = rows.filter((r) => r.step === 'ready' && dests.get(r.orderId));
   if (ready.length > 1) {
-    const shop = await shopPlaceSoon(db, tenantId, tenant, now);
-    if (shop) for (const r of ready) {
+    // (With more than one location: only ones going out from the same place, measured from there.)
+    const house = await shopPlaceSoon(db, tenantId, tenant, now);
+    const locs = ready.some((r) => r.locationId) ? await bizLocationsOf(db, tenantId) : [];
+    const originOf = (r: DeliveryRow) => (r.locationId ? locs.find((l) => l.id === r.locationId)?.coordinates : null) || house;
+    for (const r of ready) {
+      const shop = originOf(r); if (!shop) continue;
       let best: DeliveryRow['with'] = null;
       for (const x of ready) {
-        if (x === r) continue;
+        if (x === r || (x.locationId || null) !== (r.locationId || null)) continue;
         const g = goesWith(shop, { at: dests.get(r.orderId), due: Date.parse(String(r.arriveAt || '')) || null }, { at: dests.get(x.orderId), due: Date.parse(String(x.arriveAt || '')) || null }, now);
         if (g && g.onTime && g.addMin <= TOGETHER_MAX_ADD_MIN && (!best || g.addMin < best.addMin)) best = { orderId: x.orderId, number: x.number, addMin: g.addMin };
       }
@@ -160,7 +168,10 @@ async function shopPlaceSoon(db: any, tenantId: string, tenant: any, now: number
 /** The driver's Deliveries tab: their own hot food out with them first, then what's ready to take, then what's being
  *  made. (Never another driver's, and nothing delivered or brought back.) */
 export async function foodRun(db: any, tenantId: string, tenant: any, me: string, now = Date.now()): Promise<DeliveryRow[]> {
-  const rows = await deliveriesToday(db, tenantId, tenant, now);
+  const rows0 = await deliveriesToday(db, tenantId, tenant, now);
+  // (With more than one location: ready and being made only at the locations they work at; theirs out with them always.)
+  const meDoc: any = rows0.some((r) => r.locationId) ? (await db.doc(`tenants/${tenantId}/staff/${me}`).get().catch(() => null))?.data?.() || null : null;
+  const rows = rows0.filter((r) => !r.locationId || r.driverId === me || worksAt(meDoc, r.locationId));
   const rank = (r: DeliveryRow) => (r.step === 'out' ? 0 : r.step === 'ready' ? 1 : 2);
   // Their own in the order their route was planned (lib/route-server), any added since by when they're due.
   const plan = newestPlan(rows.filter((r) => r.step === 'out' && r.driverId === me).map((r) => r.route));
@@ -174,13 +185,14 @@ export async function foodRun(db: any, tenantId: string, tenant: any, me: string
 
 /** The business's drivers (from its delivery settings), by name, for the counter to pick who's taking it. */
 const driverCache = new Map<string, { at: number; list: Driver[] }>();
-export async function foodDrivers(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<Driver[]> {
+export async function foodDrivers(db: any, tenantId: string, tenant: any, now = Date.now(), at: string | null = null): Promise<Driver[]> {
   // (Kept a minute, and read again at once when the list of drivers changes.)
-  const ids = deliveryFrom(tenant?.retailSettings).drivers.slice(0, 40); const key = `${tenantId}|${ids.join(',')}`;
+  // (At one of several locations, `at`: the drivers who work there; each person's locations, none set: everywhere.)
+  const ids = deliveryFrom(tenant?.retailSettings).drivers.slice(0, 40); const key = `${tenantId}|${at || ''}|${ids.join(',')}`;
   const hit = driverCache.get(key); if (hit && now >= hit.at && now - hit.at < 60_000) return hit.list;
   const docs = ids.length ? await db.getAll(...ids.map((id) => db.doc(`tenants/${tenantId}/staff/${id}`))) : [];
   const list = docs.map((d: any, i: number) => ({ id: ids[i], s: d.exists ? d.data() || {} : null }))
-    .filter((x: any) => x.s && x.s.isActive !== false && x.s.role !== 'renter' && x.s.isRenter !== true)
+    .filter((x: any) => x.s && x.s.isActive !== false && x.s.role !== 'renter' && x.s.isRenter !== true && worksAt(x.s, at))
     .map((x: any) => ({ id: x.id, name: String(x.s.name || 'A driver').slice(0, 60) }));
   driverCache.set(key, { at: now, list }); if (driverCache.size > 500) driverCache.delete(driverCache.keys().next().value as string);
   return list;

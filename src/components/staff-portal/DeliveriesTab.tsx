@@ -20,6 +20,7 @@ import { oneLine } from '@/lib/address-flow';
 import { deliveryFrom, type DeliveryPlan } from '@/lib/delivery-plan';
 import { DOOR_WAIT_MS, FAIL_REASONS, mapsLink, proofNeeded, runFor, stopHint, streetLines, type FailCode } from '@/lib/delivery-run';
 import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
+import { worksAt } from '@/lib/business-locations';
 import { SEND_EVERY_MS } from '@/lib/delivery-live';
 import { markAtDoor, markDelivered, markDeliveryFailed, markOutForDelivery, skipDeliveryStop } from '@/lib/fulfil-client';
 import { bagReply, bagWords, bagsToLoad, parseBagCode } from '@/lib/bag-tag';
@@ -136,7 +137,10 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   const tz = tenantTimeZone(tenant);
   const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/retailOrders`), where('method', '==', 'delivery'), where('stage', 'in', ['packed', 'ready']), limit(200)) : null), [firestore, tenantId]);
   const { data: orders, isLoading } = useCollection<any>(q);
-  const { toTake, route } = React.useMemo(() => runFor(orders || [], me), [orders, me]);
+  // With more than one store (lib/shop-stores-server): what's ready to take from the stores they work at (each person's
+  // locations, Staff page; none set: every store), and anything already with them.
+  const atMine = React.useMemo(() => (orders || []).filter((o: any) => !o.locationId || o.delivery?.driverId === me || worksAt(staffMember, String(o.locationId))), [orders, me, staffMember]);
+  const { toTake, route } = React.useMemo(() => runFor(atMine, me), [atMine, me]);
   const live = useLive();
   const [view, setView] = React.useState<{ kind: 'run' } | { kind: 'stop' | 'fail'; id: string; left?: boolean }>({ kind: 'run' });
   const [picked, setPicked] = React.useState<Set<string>>(new Set());

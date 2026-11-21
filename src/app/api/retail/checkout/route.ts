@@ -701,7 +701,9 @@ async function handleCheckout(req: NextRequest) {
       const { driversOnNow } = await import('@/lib/delivery-plan');
       const { driverShifts } = await import('@/lib/delivery-server');
       const { todayIn: tdy } = await import('@/lib/tenant-time');
-      const drivers = driversOnNow(await driverShifts(db, tenantId, [tdy(v.tz)], v.plan.drivers), Date.now(), v.tz);
+      // (From one of several stores: the drivers who work there.)
+      const { driversAt } = await import('@/lib/driver-load-server');
+      const drivers = driversOnNow(await driverShifts(db, tenantId, [tdy(v.tz)], fromStore ? await driversAt(db, tenantId, v.plan.drivers, fromStore.id) : v.plan.drivers), Date.now(), v.tz);
       const by = Date.parse(v.asap.byIso);
       // Ready to go out with time for the drive: half the promise, at most half an hour, before it's due at the door.
       const lead = Math.min(30, Math.floor(v.plan.asap.minutes / 2)) * 60e3;
@@ -1024,18 +1026,20 @@ async function handleCheckout(req: NextRequest) {
   } else if (deliv && ((deliv.window && deliv.cap !== null) || deliv.asap)) {
     // The same for a delivery: the window's count, or the drivers still out on "within minutes" orders, and the new
     // order, in one step.
-    const d = deliv;
+    const d = deliv; const dAt: string | null = fromStore?.id ?? null;
     const { holdsPlace } = await import('@/lib/pickup-slots-server');
     const { asapBusy } = await import('@/lib/delivery-server');
+    const { atHere } = await import('@/lib/business-locations');
     const full = await db.runTransaction(async (tx: any) => {
       const at = Date.now();
+      // (From one of several stores: only that store's deliveries fill its time, and its drivers out. lib/shop-stores-server)
       if (d.window) {
         const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryWindowKey', '==', d.window.key));
-        if (q.docs.filter((x: any) => holdsPlace(x.data(), at, ckeyHash)).length >= (d.cap as number)) return true;
+        if (q.docs.filter((x: any) => holdsPlace(x.data(), at, ckeyHash) && atHere(x.data(), dAt)).length >= (d.cap as number)) return true;
       } else if (d.asap) {
         const since = new Date(at - Math.max(d.asap.minutes, 60) * 2 * 60e3).toISOString();
         const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryAsapAt', '>=', since));
-        if (q.docs.filter((x: any) => asapBusy(x.data(), at, ckeyHash)).length >= d.asap.drivers) return true;
+        if (q.docs.filter((x: any) => asapBusy(x.data(), at, ckeyHash) && atHere(x.data(), dAt)).length >= d.asap.drivers) return true;
       }
       tx.set(orderRef, orderData);
       tx.set(evRef, evData);

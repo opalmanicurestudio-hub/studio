@@ -13,6 +13,7 @@ import { planRoute, routeLink, estimateLegs, type Legs, type RouteStop } from '@
 import { okPoint, FRESH_MS, type LatLng } from '@/lib/delivery-live';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { pinnedLocations } from '@/lib/delivery-server';
+import { bizLocationsOf } from '@/lib/here-server';
 import { geocode, hasMapsKey, preciseEnough } from '@/lib/geocode-server';
 import { runFor } from '@/lib/delivery-run';
 import { driverRef, lookUpPlaces, destOf } from '@/lib/delivery-live-server';
@@ -122,14 +123,16 @@ async function stopsOf(db: any, tenantId: string, staffId: string, now: number) 
     shop = runFor((await db.collection(`${T}/retailOrders`).where('delivery.driverId', '==', staffId).where('delivery.status', '==', 'out').limit(60).get()).docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })), staffId).route;
   }
   const hotQ = () => db.collection(`${T}/counterOrders`).where('ahead.delivery.driverId', '==', staffId).where('ahead.delivery.state', '==', 'out').limit(30).get();
-  let hot = (await hotQ()).docs.map((d: any) => ({ id: d.id, d: (d.data() || {}).ahead?.delivery || {} }));
-  if (hot.some((h: any) => !hotDestOf(h.d))) { await lookUpHot(db, tenantId, hot, now, LOOKUPS); hot = (await hotQ()).docs.map((d: any) => ({ id: d.id, d: (d.data() || {}).ahead?.delivery || {} })); }
-  const stops: (RouteStop & { kind: 'shop' | 'hot'; id: string; street: string })[] = [
-    ...hot.map((h: any) => ({ key: `h:${h.id}`, kind: 'hot' as const, id: h.id, at: hotDestOf(h.d), open: null, due: Date.parse(String(h.d.arriveAt || '')) || null, hot: true, skippedAt: null, street: streetOf(h.d.address) })),
+  const hotOf = (d: any) => { const x = d.data() || {}; return { id: d.id, d: x.ahead?.delivery || {}, loc: x.locationId ? String(x.locationId) : null }; };
+  let hot = (await hotQ()).docs.map(hotOf);
+  if (hot.some((h: any) => !hotDestOf(h.d))) { await lookUpHot(db, tenantId, hot, now, LOOKUPS); hot = (await hotQ()).docs.map(hotOf); }
+  // (`loc`: the location each stop goes out from, with more than one: the route starts there. lib/here-server)
+  const stops: (RouteStop & { kind: 'shop' | 'hot'; id: string; street: string; loc: string | null })[] = [
+    ...hot.map((h: any) => ({ key: `h:${h.id}`, kind: 'hot' as const, id: h.id, at: hotDestOf(h.d), open: null, due: Date.parse(String(h.d.arriveAt || '')) || null, hot: true, skippedAt: null, street: streetOf(h.d.address), loc: h.loc })),
     ...shop.map((o: any) => {
       const d = o.delivery || {}; const start = Date.parse(String(d.window?.start || '')); const end = Date.parse(String(d.window?.end || d.asap?.by || ''));
       return { key: `s:${o.id}`, kind: 'shop' as const, id: o.id, at: destOf(o), open: Number.isFinite(start) ? start : null, due: Number.isFinite(end) ? end : null,
-        hot: false, skippedAt: Date.parse(String(d.skippedAt || '')) || null, street: streetOf(o.shippingAddress) };
+        hot: false, skippedAt: Date.parse(String(d.skippedAt || '')) || null, street: streetOf(o.shippingAddress), loc: o.locationId ? String(o.locationId) : null };
     }),
   ];
   return stops;
@@ -157,7 +160,11 @@ export async function routeFor(db: any, tenantId: string, tenant: any, staffId: 
   const live: any = (await driverRef(db, tenantId, staffId).get()).data();
   // (Rounded to about a block: close enough to plan from, and the same drive times serve a driver standing still.)
   const here = live?.sharing === true && okPoint(live.point) && now - (Date.parse(String(live.pointAt || '')) || 0) <= FRESH_MS ? { lat: Math.round(Number(live.point.lat) * 1000) / 1000, lng: Math.round(Number(live.point.lng) * 1000) / 1000 } : null;
-  const shop = await shopPlace(db, tenantId, tenant);
+  // Where it starts and ends: the store its stops all go out from, with more than one (located on the map), else the shop.
+  const locs = Array.from(new Set(stops.map((s) => s.loc).filter(Boolean))) as string[];
+  // (Only when every stop is from that store: one from before there were stores keeps the shop's own start.)
+  const store = locs.length === 1 && stops.every((s) => s.loc === locs[0]) ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === locs[0] && l.coordinates) : null;
+  const shop = store ? { at: store.coordinates!, address: store.address } : await shopPlace(db, tenantId, tenant);
   const start = here || shop?.at || null;
   const legs = await legsFor([start, ...stops.map((s) => s.at), shop?.at || null], now);
   const plan = planRoute({ start, home: shop?.at || null, stops, now, legs });

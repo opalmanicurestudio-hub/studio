@@ -5,11 +5,15 @@
 // - The drivers on the schedule (the ones listed as drivers, Orders → Delivery), from today's and yesterday's shifts.
 // - Hot food still to leave (paid, waiting: from its leave time) and out with a driver; shop runs out with a driver,
 //   each driver once, until their route has them back (lib/route-server keeps it).
+// - At one of several locations (`at`; design board "Each store runs on its own"): the drivers who work there (each
+//   person's locations, Staff page; none set: every location), its own hot food to leave, and runs out with those drivers
+//   or from there.
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { shiftsFor } from '@/lib/pickup-slots-server';
 import { tenantTimeZone, todayIn, wallParts, wallToUtc } from '@/lib/tenant-time';
 import { addDays } from '@/lib/night-close-server';
 import { hotTrip, outAt, shopTrip, type Trip } from '@/lib/driver-load';
+import { atHere, worksAt } from '@/lib/business-locations';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export type DriverLoad = {
@@ -26,24 +30,40 @@ export type DriverLoad = {
 };
 
 const cache = new Map<string, { at: number; v: DriverLoad }>();
-export const forgetDriverLoad = (tenantId: string) => { cache.delete(tenantId); };
+export const forgetDriverLoad = (tenantId: string) => { for (const k of [...cache.keys()]) if (k === tenantId || k.startsWith(`${tenantId}|`)) cache.delete(k); };
+
+/** Of the listed drivers, the ones who work at a location (lib/business-locations worksAt: none set, every location). */
+export async function driversAt(db: any, tenantId: string, drivers: string[], at: string | null | undefined): Promise<string[]> {
+  if (!at || !drivers.length) return drivers;
+  const ids = drivers.filter((id) => ID.test(id)).slice(0, 60);
+  const docs = ids.length ? await db.getAll(...ids.map((id) => db.doc(`tenants/${tenantId}/staff/${id}`))).catch(() => null) : [];
+  if (!docs) return drivers;
+  const byId = new Map(ids.map((id, i) => [id, docs[i]?.exists === false ? null : docs[i]?.data?.() || null]));
+  // (An entry that isn't a team member's id can't be placed: kept, as working everywhere.)
+  return drivers.filter((id) => !byId.has(id) || worksAt(byId.get(id), at));
+}
 
 /** `skipCheckout`: read afresh, leaving out one guest's own unpaid tries (their checkout key), for placing their order. */
-export async function driverLoad(db: any, tenantId: string, tenant: any, now = Date.now(), opts: { skipCheckout?: string } = {}): Promise<DriverLoad> {
-  if (opts.skipCheckout) return readLoad(db, tenantId, tenant, now, opts.skipCheckout);
-  const hit = cache.get(tenantId); if (hit && now >= hit.at && now - hit.at < 15_000) return hit.v;
-  const v = await readLoad(db, tenantId, tenant, now);
-  cache.set(tenantId, { at: now, v }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
+export async function driverLoad(db: any, tenantId: string, tenant: any, now = Date.now(), opts: { skipCheckout?: string; at?: string | null } = {}): Promise<DriverLoad> {
+  const at = opts.at || null;
+  if (opts.skipCheckout) return readLoad(db, tenantId, tenant, now, opts.skipCheckout, at);
+  const key = at ? `${tenantId}|${at}` : tenantId;
+  const hit = cache.get(key); if (hit && now >= hit.at && now - hit.at < 15_000) return hit.v;
+  const v = await readLoad(db, tenantId, tenant, now, '', at);
+  cache.set(key, { at: now, v }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   return v;
 }
 
 /** An order being paid for holds a driver as long as its payment link lasts (31 minutes); one called off stops at once. */
 const PAYING_MS = 32 * 60000;
 
-async function readLoad(db: any, tenantId: string, tenant: any, now: number, skipCheckout = ''): Promise<DriverLoad> {
+async function readLoad(db: any, tenantId: string, tenant: any, now: number, skipCheckout = '', at: string | null = null): Promise<DriverLoad> {
   const T = `tenants/${tenantId}`; const tz = tenantTimeZone(tenant);
   const today = todayIn(tz, new Date(now)); const days = [addDays(today, -1), today];
-  const drivers = deliveryFrom(tenant?.retailSettings).drivers;
+  const listed = deliveryFrom(tenant?.retailSettings).drivers;
+  const drivers = await driversAt(db, tenantId, listed, at);
+  // (The business has drivers and none of them works at this location: none on, ever, rather than no limit.)
+  const noneHere = !!at && listed.length > 0 && drivers.length === 0;
   const set = new Set(drivers);
   const [spans, waiting, hotOut, shopOut] = await Promise.all([
     drivers.length ? shiftsFor(db, tenantId, days).then((x) => x.filter((s) => set.has(s.staffId))).catch(() => []) : Promise.resolve([]),
@@ -52,6 +72,7 @@ async function readLoad(db: any, tenantId: string, tenant: any, now: number, ski
     db.collection(`${T}/retailOrders`).where('delivery.status', '==', 'out').limit(200).get().catch(() => ({ docs: [] as any[] })),
   ]);
   const onShift = (t: number): string[] | null => {
+    if (noneHere) return [];
     const day = todayIn(tz, new Date(t)); if (!spans.some((s: any) => s.date === day)) return null;
     const w = wallParts(new Date(t), tz); const at = w.hour * 60 + w.minute;
     return Array.from(new Set(spans.filter((x: any) => x.date === day && x.start <= at && x.end > at).map((x: any) => String(x.staffId))));
@@ -61,6 +82,8 @@ async function readLoad(db: any, tenantId: string, tenant: any, now: number, ski
   // few minutes (so two guests can't both take the last driver's time while they pay).
   for (const d of waiting.docs) {
     const o: any = d.data() || {}; if (o.status === 'voided') continue;
+    // (At one location: its own hot food to leave.)
+    if (!atHere(o, at)) continue;
     const paying = !o.paidAt && o.ahead?.state === 'awaiting_pay' && now - (Date.parse(String(o.createdAt || '')) || 0) < PAYING_MS && (!skipCheckout || o.ahead?.checkout !== skipCheckout);
     if (!o.paidAt && !paying) continue;
     const leave = Date.parse(String(o.ahead?.slot || o.ahead?.at || '')); if (!Number.isFinite(leave)) continue;
@@ -74,11 +97,14 @@ async function readLoad(db: any, tenantId: string, tenant: any, now: number, ski
   for (const d of hotOut.docs) {
     const o: any = d.data() || {}; const del = o.ahead?.delivery || {};
     const out = Date.parse(String(del.outAt || '')) || now; const id = ID.test(String(del.driverId || '')) ? String(del.driverId) : null;
+    // (At one location: out with one of its drivers, wherever from, or out from there.)
+    if (at && !(id && set.has(id)) && !atHere(o, at)) continue;
     join(id ? `id:${id}` : `name:${String(del.driverName || d.id).toLowerCase()}`, id, out, hotTrip(out, Number(del.driveMin) || 0).to, true, !id && !!del.driverName);
   }
   for (const d of shopOut.docs) {
     const o: any = d.data() || {}; const del = o.delivery || {};
     const out = Date.parse(String(del.outAt || del.startedAt || '')) || now; const id = ID.test(String(del.driverId || '')) ? String(del.driverId) : null;
+    if (at && !(id && set.has(id)) && !atHere(o, at)) continue;
     const t = shopTrip(out, 1, null, now); join(id ? `id:${id}` : `shop:${d.id}`, id, t.from, t.to, false, false);
   }
   // Their route's own time back, when it was planned (lib/route-server keeps it, for drivers on the team).
