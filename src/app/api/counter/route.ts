@@ -37,6 +37,7 @@
 //   appSend  { tenantId, orderId, app, code, courierIn } → to the kitchen to go with the app's code, ready for the courier,
 //                                                      with a spot on the pickup shelf; paid on the app (in the books when
 //                                                      it's handed to the courier: move gone)
+//   appCode { tenantId, orderId, app, code }        → the code (or app) on a sent app order, fixed
 //   appCancel { tenantId, orderId, pin? }            → cancelled on the app before it was picked up: voided (a manager's
 //                                                      okay once the kitchen started on it)
 //   car    { tenantId, key, carKey, inLine?, looks?, lane? } → a new car (taken in line before the speaker: never greeted at the
@@ -114,7 +115,7 @@ import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
 import { appOrdersOf } from '@/lib/app-orders';
-import { appSend, appCancel } from '@/lib/app-orders-server';
+import { appSend, appCode, appCancel } from '@/lib/app-orders-server';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCancel'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCode', 'appCancel'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -168,7 +169,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appCode', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -217,7 +218,7 @@ export async function POST(req: NextRequest) {
           // To go (sent so: lib/plate-extras), and a staff meal (settled with no money: lib/counter-server staffMeal).
           toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
           // A delivery app's order (lib/app-orders): which app, its code, its spot on the shelf, and when the courier is due.
-          app: o.app ? { state: String(o.app.state || 'taking'), label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null } : null,
+          app: o.app ? { state: String(o.app.state || 'taking'), app: o.app.app || null, label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null } : null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
@@ -531,6 +532,17 @@ export async function POST(req: NextRequest) {
       return r.ok ? ok({ number: r.number, already: !!r.already, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     // A delivery app's order (lib/app-orders-server): rung in at the counter, sent with the app's code, cancelled on the app.
+    if (action === 'appCode') {
+      // The code (or the app) typed wrong on a sent app order, fixed (lib/app-orders-server appCode). At the counter.
+      if (channel !== 'counter') return bad('App orders are rung in at the counter.', 409);
+      const id = String(b.orderId || '');
+      const r: any = await appCode(db, tenantId, tenant, id, { app: b.app, code: b.code }, who);
+      if (!r.ok) return bad(r.error, r.status);
+      forgetStats(tenantId);
+      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.app_code_fixed', targetType: 'order', targetId: id, summary: `${by} fixed the code on ${r.was}: now ${r.name}.`,
+        actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+      return ok({ ...r, staffOk });
+    }
     if (action === 'appStart' || action === 'appSend' || action === 'appCancel') {
       if (channel !== 'counter') return bad('App orders are rung in at the counter.', 409);
       if (action === 'appStart') {

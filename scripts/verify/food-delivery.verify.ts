@@ -314,6 +314,54 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   check('brought back: a driver can’t pick it up again from their phone (a manager sends it again from the counter)', r.status === 409 && /A manager sends it out again/.test(r.body.error) && (await get(`${T}/counterOrders/${id5}`)).ahead.delivery.state === 'failed', r.body);
   actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
 
+  console.log('running late, and late nights');
+  const FD = await import('../../src/lib/food-delivery');
+  const t0 = Date.parse('2026-11-20T18:00:00Z'); const at = (m: number) => new Date(t0 + m * 60000).toISOString();
+  let e: any = FD.etaOf({ outAt: at(0), driveMin: 10, arriveAt: at(12) }, t0 + 60000);
+  check('out with a driver: when it left plus the drive, on time', e.eta === at(10) && e.late === false, e);
+  e = FD.etaOf({ outAt: at(0), driveMin: 10, routeEta: at(20), arriveAt: at(12) }, t0 + 60000);
+  check('…the driver’s planned route’s time first, and 5 minutes past the guest’s time is running late', e.eta === at(20) && e.late === true, e);
+  e = FD.etaOf({ outAt: at(0), driveMin: 10, arriveAt: at(10) }, t0 + 16 * 60000);
+  check('…a time already past is now (still on its way), and late', e.eta === at(16) && e.late === true, e);
+  r = await A({ ...base, key: nextKey(), name: 'Lu', phone: '8325550122' });
+  const id6 = r.body.orderId; const s6 = r.body.sig; paid(S.pis.get((await get(`${T}/counterOrders/${id6}`)).ahead.payId).id); await A({ action: 'done', o: id6, s: s6 });
+  for (const t of (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id6)) await db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'ready' }, { merge: true });
+  await C({ action: 'deliveryOut', orderId: id6, driver: 'Sam Lee' });
+  const o6 = await get(`${T}/counterOrders/${id6}`);
+  await db.doc(`${T}/counterOrders/${id6}`).set({ ahead: { delivery: { routeId: 'r1763661600000', routeSeq: 0, routeEta: new Date(Date.parse(o6.ahead.delivery.arriveAt) + 12 * 60000).toISOString() } } }, { merge: true });
+  let late: any[] = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 20000);
+  const row6 = late.find((x: any) => x.orderId === id6);
+  r = await A({ action: 'track', o: id6, s: s6 });
+  check('the counter: running late, and about when now', row6?.step === 'out' && row6.late === true && row6.eta === new Date(Math.ceil((Date.parse(o6.ahead.delivery.arriveAt) + 12 * 60000) / 60000) * 60000).toISOString(), row6);
+  check('…and the guest’s page: the new time, running late', r.body.delivery?.late === true && r.body.delivery.eta === row6?.eta && !!r.body.delivery.arriveAt, r.body.delivery);
+  const out2 = await C({ action: 'deliveryFailed', orderId: id6, why: 'no_answer' }); await C({ action: 'deliveryOut', orderId: id6 });
+  check('sent out again: a trip of its own (the old route’s time gone)', out2.body.ok && !(await get(`${T}/counterOrders/${id6}`)).ahead.delivery.routeEta);
+  // After midnight: started yesterday and still out; one paid yesterday and never sent; one delivered yesterday.
+  const cal = new Date(Date.now()).toISOString().slice(0, 10); const yday = new Date(Date.parse(`${cal}T12:00:00Z`) - 864e5).toISOString().slice(0, 10);
+  const ago30 = new Date(Date.now() - 30 * 3600e3).toISOString();
+  await db.doc(`${T}/counterOrders/${id6}`).set({ day: yday }, { merge: true });
+  r = await A({ ...base, key: nextKey(), name: 'Vi', phone: '8325550133' });
+  const id7 = r.body.orderId; paid(S.pis.get((await get(`${T}/counterOrders/${id7}`)).ahead.payId).id); await A({ action: 'done', o: id7, s: r.body.sig });
+  await db.doc(`${T}/counterOrders/${id7}`).set({ day: yday, paidAt: ago30, createdAt: ago30 }, { merge: true });
+  await db.doc(`${T}/counterOrders/${id2}`).set({ day: yday, ahead: { delivery: { deliveredAt: ago30 } } }, { merge: true });
+  late = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 30000);
+  check('started before midnight and still out: still on the counter', late.some((x: any) => x.orderId === id6 && x.step === 'out' && !x.earlier), late.map((x: any) => [x.number, x.step, x.earlier]));
+  check('…one paid yesterday and never sent: still there, marked from yesterday', late.some((x: any) => x.orderId === id7 && x.earlier === true && x.step !== 'delivered'));
+  check('…one delivered yesterday isn’t in today’s delivered line', !late.some((x: any) => x.orderId === id2));
+  const num7 = (await get(`${T}/counterOrders/${id7}`)).number;
+  await db.doc(`${T}/staff/m1`).set({ name: 'Ana Ruiz', role: 'manager', isActive: true }, { merge: true });
+  let told: any = await FS.deliveryNightly(db, 't1', await get(T), Date.now());
+  const toldNow = (await all(`${T}/notifications`)).filter((n: any) => n.type === 'delivery_unsettled');
+  check('the night after: the managers told about the one paid and never settled (not the one out tonight)', told.told === 1 && !!(await get(`${T}/counterOrders/${id7}`)).ahead.delivery.toldAt && !(await get(`${T}/counterOrders/${id6}`)).ahead.delivery.toldAt
+    && toldNow.length > 0 && toldNow.every((n: any) => new RegExp(`Delivery ${num7} was paid for and never marked delivered`).test(n.message)), { told, toldNow });
+  told = await FS.deliveryNightly(db, 't1', await get(T), Date.now());
+  check('…once', told.told === 0, told);
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  await new Promise((res) => setTimeout(res, 3100));
+  r = await Run({ action: 'list' });
+  check('…a driver isn’t offered yesterday’s one (the counter settles it)', r.body.ok && !(r.body.rows || []).some((x: any) => x.orderId === id7), r.body.rows);
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });
   r = await A({ ...base, key: nextKey(), phone: '8325550142' });
@@ -327,6 +375,7 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   check('…the fee in the totals, and the page after paying follows it', /<span>Delivery<\/span>/.test(order) && /function DeliveryStatus/.test(order) && /Left\$\{D\.driver/.test(order) && /onWay/.test(order));
   check('the Menu page: delivery by our drivers, and the longest drive', /Delivery, by our drivers/.test(card) && /Longest drive for hot food/.test(card) && /\/retail-orders\/policies\/delivery/.test(card));
   check('the counter: deliveries, ready ones to leave now, out, delivered, couldn’t deliver and why', /<Deliveries rows=/.test(counter) && /Out for delivery/.test(desk) && /leave now/.test(desk) && /Couldn’t deliver/.test(desk) && /deliveryFailed/.test(desk) && /What happened\?/.test(desk));
+  check('running late: the counter and the guest’s page say so, with the new time', /Running late/.test(desk) && /From yesterday/.test(desk) && /Running a little late\. It was due at/.test(order) && /st === 'out' && D\.eta \? D\.eta : D\.arriveAt/.test(order));
   check('the new screens keep the house style (no all caps, no heaviest weight, 44px taps)', ![order, card, desk].some((s) => /\buppercase\b|font-black/.test(s)) && /min-h-\[44px\]/.test(desk));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

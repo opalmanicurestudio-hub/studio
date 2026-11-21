@@ -1611,12 +1611,18 @@ export async function GET(req: NextRequest) {
       // Reviews nobody decided on show on their own after 14 days, with a heads-up three days before (lib/reviews-server).
       try { const { sweepWaitingReviews } = await import('@/lib/reviews-server'); const w = await sweepWaitingReviews(db, tDoc.id, { tenant: tDoc.data() }); if (w.shopShown) { const { revalidateTag } = await import('next/cache'); revalidateTag(`shop:${tDoc.id}`); } } catch (e) { console.error('[nightly] waiting reviews', tDoc.id, e); } } } catch (e) { console.error('[nightly] mir reports', e); }
   // Delivery app orders (lib/app-orders-server appNightly): codes from days ago cleared, and an order still waiting at the
-  // counter from an earlier day told to the managers once, so it ends as picked up or cancelled.
-  let appOrdersTold = 0;
+  // counter from an earlier day told to the managers once, so it ends as picked up or cancelled. Hot food deliveries the
+  // same (lib/food-delivery-server deliveryNightly).
+  let appOrdersTold = 0, deliveriesTold = 0;
   try { const { appNightly } = await import('@/lib/app-orders-server');
-    for (const tDoc of (await db.collection('tenants').get()).docs) { const t: any = tDoc.data() || {}; if (!t.appOrders) continue;
+    const { deliveryNightly } = await import('@/lib/food-delivery-server');
+    for (const tDoc of (await db.collection('tenants').get()).docs) { const t: any = tDoc.data() || {};
+      // Hot food paid for and never settled (lib/food-delivery-server), told to the managers once.
+      // (Also once it's been turned off: what was paid before still needs settling.)
+      if (t.orderAhead?.delivery !== undefined) { try { deliveriesTold += (await deliveryNightly(db, tDoc.id, t)).told; } catch (e) { console.error('[nightly] deliveries', tDoc.id, e); } }
+      if (!t.appOrders) continue;
       try { appOrdersTold += (await appNightly(db, tDoc.id, t)).told; } catch (e) { console.error('[nightly] app orders', tDoc.id, e); } }
   } catch { /* never stops the rest of the night */ }
-  results.appOrders = { told: appOrdersTold };
+  results.appOrders = { told: appOrdersTold }; results.deliveries = { told: deliveriesTold };
   return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, requestTotals, results });
 }

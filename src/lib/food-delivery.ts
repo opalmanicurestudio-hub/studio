@@ -88,6 +88,23 @@ export function deliveryStep(d: { state?: string } | null | undefined, kitchen: 
   return kitchen === 'ready' || kitchen === 'handed' ? 'ready' : 'making';
 }
 
+/** Minutes past the time the guest was given before it's running late (said to them and the counter). */
+export const LATE_AFTER_MIN = 5;
+/** Out with a driver: about when it gets there now, and whether that's running late. The driver's planned route has the
+ *  time when there is one (lib/route-server, kept on the delivery as routeEta); otherwise when it left plus the drive. Late: LATE_AFTER_MIN past the arrival time the guest was given (or, with no newer time,
+ *  that far past it now). */
+export function etaOf(d: { routeEta?: unknown; outAt?: unknown; driveMin?: unknown; arriveAt?: unknown } | null | undefined, now: number): { eta: string | null; late: boolean } {
+  const due = Date.parse(String(d?.arriveAt || ''));
+  const route = Date.parse(String(d?.routeEta || ''));
+  const left = Date.parse(String(d?.outAt || ''));
+  const byRoute = Number.isFinite(route) ? route : null;
+  const byDrive = Number.isFinite(left) ? left + Math.max(0, Number(d?.driveMin) || 0) * 60000 : null;
+  // (A time already past is no estimate: it's now, and still on its way.)
+  let t = byRoute ?? byDrive; if (t !== null && t < now) t = now;
+  const late = Number.isFinite(due) && (t ?? now) - due >= LATE_AFTER_MIN * 60000;
+  return { eta: t === null ? null : new Date(Math.ceil(t / 60000) * 60000).toISOString(), late };
+}
+
 /** Ready and still here this long (minutes): hot food waiting on a driver. Over five: leave now. */
 export const waitingHot = (readyAtMs: number, now: number) => Math.max(0, Math.floor((now - readyAtMs) / 60000));
 

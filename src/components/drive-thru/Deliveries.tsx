@@ -22,6 +22,10 @@ export type FoodDriver = { id: string; name: string };
 export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
   step: 'making' | 'ready' | 'out' | 'delivered' | 'failed'; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null;
   why: string | null; phone: string | null; tip?: number;
+  /** Out with a driver: about when it gets there now, and whether that's past the guest's time. */
+  eta?: string | null; late?: boolean;
+  /** From an earlier business day and not finished. */
+  earlier?: boolean;
   /** Ready: another ready one going the same way (adds a few minutes to the trip, both on time). */
   with?: { orderId: string; number: string; addMin: number } | null };
 
@@ -66,7 +70,8 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
         </div>
       </div>
       {going.length > 0 && <ul className="grid grid-cols-1 items-start gap-2.5 lg:grid-cols-2">{going.map((r) => {
-        const chip = r.step === 'ready' ? { text: `Ready ${r.readyFor ? `${r.readyFor} min` : 'now'}: leave now`, style: { background: AMBER_TINT, color: AMBER } }
+        const chip = r.earlier && (r.step === 'ready' || r.step === 'making') ? { text: 'From yesterday', style: { background: AMBER_TINT, color: AMBER } }
+          : r.step === 'ready' ? { text: `Ready ${r.readyFor ? `${r.readyFor} min` : 'now'}: leave now`, style: { background: AMBER_TINT, color: AMBER } }
           : r.step === 'out' ? { text: `Out with ${r.driver || 'a driver'}, ${since(r.outAt, now)} min`, style: { background: SOFT, color: INK } }
           : r.step === 'failed' ? { text: `Couldn’t deliver: ${r.why || 'see why'}`, style: { background: AMBER_TINT, color: AMBER } }
           : { text: r.arriveAt ? `Arrive by ${clock(r.arriveAt)}` : 'Being made', style: { background: SOFT, color: INK } };
@@ -75,9 +80,11 @@ export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: Deliv
           <li key={r.orderId} className="flex flex-col gap-2 rounded-2xl p-3" style={{ border: `1px solid ${r.step === 'ready' ? AMBER : LINE}` }}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="min-w-0"><span className="text-[17px] font-semibold">{r.number}</span>{r.name ? <span className="ml-1.5 text-[15px] font-semibold">{r.name}</span> : null}
-                {r.step === 'making' && <span className="ml-2 text-[13.5px]" style={{ color: MUTED }}>Being made{r.leaveAt ? `, ready ${clock(r.leaveAt)}` : ''}</span>}</p>
+                {r.step === 'making' && !r.earlier && <span className="ml-2 text-[13.5px]" style={{ color: MUTED }}>Being made{r.leaveAt ? `, ready ${clock(r.leaveAt)}` : ''}</span>}</p>
               <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={chip.style}>{chip.text}</span>
             </div>
+            {r.step === 'out' && r.late && <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>Running late{r.eta ? `: now about ${clock(r.eta)}` : ''}.</p>}
+            {r.earlier && (r.step === 'making' || r.step === 'ready') && <p className="text-[13.5px]" style={{ color: AMBER }}>{r.step === 'ready' ? 'Paid, never went out. Send it now, or a manager refunds it.' : 'Paid, never went out. A manager refunds it.'}</p>}
             {r.step === 'ready' && pairOf(r) && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>Goes with {pairOf(r)!.number}: adds about {Math.max(1, r.with!.addMin)} min, both on time.</p>}
             {r.step === 'ready' && !pairOf(r) && r.with && going.some((x) => x.orderId === r.with!.orderId && x.step === 'ready') && <p className="text-[13.5px] font-semibold" style={{ color: GREEN }}>Goes with {r.with.number}.</p>}
             <p className="text-[13.5px] leading-relaxed" style={{ color: MUTED }}>{r.to}.{r.arriveAt && r.step !== 'making' ? ` Arrive by ${clock(r.arriveAt)}.` : ''}{r.driveMin ? ` About a ${r.driveMin}-minute drive.` : ''}

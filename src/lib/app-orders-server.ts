@@ -4,12 +4,15 @@
 //   appSend    the app, its order code and when the courier gets here: to the kitchen to go, ready by then, with the
 //              next free spot on the pickup shelf; it waits at the counter for the courier, paid on the app
 //   (picked up: the counter's Handed over books it as the app's sale first: api/counter move, lib/counter-server payOrder)
+//   appCode    the code (or the app) typed wrong, fixed once it's sent: on the kitchen ticket, the ready board and the
+//              shelf, checked like a new one (once a day)
 //   appCancel  cancelled on the app before it was picked up: voided (lib/counter-server voidOrder, which also frees its
 //              shelf spot and its code, as a manager's void does). Once the kitchen has started on it, a manager okays it.
 //   appNightly the night after: codes from days ago cleared, and the managers told about any order still waiting
 import { appOrdersOf, cleanAppCode, courierDue, freeShelf, appName, appClaimId } from '@/lib/app-orders';
 import { sendOrder, voidOrder } from '@/lib/counter-server';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { tonight, addDays } from '@/lib/night-close-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Who = { id: string | null; name: string };
@@ -32,7 +35,8 @@ export async function appSend(db: any, tenantId: string, tenant: any, orderId: s
   if (!code) return fail('Type the order code from the app (letters and numbers).', 400);
   const courierAt = courierDue(now, input.courierIn);
   if (!courierAt) return fail('When does the courier get here?', 400);
-  const T = `tenants/${tenantId}`; const day = todayIn(tenantTimeZone(tenant), new Date(now));
+  // The same code once in the business's day (from its cutover hour, so 11:55pm and 12:05am are the same night).
+  const T = `tenants/${tenantId}`; const day = tonight(tenant, new Date(now));
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
   const claimId = appClaimId(day, app.code, code);
   const claimRef = db.doc(`${T}/private/${claimId}`);
@@ -43,9 +47,9 @@ export async function appSend(db: any, tenantId: string, tenant: any, orderId: s
     // A code typed before for this order (the send didn't go through, then the code was fixed): let go.
     const oldId = String(o?.app?.claimId || '');
     const old: any = oldId && oldId !== claimId && ID.test(oldId) ? (await tx.get(db.doc(`${T}/private/${oldId}`))).data() : null;
-    // The spots on the shelf with an order on them now (today's app orders being sent, or waiting for their courier).
-    const onShelf = (await tx.get(db.collection(`${T}/counterOrders`).where('app.state', 'in', ON_SHELF).where('day', '==', day).limit(100))).docs
-      .filter((d: any) => d.id !== orderId).map((d: any) => d.data() || {});
+    // The spots on the shelf with an order on them now (app orders being sent, or waiting for their courier, started
+    // today or yesterday: one from before midnight is still on the shelf after it).
+    const onShelf = (await shelfNow(tx, db, T, tenant, now)).filter((d: any) => d.id !== orderId).map((d: any) => d.data() || {});
     if (!o || !o.app) return fail('That isn’t an app order.', 404);
     if (claim && claim.orderId !== orderId) return fail(`${name} is already in, as ${claim.number || 'another order'}.`, 409);
     // (Sent already. One whose last step didn't finish, still 'sending', is finished below.)
@@ -86,6 +90,51 @@ export async function appSend(db: any, tenantId: string, tenant: any, orderId: s
   return { ok: true, shelf: r.shelf || null, due: sent.due || null, name };
 }
 
+/** The app orders on the shelf now (being sent, or waiting for their courier), started today or yesterday. */
+async function shelfNow(tx: any, db: any, T: string, tenant: any, now: number): Promise<any[]> {
+  const today = todayIn(tenantTimeZone(tenant), new Date(now));
+  const qs = await Promise.all([addDays(today, -1), today].map((d) => tx.get(db.collection(`${T}/counterOrders`).where('app.state', 'in', ON_SHELF).where('day', '==', d).limit(100))));
+  return qs.flatMap((q: any) => q.docs);
+}
+
+/** The code (or the app) typed wrong, fixed on an order already sent and waiting for its courier: checked like a new one
+ *  (the same code once in the business's day), and changed on the kitchen's tickets, the ready board and the shelf. Anyone
+ *  at the counter: nothing is made again or thrown out. */
+export async function appCode(db: any, tenantId: string, tenant: any, orderId: string, input: { app: unknown; code: unknown }, who: Who, now = Date.now()):
+  Promise<{ ok: true; already?: boolean; name: string; was: string } | Fail> {
+  if (!ID.test(orderId)) return fail('Which order?', 400);
+  const A = appOrdersOf(tenant);
+  const app = A.apps.find((x) => x.code === input.app);
+  if (!app) return fail('Which app is it from?', 400);
+  const code = cleanAppCode(input.code);
+  if (!code) return fail('Type the order code from the app (letters and numbers).', 400);
+  const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/counterOrders/${orderId}`);
+  const claimId = appClaimId(tonight(tenant, new Date(now)), app.code, code); const claimRef = db.doc(`${T}/private/${claimId}`);
+  const name = appName({ label: app.label, code });
+  return db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(ref)).data();
+    const claim: any = (await tx.get(claimRef)).data();
+    const oldId = String(o?.app?.claimId || ''); const oldRef = oldId && oldId !== claimId && ID.test(oldId) ? db.doc(`${T}/private/${oldId}`) : null;
+    const old: any = oldRef ? (await tx.get(oldRef)).data() : null;
+    const tix = (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId))).docs;
+    if (!o?.app?.code) return fail('That isn’t an app order.', 404);
+    const was = appName(o.app);
+    if (o.app.state === 'cancelled' || o.status === 'voided') return fail(`${was} was taken off.`, 409);
+    if (o.paidAt || o.app.state === 'picked') return fail(`${was} was picked up already.`, 409);
+    if (o.status !== 'sent' || o.app.state !== 'waiting') return fail('Send it to the kitchen first.', 409);
+    if (o.app.code === code && o.app.app === app.code) return { ok: true, already: true, name, was };
+    if (claim && claim.orderId !== orderId) return fail(`${name} is already in, as ${claim.number || 'another order'}.`, 409);
+    if (old && old.orderId === orderId) tx.delete(oldRef);
+    tx.set(claimRef, { orderId, number: o.number || null, at: new Date(now).toISOString(), appCodeDay: tonight(tenant, new Date(now)) });
+    tx.set(ref, { app: { app: app.code, label: app.label, code, claimId, fixedFrom: was, fixedBy: who.name } }, { merge: true });
+    // The kitchen's tickets still to hand over say the new code.
+    const station = `${name}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}`;
+    for (const d of tix) { const t: any = d.data() || {}; if (!['delivered', 'cancelled'].includes(String(t.status))) tx.set(d.ref, { stationName: station }, { merge: true }); }
+    if (ID.test(String(o.carId || ''))) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { app: { label: app.label, code } }, { merge: true });
+    return { ok: true, name, was };
+  });
+}
+
 /** Cancelled on the app before the courier picked it up: voided (what the kitchen hadn't started goes back), nothing in
  *  the books, its shelf spot and its code free again. Anyone at the counter while the kitchen hasn't started on it; once
  *  it has, food would be thrown out with no sale, so a manager okays it (manager: one signed in, or their PIN). */
@@ -103,22 +152,23 @@ export async function appCancel(db: any, tenantId: string, orderId: string, who:
   return { ok: true, already: !!v.already, returned: v.returned || 0, wasted: v.wasted || 0, name, label };
 }
 
-/** The night after: codes from two days ago and before are cleared, and an app order still waiting from an earlier day
- *  (nobody tapped picked up or cancelled) is told to the managers once, to check on the app. */
+/** The night after: codes from two business days ago and before are cleared, and an app order still waiting from an
+ *  earlier business day (nobody tapped picked up or cancelled) is told to the managers once, to check on the app. */
 export async function appNightly(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ cleared: number; told: number }> {
-  const T = `tenants/${tenantId}`; const today = todayIn(tenantTimeZone(tenant), new Date(now));
-  const before = todayIn(tenantTimeZone(tenant), new Date(now - 2 * 86400000));
+  const T = `tenants/${tenantId}`; const night = tonight(tenant, new Date(now));
+  const before = addDays(night, -2);
+  const nightOf = (iso: unknown) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? tonight(tenant, new Date(t)) : String(iso || ''); };
   let cleared = 0, told = 0;
   const old = await db.collection(`${T}/private`).where('appCodeDay', '<', before).limit(300).get();
   for (const d of old.docs) { await d.ref.delete().catch(() => null); cleared++; }
   const left = (await db.collection(`${T}/counterOrders`).where('app.state', 'in', ON_SHELF).limit(100).get()).docs
-    .filter((d: any) => { const o: any = d.data() || {}; return String(o.day || '') < today && o.status === 'sent' && !o.paidAt && !o.app?.toldAt; });
+    .filter((d: any) => { const o: any = d.data() || {}; return nightOf(o.createdAt || o.day) < night && o.status === 'sent' && !o.paidAt && !o.app?.toldAt; });
   if (left.length) {
     const names = left.map((d: any) => appName(d.data()?.app)).filter(Boolean);
     const { tellManagers } = await import('@/lib/tell-managers');
     const n = await tellManagers(db, tenantId, tenant, { type: 'app_order_waiting', link: '/counter',
       message: `${names.length === 1 ? `${names[0]} is` : `${names.length} delivery app orders are`} still waiting at the counter from an earlier day${names.length > 1 ? ` (${names.slice(0, 5).join(', ')}${names.length > 5 ? ', and more' : ''})` : ''}. Check the app, then mark each one picked up by the courier or cancelled on the app.` });
-    if (n >= 0) { const at = new Date(now).toISOString(); for (const d of left) await d.ref.set({ app: { toldAt: at } }, { merge: true }); told = left.length; }
+    if (n > 0) { const at = new Date(now).toISOString(); for (const d of left) await d.ref.set({ app: { toldAt: at } }, { merge: true }); told = left.length; }
   }
   return { cleared, told };
 }

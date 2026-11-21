@@ -43,6 +43,23 @@ function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: s
       <p className="text-[13px]" style={{ color: MUTED }}>{empty ? 'Add what they ordered from the menu first.' : !app ? 'Pick the app it came from.' : !okCode ? 'Type the order code the app shows.' : inMin === null ? 'Pick when the courier gets here.' : 'It goes in the books when the courier picks it up.'}</p>
     </div>);
 }
+/** The code (or app) typed wrong on a sent app order, fixed: the right app and its code (lib/app-orders-server appCode). */
+function AppFix({ id, apps, start, busy, onSave, onKeep }: { id: string; apps: { code: string; label: string }[]; start: { app: string; code: string }; busy: boolean; onSave: (v: { app: string; code: string }) => void; onKeep: () => void }) {
+  const [app, setApp] = useState(start.app); const [code, setCode] = useState(start.code);
+  const clean = code.replace(/\s+/g, '').replace(/^#/, '').toUpperCase(); const okCode = /^[A-Z0-9-]{2,12}$/.test(clean);
+  const same = clean === start.code && app === start.app;
+  return (
+    <div className="space-y-2 rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+      <div role="radiogroup" aria-labelledby={`app-fix-${id}`}><p id={`app-fix-${id}`} className="text-[13.5px] font-semibold">Which app</p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">{apps.map((a) => <button key={a.code} type="button" role="radio" aria-checked={app === a.code} onClick={() => setApp(a.code)} className={`${btn} flex-1 whitespace-nowrap px-3 text-[14px]`} style={app === a.code ? dark : quiet}>{a.label}</button>)}</div></div>
+      <label className="block text-[13.5px] font-semibold">Order code on the app
+        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 14))} autoComplete="off" autoCapitalize="characters" className={`mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal ${RING}`} style={{ borderColor: LINE }} /></label>
+      <div className="flex gap-2">
+        <button type="button" disabled={busy || !app || !okCode || same} onClick={() => onSave({ app, code: clean })} className={`${btn} flex-1 px-3 text-[14px]`} style={dark}>Save the code</button>
+        <button type="button" onClick={onKeep} className={`${btn} px-3 text-[14px]`} style={quiet}>Keep it</button>
+      </div>
+    </div>);
+}
 const clockOf = (iso: string) => { try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -67,7 +84,7 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
   text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null;
   /** A delivery app's order (lib/app-orders): which app, its code, its spot on the pickup shelf, when the courier is due. */
-  app?: { state: string; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null };
+  app?: { state: string; app?: string | null; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
@@ -142,7 +159,7 @@ export default function CounterPage() {
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
-  const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null);
+  const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null); const [appFix, setAppFix] = useState<string | null>(null);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
 
@@ -193,6 +210,7 @@ export default function CounterPage() {
   // Cancelled on the app: asked once more first; once the kitchen started on it, a manager's PIN (unless one is signed in).
   const appCancelDone = (d: any) => { setAppOff(null); setAppPin(null); setNotice({ text: `${d.name} was taken off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${d.returned ? ' What the kitchen hadn’t started went back.' : ''}`, tone: 'good' }); };
   const appCancel = (o: Order) => act(`appCancel-${o.id}`, { action: 'appCancel', orderId: o.id }, appCancelDone, (d) => { if (!d.needsManager) return false; setAppPin(o); return true; });
+  const appCodeFix = (o: Order, v: { app: string; code: string }) => act(`appCode-${o.id}`, { action: 'appCode', orderId: o.id, app: v.app, code: v.code }, (d) => { setAppFix(null); setNotice({ text: d.already ? `${d.name}: no change.` : `Fixed: ${d.was} is now ${d.name}.`, tone: 'good' }); });
   const appPinCheck = async (pin: string) => {
     if (!appPin) return { ok: false as const, error: 'Pick the order again.' };
     const d = await post({ action: 'appCancel', orderId: appPin.id, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -386,14 +404,18 @@ export default function CounterPage() {
                   {o?.text && <p className="text-[13px]" style={{ color: o.text.failed ? AMBER : MUTED }}>{!o.text.sent ? `Gets a text when it’s ready (···${o.text.last4})` : o.text.failed ? 'The text may not have gone' : `Texted${o.text.sentAt ? ` ${minsAgo(o.text.sentAt, now)}` : ''}`}</p>}</div>}
                 {o?.app?.code ? <>
                   {ready && <button type="button" onClick={() => void act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${o.app!.label} ${o.app!.code} was picked up.`, tone: 'good' }))} disabled={busy === `gone-${g.id}`} className={`${btn} w-full`} style={dark}>Picked up by the courier</button>}
-                  {appOff === o.id ? <div className="space-y-2 rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+                  {appFix === o.id ? <AppFix id={o.id} apps={lane?.apps || []} start={{ app: String(o.app.app || ''), code: String(o.app.code || '') }} busy={!!busy} onSave={(v) => void appCodeFix(o, v)} onKeep={() => setAppFix(null)} />
+                  : appOff === o.id ? <div className="space-y-2 rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
                     <p className="text-[13.5px]">Cancelled on {o.app.label}? It comes off the shelf, and anything already made is thrown out.</p>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => void appCancel(o)} disabled={!!busy} className={`${btn} flex-1 px-3 text-[14px]`} style={{ background: '#fff', color: 'var(--bad-ink)', border: '1px solid var(--bad-ink)' }}>Yes, it’s cancelled</button>
                       <button type="button" onClick={() => setAppOff(null)} className={`${btn} px-3 text-[14px]`} style={quiet}>Keep it</button>
                     </div>
                   </div>
-                    : <button type="button" onClick={() => setAppOff(o.id)} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Cancelled on the app</button>}
+                    : <div className="flex flex-wrap gap-x-1.5">
+                      <button type="button" onClick={() => { setAppOff(null); setAppFix(o.id); }} disabled={!!busy} className={`${btn} flex-1 whitespace-nowrap px-2 text-[14px]`} style={{ color: MUTED }}>Fix the code</button>
+                      <button type="button" onClick={() => { setAppFix(null); setAppOff(o.id); }} disabled={!!busy} className={`${btn} flex-1 whitespace-nowrap px-2 text-[14px]`} style={{ color: MUTED }}>Cancelled on the app</button>
+                    </div>}
                 </> : ready && (g.calledAt
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
                   : <button type="button" onClick={() => call(g, o)} disabled={busy === `call-${g.id}`} className={`${btn} w-full`} style={dark}>Call {o?.guestName || g.number}</button>)}

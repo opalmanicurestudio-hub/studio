@@ -30,7 +30,7 @@ import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib
 import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
-import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, type FoodAddress } from '@/lib/food-delivery';
+import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { deliveryFrom } from '@/lib/delivery-plan';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -320,7 +320,9 @@ export async function settleAhead(db: any, tenantId: string, tenant: any, orderI
       const x: any = (await tx.get(ref)).data() || {};
       if (x.paidAt && x.cardPaymentId === pi.id) return;
       tx.set(ref, { ahead: { state: x.paidAt ? 'paid' : 'canceled', ...(x.paidAt ? {} : { failed: why }), settlingAt: null },
-        ...(x.status === 'building' && !x.paidAt ? { status: 'voided', voidedAt: nowIso(), voidReason: why, ...(x.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) } : {}) }, { merge: true });
+        ...(x.status === 'building' && !x.paidAt ? { status: 'voided', voidedAt: nowIso(), voidReason: why, ...(x.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}),
+          // (A delivery never paid for is off the delivery lists: lib/food-delivery-server reads by its state.)
+          ...(x.ahead?.delivery ? { ahead: { state: 'canceled', failed: why, settlingAt: null, delivery: { state: 'abandoned' } } } : {}) } : {}) }, { merge: true });
     });
     return { ok: true, paid: false, notKept: true, why };
   };
@@ -447,6 +449,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
       step: or.paidAt ? deliveryStep(or.ahead.delivery, handed ? 'handed' : ready ? 'ready' : 'making') : null,
       driver: or.ahead.delivery.state === 'out' || or.ahead.delivery.state === 'delivered' ? String(or.ahead.delivery.driverName || '').split(' ')[0] || null : null,
       outAt: or.ahead.delivery.outAt || null, deliveredAt: or.ahead.delivery.deliveredAt || null,
+      // Out with a driver: about when it gets there now, and whether it's running late (lib/food-delivery etaOf).
+      ...(or.ahead.delivery.state === 'out' ? (() => { const e = etaOf(or.ahead.delivery, Date.now()); return { eta: e.eta, late: e.late }; })() : { eta: null, late: false }),
       // (The driver texted that they're outside, in the last few minutes, while it's out.)
       outside: or.ahead.delivery.state === 'out' && Date.now() - (Date.parse(String(or.ahead.delivery.outsideAt || '')) || 0) < 15 * 60000 } } : {}),
   };
@@ -628,7 +632,7 @@ export async function sweepAhead(db: any, tenantId: string, tenant: any, or: any
     else if (!s?.ok) { try { await stripe.paymentIntents.cancel(String(or.ahead.payId), {}, { stripeAccount: acct }); } catch { return null; } }
   } else if (age < UNPAID_MIN * 60000) return null;
   // (A number given for a ready text goes with it: lib/ready-text.)
-  await ref.set({ status: 'voided', voidedAt: nowIso(), voidReason: 'Not paid', cardOpen: false, ahead: { state: 'abandoned' }, ...(or.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
+  await ref.set({ status: 'voided', voidedAt: nowIso(), voidReason: 'Not paid', cardOpen: false, ahead: { state: 'abandoned', ...(or.ahead?.delivery ? { delivery: { state: 'abandoned' } } : {}) }, ...(or.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
   if (or.ahead.code && or.day) await db.doc(`tenants/${tenantId}/aheadCodes/${or.day}_${or.ahead.code}`).delete().catch(() => null);
   return 'abandoned';
 }

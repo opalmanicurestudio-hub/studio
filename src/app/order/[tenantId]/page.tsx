@@ -58,7 +58,7 @@ type Track = { business: string; number: string; name: string | null; state: str
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
-  deliveryFee?: number; tip?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | null; driver: string | null; outAt: string | null; deliveredAt: string | null; outside?: boolean } };
+  deliveryFee?: number; tip?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | null; driver: string | null; outAt: string | null; deliveredAt: string | null; outside?: boolean; eta?: string | null; late?: boolean } };
 
 /** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
 type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
@@ -410,7 +410,9 @@ function AgainRow({ again, fav, toggleFav }: { again: () => void; fav: boolean; 
 function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNullable<Track['delivery']>; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
   const st = D.step || 'making'; const gone = st === 'out' || st === 'delivered';
   const chip = st === 'delivered' ? 'Delivered. Enjoy!' : st === 'out' ? 'On its way' : st === 'failed' ? 'Couldn’t be delivered' : st === 'ready' ? 'Ready, going out soon' : t.kitchen === 'later' ? 'Waiting to start' : 'Being made';
-  const big = st === 'delivered' ? (D.deliveredAt ? `Delivered at ${clock(D.deliveredAt)}` : 'Delivered') : st === 'failed' ? 'We couldn’t get it to you' : D.arriveAt ? `There around ${clock(D.arriveAt)}` : 'On its way soon';
+  // (Out with a driver: the time it should get there now, which moves with the driver's route.)
+  const when = st === 'out' && D.eta ? D.eta : D.arriveAt;
+  const big = st === 'delivered' ? (D.deliveredAt ? `Delivered at ${clock(D.deliveredAt)}` : 'Delivered') : st === 'failed' ? 'We couldn’t get it to you' : when ? `There around ${clock(when)}` : 'On its way soon';
   const steps = [
     { on: true, text: t.kitchen === 'later' && !gone ? 'Paid. The kitchen starts it in time.' : 'Paid, being made' },
     { on: gone, text: gone && D.outAt ? `Left${D.driver ? ` with ${D.driver}` : ''} at ${clock(D.outAt)}` : 'Out with a driver' },
@@ -421,6 +423,7 @@ function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNull
       <p className="w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={gone ? { background: GREEN_TINT, color: GREEN } : st === 'failed' ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }}>{chip}</p>
       <div>
         <p className="text-[26px] font-semibold leading-tight tracking-tight">{big}</p>
+        {st === 'out' && D.late && D.arriveAt && <p className="mt-1.5 text-[15.5px] font-medium" style={{ color: AMBER }}>Running a little late. It was due at {clock(D.arriveAt)}.</p>}
         <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, to {D.to}</p>
       </div>
       <ol className="space-y-3" aria-label="How it’s going">

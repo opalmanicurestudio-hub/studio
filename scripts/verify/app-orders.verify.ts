@@ -106,7 +106,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…nothing in the books yet', !(await get(`${T}/transactions/counter_${a1.orderId}`)));
   r = await P({ action: 'appSend', orderId: a1.orderId, app: 'doordash', code: '4F2A', courierIn: 10 });
   check('…tapped again: the same order', r.body.ok && r.body.already === true, r.body);
-  check('…its code kept for the day, where only the server reads it', (await get(`${T}/private/appCode_${o1.day}_doordash_4F2A`))?.orderId === a1.orderId && !(await get(`${T}/appOrderCodes/${o1.day}_doordash_4F2A`)));
+  check('…its code kept for the day, where only the server reads it', (await get(`${T}/private/${o1.app.claimId}`))?.orderId === a1.orderId && /^appCode_\d{4}-\d{2}-\d{2}_doordash_4F2A$/.test(o1.app.claimId) && !(await get(`${T}/appOrderCodes/${o1.day}_doordash_4F2A`)));
   r = await P({ action: 'appStart', carKey: 'a2' }); const a2 = r.body;
   await P({ action: 'add', orderId: a2.orderId, itemId: 'fries', tapKey: 't3' });
   r = await P({ action: 'appSend', orderId: a2.orderId, app: 'doordash', code: '4F2A', courierIn: 0 });
@@ -146,7 +146,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const o2 = await get(`${T}/counterOrders/${a2.orderId}`);
   check('cancelled: voided, what the kitchen hadn’t started put back, nothing in the books', r.body.ok && r.body.name === 'Uber Eats 4F2A' && o2.status === 'voided' && o2.app.state === 'cancelled' && (await get(`${T}/inventory/fries`)).totalStock === stockBefore + 1
     && !(await get(`${T}/transactions/counter_${a2.orderId}`)), { r: r.body, st: o2.status });
-  check('…by anyone at the counter while the kitchen hadn’t started on it; its code free again', !r.body.approvedBy && !(await get(`${T}/private/appCode_${o2.day}_ubereats_4F2A`)));
+  check('…by anyone at the counter while the kitchen hadn’t started on it; its code free again', !r.body.approvedBy && !(await get(`${T}/private/${o2.app.claimId}`)));
   r = await P({ action: 'appCancel', orderId: a2.orderId });
   check('…tapped again: nothing twice', r.body.ok && r.body.already === true, r.body);
   const made = async (key: string, code: string) => {
@@ -163,12 +163,12 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…a PIN that isn’t a manager’s is said', r.status === 403 && r.body.needsManager === true && /manager’s PIN/.test(r.body.error) && (await get(`${T}/counterOrders/${a3.orderId}`)).status === 'sent', r.body);
   r = await P({ action: 'appCancel', orderId: a3.orderId, pin: '1357' });
   const o3 = await get(`${T}/counterOrders/${a3.orderId}`);
-  check('…with a manager’s PIN: taken off, the burger counted as waste, okayed by Rosa', r.body.ok && r.body.wasted === 1 && r.body.approvedBy === 'Rosa Diaz' && o3.status === 'voided' && o3.app.state === 'cancelled' && !(await get(`${T}/private/appCode_${o3.day}_doordash_M3`)), r.body);
+  check('…with a manager’s PIN: taken off, the burger counted as waste, okayed by Rosa', r.body.ok && r.body.wasted === 1 && r.body.approvedBy === 'Rosa Diaz' && o3.status === 'voided' && o3.app.state === 'cancelled' && !(await get(`${T}/private/${o3.app.claimId}`)), r.body);
   await db.doc(`${T}/staff/m1`).set({ name: 'Ana Ruiz', role: 'manager', job: 'manager' });
   const a4 = await made('a4', 'V1');
   r = await P({ action: 'void', orderId: a4.orderId, reason: 'Rung in twice' });
   const o4 = await get(`${T}/counterOrders/${a4.orderId}`);
-  check('a manager’s void of an app order: off the shelf, and its code can go in again', r.body.ok && o4.app.state === 'cancelled' && !(await get(`${T}/private/appCode_${o4.day}_doordash_V1`)), { r: r.body, app: o4.app });
+  check('a manager’s void of an app order: off the shelf, and its code can go in again', r.body.ok && o4.app.state === 'cancelled' && !(await get(`${T}/private/${o4.app.claimId}`)), { r: r.body, app: o4.app });
   const a4b = await made('a4b', 'V1');
   check('…the same code again: in', (await get(`${T}/counterOrders/${a4b.orderId}`)).status === 'sent');
   await P({ action: 'appCancel', orderId: a4b.orderId });
@@ -180,7 +180,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   await db.doc(`${T}/inventory/burger`).set({ totalStock: 0 }, { merge: true });
   r = await P({ action: 'appSend', orderId: a5.orderId, app: 'doordash', code: 'K5', courierIn: 10 });
   const o5 = await get(`${T}/counterOrders/${a5.orderId}`);
-  check('the kitchen can’t take it (ran out): said, and its code and shelf spot let go', r.status === 409 && /ran out/.test(r.body.error) && o5.status === 'building' && o5.app.state === 'taking' && !o5.app.shelf && !o5.app.claimId && !o5.app.code && !(await get(`${T}/private/appCode_${o5.day}_doordash_K5`)), { r: r.body, app: o5.app });
+  check('the kitchen can’t take it (ran out): said, and its code and shelf spot let go', r.status === 409 && /ran out/.test(r.body.error) && o5.status === 'building' && o5.app.state === 'taking' && !o5.app.shelf && !o5.app.claimId && !o5.app.code && (await all(`${T}/private`)).every((c: any) => c.orderId !== a5.orderId), { r: r.body, app: o5.app });
   await db.doc(`${T}/inventory/burger`).set({ totalStock: burgers }, { merge: true });
   await db.doc(`${T}/counterOrders/x-sending`).set({ day: o5.day, status: 'building', app: { state: 'sending', shelf: 'A1', code: 'Q9' } });
   r = await P({ action: 'appSend', orderId: a5.orderId, app: 'doordash', code: 'K6', courierIn: 10 });
@@ -194,6 +194,14 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('…the same code with another app on a sent order: refused', other.status === 409 && /went to the kitchen already/.test(other.body.error), other.body);
   check('…a send whose last step didn’t finish is finished when tapped again', r.body.ok && r.body.already === true && (await get(`${T}/counterOrders/${a5.orderId}`)).app.state === 'waiting' && (await get(`${T}/driveThruCars/${a5.carId}`)).stage === 'pickup', r.body);
   await P({ action: 'appCancel', orderId: a5.orderId });
+  // (One from before midnight still on the shelf: its spot stays taken after it.)
+  const calDay = new Date().toISOString().slice(0, 10); const yDay = new Date(Date.parse(`${calDay}T12:00:00Z`) - 864e5).toISOString().slice(0, 10);
+  await db.doc(`${T}/counterOrders/x-late`).set({ day: yDay, status: 'sent', app: { state: 'waiting', shelf: 'A1', code: 'Z9' } });
+  const a6: any = (await P({ action: 'appStart', carKey: 'a6' })).body;
+  await P({ action: 'add', orderId: a6.orderId, itemId: 'fries', tapKey: 'a6f' });
+  r = await P({ action: 'appSend', orderId: a6.orderId, app: 'doordash', code: 'L6', courierIn: 10 });
+  check('after midnight: a spot taken by last night’s order stays taken', r.body.ok && r.body.shelf === 'A2', r.body);
+  await db.doc(`${T}/counterOrders/x-late`).delete(); await P({ action: 'appCancel', orderId: a6.orderId });
 
   console.log('the shelf');
   const sent: string[] = [];
@@ -204,6 +212,20 @@ const src = (p: string) => readFileSync(p, 'utf8');
     sent.push(String(s1.shelf));
   }
   check('spots in turn while they’re taken (A1 is free again once its courier came); none when the shelf is full', sent.join() === 'A1,A2,A3,A4,null', sent);
+
+  console.log('fixing the code');
+  const fx = (await all(`${T}/counterOrders`)).find((o: any) => o.app?.code === 'S1X');
+  r = await P({ action: 'appCode', orderId: fx.id, app: 'ubereats', code: 'S2X' });
+  check('fixed to a code already in: said, nothing changed', r.status === 409 && /Uber Eats S2X is already in/.test(r.body.error) && (await get(`${T}/counterOrders/${fx.id}`)).app.code === 'S1X', r.body);
+  r = await P({ action: 'appCode', orderId: fx.id, app: 'doordash', code: ' #s1y ' });
+  const fx2 = await get(`${T}/counterOrders/${fx.id}`); const fxT = (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === fx.id);
+  check('fixed: the right app and code on the order, its kitchen ticket and the shelf spot kept', r.body.ok && r.body.was === 'Uber Eats S1X' && r.body.name === 'DoorDash S1Y' && fx2.app.code === 'S1Y' && fx2.app.app === 'doordash' && fx2.app.label === 'DoorDash' && fx2.app.shelf === fx.app.shelf
+    && fxT.every((t: any) => t.stationName === `DoorDash S1Y, shelf ${fx.app.shelf}`), { r: r.body, app: fx2.app, t: fxT.map((t: any) => t.stationName) });
+  check('…the old code free again, the new one taken', !(await get(`${T}/private/${fx.app.claimId}`)) && (await get(`${T}/private/${fx2.app.claimId}`))?.orderId === fx.id && (await get(`${T}/driveThruCars/${fx.carId}`)).app.code === 'S1Y');
+  r = await P({ action: 'appSend', orderId: (await P({ action: 'appStart', carKey: 'fx' })).body.orderId, app: 'ubereats', code: 'S1X', courierIn: 10 });
+  check('…so the old code can go in for another order', r.status !== 409 || !/already in/.test(r.body.error), r.body);
+  r = await P({ action: 'appCode', orderId: a1.orderId, app: 'doordash', code: 'ZZ1' });
+  check('…not once it’s picked up', r.status === 409 && /picked up already/.test(r.body.error), r.body);
 
   console.log('the night after');
   const { appNightly } = await import('../../src/lib/app-orders-server');
@@ -222,6 +244,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const page = src('src/app/(app)/counter/page.tsx'); const card = src('src/components/menu/AppOrdersCard.tsx'); const board = src('src/app/drive-thru/[tenantId]/ready/page.tsx');
   check('the counter: App order, which app, the code, when the courier gets here, sent paid on the app', /App order/.test(page) && /Order code on the app/.test(page) && /Courier gets here/.test(page) && /Send to the kitchen, paid on the app/.test(page) && /action: 'appStart'/.test(page) && /The app collects it/.test(page));
   check('…waiting: picked up by the courier, or cancelled on the app (asked once more; a manager’s PIN when asked for)', /Picked up by the courier/.test(page) && /Cancelled on the app/.test(page) && /Courier about/.test(page) && /Yes, it’s cancelled/.test(page) && /Keep it/.test(page) && /setAppPin\(o\)/.test(page));
+  check('…Fix the code on a sent app order', /Fix the code/.test(page) && /Save the code/.test(page) && /action: 'appCode'/.test(page));
   check('…a courier who’s late is shown, to check the app', /courierLate\(o\.app\.courierAt, now\)/.test(page) && /The courier was due/.test(page));
   check('the Menu page’s settings, and the ready board’s shelf spot', /Delivery apps/.test(card) && /Spots on the pickup shelf/.test(card) && /Shelf \$\{r\.shelf\}/.test(board));
   check('the new screens keep the house style', ![page, card].some((s) => /\buppercase\b|font-black/.test(s)));
