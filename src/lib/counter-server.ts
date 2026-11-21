@@ -74,7 +74,7 @@ export async function setOrderName(db: any, tenantId: string, orderId: string, n
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
 /** A car in the lane, with its empty order. `inLine`: taken by someone walking the line before the speaker (the speaker
  *  never greets it, and the order board by the speaker never shows it), told apart by how it looks. */
-export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel; lane?: 1 | 2 | null } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
   // A guest at the counter is the same kind of place in line as a car (ordering, paying, waiting, handed over), numbered
   // as a counter order ("C14").
   const channel: Channel = opts.channel === 'counter' ? 'counter' : 'drive-thru';
@@ -93,7 +93,9 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     tx.set(counterRef, { [channel]: n, day }, { merge: true });
     tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day });
     tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel,
-      ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}) });
+      ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}),
+      // The ordering lane it pulled up to, with two that merge (lib/drive-lanes); never for one taken in line.
+      ...(opts.lane && !opts.inLine && channel === 'drive-thru' ? { lane: opts.lane } : {}) });
     return { carId: carRef.id, orderId: orderRef.id, number };
   });
 }

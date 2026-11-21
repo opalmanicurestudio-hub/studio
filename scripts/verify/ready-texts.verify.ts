@@ -148,8 +148,8 @@ const ago = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
     && /const textTo = b\.textMe === true && phone && readyTextsOn\(tenant\) \? toE164\(phone\) : null;/.test(ahead) && /text: !!textTo \}\);/.test(ahead) && /readyText: \{ to: textTo, last4: lastFour\(textTo\), via: 'ahead'/.test(ahead));
   check('the order’s page shows it, and can put the same order together again (what was picked comes with each line)', /text: readyTextView\(or\), texts: readyTextsOn\(tenant\)/.test(ahead) && /itemId: String\(l\.itemId \|\| ''\), picks: picksOf\(l\.choices\)/.test(ahead));
   const counterApi = src('src/app/api/counter/route.ts');
-  check('the counter: its own line’s orders only, kept on record, shown on the order and the waiting list', (counterApi.match(/'staffMeal', 'readyText'\]\.includes\(action\)/g) || []).length === 2
-    && /action: 'counter\.ready_text'/.test(counterApi) && /text: readyTextView\(o\) \?/.test(counterApi) && /texts: readyTextsOn\(tenant\) \}/.test(counterApi));
+  check('the counter: its own line’s orders only, kept on record, shown on the order and the waiting list', (counterApi.match(/'staffMeal', 'readyText'(, 'merged')?\]\.includes\(action\)/g) || []).length === 2
+    && /action: 'counter\.ready_text'/.test(counterApi) && /text: readyTextView\(o\) \?/.test(counterApi) && /texts: readyTextsOn\(tenant\)(, lanes: [^}]+)? \}/.test(counterApi));
   const menuApi = src('src/app/api/menu/route.ts'), menuPage = src('src/app/(app)/menu/page.tsx');
   check('the Menu page switches it on or off for the business (offered only where texting is set up)', /if \(typeof b\.readyTexts === 'boolean'\)/.test(menuApi) && /readyTexts: \{ off: !b\.readyTexts \}/.test(menuApi) && /readyTexts: smsConfigured\(\) \? td\.readyTexts\?\.off !== true : null/.test(menuApi)
     && /A text when it’s ready/.test(menuPage) && /\[\[true, 'Offer it'\], \[false, 'Don’t offer it'\]\]/.test(menuPage));

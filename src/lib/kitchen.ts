@@ -86,6 +86,10 @@ export function ticketFrom(d: any, col: KitchenCol) {
     orderId: typeof r.orderId === 'string' ? r.orderId : null,
     orderNumber: typeof r.orderNumber === 'string' ? r.orderNumber.slice(0, 12) : null,
     dueAt: typeof r.dueAt === 'string' && Number.isFinite(Date.parse(r.dueAt)) ? r.dueAt : null,
+    // With two drive-thru lanes that merge (lib/drive-lanes, added by api/kitchen): its place in the line to the window
+    // (1: next) and the lane it ordered in, so it's bagged in the order cars reach the window.
+    windowPlace: Number.isInteger(r.windowPlace) && r.windowPlace > 0 ? Number(r.windowPlace) as number | null : null,
+    lane: r.lane === 1 || r.lane === 2 ? r.lane as 1 | 2 | null : null,
     // An order placed ahead for later: not started before this (it waits under Later on the kitchen screen).
     holdUntil: typeof r.holdUntil === 'string' && Number.isFinite(Date.parse(r.holdUntil)) ? r.holdUntil : null,
     line: Number.isFinite(Number(r.line)) && r.line ? Number(r.line) : null, lines: Number.isFinite(Number(r.lines)) && r.lines ? Number(r.lines) : null,
@@ -111,9 +115,13 @@ export function ticketFrom(d: any, col: KitchenCol) {
 export const ticketDue = (t: { dueAt?: string | null; at: string }) => { const d = Date.parse(String(t.dueAt || '')); if (Number.isFinite(d)) return d; const a = Date.parse(t.at); return Number.isFinite(a) ? a + 300000 : Infinity; };
 
 /** The kitchen's order of work: drive-thru first (a car waiting holds up every car behind it), then whatever is due soonest. */
-export function kitchenOrder(a: { channel?: string | null; dueAt?: string | null; at: string }, b: { channel?: string | null; dueAt?: string | null; at: string }): number {
+export function kitchenOrder(a: { channel?: string | null; dueAt?: string | null; at: string; windowPlace?: number | null }, b: { channel?: string | null; dueAt?: string | null; at: string; windowPlace?: number | null }): number {
   const dt = (x: typeof a) => Number(x.channel === 'drive-thru');
   if (dt(a) !== dt(b)) return dt(b) - dt(a);
+  // Drive-thru orders with a place in the line to the window (two lanes that merge): the car nearer the window first, and
+  // those in the line before the rest (a car parked in a spot, one still in line).
+  const pa = a.windowPlace || 0, pb = b.windowPlace || 0;
+  if (dt(a) && pa !== pb) return pa && pb ? pa - pb : pa ? -1 : 1;
   return ticketDue(a) - ticketDue(b) || String(a.at).localeCompare(String(b.at));
 }
 export type KitchenTicket = ReturnType<typeof ticketFrom>;

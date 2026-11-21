@@ -81,6 +81,7 @@ export default function MenuPage() {
   const [times, setTimes] = useState<{ dayparts: Daypart[]; happyHour: HappyHour } | null>(null);
   const [spots, setSpots] = useState<number | null>(null);
   const [pickupOnly, setPickupOnlyState] = useState<boolean | null>(null);
+  const [lanes, setLanesState] = useState<1 | 2 | null>(null);
   // Guests can ask for a text when their order is ready (lib/ready-text); null: texting isn't set up here.
   const [readyTexts, setReadyTexts] = useState<boolean | null>(null);
   // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
@@ -104,7 +105,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -150,6 +151,11 @@ export default function MenuPage() {
     const was = pickupOnly; setPickupOnlyState(v); setBusy('pickupOnly'); setErr('');
     const d = await call({ action: 'laneSettings', pickupOnly: v });
     setBusy(null); if (!d.ok) { setPickupOnlyState(was); setErr(d.error || 'That didn’t save.'); } else setAheadThere(d.lane?.aheadThere !== false);
+  };
+  const setLanes = async (v: 1 | 2) => {
+    const was = lanes; setLanesState(v); setBusy('lanes'); setErr('');
+    const d = await call({ action: 'laneSettings', lanes: v });
+    setBusy(null); if (!d.ok) { setLanesState(was); setErr(d.error || 'That didn’t save.'); }
   };
   const setTexts = async (v: boolean) => {
     const was = readyTexts; setReadyTexts(v); setBusy('readyTexts'); setErr('');
@@ -227,6 +233,17 @@ export default function MenuPage() {
                   <span className="flex flex-wrap gap-2">
                     {([[false, 'Orders and pickup'], [true, 'Pickup only']] as [boolean, string][]).map(([v, label]) => { const on = pickupOnly === v; return (
                       <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'pickupOnly'} onClick={() => { if (!on && busy !== 'pickupOnly') void setPickupOnly(v); }} className={`${BTN} aria-disabled:opacity-50`}
+                        style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
+                  </span>
+                </div>
+              )}
+              {lanes !== null && pickupOnly === false && (
+                <div role="group" aria-labelledby="lane-count" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span id="lane-count" className="block text-[15px] font-medium">Ordering lanes</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{lanes === 2 ? 'Set each speaker tablet and order board to its lane. Cars from both lanes meet in one line to the window, and the lane screen asks which car merged first when it isn’t clear.' : 'One speaker, one line of cars.'}</span></span>
+                  <span className="flex flex-wrap gap-2">
+                    {([[1, 'One lane'], [2, 'Two that merge']] as [1 | 2, string][]).map(([v, label]) => { const on = lanes === v; return (
+                      <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'lanes'} onClick={() => { if (!on && busy !== 'lanes') void setLanes(v); }} className={`${BTN} aria-disabled:opacity-50`}
                         style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
                   </span>
                 </div>

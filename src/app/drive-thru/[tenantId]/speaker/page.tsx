@@ -7,6 +7,8 @@
 //   works), or a car added on the lane screen (greeted on its own while "Greet cars added on the lane" is on).
 //   The call itself goes through our server (lib/drive-thru-voice-client): this tablet never holds the service's key.
 //   Set up once like the lane screen (api/kitchen 'pair', kind 'drive-thru').
+//   With two ordering lanes that merge (lib/drive-lanes), each speaker tablet is set to its lane once: it greets only
+//   the cars at its own speaker, and a car pulled up here is that lane's.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -18,6 +20,7 @@ const BG = '#16171a', CARD = '#1f2024', TEXT = '#ffffff', SUB = '#b9bbc0', RULE 
 const POLL_MS = 1500;
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
 const keyName = (t: string) => `cf.drivethru.${t}`;
+const laneKey = (t: string) => `cf.drivethru.speakerLane.${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 const rid = () => { try { return crypto.getRandomValues(new Uint32Array(3)).join('').slice(0, 24); } catch { return `${Date.now()}${Math.random().toString(36).slice(2, 10)}`; } };
@@ -28,7 +31,9 @@ type Line = { id: string; who: 'guest' | 'assistant'; text: string };
 export default function Speaker() {
   const { tenantId } = useParams() as { tenantId: string };
   const [key, setKey] = useState<string | null>(null); const [ready, setReady] = useState(false); const [stopped, setStopped] = useState('');
-  const [cfg, setCfg] = useState<{ on: boolean; publicKey: string | null; setUp: boolean } | null>(null);
+  const [cfg, setCfg] = useState<{ on: boolean; publicKey: string | null; setUp: boolean; lanes: 1 | 2 } | null>(null);
+  // With two ordering lanes that merge (lib/drive-lanes): the lane this speaker is at, kept on this tablet.
+  const [myLane, setMyLane] = useState<1 | 2 | null>(null);
   const [armed, setArmed] = useState(false);
   const [auto, setAuto] = useState(true);
   const [car, setCar] = useState<Car | null>(null);
@@ -40,7 +45,8 @@ export default function Speaker() {
   const carFor = useRef<string | null>(null);
   const starting = useRef(false);
 
-  useEffect(() => { setKey(read(keyName(tenantId))); setAuto(read('cf.drivethru.speaker.auto') !== 'off'); setReady(true); }, [tenantId]);
+  useEffect(() => { setKey(read(keyName(tenantId))); setAuto(read('cf.drivethru.speaker.auto') !== 'off'); const l = Number(read(laneKey(tenantId))); setMyLane(l === 1 || l === 2 ? l : null); setReady(true); }, [tenantId]);
+  const pickLane = (l: 1 | 2 | null) => { setMyLane(l); write(laneKey(tenantId), l ? String(l) : null); };
   const call = useCallback(async (url: string, body: any) => {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, ...body }) });
     const d = await r.json().catch(() => ({}));
@@ -50,11 +56,13 @@ export default function Speaker() {
   // Read again every minute, so switching the assistant on or off on the Menu page reaches this tablet on its own.
   useEffect(() => {
     if (!key) return;
-    const get = () => void call('/api/counter/voice', { action: 'config' }).then(({ d }) => { if (d.ok) setCfg({ on: !!d.on, publicKey: d.publicKey || null, setUp: !!d.setUp }); }, () => undefined);
+    const get = () => void call('/api/counter/voice', { action: 'config' }).then(({ d }) => { if (d.ok) setCfg({ on: !!d.on, publicKey: d.publicKey || null, setUp: !!d.setUp, lanes: d.lanes === 2 ? 2 : 1 }); }, () => undefined);
     get(); const i = setInterval(get, 60000); return () => clearInterval(i);
   }, [key, call]);
 
   const reset = useCallback(() => { session.current = null; carFor.current = null; setTalking(null); }, []);
+  // (Its lane, with two: only this lane's cars are greeted here, and a car pulled up here is this lane's.)
+  const atLane = cfg?.lanes === 2 ? myLane : null;
 
   // A call for this car: made through our server, then this tablet's speaker and microphone are the guest's line.
   const greet = useCallback(async (c: Car) => {
@@ -89,7 +97,7 @@ export default function Speaker() {
     let stop = false;
     const tick = async () => {
       try {
-        const { d } = await call('/api/counter/voice', { action: 'speaker' });
+        const { d } = await call('/api/counter/voice', { action: 'speaker', lane: atLane });
         if (stop || !d.ok) return;
         const c: Car | null = d.car;
         setCar(c);
@@ -100,13 +108,13 @@ export default function Speaker() {
     };
     tick(); const i = setInterval(tick, POLL_MS);
     return () => { stop = true; clearInterval(i); };
-  }, [key, armed, auto, call, greet]);
+  }, [key, armed, auto, call, greet, atLane]);
 
   // "A car pulled up": a new car on the lane, greeted straight away.
   // One car per pull-up: a held key, a double tap or a sensor that chatters never makes a second car.
   const pulling = useRef(false);
   const pulledUpNow = async () => {
-    const { d } = await call('/api/counter', { action: 'car', carKey: rid() });
+    const { d } = await call('/api/counter', { action: 'car', carKey: rid(), lane: atLane });
     if (!d.ok) { setNotice(d.error || 'That didn’t go through. Try again.'); return; }
     await greet({ id: d.carId, number: d.number, orderId: d.orderId, arrivedAt: new Date().toISOString(), voice: null });
   };
@@ -145,9 +153,12 @@ export default function Speaker() {
       <header className="flex items-center justify-between gap-4 px-6 py-5" style={{ borderBottom: `1px solid ${RULE}` }}>
         <div className="flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ background: CARD }}><Mic className="h-5 w-5" aria-hidden /></span>
-          <div><h1 className="text-[20px] font-semibold">Speaker</h1><p className="text-[14px]" style={{ color: SUB }}>{cfg?.on ? 'The voice assistant takes each car’s order' : 'Drive-thru'}</p></div>
+          <div><h1 className="text-[20px] font-semibold">{atLane ? `Speaker, lane ${atLane}` : 'Speaker'}</h1><p className="text-[14px]" style={{ color: SUB }}>{cfg?.on ? 'The voice assistant takes each car’s order' : 'Drive-thru'}</p></div>
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+        {atLane && !talking && <button type="button" onClick={() => pickLane(null)} className={`min-h-[44px] rounded-xl px-4 text-[14px] font-semibold ${RING}`} style={{ background: CARD, color: TEXT }}>Change lane</button>}
         {armed && cfg?.on && <button type="button" onClick={toggleAuto} aria-pressed={auto} className={`min-h-[44px] rounded-xl px-4 text-[14px] font-semibold ${RING}`} style={{ background: CARD, color: TEXT }}>{auto ? 'Greeting cars added on the lane' : 'Only cars added here'}</button>}
+        </div>
       </header>
 
       <section className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-10 text-center" aria-live="polite">
@@ -156,6 +167,12 @@ export default function Speaker() {
             <div className="max-w-md space-y-3">
               <p className="text-[28px] font-semibold leading-tight">The voice assistant isn’t on</p>
               <p className="text-[16px] leading-relaxed" style={{ color: SUB }}>{cfg.setUp ? 'A manager switched it off for now. Orders are taken on the lane screen.' : 'It needs setting up first. Until then, orders are taken on the lane screen.'}</p>
+            </div>
+          ) : cfg.lanes === 2 && !myLane ? (
+            <div className="w-full max-w-md space-y-5" role="group" aria-labelledby="lane-pick">
+              <p id="lane-pick" className="text-[30px] font-semibold leading-tight">Which lane is this speaker at?</p>
+              <p className="text-[16px] leading-relaxed" style={{ color: SUB }}>The drive-thru has two ordering lanes. This tablet greets only the cars at its own speaker.</p>
+              <div className="flex gap-3">{([1, 2] as const).map((l) => <button key={l} type="button" onClick={() => pickLane(l)} className={`min-h-[72px] flex-1 rounded-2xl px-6 text-[20px] font-semibold ${RING}`} style={{ background: CARD, color: TEXT, border: `1px solid ${RULE}` }}>Lane {l}</button>)}</div>
             </div>
           ) : !armed ? (
             <div className="max-w-md space-y-5">

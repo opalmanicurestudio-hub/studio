@@ -10,6 +10,8 @@
 //   With the voice assistant on (api/counter/voice), a car's order can be taken at the speaker by the assistant, and
 //   it builds here as it's said: the lane can read along, listen in, take over on its own microphone, or tell the
 //   assistant something (components/drive-thru/VoiceBar).
+//   With two ordering lanes that merge (lib/drive-lanes): a car is added at its lane, each car shows its lane, a screen
+//   taking orders can take one lane's, and the windows are asked which car merged first when it isn't clear.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -24,6 +26,7 @@ import { VoiceBar, useOnTheSpeakerHere, type CarVoice } from '@/components/drive
 import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { readBack, timeLeft, CAR_COLORS, CAR_KINDS } from '@/lib/counter-orders';
+import { byWindow, laneOf } from '@/lib/drive-lanes';
 import { outWords } from '@/lib/menu-stock';
 import type { MenuItem } from '@/lib/menu-server';
 
@@ -47,7 +50,9 @@ type CarRow = { id: string; number: string; stage: Stage; arrivedAt: string; sta
   // Taken in line, before the speaker, and how it looks ("Red SUV").
   inLine?: boolean; wasInLine?: boolean; hereAt?: string | null; looks?: string | null;
   // An order placed ahead going with the car (found at the speaker while it was ordering): handed over with it.
-  aheadId?: string | null; addOnVoided?: boolean };
+  aheadId?: string | null; addOnVoided?: boolean;
+  // The ordering lane it pulled up to, with two that merge (lib/drive-lanes).
+  lane?: 1 | 2 | null };
 type Split = { ordering: number | null; toWindow: number | null; atWindow: number | null };
 type Stats = Split & { inLane: number; inLineNow?: number; average: number | null; target: number; underTarget: number; thisHour: number; servedToday: number; rushAt?: number; recent?: Split & { count: number } };
 type Ahead = { id: string; number: string; name: string | null; code: string; at: string | null; hereAt: string | null; items: number; total: number; summary: string };
@@ -55,7 +60,9 @@ type Ahead = { id: string; number: string; name: string | null; code: string; at
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
 const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean }; menu: LaneItem[]; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean };
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2 }; menu: LaneItem[];
+  // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
+  merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -139,12 +146,13 @@ function CarCard({ c, o, also, now, target, selected, onAir, onPick }: { c: CarR
   const s = (now - Date.parse(c.arrivedAt)) / 1000;
   const items = (o?.lines || []).reduce((n, l) => n + l.quantity, 0);
   return (
-    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}${o?.guestName ? `, ${o.guestName}` : ''}${c.looks ? `, ${c.looks}` : ''}, ${stageWord(c)}${c.spot ? ` in spot ${c.spot}` : ''}${also ? `, with ${also.number} placed ahead` : ''}, ${mmss(s)} in the lane`}
+    <button type="button" onClick={onPick} aria-pressed={selected} aria-label={`Car ${c.number}${c.lane ? `, lane ${c.lane}` : ''}${o?.guestName ? `, ${o.guestName}` : ''}${c.looks ? `, ${c.looks}` : ''}, ${stageWord(c)}${c.spot ? ` in spot ${c.spot}` : ''}${also ? `, with ${also.number} placed ahead` : ''}, ${mmss(s)} in the lane`}
       className={`w-full rounded-2xl bg-[#fff] p-3.5 text-left transition-shadow ${RING}`}
       style={{ border: `${selected ? 2 : 1}px solid ${selected ? INK : s > target ? AMBER : LINE}`, boxShadow: selected ? '0 6px 18px rgba(22,23,26,0.10)' : 'none', padding: selected ? 13 : 14 }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="text-[24px] font-semibold leading-none tracking-tight tabular-nums" style={{ color: INK }}>{c.number}</span>
+          {c.lane && <span className="shrink-0 self-center rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: SOFT, color: INK }}>Lane {c.lane}</span>}
           {o?.guestName && <span className="min-w-0 truncate text-[15px] font-semibold" style={{ color: INK }}>{o.guestName}</span>}
           <span className="truncate text-[14px] font-medium" style={{ color: onAir ? GREEN : MUTED }}>{stageWord(c)}{c.spot ? ` ${c.spot}` : ''}{c.looks ? ` · ${c.looks}` : ''}{onAir ? ' · you’re on' : c.voice?.status === 'live' ? ' · assistant' : c.voice?.status === 'taken_over' ? ' · team' : ''}</span>
         </div>
@@ -155,6 +163,30 @@ function CarCard({ c, o, also, now, target, selected, onAir, onPick }: { c: CarR
         <KitchenPill o={o} />
       </div>
     </button>
+  );
+}
+
+// ─── Two lanes that merge (lib/drive-lanes): which car is next at the window, in one tap ─────────────────────────────
+// The front car of each lane, both waiting and neither paying. The one already in front is marked "Next for now";
+// tapping the other puts it first everywhere (the windows, the card reader, the kitchen), and tapping either settles it.
+function MergeAsk({ next, other, orders, busy, onPick }: { next: CarRow; other: CarRow; orders: Record<string, Order>; busy: boolean; onPick: (c: CarRow) => void }) {
+  const what = (c: CarRow) => { const o = c.orderId ? orders[c.orderId] : undefined; const l = o?.lines || []; return l.length ? (l.length > 1 ? `${l[0].name} and ${l.length - 1} more` : l[0].name) : ''; };
+  const sent = (c: CarRow) => Date.parse(String((c.orderId && orders[c.orderId]?.sentAt) || c.stageAt?.pay || ''));
+  const later = Math.round((sent(other) - sent(next)) / 1000);
+  const card = (c: CarRow, first: boolean) => (
+    <button key={c.id} type="button" onClick={() => onPick(c)} disabled={busy} aria-label={`Car ${c.number}, lane ${laneOf(c)}${c.looks ? `, ${c.looks}` : ''}, merged first`}
+      className={`flex min-h-[120px] flex-1 flex-col gap-1 rounded-2xl bg-[#fff] p-3 text-left ${RING}`} style={{ border: `${first ? 2 : 1}px solid ${first ? INK : LINE}`, padding: first ? 11 : 12 }}>
+      <span className="flex w-full items-center justify-between gap-2"><span className="text-[22px] font-semibold leading-none tabular-nums">{c.number}</span><span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: SOFT }}>Lane {laneOf(c)}</span></span>
+      {c.looks && <span className="text-[14px] font-semibold">{c.looks}</span>}
+      {what(c) && <span className="line-clamp-2 text-[13px]" style={{ color: MUTED }}>{what(c)}</span>}
+      <span className="mt-auto text-[13px]" style={first ? { fontWeight: 600 } : { color: MUTED }}>{first ? 'Next for now' : later >= 1 ? `Ordered ${later < 60 ? `${later} sec` : `${Math.floor(later / 60)} min`} later` : 'Tap if it’s first'}</span>
+    </button>
+  );
+  return (
+    <div role="group" aria-labelledby="merge-ask" className="space-y-2.5 rounded-2xl p-3" style={{ background: AMBER_TINT, border: '1px solid #f3d9b8' }}>
+      <div className="px-1"><p id="merge-ask" className="text-[15.5px] font-semibold" style={{ color: INK }}>Which car is next at the window?</p><p className="text-[13px]" style={{ color: '#5b5f65' }}>Tap the one that merged first.</p></div>
+      <div className="flex gap-2">{card(next, true)}{card(other, false)}</div>
+    </div>
   );
 }
 
@@ -267,10 +299,15 @@ export default function DriveThru() {
   const pickupOnly = !!lane?.settings?.pickupOnly;
   const role: Role = pickupOnly && !PICKUP_ROLES.includes(roleSet) ? 'all' : roleSet;
   const manualAt = useRef(0);
-  useEffect(() => { const r = read(`cf.drivethru.role.${tenantId}`) as Role | null; if (r && ROLES.some(([k]) => k === r)) setRoleState(r); }, [tenantId]);
+  // With two ordering lanes that merge (lib/drive-lanes): the lane this screen takes orders for, when it's set to
+  // Taking orders (kept on the device); otherwise both.
+  const twoLanes = lane?.settings?.lanes === 2;
+  const [myLaneSet, setMyLaneState] = useState<1 | 2 | null>(null);
+  const myLane = twoLanes && role === 'speaker' ? myLaneSet : null;
+  useEffect(() => { const r = read(`cf.drivethru.role.${tenantId}`) as Role | null; if (r && ROLES.some(([k]) => k === r)) setRoleState(r); const l = Number(read(`cf.drivethru.myLane.${tenantId}`)); setMyLaneState(l === 1 || l === 2 ? l : null); }, [tenantId]);
   useEffect(() => { setReaderPickState(read(`cf.drivethru.reader.${tenantId}`)); }, [tenantId]);
   const setReaderPick = (v: string | null) => { setReaderPickState(v); write(`cf.drivethru.reader.${tenantId}`, v); };
-  const setRole = (r: Role) => { setRoleState(r); manualAt.current = 0; write(`cf.drivethru.role.${tenantId}`, r === 'all' ? null : r); setMenuOpen(false); };
+  const setRole = (r: Role, l: 1 | 2 | null = null) => { setRoleState(r); setMyLaneState(l); manualAt.current = 0; write(`cf.drivethru.role.${tenantId}`, r === 'all' ? null : r); write(`cf.drivethru.myLane.${tenantId}`, l ? String(l) : null); setMenuOpen(false); };
   const pickCar = (id: string) => { manualAt.current = Date.now(); setPicked(id); };
   // When someone last started or changed something on the car on screen (cash, a spot, a void...): a minute after, a screen
   // set to a spot goes back to following it, so a step left half done never pins it to one car.
@@ -364,6 +401,9 @@ export default function DriveThru() {
   const onAirCalls = useOnTheSpeakerHere();
   const onAirCar = cars.find((c) => !!c.voice?.callId && onAirCalls.includes(String(c.voice.callId))) || null;
   const shownCars = role === 'runner' ? cars.filter((c) => c.stage === 'forward') : role === 'line' ? cars.filter(inLineNow) : cars;
+  // Which car merged first (two lanes, lib/drive-lanes): asked at the windows and on a screen that sees every car.
+  const mergeCars = (() => { const m = lane?.merge; if (!m || !twoLanes || !['all', 'pay', 'pickup'].includes(role)) return null;
+    const next = cars.find((c) => c.id === m.next), other = cars.find((c) => c.id === m.other); return next && other ? { next, other } : null; })();
   const car = cars.find((c) => c.id === picked) || null;
   const order = car?.orderId ? lane?.orders[car.orderId] : undefined;
   // Their order placed ahead, going with the car: paid, handed over with it, and Ready only when both are.
@@ -378,8 +418,9 @@ export default function DriveThru() {
     if (role !== 'all') {
       // (A car taken in line isn't at the speaker or a window until someone at the window says it's here.)
       // At a window, in the order cars got there (one taken in line, from when it reached the window).
-      const want = ROLE_STAGE[role]; const atSpot = role === 'line' ? cars.filter(inLineNow) : cars.filter((c) => c.stage === want && !c.inLine)
-        .sort((a, b) => String(a.hereAt || a.arrivedAt).localeCompare(String(b.hereAt || b.arrivedAt)));
+      // (With two lanes, in the order they merged, and a screen taking orders for one lane follows only its own cars.)
+      const want = ROLE_STAGE[role]; const atSpot = role === 'line' ? cars.filter(inLineNow) : cars.filter((c) => c.stage === want && !c.inLine && (!myLane || laneOf(c) === myLane))
+        .sort(byWindow(twoLanes));
       const next = role === 'speaker' || role === 'line' ? atSpot[atSpot.length - 1] : atSpot[0];
       const cur = cars.find((c) => c.id === picked);
       const there = (c?: CarRow) => !!c && (role === 'line' ? inLineNow(c) : c.stage === want);
@@ -442,11 +483,11 @@ export default function DriveThru() {
     } catch { setNotice({ text: 'No connection. The name didn’t save.', tone: 'warn' }); return false; }
   };
 
-  const newCar = (line?: { looks: string | null }) => act('car', { action: 'car', carKey: keyFor('car'), ...(line ? { inLine: true, looks: line.looks } : {}) }, (d) => {
+  const newCar = (line?: { looks: string | null }, at?: 1 | 2) => act('car', { action: 'car', carKey: keyFor(`car${at || ''}`), ...(line ? { inLine: true, looks: line.looks } : {}), ...(at ? { lane: at } : {}) }, (d) => {
     pickCar(d.carId); setLooksFor(null);
-    setLane((l) => (l ? { ...l, cars: [...l.cars.filter((c) => c.id !== d.carId), { id: d.carId, number: d.number, stage: 'speaker', arrivedAt: new Date(Date.now() + skew).toISOString(), stageAt: {}, orderId: d.orderId, takenBy: null, spot: null, ...(line ? { inLine: true, looks: line.looks } : {}) }],
+    setLane((l) => (l ? { ...l, cars: [...l.cars.filter((c) => c.id !== d.carId), { id: d.carId, number: d.number, stage: 'speaker', arrivedAt: new Date(Date.now() + skew).toISOString(), stageAt: {}, orderId: d.orderId, takenBy: null, spot: null, ...(line ? { inLine: true, looks: line.looks } : {}), ...(at ? { lane: at } : {}) }],
       orders: { ...l.orders, [d.orderId]: l.orders[d.orderId] || { id: d.orderId, number: d.number, status: 'building', lines: [], subtotal: 0, tax: 0, taxLabel: 'Tax', total: 0, paidAt: null, payMethod: null, sentAt: null, dueAt: null, kitchen: 'not sent', waitingOn: [], readyCount: 0, ticketCount: 0 } } } : l));
-  }, 'car');
+  }, `car${at || ''}`);
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
   const add = (m: MenuItem, picks: Picks = {}, quantity = 1, offer?: 'item') => {
     if (!order) return; const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}`; const forOrder = order.id;
@@ -655,7 +696,7 @@ export default function DriveThru() {
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: INK, color: '#fff' }}><Car className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0"><h1 className="truncate text-[20px] font-semibold leading-tight">{lane?.business.name || 'Drive-thru'}</h1>
-              <p className="text-[13.5px]" style={{ color: MUTED }}>{lane?.screen || 'Drive-thru'}{role !== 'all' ? ` · ${ROLES.find(([k]) => k === role)?.[1]}` : ''} · {cars.length} {cars.length === 1 ? 'car' : 'cars'} in the lane</p></div>
+              <p className="text-[13.5px]" style={{ color: MUTED }}>{lane?.screen || 'Drive-thru'}{role !== 'all' ? ` · ${ROLES.find(([k]) => k === role)?.[1]}${myLane ? `, lane ${myLane}` : ''}` : ''} · {cars.length} {cars.length === 1 ? 'car' : 'cars'} in the lane</p></div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {staff
@@ -680,11 +721,14 @@ export default function DriveThru() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>A tablet with a card reader where guests order and pay themselves. Paid orders wait at the counter.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
-                    {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).map(([k, label, hint]) => (
-                      <button key={k} type="button" aria-pressed={role === k} onClick={() => setRole(k)} className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left ${RING}`} style={{ background: role === k ? SOFT : 'transparent' }}>
+                    {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).flatMap(([k, label, hint]): [Role, 1 | 2 | null, string, string][] => (k === 'speaker' && twoLanes
+                      // (With two lanes, taking orders is for one lane's speaker.)
+                      ? [[k, 1, 'Taking orders, lane 1', 'The newest car at lane 1’s speaker'], [k, 2, 'Taking orders, lane 2', 'The newest car at lane 2’s speaker']] : [[k, null, label, hint]]))
+                      .map(([k, l, label, hint]) => { const on = role === k && (!l || myLaneSet === l); return (
+                      <button key={`${k}${l || ''}`} type="button" aria-pressed={on} onClick={() => setRole(k, l)} className={`flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl px-3 text-left ${RING}`} style={{ background: on ? SOFT : 'transparent' }}>
                         <span><span className="block text-[14px] font-medium" style={{ color: INK }}>{label}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{hint}</span></span>
-                        <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${role === k ? INK : LINE}` }}>{role === k && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
-                      </button>))}
+                        <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${on ? INK : LINE}` }}>{on && <span className="h-2.5 w-2.5 rounded-full" style={{ background: INK }} />}</span>
+                      </button>); })}
                   </div>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-reader">
                     <p id="screen-reader" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>Card reader here</p>
@@ -760,9 +804,20 @@ export default function DriveThru() {
               <button type="button" onClick={() => newCar()} disabled={busy === 'car'} className={`min-h-[44px] rounded-lg px-1 text-[14px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>Take an order here anyway</button>
             </div>
           ) : (
+          role !== 'line' && twoLanes ? (
+            // Two ordering lanes that merge: a car is added at its lane (one button when this screen takes one lane's orders).
+            <div role="group" aria-labelledby="new-car-lanes" className="space-y-1.5">
+              <p id="new-car-lanes" className="px-1 text-[13px] font-semibold" style={{ color: MUTED }}>New car at the speaker</p>
+              <div className="flex gap-2">{(myLane ? [myLane] : [1, 2] as const).map((l) => (
+                <button key={l} type="button" onClick={() => newCar(undefined, l)} disabled={busy === 'car'} aria-label={`New car at lane ${l}`} className={`${btn} flex min-h-[64px] flex-1 items-center justify-center gap-2 text-[17px]`} style={{ background: INK, color: '#fff' }}>
+                  <Plus className="h-5 w-5" aria-hidden />Lane {l}
+                </button>))}</div>
+            </div>
+          ) : (
           <button type="button" onClick={() => (role === 'line' ? setLooksFor('new') : newCar())} disabled={busy === 'car'} className={`${btn} flex min-h-[64px] w-full items-center justify-center gap-2 text-[17px]`} style={{ background: INK, color: '#fff' }}>
             <Plus className="h-5 w-5" aria-hidden />{role === 'line' ? 'New car in line' : 'New car at the speaker'}
-          </button>)}
+          </button>))}
+          {mergeCars && <MergeAsk next={mergeCars.next} other={mergeCars.other} orders={lane?.orders || {}} busy={busy === 'merged'} onPick={(c) => void act('merged', { action: 'merged', carId: c.id })} />}
           {!pickupOnly && role !== 'line' && (ahead.length > 0 || !!lane?.aheadOn || aheadOpen) && (
             <button type="button" onClick={() => setAheadOpen(true)} className={`${btn} flex w-full items-center justify-between`} style={aheadHere.length ? { background: GREEN_TINT, color: GREEN } : quiet}>
               <span>Ordered ahead{aheadHere.length ? `: ${aheadHere.length} on the way` : ''}</span><span className="tabular-nums">{ahead.length}</span>

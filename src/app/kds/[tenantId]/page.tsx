@@ -201,6 +201,8 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium" style={{ color: MUTED }}>
             {t.orderNumber && <span className="rounded-lg px-2 py-0.5 text-[17px] font-semibold tabular-nums" style={t.channel === 'drive-thru' ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{t.orderNumber}</span>}
+            {t.lane && <span className="rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ background: SOFT, color: INK }}>{say('Lane {n}', { n: t.lane })}</span>}
+            {t.windowPlace && t.status !== 'delivered' && <WindowPlace n={t.windowPlace} />}
             <span>{say(sourceWord(t))} · {clock(t.at, tz)}{t.lines && t.lines > 1 ? ` · ${say('{a} of {b}', { a: t.line ?? '', b: t.lines })}` : ''}{t.isRedemption ? ` · ${say('Member perk')}` : ''}</span>
           </p>
           <h3 className="text-[22px] font-semibold leading-tight mt-1" style={{ color: INK }}>
@@ -262,6 +264,14 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
   );
 }
 
+// With two drive-thru lanes that merge: where the car is in the line to the window (lib/drive-lanes), so bags go out in
+// that order. The car at the window stands out.
+function WindowPlace({ n }: { n: number }) {
+  const say = useT();
+  const words = n === 1 ? say('Next at the window') : n === 2 ? say('1 car ahead') : say('{n} cars ahead', { n: n - 1 });
+  return <span className="rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={n === 1 ? { background: INK, color: '#fff' } : { background: SOFT, color: INK }}>{words}</span>;
+}
+
 // ─── A course or a dish: its tickets in rows, moved along together or one by one ─────────────────────────────────────
 function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
   g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>; plan: Map<string, StartAt>;
@@ -285,7 +295,11 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
     <section className="rounded-2xl bg-[#fff] overflow-hidden" style={{ border: `1px solid ${late ? AMBER : LINE}` }}>
       <div className="p-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="min-w-0">
-          <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{by === 'dish' ? g.label : say(g.label)}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{by === 'dish' ? g.label : say(g.label)}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
+            {by === 'order' && g.tickets[0]?.lane && <span className="rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ background: SOFT, color: INK }}>{say('Lane {n}', { n: g.tickets[0].lane })}</span>}
+            {by === 'order' && g.tickets[0]?.windowPlace && toReady.length + toServe.length > 0 && <WindowPlace n={g.tickets[0].windowPlace} />}
+          </div>
           <p className="text-[14px] mt-0.5" style={{ color: MUTED }}>
             {by === 'order' ? say(g.count === 1 ? '{n} item' : '{n} items', { n: g.count }) : say(g.tickets.length === 1 ? '{n} ticket' : '{n} tickets', { n: g.tickets.length })} · {due ? <b className="font-semibold tabular-nums" style={{ color: due.over ? AMBER : INK }}>{say(due.text)}</b> : say('oldest {time}', { time: waited(s) })}
             {withAllergy > 0 && <span style={{ color: AMBER }} className="font-semibold"> · {say(withAllergy === 1 ? '{n} with an allergy' : '{n} with allergies', { n: withAllergy })}{unnoted.length ? `, ${say('{n} to note', { n: unnoted.length })}` : ''}</span>}
@@ -888,7 +902,8 @@ function KitchenScreenInner() {
     // What to start now first; a dish timed to finish with a slower one waits below, soonest first.
     waiting: tickets.filter((t) => t.status === 'pending').sort((a, b) => Number(startLater(a)) - Number(startLater(b)) || (startLater(a) ? plan.get(a.id)!.startAt - plan.get(b.id)!.startAt : 0) || kitchenOrder(a, b)),
     making: tickets.filter((t) => t.status === 'in_progress').sort(kitchenOrder),
-    ready: tickets.filter((t) => t.status === 'ready').sort(byTime),
+    // Ready to bag: with two drive-thru lanes that merge, the car nearer the window first (lib/drive-lanes).
+    ready: tickets.filter((t) => t.status === 'ready').sort((a, b) => (a.windowPlace && b.windowPlace ? a.windowPlace - b.windowPlace : 0) || byTime(a, b)),
   }), [tickets, laterKey, plan]); // eslint-disable-line react-hooks/exhaustive-deps
   const groups = useMemo(() => view === 'lanes' || view === 'expo' ? [] : groupTickets(tickets, view), [tickets, view]);
   const lateCount = tickets.filter((t) => t.status !== 'ready' && t.dueAt && Date.parse(t.dueAt) < now).length;

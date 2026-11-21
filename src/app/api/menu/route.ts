@@ -58,6 +58,7 @@ import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/li
 import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/counter-orders';
+import { lanesOf } from '@/lib/drive-lanes';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -271,6 +272,11 @@ export async function POST(req: NextRequest) {
       if (typeof b.readyTexts === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ readyTexts: { off: !b.readyTexts } }, { merge: true });
         return ok({ lane: { readyTexts: b.readyTexts } });
+      }
+      // Ordering lanes: one, or two that merge (lib/drive-lanes): each speaker tablet and order board is set to its lane.
+      if (b.lanes === 1 || b.lanes === 2) {
+        await db.doc(`tenants/${tenantId}`).set({ driveThru: { lanes: b.lanes } }, { merge: true });
+        return ok({ lane: { lanes: b.lanes } });
       }
       if (typeof b.pickupOnly === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ driveThru: { pickupOnly: b.pickupOnly } }, { merge: true });

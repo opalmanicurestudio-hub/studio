@@ -5,7 +5,8 @@
 // the server it goes back to its welcome rather than show an order that may be out of date.
 //   Set up like the lane screen, with a key of its own kind (api/kitchen 'pair', kind 'drive-thru-board') that can only
 //   show the order at the speaker: a screen guests can reach never holds a key that takes payments. Reads api/counter
-//   'board' only.
+//   'board' only. With two ordering lanes that merge (lib/drive-lanes), each board is set to its lane once and shows
+//   only the order at that lane's speaker.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -13,9 +14,12 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', TILE = '#24262b';
 const POLL_MS = 1500, STALE_MS = 20000;
-type Board = { business: { name: string }; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number; alsoAhead?: string | null } };
+const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
+type Board = { business: { name: string }; lanes?: 1 | 2; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number; alsoAhead?: string | null } };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const boardKey = (t: string) => `cf.drivethru.board.${t}`;
+// With two ordering lanes that merge (lib/drive-lanes): the lane this board stands at, kept on the screen.
+const laneKey = (t: string) => `cf.drivethru.boardLane.${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 
@@ -25,18 +29,25 @@ export default function OrderBoard() {
   const [board, setBoard] = useState<Board | null>(null); const [lastOk, setLastOk] = useState(0); const [stopped, setStopped] = useState('');
   const [, setTick] = useState(0);
   const inFlight = useRef(false);
-  useEffect(() => { setKey(read(boardKey(tenantId))); setReady(true); }, [tenantId]);
+  const [myLane, setMyLane] = useState<1 | 2 | null>(null); const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    setKey(read(boardKey(tenantId)));
+    const fromUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('lane') : null;
+    const l = Number(fromUrl || read(laneKey(tenantId))); setMyLane(l === 1 || l === 2 ? l : null);
+    setReady(true);
+  }, [tenantId]);
+  const pickLane = (l: 1 | 2) => { setMyLane(l); write(laneKey(tenantId), String(l)); setPicking(false); setBoard(null); setLastOk(0); };
   useEffect(() => { const i = setInterval(() => setTick((n) => n + 1), 2000); return () => clearInterval(i); }, []);
 
   const load = useCallback(async () => {
     if (!key || inFlight.current) return; inFlight.current = true;
     try {
-      const r = await fetch('/api/counter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, action: 'board' }) });
+      const r = await fetch('/api/counter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, key, action: 'board', lane: myLane }) });
       const d = await r.json().catch(() => ({}));
       if (r.status === 401) { write(boardKey(tenantId), null); setKey(null); setStopped('This screen was stopped. A manager can set it up again.'); return; }
       if (d.ok) { setBoard(d); setLastOk(Date.now()); }
     } catch { /* keeps trying */ } finally { inFlight.current = false; }
-  }, [tenantId, key]);
+  }, [tenantId, key, myLane]);
   useEffect(() => { if (!key) return; load(); const i = setInterval(load, POLL_MS); return () => clearInterval(i); }, [key, load]);
 
   if (!ready) return <main className="min-h-dvh" style={{ background: BG }} />;
@@ -50,8 +61,19 @@ export default function OrderBoard() {
   const dense = !!o && o.lines.length > 4;
   const shown = dense ? 5 : 4;
   const name = board?.business.name || '';
+  const twoLanes = board?.lanes === 2;
+  // Set up once: with two lanes, which one this board stands at (and changed from the corner, like the window screen).
+  if (twoLanes && (!myLane || picking)) return (
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-6 text-center" style={{ background: BG, color: TEXT }}>
+      <div className="w-full max-w-md space-y-5" role="group" aria-labelledby="board-lane">
+        <p id="board-lane" className="text-[30px] font-semibold leading-tight">Which lane is this screen at?</p>
+        <p className="text-[16px] leading-relaxed" style={{ color: SUB }}>The drive-thru has two ordering lanes. This board shows only the order at its own lane’s speaker.</p>
+        <div className="flex gap-3">{([1, 2] as const).map((l) => <button key={l} type="button" aria-pressed={myLane === l} onClick={() => pickLane(l)} className={`min-h-[72px] flex-1 rounded-2xl px-6 text-[20px] font-semibold ${RING}`} style={myLane === l ? { background: TEXT, color: BG } : { background: TILE, color: TEXT }}>Lane {l}</button>)}</div>
+      </div>
+    </main>
+  );
   return (
-    <main className="flex min-h-dvh flex-col" style={{ background: BG, color: TEXT }}>
+    <main className="relative flex min-h-dvh flex-col" style={{ background: BG, color: TEXT }}>
       <header className="flex items-center justify-between gap-4 px-[4vw] pb-[2vh] pt-[4vh]" style={{ borderBottom: `1px solid ${RULE}` }}>
         <p className="truncate text-[clamp(22px,3vw,40px)] font-semibold tracking-tight">{name || 'Welcome'}</p>
         {o && <p className="shrink-0 text-[clamp(18px,2.2vw,30px)] font-medium tabular-nums" style={{ color: SUB }}>Order {o.number}{o.name ? ` · ${o.name}` : ''}</p>}
@@ -95,6 +117,7 @@ export default function OrderBoard() {
           </footer>
         </>
       )}
+      {twoLanes && myLane && <button type="button" onClick={() => setPicking(true)} className={`absolute bottom-3 right-3 min-h-[44px] rounded-xl px-3 text-[13px] font-medium ${RING}`} style={{ color: 'rgba(255,255,255,0.4)' }}>Lane {myLane}</button>}
     </main>
   );
 }

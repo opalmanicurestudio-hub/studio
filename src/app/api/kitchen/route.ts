@@ -78,7 +78,10 @@ import { toolLocked } from '@/lib/tool-lock';
 import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
 import { binState, batchSizeOf } from '@/lib/holding';
 import { holdMinutesOf, makeSecondsOf } from '@/lib/counter-orders';
+import { lanesOf, windowPlaces } from '@/lib/drive-lanes';
 import { finishTogetherOn, stationsOf, stationOfItem } from '@/lib/table-service';
+// With two drive-thru lanes that merge: each drive-thru order's place in the line to the window, kept a few seconds.
+const placesCache = new Map<string, { at: number; places: ReturnType<typeof windowPlaces> }>();
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -375,6 +378,19 @@ export async function POST(req: NextRequest) {
       const lounge = loungeMaker(tenant) === 'kitchen' ? la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')) : [];
       let tickets = [...lounge, ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
       if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
+      // With two ordering lanes that merge (lib/drive-lanes), each drive-thru order's place in the line to the window and
+      // its lane, so the kitchen bags in the order cars reach the window. (Only then, and only with a drive-thru ticket up.)
+      if (lanesOf(tenant) === 2 && tickets.some((t) => t.channel === 'drive-thru' && t.status !== 'delivered' && t.status !== 'cancelled')) {
+        // (Read once every few seconds for the business, however many kitchen screens ask.)
+        let pc = placesCache.get(tenantId);
+        if (!pc || Date.now() - pc.at > 2500) {
+          const carSnap = await db.collection(`${T}/driveThruCars`).where('stage', 'in', ['pay', 'pickup']).limit(300).get().catch(() => ({ docs: [] as any[] }));
+          pc = { at: Date.now(), places: windowPlaces(carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })), true) };
+          placesCache.set(tenantId, pc); if (placesCache.size > 500) placesCache.delete(placesCache.keys().next().value as string);
+        }
+        const places = pc.places;
+        for (const t of tickets) { const p = t.channel === 'drive-thru' && t.orderId ? places.get(t.orderId) : null; if (p) { t.windowPlace = p.place; t.lane = p.lane; } }
+      }
       // A table's held courses, not fired yet (lib/table-service): shown as coming, never started. A day old at most.
       const cutoff = new Date(Date.now() - 16 * 3600000).toISOString();
       const unfiredAll = eventId ? [] : (await db.collection(`${T}/kdsTickets`).where('status', '==', 'unfired').limit(400).get().catch(() => ({ docs: [] as any[] }))).docs

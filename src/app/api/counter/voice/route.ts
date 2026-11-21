@@ -6,9 +6,10 @@
 //   every request it makes comes here instead (its fetch is pointed at this route), and this route adds the secret
 //   key, the assistant, and what it should know about this business. A screen never holds the key, and only ever
 //   reaches the calls this business started (driveThruCalls/{callId}, at the top of the database: server only).
-//   config  { tenantId, key }                   → whether the assistant is on here, and the public key (if one is set)
-//                                                  for the live transcript
-//   speaker { tenantId, key }                   → the car at the speaker now (for the speaker tablet to greet)
+//   config  { tenantId, key }                   → whether the assistant is on here, the public key (if one is set)
+//                                                  for the live transcript, and how many ordering lanes there are
+//   speaker { tenantId, key, lane? }            → the car at the speaker now (for the speaker tablet to greet); with two
+//                                                  ordering lanes, at this tablet's own lane's speaker
 //   start   { tenantId, key, carId }            → the call for that car, made with the secret key (its connection
 //                                                  details only, nothing else)
 //   op      { tenantId, key, callId, op, body? } → listen, take over (the assistant stops; whoever took over is kept on
@@ -29,6 +30,7 @@ import { agentOf, voiceOn, markCallEnded } from '@/lib/drive-thru-voice';
 import { noteTurnedAway, refusedAsFull } from '@/lib/voice-capacity';
 import { FieldValue } from 'firebase-admin/firestore';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { lanesOf, laneOf, cleanLane } from '@/lib/drive-lanes';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -83,15 +85,17 @@ export async function POST(req: NextRequest) {
     if (action === 'start' || action === 'speaker') { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const nowIso = new Date().toISOString();
 
-    if (action === 'config') return ok({ on: voiceOn(tenant), publicKey: voiceOn(tenant) ? (process.env.RETELL_PUBLIC_KEY || null) : null, setUp: !!process.env.RETELL_API_KEY && !!agentOf(tenant) });
+    if (action === 'config') return ok({ on: voiceOn(tenant), publicKey: voiceOn(tenant) ? (process.env.RETELL_PUBLIC_KEY || null) : null, setUp: !!process.env.RETELL_API_KEY && !!agentOf(tenant), lanes: lanesOf(tenant) });
 
     if (action === 'speaker') {
       // The newest car at the speaker whose order is still being taken: the one to greet.
       const snap = await db.collection(`${T}/driveThruCars`).where('stage', '==', 'speaker').limit(100).get();
       // (A car taken in line, before the speaker, already has someone with it: never greeted.)
-      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true && atDriveThru(c)).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
+      // (With two ordering lanes that merge, a speaker set to its lane greets only its own cars: lib/drive-lanes.)
+      const myLane = lanesOf(tenant) === 2 ? cleanLane(b.lane) : null;
+      const car: any = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => c.inLine !== true && atDriveThru(c) && (!myLane || laneOf(c) === myLane)).sort((a: any, c: any) => String(c.arrivedAt).localeCompare(String(a.arrivedAt)))[0] || null;
       const o: any = car?.orderId && ID.test(String(car.orderId)) ? (await db.doc(`${T}/counterOrders/${car.orderId}`).get()).data() : null;
-      return ok({ on: voiceOn(tenant), now: nowIso, car: car ? { id: car.id, number: car.number, orderId: car.orderId || null, arrivedAt: car.arrivedAt, voice: car.voice || null, items: Array.isArray(o?.lines) ? o.lines.length : 0 } : null });
+      return ok({ on: voiceOn(tenant), now: nowIso, lanes: lanesOf(tenant), car: car ? { id: car.id, number: car.number, orderId: car.orderId || null, arrivedAt: car.arrivedAt, voice: car.voice || null, items: Array.isArray(o?.lines) ? o.lines.length : 0 } : null });
     }
 
     if (action === 'start') {

@@ -151,7 +151,7 @@ const at = (iso: string) => new Date(iso);
   r = await P({ action: 'add', carId: c2.carId, orderId: b1.orderId, itemId: 'fries', tapKey: 'x3', channel: 'counter' });
   check('…even carrying one of its own guests beside the car’s order', r.status === 409 && /drive-thru’s/.test(r.body.error), r.body);
   const vr = src('src/app/api/counter/voice/route.ts'), cr = src('src/app/api/counter/route.ts');
-  check('…the windows and the voice assistant see only the drive-thru’s cars', /c\.inLine !== true && atDriveThru\(c\)\)\.sort/.test(vr) && /if \(!atDriveThru\(car\)\) return/.test(vr) && /\.filter\(atDriveThru\), Date\.now\(\), carId\)/.test(vr)
+  check('…the windows and the voice assistant see only the drive-thru’s cars', /c\.inLine !== true && atDriveThru\(c\)( && \(!myLane \|\| laneOf\(c\) === myLane\))?\)\.sort/.test(vr) && /if \(!atDriveThru\(car\)\) return/.test(vr) && /\.filter\(atDriveThru\), Date\.now\(\), carId\)/.test(vr)
     && /c\.inLine !== true && atDriveThru\(c\)\)\s*\n?\s*\.sort/.test(cr) && /ageOf\(c\.goneAt\) < 8000 && atDriveThru\(c\)/.test(cr));
 
   console.log('a combo voided');
