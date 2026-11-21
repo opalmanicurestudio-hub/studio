@@ -59,6 +59,8 @@ export function readyWords(order: any, link: string | null): string {
   const what = n ? `Order ${n} is ready.` : 'Your order is ready.';
   if (order?.channel !== 'ahead') return `${what} Pick it up at the counter.`;
   const way = order?.ahead?.way;
+  // Delivered by the business's drivers (lib/food-delivery): told when it leaves, not when it's ready.
+  if (way === 'delivery') return `${n ? `Order ${n}` : 'Your order'} is on its way.${link ? ` Your order: ${link}` : ''}`;
   const then = way === 'drive-thru' ? ' Pull into the drive-thru and say your code at the speaker.'
     : way === 'curbside' ? ' Tap I’m here when you park, and we’ll bring it out.'
     : ' Show your code at the counter.';
@@ -98,25 +100,30 @@ export async function askReadyText(db: any, tenantId: string, tenant: any, order
   return { ...r, sent };
 }
 
-/** These orders' texts, if they're ready now (each claimed in one step, so it never goes twice). How many went. */
-export async function textIfReady(db: any, tenantId: string, orderIds: string[]): Promise<number> {
+/** These orders' texts, if they're ready now (each claimed in one step, so it never goes twice). How many went.
+ *  `onWay`: a delivery just left with its driver (lib/food-delivery-server), its text goes now; a delivery's text never
+ *  goes when it's only ready. */
+export async function textIfReady(db: any, tenantId: string, orderIds: string[], opts: { onWay?: boolean } = {}): Promise<number> {
   let went = 0;
   for (const id of Array.from(new Set(orderIds)).filter((x) => ID.test(x)).slice(0, 20)) {
     try {
       const ref = db.doc(`tenants/${tenantId}/counterOrders/${id}`);
       const pre: any = (await ref.get()).data();
       if (!pre?.readyText?.to || pre.readyText.sentAt) continue;
-      // Voided, handed over or dropped meanwhile: nothing to tell them, and the number goes.
-      if (['voided', 'done', 'cancelled'].includes(String(pre.status))) { await ref.set({ readyText: { to: null, pendingSince: null } }, { merge: true }); continue; }
+      const delivery = pre.ahead?.way === 'delivery';
+      if (delivery !== !!opts.onWay) continue;
+      // Voided, handed over or dropped meanwhile: nothing to tell them, and the number goes. (A delivery is done for the
+      // kitchen as it leaves: that's when its text goes.)
+      if (['voided', 'cancelled'].includes(String(pre.status)) || (!delivery && pre.status === 'done')) { await ref.set({ readyText: { to: null, pendingSince: null } }, { merge: true }); continue; }
       const tickets = (await db.collection(`tenants/${tenantId}/kdsTickets`).where('orderId', '==', id).get()).docs.map((d: any) => d.data() || {});
       const live = tickets.filter((t: any) => !LIVE_GONE.includes(String(t.status)));
       // Handed over before it was ever marked ready (or nothing to make): nothing to tell them, and the number goes.
-      if (live.length && live.every((t: any) => HANDED.includes(String(t.status)))) { await ref.set({ readyText: { to: null, pendingSince: null } }, { merge: true }); continue; }
-      if (!readyToText(pre, tickets)) continue;
+      if (!delivery && live.length && live.every((t: any) => HANDED.includes(String(t.status)))) { await ref.set({ readyText: { to: null, pendingSince: null } }, { merge: true }); continue; }
+      if (!delivery && !readyToText(pre, tickets)) continue;
       const claim = await db.runTransaction(async (tx: any) => {
         const or: any = (await tx.get(ref)).data();
         if (!or?.readyText?.to || or.readyText.sentAt) return null;
-        if (or.status !== 'sent') { tx.set(ref, { readyText: { to: null, pendingSince: null } }, { merge: true }); return null; }
+        if (delivery ? or.ahead?.delivery?.state !== 'out' : or.status !== 'sent') { tx.set(ref, { readyText: { to: null, pendingSince: null } }, { merge: true }); return null; }
         tx.set(ref, { readyText: { to: null, pendingSince: null, sentAt: new Date().toISOString() } }, { merge: true });
         return { or: { ...or, id }, to: String(or.readyText.to) };
       });

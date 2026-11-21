@@ -38,6 +38,8 @@
 //   looks  { tenantId, key, carId, looks }          → how a car looks ("Red SUV"), or none
 //   merged { tenantId, key, carId }                → two lanes that merge (lib/drive-lanes): this car merged first
 //   lineClear { tenantId, key, lane? }             → nobody waiting to order before the speaker (lib/lane-entry-server)
+//   deliveryOut / deliveryDone / deliveryFailed { tenantId, orderId, driver?, why? } → the counter: hot food out with a driver,
+//                                                      delivered, or couldn't be (lib/food-delivery-server)
 //   here   { tenantId, key, carId }                 → a car taken in line has reached the window: from now on it's a car
 //                                                      at the window like any other (the window screens show it)
 //   pouch  { tenantId, key, staffPass }             → the cash the person signed in has taken in line and not handed in
@@ -103,6 +105,8 @@ import { stopCarCall } from '@/lib/drive-thru-voice';
 import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey, byWindow, forLaneScreen } from '@/lib/drive-lanes';
 import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { earlyModeOf } from '@/lib/lane-entry';
+import { foodDeliveryOf } from '@/lib/food-delivery';
+import { deliveriesToday, deliveryOut, deliveryEnd } from '@/lib/food-delivery-server';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
@@ -130,7 +134,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -155,7 +159,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -269,6 +273,8 @@ export async function POST(req: NextRequest) {
         // The menu by time of day that's on, and happy hour (lib/menu-time), for the counter's header.
         daypart: daypartNow(tenant), happyHour: inHappyHour(tenant) ? { until: timeWords(happyHourOf(tenant).to) } : null, channel,
         // Whether the business takes orders ahead (the lane offers "Ordered ahead" for a code even with none listed).
+        // Hot food going out with the business's own drivers today (lib/food-delivery-server), at the counter.
+        deliveries: channel === 'counter' && foodDeliveryOf(tenant).on ? await deliveriesToday(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
@@ -514,6 +520,18 @@ export async function POST(req: NextRequest) {
       // (Its lane, with two that merge: the speaker's own, or the lane screen's button.)
       lane: lanesOf(tenant) === 2 ? cleanLane(b.lane) : null }); forgetStats(tenantId); forgetLine(tenantId); return ok({ ...c, staffOk }); }
 
+    if (action === 'deliveryOut' || action === 'deliveryDone' || action === 'deliveryFailed') {
+      // Hot food with the business's own drivers (lib/food-delivery-server): out with a driver (the person doing it),
+      // delivered, or couldn't be and why. At the counter, never the lane.
+      if (channel !== 'counter') return bad('Deliveries are handed out at the counter.', 409);
+      const id = String(b.orderId || '');
+      // (Who's driving, typed on the counter screen; or whoever's signed in.)
+      const driver = String(b.driver ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) || by;
+      const r: any = action === 'deliveryOut' ? await deliveryOut(db, tenantId, id, driver) : await deliveryEnd(db, tenantId, id, action === 'deliveryDone' ? { done: true } : { done: false, why: b.why }, by);
+      if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: action === 'deliveryOut' ? 'counter.delivery_out' : action === 'deliveryDone' ? 'counter.delivery_done' : 'counter.delivery_failed', targetType: 'order', targetId: id,
+        summary: action === 'deliveryOut' ? (driver === by ? `${by} took a delivery out.` : `${by} sent a delivery out with ${driver}.`) : action === 'deliveryDone' ? `${by} marked a delivery delivered.` : `${by} said a delivery couldn’t be made.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+      return r.ok ? ok({ already: !!r.already, staffOk }) : bad(r.error, r.status);
+    }
     if (action === 'lineClear') {
       // "Line's clear" (lib/lane-entry-server): nobody waiting to order before the speaker, in a lane or all of them.
       if (channel !== 'drive-thru') return bad('The counter has no lane.', 409);

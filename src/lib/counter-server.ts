@@ -296,7 +296,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: also ? partName(dish, also.part) : dish, quantity: l.quantity,
         choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
-        guestName: who2, stationName: `${CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
+        guestName: who2, stationName: `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
@@ -561,6 +561,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}) };
     tx.set(saleRef, { id: saleRef.id, ...common, description: `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
     if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
+    // A delivery's fee (lib/food-delivery): on its own line, what the guest paid for delivery, never food sales.
+    const fee = num(o.deliveryFee);
+    if (fee > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_delivery`); tx.set(feeRef, { id: feeRef.id, ...common, description: `Delivery, order ${o.number}`, category: 'Shipping Charged', taxBucket: 'revenue', amount: fee, hasReceipt: false }); }
     // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count); taken
     // in line, it goes into that person's own pouch, counted as theirs for the day.
     const pouch = method === 'cash' && how.pouch === true;

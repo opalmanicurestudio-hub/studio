@@ -1,6 +1,9 @@
 // src/app/api/counter/ahead/route.ts — ORDERING AHEAD, the guest's side (public). lib/counter-ahead.
 //   menu  { tenantId }                                  → on or off, how they can pick up, the times, the menu
-//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe? } → the order (not paid yet) and the secure form's key for its payment
+//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe?, address?, note?, deliveryToken? } → the order (not
+//                                                         paid yet) and the secure form's key for its payment
+//   deliveryCheck { tenantId, address, lines, token? }  → delivered by the business's drivers (lib/food-delivery): whether it
+//                                                         goes there, the fee, the drive, and the arrival times
 //   done  { tenantId, o, s }                            → after the form says it went through: asked of the card company
 //   track { tenantId, o, s }                            → how it's going (paid, the pickup code, being made, ready)
 //   here  { tenantId, o, s, where?, note?, source?, distanceM? } → "I'm here": the kitchen starts now if it was waiting;
@@ -13,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadOnWay, aheadSigOk, linkAheadPoints } from '@/lib/counter-ahead';
+import { aheadMenu, placeAhead, settleAhead, aheadView, aheadHere, aheadOnWay, aheadSigOk, linkAheadPoints, deliveryCheck } from '@/lib/counter-ahead';
 import { askReadyText } from '@/lib/ready-text';
 import { ensureWalletDomainsSoon } from '@/lib/wallet-domains';
 import { closedReply } from '@/lib/tenant-open-server';
@@ -30,20 +33,21 @@ export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-    if (!ID.test(tenantId) || !['menu', 'place', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+    if (!ID.test(tenantId) || !['menu', 'place', 'deliveryCheck', 'done', 'track', 'here', 'onway', 'textMe', 'menu_ask'].includes(action)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
     const orderId = String(b.o || '');
     // An order's own link: its signature first (it can't be guessed), so made-up links never use up the business's allowance.
     if (['done', 'track', 'here', 'onway', 'textMe'].includes(action) && (!ID.test(orderId) || !aheadSigOk(tenantId, orderId, b.s))) return reply({ ok: false, error: BAD_LINK }, 404);
     // An order's own (signed) link is limited per address only, generously: its page asks every few seconds, and a busy
     // day's pages must never use up the business's allowance (nor keep a guest from hearing their payment went through).
-    const slow = await limitPublic(req, action === 'place' ? 'order_ahead_place' : action === 'menu' ? 'order_ahead' : action === 'menu_ask' ? 'order_ahead_ask' : 'order_ahead_link', tenantId,
-      action === 'place' ? { perHour: 60, perDay: 3000 } : action === 'menu' ? { perHour: 600, perDay: 50000 } : action === 'menu_ask' ? { perHour: 120, perDay: 5000 } : { perHour: 6000, perDay: 0 });
+    // (An address checked finds it on the map, so it's limited like placing an order.)
+    const slow = await limitPublic(req, action === 'place' ? 'order_ahead_place' : action === 'deliveryCheck' ? 'order_ahead_address' : action === 'menu' ? 'order_ahead' : action === 'menu_ask' ? 'order_ahead_ask' : 'order_ahead_link', tenantId,
+      action === 'place' || action === 'deliveryCheck' ? { perHour: 60, perDay: 3000 } : action === 'menu' ? { perHour: 600, perDay: 50000 } : action === 'menu_ask' ? { perHour: 120, perDay: 5000 } : { perHour: 6000, perDay: 0 });
     if (slow) return slow;
     const db = getAdminDb();
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data();
     if (!tenant) return reply({ ok: false, error: 'This page isn’t here.' }, 404);
     // A paused or closed business takes no new orders (an order already paid can still be followed and picked up).
-    if (action === 'menu' || action === 'place') { const closed = closedReply(tenant); if (closed) return closed; }
+    if (action === 'menu' || action === 'place' || action === 'deliveryCheck') { const closed = closedReply(tenant); if (closed) return closed; }
     if (action === 'menu') {
       const r = await aheadMenu(db, tenantId, tenant);
       // Apple Pay and Google Pay on this page: the business's address registered, if it isn't yet (never waits long).
@@ -56,6 +60,7 @@ export async function POST(req: NextRequest) {
       return reply({ ok: true, answer: await answerGuest(db, tenantId, question, 'team'), name: K.name });
     }
     if (action === 'place') { const r: any = await placeAhead(db, tenantId, tenant, b); return reply(r, r.ok ? 200 : r.status); }
+    if (action === 'deliveryCheck') { const r: any = await deliveryCheck(db, tenantId, tenant, b); return reply(r, r.ok ? 200 : r.status); }
     if (action === 'track') {
       // Still waiting on its payment: asked of the card company too (the page may have stopped asking before it went through).
       const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();

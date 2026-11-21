@@ -60,6 +60,10 @@ import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/counter-orders';
 import { lanesOf } from '@/lib/drive-lanes';
 import { earlyModeOf } from '@/lib/lane-entry';
+import { foodDeliveryOf, DRIVE_MAX_CHOICES } from '@/lib/food-delivery';
+import { deliveryFrom, deliveryProblems } from '@/lib/delivery-plan';
+import { hasMapsKey } from '@/lib/geocode-server';
+import { hasTimeZone } from '@/lib/tenant-time';
 import { sensorsView, newSensor, stopSensor } from '@/lib/lane-entry-server';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
@@ -96,9 +100,16 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySettingsOf(t), courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), tablePay: tablePayOf(t), nudges: nudgeSettingsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
+/** The business's delivery is set up and on (zones, fees, days, the time zone), so food can go out with its drivers. */
+const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings); return plan.on && hasTimeZone(t) && !deliveryProblems(plan, { mapsReady: hasMapsKey() }).length; };
+
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
   const a = t.orderAhead || {}; const A = aheadOf(t);
+  // Delivery by the business's own drivers (lib/food-delivery): on, the longest drive for hot food, and whether its
+  // delivery zones are set up (Orders, Delivery), which it needs first.
+  const F = foodDeliveryOf(t);
   return { on: A.on, driveThru: a.driveThru !== false, inside: a.inside !== false, curbside: a.curbside === true, laterHours: A.laterHours, slotItems: A.slotItems, payments: !!accountOf(t),
+    delivery: F.on, deliveryMaxMin: F.maxDriveMin, deliveryReady: deliveryReady(t), deliveryByZip: deliveryFrom(t.retailSettings).by === 'postal',
     link: `${linkOrigin(t, origin).replace(/\/+$/, '')}/order/${encodeURIComponent(tenantId)}` };
 }
 
@@ -213,11 +224,14 @@ export async function POST(req: NextRequest) {
       if (typeof b.driveThru === 'boolean') patch.driveThru = b.driveThru;
       if (typeof b.inside === 'boolean') patch.inside = b.inside;
       if (typeof b.curbside === 'boolean') patch.curbside = b.curbside;
+      if (typeof b.delivery === 'boolean') patch.delivery = b.delivery;
+      if (b.deliveryMaxMin !== undefined) { const m = Number(b.deliveryMaxMin); if (!(DRIVE_MAX_CHOICES as readonly number[]).includes(m)) return bad('Pick how far hot food goes.'); patch.deliveryMaxMin = m; }
+      if (patch.delivery === true && !deliveryReady(t)) return bad('Set up delivery first: where you deliver and what it costs, under Orders, Delivery.', 409);
       if (b.laterHours !== undefined) { const h = Math.floor(Number(b.laterHours)); if (!(h >= 0 && h <= 12)) return bad('Up to 12 hours ahead.'); patch.laterHours = h; }
       // Most items one pickup time takes (lib/ahead-slots); null for no limit.
       if (b.slotItems !== undefined) { const n = cleanSlotItems(b.slotItems); if (n === undefined) return bad(`Items for one pickup time: ${SLOT_ITEMS_MIN} to ${SLOT_ITEMS_MAX}, or no limit.`); patch.slotItems = n; }
       const next = { ...cur, ...patch };
-      if (next.driveThru === false && next.inside === false && next.curbside !== true) return bad('Keep at least one way to pick up.');
+      if (next.driveThru === false && next.inside === false && next.curbside !== true && next.delivery !== true) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
       return ok({ ahead: aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null) });

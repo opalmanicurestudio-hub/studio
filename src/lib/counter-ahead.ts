@@ -30,6 +30,8 @@ import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib
 import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
+import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, type FoodAddress } from '@/lib/food-delivery';
+import { deliveryFrom } from '@/lib/delivery-plan';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -42,14 +44,16 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]
 type Fail = { ok: false; error: string; status: number; code?: string };
 const fail = (error: string, status: number, code?: string): Fail => ({ ok: false, error, status, ...(code ? { code } : {}) });
 const secret = () => String(process.env.ORDER_TRACK_SECRET || process.env.RETAIL_QR_SECRET || process.env.CRON_SECRET || '');
-export type AheadWay = 'drive-thru' | 'inside' | 'curbside';
+export type AheadWay = 'drive-thru' | 'inside' | 'curbside' | 'delivery';
 
 /** The business's order-ahead settings: whether it's on, how guests can pick up, and how far ahead (hours) they can order. */
 export function aheadOf(tenant: any) {
   const a = tenant?.orderAhead || {};
   const hours = Math.floor(num(a.laterHours));
   // Curbside (we bring it to their car: components/orders/CurbsideScreen) only once it's turned on.
-  const ways: AheadWay[] = [...(a.driveThru !== false ? ['drive-thru' as const] : []), ...(a.inside !== false ? ['inside' as const] : []), ...(a.curbside === true ? ['curbside' as const] : [])];
+  // Delivery by the business's own drivers (lib/food-delivery) only once it's turned on, and while its delivery zones are.
+  const ways: AheadWay[] = [...(a.driveThru !== false ? ['drive-thru' as const] : []), ...(a.inside !== false ? ['inside' as const] : []), ...(a.curbside === true ? ['curbside' as const] : []),
+    ...(foodDeliveryOf(tenant).on && deliveryFrom(tenant?.retailSettings).on ? ['delivery' as const] : [])];
   const cap = cleanSlotItems(a.slotItems);
   return { on: a.on === true && ways.length > 0, ways: ways.length ? ways : (['inside'] as AheadWay[]), laterHours: hours >= 0 && hours <= 12 ? (a.laterHours === undefined ? 3 : hours) : 3,
     // Most items one pickup time takes (lib/ahead-slots); null: no limit.
@@ -166,7 +170,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -216,7 +220,17 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (b.phone && phone.length !== 10) return fail('A 10-digit phone number, or leave it empty.', 400, 'phone');
   const textTo = b.textMe === true && phone && readyTextsOn(tenant) ? toE164(phone) : null;
   if (b.textMe === true && phone && readyTextsOn(tenant) && !textTo) return fail('That number can’t get texts. Check it, or untick Text me.', 400, 'phone');
-  const money = totalsOf(tenant, lines); const cents = centsOf(money.total);
+  // Delivered (lib/food-delivery): the address checked against the delivery zones again (the fee worked out here, never
+  // taken from the page), and no farther than hot food goes. The fee is its own line, with no tax on it.
+  let deliv: any = null;
+  if (way === 'delivery') {
+    // (A phone number, so the driver can reach them at the door: kept with the delivery, for the team only.)
+    if (phone.length !== 10) return fail('Add your phone number so the driver can reach you.', 400, 'phone');
+    const r = await deliveryQuote(db, tenantId, tenant, b.address, centsOf(totalsOf(tenant, lines).subtotal), b.deliveryToken, now);
+    if (!r.ok) return r;
+    deliv = { address: r.address, note: cleanNote(b.note), phone, feeCents: r.feeCents, miles: r.miles, driveMin: r.driveMin, zone: r.zone, state: 'waiting' };
+  }
+  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents) : totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
   // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room
@@ -225,7 +239,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo });
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
@@ -252,7 +266,9 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
     tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
-      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}) },
+      ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
+        // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
+        ...(deliv ? { delivery: { ...deliv, arriveAt: new Date(Date.parse(slot) + deliv.driveMin * 60000).toISOString() } } : {}) },
       ...(textTo ? { readyText: { to: textTo, last4: lastFour(textTo), via: 'ahead', pendingSince: new Date(now).toISOString(), sentAt: null } } : {}) });
     return { number, code };
   });
@@ -276,7 +292,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   } catch { return fail('Paying isn’t working right now. Try again in a moment.', 503); }
   // On the payments sweep's list (lib/counter-card) from now: paid and unheard, or never paid.
   await orderRef.set({ ahead: { payId: pi.id }, cardOpen: true }, { merge: true });
-  return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, total: num(cur.total), paid: false,
+  return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, total: num(cur.total), paid: false, ...(cur.deliveryFee ? { deliveryFee: num(cur.deliveryFee) } : {}),
     clientSecret: pi.client_secret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, stripeAccount: acct };
 }
 
@@ -357,6 +373,40 @@ export async function linkAheadPoints(db: any, tenantId: string, tenant: any, or
 }
 
 /** How the order is going, for the guest's page: paid, the code, being made (or waiting until it's time), ready. */
+/** Whether an address gets hot food, and for what (lib/food-delivery): the business's delivery zones and fees
+ *  (lib/delivery-server, the same answer the online shop gets), and no farther than the longest drive for hot food. */
+export async function deliveryQuote(db: any, tenantId: string, tenant: any, rawAddress: unknown, itemsCents: number, token: unknown, now = Date.now()):
+  Promise<{ ok: true; address: FoodAddress; feeCents: number; free: boolean; miles: number | null; driveMin: number; zone: string; token: string | null } | Fail> {
+  const F = foodDeliveryOf(tenant);
+  if (!F.on || !aheadOf(tenant).ways.includes('delivery')) return fail('Delivery isn’t on here right now. Pick it up instead.', 409, 'delivery_off');
+  const address = cleanAddress(rawAddress);
+  if (!address) return fail('Add the street address, town, state and ZIP code.', 400, 'address');
+  const { deliveryFor } = await import('@/lib/delivery-server');
+  const v = await deliveryFor(db, tenantId, tenant, address, { itemsCents: Math.max(0, Math.round(itemsCents)), token, now });
+  if (!v.ok) return fail(v.message.replace('Choose another way to get your order.', 'Pick it up instead.'), v.reason === 'unavailable' ? 503 : 409, `delivery_${v.reason}`);
+  const driveMin = driveMinutes(v.miles);
+  // (Zones by ZIP code have no miles: the zones themselves are how far it goes.)
+  if (v.miles !== null && driveMin > F.maxDriveMin) return fail(`That’s farther than we take hot food (about a ${driveMin}-minute drive). Pick it up instead.`, 409, 'too_far');
+  return { ok: true, address, feeCents: Math.max(0, Math.round(v.fee.feeCents)), free: !!v.fee.free, miles: v.miles, driveMin, zone: String(v.zone.name || '').slice(0, 60), token: v.token };
+}
+
+/** The guest's "Check address" on the order page: the fee, the drive, as soon as it's ready (about when it'd be there),
+ *  and the arrival times on offer. The order's items say whether it meets the zone's minimum. */
+export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: { address?: unknown; lines?: unknown; token?: unknown }, now = Date.now()): Promise<any> {
+  const raw = Array.isArray(b.lines) ? b.lines.slice(0, MAX_LINES) : [];
+  const menu = new Map((await readMenu(db, tenantId)).map((m) => [m.id, m]));
+  // (What it comes to, near enough for the minimum: the menu's prices; placing the order works it out exactly.)
+  const itemsCents = raw.reduce((s: number, l: any) => { const m = menu.get(String(l?.itemId || '')); return s + (m ? Math.round(num(m.price) * 100) * Math.max(1, Math.min(99, Math.floor(num(l?.quantity) || 1))) : 0); }, 0);
+  const r = await deliveryQuote(db, tenantId, tenant, b.address, itemsCents, b.token, now);
+  if (!r.ok) return r;
+  const hours = await aheadHours(db, tenantId, tenant, now);
+  const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
+  const asap = asapNow(hours, now) ? asapSlot(now, pickupDelayMin(pace)) : null;
+  return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token,
+    asapArrive: asap ? new Date(Date.parse(asap) + r.driveMin * 60000).toISOString() : null,
+    times: arrivalTimes(pickupTimes(tenant, now, 0, hours), r.driveMin) };
+}
+
 export async function aheadView(db: any, tenantId: string, tenant: any, orderId: string) {
   const or: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
   if (!or || or.channel !== 'ahead') return fail('This order isn’t here.', 404);
@@ -371,7 +421,7 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
   const state = String(or.ahead?.state || '');
   return {
     ok: true as const, business: String(tenant?.name || tenant?.businessName || '').slice(0, 80), number: String(or.number || ''), name: or.guestName || null,
-    state, paid: !!or.paidAt, code: or.paidAt ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
+    state, paid: !!or.paidAt, code: or.paidAt && or.ahead?.way !== 'delivery' ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
     kitchen: !or.paidAt ? null : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
     here: !!or.ahead?.hereAt, failed: state === 'canceled' ? String(or.ahead?.failed || '') || null : null,
     // Curbside: where they said they are, and, once someone's taking it out, their first name.
@@ -387,6 +437,13 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     // The text when it's ready (lib/ready-text): asked for (its last four digits) or sent, and whether it can be asked.
     text: readyTextView(or), texts: readyTextsOn(tenant) && or.status === 'sent' && !or.readyText?.sentAt,
     subtotal: num(or.subtotal), tax: num(or.tax), total: num(or.total),
+    // Delivered (lib/food-delivery): where to (no ZIP or note, on a page anyone with the link can open), the fee, about
+    // when it should get there, and how it's going: who's bringing it once it's out.
+    ...(or.ahead?.way === 'delivery' && or.ahead?.delivery ? { deliveryFee: num(or.deliveryFee), delivery: {
+      to: addressLine(or.ahead.delivery.address), arriveAt: or.ahead.delivery.arriveAt || null, driveMin: num(or.ahead.delivery.driveMin),
+      step: or.paidAt ? deliveryStep(or.ahead.delivery, handed ? 'handed' : ready ? 'ready' : 'making') : null,
+      driver: or.ahead.delivery.state === 'out' || or.ahead.delivery.state === 'delivered' ? String(or.ahead.delivery.driverName || '').split(' ')[0] || null : null,
+      outAt: or.ahead.delivery.outAt || null, deliveredAt: or.ahead.delivery.deliveredAt || null } } : {}),
   };
 }
 
@@ -402,6 +459,8 @@ export async function aheadHere(db: any, tenantId: string, orderId: string, curb
   const r: any = await db.runTransaction(async (tx: any) => {
     const or: any = (await tx.get(ref)).data(); if (!or || or.channel !== 'ahead') return fail('This order isn’t here.', 404);
     if (!or.paidAt) return fail('This order isn’t paid yet.', 409);
+    // (A delivery comes to them: nothing to check in for.)
+    if (or.ahead?.way === 'delivery') return fail('This order is being delivered to you.', 409, 'delivery');
     const curbside = or.ahead?.way === 'curbside';
     if (curbside && !where) where = String(or.ahead?.curb?.where || '');   // what they said they're driving, on the way
     if (curbside && !where && !geo) return fail('Say where you are: your car, its color, or the spot.', 400, 'where');
@@ -490,6 +549,8 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
     const or: any = (await tx.get(ref)).data();
     if (!or || or.channel !== 'ahead' || !days.includes(String(or.day))) return fail('No order today has that code. Check the number with them.', 404, 'no_code');
     if (!or.paidAt) return fail('That order isn’t paid, so it isn’t being made. Take their order at the speaker instead.', 409, 'unpaid');
+    // (A delivery goes out with a driver from the counter, never with a car in the lane.)
+    if (or.ahead?.way === 'delivery') return fail(`Order ${or.number} is being delivered, so it goes out from the counter.`, 409, 'delivery');
     if (or.status === 'done') return fail(`Order ${or.number} was picked up already.`, 409, 'done');
     // Already with another car: only while that car is still in the lane with it (one that left, or was taken off, frees it).
     const other: any = or.ahead?.carId && or.ahead.carId !== carRef.id ? (await tx.get(db.doc(`${T}/driveThruCars/${or.ahead.carId}`))).data() : null;

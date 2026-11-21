@@ -20,6 +20,7 @@ import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
 import { PinPad } from '@/components/kitchen/PinPad';
 import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
+import { Deliveries, type DeliveryRow } from '@/components/drive-thru/Deliveries';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
 import type { MenuItem } from '@/lib/menu-server';
@@ -47,7 +48,9 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
-  settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean };
+  settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
+  /** Today's hot food deliveries by the business's own drivers (lib/food-delivery-server), when delivery is on. */
+  deliveries?: DeliveryRow[] };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -315,6 +318,8 @@ export default function CounterPage() {
           </>}
         </section>
       </div>
+
+      <Deliveries rows={lane?.deliveries || []} now={now} busy={busy} act={act} />
 
       <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-2">

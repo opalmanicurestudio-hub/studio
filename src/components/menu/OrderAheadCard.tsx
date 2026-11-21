@@ -1,13 +1,16 @@
 'use client';
 // src/components/menu/OrderAheadCard.tsx — ORDERING AHEAD, on the Menu page (a manager): on or off, how guests can pick
-// up (the drive-thru, inside, curbside), how far ahead they can order, and the link (with a code to print) guests order from.
+// up (the drive-thru, inside, curbside) or have it delivered by the business's own drivers, how far ahead they can order,
+// and the link (with a code to print) guests order from.
 // Orders are paid when they're placed, so payments must be connected first. api/menu 'ahead'; lib/counter-ahead.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
-export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; laterHours: number; slotItems?: number | null; payments: boolean; link: string };
+export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryReady?: boolean; deliveryByZip?: boolean;
+  laterHours: number; slotItems?: number | null; payments: boolean; link: string };
+const DRIVES = [10, 15, 20, 30];
 
 export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (body: any) => Promise<any> }) {
   const [a, setA] = useState<AheadSettings>(start);
@@ -25,16 +28,16 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
     if (d.ok) setA(d.ahead); else setErr(d.error || 'That didn’t save. Try again.');
   };
   const copy = async () => { try { await navigator.clipboard.writeText(a.link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setErr('Copy didn’t work. Select the link and copy it.'); } };
-  const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside') => (
+  const check = (on: boolean, label: string, k: 'driveThru' | 'inside' | 'curbside' | 'delivery', off = false) => (
     <label className="flex min-h-[44px] items-center gap-3 text-[15px]">
-      <input type="checkbox" checked={on} disabled={!!busy} onChange={(e) => save(k, { [k]: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />{label}
+      <input type="checkbox" checked={on} disabled={!!busy || off} onChange={(e) => save(k, { [k]: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />{label}
     </label>);
   return (
     <section aria-labelledby="ahead-title" className="space-y-4 rounded-3xl border bg-[#fff] p-5" style={{ borderColor: LINE, color: INK }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id="ahead-title" className="text-[16px] font-semibold">Order ahead</h2>
-          <p className="mt-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>Guests order and pay on their phone, then pick it up at the drive-thru or inside with a 4-digit code. A later order waits on the kitchen screen until it’s time to start.</p>
+          <p className="mt-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>Guests order and pay on their phone, then pick it up at the drive-thru or inside with a 4-digit code{a.delivery ? ', or have it delivered' : ''}. A later order waits on the kitchen screen until it’s time to start.</p>
         </div>
         <button type="button" role="switch" aria-checked={a.on} aria-label="Order ahead" disabled={!!busy || (!a.on && !a.payments)} onClick={() => save('on', { on: !a.on })}
           className={`relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-50 ${RING}`} style={{ background: a.on ? GREEN : LINE }}>
@@ -43,8 +46,23 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
       </div>
       {!a.payments && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>Connect payments in Settings first: orders placed ahead are paid when they’re placed.</p>}
       <div className="grid gap-1 sm:grid-cols-2">
-        <div><p className="text-[14px] font-semibold">How guests pick up</p>{check(a.driveThru, 'At the drive-thru', 'driveThru')}{check(a.inside, 'Inside', 'inside')}{check(!!a.curbside, 'Curbside: we bring it to their car', 'curbside')}
-          {a.curbside && <p className="text-[13px]" style={{ color: MUTED }}>Whoever runs orders out uses the Curbside screen.</p>}</div>
+        <div><p className="text-[14px] font-semibold">How guests get it</p>{check(a.driveThru, 'At the drive-thru', 'driveThru')}{check(a.inside, 'Inside', 'inside')}{check(!!a.curbside, 'Curbside: we bring it to their car', 'curbside')}
+          {a.curbside && <p className="text-[13px]" style={{ color: MUTED }}>Whoever runs orders out uses the Curbside screen.</p>}
+          {check(!!a.delivery, 'Delivery, by our drivers', 'delivery', !a.delivery && !a.deliveryReady)}
+          {a.deliveryReady || a.delivery
+            ? <p className="text-[13px]" style={{ color: MUTED }}>Uses your delivery zones and fees. The counter hands each order to a driver.</p>
+            : <p className="text-[13px]" style={{ color: MUTED }}>Set where you deliver and what it costs first, in <a href="/retail-orders/policies/delivery" className="font-semibold underline" style={{ color: INK }}>Delivery settings</a>.</p>}
+          {a.delivery && a.deliveryByZip && <p className="mt-1 text-[13px]" style={{ color: MUTED }}>Your zones are by ZIP code, so they’re how far hot food goes.</p>}
+          {a.delivery && !a.deliveryByZip && (
+            <div className="mt-2" role="radiogroup" aria-labelledby="ahead-drive-title">
+              <p id="ahead-drive-title" className="text-[14px] font-semibold">Longest drive for hot food</p>
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {DRIVES.map((m) => { const on = (a.deliveryMaxMin ?? 15) === m; return (
+                  <button key={m} type="button" role="radio" aria-checked={on} disabled={!!busy} onClick={() => save('drive', { deliveryMaxMin: m })}
+                    className={`min-h-[44px] rounded-xl text-[14px] font-semibold disabled:opacity-50 ${RING}`} style={on ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{m} min</button>); })}
+              </div>
+              <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>Farther addresses are offered pickup instead.</p>
+            </div>)}</div>
         <label className="block"><span className="text-[14px] font-semibold">How far ahead</span>
           <select value={a.laterHours} disabled={!!busy} onChange={(e) => save('hours', { laterHours: Number(e.target.value) })} className={`mt-2 h-11 w-full rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`} style={{ border: `1px solid ${LINE}` }}>
             <option value={0}>As soon as it’s ready only</option>
