@@ -49,7 +49,7 @@
 //   holdUse  { tenantId, key, binId, quantity }    → some taken from a batch by hand
 //   holdToss { tenantId, key, binId }              → a batch thrown out (kept, for the day's waste)
 //   fromHold { tenantId, key, col, id, binId }     → a ticket made from a held batch: taken from it and marked ready
-import { bizLocationsOf, hereFor, hereOf, severalLocations } from '@/lib/here-server';
+import { bizLocationsOf, hereFor, hereOf, severalLocations, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { randomBytes } from 'crypto';
@@ -385,7 +385,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'tickets') {
       const T = `tenants/${tenantId}`;
-      const tz = tenantTimeZone(tenant);
+      // With more than one location: this screen's (or, signed in on a device, the one picked) only (lib/here-server), its
+      // day on its own clock when it keeps one.
+      const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
+      const tz = tenantTimeZone(await zonedHere(db, tenantId, tenant, here));
       const since = startOfDay(todayIn(tz), tz).toISOString();
       const [la, ka, lt, kt] = await Promise.all([
         db.collection(`${T}/refreshmentRequests`).where('status', 'in', [...ACTIVE_STATUSES]).limit(1500).get(),
@@ -398,8 +401,6 @@ export async function POST(req: NextRequest) {
       const lounge = loungeMaker(tenant) === 'kitchen' ? la.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'refreshmentRequests')) : [];
       let tickets = [...lounge, ...ka.docs.map((d: any) => ticketFrom({ ...d.data(), id: d.id }, 'kdsTickets'))];
       if (eventId) tickets = tickets.filter((t) => t.eventId === eventId);
-      // With more than one location: this screen's (or, signed in on a device, the one picked) only (lib/here-server).
-      const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
       if (here) tickets = tickets.filter((t: any) => atHere(t, here));
       // With two ordering lanes that merge (lib/drive-lanes), each drive-thru order's place in the line to the window and
       // its lane, so the kitchen bags in the order cars reach the window. (Only then, and only with a drive-thru ticket up.)

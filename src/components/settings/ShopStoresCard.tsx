@@ -9,20 +9,20 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 
 export function ShopStoresCard({ tenantId }: { tenantId: string }) {
   const [places, setPlaces] = useState<PlaceSettings[] | null>(null);
-  const [storesLink, setStoresLink] = useState('');
+  const [storesLink, setStoresLink] = useState(''); const [houseZone, setHouseZone] = useState('');
   const call = async (body: any) => {
     try {
       const r = await fetch('/api/menu', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, ...body }) });
       return await r.json().catch(() => ({ ok: false }));
     } catch { return { ok: false, error: 'That didn’t go through. Check the connection and try again.' }; }
   };
+  // (Read again after each change: whether a store's hours leave it any pickup times is worked out with the list.)
+  const load = async () => { const d = await call({ action: 'places', shop: true }); if (d?.ok) { setPlaces(d.places || []); setStoresLink(String(d.storesLink || '')); setHouseZone(String(d.houseZone || '')); } };
   useEffect(() => {
     if (!tenantId) return;
-    let off = false;
-    void call({ action: 'places' }).then((d) => { if (!off && d?.ok) { setPlaces(d.places || []); setStoresLink(String(d.storesLink || '')); } });
-    return () => { off = true; };
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
   if (!places || places.length < 2) return null;
-  return <PlacesCard mode="shop" places={places} storesLink={storesLink} call={call} onSaved={(a) => { if (Array.isArray(a?.places)) setPlaces(a.places); }} />;
+  return <PlacesCard mode="shop" places={places} storesLink={storesLink} houseZone={houseZone || undefined} call={call} onSaved={() => { void load(); }} />;
 }

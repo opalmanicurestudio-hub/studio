@@ -5,7 +5,7 @@
 //   out     { tenantId, orderId } → someone's taking it out (ready, and they're here): their page says so
 //   handed  { tenantId, orderId } → handed over: done
 // Renters, who run their own business here, don't see or move the business's orders.
-import { hereOf } from '@/lib/here-server';
+import { hereOf, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -25,7 +25,8 @@ export async function POST(req: NextRequest) {
   if (auth.actor.isRenter) return fail('Renters don’t take the business’s orders out.', 403);
   const db = getAdminDb();
   // (With more than one location, the one picked in the app: its curbside orders only. lib/here-server)
-  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, here, cafe: (await cafeCurbside(db, tenantId, auth.tenant)).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
+  // (A location in another time zone: its own today. lib/here-server zonedHere)
+  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, here, cafe: (await cafeCurbside(db, tenantId, await zonedHere(db, tenantId, auth.tenant, here))).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
   const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return fail('Which order?');
   if (action === 'out' || action === 'handed') {
     const r = action === 'out' ? await cafeOut(db, tenantId, orderId, auth.actor) : await cafeHanded(db, tenantId, orderId, auth.actor);

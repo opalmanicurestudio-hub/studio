@@ -906,7 +906,7 @@ export default function CheckoutPage() {
                     <input type="radio" name="pickup-store" value={x.id} checked={store === x.id} onChange={() => pickStore(x.id)} className="sr-only" />
                     <span className="flex items-baseline justify-between gap-3"><span className="text-[14.5px] font-semibold">{x.name}</span>{x.miles !== null && <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{x.miles} mi</span>}</span>
                     {x.address && <span className="text-[13px] text-muted-foreground">{x.address}</span>}
-                    <span className={cn('text-[13px]', x.open ? 'font-medium text-foreground' : 'text-muted-foreground')}>{storeOpenLine(x, stores.tz)}</span>
+                    <span className={cn('text-[13px]', x.open ? 'font-medium text-foreground' : 'text-muted-foreground')}>{storeOpenLine(x, x.tz || stores.tz)}</span>
                   </label>))}
               </div>
               {!store && <p className="text-[13px] text-muted-foreground">Pick a store to see its pickup times.</p>}

@@ -32,8 +32,9 @@
  */
 
 import { moduleEnabled } from '@/lib/modules';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { More, Toggle } from '@/components/settings/settings-ui';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
@@ -165,16 +166,21 @@ export function LocationsSettingsTab() {
     if (allowance && !allowance.canAdd) { setPageMsg(allowance.reason); return; }
     setPageMsg(null);
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    // (A new location starts on the business's own time zone, never a guess.)
+    setForm({ ...EMPTY_FORM, timezone: tenantTimeZone(selectedTenant) });
     setError(null);
     setNotice(null);
     setDialogOpen(true);
   };
 
+  // What the location was when opened: a pin found from its address (lib/locate-server) follows the address, and a time
+  // zone picked here is the owner's (lib/here-server zoneOf).
+  const loaded = useRef<{ pin: string; source: string | null; address: string; timezone: string } | null>(null);
   const openEdit = (loc: Location) => {
     const p = loc.addressParts;
+    loaded.current = { pin: loc.coordinates ? `${loc.coordinates.lat},${loc.coordinates.lng}` : ',', source: (loc as any).coordinatesSource ?? null, address: String(loc.address ?? ''), timezone: loc.timezone };
     setEditingId(loc.id);
-    setForm({
+    const f0: LocationFormState = {
       name: loc.name,
       // A location saved before this screen existed has only the display
       // line. Keeping it in `street` rather than throwing it away means the
@@ -190,7 +196,10 @@ export function LocationsSettingsTab() {
       lng: loc.coordinates ? String(loc.coordinates.lng) : '',
       radius: Number.isFinite(loc.geoFenceRadiusMeters) ? String(loc.geoFenceRadiusMeters) : '',
       breakRadius: Number.isFinite(loc.geoFenceBreakRadiusMeters) ? String(loc.geoFenceBreakRadiusMeters) : '',
-    });
+    };
+    setForm(f0);
+    // (Compared as the form writes it, so an older record's address line never reads as changed on its own.)
+    if (loaded.current) loaded.current.address = formatLocationAddress(partsOf(f0)) || '';
     setError(null);
     setNotice(null);
     setDialogOpen(true);
@@ -313,11 +322,18 @@ export function LocationsSettingsTab() {
         // updateDoc accepts null to clear a field; createLocation cannot use
         // null because the type says the field is absent, not empty. Hence
         // the two shapes.
+        // A pin changed here is the owner's own (never looked up again). One found from the old address, with the address
+        // changed and the pin left as it was, is taken off, so it's found again from the new one.
+        const was = loaded.current;
+        const pinChanged = !was || `${form.lat},${form.lng}` !== was.pin;
+        const stale = !!was && was.source === 'address' && !pinChanged && String(display || '') !== was.address;
         await updateDoc(doc(firestore, 'tenants', tenantId, 'locations', editingId), {
           name: form.name.trim(),
           address: display || null,
           addressParts: parts ?? null,
-          coordinates: coordinates ?? null,
+          coordinates: stale ? null : coordinates ?? null,
+          ...(pinChanged || stale ? { coordinatesSource: null } : {}),
+          ...(was && form.timezone !== was.timezone ? { timezoneSure: true } : {}),
           geoFenceRadiusMeters: radius ?? null,
           geoFenceBreakRadiusMeters: breakRadius ?? null,
           timezone: form.timezone,
@@ -630,7 +646,7 @@ export function LocationsSettingsTab() {
               <div className="space-y-4 rounded-2xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
                 <div><label className="block text-[14px] font-medium mb-1.5">Time zone</label>
                   <Select value={form.timezone} onValueChange={(v: string) => set({ timezone: v })}><SelectTrigger className="h-12 w-full rounded-xl border px-4 text-[15px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{COMMON_TIMEZONES.map((tz) => <SelectItem key={tz} value={tz}>{tz}</SelectItem>)}</SelectContent></Select>
+                    <SelectContent>{(COMMON_TIMEZONES.includes(form.timezone) ? COMMON_TIMEZONES : [form.timezone, ...COMMON_TIMEZONES]).map((tz) => <SelectItem key={tz} value={tz}>{tz}</SelectItem>)}</SelectContent></Select>
                   <p className="mt-1 text-[13px] cf-muted">Dates and due times here follow this clock.</p></div>
                 <div><label htmlFor="loc-country" className="block text-[14px] font-medium mb-1.5">Country</label><Input id="loc-country" placeholder="United States" value={form.country} onChange={(e: React.ChangeEvent<HTMLInputElement>) => set({ country: e.target.value })} className="h-12 w-full rounded-xl border px-4 text-[15px]" /></div>
                 <div className="grid grid-cols-2 gap-2">

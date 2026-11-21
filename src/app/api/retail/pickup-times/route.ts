@@ -37,7 +37,9 @@ export async function GET(req: NextRequest) {
     if (!t.exists) return NextResponse.json({ error: 'Shop not found.' }, { status: 404 });
     const { shopStoresOf, pickedStore, storeWeekOf } = await import('@/lib/shop-stores-server');
     const store = at ? pickedStore((await shopStoresOf(db, tenantId)).stores, at) : null;
-    const { view } = await shopPickup(db, tenantId, t.data(), Date.now(), same, store && store.id === at ? { id: store.id, week: await storeWeekOf(db, tenantId, store) } : null);
+    // (At one of several stores, on its own clock when it keeps one.)
+    const { zonedFor } = await import('@/lib/here-server');
+    const { view } = await shopPickup(db, tenantId, store && store.id === at ? zonedFor(t.data(), store) : t.data(), Date.now(), same, store && store.id === at ? { id: store.id, week: await storeWeekOf(db, tenantId, store) } : null);
     // How many places are left is the shop's business: the customer sees only whether a window is full.
     const body = { ...view, windows: view.windows.map((w) => ({ key: w.key, label: w.label, day: w.day, full: w.full })) };
     if (recent.size > 500) recent.clear();

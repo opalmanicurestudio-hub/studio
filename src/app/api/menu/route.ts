@@ -42,7 +42,8 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
-import { bizLocationsOf, forgetLocations } from '@/lib/here-server';
+import { bizLocationsOf, forgetLocations, zoneOf, zoneToAsk, zonedFor } from '@/lib/here-server';
+import { locateMissing } from '@/lib/locate-server';
 import { cleanWeek } from '@/lib/ahead-places';
 import { smsConfigured } from '@/lib/sms';
 import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
@@ -66,7 +67,7 @@ import { foodDeliveryOf, DRIVE_MAX_CHOICES } from '@/lib/food-delivery';
 import { appMoneyFrom, MARKUP_CHOICES, FEE_MAX, appOrdersOf, cleanAppName, SHELF_CHOICES } from '@/lib/app-orders';
 import { deliveryFrom, deliveryProblems } from '@/lib/delivery-plan';
 import { hasMapsKey } from '@/lib/geocode-server';
-import { hasTimeZone } from '@/lib/tenant-time';
+import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
 import { sensorsView, newSensor, stopSensor } from '@/lib/lane-entry-server';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
@@ -114,12 +115,20 @@ const appSettings = (t: any) => { const a = t?.appOrders || {}; const v = appOrd
 /** The business's delivery is set up and on (zones, fees, days, the time zone), so food can go out with its drivers. */
 const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings); return plan.on && hasTimeZone(t) && !deliveryProblems(plan, { mapsReady: hasMapsKey() }).length; };
 
-/** With more than one location (lib/ahead-places): each one's ordering ahead, delivery, hours and its own link. */
-async function withPlaces(db: any, tenantId: string, a: any) {
-  const locs = await bizLocationsOf(db, tenantId);
+/** With more than one location (lib/ahead-places): each one's ordering ahead, delivery, hours and its own link. Each
+ *  one with an address and no pin is found on the map first (lib/locate-server); `map` says where it stands, and `zone`
+ *  is its own time zone when it keeps one (lib/here-server zoneOf). */
+async function withPlaces(db: any, tenantId: string, a: any, t: any) {
+  let locs = await bizLocationsOf(db, tenantId);
+  if (locs.length < 2) return a;
+  // (Every time: one found from an address that's since changed is looked up again. One read when nothing's due.)
+  const maps = await locateMissing(db, tenantId);
+  locs = await bizLocationsOf(db, tenantId);
+  const house = tenantTimeZone(t);
   // (`shop`: a store on the online shop, lib/shop-stores-server; its own shop link picks it for pickup.)
-  return locs.length > 1 ? { ...a, places: locs.map((l) => ({ id: l.id, name: l.name, address: l.address, ahead: l.ordering.ahead, delivery: l.ordering.delivery, shop: l.ordering.shop, hours: l.ordering.hours, pinned: !!l.coordinates,
-    link: `${a.link}?place=${encodeURIComponent(l.id)}`, shopLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}?store=${encodeURIComponent(l.id)}` })) } : a;
+  return { ...a, houseZone: house, places: locs.map((l) => ({ id: l.id, name: l.name, address: l.address, ahead: l.ordering.ahead, delivery: l.ordering.delivery, shop: l.ordering.shop, hours: l.ordering.hours, pinned: !!l.coordinates,
+    map: maps[l.id] || (l.coordinates ? 'on' : l.address ? 'not_yet' : 'no_address'), zone: zoneOf(t, l) === house ? null : zoneOf(t, l), zoneAsk: zoneToAsk(t, l),
+    link: `${a.link}?place=${encodeURIComponent(l.id)}`, shopLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}?store=${encodeURIComponent(l.id)}` })) };
 }
 
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -178,7 +187,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null)), apps: appSettings(td),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -294,13 +303,26 @@ export async function POST(req: NextRequest) {
       if (next.driveThru === false && next.inside === false && next.curbside !== true && next.delivery !== true) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
-      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null)) });
+      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null), t) });
     }
     if (action === 'places') {
       // Each location's settings without the whole menu (Shop settings, Your stores): a manager's.
       const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      const a: any = await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null));
-      return ok({ places: a.places || [], storesLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}/stores` });
+      const a: any = await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null), t);
+      // For Your stores (`shop`): a store whose opening hours leave none of the shop's pickup times says so, before a
+      // customer finds out (lib/shop-stores-server storeWeekOf; lib/pickup-slots-server).
+      if (b.shop === true && Array.isArray(a.places)) {
+        const { shopPickup } = await import('@/lib/pickup-slots-server'); const { storeWeekOf } = await import('@/lib/shop-stores-server');
+        const now = Date.now(); const base = (await shopPickup(db, tenantId, t, now)).view;
+        if (base.scheduled && base.windows.length) {
+          const locs = await bizLocationsOf(db, tenantId);
+          for (const p of a.places) {
+            const l = locs.find((x) => x.id === p.id); if (!l || !l.ordering.shop) continue;
+            p.pickupNone = (await shopPickup(db, tenantId, zonedFor(t, l), now, '', { id: l.id, week: await storeWeekOf(db, tenantId, l) })).view.windows.length === 0;
+          }
+        }
+      }
+      return ok({ places: a.places || [], houseZone: a.houseZone || null, storesLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}/stores` });
     }
     if (action === 'aheadPlace') {
       // One location's ordering ahead (lib/ahead-places): on or off there, delivering from there or not, a store on the
@@ -312,14 +334,16 @@ export async function POST(req: NextRequest) {
       if (typeof b.ahead === 'boolean') patch.aheadOff = !b.ahead;
       if (typeof b.delivery === 'boolean') patch.deliveryOff = !b.delivery;
       if (typeof b.shop === 'boolean') patch.shopOff = !b.shop;
+      // Its time zone, answered (lib/here-server zoneToAsk): the one it has, or the business's.
+      const zoneFix: any = b.zone === 'own' ? { timezoneSure: true } : b.zone === 'house' ? { timezone: tenantTimeZone(((await db.doc(`tenants/${tenantId}`).get()).data() || {})), timezoneSure: true } : null;
       if (b.hours !== undefined) { if (b.hours === null) patch.hours = null; else { const w = cleanWeek(b.hours); if (!w) return bad('Check the hours: each day open or closed, with its opening and closing times.'); patch.hours = w; } }
-      if (!Object.keys(patch).length) return bad('Nothing to change.');
+      if (!Object.keys(patch).length && !zoneFix) return bad('Nothing to change.');
       // (Each field replaced whole, in one write: its hours as a whole, so a day left out is closed, never kept from before.)
-      const fields: any = { updatedAt: new Date().toISOString() }; for (const [k, v] of Object.entries(patch)) fields[`ordering.${k}`] = v;
+      const fields: any = { updatedAt: new Date().toISOString(), ...(zoneFix || {}) }; for (const [k, v] of Object.entries(patch)) fields[`ordering.${k}`] = v;
       await db.doc(`tenants/${tenantId}/locations/${id}`).update(fields);
       forgetLocations(tenantId);
       const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null)) });
+      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null), t) });
     }
 
     // Menus by time of day and happy hour (lib/menu-time): the windows; each item says which it's in, and its price then.

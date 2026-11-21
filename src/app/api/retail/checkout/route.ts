@@ -680,6 +680,7 @@ async function handleCheckout(req: NextRequest) {
   // (worked out here, never taken from the browser), and the window or "within N minutes" they chose, still with room.
   // More than one store (lib/shop-stores-server): read fresh, so a store just taken off the shop takes no more orders.
   const { shopStoresOf, pickedStore, storeDelivery, storeWeekOf } = await import('@/lib/shop-stores-server');
+  const { zonedFor } = await import('@/lib/here-server');
   const shops = !digitalOnly && !popup && method !== 'ship' ? await shopStoresOf(db, tenantId, true) : { several: false, stores: [] as any[] };
   let fromStore: any = null;
   let deliv: { zoneId: string; zoneName: string; miles: number | null; feeCents: number; expressCents: number; free: boolean; window: { key: string; start: string; end: string; label: string } | null; cap: number | null; asap: { byIso: string; minutes: number; drivers: number } | null; readyBy: string; note: string } | null = null;
@@ -754,7 +755,9 @@ async function handleCheckout(req: NextRequest) {
     if (shops.several && !shops.stores.length) return NextResponse.json({ error: 'Pickup isn’t offered right now. Choose another way to get your order.', pickupStore: true }, { status: 409 });
     if (shops.stores.length) { fromStore = pickedStore(shops.stores, body.pickupStore); if (!fromStore) return NextResponse.json({ error: 'Pick the store you’ll pick it up from.', pickupStore: true }, { status: 400 }); }
     const { shopPickup, chosenWindow } = await import('@/lib/pickup-slots-server');
-    const { view, booked } = await shopPickup(db, tenantId, tenant, Date.now(), ckeyHash, fromStore ? { id: fromStore.id, week: await storeWeekOf(db, tenantId, fromStore) } : null);
+    // (At one of several stores, on its own clock when it keeps one: lib/here-server zonedFor.)
+    const storeTenant = fromStore ? zonedFor(tenant, fromStore) : tenant;
+    const { view, booked } = await shopPickup(db, tenantId, storeTenant, Date.now(), ckeyHash, fromStore ? { id: fromStore.id, week: await storeWeekOf(db, tenantId, fromStore) } : null);
     if (view.scheduled) {
       const key = String(body.pickupWindowKey || '').slice(0, 20);
       if (!key) return NextResponse.json({ error: view.reason || 'Choose a pickup time.' }, { status: 400 });
@@ -763,7 +766,7 @@ async function handleCheckout(req: NextRequest) {
       pickupWin = { key: c.window.key, start: c.window.start, end: c.window.end, label: c.window.label, cap: c.cap };
       // Named by its date, not "Today": the order, its emails and the team read it later.
       const { windowLabelOn } = await import('@/lib/pickup-slots');
-      pickupAt = windowLabelOn(Date.parse(c.window.start), Date.parse(c.window.end), tenantTimeZone(tenant));
+      pickupAt = windowLabelOn(Date.parse(c.window.start), Date.parse(c.window.end), tenantTimeZone(storeTenant));
     }
   }
   const totalCents = subtotalCents - discountAll + taxCents + shippingCents + tipCents;

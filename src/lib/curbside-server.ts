@@ -7,6 +7,7 @@
 //   cafeHanded   — handed over: the order's done, and anything the kitchen hadn't marked served is now (as at the
 //                  drive-thru window). Nothing about money changes: it was paid when it was placed.
 import { openDays } from '@/lib/counter-ahead';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 const nowIso = () => new Date().toISOString();
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -31,12 +32,14 @@ export function kitchenState(tickets: any[], now = Date.now()): 'later' | 'makin
 
 /** Read at most every few seconds per business, however many screens poll; a step taken here is seen at once. */
 const cache = new Map<string, { at: number; rows: CafeCurb[] }>();
-const changed = (tenantId: string) => { cache.delete(tenantId); };
+const changed = (tenantId: string) => { for (const k of [...cache.keys()]) if (k === tenantId || k.startsWith(`${tenantId}|`)) cache.delete(k); };
 
 export async function cafeCurbside(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<CafeCurb[]> {
-  const c = cache.get(tenantId); if (c && now - c.at < 3000) return c.rows;
+  // (Kept for each clock: a location in another time zone has its own today.)
+  const key = `${tenantId}|${tenantTimeZone(tenant)}`;
+  const c = cache.get(key); if (c && now - c.at < 3000) return c.rows;
   const rows = await readCafe(db, tenantId, tenant, now);
-  cache.set(tenantId, { at: now, rows }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
+  cache.set(key, { at: now, rows }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   return rows;
 }
 

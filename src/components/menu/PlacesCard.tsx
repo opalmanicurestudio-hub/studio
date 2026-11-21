@@ -6,13 +6,26 @@
 // server): whether each is a store on the online shop, delivers, its hours, and its own shop link.
 import { useState } from 'react';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`;
 const DAYS: [string, string][] = [['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'], ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun']];
 const CLOCKS = Array.from({ length: 48 }, (_, i) => { const h = Math.floor(i / 2), m = i % 2 ? '30' : '00'; return `${h % 12 === 0 ? 12 : h % 12}:${m} ${h < 12 ? 'AM' : 'PM'}`; });
 type Day = { enabled: boolean; start: string; end: string };
-export type PlaceSettings = { id: string; name: string; address: string | null; ahead: boolean; delivery: boolean; shop?: boolean; hours: Record<string, Day> | null; pinned: boolean; link: string; shopLink?: string };
+export type PlaceSettings = { id: string; name: string; address: string | null; ahead: boolean; delivery: boolean; shop?: boolean; hours: Record<string, Day> | null; pinned: boolean; link: string; shopLink?: string;
+  /** Where it stands on the map (lib/locate-server), its own time zone when it keeps one, and (Your stores) whether its
+   *  hours leave none of the shop's pickup times. */
+  map?: 'on' | 'missed' | 'no_address' | 'not_yet'; zone?: string | null; pickupNone?: boolean;
+  /** A time zone kept on it that isn't used until the owner says it's right (lib/here-server zoneToAsk). */
+  zoneAsk?: string | null };
+
+/** "Central time", from a time zone's name. */
+export function zoneWords(tz: string): string {
+  try {
+    const n = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'long' }).formatToParts(new Date()).find((x) => x.type === 'timeZoneName')?.value || tz;
+    return n.replace(/ (Standard|Daylight|Summer) Time$/, ' time').replace(/ Time$/, ' time');
+  } catch { return tz; }
+}
 
 const startWeek = (): Record<string, Day> => Object.fromEntries(DAYS.map(([d]) => [d, { enabled: d !== 'sunday', start: '9:00 AM', end: '5:00 PM' }]));
 
@@ -36,7 +49,7 @@ function WeekHours({ start, busy, onSave }: { start: Record<string, Day>; busy: 
     </div>);
 }
 
-export function PlacesCard({ places, call, onSaved, mode = 'ahead', storesLink }: { places: PlaceSettings[]; call: (body: any) => Promise<any>; onSaved: (ahead: any) => void; mode?: 'ahead' | 'shop'; storesLink?: string }) {
+export function PlacesCard({ places, call, onSaved, mode = 'ahead', storesLink, houseZone }: { places: PlaceSettings[]; call: (body: any) => Promise<any>; onSaved: (ahead: any) => void; mode?: 'ahead' | 'shop'; storesLink?: string; houseZone?: string }) {
   const shop = mode === 'shop';
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [said, setSaid] = useState('');
   const [own, setOwn] = useState<Record<string, boolean>>(() => Object.fromEntries(places.map((p) => [p.id, !!p.hours])));
@@ -68,8 +81,24 @@ export function PlacesCard({ places, call, onSaved, mode = 'ahead', storesLink }
       <ul className="space-y-3">
         {places.map((p) => (
           <li key={p.id} className="space-y-2 rounded-2xl p-3.5" style={{ background: SOFT }}>
-            <div><p className="text-[15px] font-semibold">{p.name}</p>{p.address && <p className="text-[13.5px]" style={{ color: MUTED }}>{p.address}</p>}</div>
-            {!p.pinned && <p className="rounded-xl px-3 py-2 text-[13.5px]" style={{ background: AMBER_TINT, color: AMBER }}>Locate its address in Settings, Locations, so {shop ? 'customers' : 'guests'} see how far it is and deliveries can go from it.</p>}
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[15px] font-semibold">{p.name}</p>{p.pinned && p.map !== 'not_yet' && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>On the map</span>}</div>
+              {p.address && <p className="text-[13.5px]" style={{ color: MUTED }}>{p.address}</p>}
+              {p.zone && <p className="mt-0.5 text-[13.5px]">{zoneWords(p.zone)}{houseZone ? <span style={{ color: MUTED }}> (the business is on {zoneWords(houseZone)})</span> : null}</p>}
+            </div>
+            {p.zoneAsk && houseZone && (
+              <div className="space-y-2 rounded-xl px-3 py-2.5" style={{ background: AMBER_TINT }}>
+                <p className="text-[13.5px]" style={{ color: AMBER }}>Settings, Locations has {p.name} on {zoneWords(p.zoneAsk)}, and the business is on {zoneWords(houseZone)}. Which is it on?</p>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {([['own', p.zoneAsk], ['house', houseZone]] as const).map(([k, z]) => (
+                    <button key={k} type="button" disabled={busy === p.id} onClick={() => save(p, { zone: k }, `${p.name} is on ${zoneWords(z)}.`)} className={BTN} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{zoneWords(z).replace(/^./, (c) => c.toUpperCase())}</button>))}
+                </div>
+              </div>)}
+            {p.pinned && p.map === 'not_yet' && <p className="rounded-xl px-3 py-2 text-[13.5px]" style={{ background: AMBER_TINT, color: AMBER }}>Its address changed. It’s found on the map again the next time this opens; until then distances use its old place.</p>}
+            {!p.pinned && <p className="rounded-xl px-3 py-2 text-[13.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{p.map === 'missed' ? 'We couldn’t find its address on the map. Check it in Settings, Locations.'
+              : p.map === 'no_address' ? `Add its address in Settings, Locations, so ${shop ? 'customers' : 'guests'} see how far it is and deliveries can go from it.`
+              : `Locate its address in Settings, Locations, so ${shop ? 'customers' : 'guests'} see how far it is and deliveries can go from it.`}</p>}
+            {shop && p.shop !== false && p.pickupNone && <p className="rounded-xl px-3 py-2 text-[13.5px]" style={{ background: AMBER_TINT, color: AMBER }}>No pickup times coming up: its opening hours and your pickup hours don’t overlap. Change its hours below, or your <a href="/retail-orders/policies/pickup" className="font-semibold underline underline-offset-2">pickup hours</a>.</p>}
             <div className="grid gap-x-4 sm:grid-cols-2">{shop ? check(p, p.shop !== false, 'On your shop', 'shop') : check(p, p.ahead, 'Takes orders ahead', 'ahead')}{check(p, p.delivery, 'Delivers from here', 'delivery')}</div>
             <div role="radiogroup" aria-label={`${p.name}’s opening hours`}>
               <p className="text-[14px] font-semibold">Opening hours</p>

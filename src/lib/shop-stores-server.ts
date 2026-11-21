@@ -2,11 +2,10 @@
 // store"; lib/shop-stores). With two or more locations, each one on the shop (Shop settings, Your stores) is a store: on
 // the Find a store page, a pickup choice at checkout (nearest first), and where a delivery comes from (the nearest that
 // delivers there, measured from its own address). One location: no stores, and checkout works as before.
-import { bizLocationsOf, type BizLocation } from '@/lib/here-server';
+import { bizLocationsOf, zoneOf, zonedFor, type BizLocation } from '@/lib/here-server';
 import { aheadWeek } from '@/lib/ahead-hours-server';
 import { nearestFirst, openWords, pointOf, weekOf } from '@/lib/ahead-places';
 import { geocode } from '@/lib/geocode-server';
-import { tenantTimeZone } from '@/lib/tenant-time';
 import { directionsTo, type StoreRow } from '@/lib/shop-stores';
 import type { DeliveryAddress, DeliveryView } from '@/lib/delivery-server';
 
@@ -28,9 +27,10 @@ export const pickedStore = (stores: BizLocation[], want: unknown) => stores.find
 
 /** What a customer sees of each store: where it is, open now and until when (or when it opens), and directions. */
 export async function storeRows(db: any, tenantId: string, tenant: any, stores: BizLocation[], now = Date.now()): Promise<StoreRow[]> {
-  const house = await aheadWeek(db, tenantId, now); const tz = tenantTimeZone(tenant);
-  return stores.map((s) => ({ id: s.id, name: s.name, address: s.address, lat: s.coordinates?.lat ?? null, lng: s.coordinates?.lng ?? null, delivers: s.ordering.delivery && !!s.coordinates,
-    directions: s.address ? directionsTo(s.address) : null, ...openWords(weekOf(s, house), tz, now) }));
+  // (Each on its own clock, when it keeps one: lib/here-server zoneOf.)
+  const house = await aheadWeek(db, tenantId, now);
+  return stores.map((s) => ({ tz: zoneOf(tenant, s), id: s.id, name: s.name, address: s.address, lat: s.coordinates?.lat ?? null, lng: s.coordinates?.lng ?? null, delivers: s.ordering.delivery && !!s.coordinates,
+    directions: s.address ? directionsTo(s.address) : null, ...openWords(weekOf(s, house), zoneOf(tenant, s), now) }));
 }
 
 const NO_STORE: DeliveryView = { ok: false, reason: 'off', message: 'None of our stores deliver right now. Choose another way to get your order.' };
@@ -44,7 +44,8 @@ const NO_STORE: DeliveryView = { ok: false, reason: 'off', message: 'None of our
 export async function storeDelivery(db: any, tenantId: string, tenant: any, address: DeliveryAddress, opts: { itemsCents: number; token?: unknown; now?: number; sameCheckout?: string; hint?: unknown }, stores: BizLocation[]):
   Promise<{ v: DeliveryView; from: BizLocation | null; changed?: boolean }> {
   const { deliveryFor } = await import('@/lib/delivery-server');
-  const ask = (s: BizLocation) => deliveryFor(db, tenantId, tenant, address, { itemsCents: opts.itemsCents, now: opts.now, sameCheckout: opts.sameCheckout, token: opts.token, origin: s.coordinates });
+  // (Each store's delivery times on its own clock, when it keeps one.)
+  const ask = (s: BizLocation) => deliveryFor(db, tenantId, zonedFor(tenant, s), address, { itemsCents: opts.itemsCents, now: opts.now, sameCheckout: opts.sameCheckout, token: opts.token, origin: s.coordinates });
   const deliverers = stores.filter((s) => s.ordering.delivery);
   if (!deliverers.length) return { v: NO_STORE, from: null, ...(opts.hint ? { changed: true } : {}) };
   const can = deliverers.filter((s) => s.coordinates);

@@ -68,7 +68,7 @@ export default function StoresPage({ params }: { params: Promise<{ tenantId: str
                     {x.miles !== null && <span className="shrink-0 text-[14px] tabular-nums" style={{ color: 'var(--shop-muted)' }}>{x.miles} mi</span>}
                   </div>
                   {x.address && <p className="m-0 text-[14.5px]" style={{ color: 'var(--shop-muted)' }}>{x.address}</p>}
-                  <p className={`m-0 text-[14.5px] ${x.open ? 'font-semibold' : ''}`} style={{ color: x.open ? 'var(--shop-ink)' : 'var(--shop-muted)' }}>{storeOpenLine(x, data.tz)}</p>
+                  <p className={`m-0 text-[14.5px] ${x.open ? 'font-semibold' : ''}`} style={{ color: x.open ? 'var(--shop-ink)' : 'var(--shop-muted)' }}>{storeOpenLine(x, x.tz || data.tz)}</p>
                   {isMine && <p className="m-0 text-[13.5px] font-semibold">Your store</p>}
                   <div className="flex flex-wrap gap-2 pt-2">
                     <button type="button" onClick={() => shopHere(x.id)} className={btn}

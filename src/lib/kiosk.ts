@@ -10,7 +10,7 @@
 // shelf (voidOrder). Nothing is ever made for an order that isn't paid.
 //   tenants/{t}/counterOrders/{id}.kiosk = { screen, state: 'awaiting_pay' | 'paid' | 'let_go' }
 //   kitchenScreens/{hash}.readerId, .kioskOrder   (its reader, picked by a manager; the order it's being paid for now)
-import { hereFor } from '@/lib/here-server';
+import { hereFor, zonedHere } from '@/lib/here-server';
 import { dayKey } from '@/lib/business-locations';
 import { cleanLineNote, cleanOrderAllergy } from '@/lib/order-allergy';
 import { createHash } from 'crypto';
@@ -134,9 +134,9 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     const prev = await letGo(db, tenantId, tenant, screen.kioskOrder, screen.name, o);
     if (prev?.state === 'busy') return prev.code === 'processing' ? fail('The card reader is finishing another payment. Try again in a moment.', 409, 'processing') : fail(prev.error, prev.status, prev.code);
   }
-  const day = todayIn(tenantTimeZone(tenant), at);
-  // (At the kiosk's location, while it's still one of the business's: lib/here-server.)
+  // (At the kiosk's location, while it's still one of the business's, on its own clock when it keeps one: lib/here-server.)
   const here = await hereFor(db, tenantId, { screen });
+  const day = todayIn(tenantTimeZone(await zonedHere(db, tenantId, tenant, here)), at);
   const made: any = had ? { number: had.number } : await db.runTransaction(async (tx: any) => {
     const again: any = (await tx.get(orderRef)).data(); if (again) return { had: again };
     // (At the kiosk's location, with more than one: stamped and numbered there. lib/here-server)

@@ -86,7 +86,7 @@ type Track = { business: string; number: string; name: string | null; state: str
     left?: boolean; photo?: string | null } };
 
 type Later = { days: { date: string; times: string[] }[]; ways: Way[]; minCents: number | null; noticeHours: number };
-type PlaceRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null; delivers: boolean; open: boolean; until: string | null; opens: string | null };
+type PlaceRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null; delivers: boolean; open: boolean; until: string | null; opens: string | null; tz?: string };
 /** For another day, on the order's page: its day, for how many, until when it can be canceled, and once canceled, what went back. */
 type TrackLater = { day: string; people: number | null; cancelBy: string | null; waiting: boolean; canCancel: boolean; canceled: boolean; canceledBy: 'guest' | 'business' | null; back: number; stuck: boolean };
 
@@ -703,7 +703,7 @@ function PlacePicker({ business, places, tz, onPick, current }: { business: stri
             <button type="button" onClick={() => onPick(p.id)} aria-current={current === p.id ? 'true' : undefined} className={`flex w-full flex-col gap-1 rounded-2xl bg-[#fff] px-4 py-3.5 text-left ${RING}`} style={current === p.id ? { border: `1px solid ${INK}`, boxShadow: `inset 0 0 0 1px ${INK}` } : { border: `1px solid ${LINE}` }}>
               <span className="flex items-baseline justify-between gap-3"><span className="text-[17px] font-semibold">{p.name}</span>{p.miles !== null && <span className="shrink-0 text-[14px] tabular-nums" style={{ color: MUTED }}>{p.miles} mi</span>}</span>
               {p.address && <span className="text-[14px]" style={{ color: MUTED }}>{p.address}</span>}
-              <span className="text-[14px]" style={{ color: p.open ? GREEN : MUTED }}>{openLine(p, tz)}{near && i === 0 && p.miles !== null ? '. Nearest to you' : ''}</span>
+              <span className="text-[14px]" style={{ color: p.open ? GREEN : MUTED }}>{openLine(p, p.tz || tz)}{near && i === 0 && p.miles !== null ? '. Nearest to you' : ''}</span>
             </button>
           </li>))}
       </ul>

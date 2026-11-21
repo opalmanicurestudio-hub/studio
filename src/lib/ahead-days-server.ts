@@ -11,6 +11,7 @@
 //   and its pickup code freed. Canceled by the business, the guest gets a text.
 // - Coming up, on the counter: the orders waiting for their day, soonest first.
 // - The guest's number is cleared the morning after its day (`later.wipeAfter`).
+import { zonedHere } from '@/lib/here-server';
 import { dayKey } from '@/lib/business-locations';
 import { sendOrder } from '@/lib/counter-server';
 import { isLater, releaseAt, startsAt, dayWords } from '@/lib/ahead-days';
@@ -29,7 +30,7 @@ const BUSY_MS = 2 * 60000;
 const clockIn = (iso: string, tz: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch { return ''; } };
 
 async function forget(tenantId: string) {
-  comingCache.delete(tenantId);
+  for (const k of [...comingCache.keys()]) if (k === tenantId || k.startsWith(`${tenantId}|`)) comingCache.delete(k);
   try { (await import('@/lib/counter-ahead')).aheadChanged(tenantId); } catch { /* read again soon anyway */ }
   try { (await import('@/lib/food-delivery-server')).forgetDeliveries(tenantId); } catch { /* read again soon anyway */ }
 }
@@ -64,7 +65,8 @@ export async function releaseOne(db: any, tenantId: string, tenant: any, orderId
   if (!was.toldAt) {
     const { tellManagers } = await import('@/lib/tell-managers');
     const n = await tellManagers(db, tenantId, tenant, { type: 'ahead_later_failed', link: '/counter', priority: 'high',
-      message: `Order ${number} for ${dayWords(String(o.ahead.forDay))} at ${clockIn(o.ahead.at, tenantTimeZone(tenant))} couldn’t go to the kitchen: ${why} Fix that, and it goes by itself in a few minutes, or tap Send it now under Coming up on the counter. You can cancel it there too.` });
+      // (Its time on its location's own clock, when it keeps one: lib/here-server.)
+      message: `Order ${number} for ${dayWords(String(o.ahead.forDay))} at ${clockIn(o.ahead.at, tenantTimeZone(await zonedHere(db, tenantId, tenant, o.locationId ? String(o.locationId) : null)))} couldn’t go to the kitchen: ${why} Fix that, and it goes by itself in a few minutes, or tap Send it now under Coming up on the counter. You can cancel it there too.` });
     if (n > 0) await ref.set({ ahead: { later: { release: { toldAt: nowIso } } } }, { merge: true });
   }
   await forget(tenantId);
@@ -120,7 +122,7 @@ export async function cancelLater(db: any, tenantId: string, tenant: any, orderI
   });
   if (claim.ok === false) return claim;
   if (claim.already) return { ok: true, already: true, cents: claim.cents, number: claim.number };
-  const o = claim.o; const tz = tenantTimeZone(tenant);
+  const o = claim.o; const tz = tenantTimeZone(await zonedHere(db, tenantId, tenant, o.locationId ? String(o.locationId) : null));
   const when = `${dayWords(String(o.ahead.forDay))} at ${clockIn(o.ahead.at, tz)}`;
   const { giveBack } = await import('@/lib/food-delivery-settle-server');
   const back = await giveBack(db, tenantId, tenant, claim.lines, by, `Canceled in time, order ${claim.number} for ${when}`);
@@ -153,7 +155,9 @@ export type ComingUpRow = { orderId: string; number: string; name: string | null
  *  Read at most every 20 seconds per business, however many counters poll. */
 const comingCache = new Map<string, { at: number; rows: ComingUpRow[] }>();
 export async function comingUp(db: any, tenantId: string, tenant: any, nowMs = Date.now()): Promise<ComingUpRow[]> {
-  const c = comingCache.get(tenantId); if (c && nowMs - c.at < 20000) return c.rows;
+  // (Kept for each clock: a counter at a location in another time zone has its own today.)
+  const key = `${tenantId}|${tenantTimeZone(tenant)}`;
+  const c = comingCache.get(key); if (c && nowMs - c.at < 20000) return c.rows;
   const today = todayIn(tenantTimeZone(tenant), new Date(nowMs));
   // (Soonest to go first, so the nearest are never left out by ones booked further ahead.)
   const snap = await db.collection(`tenants/${tenantId}/counterOrders`).where('ahead.later.due', '>', '').orderBy('ahead.later.due').limit(80).get();
@@ -168,6 +172,6 @@ export async function comingUp(db: any, tenantId: string, tenant: any, nowMs = D
         failed: L.release?.why ? String(L.release.why) : null, stuck: L.cancel && !L.cancel.at && Array.isArray(L.cancel.left) && L.cancel.left.length ? String(L.cancel.error || 'Not all of the refund went back.') : null,
         today: String(o.ahead.forDay) <= today }; })
     .sort((a: ComingUpRow, b: ComingUpRow) => a.at.localeCompare(b.at)).slice(0, 40);
-  comingCache.set(tenantId, { at: nowMs, rows }); if (comingCache.size > 500) comingCache.delete(comingCache.keys().next().value as string);
+  comingCache.set(key, { at: nowMs, rows }); if (comingCache.size > 500) comingCache.delete(comingCache.keys().next().value as string);
   return rows;
 }

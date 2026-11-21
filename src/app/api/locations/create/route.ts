@@ -4,6 +4,8 @@
 //                                     location, then updates the ClarityFlow subscription so the extra one is billed.
 // Browsers can't create business locations directly (firestore.rules allows them only inventory storage areas).
 import { forgetLocations } from '@/lib/here-server';
+import { locateMissing } from '@/lib/locate-server';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -25,13 +27,19 @@ export async function POST(req: NextRequest) {
   const allow = await locationAllowance(db, tenantId);
   if (!allow.canAdd) return NextResponse.json({ ok: false, needsSubscription: true, error: allow.reason, allowance: allow }, { status: 402 });
   const now = new Date().toISOString();
-  const loc: any = { tenantId, name, timezone: str(b.timezone, 60) || 'America/New_York', isActive: true, createdAt: now, updatedAt: now, createdBy: auth.actor?.name || null };
+  // (No time zone given: the business's own, never a guess. lib/here-server zoneOf)
+  const house = tenantTimeZone(auth.tenant || (await db.doc(`tenants/${tenantId}`).get()).data() || {});
+  // (One picked other than the business's is the owner's own: lib/here-server zoneOf.)
+  const loc: any = { tenantId, name, timezone: str(b.timezone, 60) || house, ...(str(b.timezone, 60) && str(b.timezone, 60) !== house ? { timezoneSure: true } : {}), isActive: true, createdAt: now, updatedAt: now, createdBy: auth.actor?.name || null };
   if (b.address) loc.address = str(b.address, 300);
   if (b.addressParts && typeof b.addressParts === 'object') loc.addressParts = b.addressParts;
   if (b.coordinates && Number.isFinite(Number(b.coordinates.lat)) && Number.isFinite(Number(b.coordinates.lng))) loc.coordinates = { lat: Number(b.coordinates.lat), lng: Number(b.coordinates.lng) };
   for (const k of ['geoFenceRadiusMeters', 'geoFenceBreakRadiusMeters']) if (Number.isFinite(Number(b[k])) && Number(b[k]) > 0) loc[k] = Math.round(Number(b[k]));
   const ref = db.collection(`tenants/${tenantId}/locations`).doc(); await ref.set(loc);
   forgetLocations(tenantId);
+  // An address and no pin: found on the map from its address now (lib/locate-server), so it's ready for nearest first and
+  // delivery. It never holds up the location being made.
+  if (!loc.coordinates && loc.address) await locateMissing(db, tenantId, 1).catch(() => {});
   let billing: string | null = null;
   if (allow.extraMonthly) {   // subscribed + beyond the included/granted ones → add it to the subscription (prorated)
     try { const { syncSubscription } = await import('@/lib/billing'); const r: any = await syncSubscription(tenantId); billing = r?.changed ? `Your subscription now includes this location (+$${allow.extraMonthly}/month, prorated).` : null; }

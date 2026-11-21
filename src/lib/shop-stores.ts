@@ -25,7 +25,9 @@ export function saveStore(tenantId: string, id: string) {
 }
 
 /** A store as the customer's pages show it (api/retail/stores). */
-export type StoreRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null; delivers: boolean; directions: string | null; open: boolean; until: string | null; opens: string | null };
+export type StoreRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null; delivers: boolean; directions: string | null; open: boolean; until: string | null; opens: string | null;
+  /** Its own time zone (lib/here-server zoneOf): the business's unless it keeps its own. */
+  tz?: string };
 
 /** "Open until 9 PM", "Opens 10 AM tomorrow", "Closed": what the store's hours say right now. */
 export function storeOpenLine(s: Pick<StoreRow, 'open' | 'until' | 'opens'>, tz: string, now = Date.now()): string {

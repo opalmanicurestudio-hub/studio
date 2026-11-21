@@ -85,7 +85,7 @@
 //   void   { tenantId, key, orderId, reason, staffPass? } → a sent order that won't be paid (the car drove off), by a
 //                                                      manager (their PIN, or signed in): lib/counter-server voidOrder
 // Part of Lounge & hospitality: closed while it isn't part of the plan (lib/tool-lock).
-import { bizLocationsOf, hereFor } from '@/lib/here-server';
+import { bizLocationsOf, hereFor, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { daypartNow, happyHourOf, inHappyHour, priceNow, servedNow, timeWords } from '@/lib/menu-time';
 import { NextRequest, NextResponse } from 'next/server';
@@ -183,7 +183,7 @@ export async function POST(req: NextRequest) {
     // orders ("C14"), with its own line of guests (lib/counter-server createCar channel).
     const channel: Channel = screen.kind === 'counter' ? 'counter' : 'drive-thru';
     if (action === 'window' && screen.kind !== 'drive-thru-board') return bad('This screen isn’t set up for the window. A manager can set it up here.', 401);
-    const tenant: any = (await db.doc(T).get()).data() || {};
+    let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
     if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
@@ -192,10 +192,12 @@ export async function POST(req: NextRequest) {
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
     const by = who.name;
     const now = new Date(); const nowIso = now.toISOString();
-    const tz = tenantTimeZone(tenant);
     // With more than one location (lib/here-server): the one this screen is set up for, or for a team member on their own
-    // device, the one picked in the app; each screen shows that location's cars, orders and deliveries only.
+    // device, the one picked in the app; each screen shows that location's cars, orders and deliveries only, on its own
+    // clock when it keeps one (its day, its codes and numbers, its hours: zonedHere).
     const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: member?.id || null });
+    tenant = await zonedHere(db, tenantId, tenant, here);
+    const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
     if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {

@@ -12,7 +12,7 @@
 //     {day}_{locationId}_{code}: each location's own, lib/business-locations dayKey)
 // An order's link is signed for that order (lib: aheadSig), like scan to pay's.
 import { geocode } from '@/lib/geocode-server';
-import { bizLocationsOf, type BizLocation } from '@/lib/here-server';
+import { bizLocationsOf, zoneOf, zonedFor, type BizLocation } from '@/lib/here-server';
 import { atHere, dayKey } from '@/lib/business-locations';
 import { nearestFirst, openWords, pointOf, weekOf } from '@/lib/ahead-places';
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
@@ -117,8 +117,9 @@ export async function aheadPlacesOf(db: any, tenantId: string): Promise<BizLocat
 const pickedOf = (places: BizLocation[], want: unknown) => places.find((p) => p.id === String(want || '')) || (places.length === 1 ? places[0] : null);
 /** The picker's list: each location, open now and until when, or when it opens next. */
 async function placeList(db: any, tenantId: string, tenant: any, places: BizLocation[], now: number) {
-  const house = await aheadWeek(db, tenantId, now); const tz = tenantTimeZone(tenant);
-  return places.map((p) => ({ id: p.id, name: p.name, address: p.address, lat: p.coordinates?.lat ?? null, lng: p.coordinates?.lng ?? null, delivers: p.ordering.delivery, ...openWords(weekOf(p, house), tz, now) }));
+  // (Each on its own clock, when it keeps one: lib/here-server zoneOf.)
+  const house = await aheadWeek(db, tenantId, now);
+  return places.map((p) => ({ id: p.id, name: p.name, address: p.address, lat: p.coordinates?.lat ?? null, lng: p.coordinates?.lng ?? null, delivers: p.ordering.delivery, tz: zoneOf(tenant, p), ...openWords(weekOf(p, house), zoneOf(tenant, p), now) }));
 }
 
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
@@ -137,11 +138,13 @@ export function openDays(tenant: any, now = Date.now()): string[] {
 /** The orders placed ahead that could be in today's pickup times (placed today, or late yesterday for a time after
  *  midnight), for how full each time is: read at most every 10 seconds per business. */
 const dayCache = new Map<string, { at: number; day: string; orders: any[] }>();
+// (Kept for each clock: `tenant|tz`. A new order forgets every one for the business.)
+const forgetDay = (tenantId: string) => { for (const k of [...dayCache.keys()]) if (k.startsWith(`${tenantId}|`)) dayCache.delete(k); };
 async function dayOrders(db: any, tenantId: string, tenant: any, now: number): Promise<any[]> {
-  const tz = tenantTimeZone(tenant); const day = todayIn(tz, new Date(now)); const before = todayIn(tz, new Date(now - 86400000)); const c = dayCache.get(tenantId);
+  const tz = tenantTimeZone(tenant); const day = todayIn(tz, new Date(now)); const before = todayIn(tz, new Date(now - 86400000)); const c = dayCache.get(`${tenantId}|${tz}`);
   if (c && c.day === day && now - c.at < 10000) return c.orders;
   const orders = (await db.collection(`tenants/${tenantId}/counterOrders`).where('channel', '==', 'ahead').where('day', 'in', day === before ? [day] : [day, before]).limit(3000).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-  dayCache.set(tenantId, { at: now, day, orders }); if (dayCache.size > 500) dayCache.delete(dayCache.keys().next().value as string);
+  dayCache.set(`${tenantId}|${tz}`, { at: now, day, orders }); if (dayCache.size > 500) dayCache.delete(dayCache.keys().next().value as string);
   return orders;
 }
 
@@ -158,6 +161,8 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?
   if (several && !places.length) return { ok: true as const, on: false, business, ways: [] as AheadWay[], times: [] as string[], sections: [] as any[] };
   const place = pickedOf(places, o.at);
   const placeRows = places.length ? await placeList(db, tenantId, tenant, places, Date.now()) : [];
+  // (Its own clock, when it keeps one: its times, its hours and its days.)
+  if (place) tenant = zonedFor(tenant, place);
   if (places.length && !place) return { ok: true as const, on: true, pick: true, business, places: placeRows, ways: A.ways, times: [] as string[], sections: [] as any[], timeZone: tenantTimeZone(tenant) };
   const c = menuCache.get(tenantId); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
@@ -221,6 +226,8 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (several && !places.length) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const picked = pickedOf(places, b.place);
   if (places.length && !picked) return fail('Pick where you’re ordering from.', 400, 'place');
+  // (On the picked location's own clock, when it keeps one; a delivery, on the one it goes from.)
+  const base = tenant; if (picked) tenant = zonedFor(base, picked);
   // For another day (lib/ahead-days): a day and a time it's open, from the notice on and up to how far ahead it takes
   // them, inside or delivered (never the drive-thru), with how many people when they say.
   const L = anotherDayOf(tenant); const forDay = b.day ? String(b.day) : null;
@@ -299,6 +306,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (forDay && L.minCents !== null && centsOf(totalsOf(tenant, lines).subtotal) < L.minCents) return fail(`Orders for another day start at $${(L.minCents / 100).toFixed(2)} before tax.`, 400, 'too_small');
   // Where it's made: the location picked, or for a delivery, the one it goes from (with one location, none).
   const ep: BizLocation | null = from || picked;
+  if (ep && ep !== picked) tenant = zonedFor(base, ep);
   if (forDay && ep && ep !== picked && !laterOk(L, weekOf(ep, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), forDay, String(at), now)) return fail(`It would come from ${ep.name}, which isn’t open then. Pick the day and time again.`, 400, 'at');
   // Its day: today, or the day it's for (its pickup code and number are that day's, at its location).
   const day = forDay || todayIn(tenantTimeZone(tenant), new Date(now));
@@ -365,8 +373,8 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     return { number, code };
   });
   if (made.busy) return fail('Something went wrong. Try again.', 503);
-  if (!made.had) dayCache.delete(tenantId);
-  if (made.full) { dayCache.delete(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now, 0, hours).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
+  if (!made.had) forgetDay(tenantId);
+  if (made.full) { forgetDay(tenantId); return fail(at ? 'That pickup time just filled up. Pick another time.' : pickupTimes(tenant, now, 0, hours).length ? 'The kitchen’s full for the next few minutes. Pick a time a little later.' : 'The kitchen’s full right now. Please try again in a few minutes.', 409, 'slot_full'); }
   if (deliv && !made.had) forgetDriverLoad(tenantId);
   const cur: any = made.had || (await orderRef.get()).data();
   if (made.had) {
@@ -550,6 +558,8 @@ export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: {
   const r = await deliveryQuote(db, tenantId, tenant, b.address, itemsCents, b.token, now, picked);
   if (!r.ok) return r;
   const from = r.from ? { id: r.from.id, name: r.from.name } : null;
+  // (On the clock of the location it goes from, when it keeps its own.)
+  if (r.from || picked) tenant = zonedFor(tenant, r.from || picked);
   // For another day (lib/ahead-days): the fee and the drive; today's drivers and hours don't come into it.
   if (b.later === true) return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token, asapArrive: null, asapNoDriver: false, times: [], leaveFull: [], leaveFirst: null, slowMin: 0, from };
   // Slowed down at the counter (lib/driver-load): paused, or more minutes on new deliveries' times.

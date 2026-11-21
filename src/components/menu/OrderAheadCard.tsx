@@ -13,7 +13,7 @@ export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; 
   laterHours: number; slotItems?: number | null; payments: boolean; link: string;
   anotherDay?: { on: boolean; daysAhead: number; noticeHours: number; minCents: number | null };
   /** With more than one location (components/menu/PlacesCard). */
-  places?: PlaceSettings[] };
+  places?: PlaceSettings[]; houseZone?: string };
 const DRIVES = [10, 15, 20, 30];
 const DAYS = [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '30 days']] as const;
 const NOTICE = [[12, '12 hours'], [24, '1 day'], [48, '2 days'], [72, '3 days']] as const;
@@ -120,7 +120,7 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
           <p className="text-[13px]" style={{ color: MUTED }}>Only days and times you’re open, from your notice on, and never at the drive-thru. Guests can cancel for a full refund until the notice runs out. Each one shows on the counter under Coming up.</p>
         </>}
       </div>
-      {a.places && a.places.length > 1 && <PlacesCard places={a.places} call={call} onSaved={(x) => setA(x)} />}
+      {a.places && a.places.length > 1 && <PlacesCard places={a.places} houseZone={a.houseZone} call={call} onSaved={(x) => setA(x)} />}
       {a.on && (
         <div className="flex flex-wrap items-center gap-4 rounded-2xl p-4" style={{ background: SOFT }}>
           {qr && <img src={qr} alt="Code guests scan to order ahead" className="h-28 w-28 shrink-0 rounded-xl bg-[#fff] p-1.5" />}

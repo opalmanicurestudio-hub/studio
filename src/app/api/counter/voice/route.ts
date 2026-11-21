@@ -17,7 +17,7 @@
 //                                                  business's own calls
 //   ended   { tenantId, key, callId }           → the speaker tablet says the call is over
 // Only a drive-thru lane screen's key (or a team member signed in) is accepted, and only while Lounge & hospitality is on.
-import { hereFor } from '@/lib/here-server';
+import { hereFor, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -82,13 +82,15 @@ export async function POST(req: NextRequest) {
       return bad('This screen isn’t set up, or was stopped. A manager can set it up again here.', 401);
     }
     if (screen.kind !== 'drive-thru') return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
-    const tenant: any = (await db.doc(T).get()).data() || {};
+    let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The drive-thru is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Taking over or hanging up a call already going always works; starting one needs the tool on.
     if (action === 'start' || action === 'speaker') { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const nowIso = new Date().toISOString();
     // With more than one location (lib/here-server): the speaker greets only its own location's cars.
     const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: screen.member?.id || null });
+    // (On its own clock, when it keeps one.)
+    tenant = await zonedHere(db, tenantId, tenant, here);
 
     if (action === 'config') return ok({ on: voiceOn(tenant), publicKey: voiceOn(tenant) ? (process.env.RETELL_PUBLIC_KEY || null) : null, setUp: !!process.env.RETELL_API_KEY && !!agentOf(tenant), lanes: lanesOf(tenant) });
 
