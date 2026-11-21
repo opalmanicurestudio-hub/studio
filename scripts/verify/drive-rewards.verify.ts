@@ -174,9 +174,42 @@ const req = (body: any) => ({ json: async () => body, text: async () => JSON.str
   const win = src('src/app/drive-thru/[tenantId]/window/page.tsx');
   check('the window screen says the reward and You earned', /Reward: \{s\.reward\.name\}/.test(win) && /You earned \{s\.earned\.points\}/.test(win));
   const lanePage = src('src/app/drive-thru/[tenantId]/page.tsx');
-  check('the lane: their code first, a phone number only earns; Use and Take it off', /No code\? Their phone number \(earns points only\)/.test(lanePage) && /Use a reward<\/p>/.test(lanePage) && /\{r\.name\} \(\{r\.points\}\)<\/button>/.test(lanePage) && /Take it off/.test(lanePage));
+  // (The sheet and the row are shared with the counter now: components/drive-thru/Rewards.)
+  const rewardsUi = src('src/components/drive-thru/Rewards.tsx');
+  check('the lane: their code first, a phone number only earns; Use and Take it off', /No code\? Their phone number \(earns points only\)/.test(rewardsUi) && /Use a reward<\/p>/.test(rewardsUi) && /\{r\.name\} \(\{r\.points\}\)<\/button>/.test(rewardsUi) && /Take it off/.test(rewardsUi)
+    && /<RewardsRow order=\{order\} member=\{member\} codes=\{!!lane\?\.rewardsCodes\}/.test(lanePage) && /\{pointsOpen && order && <PointsSheet /.test(lanePage));
+  const counterPage = src('src/app/(app)/counter/page.tsx');
+  check('the sheet’s colors are set inline, so the counter’s black look takes them over', !/bg-\[#fff\]/.test(rewardsUi) && /style=\{\{ background: '#fff', color: INK \}\}/.test(rewardsUi));
+  check('the counter: the same sheet and row, the reward on the totals, and who they are read again as it’s sent and paid',
+    /<RewardsRow order=\{order\} member=\{member\} codes=\{!!lane\.rewardsCodes\}/.test(counterPage) && /\{pointsOpen && order && <PointsSheet /.test(counterPage) && /action: 'rewardsCode', orderId: order\.id, code/.test(counterPage)
+    && /action: 'reward', orderId: order\.id, rewardId/.test(counterPage) && /Reward: \{order\.reward\.name\}/.test(counterPage) && /\[shownId, shownVerified, shownStatus, shownPaid, memberTry, post\]/.test(counterPage) && /Their rewards didn’t load\./.test(counterPage) && /lane\?\.pointsOn && !order\.staffMeal/.test(counterPage));
+  check('someone who joins at the counter is marked as from the counter', /o\.channel === 'counter' \? 'counter' : 'drive-thru'/.test(src('src/lib/counter-points.ts')));
   check('the rewards setup offers a free menu item', /\['free_item', 'A free menu item'\]/.test(src('src/components/loyalty/LoyaltySetup.tsx')));
   check('in the app’s own words', !/font-black|\buppercase\b|call us|contact us|salon|stylist|booth|studio/i.test(src('src/lib/rewards-code.ts') + src('src/components/loyalty/RewardsCode.tsx')));
+
+  console.log('at the counter');
+  const CP = (b: any) => POST(req({ tenantId: 't1', channel: 'counter', ...b }));
+  const cc = (await CP({ action: 'car', carKey: 'carkey-counter-rw' })).body;
+  await CP({ action: 'add', orderId: cc.orderId, itemId: 'burger', quantity: 2, tapKey: 'tap-counter-rw' });
+  // (Enough points for a reward again, after the lane's tests used some.)
+  await db.doc(`${T}/loyaltyLedger/seed_counter`).set({ clientId: 'c1', type: 'adjust', points: 300, at: new Date().toISOString() });
+  await (L as any).refreshMember?.(db, 't1', 'c1');
+  const bBefore = await balance();
+  const code = (await RC.issueCode(db, 't1', 'c1', Date.now()))!.code;
+  r = await CP({ action: 'rewardsCode', orderId: cc.orderId, code });
+  let co: any = await get(`${T}/counterOrders/${cc.orderId}`);
+  check('the counter takes their code on its own order (C…): theirs, by their code', r.body.ok && co.channel === 'counter' && co.clientId === 'c1' && co.points?.verified === true && /^C/.test(String(co.number)), r.body);
+  const cl: any = await CP({ action: 'lane' });
+  check('…the counter knows rewards and codes are on here', cl.body.pointsOn === true && cl.body.rewardsCodes === true && cl.body.orders[cc.orderId]?.points?.verified === true);
+  await CP({ action: 'send', orderId: cc.orderId });
+  r = await CP({ action: 'reward', orderId: cc.orderId, rewardId: 'five' });
+  co = await get(`${T}/counterOrders/${cc.orderId}`);
+  check('…a reward on it once it’s sent: $5 off before tax', r.body.ok && co.reward?.id === 'five' && co.subtotal === 5 && co.total === 5.5, { body: r.body, status: r.status });
+  r = await CP({ action: 'paid', orderId: cc.orderId, method: 'cash', tendered: 10 });
+  const cHeld: any = await get(`${T}/loyaltyLedger/redeem_counter_${cc.orderId}`); const cEarn: any = await get(`${T}/loyaltyLedger/earn_counter_${cc.orderId}`);
+  check('…paid: the reward is used and it earns on what was paid', r.body.ok && cHeld?.held === false && !!cEarn && cEarn.points > 0 && (await balance()) === bBefore - 300 + cEarn.points, { cHeld, cEarn, b: await balance(), bBefore });
+  r = await POST(req({ tenantId: 't1', key, action: 'reward', orderId: cc.orderId, rewardId: null }));
+  check('the drive-thru screen can’t change a counter order’s reward', r.status === 409);
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

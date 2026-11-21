@@ -72,7 +72,7 @@ export async function linkOrder(db: any, tenantId: string, tenant: any, orderId:
     const name = cleanName(b.name) || cleanName(o.guestName) || 'Guest';
     // One client per number, even when two screens add the same new number at once (named after the number).
     const cRef = db.doc(`tenants/${tenantId}/clients/ph_${createHash('sha256').update(`${tenantId}/${d}`).digest('hex').slice(0, 24)}`);
-    const client = { id: cRef.id, name, firstName: name.split(' ')[0], email: null, phone: `+1${d}`, status: 'active', lifetimeValue: 0, createdAt: nowIso(), createdVia: o.channel === 'ahead' ? 'order-ahead' : 'drive-thru', createdBy: by, loyaltyJoinedAt: nowIso() };
+    const client = { id: cRef.id, name, firstName: name.split(' ')[0], email: null, phone: `+1${d}`, status: 'active', lifetimeValue: 0, createdAt: nowIso(), createdVia: o.channel === 'ahead' ? 'order-ahead' : o.channel === 'counter' ? 'counter' : 'drive-thru', createdBy: by, loyaltyJoinedAt: nowIso() };
     try { await cRef.create({ ...client, ...searchFields(client) }); }
     catch (e: any) {
       if (e?.code !== 6 && !/already exists/i.test(String(e?.message || ''))) throw e;

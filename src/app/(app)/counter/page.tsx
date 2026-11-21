@@ -8,6 +8,10 @@
 // is asked when what goes out with it differs (a box to go: lib/plate-extras); a staff meal is rung in with no money, for
 // the person it's for, and comes off stock at cost (lib/counter-server staffMeal): a manager's to ring in (signed in as
 // one, or their PIN typed here), since it writes the order off and can't be undone.
+//   Rewards as at the drive-thru (design board "Rewards at the counter"; components/drive-thru/Rewards): their changing
+//   rewards code (it can spend) or a phone number (it only earns), a reward used once it's sent and before it's paid, and
+//   the reward on the totals. A text when it's ready, if they ask (lib/ready-text). White surfaces are set inline, so the
+//   app's black look (lib/app-theme) takes them over.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { send } from '@/lib/outbox';
@@ -15,6 +19,7 @@ import { useKeepPage } from '@/components/pwa/keep-page';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
 import { PinPad } from '@/components/kitchen/PinPad';
+import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
 import type { MenuItem } from '@/lib/menu-server';
@@ -35,11 +40,14 @@ type Line = { lineId: string; itemId: string; name: string; quantity: number; un
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
   kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null;
+  /** Rewards on it (lib/counter-points): the phone's last 4 or their code (`verified`: it can spend), what it earned once
+   *  paid; a reward used, and the items' own total beside it. */
+  points?: { phone: string | null; earned: number; verified?: boolean } | null; reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
   text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
-  settings?: { texts?: boolean } };
+  settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -67,7 +75,7 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Pick
   const each = Math.max(0, (item.happy && typeof item.priceNow === 'number' ? item.priceNow : item.price) + (priced.ok ? priced.extra : 0));
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={box} role="dialog" aria-modal="true" aria-labelledby="counter-choice" className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[#fff] sm:max-w-lg sm:rounded-3xl">
+      <div ref={box} role="dialog" aria-modal="true" aria-labelledby="counter-choice" style={{ background: '#fff', color: INK }} className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-start justify-between gap-3 px-6 pt-6">
           <div className="min-w-0"><h2 id="counter-choice" className="text-[21px] font-semibold" style={{ color: INK }}>{item.name}: choose</h2>
             {item.combo && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Each part goes to its own station.</p>}</div>
@@ -93,6 +101,10 @@ export default function CounterPage() {
   const tenantId: string | null = selectedTenant?.id || null;
   const [lane, setLane] = useState<Lane | null>(null); const [err, setErr] = useState('');
   const [notice, setNotice] = useState<{ text: string; tone: 'good' | 'warn' } | null>(null);
+  // Rewards: the sheet that finds them, and the member on the order shown (with what they can use).
+  const [pointsOpen, setPointsOpen] = useState(false); const [member, setMember] = useState<RewardMember | null>(null);
+  // Their rewards didn't load: said, with Try again (`memberTry` reads them again).
+  const [memberErr, setMemberErr] = useState(false); const [memberTry, setMemberTry] = useState(0);
   const [picked, setPicked] = useState<string | null>(null); const [busy, setBusy] = useState<string | null>(null);
   const [section, setSection] = useState(''); const [choiceFor, setChoiceFor] = useState<Item | null>(null);
   // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
@@ -162,6 +174,15 @@ export default function CounterPage() {
   const textDigits = textTo.replace(/\D/g, '').slice(-10);
   const saveText = () => { if (!order || textDigits.length !== 10) return; void act('text', { action: 'readyText', orderId: order.id, phone: textDigits }, (d) => { setTextTo(''); setNotice({ text: d.sent ? `${order.number} is ready, so the text went to ···${d.last4}.` : `${order.number}: we’ll text ···${d.last4} when it’s ready.`, tone: 'good' }); }); };
   const dropText = () => order && act('text', { action: 'readyText', orderId: order.id, phone: null }, () => setNotice({ text: `${order.number}: no text.`, tone: 'good' }));
+  // Their code on the order: who they are and the rewards they can use, read again as it's sent and paid.
+  const shownId = order?.id || ''; const shownVerified = !!order?.points?.verified; const shownStatus = order?.status || ''; const shownPaid = !!order?.paidAt;
+  useEffect(() => {
+    if (!shownId || !shownVerified) return;
+    let gone = false; setMemberErr(false);
+    void post({ action: 'rewards', orderId: shownId }).then((d) => { if (gone) return; if (d?.ok) setMember(memberFrom(shownId, d.member)); else setMemberErr(true); }).catch(() => { if (!gone) setMemberErr(true); });
+    return () => { gone = true; };
+  }, [shownId, shownVerified, shownStatus, shownPaid, memberTry, post]);
+  const applyReward = (rewardId: string | null) => order && act('reward', { action: 'reward', orderId: order.id, rewardId }, (d) => { setMember(memberFrom(order.id, d.member)); setNotice({ text: rewardId ? `Reward used. New total ${usd(Number(d.total) || 0)}.` : `Reward taken off. Total ${usd(Number(d.total) || 0)}.`, tone: 'good' }); });
   const saveName = () => { if (order && name.trim() !== (order.guestName || '')) void post({ action: 'name', orderId: order.id, name: name.trim() }); };
   const sendIt = () => { if (!order) return; setJust(null); void act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' })); };
   // A manager's: one signed in here goes straight through; anyone else is asked for a manager's PIN.
@@ -205,7 +226,7 @@ export default function CounterPage() {
         return <button key={c.id} type="button" aria-pressed={on} onClick={() => setPicked(c.id)} className={`${btn} text-[14px]`} style={on ? dark : quiet}>{c.number}{o?.guestName ? `, ${o.guestName}` : ''}{c.stage === 'pay' ? ' (paying)' : ''}</button>; })}</div>}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <section aria-label="Menu" className="space-y-3 rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
+        <section aria-label="Menu" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           {guest?.stage === 'pay' && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>{guest.number} is with the kitchen. Take payment, or tap Next guest to start another order.</p>}
           {sections.length > 1 && <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Menu sections">{sections.map((s) => <button key={s} type="button" role="tab" aria-selected={s === shown} onClick={() => setSection(s)} className={`${btn} shrink-0 text-[14px]`} style={s === shown ? dark : { background: SOFT, color: INK }}>{s}</button>)}</div>}
           {!lane ? <p className="py-10 text-center text-[14px]" style={{ color: MUTED }}>Reading the menu…</p>
@@ -214,7 +235,7 @@ export default function CounterPage() {
               const why = m.off || outWords(m); const n = (order?.lines || []).filter((l) => l.itemId === m.id).reduce((s, l) => s + l.quantity, 0);
               return (
                 <button key={m.id} type="button" disabled={!!why || busy === `add-${m.id}` || guest?.stage === 'pay'} onClick={() => tap(m)} aria-label={`${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.happy ? ', happy hour' : ''}${why ? `, ${why}` : ''}${n ? `, ${n} on the order` : ''}`}
-                  className={`relative flex min-h-[78px] flex-col justify-between rounded-2xl p-3 text-left disabled:cursor-not-allowed ${RING}`} style={{ background: why ? '#fff' : SOFT, border: `${n ? 2 : 1}px solid ${n ? INK : why ? LINE : SOFT}` }}>
+                  className={`relative flex min-h-[78px] flex-col justify-between rounded-2xl p-3 text-left disabled:cursor-not-allowed ${RING}`} style={{ background: why ? '#fff' : SOFT, color: INK, border: `${n ? 2 : 1}px solid ${n ? 'currentColor' : why ? LINE : 'transparent'}` }}>
                   <span className="pr-7 text-[15px] font-semibold leading-snug" style={{ color: why ? MUTED : INK }}>{m.name}</span>
                   <span className="mt-1.5 text-[13px] tabular-nums" style={{ color: why ? AMBER : MUTED }}>
                     {why ? why : <>{m.from ? 'from ' : ''}{m.happy ? <><s>{usd(fullOf(m))}</s> {usd(priceOf(m))} now</> : usd(priceOf(m))}{m.combo ? ', a combo' : m.choices.length ? ', choices' : ''}</>}
@@ -224,19 +245,19 @@ export default function CounterPage() {
               ); })}</div>}
         </section>
 
-        <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl bg-[#fff] p-4 lg:sticky lg:top-4 lg:self-start" style={{ border: `1px solid ${LINE}` }}>
+        <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl p-4 lg:sticky lg:top-4 lg:self-start" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           {!order ? <div className="space-y-3 py-6 text-center"><p className="text-[15px] font-semibold">No guest ordering</p><p className="text-[14px]" style={{ color: MUTED }}>Tap Next guest to start an order. It gets a counter number, like C14, for calling it out.</p></div> : <>
             <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}{order.status !== 'building' && order.toGo ? <span className="ml-2 text-[14px] font-medium" style={{ color: MUTED }}>To go</span> : null}</h2>
               {order.status === 'building' && <button type="button" onClick={cancel} disabled={!!busy} className={`${btn} px-3 text-[13.5px]`} style={{ color: MUTED }}>Drop it</button>}</div>
             <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>First name, for calling it out
-              <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Optional" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[15px] font-normal outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
+              <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Optional" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[15px] font-normal outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
             {lane?.settings?.texts && (order.text
               ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-1.5 text-[14px]" style={{ background: SOFT }} role="status">
                   <span style={order.text.failed ? { color: AMBER } : undefined}>{!order.text.sent ? `Texts ···${order.text.last4} when it’s ready.` : order.text.failed ? `The text to ···${order.text.last4} may not have gone. Call it out.` : `Texted ···${order.text.last4} that it’s ready.`}</span>
                   {!order.text.sent && <button type="button" onClick={dropText} disabled={!!busy} className={btn} style={{ color: MUTED }}>Don’t text</button>}</div>
               : <div><label htmlFor="counter-text-to" className="block text-[13px] font-semibold" style={{ color: MUTED }}>Text them when it’s ready, if they ask</label>
                   <div className="mt-1 flex gap-2">
-                    <input id="counter-text-to" value={textTo} onChange={(e) => setTextTo(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter') saveText(); }} inputMode="tel" autoComplete="off" placeholder="Their mobile number" className="block min-h-[44px] min-w-0 flex-1 rounded-xl border bg-[#fff] px-3 text-[15px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} />
+                    <input id="counter-text-to" value={textTo} onChange={(e) => setTextTo(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter') saveText(); }} inputMode="tel" autoComplete="off" placeholder="Their mobile number" className="block min-h-[44px] min-w-0 flex-1 rounded-xl border px-3 text-[15px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} />
                     <button type="button" onClick={saveText} disabled={textDigits.length !== 10 || !!busy} className={btn} style={dark}>Save</button></div></div>)}
             {order.lines.length === 0 ? <p className="rounded-2xl px-3 py-5 text-center text-[14px]" style={{ background: SOFT, color: MUTED }}>Tap the menu to add to the order.</p>
               : <ul className="space-y-2">{order.lines.map((l) => (
@@ -251,7 +272,14 @@ export default function CounterPage() {
                 </li>))}</ul>}
             {order.status === 'building' && <OfferAsk just={just} orderId={order.id} item={menu.find((m) => m.id === just?.itemId)} find={(id) => menu.find((m) => m.id === id && !m.off && !outWords(m))}
               have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} />}
+            {lane?.pointsOn && !order.staffMeal && <div className="border-t pt-2" style={{ borderColor: LINE }}>
+              <RewardsRow order={order} member={member} codes={!!lane.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)} />
+              {memberErr && order.points?.verified && member?.orderId !== order.id && <p className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--warn-ink)' }} role="status">Their rewards didn’t load.
+                <button type="button" onClick={() => setMemberTry((n) => n + 1)} className={`min-h-[44px] rounded-lg px-1 font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Try again</button></p>}</div>}
             <div className="space-y-1 border-t pt-3 text-[14px]" style={{ borderColor: LINE }}>
+              {order.reward && <>
+                <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order.itemsTotal || 0)}</span></div>
+                <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div></>}
               <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{usd(order.tax)}</span></div>
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.total)}</span></div>
             </div>
@@ -263,14 +291,14 @@ export default function CounterPage() {
               : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(order.total)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p><button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
               : staffFor !== null ? <div className="space-y-2">
                 <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Who it’s for
-                  <input autoFocus value={staffFor} onChange={(e) => setStaffFor(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter') void staffMeal(); }} placeholder="First name" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] font-normal outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
+                  <input autoFocus value={staffFor} onChange={(e) => setStaffFor(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter') void staffMeal(); }} placeholder="First name" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
                 <p className="text-[13px]" style={{ color: MUTED }}>No money is taken, and it can’t be undone. It comes off stock as usual and shows on Food cost as a staff meal, at what it cost to make. A manager rings it in.</p>
                 <div className="flex gap-2"><button type="button" onClick={() => setStaffFor(null)} className={`${btn} flex-1`} style={quiet}>Back</button>
                   <button type="button" disabled={!!busy || !staffFor.trim()} onClick={() => void staffMeal()} className={`${btn} flex-[2]`} style={dark}>Ring in as a staff meal</button></div>
               </div>
               : cash !== null ? <div className="space-y-2">
                 <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Cash handed over
-                  <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={order.total.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE, color: INK }} /></label>
+                  <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={order.total.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
                 <div className="flex flex-wrap gap-2">{quick.map((q) => <button key={q} type="button" onClick={() => setCash(q.toFixed(2))} className={`${btn} px-3 text-[14px]`} style={{ background: SOFT, color: INK }}>{q === order.total ? 'Exact' : usd(q)}</button>)}</div>
                 {cash !== '' && Number.isFinite(tendered) && tendered >= order.total && <p className="text-[15px] font-semibold" style={{ color: GREEN }}>Change: {usd(tendered - order.total)}</p>}
                 <div className="flex gap-2"><button type="button" onClick={() => setCash(null)} className={`${btn} flex-1`} style={quiet}>Back</button>
@@ -279,7 +307,7 @@ export default function CounterPage() {
               : <div className="space-y-2">
                 {order.card?.failed && <p className="text-[13.5px]" style={{ color: AMBER }}>{order.card.failed}</p>}
                 <button type="button" onClick={() => setCash('')} disabled={!!busy} className={`${btn} min-h-[52px] w-full text-[16px]`} style={dark}>Cash</button>
-                {readers.length > 1 && <select aria-label="Card reader" value={reader?.id || ''} onChange={(e) => { setReaderId(e.target.value); try { localStorage.setItem(READER_KEY, e.target.value); } catch { /* private window */ } }} className={`min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[14.5px] ${RING}`} style={{ borderColor: LINE }}><option value="">Pick a card reader</option>{readers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
+                {readers.length > 1 && <select aria-label="Card reader" value={reader?.id || ''} onChange={(e) => { setReaderId(e.target.value); try { localStorage.setItem(READER_KEY, e.target.value); } catch { /* private window */ } }} className={`min-h-[44px] w-full rounded-xl border px-3 text-[14.5px] ${RING}`} style={{ background: '#fff', borderColor: LINE, color: INK }}><option value="">Pick a card reader</option>{readers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
                 {readers.length > 0 && <button type="button" onClick={toReader} disabled={!reader || !!busy} className={`${btn} w-full`} style={quiet}>Card reader{reader && readers.length > 1 ? `: ${reader.label}` : ''}</button>}
                 <button type="button" onClick={() => pay('card')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Paid on another card machine</button>
                 <button type="button" onClick={() => setStaffFor('')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Staff meal</button>
@@ -288,7 +316,7 @@ export default function CounterPage() {
         </section>
       </div>
 
-      <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
+      <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 id="counter-waiting" className="text-[17px] font-semibold">Waiting</h2>
           {tenantId && <span className="flex flex-wrap gap-x-4">
@@ -312,6 +340,13 @@ export default function CounterPage() {
       </section>
     </main>
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
+    {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
+      onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {
+        setPointsOpen(false); setMember(memberFrom(order.id, d.member)); setNotice({ text: d.earned ? `Rewards added for ${d.member?.name || 'them'}: earned ${d.earned}.` : `Rewards added for ${d.member?.name || 'them'}.`, tone: 'good' }); res(null);
+      }, (d) => { res(d.error || 'That didn’t go through.'); return true; }); })}
+      onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
+        setPointsOpen(false); setNotice({ text: d.already ? 'Rewards were already on this order.' : d.earned ? `Rewards added: earned ${d.earned} ${d.unit}.` : 'Rewards added. It earns when it’s paid.', tone: 'good' }); res(null);
+      }, (d) => { res(d.code === 'not_found' || d.code === 'not_member' ? d.code : d.error || 'That didn’t go through.'); return true; }); })} />}
     {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
   </>);
 }
