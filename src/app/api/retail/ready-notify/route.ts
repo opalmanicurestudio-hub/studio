@@ -48,7 +48,9 @@ export async function POST(req: NextRequest) {
     const first = String(o.customerName || '').trim().split(/\s+/)[0] || 'there';
     const shop = String(t.businessName || t.name || 'the shop');
     const link = `${req.nextUrl.origin}/shop/${tenantId}/order/${orderId}`;
-    const address = String(t.studioAddress || (typeof t.address === 'string' ? t.address : [t.address?.street, t.address?.city].filter(Boolean).join(', ')) || '').trim();
+    // (At one of several stores, lib/shop-stores-server: that store, by name and address.)
+    const address = o.pickupStore?.id ? [o.pickupStore.name, o.pickupStore.address].filter(Boolean).join(', ')
+      : String(t.studioAddress || (typeof t.address === 'string' ? t.address : [t.address?.street, t.address?.city].filter(Boolean).join(', ')) || '').trim();
     const holdDays = Math.max(0, Number(t.retailSettings?.pickupHoldDays) || 0);
     // Ordered from the line at a pop-up (lib/popup): ready at the table, called by its number, not at the shop.
     const popupNo = Number(o.popupNumber) > 0 ? Number(o.popupNumber) : 0;

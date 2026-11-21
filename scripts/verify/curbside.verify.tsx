@@ -187,7 +187,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const scr = src('src/components/orders/CurbsideScreen.tsx');
   const pk = src('src/components/orders/PickupsScreen.tsx');
   check('a shop customer who can’t come in is said first, on Pickups too', /o\.curbside\?\.bringToVehicle \? 'Bring it to the car' : ''/.test(pk) && /carFirst \? <>/.test(pk));
-  check('shop orders as on Pickups: the same card (car first), and handed over by checking their code or name', /<HereCard key=\{r\.key\} carFirst/.test(scr) && /<HandoverSheet fs=\{fs\}/.test(scr) && /bringingOut\(fs, tenantId, o, actor\)/.test(scr) && /useArrivalAlerts\(orders, now, tenantId/.test(scr));
+  check('shop orders as on Pickups: the same card (car first), and handed over by checking their code or name', /<HereCard key=\{r\.key\} carFirst/.test(scr) && /<HandoverSheet fs=\{fs\}/.test(scr) && /bringingOut\(fs, tenantId, o, actor\)/.test(scr) && /useArrivalAlerts\((orders|mine|cafeLoaded \? mine : \[\]), now, tenantId/.test(scr));
   check('café orders every few seconds, and a new arrival is said once', /setInterval\(\(\) => \{ if \(document\.visibilityState === 'visible'\) void loadCafe\(\); \}, 5000\)/.test(scr) && /already here when the screen opened: not news/.test(scr));
   check('the page, the menu, the team app and the alert reach it', fs.existsSync('src/app/(app)/curbside/page.tsx') && /'\/curbside'\]/.test(src('src/components/shared/PortalScope.tsx'))
     && /href: '\/curbside'/.test(src('src/components/shared/AppSidebar.tsx')) && /if \(href === '\/curbside'\) return curbsideOn\(tenant\);/.test(src('src/lib/modules.ts'))

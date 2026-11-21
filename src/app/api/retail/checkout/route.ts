@@ -126,6 +126,10 @@ interface CheckoutBody {
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string>; ifOut?: { how?: string; backupId?: string } }[];
   method?: string;
+  /** With more than one store (lib/shop-stores-server): the one picked for pickup, and where the address check said a
+   *  delivery comes from. */
+  pickupStore?: string;
+  deliveryFrom?: string;
   customer?: { name?: string; email?: string; phone?: string };
   shippingAddress?: ShippingAddress;
   priceTier?: string;
@@ -674,11 +678,21 @@ async function handleCheckout(req: NextRequest) {
 
   // LOCAL DELIVERY (lib/delivery-server): the address checked against the shop's zones again, the fee for these items
   // (worked out here, never taken from the browser), and the window or "within N minutes" they chose, still with room.
+  // More than one store (lib/shop-stores-server): read fresh, so a store just taken off the shop takes no more orders.
+  const { shopStoresOf, pickedStore, storeDelivery, storeWeekOf } = await import('@/lib/shop-stores-server');
+  const shops = !digitalOnly && !popup && method !== 'ship' ? await shopStoresOf(db, tenantId, true) : { several: false, stores: [] as any[] };
+  let fromStore: any = null;
   let deliv: { zoneId: string; zoneName: string; miles: number | null; feeCents: number; expressCents: number; free: boolean; window: { key: string; start: string; end: string; label: string } | null; cap: number | null; asap: { byIso: string; minutes: number; drivers: number } | null; readyBy: string; note: string } | null = null;
   if (method === 'delivery' && !digitalOnly) {
     const { deliveryFor } = await import('@/lib/delivery-server');
-    const v = await deliveryFor(db, tenantId, tenant, body.shippingAddress as any, { itemsCents: subtotalCents, sameCheckout: ckeyHash, token: body.deliveryToken });
+    // With more than one store (lib/shop-stores-server): from the store the customer's check said (its fee as they saw
+    // it), or they check the address again; with none, the nearest that delivers there.
+    const dOpts = { itemsCents: subtotalCents, sameCheckout: ckeyHash, token: body.deliveryToken };
+    const sd = shops.several ? await storeDelivery(db, tenantId, tenant, body.shippingAddress as any, { ...dOpts, hint: body.deliveryFrom || null }, shops.stores) : null;
+    if (sd?.changed) return NextResponse.json({ error: 'Where your delivery would come from just changed. Check the address again.', deliveryProblem: 'changed' }, { status: 409 });
+    const v = sd ? sd.v : await deliveryFor(db, tenantId, tenant, body.shippingAddress as any, dOpts);
     if (!v.ok) return NextResponse.json({ error: v.message, deliveryProblem: v.reason }, { status: 400 });
+    fromStore = sd?.from || null;
     const note = v.plan.dropoffNotes ? String(body.deliveryNote || '').replace(/\s+/g, ' ').trim().slice(0, 200) : '';
     const { windowLabelOn } = await import('@/lib/pickup-slots');
     if (body.deliveryAsap === true) {
@@ -736,8 +750,11 @@ async function handleCheckout(req: NextRequest) {
   let pickupWin: { key: string; start: string; end: string; label: string; cap: number | null } | null = null;
   if (popup) pickupAt = `At the table, ${String(popup.data.name || 'the pop-up')}`.slice(0, 40);
   if (!digitalOnly && !popup && (method === 'counter' || method === 'curbside')) {
+    // With more than one store: the one they picked (its pickup times, filling for it alone, inside its own hours).
+    if (shops.several && !shops.stores.length) return NextResponse.json({ error: 'Pickup isn’t offered right now. Choose another way to get your order.', pickupStore: true }, { status: 409 });
+    if (shops.stores.length) { fromStore = pickedStore(shops.stores, body.pickupStore); if (!fromStore) return NextResponse.json({ error: 'Pick the store you’ll pick it up from.', pickupStore: true }, { status: 400 }); }
     const { shopPickup, chosenWindow } = await import('@/lib/pickup-slots-server');
-    const { view, booked } = await shopPickup(db, tenantId, tenant, Date.now(), ckeyHash);
+    const { view, booked } = await shopPickup(db, tenantId, tenant, Date.now(), ckeyHash, fromStore ? { id: fromStore.id, week: await storeWeekOf(db, tenantId, fromStore) } : null);
     if (view.scheduled) {
       const key = String(body.pickupWindowKey || '').slice(0, 20);
       if (!key) return NextResponse.json({ error: view.reason || 'Choose a pickup time.' }, { status: 400 });
@@ -885,6 +902,9 @@ async function handleCheckout(req: NextRequest) {
     storeCreditRequestedCents: 0,
     tipCents,
     pickupAt,
+    // Which store (lib/shop-stores-server): where it's picked up, or where a delivery goes out from. The team at that
+    // store sees it; the customer's page says where to go.
+    ...(fromStore ? { locationId: fromStore.id, ...(method === 'delivery' ? { deliveryFrom: { id: fromStore.id, name: fromStore.name } } : { pickupStore: { id: fromStore.id, name: fromStore.name, address: fromStore.address } }) } : {}),
     ...(pickupWin ? { pickupWindow: { key: pickupWin.key, start: pickupWin.start, end: pickupWin.end, label: pickupAt }, pickupWindowKey: pickupWin.key, ...(ckeyHash ? { checkoutKeyHash: ckeyHash } : {}) } : {}),
     totalCents,
     customerName,
@@ -985,11 +1005,13 @@ async function handleCheckout(req: NextRequest) {
     }
   } else if (pickupWin && pickupWin.cap !== null) {
     // The window's count and the new order in one step: a window that filled while they were choosing turns them back.
-    const win = pickupWin; const cap = pickupWin.cap;
+    const win = pickupWin; const cap = pickupWin.cap; const winAt: string | null = fromStore?.id ?? null;
     const { holdsPlace } = await import('@/lib/pickup-slots-server');
+    const { atHere } = await import('@/lib/business-locations');
     const full = await db.runTransaction(async (tx: any) => {
       const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('pickupWindowKey', '==', win.key));
-      const taken = q.docs.filter((d: any) => holdsPlace(d.data(), Date.now(), ckeyHash)).length;
+      // (At one of several stores, only that store's orders fill it.)
+      const taken = q.docs.filter((d: any) => holdsPlace(d.data(), Date.now(), ckeyHash) && atHere(d.data(), winAt)).length;
       if (taken >= cap) return true;
       tx.set(orderRef, orderData);
       tx.set(evRef, evData);

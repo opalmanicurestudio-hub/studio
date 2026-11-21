@@ -67,6 +67,8 @@ interface StatusLine {
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
   pickupAt?: string; tipCents?: number;
+  // The store it's picked up at, with more than one (lib/shop-stores-server).
+  pickupStore?: { name: string; address: string | null; directions: string | null } | null;
   popup?: { number: number; name: string; called: boolean } | null;
   delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string;
     photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null;
@@ -1014,6 +1016,12 @@ export default function OrderStatusPage() {
             <p className="m-0 mt-3 text-[16px]" role="status">{order.stage === 'completed' ? 'Picked up. Thanks for coming by.' : order.popup.called || ['ready', 'arrived'].includes(order.stage) ? 'It’s bagged. Come up to the table.' : 'We’re bagging it. Come up when we call your number.'}</p>
           </section>)}
         {order.stage !== 'placed' && <OrderNow order={order} help={helpElig} tenantId={tenantId} orderId={orderId} token={selfToken} onChanged={() => void load()} />}
+        {isPickup && order.pickupStore && !['completed', 'cancelled'].includes(order.stage) && (
+          <section aria-labelledby="pickup-store-h" className="space-y-2 rounded-[2rem] border-2 bg-white p-5">
+            <h2 id="pickup-store-h" className="m-0 text-[17px] font-semibold">{order.stage === 'ready' || order.stage === 'arrived' ? `Ready to pick up at ${order.pickupStore.name}` : `Pick it up at ${order.pickupStore.name}`}</h2>
+            {(order.pickupStore.address || order.pickupAt) && <p className="m-0 text-[14.5px] text-muted-foreground">{[order.pickupStore.address, order.pickupAt].filter(Boolean).join('. ')}.</p>}
+            {order.pickupStore.directions && <a href={order.pickupStore.directions} target="_blank" rel="noreferrer" className="flex min-h-[44px] items-center justify-center rounded-xl border-2 text-[14.5px] font-semibold">Directions</a>}
+          </section>)}
         {order.stage === 'cancelled' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-8 text-center space-y-3">

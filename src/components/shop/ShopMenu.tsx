@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  CircleUserRound, FileDown, Grid3x3, LifeBuoy, Lock, Menu, PackageSearch, Store, Truck, X,
+  CircleUserRound, FileDown, Grid3x3, LifeBuoy, Lock, MapPin, Menu, PackageSearch, Store, Truck, X,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useState } from 'react';
@@ -24,6 +24,8 @@ import { readWholesaleCode } from '@/lib/shop-cart';
 export interface ShopMenuProps {
   tenantId: string;
   shopName: string;
+  /** Stores on the shop (lib/shop-stores-server): two or more get Find a store. */
+  stores?: number;
   categories?: string[];
   activeCategory?: string;
   policies?: { returns?: string; shipping?: string };
@@ -40,7 +42,7 @@ export interface ShopMenuProps {
 }
 
 export function ShopMenu({
-  tenantId, shopName, categories = [], activeCategory, onUnlockWholesale, wholesaleUnlocked,
+  tenantId, shopName, categories = [], activeCategory, onUnlockWholesale, wholesaleUnlocked, stores = 0,
 }: ShopMenuProps) {
   const [open, setOpen] = useState(false);
 
@@ -93,6 +95,10 @@ export function ShopMenu({
               >
                 <Grid3x3 className="h-4 w-4 shrink-0" aria-hidden="true" /> All products
               </Link>
+              {stores > 1 && (
+                <Link href={`/shop/${tenantId}/stores`} onClick={close} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-bold hover:bg-muted/60">
+                  <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" /> Find a store
+                </Link>)}
 
               <a
                 href={`/print/catalog/${tenantId}${wholesaleUnlocked ? `?tier=wholesale&code=${encodeURIComponent(readWholesaleCode(tenantId) || '')}` : ''}`}

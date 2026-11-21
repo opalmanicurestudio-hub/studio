@@ -8,21 +8,23 @@ import { businessLocations } from '@/lib/business-locations';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 /** `ordering` (lib/ahead-places): whether guests order ahead from it and it delivers (both on unless turned off for it),
- *  and its own opening hours (null: the business's). */
+ *  whether it's a store on the online shop (lib/shop-stores-server; on unless turned off), and its own opening hours
+ *  (null: the business's). */
 export type BizLocation = { id: string; name: string; address: string | null; coordinates: { lat: number; lng: number } | null; timezone: string | null;
-  ordering: { ahead: boolean; delivery: boolean; hours: Record<string, any> | null } };
+  ordering: { ahead: boolean; delivery: boolean; shop: boolean; hours: Record<string, any> | null } };
 
-/** The business's own locations (not storage areas), read at most once a minute per business. */
+/** The business's own locations (not storage areas), read at most once a minute per business. `fresh` reads them now
+ *  (placing an order), and the minute's copy is brought up to date with them. */
 const cache = new Map<string, { at: number; list: BizLocation[] }>();
-export async function bizLocationsOf(db: any, tenantId: string, now = Date.now()): Promise<BizLocation[]> {
-  const c = cache.get(tenantId); if (c && now - c.at < 60000) return c.list;
+export async function bizLocationsOf(db: any, tenantId: string, now = Date.now(), fresh = false): Promise<BizLocation[]> {
+  const c = cache.get(tenantId); if (c && !fresh && now - c.at < 60000) return c.list;
   const snap = await db.collection(`tenants/${tenantId}/locations`).get().catch(() => null);
   if (!snap) return c?.list || [];
   const list: BizLocation[] = businessLocations(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })))
     .map((l: any) => ({ id: String(l.id), name: String(l.name || 'Location').slice(0, 80), address: l.address ? String(l.address).slice(0, 300) : null,
       coordinates: l.coordinates && Number.isFinite(Number(l.coordinates.lat)) && Number.isFinite(Number(l.coordinates.lng)) ? { lat: Number(l.coordinates.lat), lng: Number(l.coordinates.lng) } : null,
       timezone: l.timezone ? String(l.timezone) : null,
-      ordering: { ahead: l.ordering?.aheadOff !== true, delivery: l.ordering?.deliveryOff !== true, hours: l.ordering?.hours && typeof l.ordering.hours === 'object' ? l.ordering.hours : null } }))
+      ordering: { ahead: l.ordering?.aheadOff !== true, delivery: l.ordering?.deliveryOff !== true, shop: l.ordering?.shopOff !== true, hours: l.ordering?.hours && typeof l.ordering.hours === 'object' ? l.ordering.hours : null } }))
     .sort((a, b) => a.name.localeCompare(b.name));
   cache.set(tenantId, { at: now, list }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   return list;

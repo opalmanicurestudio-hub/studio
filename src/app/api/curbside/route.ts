@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   if (auth.actor.isRenter) return fail('Renters don’t take the business’s orders out.', 403);
   const db = getAdminDb();
   // (With more than one location, the one picked in the app: its curbside orders only. lib/here-server)
-  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, cafe: (await cafeCurbside(db, tenantId, auth.tenant)).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
+  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, here, cafe: (await cafeCurbside(db, tenantId, auth.tenant)).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
   const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return fail('Which order?');
   if (action === 'out' || action === 'handed') {
     const r = action === 'out' ? await cafeOut(db, tenantId, orderId, auth.actor) : await cafeHanded(db, tenantId, orderId, auth.actor);

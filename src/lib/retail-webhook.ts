@@ -285,6 +285,9 @@ export async function sendOrderConfirmation(
     : method !== 'delivery' && order.pickupAt && order.pickupAt !== 'ASAP'
     ? `<p style="font-size:13px;color:#0f172a">Your requested pickup time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
+  // At one of several stores (lib/shop-stores-server): which one, and where it is.
+  const storeNote = method !== 'delivery' && !popupNo && order.pickupStore?.name
+    ? `<p style="font-size:13px;color:#0f172a">Pick it up at <strong>${escapeHtml(String(order.pickupStore.name))}</strong>${order.pickupStore.address ? `, ${escapeHtml(String(order.pickupStore.address))}` : ''}.</p>` : '';
 
   const emailBody = `
     <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${order.customerName ? String(order.customerName).split(' ')[0] : 'there'},</p>
@@ -292,7 +295,7 @@ export async function sendOrderConfirmation(
     ${datesBlock}
     ${busyLine ? `<p style="font-size:13px;color:#0f172a;margin:0 0 8px">${escapeHtml(busyLine)}</p>` : ''}
     <p style="font-size:13px;color:#64748b">${nextStep}</p>
-    ${pickupNote}
+    ${pickupNote}${storeNote}
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
       ${rows}
     </table>

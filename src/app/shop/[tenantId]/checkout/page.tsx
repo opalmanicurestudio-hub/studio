@@ -33,6 +33,8 @@ import {
 } from '@/lib/ship-promise';
 import { todayIn, addDays, dayKey } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
+import { savedStore, saveStore, storeOpenLine, type StoreRow } from '@/lib/shop-stores';
+import { nearestFirst } from '@/lib/ahead-places';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 
 type Method = 'counter' | 'curbside' | 'ship' | 'delivery';
@@ -177,13 +179,37 @@ export default function CheckoutPage() {
     catch { checkoutKey.current = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 40); }
     return checkoutKey.current;
   };
+  // More than one store (lib/shop-stores): the one they'll pick it up from, nearest first once they share where they are
+  // (worked out on their phone; where they are isn't sent), remembered on this device. A store's link (?store=) picks it.
+  const [stores, setStores] = useState<{ list: StoreRow[]; tz: string } | null>(null);
+  const [store, setStore] = useState('');
+  const [near, setNear] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearState, setNearState] = useState<'idle' | 'finding' | 'denied'>('idle');
+  useEffect(() => {
+    let off = false;
+    fetch(`/api/retail/stores?tenantId=${encodeURIComponent(tenantId)}`).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (off || !d?.several || !Array.isArray(d.stores)) return;
+      setStores({ list: d.stores, tz: String(d.timeZone || 'UTC') });
+      let want = savedStore(tenantId); try { want = new URLSearchParams(window.location.search).get('store') || want; } catch { /* the saved one */ }
+      setStore(d.stores.some((x: StoreRow) => x.id === want) ? want : d.stores.length === 1 ? d.stores[0].id : '');
+    }).catch(() => {});
+    return () => { off = true; };
+  }, [tenantId]);
+  const multiStore = !!stores && stores.list.length > 1;
+  const storeList = stores ? nearestFirst(stores.list.map((x) => ({ ...x, coordinates: x.lat !== null && x.lng !== null ? { lat: x.lat, lng: x.lng } : null })), near) : [];
+  const storeName = stores?.list.find((x) => x.id === store)?.name || '';
+  const findNearest = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { setNearState('denied'); return; }
+    setNearState('finding');
+    navigator.geolocation.getCurrentPosition((p) => { setNear({ lat: p.coords.latitude, lng: p.coords.longitude }); setNearState('idle'); }, () => setNearState('denied'), { maximumAge: 300000, timeout: 10000 });
+  };
   const pickupReq = React.useRef(0);
   const loadPickupTimes = React.useCallback(async (note = '') => {
     const mine = ++pickupReq.current;   // only the latest answer counts
     setPickupState('loading');
     try {
       // After a window filled while paying, ask fresh (never a remembered answer).
-      const r = await fetch(`/api/retail/pickup-times?tenantId=${encodeURIComponent(tenantId)}&ck=${encodeURIComponent(ensureCheckoutKey())}${note ? '&fresh=1' : ''}`, { cache: 'no-store' });
+      const r = await fetch(`/api/retail/pickup-times?tenantId=${encodeURIComponent(tenantId)}&ck=${encodeURIComponent(ensureCheckoutKey())}${store ? `&at=${encodeURIComponent(store)}` : ''}${note ? '&fresh=1' : ''}`, { cache: 'no-store' });
       const d = await r.json();
       if (mine !== pickupReq.current) return;
       if (!r.ok) { setPickupState('error'); return; }
@@ -191,7 +217,8 @@ export default function CheckoutPage() {
       // Keep their choice while it's still open; otherwise the first open window.
       setPickupKey((cur) => (d.windows || []).some((w: any) => w.key === cur && !w.full) ? cur : ((d.windows || []).find((w: any) => !w.full)?.key || ''));
     } catch { if (mine === pickupReq.current) setPickupState('error'); }
-  }, [tenantId]);
+  }, [tenantId, store]);
+  const pickStore = (id: string) => { if (id === store) return; setStore(id); saveStore(tenantId, id); setPickupTimes(null); setPickupKey(''); setPickupNote(''); };
   const [preorderAgreed, setPreorderAgreed] = useState(false);
   // Refused for a product sold to licensed pros only: where to send a license (lib/pro-license).
   // Products for licensed pros (lib/pro-license): what's missing, said where they'll pay. `signIn` when the email has to
@@ -230,7 +257,7 @@ export default function CheckoutPage() {
   // LOCAL DELIVERY (api/retail/delivery-quote): once there's an address, whether the shop delivers there, the fee for
   // what's in the bag, its delivery times and whether "within N minutes" is on offer. Asked again when the address or
   // the bag changes; an answer is only used for the address and bag it was for.
-  type DeliveryQuote = { ok: true; miles: number | null; feeCents: number; free: boolean; freeOverCents: number | null; minimumCents: number; expressCents: number | null; minutes: number; asap: { ok: boolean; by?: string }; windows: { key: string; label: string; day: string; full: boolean }[]; dropoffNotes: boolean; token: string | null } | { ok: false; reason: string; message: string; minimumCents?: number };
+  type DeliveryQuote = { ok: true; from?: { id: string; name: string } | null; miles: number | null; feeCents: number; free: boolean; freeOverCents: number | null; minimumCents: number; expressCents: number | null; minutes: number; asap: { ok: boolean; by?: string }; windows: { key: string; label: string; day: string; full: boolean }[]; dropoffNotes: boolean; token: string | null } | { ok: false; reason: string; message: string; minimumCents?: number };
   const [dq, setDq] = useState<{ for: string; q: DeliveryQuote } | null>(null);
   const [dqState, setDqState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [deliveryKey, setDeliveryKey] = useState('');
@@ -396,7 +423,9 @@ export default function CheckoutPage() {
     return () => { window.removeEventListener('storage', recheck); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); };
   }, [tenantId, needSignIn, acctSess, email]);
   const wsTaxNote = wsTax && !wsTax.free && email.trim() && shop?.wholesaleTax && !shop.wholesaleTax.house && !(shipStateMissing && wsTax.why === 'state') ? taxNote(wsTax, shop.wholesaleTax.business || shop.wholesaleBusiness || '', shop.name || '') : null;
-  const wantsPickupTime = !!shop && !digitalOnlyCart && (method === 'counter' || method === 'curbside');
+  const pickupMethod = !!shop && !digitalOnlyCart && (method === 'counter' || method === 'curbside');
+  // (With more than one store, its times once they've picked it.)
+  const wantsPickupTime = pickupMethod && !(multiStore && !store);
   useEffect(() => { if (wantsPickupTime) void loadPickupTimes(); }, [wantsPickupTime, loadPickupTimes]);
   const timedPickup = wantsPickupTime && pickupTimes?.scheduled === true;
 
@@ -618,6 +647,7 @@ export default function CheckoutPage() {
     (!hasPreorder || preorderAgreed) &&
     (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode)) &&
     (digitalOnlyCart || method !== 'delivery' || (deliveryReady && phone.replace(/\D/g, '').length >= 10)) &&
+    (!pickupMethod || !multiStore || !!store) &&
     (!wantsPickupTime || pickupState === 'ready') && (!timedPickup || !!pickupKey) &&
     (!digitalOnlyCart || !isGift || (giftTo.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(giftEmail.trim())));
 
@@ -662,6 +692,7 @@ export default function CheckoutPage() {
           tipCents,
           pickupAt: !digitalOnlyCart && method !== 'ship' && method !== 'delivery' && shop?.scheduledPickup && !timedPickup ? pickupChoice : '',
           pickupWindowKey: timedPickup ? pickupKey : undefined,
+          ...(pickupMethod && store ? { pickupStore: store } : {}),
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
           creditSession: applyCredit ? acctSess : undefined,
@@ -684,7 +715,7 @@ export default function CheckoutPage() {
             : method === 'delivery' && !digitalOnlyCart ? { ...addr, name: addr.name.trim() || name.trim(), country: 'US' } : undefined,
           ...(method === 'delivery' && !digitalOnlyCart ? {
             deliveryAsap: deliveryAsap || undefined, deliveryWindowKey: deliveryAsap ? undefined : deliveryKey,
-            deliveryToken: deliveryOk?.token || undefined, deliveryNote: deliveryOk?.dropoffNotes ? deliveryNote.trim() || undefined : undefined,
+            deliveryToken: deliveryOk?.token || undefined, deliveryFrom: deliveryOk?.from?.id || undefined, deliveryNote: deliveryOk?.dropoffNotes ? deliveryNote.trim() || undefined : undefined,
           } : {}),
           addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
           unitAnswer: method === 'ship' && !digitalOnlyCart ? extra?.unitAnswer : undefined,
@@ -862,6 +893,26 @@ export default function CheckoutPage() {
             </div>
           </div>
 
+          {pickupMethod && multiStore && stores && (
+            <fieldset className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-x-3">
+                <legend className="float-left text-[14.5px] font-semibold">Pick up at</legend>
+                <button type="button" onClick={findNearest} disabled={nearState === 'finding'} className="inline-flex min-h-[44px] items-center text-[13.5px] font-semibold underline underline-offset-4 disabled:opacity-50">{nearState === 'finding' ? 'Finding you…' : near ? 'Nearest first' : 'Find the nearest'}</button>
+              </div>
+              {nearState === 'denied' && <p role="status" className="clear-both text-[13px] text-muted-foreground">Your location isn’t shared, so the stores are listed by name.</p>}
+              <div className="clear-both space-y-2">
+                {storeList.map((x) => (
+                  <label key={x.id} className={cn('flex min-h-[56px] cursor-pointer flex-col justify-center gap-0.5 rounded-xl border-2 bg-white px-3.5 py-2.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-foreground has-[:focus-visible]:ring-offset-2', store === x.id ? 'border-foreground' : 'border-border')}>
+                    <input type="radio" name="pickup-store" value={x.id} checked={store === x.id} onChange={() => pickStore(x.id)} className="sr-only" />
+                    <span className="flex items-baseline justify-between gap-3"><span className="text-[14.5px] font-semibold">{x.name}</span>{x.miles !== null && <span className="shrink-0 text-[13px] text-muted-foreground tabular-nums">{x.miles} mi</span>}</span>
+                    {x.address && <span className="text-[13px] text-muted-foreground">{x.address}</span>}
+                    <span className={cn('text-[13px]', x.open ? 'font-medium text-foreground' : 'text-muted-foreground')}>{storeOpenLine(x, stores.tz)}</span>
+                  </label>))}
+              </div>
+              {!store && <p className="text-[13px] text-muted-foreground">Pick a store to see its pickup times.</p>}
+            </fieldset>
+          )}
+
           <div className="space-y-3">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your details</Label>
             <Input placeholder="Full name" aria-label="Full name" autoComplete="name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
@@ -907,7 +958,7 @@ export default function CheckoutPage() {
                     </div>
                   ) : (<>
                     <p className="text-[12px] font-bold" style={{ color: '#1f7a4d' }}>
-                      We deliver there{dqFresh.miles !== null ? ` · ${dqFresh.miles < 10 ? dqFresh.miles.toFixed(1) : Math.round(dqFresh.miles)} mi from the shop` : ''} · {dqFresh.feeCents === 0 ? 'free delivery' : `${fmt(dqFresh.feeCents)} delivery`}
+                      We deliver there{dqFresh.miles !== null ? ` · ${dqFresh.miles < 10 ? dqFresh.miles.toFixed(1) : Math.round(dqFresh.miles)} mi from ${dqFresh.from ? dqFresh.from.name : 'the shop'}` : ''} · {dqFresh.feeCents === 0 ? 'free delivery' : `${fmt(dqFresh.feeCents)} delivery`}
                     </p>
                     {!dqFresh.free && dqFresh.freeOverCents !== null && <p className="text-[11px] font-bold text-muted-foreground">Free delivery on orders of {fmt(dqFresh.freeOverCents)} or more.</p>}
                     <fieldset className="min-w-0 space-y-2">
@@ -1117,7 +1168,7 @@ export default function CheckoutPage() {
               <fieldset className="min-w-0 space-y-2">
                 <legend className="sr-only">Pickup time</legend>
                 <div className="flex items-baseline justify-between gap-2">
-                  <span aria-hidden="true" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">When</span>
+                  <span aria-hidden="true" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{storeName && multiStore ? `When, at ${storeName}` : 'When'}</span>
                   {pickupTimes.readyBy && <span className="text-[11px] font-bold text-primary">{pickupTimes.readyBy}</span>}
                 </div>
                 <p aria-live="polite" className="text-[11px] font-bold text-muted-foreground empty:hidden">{pickupNote}</p>

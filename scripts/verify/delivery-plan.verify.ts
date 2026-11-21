@@ -143,7 +143,7 @@ ok(/console\.warn\('\[geocode\] lookup refused', r\.status\)/.test(geo) && !/con
 // ── wiring
 const route = read('src/app/api/retail/checkout/route.ts');
 ok(/method === 'delivery' \? rsEarly\.deliveryPlan\?\.on === true/.test(route), 'checkout takes delivery only while it’s on');
-ok(/deliveryFor\(db, tenantId, tenant, body\.shippingAddress as any, \{ itemsCents: subtotalCents, sameCheckout: ckeyHash, token: body\.deliveryToken \}\)/.test(route), 'the fee is worked out on the server from the priced items, with this checkout’s own try not counted');
+ok(/const dOpts = \{ itemsCents: subtotalCents, sameCheckout: ckeyHash, token: body\.deliveryToken \}/.test(route) && /deliveryFor\(db, tenantId, tenant, body\.shippingAddress as any, dOpts\)/.test(route), 'the fee is worked out on the server from the priced items, with this checkout’s own try not counted');
 ok(/shippingCents = deliv\.feeCents \+ deliv\.expressCents/.test(route), 'the delivery fee is the order’s delivery charge');
 ok(/promo\?\.freeShipping && shippingCents > 0 && method === 'ship'/.test(route), 'a free-shipping code doesn’t take off a delivery fee');
 ok(/where\('deliveryWindowKey', '==', d\.window\.key\)/.test(route) && /where\('deliveryAsapAt', '>=', since\)/.test(route) && /tx\.set\(orderRef, orderData\)/.test(route), 'the window, or the drivers out, are counted in the same step the order is written');

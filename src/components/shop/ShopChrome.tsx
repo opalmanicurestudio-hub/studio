@@ -9,11 +9,14 @@ import Link from 'next/link';
 import { ShopMenu } from '@/components/shop/ShopMenu';
 import { readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { LOGO_HEIGHT, logoFor, type ShopBrand, type SiteLayout } from '@/lib/shop-site';
+import { saveStore } from '@/lib/shop-stores';
 
 export type ShopSite = {
   tenantId: string; name: string; tagline: string; announcement: string;
   brand: ShopBrand; layout: SiteLayout; dark: boolean;
   address: string;
+  /** Stores on the shop, with more than one location (lib/shop-stores-server): two or more get a Find a store page. */
+  stores?: number;
 };
 
 const Ctx = React.createContext<ShopSite | null>(null);
@@ -45,7 +48,7 @@ export function ShopLogo({ site, onDark = false }: { site: ShopSite; onDark?: bo
     </span>);
 }
 
-type Active = 'home' | 'catalog' | 'account' | 'product' | 'offer' | '';
+type Active = 'home' | 'catalog' | 'account' | 'product' | 'offer' | 'stores' | '';
 
 const BagIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8z" /><path d="M9 8a3 3 0 016 0" /></svg>;
 const SearchIcon = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>;
@@ -73,9 +76,9 @@ export function ShopHeader({ active = '', categories, activeCategory, onUnlockWh
   // The menu (categories, wholesale access, the printable catalog) is at every width; the links beside it show from
   // the md breakpoint, or never in the phone preview.
   const onWide = compact ? 'hidden' : 'hidden lg:flex'; const onPhone = minimal ? 'hidden' : '';
-  const nav: [Active, string, string][] = [['home', 'Home', base], ['catalog', L === 'index' ? 'Shop all' : 'Shop', `${base}/catalog`], ['account', 'Your orders', `${base}/account`]];
+  const nav: [Active, string, string][] = [['home', 'Home', base], ['catalog', L === 'index' ? 'Shop all' : 'Shop', `${base}/catalog`], ...((site.stores || 0) > 1 ? [['stores', 'Find a store', `${base}/stores`] as [Active, string, string]] : []), ['account', 'Your orders', `${base}/account`]];
   const navLink = (on: boolean): React.CSSProperties => ({ minHeight: 44, display: 'inline-flex', alignItems: 'center', fontSize: 'var(--shop-nav-size, 14px)', textTransform: 'var(--shop-nav-case, none)' as any, letterSpacing: 'var(--shop-nav-track, 0)', color: on ? 'var(--shop-ink)' : 'var(--shop-muted)', boxShadow: on ? `inset 0 -${L === 'spotlight' ? 2 : 1}px 0 var(--shop-ink)` : 'none', ...(L === 'bento' ? { padding: '0 14px', borderRadius: 999, boxShadow: 'none', background: on ? 'var(--shop-brand-soft)' : 'transparent', color: 'var(--shop-ink)', fontWeight: on ? 600 : 500 } : {}) });
-  const menu = <ShopMenu tenantId={site.tenantId} shopName={site.name} categories={categories} activeCategory={activeCategory} onUnlockWholesale={onUnlockWholesale} wholesaleUnlocked={wholesaleUnlocked} />;
+  const menu = <ShopMenu tenantId={site.tenantId} shopName={site.name} stores={site.stores} categories={categories} activeCategory={activeCategory} onUnlockWholesale={onUnlockWholesale} wholesaleUnlocked={wholesaleUnlocked} />;
   const bagLabel = bag > 0 ? `Bag, ${bag} item${bag === 1 ? '' : 's'}` : 'Bag';
   const pill = L === 'spotlight' || L === 'bento';
   const bagEl = (
@@ -146,6 +149,11 @@ export function ShopHeader({ active = '', categories, activeCategory, onUnlockWh
 
 export function ShopFooter({ hasOffers = false }: { hasOffers?: boolean }) {
   const site = useShopSite();
+  // A store's own link (?store=, Shop settings, Your stores): that store is picked for checkout on this device.
+  React.useEffect(() => {
+    if (!site || (site.stores || 0) < 2) return;
+    try { const id = new URLSearchParams(window.location.search).get('store'); if (id && /^[A-Za-z0-9_-]{1,80}$/.test(id)) saveStore(site.tenantId, id); } catch { /* picked at checkout */ }
+  }, [site]);
   if (!site) return null;
   const base = `/shop/${site.tenantId}`; const L = site.layout;
   const col = (title: string, items: [string, string][]) => (
@@ -161,7 +169,7 @@ export function ShopFooter({ hasOffers = false }: { hasOffers?: boolean }) {
           {site.tagline && <span className="text-[14px] leading-relaxed" style={{ color: 'var(--shop-muted)' }}>{site.tagline}</span>}
           {site.address && <span className="text-[14px] leading-relaxed" style={{ color: 'var(--shop-muted)' }}>{site.address}</span>}
         </div>
-        {col('Shop', [['Home', base], ['Shop all', `${base}/catalog`], ...(hasOffers ? [['Kits and bundles', `${base}#offers`] as [string, string]] : [])])}
+        {col('Shop', [['Home', base], ['Shop all', `${base}/catalog`], ...(hasOffers ? [['Kits and bundles', `${base}#offers`] as [string, string]] : []), ...((site.stores || 0) > 1 ? [['Find a store', `${base}/stores`] as [string, string]] : [])])}
         {col('Help', [['Your orders and returns', `${base}/account`]])}
         {col('Policies', [['Privacy policy', '/legal/privacy'], ['Text message terms', '/legal/sms']])}
       </div>

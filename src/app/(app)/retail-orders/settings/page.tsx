@@ -1,6 +1,7 @@
 'use client';
 
 import { SlipSettingsCard } from '@/components/settings/SlipSettingsCard';
+import { ShopStoresCard } from '@/components/settings/ShopStoresCard';
 import { LABEL_FORMAT_CHOICES, labelFormatOf } from '@/lib/label-format';
 import { RetailSecretField } from '@/components/settings/RetailSecretField';
 import { usePrivateSettings } from '@/lib/tenant-private-client';
@@ -426,6 +427,7 @@ export default function RetailSettingsPage() {
           </button>
           {openGroup === 'get' && (
             <div className="space-y-5">
+              <ShopStoresCard tenantId={tenantId} />
 <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">

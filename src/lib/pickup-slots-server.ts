@@ -5,6 +5,8 @@
 // A shop whose time zone was never set gets no times (its hours would land hours off), and checkout stays as before.
 import { createHash } from 'crypto';
 import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { atHere } from '@/lib/business-locations';
+import { insideWeek } from '@/lib/shop-stores';
 import { hasHours, isPaused, peopleThrough, pickupWindows, planFrom, readyBy, noPickupReason, shiftLookup, shiftSpans, type PickupPlan, type PickupWindow, type ShiftSpan } from '@/lib/pickup-slots';
 export { peopleThrough };
 
@@ -36,18 +38,21 @@ export async function shiftCounter(db: any, tenantId: string, tz: string, days: 
   return shiftLookup(await shiftsFor(db, tenantId, days), tz);
 }
 
-/** Orders already in each window over the days offered, by window key (not counting `sameCheckout`'s own earlier try). */
-export async function bookedFrom(db: any, tenantId: string, firstDay: string, lastDay: string, now: number, sameCheckout = ''): Promise<Record<string, number>> {
+/** Orders already in each window over the days offered, by window key (not counting `sameCheckout`'s own earlier try).
+ *  At one of several stores (`at`, lib/shop-stores-server): only that store's, and any from before there were stores. */
+export async function bookedFrom(db: any, tenantId: string, firstDay: string, lastDay: string, now: number, sameCheckout = '', at: string | null = null): Promise<Record<string, number>> {
   const snap = await db.collection(`tenants/${tenantId}/retailOrders`).where('pickupWindowKey', '>=', firstDay).where('pickupWindowKey', '<=', `${lastDay}~`).limit(5000).get();
   const out: Record<string, number> = {};
-  for (const d of snap.docs) { const o: any = d.data() || {}; if (holdsPlace(o, now, sameCheckout)) out[String(o.pickupWindowKey)] = (out[String(o.pickupWindowKey)] || 0) + 1; }
+  for (const d of snap.docs) { const o: any = d.data() || {}; if (holdsPlace(o, now, sameCheckout) && atHere(o, at)) out[String(o.pickupWindowKey)] = (out[String(o.pickupWindowKey)] || 0) + 1; }
   return out;
 }
 
 export type ShopPickup = { scheduled: boolean; windows: PickupWindow[]; readyBy: string | null; reason: string | null };
 
-/** What checkout shows for collecting an order: the windows, when it can be ready, or why there are none. */
-export async function shopPickup(db: any, tenantId: string, tenant: any, now = Date.now(), sameCheckout = ''): Promise<{ plan: PickupPlan; view: ShopPickup; booked: Record<string, number> }> {
+/** What checkout shows for collecting an order: the windows, when it can be ready, or why there are none. At one of
+ *  several stores (lib/shop-stores-server): each window fills for that store alone, and a store with its own opening
+ *  hours offers only the windows inside them. */
+export async function shopPickup(db: any, tenantId: string, tenant: any, now = Date.now(), sameCheckout = '', store: { id: string; week: Record<string, any> | null } | null = null): Promise<{ plan: PickupPlan; view: ShopPickup; booked: Record<string, number> }> {
   const plan = planFrom(tenant?.retailSettings || {});
   // A pause stops online pickup whatever else is set: before hours (or a time zone) are set, checkout would otherwise
   // fall back to its old "ready in about" and take the order anyway.
@@ -59,8 +64,8 @@ export async function shopPickup(db: any, tenantId: string, tenant: any, now = D
   const tz = tenantTimeZone(tenant);
   const today = todayIn(tz, new Date(now));
   const days = Array.from({ length: plan.daysAhead }, (_, i) => new Date(Date.parse(`${today}T12:00:00Z`) + i * 864e5).toISOString().slice(0, 10));
-  const [booked, onShift] = await Promise.all([bookedFrom(db, tenantId, days[0], days[days.length - 1], now, sameCheckout), plan.perPerson !== null ? shiftCounter(db, tenantId, tz, days) : Promise.resolve(undefined)]);
-  const windows = pickupWindows(plan, now, tz, booked, onShift);
+  const [booked, onShift] = await Promise.all([bookedFrom(db, tenantId, days[0], days[days.length - 1], now, sameCheckout, store?.id ?? null), plan.perPerson !== null ? shiftCounter(db, tenantId, tz, days) : Promise.resolve(undefined)]);
+  const windows = pickupWindows(plan, now, tz, booked, onShift).filter((w) => !store?.week || insideWeek(store.week, tz, Date.parse(w.start), Date.parse(w.end)));
   const rb = readyBy(plan, now, tz, windows);
   const open = windows.some((w) => !w.full);
   return { plan, booked, view: { scheduled: true, windows, readyBy: rb?.label || null, reason: open ? null : noPickupReason(plan, now, tz) } };

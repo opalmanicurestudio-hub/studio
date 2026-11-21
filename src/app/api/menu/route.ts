@@ -117,7 +117,9 @@ const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings)
 /** With more than one location (lib/ahead-places): each one's ordering ahead, delivery, hours and its own link. */
 async function withPlaces(db: any, tenantId: string, a: any) {
   const locs = await bizLocationsOf(db, tenantId);
-  return locs.length > 1 ? { ...a, places: locs.map((l) => ({ id: l.id, name: l.name, address: l.address, ahead: l.ordering.ahead, delivery: l.ordering.delivery, hours: l.ordering.hours, pinned: !!l.coordinates, link: `${a.link}?place=${encodeURIComponent(l.id)}` })) } : a;
+  // (`shop`: a store on the online shop, lib/shop-stores-server; its own shop link picks it for pickup.)
+  return locs.length > 1 ? { ...a, places: locs.map((l) => ({ id: l.id, name: l.name, address: l.address, ahead: l.ordering.ahead, delivery: l.ordering.delivery, shop: l.ordering.shop, hours: l.ordering.hours, pinned: !!l.coordinates,
+    link: `${a.link}?place=${encodeURIComponent(l.id)}`, shopLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}?store=${encodeURIComponent(l.id)}` })) } : a;
 }
 
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
@@ -138,10 +140,10 @@ export async function POST(req: NextRequest) {
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
     const SET_ACTIONS = ['sets', 'setSave', 'setRemove', 'setApply', 'setOff', 'setFrom'];
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -294,14 +296,22 @@ export async function POST(req: NextRequest) {
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
       return ok({ ahead: await withPlaces(db, tenantId, aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null)) });
     }
+    if (action === 'places') {
+      // Each location's settings without the whole menu (Shop settings, Your stores): a manager's.
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const a: any = await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null));
+      return ok({ places: a.places || [], storesLink: `${String(a.link).replace(/\/order\/([^/?#]+).*$/, '/shop/$1')}/stores` });
+    }
     if (action === 'aheadPlace') {
-      // One location's ordering ahead (lib/ahead-places): on or off there, delivering from there or not, and its own
-      // hours (null: the business's). A manager's, kept on the location itself.
+      // One location's ordering ahead (lib/ahead-places): on or off there, delivering from there or not, a store on the
+      // online shop or not (lib/shop-stores-server), and its own hours (null: the business's). A manager's, kept on the
+      // location itself.
       const id = String(b.id || ''); const loc = (await bizLocationsOf(db, tenantId)).find((l) => l.id === id);
       if (!loc) return bad('Pick one of your locations.', 404);
       const patch: any = {};
       if (typeof b.ahead === 'boolean') patch.aheadOff = !b.ahead;
       if (typeof b.delivery === 'boolean') patch.deliveryOff = !b.delivery;
+      if (typeof b.shop === 'boolean') patch.shopOff = !b.shop;
       if (b.hours !== undefined) { if (b.hours === null) patch.hours = null; else { const w = cleanWeek(b.hours); if (!w) return bad('Check the hours: each day open or closed, with its opening and closing times.'); patch.hours = w; } }
       if (!Object.keys(patch).length) return bad('Nothing to change.');
       // (Each field replaced whole, in one write: its hours as a whole, so a day left out is closed, never kept from before.)

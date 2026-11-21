@@ -25,6 +25,7 @@ import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { bringingOut } from '@/lib/orders-flow';
 import { ACTIVE_STAGES, dueLine, firstName, itemCount, methodLabel, packProgress } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { atHere } from '@/lib/business-locations';
 import { mayEditContact } from '@/lib/contact-change';
 import { Btn, C, Empty, Initials, LargeTitle, ListRow, Seg, UndoBar, feel, muted, Ic } from './ui';
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
@@ -85,11 +86,20 @@ export function PickupsScreen() {
   const photoFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const u = (Array.isArray(i.imageUrls) && i.imageUrls.find((x: any) => typeof x === 'string' && x.trim())) || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : ''); if (u) m.set(i.id, u); }); return m; }, [inventory]);
   const shelfFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const s = String(i.storageLocation || i.shelf || i.binLocation || '').trim(); if (s) m.set(i.id, s); }); return m; }, [inventory]);
 
+  // More than one store (lib/shop-stores-server): the pickups for the store this device is at (the location picked in the
+  // app), and any from before there were stores; Every store shows them all, each with its store.
+  const [atStore, setAtStore] = React.useState('');
+  const [everyStore, setEveryStore] = React.useState(false);
+  React.useEffect(() => { try { setAtStore(localStorage.getItem('selectedLocationId') || ''); } catch { /* every store */ } }, []);
+  const storeNames = new Map<string, string>(orders.filter((o) => o.pickupStore?.id).map((o) => [String(o.pickupStore.id), String(o.pickupStore.name || '')]));
+  const byStore = storeNames.size > 0 && !!atStore;
+  const listed = byStore && !everyStore ? orders.filter((o) => atHere(o, atStore)) : orders;
+  const storeWord = storeNames.get(atStore) || 'this store';
   // (Every active order is kept, shipping ones too: the bag list says which order a scanned item belongs to, and an
   // order's links reach the customer's other orders. Only the lists are pickups.)
-  const { here, coming, toBag, bagged, held } = pickupLists(orders, rs, now, shopZone);
+  const { here, coming, toBag, bagged, held } = pickupLists(listed, rs, now, shopZone);
   // Orders on the ready shelf whose bags aren't scanned onto their spot yet (lib/bag-tag), deliveries waiting there too.
-  const toPut = orders.filter((o) => needsPutAway(o, rs)).length;
+  const toPut = listed.filter((o) => needsPutAway(o, rs)).length;
   const shown: Tab = tab ?? 'bag';
   const byId = new Map(orders.map((o) => [o.id, o]));
   // One that's just left the active stages (handed over, cancelled) stays open, live, until it's closed.
@@ -106,7 +116,7 @@ export function PickupsScreen() {
     const id = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('open') || '';
     if (/^[A-Za-z0-9_-]{1,80}$/.test(id)) { setOpenId(id); setFocus((f) => ({ tab: 'pack', n: (f?.n || 0) + 1 })); }
   }, []);
-  useArrivalAlerts(orders, now, tenantId, (o) => setToast(`${firstName(o.customerName)} is here${o.curbside?.spotOrVehicle ? `: ${o.curbside.spotOrVehicle}` : ''}.`), (o) => isHere(o) && isPickup(o));
+  useArrivalAlerts(listed, now, tenantId, (o) => setToast(`${firstName(o.customerName)} is here${o.curbside?.spotOrVehicle ? `: ${o.curbside.spotOrVehicle}` : ''}.`), (o) => isHere(o) && isPickup(o));
 
   // Handing over, and telling the customer, are for the roles that hand orders over (lib/fulfilment-access).
   const canHand = perms.canPack !== false;
@@ -131,14 +141,19 @@ export function PickupsScreen() {
         right={<Link href="/pos" className="cf-press inline-flex h-11 shrink-0 items-center rounded-full px-4 text-[15px] font-semibold" style={{ background: C.soft, color: C.ink }}>New sale</Link>} />
       <div className="mt-4"><Seg value={shown} onChange={(v) => setTab(v)} options={[
         { id: 'here', label: `Here now${here.length ? ` (${here.length})` : ''}` }, { id: 'bag', label: `To bag${toBag.length ? ` (${toBag.length})` : ''}` }, { id: 'bagged', label: `Bagged${bagged.length ? ` (${bagged.length})` : ''}` }]} /></div>
+      {byStore && (
+        <p className="m-0 mt-2 flex flex-wrap items-center gap-x-3 text-[14px]" style={muted}>
+          <span>{everyStore ? 'Every store’s pickups.' : `${storeWord.charAt(0).toUpperCase()}${storeWord.slice(1)}’s pickups.`}</span>
+          <button type="button" onClick={() => setEveryStore((v) => !v)} className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" style={{ color: C.ink }}>{everyStore ? `Just ${storeWord}` : 'Every store'}</button>
+        </p>)}
     </div>);
 
-  const row = (o: any, detail: string, trail?: React.ReactNode) => (
+  const row = (o: any, detail0: string, trail?: React.ReactNode) => { const detail = storeNames.size > 0 && o.pickupStore?.name && (everyStore || !atStore) ? [o.pickupStore.name, detail0].filter(Boolean).join(', ') : detail0; return (
     <ListRow key={o.id} active={o.id === openId} onClick={() => openOn(o.id, 'pack')} lead={<Initials name={String(o.customerName || 'Customer')} />}
-      title={Number(o.popupNumber) > 0 ? `${o.customerName || 'Customer'}, No. ${o.popupNumber}` : o.customerName || 'Customer'} detail={hasProsOnly(o) ? <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{detail}</span><ProsTag o={o} short /></span> : detail} trail={trail ?? <span style={muted}>{Ic.chev}</span>} />);
+      title={Number(o.popupNumber) > 0 ? `${o.customerName || 'Customer'}, No. ${o.popupNumber}` : o.customerName || 'Customer'} detail={hasProsOnly(o) ? <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{detail}</span><ProsTag o={o} short /></span> : detail} trail={trail ?? <span style={muted}>{Ic.chev}</span>} />); };
 
   // Picked for a spot check as they were packed (lib/spot-check): someone other than the packer checks them first.
-  const spots = orders.filter((o) => spotDue(o) && o.stage === 'packed');
+  const spots = listed.filter((o) => spotDue(o) && o.stage === 'packed');
   const spotBanner = spots.length > 0 && canHand ? (
     <div className="mx-4 mt-3 rounded-2xl px-4 py-3.5" style={{ background: C.warnSoft }}>
       <p className="m-0 text-[15px]" style={{ color: C.warn }}><b className="font-semibold">{spots.length === 1 ? '1 order is' : `${spots.length} orders are`} waiting for a spot check. </b>Someone other than the packer scans {spots.length === 1 ? 'it' : 'each'} before it goes on the shelf.</p>

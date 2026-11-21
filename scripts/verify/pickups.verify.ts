@@ -109,11 +109,11 @@ const req = (body: any) => ({ json: async () => body, headers: { get: () => 'Bea
 
   console.log('the screen');
   const scr = src('src/components/orders/PickupsScreen.tsx');
-  check('every active order kept (shipping ones too, for the bag list and an order’s links); only the lists are pickups', /where\('stage', 'in', ACTIVE_STAGES\)/.test(scr) && !/\.filter\(isPickup\)\); setLoading/.test(scr) && /pickupLists\(orders, rs, now, shopZone\)/.test(scr) && /all=\{orders\}/.test(scr));
+  check('every active order kept (shipping ones too, for the bag list and an order’s links); only the lists are pickups', /where\('stage', 'in', ACTIVE_STAGES\)/.test(scr) && !/\.filter\(isPickup\)\); setLoading/.test(scr) && /pickupLists\((orders|listed), rs, now, shopZone\)/.test(scr) && /const listed = byStore && !everyStore \? orders\.filter\(\(o\) => atHere\(o, atStore\)\) : orders;/.test(scr) && /all=\{orders\}/.test(scr));
   check('the list it opens on is chosen once, with the first orders, then stays where the person put it', /if \(someoneHere \|\| !\(s as any\)\.metadata\?\.fromCache\) setTab\(\(t\) => t \?\? \(someoneHere \? 'here' : 'bag'\)\)/.test(scr) && /const shown: Tab = tab \?\? 'bag'/.test(scr) && !/setTab\(here\.length/.test(scr));
   check('an order that leaves the lists stays open, live', /onSnapshot\(doc\(fs, `tenants\/\$\{tenantId\}\/retailOrders`, openId\)/.test(scr));
   const alerts = src('src/components/orders/use-arrival-alerts.ts');
-  check('arrivals said and escalated after five minutes by one shared hook, here and on Orders', /useArrivalAlerts\(orders, now, tenantId,/.test(scr) && /useArrivalAlerts\(orders, now, tenantId,/.test(src('src/components/orders/OrdersApp.tsx'))
+  check('arrivals said and escalated after five minutes by one shared hook, here and on Orders', /useArrivalAlerts\((orders|listed), now, tenantId,/.test(scr) && /useArrivalAlerts\(orders, now, tenantId,/.test(src('src/components/orders/OrdersApp.tsx'))
     && /notifyCurbside\(tenantId, o\.id, 'staff_escalation'\)/.test(alerts) && /ESCALATE_AFTER_MIN = 5/.test(alerts) && !/staff_escalation/.test(src('src/components/orders/OrdersApp.tsx'))
     && /if \(!isArrival\(o\) \|\| escalated\.current\.has\(o\.id\)/.test(alerts) && /\(o\) => isHere\(o\) && isPickup\(o\)\);/.test(scr));
   check('handing over, bringing it out and telling the customer follow the role', /const canHand = perms\.canPack !== false/.test(scr) && (scr.match(/if \(!canHand\) \{ notYours\(\);/g) || []).length === 3);

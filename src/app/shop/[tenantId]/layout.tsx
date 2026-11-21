@@ -8,6 +8,7 @@ import { jsonLd } from '@/lib/json-ld';
 import { seoOrigin, shopFactsOf, shopJsonLd, type ShopFacts } from '@/lib/shop-discovery';
 import { brandOf, type ShopBrand } from '@/lib/shop-site';
 import { ShopFooter, ShopSiteProvider, type ShopSite } from '@/components/shop/ShopChrome';
+import { shopStoresOf } from '@/lib/shop-stores-server';
 
 // ─── /shop/[tenantId]/layout.tsx ──────────────────────────────────────────────
 // Every customer-facing page sits inside this, so a shop's brand is applied
@@ -42,7 +43,7 @@ async function loadShop(tenantId: string) {
   try {
     const db = getAdminDb();
     const snap = await db.collection('tenants').doc(tenantId).get();
-    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '' };
+    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '', stores: 0 };
     const data = snap.data() as any;
     const rs = data?.retailSettings || {};
     // The footer needs the shop's name and this read already has it — one
@@ -60,11 +61,13 @@ async function loadShop(tenantId: string) {
       // A paused or closed business (lib/tenant-access) takes no orders: the shop says so along its top (checkout refuses
       // too), and customers can still see and track the orders they've already placed.
       announcement: accessLockOf(data).locked ? CLOSED_FOR_CLIENTS : String(rs.shopAnnouncement || '').trim().slice(0, 300),
+      // With more than one store on the shop (lib/shop-stores-server): how many, for the Find a store link.
+      stores: (await shopStoresOf(db, tenantId).catch(() => ({ stores: [] as any[] }))).stores.length,
       address: data?.address && typeof data.address === 'object' ? [data.address.street || data.address.line1, data.address.city, data.address.state || data.address.region].filter(Boolean).join(', ') : '',
     };
   } catch {
     // A theme is decoration; never let it stop a shop from selling.
-    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '' };
+    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '', stores: 0 };
   }
 }
 
@@ -104,9 +107,9 @@ export default async function ShopLayout({
   params: Promise<{ tenantId: string }>;
 }) {
   const { tenantId } = await params;
-  const { theme, shopName, tagline, facts, origin, brand, announcement, address } = await loadShop(tenantId);
+  const { theme, shopName, tagline, facts, origin, brand, announcement, address, stores } = await loadShop(tenantId);
   const dark = theme.surface.replace('#', '').length >= 6 && (parseInt(theme.surface.slice(1, 3), 16) * 0.299 + parseInt(theme.surface.slice(3, 5), 16) * 0.587 + parseInt(theme.surface.slice(5, 7), 16) * 0.114) < 128;
-  const site: ShopSite = { tenantId, name: shopName || 'Shop', tagline, announcement, brand, layout: theme.site, dark, address };
+  const site: ShopSite = { tenantId, name: shopName || 'Shop', tagline, announcement, brand, layout: theme.site, dark, address, stores };
   const ld = facts && origin && shopName ? shopJsonLd(facts, origin) : [];
 
   return (

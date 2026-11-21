@@ -28,6 +28,7 @@ import { OrderWorkspace, type WorkTab } from './workspace/OrderWorkspace';
 import { HandoverSheet } from './HandoverSheet';
 import { HereCard } from './PickupsScreen';
 import { useArrivalAlerts } from './use-arrival-alerts';
+import { atHere } from '@/lib/business-locations';
 
 /** With more than one location, the one picked in the app (lib/here-server). */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -53,6 +54,7 @@ export function CurbsideScreen() {
   const [now, setNow] = React.useState(() => Date.now());
   const [openId, setOpenId] = React.useState<string | null>(null); const [focus, setFocus] = React.useState<{ tab: WorkTab; n: number } | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
+  const [here, setHere] = React.useState('');
   const [toast, setToast] = React.useState('');
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
   // The shop's orders, live (the team can read them).
@@ -66,7 +68,7 @@ export function CurbsideScreen() {
     try {
       const r = await fetch('/api/curbside', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'list', ...hereAsked() }) });
       const d = await r.json().catch(() => ({}));
-      if (d.ok) { setCafe(d.cafe || []); setCafeErr(''); setCafeOn(d.on === true || (d.cafe || []).length > 0); } else setCafeErr(d.error || 'Café orders didn’t load.');
+      if (d.ok) { setCafe(d.cafe || []); setHere(typeof d.here === 'string' ? d.here : ''); setCafeErr(''); setCafeOn(d.on === true || (d.cafe || []).length > 0); } else setCafeErr(d.error || 'Café orders didn’t load.');
     } catch { setCafeErr('No connection. Café orders will show again when it’s back.'); } finally { setCafeLoaded(true); }
   }, [tenantId]);
   React.useEffect(() => { void loadCafe(); }, [loadCafe]);
@@ -82,9 +84,13 @@ export function CurbsideScreen() {
     fresh.forEach((c) => saidCafe.current!.add(c.id)); feel(true);
     setToast(`${firstName(fresh[0].name) || 'A guest'} is outside${fresh[0].where ? `: ${fresh[0].where}` : ''}.`);
   }, [cafe, cafeLoaded]);
-  useArrivalAlerts(orders, now, tenantId, (o) => setToast(`${firstName(o.customerName)} is outside${o.curbside?.spotOrVehicle ? `: ${o.curbside.spotOrVehicle}` : ''}.`), (o) => isShopCurb(o) && (o?.stage === 'arrived' || !!o?.curbside?.arrivedAt));
+  // At one of several stores (lib/shop-stores-server): only this store's shop pickups (the location picked in the app, as
+  // the server checked it with the café's list: one since closed shows everything), and any from before there were stores.
+  const mine = React.useMemo(() => (here ? orders.filter((o) => atHere(o, here)) : orders), [orders, here]);
+  // (Arrivals are said once the store is known, never another store's in the first moment.)
+  useArrivalAlerts(cafeLoaded ? mine : [], now, tenantId, (o) => setToast(`${firstName(o.customerName)} is outside${o.curbside?.spotOrVehicle ? `: ${o.curbside.spotOrVehicle}` : ''}.`), (o) => isShopCurb(o) && (o?.stage === 'arrived' || !!o?.curbside?.arrivedAt));
 
-  const board = curbsideBoard(orders, cafe, now);
+  const board = curbsideBoard(mine, cafe, now);
   const byId = new Map(orders.map((o) => [o.id, o]));
   const [single, setSingle] = React.useState<any | null>(null);
   const inList = !!openId && byId.has(openId);

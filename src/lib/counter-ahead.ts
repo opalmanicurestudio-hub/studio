@@ -12,7 +12,7 @@
 //     {day}_{locationId}_{code}: each location's own, lib/business-locations dayKey)
 // An order's link is signed for that order (lib: aheadSig), like scan to pay's.
 import { geocode } from '@/lib/geocode-server';
-import { bizLocationsOf, forgetLocations, type BizLocation } from '@/lib/here-server';
+import { bizLocationsOf, type BizLocation } from '@/lib/here-server';
 import { atHere, dayKey } from '@/lib/business-locations';
 import { nearestFirst, openWords, pointOf, weekOf } from '@/lib/ahead-places';
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
@@ -31,7 +31,8 @@ import { menuAnswersOn } from '@/lib/klair-menu';
 import { cleanPicks } from '@/lib/menu-choices';
 import { pickupGeoOf } from '@/lib/pickup-geo';
 import { offerOf } from '@/lib/menu-upgrades';
-import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib/ahead-hours';
+import { asapOpen, hoursNow, insideHours, type HoursNow } from '@/lib/ahead-hours';
+import { aheadWeek } from '@/lib/ahead-hours-server';
 import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
@@ -97,19 +98,8 @@ export function pickupTimes(tenant: any, now = Date.now(), delayMin = 0, hours: 
  *  before it closes. */
 export const asapNow = (hours: HoursNow, now = Date.now()) => asapOpen(hours, now, FIRST_SLOT_MIN);
 
-/** The business's opening hours as they stand now (Settings → Opening hours; lib/ahead-hours), read at most once a minute
- *  per business. */
-const hoursCache = new Map<string, { at: number; week: Record<string, any> | null }>();
-/** The house week itself (null: no hours set), for today's times and the days ahead (lib/ahead-days). */
-export async function aheadWeek(db: any, tenantId: string, now = Date.now()): Promise<Record<string, any> | null> {
-  const c = hoursCache.get(tenantId);
-  if (c && now - c.at < 60000) return c.week;
-  const snap = await db.collection(`tenants/${tenantId}/scheduleProfiles`).get().catch(() => null);
-  // (Not readable just now: no limit this time, never a closed page because of a hiccup.)
-  const week = snap ? houseWeek(snap.docs.map((d: any) => d.data() || {})) : null;
-  if (snap) { hoursCache.set(tenantId, { at: now, week }); if (hoursCache.size > 500) hoursCache.delete(hoursCache.keys().next().value as string); }
-  return week;
-}
+/** The business's opening hours as they stand now (lib/ahead-hours-server, read at most once a minute per business). */
+export { aheadWeek };
 export async function aheadHours(db: any, tenantId: string, tenant: any, now = Date.now(), place: BizLocation | null = null): Promise<HoursNow> {
   // (At one of several locations: its own hours, or the business's. lib/ahead-places)
   return hoursNow(weekOf(place, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), now);
@@ -119,8 +109,7 @@ export async function aheadHours(db: any, tenantId: string, tenant: any, now = D
  *  (several and none of them: ordering ahead is off everywhere, never taken unplaced). None with one location. `fresh`
  *  reads them again rather than from the minute's copy (placing an order: one just turned off takes no more). */
 export async function aheadPlacesAll(db: any, tenantId: string, fresh = false): Promise<{ several: boolean; places: BizLocation[] }> {
-  if (fresh) forgetLocations(tenantId);
-  const all = await bizLocationsOf(db, tenantId);
+  const all = await bizLocationsOf(db, tenantId, Date.now(), fresh);
   return { several: all.length > 1, places: all.length > 1 ? all.filter((l) => l.ordering.ahead) : [] };
 }
 export async function aheadPlacesOf(db: any, tenantId: string): Promise<BizLocation[]> { return (await aheadPlacesAll(db, tenantId)).places; }
@@ -516,13 +505,20 @@ export async function deliveryQuote(db: any, tenantId: string, tenant: any, rawA
   const { several, places } = await aheadPlacesAll(db, tenantId);
   if (several && !places.length) return fail('Delivery isn’t on here right now. Pick it up instead.', 409, 'delivery_off');
   if (!places.length) return answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now }), null);
-  const can = places.filter((p) => p.ordering.delivery && p.coordinates);
-  if (!can.length) return fail('None of our locations deliver right now. Pick it up instead.', 409, 'delivery_off');
+  const deliverers = places.filter((p) => p.ordering.delivery);
+  const changed = () => fail('Where it would come from just changed. Check the address again.', 409, 'delivery_changed');
+  if (!deliverers.length) return hint ? changed() : fail('None of our locations deliver right now. Pick it up instead.', 409, 'delivery_off');
+  const can = deliverers.filter((p) => p.coordinates);
+  if (!can.length) {
+    // None located on the map yet (Settings, Locations): from the business's own starting point, as with one location.
+    const only = deliverers.length === 1 ? deliverers[0] : null;
+    if (hint && String(hint) !== only?.id) return changed();
+    return answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now }), only);
+  }
   // Placing the order: from the location the guest's check said (its signed distance kept), or they check again. A
   // location that stopped delivering, or no longer reaches them, is never swapped for another without them seeing it.
   if (hint) {
     const h = can.find((p) => p.id === String(hint));
-    const changed = () => fail('Where it would come from just changed. Check the address again.', 409, 'delivery_changed');
     if (!h) return changed();
     const r = answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now, origin: h.coordinates }), h);
     return r.ok || (r.code !== 'delivery_outside' && r.code !== 'delivery_off') ? r : changed();
@@ -601,7 +597,9 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     curb: or.ahead?.way === 'curbside' ? { where: or.ahead?.curb?.where || null, out: !!or.ahead?.curb?.outAt, by: or.ahead?.curb?.outBy || null,
       onWay: !!or.ahead?.curb?.onWayAt, eta: or.ahead?.curb?.etaMinutes ?? null, found: or.ahead?.curb?.source === 'geo' } : null,
     // Where pickups happen (lib/pickup-geo), for a curbside guest not here yet: how far away, and checking in once they pull in.
-    geo: or.ahead?.way === 'curbside' && !or.ahead?.hereAt && or.status !== 'done' ? await pickupGeoOf(db, tenantId, tenant) : null,
+    // (At one of several locations: that location, where it's been located.)
+    geo: or.ahead?.way === 'curbside' && !or.ahead?.hereAt && or.status !== 'done'
+      ? ((or.locationId ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === String(or.locationId))?.coordinates : null) || await pickupGeoOf(db, tenantId, tenant)) : null,
     // Points this order earned (never their balance: a page anyone with the link can open).
     earned: Math.max(0, Math.floor(num(or.points?.earned))), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points',
     // (With what was picked, so the page can put the same order together again: Order this again.)

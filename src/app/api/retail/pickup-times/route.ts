@@ -1,7 +1,8 @@
 // /api/retail/pickup-times — the pickup windows checkout offers (lib/pickup-slots-server): inside the shop's hours,
 // none on a closed day or while online pickup is paused, none that start before the order can be ready, and each
 // marked full once its orders reach what it can take. Read only when checkout asks, never on a plain shop visit.
-//   GET ?tenantId&ck=<this checkout's key>[&fresh=1] → { scheduled, windows: [{ key, label, day, full }], readyBy, reason }
+//   GET ?tenantId&ck=<this checkout's key>[&fresh=1][&at=<store>] → { scheduled, windows: [{ key, label, day, full }], readyBy, reason }
+// At one of several stores (`at`, lib/shop-stores-server): that store's windows, filling for it alone.
 // The checkout's key keeps its own earlier unpaid try from making a window look full to it; fresh skips the memory.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -27,13 +28,16 @@ export async function GET(req: NextRequest) {
     if (n > 30) return NextResponse.json({ error: 'Please wait a moment and try again.' }, { status: 429 });
     const ck = String(req.nextUrl.searchParams.get('ck') || '');
     const same = /^[A-Za-z0-9_-]{16,64}$/.test(ck) ? checkoutSlotHash(tenantId, ck) : '';
-    const memo = `${tenantId}|${same}`;
+    const at = String(req.nextUrl.searchParams.get('at') || '').slice(0, 80);
+    const memo = `${tenantId}|${same}|${at}`;
     const hit = recent.get(memo);
     if (hit && Date.now() - hit.at < 8000 && req.nextUrl.searchParams.get('fresh') !== '1') return NextResponse.json(hit.body, { headers: { 'Cache-Control': 'no-store' } });
     const db = getAdminDb();
     const t = await db.doc(`tenants/${tenantId}`).get();
     if (!t.exists) return NextResponse.json({ error: 'Shop not found.' }, { status: 404 });
-    const { view } = await shopPickup(db, tenantId, t.data(), Date.now(), same);
+    const { shopStoresOf, pickedStore, storeWeekOf } = await import('@/lib/shop-stores-server');
+    const store = at ? pickedStore((await shopStoresOf(db, tenantId)).stores, at) : null;
+    const { view } = await shopPickup(db, tenantId, t.data(), Date.now(), same, store && store.id === at ? { id: store.id, week: await storeWeekOf(db, tenantId, store) } : null);
     // How many places are left is the shop's business: the customer sees only whether a window is full.
     const body = { ...view, windows: view.windows.map((w) => ({ key: w.key, label: w.label, day: w.day, full: w.full })) };
     if (recent.size > 500) recent.clear();

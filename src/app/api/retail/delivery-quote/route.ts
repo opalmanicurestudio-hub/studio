@@ -4,7 +4,9 @@
 // "within N minutes" is on offer right now. The address is looked up on the map for this checkout only and not kept;
 // the answer carries a signed distance, so placing the order doesn't look it up again.
 //   POST { tenantId, address: { line1, line2?, city, state, postalCode }, itemsCents, ck?, token? }
-//     → { ok: true, miles, feeCents, free, freeOverCents, expressCents, minutes, asap, windows, dropoffNotes, token }
+//     → { ok: true, miles, feeCents, free, freeOverCents, expressCents, minutes, asap, windows, dropoffNotes, token, from }
+// With more than one store (lib/shop-stores-server): from the nearest store that delivers there (`from`: which), its fee
+// measured from that store; placing the order keeps that store, or asks for the address to be checked again.
 //     → { ok: false, reason, message, minimumCents? }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -41,14 +43,19 @@ export async function POST(req: NextRequest) {
     const ck = String(b.ck || '');
     const same = /^[A-Za-z0-9_-]{16,64}$/.test(ck) ? checkoutSlotHash(tenantId, ck) : '';
     const now = Date.now();
-    const v = await deliveryFor(db, tenantId, tenant, address, { itemsCents: Math.max(0, Math.floor(Number(b.itemsCents) || 0)), now, sameCheckout: same, token: b.token });
+    const opts = { itemsCents: Math.max(0, Math.floor(Number(b.itemsCents) || 0)), now, sameCheckout: same, token: b.token };
+    const { shopStoresOf, storeDelivery } = await import('@/lib/shop-stores-server');
+    const { several, stores } = await shopStoresOf(db, tenantId);
+    const sd = several ? await storeDelivery(db, tenantId, tenant, address, opts, stores) : null;
+    const v = sd ? sd.v : await deliveryFor(db, tenantId, tenant, address, opts);
+    const from = sd?.from ? { id: sd.from.id, name: sd.from.name } : null;
     if (!v.ok) return NextResponse.json({ ok: false, reason: v.reason, message: v.message, ...(v.minimumCents ? { minimumCents: v.minimumCents } : {}) }, { headers: { 'Cache-Control': 'no-store' } });
     return NextResponse.json({
       ok: true, miles: v.miles, feeCents: v.fee.feeCents, free: v.fee.free, freeOverCents: v.zone.freeOverCents, minimumCents: v.zone.minimumCents,
       expressCents: v.zone.expressCents, minutes: v.plan.asap.minutes,
       asap: v.asap.ok ? { ok: true, by: whenLabel(Date.parse(v.asap.byIso), v.tz, dayKey(new Date(now), v.tz)) } : { ok: false },
       windows: v.windows.map((w) => ({ key: w.key, label: w.label, day: w.day, full: w.full })),
-      dropoffNotes: v.plan.dropoffNotes, token: v.token,
+      dropoffNotes: v.plan.dropoffNotes, token: v.token, from,
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
     console.error('[delivery-quote]', String(e?.message || e).slice(0, 160));

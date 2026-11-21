@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pickupGeoOf } from '@/lib/pickup-geo';
+import { bizLocationsOf } from '@/lib/here-server';
+import { directionsTo } from '@/lib/shop-stores';
 import { EVERY_ITEM_OUT } from '@/lib/pack-changes';
 import { brandOf } from '@/lib/shop-site';
 import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
@@ -220,8 +222,10 @@ export async function GET(req: NextRequest) {
   //   3. the studio-wide pin used by the timeclock.
   // Absent from all three, the geofence simply never fires and the "I'm
   // here" button still works — which is the existing, deliberate behaviour.
-  // Where pickups happen (lib/pickup-geo): for the on-the-way minutes and checking in once they pull in.
-  const pickupGeo = await pickupGeoOf(db, tenantId, tenantSnap.exists ? tenantSnap.data() : {});
+  // Where pickups happen (lib/pickup-geo): for the on-the-way minutes and checking in once they pull in. (At one of
+  // several stores, lib/shop-stores-server: that store, where it's been located.)
+  const storePin = order.pickupStore?.id ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === String(order.pickupStore.id))?.coordinates || null : null;
+  const pickupGeo = storePin || await pickupGeoOf(db, tenantId, tenantSnap.exists ? tenantSnap.data() : {});
 
   /* Updates from the shop (lib/order-inbox): everything we'd once have emailed, kept here in full. */
   let updates: any[] = [];
@@ -337,6 +341,9 @@ export async function GET(req: NextRequest) {
       stage: order.stage,
       method: order.method,
       pickupAt: order.pickupAt || '',
+      // The store it's picked up at, with more than one (lib/shop-stores-server), and directions there.
+      pickupStore: order.pickupStore?.id ? { name: String(order.pickupStore.name || '').slice(0, 80), address: order.pickupStore.address ? String(order.pickupStore.address).slice(0, 300) : null,
+        directions: order.pickupStore.address ? directionsTo(String(order.pickupStore.address)) : null } : null,
       // Ordered from the line at a pop-up (lib/popup): the number it's called by, and where.
       popup: Number(order.popupNumber) > 0 ? { number: Number(order.popupNumber), name: String(order.popupName || '').slice(0, 60), called: !!order.popupCalledAt } : null,
       tipCents: order.tipCents || 0,
