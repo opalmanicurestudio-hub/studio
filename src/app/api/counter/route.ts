@@ -33,6 +33,12 @@
 //                                                      none; the board, the window and the bag call them by it
 //   readyText { tenantId, key, orderId, phone | null } → a counter or kiosk order: one text to the guest when it's all
 //                                                      ready, if they asked (lib/ready-text); null: don't text
+//   appStart { tenantId, carKey }                    → the counter: a new order from a delivery app (lib/app-orders-server)
+//   appSend  { tenantId, orderId, app, code, courierIn } → to the kitchen to go with the app's code, ready for the courier,
+//                                                      with a spot on the pickup shelf; paid on the app (in the books when
+//                                                      it's handed to the courier: move gone)
+//   appCancel { tenantId, orderId, pin? }            → cancelled on the app before it was picked up: voided (a manager's
+//                                                      okay once the kitchen started on it)
 //   car    { tenantId, key, carKey, inLine?, looks?, lane? } → a new car (taken in line before the speaker: never greeted at the
 //                                                      speaker or shown on its board; told apart by how it looks)
 //   looks  { tenantId, key, carId, looks }          → how a car looks ("Red SUV"), or none
@@ -107,6 +113,8 @@ import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
+import { appOrdersOf } from '@/lib/app-orders';
+import { appSend, appCancel } from '@/lib/app-orders-server';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 
@@ -135,7 +143,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appStart', 'appSend', 'appCancel'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -160,7 +168,7 @@ export async function POST(req: NextRequest) {
     const tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'appCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -169,7 +177,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -208,6 +216,8 @@ export async function POST(req: NextRequest) {
           paidAt: o.paidAt || null, payMethod: o.payMethod || null, paidVia: o.paidAt ? (o.paidVia || null) : null, sentAt: o.sentAt || null, dueAt: o.dueAt || null,
           // To go (sent so: lib/plate-extras), and a staff meal (settled with no money: lib/counter-server staffMeal).
           toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
+          // A delivery app's order (lib/app-orders): which app, its code, its spot on the shelf, and when the courier is due.
+          app: o.app ? { state: String(o.app.state || 'taking'), label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null } : null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
           card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
@@ -277,6 +287,8 @@ export async function POST(req: NextRequest) {
         // Hot food going out with the business's own drivers today (lib/food-delivery-server), at the counter.
         deliveries: channel === 'counter' && foodDeliveryOf(tenant).on ? await deliveriesToday(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
         drivers: channel === 'counter' && foodDeliveryOf(tenant).on ? await foodDrivers(db, tenantId, tenant, now.getTime()).catch(() => []) : [],
+        // The delivery apps it takes orders from (lib/app-orders), for the counter's App order.
+        apps: channel === 'counter' && appOrdersOf(tenant).on ? appOrdersOf(tenant).apps : [],
         aheadOn: aheadOf(tenant).on, pointsOn: pointsOn(tenant), rewardsCodes: pointsOn(tenant) && codesOn(),
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
@@ -373,8 +385,8 @@ export async function POST(req: NextRequest) {
       const orders = oSnaps.filter((x: any) => x?.exists).map((x: any) => ({ id: x.id, ...(x.data() || {}) })).filter(onReadyBoard);
       const r = readyBoardOf(orders, live, now.getTime());
       const body = { business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Your order' },
-        making: r.making.slice(0, MAX_MAKING).map((x) => ({ number: x.number, name: x.name })), more: Math.max(0, r.making.length - MAX_MAKING),
-        ready: r.ready.slice(0, MAX_READY).map((x) => ({ number: x.number, name: x.name })), moreReady: Math.max(0, r.ready.length - MAX_READY) };
+        making: r.making.slice(0, MAX_MAKING).map((x) => ({ number: x.number, name: x.name, ...(x.app ? { app: x.app, shelf: x.shelf || null } : {}) })), more: Math.max(0, r.making.length - MAX_MAKING),
+        ready: r.ready.slice(0, MAX_READY).map((x) => ({ number: x.number, name: x.name, ...(x.app ? { app: x.app, shelf: x.shelf || null } : {}) })), moreReady: Math.max(0, r.ready.length - MAX_READY) };
       readyCache.set(tenantId, { at: now.getTime(), body }); if (readyCache.size > 500) readyCache.delete(readyCache.keys().next().value as string);
       return ok({ ...body, now: nowIso });
     }
@@ -518,6 +530,34 @@ export async function POST(req: NextRequest) {
       if (r.ok && !r.already) await stopCarCall(db, tenantId, String(b.carId || ''), 'car moved on');
       return r.ok ? ok({ number: r.number, already: !!r.already, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
+    // A delivery app's order (lib/app-orders-server): rung in at the counter, sent with the app's code, cancelled on the app.
+    if (action === 'appStart' || action === 'appSend' || action === 'appCancel') {
+      if (channel !== 'counter') return bad('App orders are rung in at the counter.', 409);
+      if (action === 'appStart') {
+        if (!appOrdersOf(tenant).on) return bad('Delivery app orders aren’t on. A manager turns them on in the Menu page’s settings.', 409);
+        const c = await createCar(db, tenantId, tenant, b.carKey, who, { channel, app: true }); forgetStats(tenantId); return ok({ ...c, staffOk });
+      }
+      const id = String(b.orderId || '');
+      // Cancelled once the kitchen started on it throws food out with no sale, so a manager okays that, as any void: one
+      // signed in or working here, or their PIN typed here. Before then, anyone at the counter.
+      let approver: { id: string | null; name: string } | null = null;
+      if (action === 'appCancel') {
+        const m = await managerFor(db, tenantId, staff, b.pin);
+        if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+        approver = m.approver;
+      }
+      const r: any = action === 'appSend' ? await appSend(db, tenantId, tenant, id, { app: b.app, code: b.code, courierIn: b.courierIn }, who) : await appCancel(db, tenantId, id, who, { manager: !!approver });
+      if (!r.ok) return r.needsManager ? NextResponse.json({ ok: false, needsManager: true, error: r.error, staffOk }, { status: 403 }) : bad(r.error, r.status);
+      forgetStats(tenantId);
+      if (action === 'appCancel' && !r.already) {
+        const okayed = approver && r.wasted && approver.id !== who.id ? `${approver.name} okayed it at ${by}’s counter. ` : '';
+        await logAuditAdmin(db, tenantId, { action: 'counter.app_cancelled', targetType: 'order', targetId: id,
+          summary: `${by} took off ${r.name}: cancelled on ${r.label}. ${okayed}${r.wasted ? `Made already, so wasted: ${r.wasted}. ` : ''}${r.returned ? `Put back: ${r.returned}.` : ''}`.trim(),
+          actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
+      }
+      return ok({ ...r, ...(approver && r.wasted ? { approvedBy: approver.name } : {}), staffOk });
+    }
+
     if (action === 'car') { const c = await createCar(db, tenantId, tenant, b.carKey, who, { inLine: channel === 'drive-thru' && b.inLine === true, looks: channel === 'drive-thru' ? cleanLooks(b.looks) : null, channel,
       // (Its lane, with two that merge: the speaker's own, or the lane screen's button.)
       lane: lanesOf(tenant) === 2 ? cleanLane(b.lane) : null }); forgetStats(tenantId); forgetLine(tenantId); return ok({ ...c, staffOk }); }
@@ -625,6 +665,17 @@ export async function POST(req: NextRequest) {
       const carId = String(b.carId || ''); const to = String(b.to || '') as Stage;
       if (!ID.test(carId) || !STAGES.includes(to) || to === 'speaker') return bad('Where to?');
       const carRef = db.doc(`${T}/driveThruCars/${carId}`);
+      // A delivery app's order handed to its courier (lib/app-orders): in the books first, as the app's sale (no tax
+      // added, nothing in the drawer), then handed over as any order is.
+      if (to === 'gone') {
+        const c0: any = (await carRef.get()).data();
+        const o0: any = c0 && ID.test(String(c0.orderId || '')) ? (await db.doc(`${T}/counterOrders/${c0.orderId}`).get()).data() : null;
+        if (o0?.app?.code && o0.status === 'sent' && !o0.paidAt) {
+          const p: any = await payOrder(db, tenantId, String(c0.orderId), { method: 'app', by, byId: staff?.id || null, day: todayIn(tz, now) });
+          if (!p.ok) return bad(p.error, p.status);
+          await db.doc(`${T}/counterOrders/${c0.orderId}`).set({ app: { state: 'picked', pickedAt: nowIso, pickedBy: by } }, { merge: true });
+        }
+      }
       const r: any = await db.runTransaction(async (tx: any) => {
         const car: any = (await tx.get(carRef)).data(); if (!car) return { error: 'That car isn’t in the lane.', status: 404 };
         const order: any = car.orderId ? (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data() : null;
@@ -637,7 +688,7 @@ export async function POST(req: NextRequest) {
         // Only ever forward (a tap on an old screen never puts a car back, or spoils its times).
         if (STAGES.indexOf(to) <= STAGES.indexOf(car.stage)) return { already: true };
         if (to === 'gone' && order && order.status !== 'building' && !order.paidAt) return { error: 'Take payment first. If they drove off, void the order.', status: 409 };
-        if ((to === 'pickup' || to === 'forward') && order && !order.paidAt) return { error: 'Take payment first.', status: 409 };
+        if ((to === 'pickup' || to === 'forward') && order && !order.paidAt && !order.app?.code) return { error: 'Take payment first.', status: 409 };
         // A spot is one of the business's own numbered spots (Menu page), and free; or none at all.
         const asked = to === 'forward' && b.spot !== undefined && b.spot !== null && String(b.spot) !== '' ? String(b.spot) : null;
         if (asked !== null && !(/^[1-8]$/.test(asked) && Number(asked) <= spotsOf(tenant))) return { error: 'That spot isn’t there anymore. Pick another.', status: 409 };
@@ -743,6 +794,8 @@ export async function POST(req: NextRequest) {
         if (o.status !== 'building') return { error: 'That order has gone to the kitchen. If they drove off, void it.', status: 409 };
         // (A number left for a ready text goes with it: lib/ready-text.)
         tx.set(orderRef, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: by, ...(o.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
+        // (A delivery app's code taken for it, if its send didn't finish: free again.)
+        if (o.app?.claimId && ID.test(String(o.app.claimId))) tx.delete(db.doc(`${T}/private/${o.app.claimId}`));
         // (One with an order placed ahead going with it carries on to pickup with that, instead of leaving.)
         const carriedOn = !!car && car.stage !== 'gone' && car.orderId === orderId && ID.test(String(car.aheadId || ''));
         if (carriedOn) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), carryOn(car, nowIso), { merge: true });
@@ -758,15 +811,9 @@ export async function POST(req: NextRequest) {
       // A staff meal: settled with no money, for a named member of the team (lib/counter-server staffMeal). It writes the
       // order off as a void does, so a manager rings it in: signed in or working here as one, or with their PIN typed here
       // (checked with the same lockout as any PIN, lib/pin).
-      let approver: { id: string; name: string } | null = staff && await isManager(db, tenantId, staff.id) ? staff : null;
-      if (!approver && b.pin !== undefined && b.pin !== null && b.pin !== '') {
-        const pin = String(b.pin); if (!validPin(pin)) return bad('Enter a 4-digit PIN.');
-        const ticket = await beginPinAttempt(db, tenantId); if (ticket === null) return bad('Too many wrong PINs. Wait 15 minutes, or ask a manager.', 423);
-        const hit = await findStaffByPin(db, tenantId, pin); await endPinAttempt(db, tenantId, ticket, !!hit);
-        if (!hit) return bad('That PIN isn’t right.', 403);
-        if (!(await isManager(db, tenantId, hit.id))) return NextResponse.json({ ok: false, needsManager: true, error: 'That isn’t a manager’s PIN.', staffOk }, { status: 403 });
-        approver = { id: hit.id, name: String(hit.name || 'A manager').slice(0, 60) };
-      }
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      const approver = m.approver;
       if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager rings in a staff meal. Their PIN, or ask one to.', staffOk }, { status: 403 });
       const r: any = await staffMeal(db, tenantId, orderId, b.for, who, approver);
       if (r.error) return bad(r.error, r.status);
@@ -821,6 +868,20 @@ export async function POST(req: NextRequest) {
     console.error('[counter] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);
   }
+}
+
+/** A manager okays it: one signed in or working here, or their PIN typed on this screen (checked with the same lockout
+ *  as any PIN, lib/pin). No PIN typed and no manager here: approver null, for the step to ask. */
+async function managerFor(db: any, tenantId: string, staff: { id: string; name: string } | null, pinIn: unknown):
+  Promise<{ approver: { id: string; name: string } | null; error?: string; status?: number; notManager?: boolean }> {
+  if (staff && await isManager(db, tenantId, staff.id)) return { approver: staff };
+  if (pinIn === undefined || pinIn === null || pinIn === '') return { approver: null };
+  const pin = String(pinIn); if (!validPin(pin)) return { approver: null, error: 'Enter a 4-digit PIN.', status: 400 };
+  const ticket = await beginPinAttempt(db, tenantId); if (ticket === null) return { approver: null, error: 'Too many wrong PINs. Wait 15 minutes, or ask a manager.', status: 423 };
+  const hit = await findStaffByPin(db, tenantId, pin); await endPinAttempt(db, tenantId, ticket, !!hit);
+  if (!hit) return { approver: null, error: 'That PIN isn’t right.', status: 403 };
+  if (!(await isManager(db, tenantId, hit.id))) return { approver: null, error: 'That isn’t a manager’s PIN.', notManager: true };
+  return { approver: { id: hit.id, name: String(hit.name || 'A manager').slice(0, 60) } };
 }
 
 /** Someone a manager here (their own team record says so). */

@@ -23,7 +23,27 @@ import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/compon
 import { Deliveries, type DeliveryRow, type FoodDriver } from '@/components/drive-thru/Deliveries';
 import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { outWords } from '@/lib/menu-stock';
+import { courierLate } from '@/lib/app-orders';
 import type { MenuItem } from '@/lib/menu-server';
+
+/** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
+function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
+  const [app, setApp] = useState(apps.length === 1 ? apps[0].code : ''); const [code, setCode] = useState(''); const [inMin, setInMin] = useState<number | null>(null);
+  const clean = code.replace(/\s+/g, '').replace(/^#/, '').toUpperCase(); const okCode = /^[A-Z0-9-]{2,12}$/.test(clean);
+  const seg = (on: boolean) => (on ? dark : quiet);
+  return (
+    <div className="space-y-3">
+      <div role="radiogroup" aria-labelledby="app-which"><p id="app-which" className="text-[13.5px] font-semibold">Which app</p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">{apps.map((a) => <button key={a.code} type="button" role="radio" aria-checked={app === a.code} onClick={() => setApp(a.code)} className={`${btn} flex-1 whitespace-nowrap px-3`} style={seg(app === a.code)}>{a.label}</button>)}</div></div>
+      <label className="block text-[13.5px] font-semibold">Order code on the app
+        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().slice(0, 14))} placeholder="Like 4F2A" autoComplete="off" autoCapitalize="characters" className={`mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal ${RING}`} style={{ borderColor: LINE }} /></label>
+      <div role="radiogroup" aria-labelledby="app-courier"><p id="app-courier" className="text-[13.5px] font-semibold">Courier gets here</p>
+        <div className="mt-1.5 grid grid-cols-4 gap-1.5">{[0, 10, 20, 30].map((m) => <button key={m} type="button" role="radio" aria-checked={inMin === m} onClick={() => setInMin(m)} className={`${btn} whitespace-nowrap px-1 text-[14px]`} style={seg(inMin === m)}>{m ? `${m} min` : 'Now'}</button>)}</div></div>
+      <button type="button" disabled={busy || empty || !app || !okCode || inMin === null} onClick={() => onSend({ app, code: clean, courierIn: inMin as number })} className={`${btn} min-h-[52px] w-full text-[15.5px]`} style={dark}>Send to the kitchen, paid on the app</button>
+      <p className="text-[13px]" style={{ color: MUTED }}>{empty ? 'Add what they ordered from the menu first.' : !app ? 'Pick the app it came from.' : !okCode ? 'Type the order code the app shows.' : inMin === null ? 'Pick when the courier gets here.' : 'It goes in the books when the courier picks it up.'}</p>
+    </div>);
+}
+const clockOf = (iso: string) => { try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
 const GREEN_TINT = '#ecf6f0', AMBER_TINT = '#fff7ed';
@@ -45,12 +65,16 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
    *  paid; a reward used, and the items' own total beside it. */
   points?: { phone: string | null; earned: number; verified?: boolean } | null; reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   /** The text the guest asked for when it's ready (lib/ready-text): the last four digits, and whether it went. */
-  text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null };
+  text?: { last4: string; sent: boolean; failed: boolean; sentAt: string | null } | null;
+  /** A delivery app's order (lib/app-orders): which app, its code, its spot on the pickup shelf, when the courier is due. */
+  app?: { state: string; label: string | null; code: string | null; shelf: string | null; courierAt: string | null } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Today's hot food deliveries by the business's own drivers (lib/food-delivery-server), when delivery is on. */
-  deliveries?: DeliveryRow[]; drivers?: FoodDriver[] };
+  deliveries?: DeliveryRow[]; drivers?: FoodDriver[];
+  /** The delivery apps it takes orders from (lib/app-orders), for App order. */
+  apps?: { code: string; label: string }[] };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -118,6 +142,7 @@ export default function CounterPage() {
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
+  const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
 
@@ -162,6 +187,17 @@ export default function CounterPage() {
       else if (!onFail?.(d) && d.error) setNotice({ text: d.error, tone: 'warn' });
     } catch { setNotice({ text: 'No connection. Try again.', tone: 'warn' }); }
     finally { acted.current++; setBusy(null); void load(); }
+  };
+  // A delivery app's order (lib/app-orders): rung in from the menu like any, then sent with the app's code.
+  const appStart = () => act('appStart', { action: 'appStart', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
+  // Cancelled on the app: asked once more first; once the kitchen started on it, a manager's PIN (unless one is signed in).
+  const appCancelDone = (d: any) => { setAppOff(null); setAppPin(null); setNotice({ text: `${d.name} was taken off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${d.returned ? ' What the kitchen hadn’t started went back.' : ''}`, tone: 'good' }); };
+  const appCancel = (o: Order) => act(`appCancel-${o.id}`, { action: 'appCancel', orderId: o.id }, appCancelDone, (d) => { if (!d.needsManager) return false; setAppPin(o); return true; });
+  const appPinCheck = async (pin: string) => {
+    if (!appPin) return { ok: false as const, error: 'Pick the order again.' };
+    const d = await post({ action: 'appCancel', orderId: appPin.id, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    appCancelDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
   };
   const nextGuest = () => act('car', { action: 'car', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
@@ -221,7 +257,10 @@ export default function CounterPage() {
           {lane?.daypart && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>{lane.daypart.name} until {lane.daypart.until}</span>}
           {lane?.happyHour && <span className="rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>Happy hour until {lane.happyHour.until}</span>}
         </div>
-        <button type="button" disabled={busy === 'car'} onClick={nextGuest} className={`${btn} px-5`} style={dark}>Next guest</button>
+        <div className="flex flex-wrap gap-2">
+          {(lane?.apps || []).length > 0 && <button type="button" disabled={busy === 'appStart'} onClick={appStart} className={`${btn} px-5`} style={quiet}>App order</button>}
+          <button type="button" disabled={busy === 'car'} onClick={nextGuest} className={`${btn} px-5`} style={dark}>Next guest</button>
+        </div>
       </div>
       {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
       <p role="status" aria-live="polite" className={notice ? 'rounded-2xl px-4 py-3 text-[14.5px]' : 'sr-only'} style={notice ? (notice.tone === 'good' ? { background: GREEN_TINT, color: GREEN } : { background: AMBER_TINT, color: AMBER }) : undefined}>{notice?.text || ''}</p>
@@ -250,11 +289,11 @@ export default function CounterPage() {
 
         <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl p-4 lg:sticky lg:top-4 lg:self-start" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           {!order ? <div className="space-y-3 py-6 text-center"><p className="text-[15px] font-semibold">No guest ordering</p><p className="text-[14px]" style={{ color: MUTED }}>Tap Next guest to start an order. It gets a counter number, like C14, for calling it out.</p></div> : <>
-            <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}{order.status !== 'building' && order.toGo ? <span className="ml-2 text-[14px] font-medium" style={{ color: MUTED }}>To go</span> : null}</h2>
+            <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}{order.app ? <span className="ml-2 rounded-full px-2.5 py-1 align-middle text-[12.5px] font-semibold" style={{ background: SOFT }}>App order</span> : order.status !== 'building' && order.toGo ? <span className="ml-2 text-[14px] font-medium" style={{ color: MUTED }}>To go</span> : null}</h2>
               {order.status === 'building' && <button type="button" onClick={cancel} disabled={!!busy} className={`${btn} px-3 text-[13.5px]`} style={{ color: MUTED }}>Drop it</button>}</div>
-            <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>First name, for calling it out
+            <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>{order.app ? 'Name on the app order' : 'First name, for calling it out'}
               <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Optional" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[15px] font-normal outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
-            {lane?.settings?.texts && (order.text
+            {lane?.settings?.texts && !order.app && (order.text
               ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-1.5 text-[14px]" style={{ background: SOFT }} role="status">
                   <span style={order.text.failed ? { color: AMBER } : undefined}>{!order.text.sent ? `Texts ···${order.text.last4} when it’s ready.` : order.text.failed ? `The text to ···${order.text.last4} may not have gone. Call it out.` : `Texted ···${order.text.last4} that it’s ready.`}</span>
                   {!order.text.sent && <button type="button" onClick={dropText} disabled={!!busy} className={btn} style={{ color: MUTED }}>Don’t text</button>}</div>
@@ -275,7 +314,7 @@ export default function CounterPage() {
                 </li>))}</ul>}
             {order.status === 'building' && <OfferAsk just={just} orderId={order.id} item={menu.find((m) => m.id === just?.itemId)} find={(id) => menu.find((m) => m.id === id && !m.off && !outWords(m))}
               have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} />}
-            {lane?.pointsOn && !order.staffMeal && <div className="border-t pt-2" style={{ borderColor: LINE }}>
+            {lane?.pointsOn && !order.staffMeal && !order.app && <div className="border-t pt-2" style={{ borderColor: LINE }}>
               <RewardsRow order={order} member={member} codes={!!lane.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)} />
               {memberErr && order.points?.verified && member?.orderId !== order.id && <p className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--warn-ink)' }} role="status">Their rewards didn’t load.
                 <button type="button" onClick={() => setMemberTry((n) => n + 1)} className={`min-h-[44px] rounded-lg px-1 font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Try again</button></p>}</div>}
@@ -283,10 +322,12 @@ export default function CounterPage() {
               {order.reward && <>
                 <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order.itemsTotal || 0)}</span></div>
                 <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div></>}
-              <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{usd(order.tax)}</span></div>
-              <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.total)}</span></div>
+              <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{order.app ? 'The app collects it' : usd(order.tax)}</span></div>
+              <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.app ? order.subtotal : order.total)}</span></div>
             </div>
-            {order.status === 'building' ? <>
+            {order.status === 'building' && order.app ? <AppSend apps={lane?.apps || []} busy={!!busy} empty={!order.lines.length} onSend={(v) => { saveName(); void act('appSend', { action: 'appSend', orderId: order.id, ...v },
+                (d) => setNotice({ text: `${d.name} is with the kitchen${d.shelf ? `, for shelf ${d.shelf}` : ''}. It waits for the courier.`, tone: 'good' })); }} />
+            : order.status === 'building' ? <>
               {lane?.askToGo && <div role="radiogroup" aria-label="For here or to go" className="grid grid-cols-2 gap-1 rounded-xl p-1" style={{ background: SOFT }}>
                 {[{ v: false, label: 'For here' }, { v: true, label: 'To go' }].map((x) => <button key={x.label} type="button" role="radio" aria-checked={toGo === x.v} onClick={() => setToGo(x.v)} className={`min-h-[44px] rounded-lg text-[14.5px] font-semibold ${RING}`} style={toGo === x.v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(22,23,26,0.08)' } : { color: MUTED }}>{x.label}</button>)}
               </div>}
@@ -334,16 +375,33 @@ export default function CounterPage() {
             const o = g.orderId ? lane?.orders[g.orderId] : undefined; const ready = !!o && (o.kitchen === 'ready' || (o.ticketCount === 0 && o.status !== 'building'));
             return (
               <li key={g.id} className="flex flex-col gap-2 rounded-2xl p-3" style={{ background: ready && !g.calledAt ? GREEN_TINT : SOFT }}>
-                <div><p className="text-[19px] font-semibold">{g.number}{o?.guestName ? ` ${o.guestName}` : ''}{o?.staffMeal || o?.toGo ? <span className="ml-2 text-[13.5px] font-medium" style={{ color: MUTED }}>{o.staffMeal ? 'Staff meal' : 'To go'}</span> : null}</p>
+                {o?.app?.code ? <div>
+                  <p className="text-[19px] font-semibold">{o.app.label} {o.app.code}</p>
+                  <p className="text-[13px]" style={{ color: ready ? GREEN : MUTED }}>{ready ? `Ready${o.app.shelf ? ` on shelf ${o.app.shelf}` : ', at the counter'}.` : `Making: ${(o.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}.${o.app.shelf ? ` Shelf ${o.app.shelf}.` : ''}`}{o.guestName ? ` ${o.guestName}` : ''}</p>
+                  {o.app.courierAt && (courierLate(o.app.courierAt, now)
+                    ? <p className="text-[13px] font-medium" style={{ color: AMBER }}>The courier was due {clockOf(o.app.courierAt)}. Check the app: picked up, or cancelled?</p>
+                    : <p className="text-[13px]" style={{ color: MUTED }}>Courier about {clockOf(o.app.courierAt)}</p>)}
+                </div> : <div><p className="text-[19px] font-semibold">{g.number}{o?.guestName ? ` ${o.guestName}` : ''}{o?.staffMeal || o?.toGo ? <span className="ml-2 text-[13.5px] font-medium" style={{ color: MUTED }}>{o.staffMeal ? 'Staff meal' : 'To go'}</span> : null}</p>
                   <p className="text-[13px]" style={{ color: ready && !g.calledAt ? GREEN : MUTED }}>{g.calledAt ? `Called ${minsAgo(g.calledAt, now)}` : ready ? 'Ready' : `Making: ${(o?.waitingOn || []).map((w) => (w.quantity > 1 ? `${w.quantity} ${w.name}` : w.name)).join(', ') || 'with the kitchen'}`}</p>
-                  {o?.text && <p className="text-[13px]" style={{ color: o.text.failed ? AMBER : MUTED }}>{!o.text.sent ? `Gets a text when it’s ready (···${o.text.last4})` : o.text.failed ? 'The text may not have gone' : `Texted${o.text.sentAt ? ` ${minsAgo(o.text.sentAt, now)}` : ''}`}</p>}</div>
-                {ready && (g.calledAt
+                  {o?.text && <p className="text-[13px]" style={{ color: o.text.failed ? AMBER : MUTED }}>{!o.text.sent ? `Gets a text when it’s ready (···${o.text.last4})` : o.text.failed ? 'The text may not have gone' : `Texted${o.text.sentAt ? ` ${minsAgo(o.text.sentAt, now)}` : ''}`}</p>}</div>}
+                {o?.app?.code ? <>
+                  {ready && <button type="button" onClick={() => void act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${o.app!.label} ${o.app!.code} was picked up.`, tone: 'good' }))} disabled={busy === `gone-${g.id}`} className={`${btn} w-full`} style={dark}>Picked up by the courier</button>}
+                  {appOff === o.id ? <div className="space-y-2 rounded-xl p-2.5" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+                    <p className="text-[13.5px]">Cancelled on {o.app.label}? It comes off the shelf, and anything already made is thrown out.</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => void appCancel(o)} disabled={!!busy} className={`${btn} flex-1 px-3 text-[14px]`} style={{ background: '#fff', color: 'var(--bad-ink)', border: '1px solid var(--bad-ink)' }}>Yes, it’s cancelled</button>
+                      <button type="button" onClick={() => setAppOff(null)} className={`${btn} px-3 text-[14px]`} style={quiet}>Keep it</button>
+                    </div>
+                  </div>
+                    : <button type="button" onClick={() => setAppOff(o.id)} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Cancelled on the app</button>}
+                </> : ready && (g.calledAt
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
                   : <button type="button" onClick={() => call(g, o)} disabled={busy === `call-${g.id}`} className={`${btn} w-full`} style={dark}>Call {o?.guestName || g.number}</button>)}
               </li>
             ); })}</ul>}
       </section>
     </main>
+    {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
       onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

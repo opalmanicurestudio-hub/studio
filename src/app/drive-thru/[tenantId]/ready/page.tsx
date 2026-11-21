@@ -13,7 +13,8 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', TILE = '#24262b';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
 const POLL_MS = 3000, STALE_MS = 30000;
-type Row = { number: string; name: string | null };
+/** `app`/`shelf`: a delivery app's order, by the app and its code, with its spot on the pickup shelf. */
+type Row = { number: string; name: string | null; app?: string | null; shelf?: string | null };
 type Board = { business: { name: string }; making: Row[]; more: number; ready: Row[]; moreReady: number };
 const keyName = (t: string) => `cf.drivethru.ready.${t}`;
 const namesName = (t: string) => `cf.drivethru.ready.names.${t}`;
@@ -85,8 +86,8 @@ export default function ReadyBoardScreen() {
               <>
               <ul className={`mt-[1.5vh] ${twoCols ? 'grid grid-cols-2 gap-x-[2vw]' : ''}`}>
                 {making.map((r) => (
-                  <li key={r.number} className={`flex min-w-0 items-baseline gap-[1.5vw] py-[1.2vh] ${twoCols ? 'text-[clamp(18px,2vw,34px)]' : 'text-[clamp(20px,2.4vw,40px)]'}`} style={{ borderTop: `1px solid ${RULE}` }}>
-                    <span className="min-w-[4.5ch] font-semibold tabular-nums">{r.number}</span>{who(r) && <span className="truncate">{who(r)}</span>}
+                  <li key={`${r.app || ""}${r.number}`} className={`flex min-w-0 items-baseline gap-[1.5vw] py-[1.2vh] ${twoCols ? 'text-[clamp(18px,2vw,34px)]' : 'text-[clamp(20px,2.4vw,40px)]'}`} style={{ borderTop: `1px solid ${RULE}` }}>
+                    <span className="min-w-[4.5ch] font-semibold tabular-nums">{r.app ? `${r.app} ${r.number}` : r.number}</span>{who(r) && <span className="truncate">{who(r)}</span>}
                   </li>))}
               </ul>
               {moreMaking > 0 && <p className="py-[1.2vh] text-[clamp(16px,2vw,30px)]" style={{ borderTop: `1px solid ${RULE}`, color: SUB }}>and {moreMaking} more</p>}
@@ -98,9 +99,12 @@ export default function ReadyBoardScreen() {
               <>
               <ul className={`mt-[1.5vh] ${readyCols ? 'grid grid-cols-2 gap-[1.4vh_1.4vw]' : 'space-y-[1.4vh]'}`} aria-live="polite">
                 {readyNow.map((r) => (
-                  <li key={r.number} className="flex min-w-0 items-baseline justify-between gap-[2vw] rounded-[clamp(14px,2vh,28px)] px-[2vw] py-[1.6vh]" style={{ background: TILE }}>
-                    <span className={`${readyCols ? 'text-[clamp(28px,3.6vw,60px)]' : 'text-[clamp(34px,5vw,84px)]'} font-semibold leading-none tabular-nums`} style={{ color: GREEN_ON_DARK }}>{r.number}</span>
-                    {who(r) && <span className={`truncate ${readyCols ? 'text-[clamp(18px,2vw,34px)]' : 'text-[clamp(22px,2.8vw,48px)]'} font-semibold`}>{who(r)}</span>}
+                  <li key={`${r.app || ""}${r.number}`} className="flex min-w-0 items-baseline justify-between gap-[2vw] rounded-[clamp(14px,2vh,28px)] px-[2vw] py-[1.6vh]" style={{ background: TILE }}>
+                    <span className="min-w-0">
+                      {r.app && <span className={`block ${readyCols ? 'text-[clamp(14px,1.5vw,24px)]' : 'text-[clamp(16px,1.9vw,30px)]'} font-semibold`} style={{ color: SUB }}>{r.app}</span>}
+                      <span className={`${readyCols ? 'text-[clamp(28px,3.6vw,60px)]' : 'text-[clamp(34px,5vw,84px)]'} font-semibold leading-none tabular-nums`} style={{ color: GREEN_ON_DARK }}>{r.number}</span>
+                    </span>
+                    {(r.shelf || who(r)) && <span className={`truncate text-right ${readyCols ? 'text-[clamp(18px,2vw,34px)]' : 'text-[clamp(22px,2.8vw,48px)]'} font-semibold`}>{r.shelf ? `Shelf ${r.shelf}` : who(r)}</span>}
                   </li>))}
               </ul>
               {moreReady > 0 && <p className="mt-[1.4vh] text-[clamp(16px,2vw,30px)]" style={{ color: SUB }}>and {moreReady} more ready</p>}

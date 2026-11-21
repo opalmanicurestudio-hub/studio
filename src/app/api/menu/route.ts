@@ -61,6 +61,7 @@ import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/c
 import { lanesOf } from '@/lib/drive-lanes';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf, DRIVE_MAX_CHOICES } from '@/lib/food-delivery';
+import { appOrdersOf, cleanAppName, SHELF_CHOICES } from '@/lib/app-orders';
 import { deliveryFrom, deliveryProblems } from '@/lib/delivery-plan';
 import { hasMapsKey } from '@/lib/geocode-server';
 import { hasTimeZone } from '@/lib/tenant-time';
@@ -100,6 +101,11 @@ const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').tr
 const serviceOf = (t: any) => ({ pace: paceSettingsOf(t), recovery: recoverySettingsOf(t), courses: coursesOf(t), stations: stationsOf(t), compAllowanceCents: compAllowanceCents(t), compReasons: compReasonsOf(t), askAllergies: askAllergiesOf(t), finishTogether: finishTogetherOn(t), tablePay: tablePayOf(t), nudges: nudgeSettingsOf(t) });
 
 /** What the Menu page shows of ordering ahead: the settings, the guests' link, and whether payments are connected. */
+/** Delivery app orders, as the Menu page shows them (lib/app-orders). */
+const APP_CODES = ['doordash', 'ubereats', 'grubhub', 'other'];
+const appSettings = (t: any) => { const a = t?.appOrders || {}; const v = appOrdersOf(t);
+  return { on: a.on === true, apps: Array.isArray(a.apps) ? a.apps.filter((x: any) => APP_CODES.includes(String(x))) : [], otherName: cleanAppName(a.otherName) || '', shelves: v.shelves }; };
+
 /** The business's delivery is set up and on (zones, fees, days, the time zone), so food can go out with its drivers. */
 const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings); return plan.on && hasTimeZone(t) && !deliveryProblems(plan, { mapsReady: hasMapsKey() }).length; };
 
@@ -119,10 +125,10 @@ export async function POST(req: NextRequest) {
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
     const SET_ACTIONS = ['sets', 'setSave', 'setRemove', 'setApply', 'setOff', 'setFrom'];
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -157,7 +163,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -216,6 +222,21 @@ export async function POST(req: NextRequest) {
     }
 
     // Ordering ahead (lib/counter-ahead): on or off, how guests can pick up, and how far ahead they can order.
+    // Delivery app orders (lib/app-orders): on, which apps (and another by name), and the spots on the pickup shelf.
+    if (action === 'apps') {
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const patch: any = {};
+      if (typeof b.on === 'boolean') patch.on = b.on;
+      if (b.apps !== undefined) { if (!Array.isArray(b.apps) || b.apps.some((x: any) => !APP_CODES.includes(String(x)))) return bad('Pick the apps from the list.'); patch.apps = Array.from(new Set(b.apps.map(String))); }
+      if (b.otherName !== undefined) patch.otherName = cleanAppName(b.otherName) || null;
+      if (b.shelves !== undefined) { const n = Number(b.shelves); if (!(SHELF_CHOICES as readonly number[]).includes(n)) return bad('Pick how many spots the shelf has.'); patch.shelves = n; }
+      const next = { ...(t.appOrders || {}), ...patch };
+      if ((next.apps || []).includes('other') && !cleanAppName(next.otherName)) return bad('Type the other app’s name.');
+      if (next.on === true && !appOrdersOf({ appOrders: { ...next, on: true } }).apps.length) return bad('Pick at least one app first.');
+      await db.doc(`tenants/${tenantId}`).set({ appOrders: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
+      return ok({ apps: appSettings({ ...t, appOrders: next }) });
+    }
+
     if (action === 'ahead') {
       const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
       const cur = t.orderAhead || {};

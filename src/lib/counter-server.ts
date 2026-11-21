@@ -4,6 +4,7 @@
 // counter-orders), the order sent to the kitchen (one ticket a line, due by the lane's target, stock and recipe parts
 // taken once), an order paid (cash, a card machine of the business's own, or the card reader at the window, lib/
 // counter-card), and an order voided when a car drives off without paying.
+import { appName } from '@/lib/app-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
 import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, carryOn, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
@@ -74,7 +75,7 @@ export async function setOrderName(db: any, tenantId: string, orderId: string, n
 /** A car at the speaker: the day's next number ("B42") and an empty order. The same carKey sent twice is the same car. */
 /** A car in the lane, with its empty order. `inLine`: taken by someone walking the line before the speaker (the speaker
  *  never greets it, and the order board by the speaker never shows it), told apart by how it looks. */
-export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel; lane?: 1 | 2 | null } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
+export async function createCar(db: any, tenantId: string, tenant: any, carKey: unknown, who: Who, opts: { inLine?: boolean; looks?: string | null; channel?: Channel; lane?: 1 | 2 | null; app?: boolean } = {}): Promise<{ carId: string; orderId: string; number: string; already?: boolean }> {
   // A guest at the counter is the same kind of place in line as a car (ordering, paying, waiting, handed over), numbered
   // as a counter order ("C14").
   const channel: Channel = opts.channel === 'counter' ? 'counter' : 'drive-thru';
@@ -91,7 +92,9 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     const n = Math.floor(num(c[channel])) + 1;
     const number = orderNumber(channel, n);
     tx.set(counterRef, { [channel]: n, day }, { merge: true });
-    tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day });
+    tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day,
+      // A delivery app's order being rung in at the counter (lib/app-orders): which app and its code come when it's sent.
+      ...(opts.app && channel === 'counter' ? { app: { state: 'taking' } } : {}) });
     tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel,
       ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}),
       // The ordering lane it pulled up to, with two that merge (lib/drive-lanes); never for one taken in line.
@@ -296,7 +299,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: also ? partName(dish, also.part) : dish, quantity: l.quantity,
         choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
-        guestName: who2, stationName: `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
+        guestName: who2, stationName: o.app?.code ? `${appName(o.app)}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}` : `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}) });
     });
     const why = `${CHANNEL_NAME[channel]} order ${o.number}`;
@@ -386,7 +389,7 @@ export async function staffMeal(db: any, tenantId: string, orderId: string, forN
 /** A sent order that won't be paid (the car drove off): voided by a manager, with the reason kept. The car leaves the
  *  lane, the kitchen stops on it, and what the kitchen hadn't started goes back on the shelf (the item and its recipe
  *  parts); anything already started or made is kept as waste on the order. Never once it's paid (that's a refund). */
-export async function voidOrder(db: any, tenantId: string, orderId: string, reason: string, who: Who): Promise<{ ok: true; returned: number; wasted: number; already?: boolean } | Fail> {
+export async function voidOrder(db: any, tenantId: string, orderId: string, reason: string, who: Who, opts: { nothingMade?: boolean } = {}): Promise<{ ok: true; returned: number; wasted: number; already?: boolean } | (Fail & { code?: string })> {
   const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
@@ -425,6 +428,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       if (mine.every(untouched)) { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); }
       else { wasted += l.quantity; if (ID.test(String(l.itemId || ''))) wastedItems[l.itemId] = (wastedItems[l.itemId] || 0) + l.quantity; }
     }
+    // (Only while the kitchen hasn't started on any of it, when asked: a delivery app's order cancelled without a manager.)
+    if (opts.nothingMade && wasted > 0) return { error: 'The kitchen started on it, so a manager okays this.', status: 403, code: 'made' };
     const why = `Voided ${CHANNEL_NAME[o.channel as Channel] || ''} order ${o.number}: ${reason}`.replace(/\s+/g, ' ');
     const log = (id: string, d: any, delta: number) => tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'returned', delta, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
     if (o.stockTaken && typeof o.stockTaken === 'object') {
@@ -502,7 +507,10 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }
     // A number left for a ready text (lib/ready-text) goes with it.
-    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}), ...(o.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
+    tx.set(orderRef, { status: 'voided', voidedAt: nowIso, voidedBy: who.name, voidedById: who.id, voidReason: reason, returnedQty: returned, wastedQty: wasted, ...(wasted ? { wastedItems } : {}), ...(o.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}),
+      // A delivery app's order (lib/app-orders): off the pickup shelf, and its code free to go in again today.
+      ...(o.app?.code ? { app: { state: 'cancelled', cancelledAt: nowIso, cancelledBy: who.name } } : {}) }, { merge: true });
+    if (o.app?.code && ID.test(String(o.app.claimId || ''))) tx.delete(db.doc(`${T}/private/${o.app.claimId}`));
     // A reward held for it (never used: it wasn't paid) goes back to them.
     if (o.reward) { tx.delete(db.doc(`${T}/loyaltyLedger/redeem_counter_${orderId}`)); gaveBack = String(o.clientId || '') || null; }
     // (A car with an order placed ahead going with it carries on to pickup with that: it was paid for.)
@@ -515,7 +523,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   return res;
 }
 
-export type PayHow = { method: 'card' | 'cash'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string };
+export type PayHow = { method: 'card' | 'cash' | 'app'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string };
 export type PayDone = { ok: true; already?: boolean; drawer?: boolean; pouch?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null };
 
 /** Paid at the window: the sale and its tax in the books, cash into the one open drawer (with what was handed over and
@@ -556,10 +564,14 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     const total = num(o.total), subtotal = num(o.subtotal), tax = num(o.tax);
     if (viaReader && Math.round(how.card!.cents) !== Math.round(total * 100)) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
     if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
+    // Paid through a delivery app (lib/app-orders): only an app's order, and only once it's sent.
+    if (method === 'app' && !o.app?.code) return { error: 'Only a delivery app’s order is paid on the app.', status: 409 };
+    if (method !== 'app' && o.app?.code) return { error: `${appName(o.app)} is paid on the app. Hand it to the courier.`, status: 409 };
     const saleRef = db.doc(`${T}/transactions/counter_${orderId}`); const taxRef = db.doc(`${T}/transactions/counter_${orderId}_tax`);
-    const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
-      ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}) };
-    tx.set(saleRef, { id: saleRef.id, ...common, description: `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
+    const viaApp = method === 'app';
+    const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
+      ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}), ...(viaApp ? { appName: String(o.app.label || ''), appOrderCode: String(o.app.code || '') } : {}) };
+    tx.set(saleRef, { id: saleRef.id, ...common, description: viaApp ? `${appName(o.app)} (paid out by the app, less its fees)` : `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: subtotal });
     if (tax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: tax, hasReceipt: false });
     // A delivery's fee (lib/food-delivery): on its own line, what the guest paid for delivery, never food sales.
     const fee = num(o.deliveryFee);

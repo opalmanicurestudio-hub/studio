@@ -23,6 +23,7 @@ import { PrepRecipes, type PrepRow } from '@/components/menu/PrepRecipes';
 import { DEFAULT_TARGET } from '@/lib/food-cost';
 import type { ChoiceChange } from '@/lib/choice-recipe';
 import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAheadCard';
+import { AppOrdersCard, type AppSettings } from '@/components/menu/AppOrdersCard';
 import { LaneEntrySettings, type SensorRow, type EarlyMode } from '@/components/menu/LaneEntrySettings';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
 import { MenuTimesCard } from '@/components/menu/MenuTimesCard';
@@ -91,6 +92,7 @@ export default function MenuPage() {
   // applies only then.
   const [aheadThere, setAheadThere] = useState(true);
   const [ahead, setAhead] = useState<AheadSettings | null>(null);
+  const [apps, setApps] = useState<AppSettings | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
   // New item: on the menu and in Inventory in one step (components/menu/NewItemSheet), its editor opening next.
   const [adding, setAdding] = useState(false);
@@ -108,7 +110,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -210,6 +212,7 @@ export default function MenuPage() {
         {canEdit && tab === 'settings' && <div id="menu-settings" role="tabpanel" aria-labelledby="tab-settings" className="space-y-5">
           <p className="text-[14.5px]" style={{ color: MUTED }}>How the menu is ordered from and made: ordering ahead, menus by time of day, table service, service times and prep recipes.</p>
         {canEdit && ahead && <div id="order-ahead" className="scroll-mt-6"><OrderAheadCard start={ahead} call={call} /></div>}
+        {canEdit && apps && <div id="delivery-apps" className="scroll-mt-6"><AppOrdersCard start={apps} call={call} /></div>}
         {canEdit && times && <div id="menu-times" className="scroll-mt-6"><MenuTimesCard start={times} onSave={async (next) => { const d = await call({ action: 'times', ...next }); if (d.ok) { setTimes({ dayparts: d.dayparts, happyHour: d.happyHour }); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && service && <div id="table-service" className="scroll-mt-6"><TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && targets && (

@@ -3,10 +3,12 @@
 // Counter and kiosk orders, and orders placed ahead to pick up inside (one for later shows only once the kitchen starts
 // it). The drive-thru's cars have their own window screens, and curbside orders are taken out to the car, so neither is on
 // it. Ready means every part of it is (each station's tickets, lib/two-stations), until it's handed over: at the counter
-// (the order done) or marked picked up on the kitchen screen (every ticket delivered). Never items or prices.
+// (the order done) or marked picked up on the kitchen screen (every ticket delivered). Never items or prices. A delivery
+// app's order shows by the app and its code ("DoorDash 4F2A") and its spot on the pickup shelf, for its courier.
 import { cleanName } from '@/lib/counter-server';
 
-export type BoardOrder = { number: string; name: string | null };
+/** `app`/`shelf`: a delivery app's order (lib/app-orders), shown by the app's own code and its spot on the pickup shelf. */
+export type BoardOrder = { number: string; name: string | null; app?: string | null; shelf?: string | null };
 export type ReadyBoard = { making: (BoardOrder & { since: string })[]; ready: (BoardOrder & { at: string })[] };
 export const MAX_MAKING = 24, MAX_READY = 12;
 /** The kitchen tickets that can put an order on the board (the board starts from these, never a whole day's orders). */
@@ -40,7 +42,8 @@ export function readyBoardOf(orders: { id: string; [k: string]: any }[], tickets
     const held = (t: any) => t.status === 'unfired' || (t.status === 'pending' && t.holdUntil && Date.parse(String(t.holdUntil)) > now);
     if (mine.every(held)) continue;
     if (mine.every((t) => t.status === 'delivered')) continue;
-    const row = { number: String(o.number || ''), name: firstName(o.guestName) };
+    // (A delivery app's order by the app and its code, and its spot on the pickup shelf, so its courier finds it.)
+    const row: BoardOrder = o.app?.code ? { number: String(o.app.code), name: firstName(o.guestName), app: String(o.app.label || '') || null, shelf: o.app.shelf ? String(o.app.shelf) : null } : { number: String(o.number || ''), name: firstName(o.guestName) };
     if (mine.some((t) => t.status === 'pending' || t.status === 'in_progress' || t.status === 'unfired')) {
       const since = String(o.sentAt || o.createdAt || '');
       if (now - (Date.parse(since) || now) <= MAKING_HOURS * 3600000) making.push({ ...row, since });
