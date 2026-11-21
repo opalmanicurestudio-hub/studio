@@ -42,6 +42,8 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
+import { bizLocationsOf, forgetLocations } from '@/lib/here-server';
+import { cleanWeek } from '@/lib/ahead-places';
 import { smsConfigured } from '@/lib/sms';
 import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
 import { cleanSlotItems, SLOT_ITEMS_MAX, SLOT_ITEMS_MIN } from '@/lib/ahead-slots';
@@ -112,6 +114,12 @@ const appSettings = (t: any) => { const a = t?.appOrders || {}; const v = appOrd
 /** The business's delivery is set up and on (zones, fees, days, the time zone), so food can go out with its drivers. */
 const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings); return plan.on && hasTimeZone(t) && !deliveryProblems(plan, { mapsReady: hasMapsKey() }).length; };
 
+/** With more than one location (lib/ahead-places): each one's ordering ahead, delivery, hours and its own link. */
+async function withPlaces(db: any, tenantId: string, a: any) {
+  const locs = await bizLocationsOf(db, tenantId);
+  return locs.length > 1 ? { ...a, places: locs.map((l) => ({ id: l.id, name: l.name, address: l.address, ahead: l.ordering.ahead, delivery: l.ordering.delivery, hours: l.ordering.hours, pinned: !!l.coordinates, link: `${a.link}?place=${encodeURIComponent(l.id)}` })) } : a;
+}
+
 function aheadSettings(t: any, tenantId: string, origin: string | null) {
   const a = t.orderAhead || {}; const A = aheadOf(t);
   // Delivery by the business's own drivers (lib/food-delivery): on, the longest drive for hot food, and whether its
@@ -130,10 +138,10 @@ export async function POST(req: NextRequest) {
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
     const SET_ACTIONS = ['sets', 'setSave', 'setRemove', 'setApply', 'setOff', 'setFrom'];
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -168,7 +176,7 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: aheadSettings(td, tenantId, req.nextUrl?.origin || null), apps: appSettings(td),
+      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null)), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -284,7 +292,24 @@ export async function POST(req: NextRequest) {
       if (next.driveThru === false && next.inside === false && next.curbside !== true && next.delivery !== true) return bad('Keep at least one way to pick up.');
       if (patch.on === true && !accountOf(t)) return bad('Connect payments first: orders placed ahead are paid when they’re placed.', 409);
       await db.doc(`tenants/${tenantId}`).set({ orderAhead: { ...patch, updatedAt: new Date().toISOString(), updatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
-      return ok({ ahead: aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null) });
+      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings({ ...t, orderAhead: next }, tenantId, req.nextUrl?.origin || null)) });
+    }
+    if (action === 'aheadPlace') {
+      // One location's ordering ahead (lib/ahead-places): on or off there, delivering from there or not, and its own
+      // hours (null: the business's). A manager's, kept on the location itself.
+      const id = String(b.id || ''); const loc = (await bizLocationsOf(db, tenantId)).find((l) => l.id === id);
+      if (!loc) return bad('Pick one of your locations.', 404);
+      const patch: any = {};
+      if (typeof b.ahead === 'boolean') patch.aheadOff = !b.ahead;
+      if (typeof b.delivery === 'boolean') patch.deliveryOff = !b.delivery;
+      if (b.hours !== undefined) { if (b.hours === null) patch.hours = null; else { const w = cleanWeek(b.hours); if (!w) return bad('Check the hours: each day open or closed, with its opening and closing times.'); patch.hours = w; } }
+      if (!Object.keys(patch).length) return bad('Nothing to change.');
+      // (Each field replaced whole, in one write: its hours as a whole, so a day left out is closed, never kept from before.)
+      const fields: any = { updatedAt: new Date().toISOString() }; for (const [k, v] of Object.entries(patch)) fields[`ordering.${k}`] = v;
+      await db.doc(`tenants/${tenantId}/locations/${id}`).update(fields);
+      forgetLocations(tenantId);
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      return ok({ ahead: await withPlaces(db, tenantId, aheadSettings(t, tenantId, req.nextUrl?.origin || null)) });
     }
 
     // Menus by time of day and happy hour (lib/menu-time): the windows; each item says which it's in, and its price then.

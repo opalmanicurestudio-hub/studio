@@ -1,6 +1,7 @@
 // src/app/api/counter/ahead/route.ts — ORDERING AHEAD, the guest's side (public). lib/counter-ahead.
-//   menu  { tenantId }                                  → on or off, how they can pick up, the times, the menu
-//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe?, address?, note?, deliveryToken?, day?, people? } → the
+//   menu  { tenantId, place? }                          → on or off, how they can pick up, the times, the menu; with more
+//                                                         than one location, the locations (pick: true until one is picked)
+//   place { tenantId, key, lines, name, way, at, phone?, join?, textMe?, address?, note?, deliveryToken?, day?, people?, place? } → the
 //                                                         order (not paid yet) and the secure form's key for its payment;
 //                                                         `day`: for another day (lib/ahead-days), with how many people
 //   deliveryCheck { tenantId, address, lines, token?, later? } → delivered by the business's drivers (lib/food-delivery):
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     // A paused or closed business takes no new orders (an order already paid can still be followed and picked up).
     if (action === 'menu' || action === 'place' || action === 'deliveryCheck') { const closed = closedReply(tenant); if (closed) return closed; }
     if (action === 'menu') {
-      const r = await aheadMenu(db, tenantId, tenant);
+      const r = await aheadMenu(db, tenantId, tenant, { at: b.place });
       // Apple Pay and Google Pay on this page: the business's address registered, if it isn't yet (never waits long).
       if (r.on) await ensureWalletDomainsSoon(db, tenantId, tenant, null, 1500);
       return reply(r);

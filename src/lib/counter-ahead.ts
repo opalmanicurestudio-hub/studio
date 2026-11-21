@@ -8,8 +8,13 @@
 // that shows how it's going.
 //   tenants/{t}/counterOrders/{id}.ahead = { state: 'awaiting_pay' | 'paid' | 'canceled' | 'abandoned', way: 'drive-thru' |
 //     'inside', at (wanted time, null: as soon as it's ready), code, payId, cents, hereAt?, carId?, failed? }
-//   tenants/{t}/aheadCodes/{day}_{code} = { orderId }   (one code, one order, per day)
+//   tenants/{t}/aheadCodes/{day}_{code} = { orderId }   (one code, one order, per day; with more than one location,
+//     {day}_{locationId}_{code}: each location's own, lib/business-locations dayKey)
 // An order's link is signed for that order (lib: aheadSig), like scan to pay's.
+import { geocode } from '@/lib/geocode-server';
+import { bizLocationsOf, forgetLocations, type BizLocation } from '@/lib/here-server';
+import { atHere, dayKey } from '@/lib/business-locations';
+import { nearestFirst, openWords, pointOf, weekOf } from '@/lib/ahead-places';
 import { createHash, createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { lineFor, totalsOf, orderNumber, photoOf, carryOn, type OrderLine } from '@/lib/counter-orders';
@@ -105,8 +110,26 @@ export async function aheadWeek(db: any, tenantId: string, now = Date.now()): Pr
   if (snap) { hoursCache.set(tenantId, { at: now, week }); if (hoursCache.size > 500) hoursCache.delete(hoursCache.keys().next().value as string); }
   return week;
 }
-export async function aheadHours(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<HoursNow> {
-  return hoursNow(await aheadWeek(db, tenantId, now), tenantTimeZone(tenant), now);
+export async function aheadHours(db: any, tenantId: string, tenant: any, now = Date.now(), place: BizLocation | null = null): Promise<HoursNow> {
+  // (At one of several locations: its own hours, or the business's. lib/ahead-places)
+  return hoursNow(weekOf(place, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), now);
+}
+
+/** With more than one location (lib/ahead-places): whether there are several, and the ones guests can order ahead from
+ *  (several and none of them: ordering ahead is off everywhere, never taken unplaced). None with one location. `fresh`
+ *  reads them again rather than from the minute's copy (placing an order: one just turned off takes no more). */
+export async function aheadPlacesAll(db: any, tenantId: string, fresh = false): Promise<{ several: boolean; places: BizLocation[] }> {
+  if (fresh) forgetLocations(tenantId);
+  const all = await bizLocationsOf(db, tenantId);
+  return { several: all.length > 1, places: all.length > 1 ? all.filter((l) => l.ordering.ahead) : [] };
+}
+export async function aheadPlacesOf(db: any, tenantId: string): Promise<BizLocation[]> { return (await aheadPlacesAll(db, tenantId)).places; }
+/** The location asked for, if it takes orders ahead; with only one that does, that one (nothing to pick). */
+const pickedOf = (places: BizLocation[], want: unknown) => places.find((p) => p.id === String(want || '')) || (places.length === 1 ? places[0] : null);
+/** The picker's list: each location, open now and until when, or when it opens next. */
+async function placeList(db: any, tenantId: string, tenant: any, places: BizLocation[], now: number) {
+  const house = await aheadWeek(db, tenantId, now); const tz = tenantTimeZone(tenant);
+  return places.map((p) => ({ id: p.id, name: p.name, address: p.address, lat: p.coordinates?.lat ?? null, lng: p.coordinates?.lng ?? null, delivers: p.ordering.delivery, ...openWords(weekOf(p, house), tz, now) }));
 }
 
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
@@ -136,10 +159,17 @@ async function dayOrders(db: any, tenantId: string, tenant: any, now: number): P
 /** The guest's menu: on or off, how they can pick up, the times, and the items by section. The menu itself is read at
  *  most every 15 seconds per business, however many guests open the page. */
 const menuCache = new Map<string, { at: number; menu: MenuItem[] }>();
-export async function aheadMenu(db: any, tenantId: string, tenant: any) {
+export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?: unknown } = {}) {
   const A = aheadOf(tenant);
   const business = String(tenant?.name || tenant?.businessName || '').slice(0, 80) || 'Order ahead';
   if (!A.on) return { ok: true as const, on: false, business, ways: [] as AheadWay[], times: [] as string[], sections: [] as any[] };
+  // With more than one location (lib/ahead-places): which one, picked first (nearest first on the page); its own hours,
+  // its own pickup times.
+  const { several, places } = await aheadPlacesAll(db, tenantId);
+  if (several && !places.length) return { ok: true as const, on: false, business, ways: [] as AheadWay[], times: [] as string[], sections: [] as any[] };
+  const place = pickedOf(places, o.at);
+  const placeRows = places.length ? await placeList(db, tenantId, tenant, places, Date.now()) : [];
+  if (places.length && !place) return { ok: true as const, on: true, pick: true, business, places: placeRows, ways: A.ways, times: [] as string[], sections: [] as any[], timeZone: tenantTimeZone(tenant) };
   const c = menuCache.get(tenantId); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
   else { all = await readMenu(db, tenantId); menuCache.set(tenantId, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
@@ -155,7 +185,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   const busy = pace.level === 'calm' ? null : { minutes: pace.behindMin };
   // Pickup times that fill (lib/ahead-slots): the times with no room left, fewer items a time when the kitchen is busy.
   // Only while it's open (lib/ahead-hours): before opening, times from then; closed for the day, when it opens next.
-  const now = Date.now(); const week = await aheadWeek(db, tenantId, now); const hours = hoursNow(week, tenantTimeZone(tenant), now); const times = pickupTimes(tenant, now, pickupDelayMin(pace), hours);
+  const now = Date.now(); const week = weekOf(place, await aheadWeek(db, tenantId, now)); const hours = hoursNow(week, tenantTimeZone(tenant), now); const times = pickupTimes(tenant, now, pickupDelayMin(pace), hours);
   // Orders for another day (lib/ahead-days), when they're taken: the days and their times, how it can be had (never the
   // drive-thru), the smallest order and the notice (the guest can cancel until it runs out).
   const D = anotherDayOf(tenant); const laterWays = A.ways.filter((w) => w !== 'drive-thru');
@@ -168,7 +198,8 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
   const lateToday = !!today && now >= today.open && !asap && !times.length;
   const cap = slotCap(A.slotItems, pace.level as PaceLevel);
   let full: string[] = []; let asapFull = false;
-  if (cap !== null) { const used = itemsBySlot(await dayOrders(db, tenantId, tenant, now), now); full = fullTimes(times, used, cap); asapFull = (used.get(asapSlot(now, pickupDelayMin(pace))) || 0) >= cap; }
+  // (Each location's own kitchen: only its orders fill its pickup times.)
+  if (cap !== null) { const used = itemsBySlot((await dayOrders(db, tenantId, tenant, now)).filter((x: any) => atHere(x, place?.id)), now); full = fullTimes(times, used, cap); asapFull = (used.get(asapSlot(now, pickupDelayMin(pace))) || 0) >= cap; }
   // Klair answering menu questions (lib/klair-menu), when the business turns it on.
   const K = klairSettings(tenant); const klair = menuAnswersOn(tenant, K.on) ? { name: K.name } : null;
   return { ok: true as const, on: payments, business, ways: A.ways, times, full, asapFull, filling: cap !== null && pace.level !== 'calm', busy, klair, sections, timeZone: tenantTimeZone(tenant),
@@ -176,6 +207,8 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
     // it opens next; with no opening hours set, always as soon as it's ready and no limit.
     // (Too near closing today: lateToday, said as too late rather than closed.)
     asap, opens, closes, nextOpen, closedNow: hours.set && !asap && !times.length, lateToday, later,
+    // The location it's from, and the others to change to (lib/ahead-places).
+    place: place ? { id: place.id, name: place.name, address: place.address } : null, places: placeRows,
     // (Joining is always asked on this page: a number typed here could be anyone's, so no one is added without saying yes.)
     points: L.on ? { unit: L.earn?.mode === 'punch' ? 'punches' : 'points', askJoin: true } : null,
     // "Text me when it's ready", where the business can text (lib/ready-text).
@@ -184,7 +217,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown; allergy?: unknown; day?: unknown; people?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown; allergy?: unknown; day?: unknown; people?: unknown; place?: unknown; deliveryFrom?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -193,6 +226,12 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const name = cleanName(b.name); if (!name) return fail('What name should we put on the order?', 400, 'name');
   const way = String(b.way || '') as AheadWay; if (!A.ways.includes(way)) return fail('How will you pick it up?', 400, 'way');
   const now = o.now ?? Date.now();
+  // With more than one location (lib/ahead-places): the one picked (a delivery goes from the nearest that delivers there).
+  // (Read fresh: a location just turned off takes no more orders.)
+  const { several, places } = await aheadPlacesAll(db, tenantId, true);
+  if (several && !places.length) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
+  const picked = pickedOf(places, b.place);
+  if (places.length && !picked) return fail('Pick where you’re ordering from.', 400, 'place');
   // For another day (lib/ahead-days): a day and a time it's open, from the notice on and up to how far ahead it takes
   // them, inside or delivered (never the drive-thru), with how many people when they say.
   const L = anotherDayOf(tenant); const forDay = b.day ? String(b.day) : null;
@@ -202,7 +241,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (people === undefined) return fail('How many people: 1 to 500, or leave it empty.', 400, 'people');
   let at: string | null = null;
   if (forDay) {
-    if (!b.at || !laterOk(L, await aheadWeek(db, tenantId, now), tenantTimeZone(tenant), forDay, String(b.at), now)) return fail('Pick the day and time again.', 400, 'at');
+    if (!b.at || !laterOk(L, weekOf(picked, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), forDay, String(b.at), now)) return fail('Pick the day and time again.', 400, 'at');
     at = new Date(Date.parse(String(b.at))).toISOString();
   } else if (b.at) {
     const t = Date.parse(String(b.at)); const times = pickupTimes(tenant, now).map((x) => Date.parse(x));
@@ -251,12 +290,14 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   if (forDay && phone.length !== 10) return fail('Add your phone number, so we can reach you about your order.', 400, 'phone');
   // Delivered (lib/food-delivery): the address checked against the delivery zones again (the fee worked out here, never
   // taken from the page), and no farther than hot food goes. The fee is its own line, with no tax on it.
-  let deliv: any = null;
+  let deliv: any = null; let from: BizLocation | null = null;
   if (way === 'delivery') {
     // (A phone number, so the driver can reach them at the door: kept with the delivery, for the team only.)
     if (phone.length !== 10) return fail('Add your phone number so the driver can reach you.', 400, 'phone');
-    const r = await deliveryQuote(db, tenantId, tenant, b.address, centsOf(totalsOf(tenant, lines).subtotal), b.deliveryToken, now);
+    // (From where the guest's address check said, so the fee and the drive are the ones they saw: lib/ahead-places.)
+    const r = await deliveryQuote(db, tenantId, tenant, b.address, centsOf(totalsOf(tenant, lines).subtotal), b.deliveryToken, now, picked, b.deliveryFrom ?? null);
     if (!r.ok) return r;
+    from = r.from;
     deliv = { address: r.address, note: cleanNote(b.note), phone, feeCents: r.feeCents, miles: r.miles, driveMin: r.driveMin, zone: r.zone, state: 'waiting' };
   }
   // The driver's tip (a delivery only): worked out here from the food, never taken from the page.
@@ -267,7 +308,10 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents, tipCents, feeTax) : totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   if (forDay && L.minCents !== null && centsOf(totalsOf(tenant, lines).subtotal) < L.minCents) return fail(`Orders for another day start at $${(L.minCents / 100).toFixed(2)} before tax.`, 400, 'too_small');
-  // Its day: today, or the day it's for (its pickup code and number are that day's).
+  // Where it's made: the location picked, or for a delivery, the one it goes from (with one location, none).
+  const ep: BizLocation | null = from || picked;
+  if (forDay && ep && ep !== picked && !laterOk(L, weekOf(ep, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), forDay, String(at), now)) return fail(`It would come from ${ep.name}, which isn’t open then. Pick the day and time again.`, 400, 'at');
+  // Its day: today, or the day it's for (its pickup code and number are that day's, at its location).
   const day = forDay || todayIn(tenantTimeZone(tenant), new Date(now));
   // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room
   // in it is checked in the same step the order is made, so two guests can't both take the last of it.
@@ -280,7 +324,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   // name or item), it's a new order, never the old one paid for.
   // The guest's allergies (lib/order-allergy): on every ticket.
   const allergy = cleanOrderAllergy(b.allergy);
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.note || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}), ...(allergy ? { allergy } : {}), ...(forDay ? { day: forDay, people } : {}) });
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '', l.note || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}), ...(allergy ? { allergy } : {}), ...(forDay ? { day: forDay, people } : {}), ...(ep ? { place: ep.id } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // (The same order asked again, its answer lost, is still found as it was: never refused by what changed since.)
@@ -296,7 +340,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (load && !drivableTimes([slot], deliv.driveMin, load.onShift, load.trips).ok.length) return fail(at ? 'Our drivers are all out then. Pick a later time.' : 'Our drivers are all out right now. Pick a later time.', 409, 'no_driver');
   }
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
-  const hours = await aheadHours(db, tenantId, tenant, now);
+  const hours = await aheadHours(db, tenantId, tenant, now, ep);
   if (hours.set && !prior && !forDay) {
     if (at && !insideHours(hours, Date.parse(at))) return fail('Pick a pickup time again.', 400, 'at');
     if (!at && !asapNow(hours, now)) return pickupTimes(tenant, now, 0, hours).length ? fail('We’re not open yet. Pick a pickup time.', 409, 'asap_closed') : fail('We’re closed right now, so we can’t take an order for pickup today.', 409, 'closed_now');
@@ -307,17 +351,17 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (cap !== null) {
       // Only the orders for this pickup time, whatever day they were placed (a late order for a time after midnight).
       const inSlot = (await tx.get(db.collection(`${T}/counterOrders`).where('ahead.slot', '==', slot))).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-      if (!fits(itemsBySlot(inSlot, now, orderId).get(slot) || 0, cap, items)) return { full: true };
+      if (!fits(itemsBySlot(inSlot.filter((x: any) => atHere(x, ep?.id)), now, orderId).get(slot) || 0, cap, items)) return { full: true };
     }
     // A pickup code nobody else has today (tried a few times; 9,000 to choose from).
-    let code = ''; const counterRef = db.doc(`${T}/orderCounters/${day}`);
+    let code = ''; const dk = dayKey(day, ep?.id); const counterRef = db.doc(`${T}/orderCounters/${dk}`);
     const c: any = (await tx.get(counterRef)).data() || {};
-    for (let i = 0; i < 8 && !code; i++) { const try1 = String(randomInt(1000, 10000)); const cRef = db.doc(`${T}/aheadCodes/${day}_${try1}`); if (!(await tx.get(cRef)).exists) code = try1; }
+    for (let i = 0; i < 8 && !code; i++) { const try1 = String(randomInt(1000, 10000)); const cRef = db.doc(`${T}/aheadCodes/${dk}_${try1}`); if (!(await tx.get(cRef)).exists) code = try1; }
     if (!code) return { busy: true };
     const n = Math.floor(num(c.ahead)) + 1; const number = orderNumber('ahead', n);
     tx.set(counterRef, { ahead: n, day }, { merge: true });
-    tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
-    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
+    tx.set(db.doc(`${T}/aheadCodes/${dk}_${code}`), { orderId, at: nowIso() });
+    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day, ...(ep ? { locationId: ep.id } : {}),
       ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: new Date(now).toISOString() } } : {}),
       ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(deliv ? { checkout: key } : {}), ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
         // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
@@ -452,36 +496,70 @@ export async function linkAheadPoints(db: any, tenantId: string, tenant: any, or
 /** How the order is going, for the guest's page: paid, the code, being made (or waiting until it's time), ready. */
 /** Whether an address gets hot food, and for what (lib/food-delivery): the business's delivery zones and fees
  *  (lib/delivery-server, the same answer the online shop gets), and no farther than the longest drive for hot food. */
-export async function deliveryQuote(db: any, tenantId: string, tenant: any, rawAddress: unknown, itemsCents: number, token: unknown, now = Date.now()):
-  Promise<{ ok: true; address: FoodAddress; feeCents: number; free: boolean; miles: number | null; driveMin: number; zone: string; token: string | null } | Fail> {
+export async function deliveryQuote(db: any, tenantId: string, tenant: any, rawAddress: unknown, itemsCents: number, token: unknown, now = Date.now(), picked: BizLocation | null = null, hint: unknown = null):
+  Promise<{ ok: true; address: FoodAddress; feeCents: number; free: boolean; miles: number | null; driveMin: number; zone: string; token: string | null; from: BizLocation | null } | Fail> {
   const F = foodDeliveryOf(tenant);
   if (!F.on || !aheadOf(tenant).ways.includes('delivery')) return fail('Delivery isn’t on here right now. Pick it up instead.', 409, 'delivery_off');
   const address = cleanAddress(rawAddress);
   if (!address) return fail('Add the street address, town, state and ZIP code.', 400, 'address');
   const { deliveryFor } = await import('@/lib/delivery-server');
-  const v = await deliveryFor(db, tenantId, tenant, address, { itemsCents: Math.max(0, Math.round(itemsCents)), token, now });
-  if (!v.ok) return fail(v.message.replace('Choose another way to get your order.', 'Pick it up instead.'), v.reason === 'unavailable' ? 503 : 409, `delivery_${v.reason}`);
-  const driveMin = driveMinutes(v.miles);
-  // (Zones by ZIP code have no miles: the zones themselves are how far it goes.)
-  if (v.miles !== null && driveMin > F.maxDriveMin) return fail(`That’s farther than we take hot food (about a ${driveMin}-minute drive). Pick it up instead.`, 409, 'too_far');
-  return { ok: true, address, feeCents: Math.max(0, Math.round(v.fee.feeCents)), free: !!v.fee.free, miles: v.miles, driveMin, zone: String(v.zone.name || '').slice(0, 60), token: v.token };
+  const cents = Math.max(0, Math.round(itemsCents));
+  const answer = (v: any, from: BizLocation | null): any => {
+    if (!v.ok) return fail(v.message.replace('Choose another way to get your order.', 'Pick it up instead.'), v.reason === 'unavailable' ? 503 : 409, `delivery_${v.reason}`);
+    const driveMin = driveMinutes(v.miles);
+    // (Zones by ZIP code have no miles: the zones themselves are how far it goes.)
+    if (v.miles !== null && driveMin > F.maxDriveMin) return fail(`That’s farther than we take hot food (about a ${driveMin}-minute drive). Pick it up instead.`, 409, 'too_far');
+    return { ok: true, address, feeCents: Math.max(0, Math.round(v.fee.feeCents)), free: !!v.fee.free, miles: v.miles, driveMin, zone: String(v.zone.name || '').slice(0, 60), token: v.token, from };
+  };
+  // With more than one location (lib/ahead-places): from the nearest that delivers there (the address looked up once;
+  // when it can't be, the one picked first), each measured from its own address.
+  const { several, places } = await aheadPlacesAll(db, tenantId);
+  if (several && !places.length) return fail('Delivery isn’t on here right now. Pick it up instead.', 409, 'delivery_off');
+  if (!places.length) return answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now }), null);
+  const can = places.filter((p) => p.ordering.delivery && p.coordinates);
+  if (!can.length) return fail('None of our locations deliver right now. Pick it up instead.', 409, 'delivery_off');
+  // Placing the order: from the location the guest's check said (its signed distance kept), or they check again. A
+  // location that stopped delivering, or no longer reaches them, is never swapped for another without them seeing it.
+  if (hint) {
+    const h = can.find((p) => p.id === String(hint));
+    const changed = () => fail('Where it would come from just changed. Check the address again.', 409, 'delivery_changed');
+    if (!h) return changed();
+    const r = answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now, origin: h.coordinates }), h);
+    return r.ok || (r.code !== 'delivery_outside' && r.code !== 'delivery_off') ? r : changed();
+  }
+  const g = await geocode([address.line1, address.city, `${address.state} ${address.postalCode}`].join(', ')).catch(() => null);
+  const pt = g && g !== 'down' ? pointOf(g.lat, g.lng) : null;
+  const order = pt ? nearestFirst(can, pt) : [...can].sort((a, b) => Number(b.id === picked?.id) - Number(a.id === picked?.id));
+  let last: any = null;
+  for (const p of order.slice(0, 5)) {
+    // (A signed distance from another location's check doesn't count here: it's signed with where it was measured from.)
+    const r = answer(await deliveryFor(db, tenantId, tenant, address, { itemsCents: cents, token, now, origin: p.coordinates }), p);
+    if (r.ok) return r;
+    // (Not found on the map, or the map down: no other location would find it either.)
+    if (!last || (last.code === 'delivery_outside' && r.code !== 'delivery_outside')) last = r;
+    if (r.code === 'delivery_unavailable' || r.code === 'delivery_not_found' || r.code === 'address') break;
+  }
+  return last || fail('We don’t deliver to that address yet. Pick it up instead.', 409, 'delivery_outside');
 }
 
 /** The guest's "Check address" on the order page: the fee, the drive, as soon as it's ready (about when it'd be there),
  *  and the arrival times on offer. The order's items say whether it meets the zone's minimum. */
-export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: { address?: unknown; lines?: unknown; token?: unknown; later?: unknown }, now = Date.now()): Promise<any> {
+export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: { address?: unknown; lines?: unknown; token?: unknown; later?: unknown; place?: unknown }, now = Date.now()): Promise<any> {
   const raw = Array.isArray(b.lines) ? b.lines.slice(0, MAX_LINES) : [];
   const menu = new Map((await readMenu(db, tenantId)).map((m) => [m.id, m]));
   // (What it comes to, near enough for the minimum: the menu's prices; placing the order works it out exactly.)
   const itemsCents = raw.reduce((s: number, l: any) => { const m = menu.get(String(l?.itemId || '')); return s + (m ? Math.round(num(m.price) * 100) * Math.max(1, Math.min(99, Math.floor(num(l?.quantity) || 1))) : 0); }, 0);
-  const r = await deliveryQuote(db, tenantId, tenant, b.address, itemsCents, b.token, now);
+  // (With more than one location: the one picked, and the one it would come from, the nearest that delivers there.)
+  const picked = pickedOf(await aheadPlacesOf(db, tenantId), b.place);
+  const r = await deliveryQuote(db, tenantId, tenant, b.address, itemsCents, b.token, now, picked);
   if (!r.ok) return r;
+  const from = r.from ? { id: r.from.id, name: r.from.name } : null;
   // For another day (lib/ahead-days): the fee and the drive; today's drivers and hours don't come into it.
-  if (b.later === true) return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token, asapArrive: null, asapNoDriver: false, times: [], leaveFull: [], leaveFirst: null, slowMin: 0 };
+  if (b.later === true) return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token, asapArrive: null, asapNoDriver: false, times: [], leaveFull: [], leaveFirst: null, slowMin: 0, from };
   // Slowed down at the counter (lib/driver-load): paused, or more minutes on new deliveries' times.
   const slow = deliveryNowOf(tenant, now);
   if (slow.paused) return { ...fail('We’re not taking deliveries for a little while. Pick it up instead, or try again later.', 409, 'paused'), until: slow.until };
-  const hours = await aheadHours(db, tenantId, tenant, now);
+  const hours = await aheadHours(db, tenantId, tenant, now, r.from || picked);
   const pace = await paceNow(db, `tenants/${tenantId}`, tenant).catch(() => ({ level: 'calm', behindMin: 0 } as any));
   const asap = asapNow(hours, now) ? asapSlot(now, pickupDelayMin(pace) + slow.extraMin) : null;
   // Only times a driver on the schedule can make, there and back (lib/driver-load); with nobody on it as a driver, all.
@@ -491,7 +569,7 @@ export async function deliveryCheck(db: any, tenantId: string, tenant: any, b: {
   const asapOk = !!asap && (!load || drivableTimes([asap], r.driveMin, load.onShift, load.trips).ok.length > 0);
   return { ok: true, feeCents: r.feeCents, free: r.free, driveMin: r.driveMin, token: r.token,
     asapArrive: asapOk ? new Date(Date.parse(asap!) + r.driveMin * 60000).toISOString() : null, asapNoDriver: !!asap && !asapOk,
-    times: arrivalTimes(can.ok, r.driveMin), leaveFull: can.full, leaveFirst: leave[0] || null, slowMin: slow.extraMin };
+    times: arrivalTimes(can.ok, r.driveMin), leaveFull: can.full, leaveFirst: leave[0] || null, slowMin: slow.extraMin, from };
 }
 
 export async function aheadView(db: any, tenantId: string, tenant: any, orderId: string) {
@@ -513,6 +591,8 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     // (A delivery has no pickup code, unless it's being picked up instead after it couldn't be delivered.)
     state, paid: !!or.paidAt, code: or.paidAt && (or.ahead?.way !== 'delivery' || ['pickup', 'picked_up'].includes(String(or.ahead?.delivery?.state || ''))) ? String(or.ahead?.code || '') : null, way: (or.ahead?.way || 'inside') as AheadWay, at: or.ahead?.at || null,
     kitchen: !or.paidAt ? null : or.status === 'scheduled' ? 'later' : handed ? 'handed' : ready ? 'ready' : held ? 'later' : 'making',
+    // Where it's from, with more than one location (lib/ahead-places): its name and address, for picking it up.
+    place: or.locationId ? await (async () => { const p = (await bizLocationsOf(db, tenantId)).find((l) => l.id === String(or.locationId)); return p ? { name: p.name, address: p.address } : null; })() : null,
     // For another day (lib/ahead-days): its day, for how many, until when it can be canceled for a full refund (while it
     // hasn't gone to the kitchen), and once canceled, what went back to their card.
     later: isLater(or) ? laterView(or) : null,
@@ -652,10 +732,26 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
   let orderId = String(b.orderId || '');
   // The code: today's first, then last night's (an order placed just before midnight).
   // (Today's and last night's could share a code: one already picked up is skipped.)
+  // (With more than one location, this lane's location's codes first, then any from before: lib/here-server.)
+  // (A lane not set to a location: every location's codes, and any from a location since closed (the business back to
+  // one); two with the same code today can't be told apart, so the screen is set to its location first.)
+  const others = here ? [] : (await bizLocationsOf(db, tenantId)).map((l) => l.id);
   for (const day of days) {
     if (orderId || !/^\d{4}$/.test(String(b.code || ''))) break;
-    const found = String(((await db.doc(`${T}/aheadCodes/${day}_${String(b.code)}`).get()).data() || {}).orderId || '');
-    if (found && ID.test(found) && ((await db.doc(`${T}/counterOrders/${found}`).get()).data() || {}).status !== 'done') orderId = found;
+    const found: string[] = [];
+    // (Only an order still to hand over: never one picked up, voided, canceled or left unpaid.)
+    const live = async (f: string) => { if (!f || !ID.test(f) || found.includes(f)) return false; const x: any = (await db.doc(`${T}/counterOrders/${f}`).get()).data() || {};
+      return !['done', 'voided', 'cancelled', 'canceled'].includes(String(x.status || '')) && !['canceled', 'abandoned'].includes(String(x.ahead?.state || '')); };
+    for (const key of here ? [dayKey(day, here), day] : [day, ...others.map((id) => dayKey(day, id))]) {
+      const f = String(((await db.doc(`${T}/aheadCodes/${key}_${String(b.code)}`).get()).data() || {}).orderId || '');
+      if (await live(f)) { found.push(f); if (here) break; }
+    }
+    if (!here && !found.length) {
+      const q = await db.collection(`${T}/counterOrders`).where('day', '==', day).where('ahead.code', '==', String(b.code)).limit(5).get().catch(() => null);
+      for (const d of q?.docs || []) if ((d.data() || {}).channel === 'ahead' && await live(d.id)) found.push(d.id);
+    }
+    if (found.length > 1) return fail('Two locations have an order with that code today. Set this screen to where it is on the Screens page, then try again.', 409, 'two_codes');
+    if (found.length) orderId = found[0];
   }
   if (!ID.test(orderId)) return fail('No order today has that code. Check the number with them.', 404, 'no_code');
   const carId = ID.test(String(b.carId || '')) ? String(b.carId) : null;
@@ -664,6 +760,8 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
   const r: any = await db.runTransaction(async (tx: any) => {
     const or: any = (await tx.get(ref)).data();
     if (!or || or.channel !== 'ahead' || !days.includes(String(or.day))) return fail('No order today has that code. Check the number with them.', 404, 'no_code');
+    // (Canceled and refunded: never handed out.)
+    if (or.status === 'voided' || or.ahead?.state === 'canceled') return fail('No order today has that code. Check the number with them.', 404, 'no_code');
     if (!or.paidAt) return fail('That order isn’t paid, so it isn’t being made. Take their order at the speaker instead.', 409, 'unpaid');
     // (A delivery goes out with a driver from the counter, never with a car in the lane.)
     if (or.ahead?.way === 'delivery') return fail(`Order ${or.number} is being delivered, so it goes out from the counter.`, 409, 'delivery');
@@ -743,7 +841,7 @@ export async function sweepAhead(db: any, tenantId: string, tenant: any, or: any
   } else if (age < UNPAID_MIN * 60000) return null;
   // (A number given for a ready text goes with it: lib/ready-text.)
   await ref.set({ status: 'voided', voidedAt: nowIso(), voidReason: 'Not paid', cardOpen: false, ahead: { state: 'abandoned', ...(or.ahead?.delivery ? { delivery: { state: 'abandoned' } } : {}), ...(or.ahead?.later ? { later: { due: null, phone: null, wipeAfter: null } } : {}) }, ...(or.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
-  if (or.ahead.code && or.day) await db.doc(`tenants/${tenantId}/aheadCodes/${or.day}_${or.ahead.code}`).delete().catch(() => null);
+  if (or.ahead.code && or.day) await db.doc(`tenants/${tenantId}/aheadCodes/${dayKey(String(or.day), or.locationId || null)}_${or.ahead.code}`).delete().catch(() => null);
   return 'abandoned';
 }
 

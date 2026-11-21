@@ -3,6 +3,7 @@
 // up (the drive-thru, inside, curbside) or have it delivered by the business's own drivers, how far ahead they can order,
 // orders for another day (catering and big orders: lib/ahead-days), and the link (with a code to print) guests order from.
 // Orders are paid when they're placed, so payments must be connected first. api/menu 'ahead'; lib/counter-ahead.
+import { PlacesCard, type PlaceSettings } from '@/components/menu/PlacesCard';
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -10,7 +11,9 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
 export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryFeeTaxed?: boolean; deliveryReady?: boolean; deliveryByZip?: boolean;
   laterHours: number; slotItems?: number | null; payments: boolean; link: string;
-  anotherDay?: { on: boolean; daysAhead: number; noticeHours: number; minCents: number | null } };
+  anotherDay?: { on: boolean; daysAhead: number; noticeHours: number; minCents: number | null };
+  /** With more than one location (components/menu/PlacesCard). */
+  places?: PlaceSettings[] };
 const DRIVES = [10, 15, 20, 30];
 const DAYS = [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '30 days']] as const;
 const NOTICE = [[12, '12 hours'], [24, '1 day'], [48, '2 days'], [72, '3 days']] as const;
@@ -117,6 +120,7 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
           <p className="text-[13px]" style={{ color: MUTED }}>Only days and times you’re open, from your notice on, and never at the drive-thru. Guests can cancel for a full refund until the notice runs out. Each one shows on the counter under Coming up.</p>
         </>}
       </div>
+      {a.places && a.places.length > 1 && <PlacesCard places={a.places} call={call} onSaved={(x) => setA(x)} />}
       {a.on && (
         <div className="flex flex-wrap items-center gap-4 rounded-2xl p-4" style={{ background: SOFT }}>
           {qr && <img src={qr} alt="Code guests scan to order ahead" className="h-28 w-28 shrink-0 rounded-xl bg-[#fff] p-1.5" />}

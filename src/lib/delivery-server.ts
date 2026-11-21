@@ -107,10 +107,12 @@ export type DeliveryView =
  * delivers there, the fee for items worth `itemsCents`, the windows with room, and whether "within N minutes" is on
  * offer right now. `token` is the signed distance from an earlier check of the same address.
  */
-export async function deliveryFor(db: any, tenantId: string, tenant: any, address: DeliveryAddress, opts: { itemsCents: number; now?: number; sameCheckout?: string; token?: any }): Promise<DeliveryView> {
+export async function deliveryFor(db: any, tenantId: string, tenant: any, address: DeliveryAddress, opts: { itemsCents: number; now?: number; sameCheckout?: string; token?: any; origin?: { lat: number; lng: number } | null }): Promise<DeliveryView> {
   const now = opts.now ?? Date.now();
   const rs = tenant?.retailSettings || {};
-  const plan = deliveryFrom(rs);
+  // From another of the business's locations (lib/ahead-places, with more than one): its own address measures the miles.
+  const plan0 = deliveryFrom(rs);
+  const plan = opts.origin && plan0.origin ? { ...plan0, origin: { ...plan0.origin, lat: opts.origin.lat, lng: opts.origin.lng } } : plan0;
   if (!plan.on || !hasTimeZone(tenant) || notReady(plan, { mapsReady: hasMapsKey() }).length) return { ok: false, reason: 'off', message: 'This shop isn’t delivering right now. Choose another way to get your order.' };
   if (!address?.line1 || !address?.city || !address?.state || !zip5(address?.postalCode)) return { ok: false, reason: 'incomplete', message: 'Add the street address, town, state and ZIP code to see if we deliver there.' };
   let miles: number | null = null;

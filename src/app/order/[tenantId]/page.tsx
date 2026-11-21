@@ -26,6 +26,7 @@ import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 import { CURBSIDE_GEOFENCE_M, distanceMetres, roughEtaMinutes } from '@/lib/retail-orders';
 import { dayWords } from '@/lib/ahead-days';
+import { milesApart } from '@/lib/ahead-places';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -37,7 +38,7 @@ const WAY_BUTTON: Record<Way, string> = { 'drive-thru': 'Drive-thru', inside: 'I
 // Delivered by the business's own drivers (lib/food-delivery): the address, checked for the fee and the drive.
 type Addr = { line1: string; line2: string; city: string; state: string; postalCode: string };
 const NO_ADDR: Addr = { line1: '', line2: '', city: '', state: '', postalCode: '' };
-type DCheck = { feeCents: number; free: boolean; driveMin: number; token: string | null; asapArrive: string | null;
+type DCheck = { feeCents: number; free: boolean; driveMin: number; token: string | null; asapArrive: string | null; from?: { id: string; name: string } | null;
   /** Leave times no driver can make (lib/driver-load), the first one offered (later when deliveries are slowed down), and
    *  whether "as soon as it's ready" has no driver free. */
   leaveFull: string[]; leaveFirst: string | null; asapNoDriver: boolean };
@@ -63,14 +64,16 @@ type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?
   texts?: boolean;
   asap?: boolean; opens?: string | null; closes?: string | null; nextOpen?: string | null; closedNow?: boolean; lateToday?: boolean; busy?: { minutes: number } | null;
   /** Orders for another day (lib/ahead-days): the days and their times, how it can be had, the smallest order (cents) and the notice. */
-  later?: Later | null; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+  later?: Later | null;
+  /** With more than one location (lib/ahead-places): pick one first (`pick`), the one it's from, and the others. */
+  pick?: boolean; place?: { id: string; name: string; address: string | null } | null; places?: PlaceRow[]; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind;
   /** A note for the kitchen about this dish (lib/order-allergy). */
   note?: string };
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; later?: TrackLater | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; later?: TrackLater | null; place?: { name: string; address: string | null } | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
@@ -83,6 +86,7 @@ type Track = { business: string; number: string; name: string | null; state: str
     left?: boolean; photo?: string | null } };
 
 type Later = { days: { date: string; times: string[] }[]; ways: Way[]; minCents: number | null; noticeHours: number };
+type PlaceRow = { id: string; name: string; address: string | null; lat: number | null; lng: number | null; delivers: boolean; open: boolean; until: string | null; opens: string | null };
 /** For another day, on the order's page: its day, for how many, until when it can be canceled, and once canceled, what went back. */
 type TrackLater = { day: string; people: number | null; cancelBy: string | null; waiting: boolean; canCancel: boolean; canceled: boolean; canceledBy: 'guest' | 'business' | null; back: number; stuck: boolean };
 
@@ -415,6 +419,7 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
           <p className="text-[64px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p>
         </div>
         <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : t.way === 'curbside' ? 'curbside' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
+        {t.place && <p className="text-[15px]" style={{ color: MUTED }}>At <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
         {!(t.way === 'curbside' && (t.here || t.curb?.onWay || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
         {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
         {t.kitchen !== 'handed' && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={load} />}
@@ -447,6 +452,7 @@ function Booked({ t, L, tenantId, o, s, reload }: { t: Track; L: TrackLater; ten
       <p className="w-max rounded-full px-3 py-1 text-[14px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Booked</p>
       <p className="text-[24px] font-semibold leading-tight tracking-tight">{dayWords(L.day)}{arrive ? ` at ${clock(arrive)}` : ''}</p>
       <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, {how}{L.people ? `, for ${L.people} people` : ''}. It’s made on the day, in time for you.</p>
+      {t.place && t.way !== 'delivery' && <p className="text-[15px]" style={{ color: MUTED }}>At <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
       {t.code && t.way !== 'delivery' && <div><p className="text-[14px]" style={{ color: MUTED }}>Your pickup code</p><p className="text-[44px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p></div>}
       {can && !asking && <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{L.stuck ? 'Finish the refund' : `Cancel and refund ${usd(t.total)}`}</button>}
       {can && asking && (
@@ -618,7 +624,7 @@ function DeliveryFields({ addr, setAddr, note, setNote, check, checking, checkEr
       <label className="block"><span className="text-[14px] font-medium">Notes for the driver <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
         <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} maxLength={200} className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Side door, gate code" /></label>
       {check
-        ? <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}><b className="font-semibold">We deliver there.</b> {check.free || !check.feeCents ? 'Delivery is free for this order' : `Delivery ${usd(check.feeCents / 100)}`}, about a {check.driveMin}-minute drive.</p>
+        ? <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}><b className="font-semibold">We deliver there.</b> {check.from ? `From ${check.from.name}, about a ${check.driveMin}-minute drive. ` : ''}{check.free || !check.feeCents ? 'Delivery is free for this order' : `Delivery ${usd(check.feeCents / 100)}`}{check.from ? '.' : `, about a ${check.driveMin}-minute drive.`}</p>
         : <button type="button" onClick={onCheck} disabled={checking} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={{ background: '#fff', border: `1px solid ${INK}`, color: INK }}>{checking ? 'Checking…' : 'Check the address'}</button>}
       {checkErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{checkErr}</p>}
     </div>);
@@ -666,6 +672,44 @@ function LaterPick({ later, day, setDay, at, setAt, people, setPeople, tz, drive
     </div>);
 }
 
+/** "Open until 9:00 PM", "Opens 7:00 AM" (today) or "Opens Mon 7:00 AM", or closed. */
+function openLine(p: PlaceRow, tz?: string) {
+  if (p.open) return p.until ? `Open until ${clock(p.until, tz)}` : 'Open';
+  if (!p.opens) return 'Closed';
+  const day = (iso: string | Date) => { try { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', ...(tz ? { timeZone: tz } : {}) }); } catch { return ''; } };
+  return `Opens ${day(p.opens) === day(new Date()) ? clock(p.opens, tz) : shortWhen(Date.parse(p.opens), tz)}`;
+}
+
+/** With more than one location: where from (lib/ahead-places). The nearest first once the guest shares where they are
+ *  (asked only when they tap, and kept on this page only). */
+function PlacePicker({ business, places, tz, onPick, current }: { business: string; places: PlaceRow[]; tz?: string; onPick: (id: string) => void; current?: string | null }) {
+  const [near, setNear] = React.useState<{ lat: number; lng: number } | null>(null); const [finding, setFinding] = React.useState(false); const [why, setWhy] = React.useState('');
+  const find = () => {
+    if (!navigator.geolocation) { setWhy('This phone can’t share where it is. Pick from the list.'); return; }
+    setFinding(true); setWhy('');
+    navigator.geolocation.getCurrentPosition((pos) => { setNear({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setFinding(false); },
+      () => { setFinding(false); setWhy('We couldn’t tell where you are. Pick from the list.'); }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+  };
+  const rows = places.map((p) => ({ ...p, miles: near && p.lat !== null && p.lng !== null ? Math.round(milesApart(near, { lat: p.lat, lng: p.lng }) * 10) / 10 : null }))
+    .sort((a, b) => (a.miles === null ? 1 : 0) - (b.miles === null ? 1 : 0) || (a.miles ?? 0) - (b.miles ?? 0) || Number(b.open) - Number(a.open) || a.name.localeCompare(b.name));
+  return (
+    <div className="space-y-4">
+      <header><h1 className="text-[26px] font-semibold tracking-tight">{business}</h1><p className="mt-1 text-[15px]" style={{ color: MUTED }}>Where are you ordering from?</p></header>
+      {!near && <button type="button" onClick={find} disabled={finding} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{finding ? 'Finding you…' : 'Find the nearest'}</button>}
+      {why && <p role="status" className="text-[14px]" style={{ color: AMBER }}>{why}</p>}
+      <ul className="space-y-2.5" aria-label="Locations">
+        {rows.map((p, i) => (
+          <li key={p.id}>
+            <button type="button" onClick={() => onPick(p.id)} aria-current={current === p.id ? 'true' : undefined} className={`flex w-full flex-col gap-1 rounded-2xl bg-[#fff] px-4 py-3.5 text-left ${RING}`} style={current === p.id ? { border: `1px solid ${INK}`, boxShadow: `inset 0 0 0 1px ${INK}` } : { border: `1px solid ${LINE}` }}>
+              <span className="flex items-baseline justify-between gap-3"><span className="text-[17px] font-semibold">{p.name}</span>{p.miles !== null && <span className="shrink-0 text-[14px] tabular-nums" style={{ color: MUTED }}>{p.miles} mi</span>}</span>
+              {p.address && <span className="text-[14px]" style={{ color: MUTED }}>{p.address}</span>}
+              <span className="text-[14px]" style={{ color: p.open ? GREEN : MUTED }}>{openLine(p, tz)}{near && i === 0 && p.miles !== null ? '. Nearest to you' : ''}</span>
+            </button>
+          </li>))}
+      </ul>
+    </div>);
+}
+
 export default function OrderAhead() {
   const { tenantId } = useParams() as { tenantId: string };
   const [menu, setMenu] = React.useState<Menu | null>(null); const [err, setErr] = React.useState('');
@@ -686,6 +730,10 @@ export default function OrderAhead() {
   // Order again: recent orders and favorites on this phone, and what adding one did.
   const [past, setPast] = React.useState<Past[]>([]); const [againSaid, setAgainSaid] = React.useState<{ text: string; warn: boolean } | null>(null);
   const [moreTimes, setMoreTimes] = React.useState(false);
+  // With more than one location (lib/ahead-places): the one picked (from its own link, or kept on this phone), and the
+  // picker open to change it.
+  const placeRef = React.useRef<string | null>(null); const [picking, setPicking] = React.useState(false);
+  const menuPlace = () => (placeRef.current ? { place: placeRef.current } : {});
   // Today, or another day (lib/ahead-days): its day, its time, and how many people.
   const [when, setWhen] = React.useState<'today' | 'later'>('today'); const [lday, setLday] = React.useState(''); const [lat, setLat] = React.useState(''); const [people, setPeople] = React.useState('');
   const laterMode = when === 'later' && !!menu?.later;
@@ -718,7 +766,8 @@ export default function OrderAhead() {
     setName(read('cf.ahead.name') || ''); setPhone(read('cf.ahead.phone') || ''); setTextMe(read('cf.ahead.textMe') === '1'); setPast(readPast(tenantId));
     // (Opened from the guest pass at a table: inside is picked, when it's one of the ways.)
     const wantWay = q.get('way');
-    void call({ action: 'menu', tenantId }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.ways?.length === 1) setWay(d.ways[0]); else if (wantWay && (d.ways || []).includes(wantWay)) setWay(wantWay as Way); setAt(startAt(d));
+    placeRef.current = q.get('place') || read(`cf.ahead.place.${tenantId}`) || null;
+    void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d }) => { if (d.ok) { setMenu(d); if (d.pick) { placeRef.current = null; write(`cf.ahead.place.${tenantId}`, null); } if (d.ways?.length === 1) setWay(d.ways[0]); else if (wantWay && (d.ways || []).includes(wantWay)) setWay(wantWay as Way); setAt(startAt(d));
       // (Closed today, with days ahead to order for: Another day to start with.)
       if (d.closedNow && d.later?.days?.length) setWhen('later'); } else setErr(d.error || 'This page isn’t here.'); });
   }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -728,7 +777,7 @@ export default function OrderAhead() {
   const waiting = !!menu && !track && (!!menu.closedNow || !!menu.opens);
   React.useEffect(() => {
     if (!waiting) return;
-    const again = () => void call({ action: 'menu', tenantId }).then(({ d }) => { if (!d?.ok) return; setMenu(d); setAt((a) => (a && (d.times || []).includes(a) ? a : startAt(d))); });
+    const again = () => void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d }) => { if (!d?.ok) return; setMenu(d); setAt((a) => (a && (d.times || []).includes(a) ? a : startAt(d))); });
     const i = setInterval(again, 60000); const vis = () => { if (document.visibilityState === 'visible') again(); };
     document.addEventListener('visibilitychange', vis);
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
@@ -806,9 +855,9 @@ export default function OrderAhead() {
   const checkAddress = async () => {
     if (!addr.line1.trim() || !addr.city.trim() || !addr.state.trim() || !/^\d{5}(-?\d{4})?$/.test(addr.postalCode.trim())) { setCheckErr('Add the street address, town, state and ZIP code.'); return; }
     setChecking(true); setCheckErr('');
-    const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })), ...(laterMode ? { later: true } : {}) });
+    const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })), ...(laterMode ? { later: true } : {}), ...menuPlace() });
     setChecking(false);
-    if (d.ok) { setDcheck({ feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null, leaveFull: Array.isArray(d.leaveFull) ? d.leaveFull : [], leaveFirst: d.leaveFirst || null, asapNoDriver: !!d.asapNoDriver }); write('cf.ahead.address', JSON.stringify(addr)); }
+    if (d.ok) { setDcheck({ from: d.from || null, feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null, leaveFull: Array.isArray(d.leaveFull) ? d.leaveFull : [], leaveFirst: d.leaveFirst || null, asapNoDriver: !!d.asapNoDriver }); write('cf.ahead.address', JSON.stringify(addr)); }
     // (Paused at the counter: when to try again.)
     else setCheckErr(d.code === 'paused' && d.until ? `We’re not taking deliveries for a little while. Pick it up instead, or try again after ${clock(d.until, menu?.timeZone)}.` : d.error || 'That didn’t go through. Try again.');
   };
@@ -827,10 +876,11 @@ export default function OrderAhead() {
     if (belowMin) { setPlaceErr(`Orders for another day start at ${usd((menu?.later?.minCents || 0) / 100)} before tax.`); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: laterMode ? lat : at || null, ...(laterMode ? { day: lday, people: people ? Number(people) : null } : {}), ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver || laterMode) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, ...menuPlace(), name: name.trim(), way, at: laterMode ? lat : at || null, ...(laterMode ? { day: lday, people: people ? Number(people) : null } : {}), ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, ...(dcheck?.from ? { deliveryFrom: dcheck.from.id } : {}), tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver || laterMode) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); if (laterMode && !(m.later?.days || []).some((x: any) => x.date === lday && x.times.includes(lat))) setLat(''); } }); return; }
+    if (!d.ok && d.code === 'place') { setPicking(true); return; }
+    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); if (laterMode && !(m.later?.days || []).some((x: any) => x.date === lday && x.times.includes(lat))) setLat(''); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -838,6 +888,11 @@ export default function OrderAhead() {
     write(cartKey, null); setCart([]);
     try { window.history.replaceState(null, '', `${window.location.pathname}?o=${encodeURIComponent(o)}&s=${encodeURIComponent(s)}`); } catch { /* */ }
     setTrack({ o, s });
+  };
+  // A location picked (or picked again): its menu, hours and times, kept on this phone for next time.
+  const pickPlace = (id: string) => {
+    placeRef.current = id; write(`cf.ahead.place.${tenantId}`, id); setPicking(false); setDcheck(null); setLat(''); setLday('');
+    void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d }) => { if (d.ok) { setMenu(d); setAt(startAt(d)); if (d.ways?.length === 1) setWay(d.ways[0]); } else setErr(d.error || 'This page isn’t here.'); });
   };
   const fresh = () => { try { window.history.replaceState(null, '', window.location.pathname); } catch { /* */ } window.location.reload(); };
 
@@ -850,6 +905,7 @@ export default function OrderAhead() {
   if (track) return shell(<TrackView tenantId={tenantId} o={track.o} s={track.s} onNew={fresh} />);
   if (err) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">Order ahead</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>);
   if (!menu) return shell(<div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the menu" /></div>);
+  if ((menu.pick || picking) && (menu.places || []).length > 1) return shell(<PlacePicker business={menu.business} places={menu.places || []} tz={menu.timeZone} onPick={pickPlace} current={menu.place?.id || null} />);
   if (!menu.on) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">{menu.business}</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>Ordering ahead isn’t on right now. Order when you get here.</p></div>);
 
   if (step === 'pay' && pay) return shell(
@@ -965,6 +1021,8 @@ export default function OrderAhead() {
       <header>
         <h1 className="text-[26px] font-semibold tracking-tight">{menu.business}</h1>
         <p className="mt-1 text-[15px]" style={{ color: MUTED }}>{headWords(menu.ways)}</p>
+        {menu.place && (menu.places || []).length > 1 && <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[15px]"><span>From <b className="font-semibold">{menu.place.name}</b></span>
+          <button type="button" onClick={() => setPicking(true)} className={`min-h-[44px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Change</button></p>}
         {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? 'Too late for pickup today.' : 'Closed right now.'}</b> {menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. ` : ''}{menu.later?.days.length ? 'You can order for another day now.' : 'You can look through the menu now.'}</p>}
       </header>
       {past.length > 0 && (

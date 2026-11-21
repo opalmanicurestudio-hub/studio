@@ -11,6 +11,7 @@
 //   and its pickup code freed. Canceled by the business, the guest gets a text.
 // - Coming up, on the counter: the orders waiting for their day, soonest first.
 // - The guest's number is cleared the morning after its day (`later.wipeAfter`).
+import { dayKey } from '@/lib/business-locations';
 import { sendOrder } from '@/lib/counter-server';
 import { isLater, releaseAt, startsAt, dayWords } from '@/lib/ahead-days';
 import { backLines, addressLine } from '@/lib/food-delivery';
@@ -135,7 +136,7 @@ export async function cancelLater(db: any, tenantId: string, tenant: any, orderI
   await ref.set({ status: 'voided', voidedAt: nowIso, voidReason: who.guest ? 'Canceled by the guest' : `Canceled by ${by}`, refundedAt: nowIso, refundedCents: all,
     ahead: { state: 'canceled', later: { cancel: null, canceledAt: nowIso, canceledBy: who.guest ? 'guest' : by, backCents: all, due: null, phone: null, wipeAfter: null }, ...(o.ahead.delivery ? { delivery: { note: null, phone: null } } : {}) },
     ...(o.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
-  if (o.ahead.code && o.day) await db.doc(`tenants/${tenantId}/aheadCodes/${o.day}_${o.ahead.code}`).delete().catch(() => null);
+  if (o.ahead.code && o.day) await db.doc(`tenants/${tenantId}/aheadCodes/${dayKey(String(o.day), o.locationId || null)}_${o.ahead.code}`).delete().catch(() => null);
   await forget(tenantId);
   // Canceled by the business: the guest hears (on their page they see it at once).
   const to = /^\d{10}$/.test(String(o.ahead.later?.phone || '')) ? String(o.ahead.later.phone) : /^\d{10}$/.test(String(o.ahead.delivery?.phone || '')) ? String(o.ahead.delivery.phone) : null;
