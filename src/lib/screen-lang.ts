@@ -80,6 +80,13 @@ const ES: Record<string, string> = {
   'Making': 'Preparando', 'Calling…': 'Llamando…', 'Send a runner': 'Enviar un runner', 'We’ll run it': 'Lo llevamos', 'Run {what}': 'Llevar {what}',
   'Note the allergy first': 'Primero anota la alergia', 'Runs when all {n} are ready': 'Sale cuando los {n} estén listos', 'Held, not fired': 'Retenido, sin marchar',
   'The server fires these from the table. You see what’s coming.': 'El mesero los marcha desde la mesa. Aquí ves lo que viene.', 'Nothing held.': 'Nada retenido.', '{n} plate': '{n} plato', '{n} plates': '{n} platos',
+  // Cook ahead (lib/cook-ahead).
+  'Cook ahead': 'Cocinar antes', 'Cook ahead: {name}': 'Cocinar antes: {name}', '1 batch ({q}) by {time}': '1 tanda ({q}) para {time}',
+  '{n} batches ({q}) by {time}': '{n} tandas ({q}) para {time}', '1 batch ({q}) now': '1 tanda ({q}) ya', '{n} batches ({q}) now': '{n} tandas ({q}) ya',
+  'A usual {day} sells about {n} from {from} to {to}.': 'Un {day} normal se venden unos {n} de {from} a {to}.', '{n} held now.': '{n} guardados ahora.',
+  'None held now.': 'Nada guardado ahora.', 'Start a batch of {n}': 'Empezar una tanda de {n}',
+  'Start a batch of {n} {name}': 'Empezar una tanda de {n} {name}',
+  'Monday': 'lunes', 'Tuesday': 'martes', 'Wednesday': 'miércoles', 'Thursday': 'jueves', 'Friday': 'viernes', 'Saturday': 'sábado', 'Sunday': 'domingo',
   'Holding': 'Guardado', '{n} thrown out today': '{n} tirados hoy', 'Nothing thrown out today': 'Nada tirado hoy', '{n} held': '{n} guardados',
   'Past its time. Throw it out.': 'Pasó su tiempo. Tíralo.', 'Use 1': 'Usar 1', 'Throw out': 'Tirar', 'Batch of {n}, {m} min': 'Tanda de {n}, {m} min',
   'Start a batch of {n} {name}, held {m} minutes': 'Empezar una tanda de {n} {name}, guardada {m} minutos',

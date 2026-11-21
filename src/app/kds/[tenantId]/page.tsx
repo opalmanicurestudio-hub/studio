@@ -14,7 +14,9 @@
 //   Drive-thru and counter orders carry a time they must be ready by: they're worked first (drive-thru on top), each
 //   ticket counts down to its time, and "By order" keeps an order's items together for bagging.
 //   Holding (lib/holding): batches cooked ahead show along the top with how long each has left; a ticket for something
-//   held is made from the batch in one tap, and a batch past its time says to throw it out.
+//   held is made from the batch in one tap, and a batch past its time says to throw it out. Cook ahead (lib/cook-ahead;
+//   design board "Cook ahead"): before them, how many batches to start and by when, from a usual day like today and
+//   what's held now; Start a batch is the same tap as the + after them.
 //   Through a Wi-Fi drop (lib/outbox, lib/last-seen; design canvas "When the Wi-Fi drops"): the tickets it last had, with
 //   their time; Start, Ready, Served and Allergy noted are kept on the tablet and sent when the connection's back (a
 //   ticket shows "Sends when it’s back" meanwhile). Cancelling needs the connection.
@@ -54,9 +56,11 @@ const WARM_S = 5 * 60, LATE_S = 8 * 60;
 
 type View = 'lanes' | 'order' | 'course' | 'dish' | 'expo';
 type Holdable = { id: string; name: string; holdMinutes: number; batchSize: number };
+/** Cook ahead (lib/cook-ahead-server): batches to start, by when (null: now), and the usual stretch it's for. */
+type Cook = { itemId: string; name: string; batches: number; batchSize: number; by: string | null; need: number; from: string; to: string; held: number; weekday: string };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; counts: CountRow[]; finishTogether?: boolean;
+type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook?: Cook[]; counts: CountRow[]; finishTogether?: boolean;
   /** The printers that print tickets, and whether each is answering (lib/printing-server). */
   printers?: { name: string; stations: string[]; ok: boolean; words: string }[] };
 type Staff = { id: string; name: string; pass: string };
@@ -434,8 +438,8 @@ function CountsSheet({ rows, post, onChanged, onClose }: { rows: CountRow[]; pos
 }
 
 // ─── Holding: batches cooked ahead, each with the time it has left (lib/holding) ─────────────────────────────────────
-function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, onToss }: {
-  holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; now: number; busy: string | null;
+function HoldingStrip({ holds, holdable, tossedToday, cook, tz, now, busy, onHold, onUse, onToss }: {
+  holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook: Cook[]; tz: string | null; now: number; busy: string | null;
   onHold: (h: Holdable) => void; onUse: (b: HoldBin) => void; onToss: (b: HoldBin) => void;
 }) {
   const say = useT();
@@ -446,6 +450,21 @@ function HoldingStrip({ holds, holdable, tossedToday, now, busy, onHold, onUse, 
         <p className="text-[13.5px]" style={{ color: MUTED }}>{tossedToday > 0 ? say('{n} thrown out today', { n: tossedToday }) : say('Nothing thrown out today')}</p>
       </div>
       <div className="flex gap-3 overflow-x-auto pb-1">
+        {cook.map((c) => {
+          const h = holdable.find((x) => x.id === c.itemId); const q = c.batches * c.batchSize;
+          const what = c.by ? say(c.batches === 1 ? '1 batch ({q}) by {time}' : '{n} batches ({q}) by {time}', { n: c.batches, q, time: clock(c.by, tz) }) : say(c.batches === 1 ? '1 batch ({q}) now' : '{n} batches ({q}) now', { n: c.batches, q });
+          return (
+            <article key={`cook-${c.itemId}`} className="w-[300px] shrink-0 space-y-2 rounded-2xl p-3.5" style={{ background: AMBER_TINT, border: '1px solid #f3d9b8', color: INK }} aria-label={say('Cook ahead: {name}', { name: c.name })}>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="truncate text-[16px] font-semibold">{c.name}</p>
+                <p className="shrink-0 text-[13px] font-semibold" style={{ color: AMBER }}>{say('Cook ahead')}</p>
+              </div>
+              <p className="text-[19px] font-semibold leading-snug tabular-nums">{what}</p>
+              <p className="text-[13.5px] leading-snug" style={{ color: '#5b5f65' }}>{say('A usual {day} sells about {n} from {from} to {to}.', { day: say(c.weekday), n: c.need, from: clock(c.from, tz), to: clock(c.to, tz) })} {c.held > 0 ? say('{n} held now.', { n: c.held }) : say('None held now.')}</p>
+              {h && <button type="button" disabled={busy === `hold-${h.id}`} onClick={() => onHold(h)} aria-label={say('Start a batch of {n} {name}', { n: h.batchSize, name: h.name })} className={`${btn} w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2`} style={{ background: INK, color: '#fff' }}>{say('Start a batch of {n}', { n: h.batchSize })}</button>}
+            </article>
+          );
+        })}
         {holds.map((b) => {
           const st = binState(b, now); const expired = st.state === 'expired'; const soon = st.state === 'soon';
           return (
@@ -709,7 +728,7 @@ function KitchenScreenInner() {
       if (status === 403 && !key) { forgetHere(d.error || 'This is for the business’s own team.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, cook: Array.isArray(d.cook) ? d.cook : [], counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
         pace: d.pace && Number(d.pace.behindMin) > 0 ? { behindMin: Math.round(Number(d.pace.behindMin)), level: String(d.pace.level || 'busy') } : null };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
@@ -1011,7 +1030,7 @@ function KitchenScreenInner() {
           <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={say('Loading tickets')} /></div>
         ) : view === 'lanes' ? (
           <div className="space-y-4">
-            {(data.holds.length > 0 || data.holdable.length > 0) && <HoldingStrip holds={data.holds} holdable={data.holdable} tossedToday={data.tossedToday} now={now} busy={holdBusy} onHold={startHold} onUse={(b) => holdStep(b, 'holdUse')} onToss={(b) => holdStep(b, 'holdToss')} />}
+            {(data.holds.length > 0 || data.holdable.length > 0) && <HoldingStrip holds={data.holds} holdable={data.holdable} tossedToday={data.tossedToday} cook={data.cook || []} tz={data.business.timeZone} now={now} busy={holdBusy} onHold={startHold} onUse={(b) => holdStep(b, 'holdUse')} onToss={(b) => holdStep(b, 'holdToss')} />}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
               {lane(say('Waiting'), lanes.waiting, say('Nothing waiting.'))}
               {lane(say('Being made'), lanes.making, say('Nothing being made.'))}

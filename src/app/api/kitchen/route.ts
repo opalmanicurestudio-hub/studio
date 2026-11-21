@@ -48,7 +48,7 @@
 //   holdUse  { tenantId, key, binId, quantity }    → some taken from a batch by hand
 //   holdToss { tenantId, key, binId }              → a batch thrown out (kept, for the day's waste)
 //   fromHold { tenantId, key, col, id, binId }     → a ticket made from a held batch: taken from it and marked ready
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { randomBytes } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
@@ -77,7 +77,7 @@ import { offTeam, screenHash, screenOf, staffOf } from '@/lib/screen-keys';
 import { toolLocked } from '@/lib/tool-lock';
 import { readMenu, setSoldOut, isMenuItem } from '@/lib/menu-server';
 import { binState, batchSizeOf } from '@/lib/holding';
-import { holdMinutesOf } from '@/lib/counter-orders';
+import { holdMinutesOf, makeSecondsOf } from '@/lib/counter-orders';
 import { finishTogetherOn, stationsOf, stationOfItem } from '@/lib/table-service';
 
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b });
@@ -403,7 +403,10 @@ export async function POST(req: NextRequest) {
       ]);
       const holds = heldSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).sort((a: any, c: any) => String(a.startedAt).localeCompare(String(c.startedAt)));
       const holdable = holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x) && holdMinutesOf(r.x) > 0)
-        .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').slice(0, 80), holdMinutes: holdMinutesOf(r.x), batchSize: batchSizeOf(r.x) })).sort((a: any, c: any) => a.name.localeCompare(c.name));
+        .map((r: any) => ({ id: r.id, name: String(r.x.name || 'Item').slice(0, 80), holdMinutes: holdMinutesOf(r.x), batchSize: batchSizeOf(r.x), makeSeconds: makeSecondsOf(r.x) })).sort((a: any, c: any) => a.name.localeCompare(c.name));
+      // Cook ahead (lib/cook-ahead): what to have ready, and by when, from a usual day like today and what's held now.
+      // A guess the screen says is one; a read that doesn't go through just leaves it off.
+      const cook = holdable.length ? await (await import('@/lib/cook-ahead-server')).cookAheadSoon(db, T, tenant, holdable, holds as any, Date.now(), (p) => after(p)).catch(() => []) : [];
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
       // Tonight's counts (lib/dish-counts), from the menu just read: one at zero is sold out on every menu now.
       const counts = (await liveCounts(db, tenantId, tenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
@@ -412,7 +415,7 @@ export async function POST(req: NextRequest) {
       const printers = PS.printerSummary(await PS.printersCached(db, T).catch(() => []), Date.now(), tz).filter((p) => p.tickets).map((p) => ({ name: p.name, stations: p.stations, ok: p.ok, words: p.words }));
       // How far behind the kitchen is (lib/kitchen-pace): the host stand and ordering ahead are counting it.
       const pace = await paceNow(db, T, tenant);
-      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, printers,
+      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, stations, items, today, holds, holdable, tossedToday, cook, printers,
         pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level },
         // What the kitchen told the floor, still up (lib/floor-word), so the screen can change or clear it.
         floorNote: (await floorWordNow(db, tenantId, tenant).catch(() => ({ note: null }))).note, now: new Date().toISOString() });
