@@ -2,7 +2,8 @@
 // src/components/drive-thru/Deliveries.tsx — HOT FOOD DELIVERIES ON THE COUNTER PAGE (lib/food-delivery-server, read with
 // the counter's lane). Ready ones first (hot food waiting on a driver: leave now), then the ones being made, out with a
 // driver, and couldn't be delivered; delivered ones last. Out for delivery, Delivered, and Couldn't deliver (why) go to
-// api/counter. Who's driving is typed once on this screen (kept on this device), or it's whoever is signed in.
+// api/counter. Who's driving is picked once on this screen (kept on this device): one of the business's drivers (their tip
+// is theirs), someone else by name, or whoever is signed in. Drivers can also take hot food from their own phone.
 import { useEffect, useState } from 'react';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -17,30 +18,43 @@ const REASONS = [
   { code: 'other', label: 'Something else' },
 ];
 
+export type FoodDriver = { id: string; name: string };
 export type DeliveryRow = { orderId: string; number: string; name: string | null; to: string; note: string | null; arriveAt: string | null; driveMin: number;
   step: 'making' | 'ready' | 'out' | 'delivered' | 'failed'; readyFor: number | null; leaveAt: string | null; driver: string | null; outAt: string | null; deliveredAt: string | null;
-  why: string | null; phone: string | null };
+  why: string | null; phone: string | null; tip?: number };
 
 const clock = (iso: string | null) => { if (!iso) return ''; try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
 const since = (iso: string | null, now: number) => Math.max(0, Math.floor((now - (Date.parse(String(iso || '')) || now)) / 60000));
 
-export function Deliveries({ rows, now, busy, act }: { rows: DeliveryRow[]; now: number; busy: string | null;
+export function Deliveries({ rows, drivers = [], now, busy, act }: { rows: DeliveryRow[]; drivers?: FoodDriver[]; now: number; busy: string | null;
   act: (label: string, body: any, after?: (d: any) => void) => void }) {
-  const [driver, setDriver] = useState(''); const [failing, setFailing] = useState<string | null>(null);
-  useEffect(() => { try { setDriver(localStorage.getItem(DRIVER_KEY) || ''); } catch { /* private window */ } }, []);
+  // Kept as 'id:<their team record>' for one of the drivers, or the name typed for someone else.
+  const [driver, setDriver] = useState(''); const [other, setOther] = useState(false); const [failing, setFailing] = useState<string | null>(null);
+  useEffect(() => { try { const v = localStorage.getItem(DRIVER_KEY) || ''; setDriver(v); setOther(!!v && !v.startsWith('id:')); } catch { /* private window */ } }, []);
   const keepDriver = (v: string) => { setDriver(v); try { if (v.trim()) localStorage.setItem(DRIVER_KEY, v.trim()); else localStorage.removeItem(DRIVER_KEY); } catch { /* private window */ } };
   if (!rows.length) return null;
   const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
   const going = rows.filter((r) => r.step !== 'delivered'); const done = rows.filter((r) => r.step === 'delivered');
-  const out = (r: DeliveryRow) => act(`dout-${r.orderId}`, { action: 'deliveryOut', orderId: r.orderId, ...(driver.trim() ? { driver: driver.trim() } : {}) });
+  const pickedId = driver.startsWith('id:') && drivers.some((d) => d.id === driver.slice(3)) ? driver.slice(3) : '';
+  const out = (r: DeliveryRow) => act(`dout-${r.orderId}`, { action: 'deliveryOut', orderId: r.orderId, ...(pickedId ? { driverId: pickedId } : (other || !drivers.length) && driver.trim() && !driver.startsWith('id:') ? { driver: driver.trim() } : {}) });
+  const field = `block min-h-[44px] rounded-xl px-3 text-[15px] font-normal ${RING}`;
   return (
     <section aria-labelledby="counter-deliveries" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h2 id="counter-deliveries" className="text-[17px] font-semibold">Deliveries</h2>
           <p className="text-[13px]" style={{ color: MUTED }}>Hot food goes out as soon as it’s ready.</p></div>
-        <label className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: MUTED }}>Driver
-          <input value={driver} onChange={(e) => keepDriver(e.target.value.slice(0, 40))} placeholder="Whoever’s signed in" autoComplete="off"
-            className={`block min-h-[44px] w-[190px] rounded-xl px-3 text-[15px] font-normal ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>
+        <div className="flex flex-wrap items-center gap-2">
+          {drivers.length > 0 && <label className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: MUTED }}>Driver
+            <select value={pickedId ? `id:${pickedId}` : other ? 'other' : ''} onChange={(e) => { const v = e.target.value; setOther(v === 'other'); keepDriver(v === 'other' ? '' : v); }}
+              className={`${field} w-[190px] bg-[#fff]`} style={{ border: `1px solid ${LINE}`, color: INK }}>
+              <option value="">Whoever’s signed in</option>
+              {drivers.map((d) => <option key={d.id} value={`id:${d.id}`}>{d.name}</option>)}
+              <option value="other">Someone else</option>
+            </select></label>}
+          {(drivers.length === 0 || other) && <label className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: MUTED }}>{drivers.length ? <span className="sr-only">Their name</span> : 'Driver'}
+            <input value={driver.startsWith('id:') ? '' : driver} onChange={(e) => keepDriver(e.target.value.slice(0, 40))} placeholder={drivers.length ? 'Their name' : 'Whoever’s signed in'} autoComplete="off"
+              className={`${field} w-[190px]`} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>}
+        </div>
       </div>
       {going.length > 0 && <ul className="grid grid-cols-1 items-start gap-2.5 lg:grid-cols-2">{going.map((r) => {
         const chip = r.step === 'ready' ? { text: `Ready ${r.readyFor ? `${r.readyFor} min` : 'now'}: leave now`, style: { background: AMBER_TINT, color: AMBER } }

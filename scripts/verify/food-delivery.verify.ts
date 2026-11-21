@@ -20,8 +20,9 @@ process.env.ORDER_TRACK_SECRET = 'test-secret-for-links';
 process.env.TWILIO_ACCOUNT_SID = 'ACtest'; process.env.TWILIO_AUTH_TOKEN = 'tok'; process.env.TWILIO_FROM = '+18325550100';
 const db: any = strictTransactions(makeDb());
 let actor: any = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
-const texts: { to: string; body: string }[] = [];
+const texts: { to: string; body: string }[] = []; let smsDown = false;
 (globalThis as any).fetch = async (url: string, init: any) => {
+  if (String(url).includes('twilio') && smsDown) return { ok: false, status: 500, json: async () => ({ message: 'down' }) };
   if (String(url).includes('twilio')) { const p = new URLSearchParams(String(init?.body || '')); texts.push({ to: String(p.get('To')), body: String(p.get('Body')) }); }
   return { ok: true, status: 201, json: async () => ({ sid: `SM${texts.length}` }) };
 };
@@ -50,7 +51,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/firebase-admin' || /\/src\/lib\/firebase-admin(\.ts)?$/.test(request)) return fake(request, { getAdminDb: () => db, getAdminAuth: () => ({}) });
   if (request === 'firebase-admin/app') return { initializeApp: () => ({ name: 'admin' }), getApps: () => [{ name: 'admin' }], cert: () => ({}) };
   if (request === 'firebase-admin/firestore' || /firebase-admin\/lib\/firestore\/index\.js$/.test(request)) return fake(request, { getFirestore: () => db, FieldValue: FV });
-  if (request === '@/lib/staff-auth' || /\/src\/lib\/staff-auth(\.ts)?$/.test(request)) return fake(request, { verifyStaffActor: async () => ({ ok: true, actor, tenant: {} }) });
+  if (request === '@/lib/staff-auth' || /\/src\/lib\/staff-auth(\.ts)?$/.test(request)) return fake(request, { verifyStaffActor: async () => (actor.uid === 'nobody' ? { ok: false, error: 'Sign in again.', status: 401 } : { ok: true, actor, tenant: (await db.doc('tenants/t1').get()).data() || {} }) });
   if (request === '@/lib/route-guard' || /\/src\/lib\/route-guard(\.ts)?$/.test(request)) return fake(request, {
     requireRole: async (_r: any, _t: any, level: string) => (level === 'manager' && !actor.isManager ? { deny: { status: 403, body: { ok: false, error: 'Only a manager can do that.' } } } : { actor }),
     requireCan: async () => ({ actor }),
@@ -80,6 +81,7 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   const { POST: MENU } = await import('../../src/app/api/menu/route');
   const { POST: kitchen } = await import('../../src/app/api/kitchen/route');
   const R = await import('../../src/lib/ready-text');
+  const { POST: RUN } = await import('../../src/app/api/counter/food-run/route');
 
   console.log('the rules');
   check('the drive from the miles: a few minutes to get going, then about 2.5 a mile; a ZIP zone takes a usual drive', F.driveMinutes(0) === 5 && F.driveMinutes(3) === 12 && F.driveMinutes(null) === 15 && F.driveMinutes(-1) === 15);
@@ -89,6 +91,10 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   check('arrival times: the pickup time plus the drive, to the next 5 minutes', JSON.stringify(F.arrivalTimes(['2026-01-01T18:00:00.000Z'], 12)) === JSON.stringify([{ at: '2026-01-01T18:00:00.000Z', arrive: '2026-01-01T18:15:00.000Z' }]));
   const wf = F.withDeliveryFee({ subtotal: 10, tax: 1, total: 11 }, 399);
   check('the fee on its own line, in the total, the tax as it was', wf.deliveryFee === 3.99 && wf.total === 14.99 && wf.tax === 1 && wf.subtotal === 10);
+  check('the driver’s tip: a percent of the food or an amount up to $100, nothing else', F.tipCentsOf({ pct: 18 }, 1350) === 243 && F.tipCentsOf({ pct: 15 }, 1350) === 203 && F.tipCentsOf({ pct: 17 }, 1350) === -1
+    && F.tipCentsOf({ cents: 500 }, 1350) === 500 && F.tipCentsOf({ cents: 20000 }, 1350) === -1 && F.tipCentsOf({ cents: 2.5 }, 1350) === -1 && F.tipCentsOf(null, 1350) === 0 && F.tipCentsOf('5', 1350) === -1);
+  const wt = F.withDeliveryFee({ subtotal: 13.5, tax: 1.35, total: 14.85 }, 399, 243);
+  check('…in the total, on its own line, with no tax on it', wt.total === 21.27 && wt.tipCents === 243 && wt.tax === 1.35 && wt.deliveryFee === 3.99, wt);
   check('the steps: being made, ready (waiting on a driver), out, delivered, couldn’t be', F.deliveryStep(null, 'making') === 'making' && F.deliveryStep({ state: 'waiting' }, 'ready') === 'ready' && F.deliveryStep({ state: 'out' }, 'making') === 'out' && F.deliveryStep({ state: 'failed' }, 'ready') === 'failed');
   check('the longest drive is one of the choices (15 otherwise)', F.foodDeliveryOf({ orderAhead: { delivery: true, deliveryMaxMin: 99 } }).maxDriveMin === 15 && F.foodDeliveryOf({ orderAhead: { delivery: true, deliveryMaxMin: 20 } }).maxDriveMin === 20 && F.foodDeliveryOf({}).on === false);
 
@@ -217,6 +223,96 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   check('delivered: last on the counter, and its phone isn’t shown any more', r.body.ok && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'delivered' && rowsD[rowsD.length - 1].orderId === id2 && rowsD[rowsD.length - 1].step === 'delivered' && rowsD[rowsD.length - 1].phone === null, rowsD);
   r = await A({ action: 'track', o: id2, s: s2 });
   check('the guest’s page: delivered', r.body.delivery?.step === 'delivered' && !!r.body.delivery.deliveredAt, r.body.delivery);
+
+  console.log('a tip for the driver');
+  await db.doc(`${T}/staff/d1`).set({ name: 'Sam Lee', role: 'staff', isActive: true });
+  await db.doc(`${T}/staff/d2`).set({ name: 'Rio Diaz', role: 'staff', isActive: true });
+  await db.doc(`${T}/staff/s9`).set({ name: 'Kai Park', role: 'staff', isActive: true });
+  await db.doc(T).set({ retailSettings: { taxRatePercent: 10, deliveryPlan: { ...PLAN, drivers: ['d1', 'd2'] } } }, { merge: true });
+  r = await A({ ...base, key: nextKey(), phone: '8325550142', tip: { pct: 50 } });
+  check('a tip that isn’t one offered is refused', r.status === 400 && r.body.code === 'tip', r.body);
+  r = await A({ ...base, key: nextKey(), name: 'Dee', phone: '8325550188', textMe: true, tip: { pct: 18 }, tipCents: 1 });
+  const id3 = r.body.orderId; const s3 = r.body.sig; const o3 = await get(`${T}/counterOrders/${id3}`);
+  check('placed with an 18% tip of the food: worked out here, in the total, untaxed', r.body.ok && o3.subtotal === 13 && o3.tax === 1.3 && o3.tipCents === 234 && o3.tipFor === 'driver' && o3.total === 20.63 && S.pis.get(o3.ahead.payId).amount === 2063 && r.body.tip === 2.34, { body: r.body, o3 });
+  paid(o3.ahead.payId); await A({ action: 'done', o: id3, s: s3 });
+  const paidTip = await get(`${T}/transactions/ftip_${id3}`);
+  check('…paid: booked as a tip (never sales) with no one on it until it’s delivered, and refundable to the card', paidTip?.category === 'Tips' && paidTip.taxBucket === 'gratuity' && paidTip.amount === 2.34 && paidTip.staffId === null && paidTip.stripePaymentIntentId === o3.ahead.payId
+    && (await get(`${T}/transactions/counter_${id3}`))?.amount === 13 && (await get(`${T}/transactions/counter_${id3}_delivery`))?.amount === 3.99, paidTip);
+  r = await A({ action: 'track', o: id3, s: s3 });
+  check('the guest’s page shows the tip', r.body.tip === 2.34, r.body.tip);
+
+  console.log('the driver’s phone');
+  const Run = (b: any) => RUN(req({ tenantId: 't1', ...b }));
+  actor = { uid: 's9', name: 'Kai Park', role: 'staff', isManager: false, caps: [] };
+  r = await Run({ action: 'list' });
+  check('only the business’s drivers (when it lists them)', r.status === 403 && /one of the drivers/.test(r.body.error), r.body);
+  actor = { uid: 'd2', name: 'Rio Diaz', role: 'staff', isManager: false, caps: [], isRenter: true };
+  r = await Run({ action: 'list' });
+  check('never a renter', r.status === 403, r.body);
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  await new Promise((res) => setTimeout(res, 3100));   // (the list is read once every few seconds)
+  r = await Run({ action: 'list' });
+  const mineRow = (r.body.rows || []).find((x: any) => x.orderId === id3);
+  check('a driver sees hot food being made, with the tip, and never the guest’s number', r.body.ok && r.body.on && mineRow?.step === 'making' && mineRow.tip === 2.34 && mineRow.phone === null && /08077/.test(mineRow.mapTo) && !(r.body.rows || []).some((x: any) => x.phone), r.body.rows);
+  r = await Run({ action: 'take', orderId: id3 });
+  check('not taken while it’s being made', r.status === 409 && /still being made/.test(r.body.error), r.body);
+  const t3 = (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id3);
+  for (const t of t3) await db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'ready', readyAt: new Date().toISOString() }, { merge: true });
+  texts.length = 0;
+  r = await Run({ action: 'take', orderId: id3 });
+  const o3b = await get(`${T}/counterOrders/${id3}`);
+  check('Take it: out with them (their team record), and the guest’s text that it’s on its way', r.body.ok && o3b.ahead.delivery.state === 'out' && o3b.ahead.delivery.driverId === 'd1' && o3b.ahead.delivery.driverName === 'Sam Lee' && texts.length === 1 && /on its way/.test(texts[0].body), { d: o3b.ahead.delivery, texts });
+  actor = { uid: 'd2', name: 'Rio Diaz', role: 'staff', isManager: false, caps: [] };
+  r = await Run({ action: 'take', orderId: id3 });
+  const other: any = await Run({ action: 'list' });
+  check('another driver can’t take it, and doesn’t see it', r.status === 409 && /already out with Sam Lee/.test(r.body.error) && !(other.body.rows || []).some((x: any) => x.orderId === id3), r.body);
+  r = await Run({ action: 'outside', orderId: id3 });
+  const notMine: any = await Run({ action: 'done', orderId: id3 });
+  check('…or text them, or mark it delivered', r.status === 403 && notMine.status === 403, [r.body, notMine.body]);
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  texts.length = 0; smsDown = true;
+  r = await Run({ action: 'outside', orderId: id3 });
+  const downPage: any = await A({ action: 'track', o: id3, s: s3 });
+  check('I’m outside when texts aren’t going: said, their page doesn’t claim it, and it can be tried again at once', r.body.ok && r.body.sent === false && r.body.why === 'failed' && downPage.body.delivery?.outside === false && !(await get(`${T}/counterOrders/${id3}`)).ahead.delivery.outsideAt, r.body);
+  smsDown = false; texts.length = 0;
+  r = await Run({ action: 'outside', orderId: id3 });
+  const again: any = await Run({ action: 'outside', orderId: id3 });
+  check('I’m outside: one text from the business’s number (not again straight away, and the driver is told why)', r.body.ok && r.body.sent === true && texts.length === 1 && texts[0].to === '+18325550188' && /Your driver is outside with order A\d+\./.test(texts[0].body) && again.body.ok && again.body.sent === false && again.body.why === 'soon' && texts.length === 1, texts);
+  r = await A({ action: 'track', o: id3, s: s3 });
+  check('…and their page says so', r.body.delivery?.outside === true && r.body.delivery.driver === 'Sam', r.body.delivery);
+  r = await Run({ action: 'done', orderId: id3 });
+  const tipLine = await get(`${T}/transactions/ftip_${id3}`);
+  check('delivered: the tip is the driver’s, put under their name (the same line)', r.body.ok && tipLine?.category === 'Tips' && tipLine.staffId === 'd1' && tipLine.amount === 2.34 && tipLine.taxBucket === 'gratuity' && tipLine.type === 'income' && tipLine.date === paidTip.date && tipLine.description === `Driver tip, order ${o3.number}`, tipLine);
+  r = await Run({ action: 'done', orderId: id3 });
+  check('…tapped again: booked once', r.body.ok && r.body.already === true && (await all(`${T}/transactions`)).filter((t: any) => t.id === `ftip_${id3}`).length === 1, r.body);
+
+  console.log('the counter picks the driver');
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+  r = await A({ ...base, key: nextKey(), name: 'Ola', phone: '8325550199', tip: { cents: 500 } });
+  const id4 = r.body.orderId; paid(S.pis.get((await get(`${T}/counterOrders/${id4}`)).ahead.payId).id); await A({ action: 'done', o: id4, s: r.body.sig });
+  for (const t of (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id4)) await db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'ready' }, { merge: true });
+  r = await C({ action: 'lane' });
+  check('the counter lists the business’s drivers', JSON.stringify(r.body.drivers) === JSON.stringify([{ id: 'd1', name: 'Sam Lee' }, { id: 'd2', name: 'Rio Diaz' }]), r.body.drivers);
+  r = await C({ action: 'deliveryOut', orderId: id4, driverId: 's9' });
+  check('only one of them can be picked', r.status === 400, r.body);
+  r = await C({ action: 'deliveryOut', orderId: id4, driver: 'Cousin Jo' });
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  const taken: any = await Run({ action: 'take', orderId: id4 });
+  check('out with someone the counter named: a driver can’t take it over', taken.status === 409 && /already out with Cousin Jo/.test(taken.body.error), taken.body);
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+  await C({ action: 'deliveryDone', orderId: id4 });
+  const jo = await get(`${T}/transactions/ftip_${id4}`);
+  check('someone else by name: their tip is kept for the owner to give out by hand', r.body.ok && jo?.amount === 5 && jo.staffId === null && /give it out by hand/.test(jo.description), jo);
+
+  console.log('brought back');
+  r = await A({ ...base, key: nextKey(), name: 'Bo', phone: '8325550111' });
+  const id5 = r.body.orderId; paid(S.pis.get((await get(`${T}/counterOrders/${id5}`)).ahead.payId).id); await A({ action: 'done', o: id5, s: r.body.sig });
+  for (const t of (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === id5)) await db.doc(`${T}/kdsTickets/${t.id}`).set({ status: 'ready' }, { merge: true });
+  actor = { uid: 'd1', name: 'Sam Lee', role: 'staff', isManager: false, caps: [] };
+  await Run({ action: 'take', orderId: id5 }); await Run({ action: 'failed', orderId: id5, why: 'no_answer' });
+  r = await Run({ action: 'take', orderId: id5 });
+  check('brought back: a driver can’t pick it up again from their phone (a manager sends it again from the counter)', r.status === 409 && /A manager sends it out again/.test(r.body.error) && (await get(`${T}/counterOrders/${id5}`)).ahead.delivery.state === 'failed', r.body);
+  actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
 
   console.log('turned off');
   await Mn({ action: 'ahead', delivery: false });

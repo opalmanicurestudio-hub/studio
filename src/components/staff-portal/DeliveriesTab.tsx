@@ -9,7 +9,8 @@
 //     leave it where they asked, bring it back to the shop, or go on and come back.
 // While the driver has stops out, the staff app keeps the customers' order pages up to date (DriverLiveUpdates, below,
 // lib/delivery-live): the route and arrival times, and roughly where the driver is unless they turn that off here. It
-// stops when the last stop is done.
+// stops when the last stop is done. Hot food from the menu (components/staff-portal/HotFoodRun) sits at the top and goes
+// first.
 import * as React from 'react';
 import { collection, doc, limit, query, where } from 'firebase/firestore';
 import { useCollection, useDoc, useMemoFirebase } from '@/firebase';
@@ -24,6 +25,7 @@ import { markAtDoor, markDelivered, markDeliveryFailed, markOutForDelivery, skip
 import { bagReply, bagWords, bagsToLoad, parseBagCode } from '@/lib/bag-tag';
 import { approversOf } from '@/lib/scan-rule';
 import { ScanGate } from '@/components/retail/ScanGate';
+import { HotFoodRun } from '@/components/staff-portal/HotFoodRun';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', OK = '#1f7a4d', WARN = '#b45309';
 const card: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 20, background: '#fff' };
@@ -146,6 +148,8 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   const [skipFor, setSkipFor] = React.useState<{ id: string; pin: string } | null>(null);
   const [scanSay, setScanSay] = React.useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = React.useState('');
+  // Hot food on its way or waiting for a driver (components/staff-portal/HotFoodRun): how many, for the empty note.
+  const [hot, setHot] = React.useState(0);
   const [note, setNote] = React.useState<{ text: string; bad?: boolean } | null>(null);
   React.useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 6000); return () => clearTimeout(t); }, [note]);
 
@@ -204,6 +208,7 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
       </div>
       {note && <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: note.bad ? '#fff7ed' : '#eaf6ef', color: note.bad ? WARN : OK }}>{note.text}</p>}
       {isLoading && !orders ? <p role="status" className="text-[15px]" style={{ color: MUTED }}>Loading deliveries…</p> : null}
+      <HotFoodRun tenantId={tenantId} tz={tz} me={me} onCount={setHot} />
 
       {toTake.length > 0 && (
         <section aria-labelledby="take-h" className="p-4" style={{ ...card, borderColor: going.length ? INK : LINE, borderWidth: going.length ? 2 : 1 }}>
@@ -283,7 +288,7 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
             </button>))}
         </section>)}
 
-      {!toTake.length && !route.length && orders && <p className="rounded-2xl p-5 text-[15px]" style={{ background: SOFT, color: MUTED }}>Nothing to deliver right now. Packed delivery orders show up here.</p>}
+      {!toTake.length && !route.length && !hot && orders && <p className="rounded-2xl p-5 text-[15px]" style={{ background: SOFT, color: MUTED }}>Nothing to deliver right now. Packed delivery orders show up here.</p>}
 
       {toTake.length > 0 && (
         <div className="space-y-2">

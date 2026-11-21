@@ -10,8 +10,14 @@
 //   with no sales tax on it.
 // - Handed over at the counter (api/counter: deliveryOut, deliveryDone, deliveryFailed): out with a driver, delivered,
 //   or couldn't be delivered and why. The guest's page follows it, and their one text is "on its way", not "ready".
+// - The driver (round 2, design board "Hot food on the driver's phone"): a driver takes it from the staff app's
+//   Deliveries tab (api/counter/food-run), or the counter sends it out with one of the business's drivers. They can text
+//   the guest they're outside, from the business's number.
+// - A tip for the driver, chosen when ordering (a percent of the food, or an amount): all of it is theirs, booked under
+//   their name as a tip when it's delivered (never food sales, no tax on it).
 //   tenants/{t}/counterOrders/{id}.ahead.delivery = { address, note, phone (for the driver), feeCents, miles, driveMin, zone, arriveAt,
-//     state: 'waiting' | 'out' | 'delivered' | 'failed', driverName?, outAt?, deliveredAt?, failedAt?, why? }
+//     state: 'waiting' | 'out' | 'delivered' | 'failed', driverName?, driverId?, outAt?, outsideAt?, deliveredAt?, failedAt?, why? }
+//   and on the order: deliveryFee (dollars), tipCents, tipFor: 'driver'
 
 export const DRIVE_MAX_CHOICES = [10, 15, 20, 30] as const;
 export const DEFAULT_DRIVE_MAX = 15;
@@ -51,12 +57,28 @@ export function arrivalTimes(pickupIsos: string[], driveMin: number): { at: stri
   return pickupIsos.map((at) => { const t = Date.parse(at) + driveMin * 60000; return { at, arrive: new Date(Math.ceil(t / 300000) * 300000).toISOString() }; });
 }
 
-/** The order's money with its delivery fee: the food's subtotal and tax as they were, the fee on its own line, and the
- *  total with it (the one the guest pays). */
-export function withDeliveryFee<M extends { total: number }>(money: M, feeCents: number): M & { deliveryFee: number; total: number } {
-  const fee = Math.max(0, Math.round(feeCents)) / 100;
-  return { ...money, deliveryFee: fee, total: Math.round((money.total + fee) * 100) / 100 };
+/** The order's money with its delivery fee (and the driver's tip): the food's subtotal and tax as they were, the fee and
+ *  the tip on their own lines, and the total with them (the one the guest pays). */
+export function withDeliveryFee<M extends { total: number }>(money: M, feeCents: number, tipCents = 0): M & { deliveryFee: number; tipCents: number; total: number } {
+  const fee = Math.max(0, Math.round(feeCents)) / 100; const tip = Math.max(0, Math.round(tipCents));
+  return { ...money, deliveryFee: fee, tipCents: tip, total: Math.round((money.total + fee) * 100 + tip) / 100 };
 }
+
+/** The tips offered for the driver: a percent of the food (before tax), or an amount up to this. */
+export const TIP_PCTS = [15, 18, 20] as const;
+export const MAX_TIP_CENTS = 10000;
+/** The driver's tip from what the guest picked: { pct } (one of the offered percents) or { cents }; nothing is no tip.
+ *  -1: not one that's offered. */
+export function tipCentsOf(raw: any, foodCents: number): number {
+  if (raw === null || raw === undefined || raw === false) return 0;
+  if (typeof raw !== 'object') return -1;
+  if (raw.pct !== undefined && raw.pct !== null) { const p = Number(raw.pct); return (TIP_PCTS as readonly number[]).includes(p) ? Math.round((Math.max(0, foodCents) * p) / 100) : -1; }
+  if (raw.cents !== undefined && raw.cents !== null) { const c = Number(raw.cents); return Number.isInteger(c) && c >= 0 && c <= MAX_TIP_CENTS ? c : -1; }
+  return 0;
+}
+
+/** "I'm outside" goes once every couple of minutes at most. */
+export const OUTSIDE_EVERY_MS = 2 * 60_000;
 
 /** How the delivery is going, for the counter and the guest: waiting (being made, or ready to go), out with a driver,
  *  delivered, or not. `kitchen`: 'making' | 'ready' | 'handed' from the tickets. */

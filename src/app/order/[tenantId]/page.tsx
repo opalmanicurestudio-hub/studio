@@ -31,6 +31,10 @@ const WAY_BUTTON: Record<Way, string> = { 'drive-thru': 'Drive-thru', inside: 'I
 type Addr = { line1: string; line2: string; city: string; state: string; postalCode: string };
 const NO_ADDR: Addr = { line1: '', line2: '', city: '', state: '', postalCode: '' };
 type DCheck = { feeCents: number; free: boolean; driveMin: number; token: string | null; asapArrive: string | null };
+type Tip = { pct: number } | { cents: number } | null;
+const TIP_PCTS = [15, 18, 20];
+/** The driver's tip in cents for the food's subtotal (the order works it out again when it's placed). */
+const tipCents = (t: Tip, food: number) => (!t ? 0 : 'pct' in t ? Math.round((Math.round(food * 100) * t.pct) / 100) : t.cents);
 const to5 = (ms: number) => new Date(Math.ceil(ms / 300000) * 300000).toISOString();
 /** When it should get there from a pickup time (the time it's ready to leave): plus the drive, to the next 5 minutes. */
 const arriveFor = (iso: string, driveMin: number) => to5(Date.parse(iso) + driveMin * 60000);
@@ -54,7 +58,7 @@ type Track = { business: string; number: string; name: string | null; state: str
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
-  deliveryFee?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | null; driver: string | null; outAt: string | null; deliveredAt: string | null } };
+  deliveryFee?: number; tip?: number; delivery?: { to: string; arriveAt: string | null; driveMin: number; step: 'making' | 'ready' | 'out' | 'delivered' | 'failed' | null; driver: string | null; outAt: string | null; deliveredAt: string | null; outside?: boolean } };
 
 /** An order on this phone, for Order again: kept here only (never sent anywhere), the last few and any made a favorite. */
 type Past = { o: string; at: string; fav?: boolean; lines: { itemId: string; picks: Picks; quantity: number; name: string; choicesText: string | null }[] };
@@ -389,6 +393,7 @@ function OrderLines({ t }: { t: Track }) {
     <section aria-label="Your order" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
       <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}>, {l.choicesText}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
       {!!t.deliveryFee && <p className="mt-2 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Delivery</span><span className="tabular-nums">{usd(t.deliveryFee)}</span></p>}
+      {!!t.tip && <p className="mt-1 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Driver tip</span><span className="tabular-nums">{usd(t.tip)}</span></p>}
       <p className="mt-3 flex justify-between border-t pt-3 text-[16px] font-semibold" style={{ borderColor: LINE }}><span>Paid</span><span className="tabular-nums">{usd(t.total)}</span></p>
     </section>);
 }
@@ -425,6 +430,7 @@ function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNull
             <span style={{ color: x.on ? INK : MUTED }}>{x.text}{x.on ? <span className="sr-only"> (done)</span> : null}</span>
           </li>))}
       </ol>
+      {st === 'out' && D.outside && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>Your driver is outside.</p>}
       {st === 'failed' && <p className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: AMBER_TINT, color: AMBER }}>The driver couldn’t deliver it, and the team knows. They’ll refund it or send it again.</p>}
       {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
       {(st === 'making' || st === 'ready' || (st === 'out' && !!t.text?.sent)) && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={reload} onWay />}
@@ -446,6 +452,29 @@ function opensWords(iso: string, tz?: string): string {
   if (day(t) === tomorrow) return `tomorrow ${at}`;
   let wd = ''; try { wd = t.toLocaleDateString('en-US', { weekday: 'long', ...(tz ? { timeZone: tz } : {}) }); } catch { wd = t.toLocaleDateString('en-US', { weekday: 'long' }); }
   return `on ${wd} ${at}`;
+}
+
+/** A tip for the driver (lib/food-delivery): a percent of the food or an amount; nothing picked is no tip. All of it is
+ *  the driver's. */
+function TipPick({ food, tip, setTip }: { food: number; tip: Tip; setTip: (t: Tip) => void }) {
+  const [typed, setTyped] = React.useState(() => (tip && 'cents' in tip ? (tip.cents / 100).toFixed(2) : ''));
+  const [other, setOther] = React.useState(!!tip && 'cents' in tip);
+  const on = (t: Tip) => setTip(t);
+  const opt = (key: string, label: string, sub: string | null, chosen: boolean, pick: () => void) => (
+    <button key={key} type="button" aria-pressed={chosen} onClick={pick} className={`flex min-h-[52px] flex-col items-center justify-center rounded-xl text-[14.5px] font-semibold leading-tight ${RING}`}
+      style={chosen ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{label}{sub && <span className="text-[12.5px] font-medium" style={{ color: chosen ? '#d9dadc' : MUTED }}>{sub}</span>}</button>);
+  const setAmount = (v: string) => { const clean = v.replace(/[^\d.]/g, '').slice(0, 6); setTyped(clean); const c = Math.round(Number(clean) * 100); on(Number.isFinite(c) && c > 0 ? { cents: Math.min(10000, c) } : null); };
+  return (
+    <fieldset className="mt-3"><legend className="text-[15px] font-semibold">Tip for your driver</legend>
+      <div className="mt-2 grid grid-cols-5 gap-1.5">
+        {opt('none', 'None', null, !tip && !other, () => { setOther(false); on(null); })}
+        {TIP_PCTS.map((p) => opt(`p${p}`, `${p}%`, usd(tipCents({ pct: p }, food) / 100), !other && !!tip && 'pct' in tip && tip.pct === p, () => { setOther(false); on({ pct: p }); }))}
+        {opt('other', 'Other', null, other, () => { setOther(true); setAmount(typed); })}
+      </div>
+      {other && <label className="mt-2 block"><span className="text-[14px] font-medium">Tip amount</span>
+        <input value={typed} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" autoFocus className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>}
+      <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>All of it goes to your driver.</p>
+    </fieldset>);
 }
 
 /** Delivered (lib/food-delivery): where to, a note for the driver, and checking the address (the fee and the drive). */
@@ -493,6 +522,7 @@ export default function OrderAhead() {
   const [addr, setAddrNow] = React.useState<Addr>(NO_ADDR); const [dnote, setDnote] = React.useState('');
   const [dcheck, setDcheck] = React.useState<DCheck | null>(null); const [checking, setChecking] = React.useState(false); const [checkErr, setCheckErr] = React.useState('');
   const setAddr = (a: Addr) => { setAddrNow(a); setDcheck(null); setCheckErr(''); };
+  const [tip, setTip] = React.useState<Tip>(null);
   // Order again: recent orders and favorites on this phone, and what adding one did.
   const [past, setPast] = React.useState<Past[]>([]); const [againSaid, setAgainSaid] = React.useState<{ text: string; warn: boolean } | null>(null);
   const [moreTimes, setMoreTimes] = React.useState(false);
@@ -505,7 +535,7 @@ export default function OrderAhead() {
   const closedNow = !!menu?.closedNow;
   const noneOpen = !!menu && !closedNow && (!!menu.asapFull || menu.asap === false) && !firstOpen(menu);
   const [placing, setPlacing] = React.useState(false); const [payBusy, setPayBusy] = React.useState(false); const [placeErr, setPlaceErr] = React.useState('');
-  const [pay, setPay] = React.useState<{ orderId: string; sig: string; number: string; total: number; deliveryFee?: number; clientSecret: string; publishableKey: string; stripeAccount: string } | null>(null);
+  const [pay, setPay] = React.useState<{ orderId: string; sig: string; number: string; total: number; deliveryFee?: number; tip?: number; clientSecret: string; publishableKey: string; stripeAccount: string } | null>(null);
   const [track, setTrack] = React.useState<{ o: string; s: string } | null>(null);
   const key = React.useRef<string>('');
   const cartKey = `cf.ahead.cart.${tenantId}`;
@@ -531,7 +561,7 @@ export default function OrderAhead() {
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', vis); };
   }, [waiting, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Changed after going back (another way, time or name): a new order when they continue, never the old one.
-  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote]);
+  React.useEffect(() => { key.current = ''; }, [way, at, name, phone, join, textMe, addr, dnote, tip]);
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
   const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind) => {
@@ -612,10 +642,10 @@ export default function OrderAhead() {
     if (wantText && digits.length !== 10) { setPlaceErr(`Add your mobile number for the text, or untick Text me when ${deliver ? 'it’s on its way' : 'it’s ready'}.`); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, name: name.trim(), way, at: at || null, ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}) })) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
+    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -645,7 +675,7 @@ export default function OrderAhead() {
       </header>
       <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <p className="flex items-baseline justify-between"><span className="text-[16px] font-semibold">Total with tax</span><span className="text-[28px] font-semibold tabular-nums">{usd(pay.total)}</span></p>
-        {!!pay.deliveryFee && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>With {usd(pay.deliveryFee)} for delivery.</p>}
+        {!!pay.deliveryFee && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>With {usd(pay.deliveryFee)} for delivery{pay.tip ? ` and a ${usd(pay.tip)} tip for your driver` : ''}.</p>}
       </section>
       <section aria-label="Pay" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <Elements stripe={stripeFor(pay.publishableKey, pay.stripeAccount)} options={{ clientSecret: pay.clientSecret, appearance: { theme: 'stripe', variables: { colorPrimary: INK, borderRadius: '14px', fontSizeBase: '16px', fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' } } }}>
@@ -679,6 +709,7 @@ export default function OrderAhead() {
         </ul>
         <p className="mt-4 flex justify-between border-t pt-3 text-[15px]" style={{ borderColor: LINE }}><span>Subtotal</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
         {way === 'delivery' && dcheck && <p className="mt-1 flex justify-between text-[15px]"><span>Delivery</span><span className="font-semibold tabular-nums">{dcheck.free || !dcheck.feeCents ? 'Free' : usd(dcheck.feeCents / 100)}</span></p>}
+        {way === 'delivery' && dcheck && tipCents(tip, subtotal) > 0 && <p className="mt-1 flex justify-between text-[15px]"><span>Driver tip</span><span className="font-semibold tabular-nums">{usd(tipCents(tip, subtotal) / 100)}</span></p>}
         <p className="text-[13px]" style={{ color: MUTED }}>Any tax is added on the next step.</p>
       </section>
       <section className="space-y-4 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
@@ -701,6 +732,7 @@ export default function OrderAhead() {
             {way === 'curbside' && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Park and tap I’m here when you arrive. We’ll bring it to your car.</p>}</fieldset>)}
         {menu.ways.length === 1 && (menu.ways[0] === 'delivery' ? <p className="text-[15px] font-semibold">Delivered to you</p> : <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {WAY_WORDS[menu.ways[0]] || 'inside'}</p>)}
         {way === 'delivery' && <DeliveryFields addr={addr} setAddr={setAddr} note={dnote} setNote={setDnote} check={dcheck} checking={checking} checkErr={checkErr} onCheck={checkAddress} />}
+        {way === 'delivery' && dcheck && <TipPick food={subtotal} tip={tip} setTip={setTip} />}
         {closedNow ? (
           <div className="rounded-2xl px-4 py-3" style={{ background: SOFT }} role="status">
             <p className="text-[15px] font-semibold">{menu.lateToday ? 'Too late for pickup today' : 'Closed right now'}</p>

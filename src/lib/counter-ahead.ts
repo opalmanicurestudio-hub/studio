@@ -30,7 +30,7 @@ import { asapOpen, houseWeek, hoursNow, insideHours, type HoursNow } from '@/lib
 import { lastFour, readyTextView, readyTextsOn } from '@/lib/ready-text';
 import { toE164 } from '@/lib/sms';
 import { picksOf } from '@/lib/menu-choices';
-import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, type FoodAddress } from '@/lib/food-delivery';
+import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, type FoodAddress } from '@/lib/food-delivery';
 import { deliveryFrom } from '@/lib/delivery-plan';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -170,7 +170,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any) {
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -230,7 +230,10 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     if (!r.ok) return r;
     deliv = { address: r.address, note: cleanNote(b.note), phone, feeCents: r.feeCents, miles: r.miles, driveMin: r.driveMin, zone: r.zone, state: 'waiting' };
   }
-  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents) : totalsOf(tenant, lines); const cents = centsOf(money.total);
+  // The driver's tip (a delivery only): worked out here from the food, never taken from the page.
+  const tipCents = deliv ? tipCentsOf(b.tip, centsOf(totalsOf(tenant, lines).subtotal)) : 0;
+  if (tipCents < 0) return fail('Pick a tip again.', 400, 'tip');
+  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents, tipCents) : totalsOf(tenant, lines); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   const day = todayIn(tenantTimeZone(tenant), new Date(now));
   // Its pickup time (lib/ahead-slots): the one chosen, or for as soon as it's ready the first that could be ready. Room
@@ -239,7 +242,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const slot = at || asapSlot(now, pickupDelayMin(pace)); const cap = slotCap(A.slotItems, pace.level as PaceLevel); const items = itemCount(lines);
   // The same order only for the same key AND the same details: changed after going back (another pickup way, time,
   // name or item), it's a new order, never the old one paid for.
-  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note } : {}) });
+  const what = JSON.stringify({ lines: lines.map((l) => [l.itemId, l.quantity, l.choicesText || '']), name, way, at, phone, text: !!textTo, ...(deliv ? { to: deliv.address, note: deliv.note, tip: tipCents } : {}) });
   const orderRef = db.doc(`${T}/counterOrders/ahead_${createHash('sha256').update(`${tenantId}/${key}/${what}`).digest('hex').slice(0, 32)}`);
   const orderId = orderRef.id;
   // Only while it's open (lib/ahead-hours): a page left open past closing can't place a new order for when it's closed.
@@ -265,7 +268,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     const n = Math.floor(num(c.ahead)) + 1; const number = orderNumber('ahead', n);
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${day}_${code}`), { orderId, at: nowIso() });
-    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
+    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day,
       ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
         // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
         ...(deliv ? { delivery: { ...deliv, arriveAt: new Date(Date.parse(slot) + deliv.driveMin * 60000).toISOString() } } : {}) },
@@ -292,7 +295,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   } catch { return fail('Paying isn’t working right now. Try again in a moment.', 503); }
   // On the payments sweep's list (lib/counter-card) from now: paid and unheard, or never paid.
   await orderRef.set({ ahead: { payId: pi.id }, cardOpen: true }, { merge: true });
-  return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, total: num(cur.total), paid: false, ...(cur.deliveryFee ? { deliveryFee: num(cur.deliveryFee) } : {}),
+  return { ok: true, orderId, sig: aheadSig(tenantId, orderId), number: cur.number, total: num(cur.total), paid: false, ...(cur.deliveryFee ? { deliveryFee: num(cur.deliveryFee) } : {}), ...(num(cur.tipCents) > 0 ? { tip: num(cur.tipCents) / 100 } : {}),
     clientSecret: pi.client_secret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, stripeAccount: acct };
 }
 
@@ -439,11 +442,13 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     subtotal: num(or.subtotal), tax: num(or.tax), total: num(or.total),
     // Delivered (lib/food-delivery): where to (no ZIP or note, on a page anyone with the link can open), the fee, about
     // when it should get there, and how it's going: who's bringing it once it's out.
-    ...(or.ahead?.way === 'delivery' && or.ahead?.delivery ? { deliveryFee: num(or.deliveryFee), delivery: {
+    ...(or.ahead?.way === 'delivery' && or.ahead?.delivery ? { deliveryFee: num(or.deliveryFee), tip: Math.max(0, num(or.tipCents)) / 100, delivery: {
       to: addressLine(or.ahead.delivery.address), arriveAt: or.ahead.delivery.arriveAt || null, driveMin: num(or.ahead.delivery.driveMin),
       step: or.paidAt ? deliveryStep(or.ahead.delivery, handed ? 'handed' : ready ? 'ready' : 'making') : null,
       driver: or.ahead.delivery.state === 'out' || or.ahead.delivery.state === 'delivered' ? String(or.ahead.delivery.driverName || '').split(' ')[0] || null : null,
-      outAt: or.ahead.delivery.outAt || null, deliveredAt: or.ahead.delivery.deliveredAt || null } } : {}),
+      outAt: or.ahead.delivery.outAt || null, deliveredAt: or.ahead.delivery.deliveredAt || null,
+      // (The driver texted that they're outside, in the last few minutes, while it's out.)
+      outside: or.ahead.delivery.state === 'out' && Date.now() - (Date.parse(String(or.ahead.delivery.outsideAt || '')) || 0) < 15 * 60000 } } : {}),
   };
 }
 

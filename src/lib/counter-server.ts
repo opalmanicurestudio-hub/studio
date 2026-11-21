@@ -564,6 +564,10 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // A delivery's fee (lib/food-delivery): on its own line, what the guest paid for delivery, never food sales.
     const fee = num(o.deliveryFee);
     if (fee > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_delivery`); tx.set(feeRef, { id: feeRef.id, ...common, description: `Delivery, order ${o.number}`, category: 'Shipping Charged', taxBucket: 'revenue', amount: fee, hasReceipt: false }); }
+    // Its driver's tip (lib/food-delivery): a tip, never sales, kept with no one on it until it's delivered, when it's put
+    // under the driver's name (lib/food-delivery-server). Refunded with the order, it goes back to the card from here.
+    const tipC = Math.max(0, Math.round(num(o.tipCents)));
+    if (tipC > 0) { const tipRef = db.doc(`${T}/transactions/ftip_${orderId}`); tx.set(tipRef, { id: tipRef.id, ...common, description: `Driver tip, order ${o.number} (the driver’s once it’s delivered)`, category: 'Tips', taxBucket: 'gratuity', amount: tipC / 100, staffId: null, hasReceipt: false }); }
     // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count); taken
     // in line, it goes into that person's own pouch, counted as theirs for the day.
     const pouch = method === 'cash' && how.pouch === true;
