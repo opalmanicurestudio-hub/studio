@@ -7,12 +7,13 @@
 import { depleteBatchesFIFO } from './retail-orders';
 import { buildEntry } from './stock-ledger';
 import { variantIdsOf } from './variants';
+import { storeView, type Store } from './store-stock';
 
 export type CountResult = { ok: true; delta: number; totalStock: number; changed?: boolean } | { ok: false; error: string };
 
 /** The item after a count (pure): its new total, its batches, and how far off the record was. The batches are brought
- *  to the count too, from what they hold (not from the total), since fulfilment and returns work the total out again
- *  from the batches: a count that left them disagreeing would be quietly undone by the next sale. */
+ *  to the count too, from what they hold (not from the total), so the lots and costs a sale takes from them match
+ *  what's on the shelf. */
 export function applyCount(item: any, counted: number, now = new Date().toISOString(), id = `count-${Date.now().toString(36)}`): { totalStock: number; batches?: any[]; delta: number; changed: boolean } {
   const was = Math.max(0, Number(item?.totalStock) || 0);
   const n = Math.max(0, Math.floor(Number(counted) || 0));
@@ -31,8 +32,10 @@ export function applyCount(item: any, counted: number, now = new Date().toISOStr
 
 /** Records a count on the server, in one step with the product, as the person who counted. */
 /** `open`: for a product used by the dose (counted by uses or by amount), what's left in the open container, in its
- *  unit. Left out, the open container is left as it was. */
-export async function recordCount(db: any, tenantId: string, productId: string, counted: unknown, actor: { id: string; name: string }, opts: { open?: unknown } = {}): Promise<CountResult> {
+ *  unit. Left out, the open container is left as it was. `stores`: with more than one location, the business's stores:
+ *  a product already counted at a store is counted at a store (lib/store-stock-server countAtStore), never as a whole,
+ *  which would move the total and leave the stores' numbers behind. */
+export async function recordCount(db: any, tenantId: string, productId: string, counted: unknown, actor: { id: string; name: string }, opts: { open?: unknown; stores?: Store[] } = {}): Promise<CountResult> {
   const n = typeof counted === 'number' || (typeof counted === 'string' && /^\d+$/.test(counted)) ? Math.floor(Number(counted)) : NaN;
   if (!Number.isFinite(n) || n < 0 || n > 1_000_000) return { ok: false, error: 'Type the number you counted.' };
   const ref = db.doc(`tenants/${tenantId}/inventory/${productId}`);
@@ -41,6 +44,7 @@ export async function recordCount(db: any, tenantId: string, productId: string, 
     const item: any = s.data() || {};
     if (String(item.type) === 'equipment') return { ok: false, error: 'Equipment isn’t counted here.' };
     if (variantIdsOf(item).length) return { ok: false, error: 'This one is counted by its variants. Count each variant instead.' };
+    if (opts.stores && opts.stores.length > 1 && item.costingMethod !== 'uses' && item.costingMethod !== 'size' && storeView(item, opts.stores).tracked) return { ok: false, error: 'This one is counted at each store. Pick the store you counted at, or reload the page if you don’t see your stores.' };
     const held = Math.max(0, Number(item.stockReserved) || 0);
     if (n < held) return { ok: false, error: `${held} ${held === 1 ? 'is' : 'are'} held for paid orders, so the shelf can’t be fewer than that. Mark the missing ones on those orders first.` };
     const next = applyCount(item, n);

@@ -1,10 +1,12 @@
 // /api/inventory/count — A STOCK COUNT. POST { tenantId, productId, counted } sets what's on the shelf to the number
 // counted and records the difference on the stock history as the person signed in (lib/stock-count). Anyone on the
-// business's own team; booth renters run their own business and can't change the shop's stock.
+// business's own team; booth renters run their own business and can't change the shop's stock. With more than one
+// location, a product already counted at a store is counted at a store instead (api/inventory/stores).
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { recordCount } from '@/lib/stock-count';
+import { storesOf } from '@/lib/store-stock-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +18,8 @@ export async function POST(req: NextRequest) {
   const g = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return NextResponse.json({ ok: false, error: 'Only the business’s own team can count its stock.' }, { status: 403 });
   try {
-    const r = await recordCount(getAdminDb(), tenantId, productId, b.counted, { id: String(g.actor.uid), name: String(g.actor.name || 'A team member') }, { open: b.open });
+    const stores = await storesOf(getAdminDb(), tenantId, true);
+    const r = await recordCount(getAdminDb(), tenantId, productId, b.counted, { id: String(g.actor.uid), name: String(g.actor.name || 'A team member') }, { open: b.open, stores });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   } catch (e: any) {
     console.error('[inventory/count]', String(e?.message || e).slice(0, 200));

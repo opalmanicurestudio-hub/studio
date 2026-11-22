@@ -102,6 +102,8 @@ export default function ProductDetailPage() {
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isCountOpen, setIsCountOpen] = useState(false);
     const [countTarget, setCountTarget] = useState<any>(null);
+    // (A count at a store from Count it: At each store reads its numbers again.)
+    const [storeSeen, setStoreSeen] = useState(0);
     const [isReceiveOpen, setIsReceiveOpen] = useState(false);
     const [qr, setQr] = useState('');
     const [useTestOpen, setUseTestOpen] = useState(false);
@@ -497,7 +499,7 @@ export default function ProductDetailPage() {
                                         {variants.length > 4 ? <p className="m-0 pt-2 text-[14px]" style={muted}>and {variants.length - 4} more</p> : null}
                                     </Panel>
                                 )}
-                                {countable && !variantIds.length && p.costingMethod !== 'uses' && p.costingMethod !== 'size' && tenantId && severalStores && <StoreStockPanel tenantId={tenantId} itemId={String(p.id)} />}
+                                {countable && !variantIds.length && p.costingMethod !== 'uses' && p.costingMethod !== 'size' && tenantId && severalStores && <StoreStockPanel key={storeSeen} tenantId={tenantId} itemId={String(p.id)} />}
                                 {countable && (
                                     <Panel title="Where it is">
                                         <p className="m-0 text-[15px]">{where.length ? where.join(', ') : <span style={muted}>No place set yet. Add one in Edit details so anyone can find it.</span>}</p>
@@ -665,7 +667,7 @@ export default function ProductDetailPage() {
 
             {(isCountOpen || countTarget) && tenantId && (
                 <CountSheet tenantId={tenantId} product={countTarget || product} onClose={() => { setIsCountOpen(false); setCountTarget(null); }}
-                    onCounted={(d, changed) => toast({ title: !changed ? 'It matches' : 'Counted', description: !changed ? 'The shelf matches the record.' : d === 0 ? 'The open one is updated. It’s on the history.' : `${d < 0 ? `${-d} fewer` : `${d} more`} than the record. It’s on the history.` })} />
+                    onCounted={(d, changed, note) => (setStoreSeen((k) => k + 1), toast({ title: !changed ? 'It matches' : 'Counted', description: !changed ? 'The shelf matches the record.' : note ? note : d === 0 ? 'The open one is updated. It’s on the history.' : `${d < 0 ? `${-d} fewer` : `${d} more`} than the record. It’s on the history.` }))} />
             )}
             {useTestOpen && firestore && tenantId && (
                 <UseTestSheet fs={firestore as any} tenantId={tenantId} product={product} onClose={() => setUseTestOpen(false)} onDone={(msg) => toast({ title: 'Uses test ended', description: msg })} />

@@ -327,12 +327,13 @@ export function depleteBatchesFIFO(
 }
 
 /** Stock that turned out not to be there (a short, a swap's missing item): take it out of the batches as well as the
- *  total, so the next sale (which recounts the total from the batches) can't quietly put it back. */
+ *  total. The total goes down by what was missing (never worked out again from the batches, which a use or a count
+ *  that moved the total only would leave behind). */
 export function shrinkStock(item: { totalStock?: number; batches?: any[] }, qty: number): { totalStock: number; batches?: InventoryBatchRef[] } {
-  const total = Math.max(0, (Number(item.totalStock) || 0) - qty);
+  const total = Math.max(0, Math.floor(Number(item.totalStock) || 0) - qty);
   if (!Array.isArray(item.batches) || item.batches.length === 0) return { totalStock: total };
   const { batches } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
-  return { totalStock: batches.reduce((a, b) => a + (Number(b.stock) || 0), 0), batches: JSON.parse(JSON.stringify(batches)) };
+  return { totalStock: total, batches: JSON.parse(JSON.stringify(batches)) };
 }
 
 /** Units coming back to the shelf (a voided sale): they go back into the batch a sale would have taken them from. */

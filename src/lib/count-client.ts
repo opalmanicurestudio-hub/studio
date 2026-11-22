@@ -15,6 +15,17 @@ export async function countStock(tenantId: string, productId: string, counted: n
   }
 }
 
+/** A count at one store (lib/store-stock-server countAtStore), for a product counted at each store. */
+export async function countAtStoreOf(tenantId: string, itemId: string, at: string, counted: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await fetch('/api/inventory/stores', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, itemId, action: 'count', at, counted }) });
+    const j: any = await r.json().catch(() => ({}));
+    return r.ok && j.ok ? { ok: true } : { ok: false, error: String(j.error || 'That didn’t save. Try again.') };
+  } catch {
+    return { ok: false, error: 'That didn’t save. Check the connection and try again.' };
+  }
+}
+
 /** Log a use by hand (lib/log-use): the same stock step as checkout. `at`: the store it was used at, with more than one. */
 export async function logUseOf(tenantId: string, productId: string, quantity: number, reason: string, at?: string): Promise<{ ok: true; moved: number; shortfall: number; unit: string } | { ok: false; error: string }> {
   try {

@@ -922,6 +922,16 @@ export async function markReady(
  * HANDOFF & SHIP — the sale conversion (FIFO depletion happens HERE)
  * ════════════════════════════════════════════════════════════════════════════ */
 
+/** An item as it is after an update (dotted fields like stockAt.main set inside their map). */
+function withDotted(item: any, patch: Record<string, any>): any {
+  const out: any = { ...item };
+  for (const [k, v] of Object.entries(patch)) {
+    const [f, sub] = k.split('.');
+    if (sub === undefined) out[f] = v; else out[f] = { ...(out[f] && typeof out[f] === 'object' ? out[f] : {}), [sub]: v };
+  }
+  return out;
+}
+
 function convertSaleInTxn(
   txn: any, fs: Firestore, tenantId: string,
   order: RetailOrder & { id: string }, itemSnaps: { ref: any; snap: any }[], actor: Actor
@@ -929,25 +939,32 @@ function convertSaleInTxn(
   // Which lots went out on each line, so a recall can find every customer who got one.
   const saleLots: Record<string, { lot: string; expirationDate: string; qty: number }[]> = {};
   const lotKeys: string[] = [];
+  // One product on two lines: the second builds on what the first left (its total, batches, hold and store number), so
+  // both come off instead of the second writing over the first.
+  const after = new Map<string, any>();
   order.lines.forEach((line, i) => {
     const qty = fulfilledQty(line);
     const { snap, ref } = itemSnaps[i];
     // Digital lines have no shelf stock to move.
     if (qty <= 0 || !snap.exists() || (line as any).digital === true) return;
-    const item = snap.data() as any;
+    const item = (after.get(String(line.productId)) || snap.data()) as any;
     // Pre-order lines were never held in stockReserved (they count against the pre-order run), so only the shelf moves.
     const heldQty = (line as any).preorder === true ? 0 : qty;
     const { batches, taken } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
     const withLot = taken.filter((t) => t.lot || t.expirationDate).map(({ lot, expirationDate, qty: q }) => ({ lot, expirationDate, qty: q }));
     if (withLot.length) { saleLots[line.lineId] = withLot; withLot.forEach((t) => { if (t.lot) lotKeys.push(`${line.productId}|${t.lot}`); }); }
-    const newTotal = batches.reduce((a, b) => a + b.stock, 0);
-    txn.update(ref, {
+    // What it sold comes off the total, as every other sale does (never worked out again from the batches: a use, the
+    // kitchen or a count that moved the total only would come back, and one with no batches would go to none).
+    const newTotal = Math.max(0, Math.floor(Number(item.totalStock) || 0) - qty);
+    const patch = {
       batches: JSON.parse(JSON.stringify(batches)),
       totalStock: newTotal,
       stockReserved: Math.max(0, (item.stockReserved || 0) - heldQty),
       // (Off the shelf of the store it was picked up from or went out from, when it's counted there: lib/store-stock.)
       ...storeMove(item, (order as any).locationId, { stock: -qty, held: -heldQty }),
-    });
+    };
+    txn.update(ref, patch);
+    after.set(String(line.productId), withDotted(item, patch));
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
       correction(line.productId, item.unit || 'units', -qty,
         `Online order fulfilled (Order #${order.orderNumber})`, order.id, actor));
