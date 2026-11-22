@@ -42,6 +42,7 @@ import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
 import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
 import { WeightSheet, pickedOf } from '@/components/pos/CounterWeight';
+import { scanAddedWords } from '@/lib/scale-label';
 import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -212,7 +213,7 @@ export default function CounterPage() {
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
-  const [codeFor, setCodeFor] = useState<string | null>(null);
+  const [codeFor, setCodeFor] = useState<string | null>(null); const [codeScale, setCodeScale] = useState<string | null>(null);
   // Something not on the menu (components/pos/CounterOneOff).
   const [oneOffOpen, setOneOffOpen] = useState(false);
   // A gift card sold with the order (components/pos/CounterGift), and the ones made once it's paid.
@@ -321,13 +322,14 @@ export default function CounterPage() {
   const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item', weight?: number) => order && (m.byWeight && weight === undefined ? void setWeighFor({ m, picks }) : act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}), ...(weight !== undefined ? { weight } : {}) },
     (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null))));
   // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
-  // like a tap; one with choices opens them; one on nothing yet asks which item it is.
+  // like a tap; one with choices opens them; one on nothing yet asks which item it is; a scale's sticker is the item at
+  // its weight or price (lib/scale-label).
   const scan = (code: string) => {
     if (!order || order.status !== 'building') { setNotice({ text: order ? `${order.number} has gone to the kitchen. Tap Next guest, then scan.` : 'Tap Next guest first, then scan.', tone: 'warn' }); return; }
-    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: rid() }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), (d) => {
+    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: rid() }, (d) => setNotice({ text: scanAddedWords(d), tone: 'good' }), (d) => {
       if (d.code === 'choices') { const m = menu.find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); return true; } }
       if (d.code === 'weigh') { const m = menu.find((x) => x.id === d.itemId); if (m) { if (m.choices.length) { setChoiceOffer(false); setChoiceFor(m); } else setWeighFor({ m, picks: {} }); return true; } }
-      if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); return true; }
+      if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); setCodeScale(d.scaleNo || null); return true; }
       return false;
     });
   };
@@ -683,7 +685,7 @@ export default function CounterPage() {
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
-    {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
+    {codeFor && order && <CodeOnSheet code={codeFor} scaleNo={codeScale} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {drawerOpen && <DrawerSheet call={post} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }}
       photo={(set) => <ImageUpload onImageUploaded={set} label="Add a photo" enableMarkup={false} storageFolder="uploads" maxWidthOrHeight={1400} />} />}
     {priceFor && order && (() => { const l = order.lines.find((x) => x.lineId === priceFor); return l ? <PriceSheet orderId={order.id} number={order.number} line={l as any} whole={order.status !== 'building'} call={post}

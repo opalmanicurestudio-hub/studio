@@ -50,6 +50,8 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   upgrades: Upgrades;
   /** Sold by weight (lib/menu-weight): the unit its price is per, or null. Weighed at the counter or the window only. */
   byWeight: WeightUnit | null;
+  /** Its number on the business's scale (lib/scale-label), on an item sold by weight. */
+  scaleNo: string | null;
 };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
@@ -76,7 +78,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     // Its menus by time of day, happy-hour price, and as a combo the parts it always has (lib/menu-time, lib/counter-orders).
     dayparts: Array.isArray(i.dayparts) ? i.dayparts.map(String).slice(0, 6) : [], happyPrice: happyPriceOf(i),
     combo: i.combo === true, comboParts: i.combo === true && Array.isArray(i.comboParts) ? i.comboParts.map((p: any) => String(p?.itemId || '')).filter(Boolean).slice(0, 6) : [],
-    alsoAt: i.combo === true ? [] : alsoAtOf(i), upgrades: upgradesOf(i.upgrades, id), byWeight: i.combo === true ? null : byWeightOf(i),
+    alsoAt: i.combo === true ? [] : alsoAtOf(i), upgrades: upgradesOf(i.upgrades, id), byWeight: i.combo === true ? null : byWeightOf(i), scaleNo: i.combo !== true && byWeightOf(i) && /^\d{5}$/.test(String(i.scaleNo || '')) ? String(i.scaleNo) : null,
   };
 }
 

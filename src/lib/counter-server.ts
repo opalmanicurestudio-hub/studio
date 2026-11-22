@@ -29,7 +29,7 @@ import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
 import { creditPlan, creditLine } from '@/lib/store-credit';
 import { menuLinesOf, oneOffKey, oneOffLine, oneOffMaxOf } from '@/lib/counter-oneoff';
 import { giftLine, giftCentsOf, giftLineCount } from '@/lib/counter-gift';
-import { unitsOf, byWeightOf } from '@/lib/menu-weight';
+import { unitsOf, byWeightOf, weightText } from '@/lib/menu-weight';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -116,7 +116,9 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
   });
 }
 
-export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown; weight?: unknown }
+export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown; weight?: unknown;
+    /** From a scale's sticker (lib/counter-scan-server only, never a screen): what it held; `cents` when it was the price. */
+    label?: { kind: 'weight' | 'price'; code: string; cents?: number } }
   | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
   | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown }
   | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown }
@@ -146,6 +148,18 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant, here: String(o.locationId || '') || null }, 20, op.weight);
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
+      // From a scale's sticker (lib/scale-label): one with the price is charged what it says (its weight is from the menu's
+      // price, for stock); one with the weight is priced from the menu, as a weighing is.
+      if (op.label && made.line.weight) {
+        const w = made.line.weight; const kind = op.label.kind === 'price' ? 'price' : 'weight';
+        if (kind === 'price') {
+          const cents = Math.round(num(op.label.cents));
+          if (!(cents >= 1 && cents <= 100000)) return { error: 'That label’s price didn’t read right. Scan it again.', status: 400 };
+          made.line.unitPrice = cents / 100;
+          made.line.choicesText = `About ${weightText(w.amount, w.unit)}, priced on its label${made.line.choices.length ? `, ${made.line.choices.map((c) => c.option).join(', ')}` : ''}`;
+        } else made.line.choicesText = `${made.line.choicesText || weightText(w.amount, w.unit)}, from its label`;
+        made.line.label = { kind, code: String(op.label.code || '').replace(/\D/g, '').slice(0, 14) };
+      }
       // Taken as an offer, right after something else was added (components/menu/OfferAsk): marked only where another
       // line's item offers it (lib/menu-upgrades offerOf), for how often offers are taken. Prices never depend on it.
       if (op.offer === 'item') {

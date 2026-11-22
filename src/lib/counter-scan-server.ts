@@ -2,11 +2,15 @@
 // part 3). Any scanner that types (lib/use-wedge-scanner) sends the code; it's the menu item whose code it is (lib/
 // code-index: the one index of every code), added to the order being taken like a tap on its tile. A case's code adds
 // as many as are in it. An item with choices to pick opens its choices on the screen instead; a code on no item yet can
-// be put on one (a manager's: lib/code-index learnCode), and it scans everywhere from then on.
+// be put on one (a manager's: lib/code-index learnCode), and it scans everywhere from then on. A scale's sticker on a bag
+// weighed ahead (lib/scale-label), when the business uses them and the code isn't one already on an item, is the item
+// with that number on the scale, at the weight or the price printed.
 import { readCode, codeDocId } from '@/lib/code-form';
 import { ensureCodeIndex, entryOwners, learnCode, indexCol } from '@/lib/code-index';
 import { editOrder } from '@/lib/counter-server';
 import { menuItemOf } from '@/lib/menu-server';
+import { readScaleLabel, scaleSetOf, type ScaleRead } from '@/lib/scale-label';
+import { byWeightOf, cleanWeight, convertWeight } from '@/lib/menu-weight';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Fail = { ok: false; error: string; status: number; code?: string; [k: string]: any };
@@ -39,7 +43,12 @@ export async function scanToOrder(db: any, tenantId: string, tenant: any, orderI
   if (!ID.test(orderId)) return fail('Tap Next guest first, then scan.', 400, 'no_order');
   // (Every scan carries its own key, so one sent twice is added once.)
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(tapKey || ''))) return fail('Scan it again.', 400, 'key');
-  const f = await itemForCode(db, tenantId, raw); if (!f.ok) return f;
+  const f = await itemForCode(db, tenantId, raw);
+  if (!f.ok) {
+    // (Not a code on any item: a scale's sticker, when the business uses them.)
+    const read = f.code === 'unknown' ? readScaleLabel(raw, scaleSetOf(tenant)) : null;
+    return read ? scaleToOrder(db, tenantId, tenant, orderId, read, String(tapKey), f) : f;
+  }
   // (An item with choices to pick: its choices open on the screen, as a tap on its tile does.)
   const m = menuItemOf(f.itemId, f.item);
   // (Sold by weight: the screen asks what the scale reads, lib/menu-weight.)
@@ -50,6 +59,34 @@ export async function scanToOrder(db: any, tenantId: string, tenant: any, orderI
   const r: any = await editOrder(db, tenantId, tenant, orderId, { action: 'add', itemId: f.itemId, quantity: f.pack, tapKey: String(tapKey) } as any);
   if (r.error) return fail(r.error, r.status || 409, 'add');
   return { ok: true as const, order: r.order, line: r.line || null, name: m.name, pack: f.pack };
+}
+
+/** A scale's sticker onto the order: the menu item with that number on the scale (sold by weight), at the weight printed
+ *  (priced from the menu) or at the price printed (its weight worked out from the menu's price, for stock). */
+async function scaleToOrder(db: any, tenantId: string, tenant: any, orderId: string, read: ScaleRead, tapKey: string, unknown: Fail) {
+  const T = `tenants/${tenantId}`;
+  const snap = await db.collection(`${T}/inventory`).where('scaleNo', '==', read.itemNo).limit(20).get();
+  const items = snap.docs.map((d: any) => ({ id: d.id, d: d.data() || {} })).filter((x: any) => ID.test(x.id) && x.d.type === 'refreshment' && x.d.archived !== true && x.d.isActive !== false);
+  // (No item has that number: it may be any code that starts with a 2, so it's a code on nothing yet, as before, which
+  // the screen offers to put on an item; it also says which scale number it would be.)
+  if (!items.length) return { ...unknown, scaleNo: read.itemNo };
+  if (items.length > 1) return fail(`Scale number ${read.itemNo} is on ${items.slice(0, 3).map((x: any) => String(x.d.name || 'an item')).join(' and ')}. Keep it on one of them on the Menu page.`, 409, 'many');
+  const it = items[0]; const name = String(it.d.name || 'That item'); const unit = byWeightOf(it.d);
+  if (!unit) return fail(`${name} isn’t sold by weight, so its scale label can’t ring it in. Add it from the menu.`, 409, 'not_weighed');
+  let weight: number | null;
+  if ('weight' in read) weight = cleanWeight(convertWeight(read.weight, read.unit, unit), unit);
+  else {
+    const per = Number(it.d.price);
+    if (!(per > 0)) return fail(`${name} has no price on the menu yet.`, 409, 'no_price');
+    // (Its weight for stock, from the menu's price; at least the least a weighing is.)
+    const raw = read.cents / 100 / per; const step = unit === 'g' ? 1 : unit === 'kg' ? 0.001 : 0.01;
+    weight = cleanWeight(Math.max(step, raw), unit);
+  }
+  if (weight === null) return fail('That label’s weight didn’t read right. Weigh it at the counter instead.', 400, 'scale_weight');
+  const r: any = await editOrder(db, tenantId, tenant, orderId, { action: 'add', itemId: it.id, quantity: 1, weight, tapKey,
+    label: 'cents' in read ? { kind: 'price', code: read.code, cents: read.cents } : { kind: 'weight', code: read.code } } as any);
+  if (r.error) return fail(r.error, r.status || 409, 'add');
+  return { ok: true as const, order: r.order, line: r.line || null, name: String(r.line?.name || name), pack: 1, label: true };
 }
 
 /** A code on no item yet, put on a menu item (a manager's: the route checks), then added. */

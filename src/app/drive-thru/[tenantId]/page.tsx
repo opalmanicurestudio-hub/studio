@@ -44,6 +44,7 @@ import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
 import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
 import { WeightSheet, pickedOf } from '@/components/pos/CounterWeight';
+import { scanAddedWords } from '@/lib/scale-label';
 import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
@@ -321,7 +322,7 @@ export default function DriveThru() {
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders on this side, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
-  const [codeFor, setCodeFor] = useState<string | null>(null);
+  const [codeFor, setCodeFor] = useState<string | null>(null); const [codeScale, setCodeScale] = useState<string | null>(null);
   // Something not on the menu (components/pos/CounterOneOff).
   const [oneOffOpen, setOneOffOpen] = useState(false);
   // A gift card sold with the order (components/pos/CounterGift), and the ones made once it's paid.
@@ -562,13 +563,14 @@ export default function DriveThru() {
       (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: forOrder, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)), sig);
   };
   // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
-  // to the order being taken like a tap; one with choices opens them; one on nothing yet asks which item it is.
+  // to the order being taken like a tap; one with choices opens them; one on nothing yet asks which item it is; a scale's
+  // sticker is the item at its weight or price (lib/scale-label).
   const scan = (code: string) => {
     if (!order || order.status !== 'building') { setNotice({ text: 'Scan while an order is being taken.', tone: 'warn' }); return; }
-    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: keyFor(`scan|${order.id}|${code}|${Date.now()}`) }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), undefined, (d) => {
+    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: keyFor(`scan|${order.id}|${code}|${Date.now()}`) }, (d) => setNotice({ text: scanAddedWords(d), tone: 'good' }), undefined, (d) => {
       if (d.code === 'choices') { const m = (lane?.menu || []).find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); } }
       else if (d.code === 'weigh') { const m = (lane?.menu || []).find((x) => x.id === d.itemId); if (m) { if (m.choices.length) { setChoiceOffer(false); setChoiceFor(m); } else setWeighFor({ m, picks: {} }); } }
-      else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
+      else if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); setCodeScale(d.scaleNo || null); }
     });
   };
   useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
@@ -1307,7 +1309,7 @@ export default function DriveThru() {
         if (d.order) putOrder(d.order, mySeq);
         setOneOffOpen(false); setNotice({ text: `${b.name} added.`, tone: 'good' }); load(); return null;
       }} />}
-      {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={lane?.menu || []} call={refundCall} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); load(); }} />}
+      {codeFor && order && <CodeOnSheet code={codeFor} scaleNo={codeScale} orderId={order.id} menu={lane?.menu || []} call={refundCall} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); load(); }} />}
       {refundOpen && <RefundFind call={refundCall} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); load(); }} />}
       {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
       {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}

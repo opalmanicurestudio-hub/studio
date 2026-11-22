@@ -81,6 +81,9 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
   priceChange?: { from: number; to: number; reason: string; by: string; approvedBy: string | null; at: string };
   /** Sold by weight (lib/menu-weight): what it weighed, in what unit, at what price per unit, and what came off stock. */
   weight?: { amount: number; unit: 'lb' | 'oz' | 'kg' | 'g'; per: number; stock: number };
+  /** Scanned from a scale's sticker (lib/scale-label): what the sticker held, and its barcode. A sticker with the price
+   *  is charged what it says; its weight is worked out from the menu's price, for stock. */
+  label?: { kind: 'weight' | 'price'; code: string };
   /** A gift card sold with the order (lib/counter-gift): who it's for, how it gets to them, and once it's made its code. */
   giftCard?: { to: string | null; via: 'print' | 'text' | 'email'; phone: string | null; email: string | null; id?: string | null; code?: string | null; sent?: boolean; failed?: string | null; claim?: { token: string; at: string } | null; bonusCode?: string | null } };
 

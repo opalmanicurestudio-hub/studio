@@ -1155,11 +1155,12 @@ export async function POST(req: NextRequest) {
     }
 
     // A barcode scanned (lib/counter-scan-server; design board "Register tools"): the menu item it's on, added like a tap;
-    // one on no item yet put on one, a manager's.
+    // one on no item yet put on one, a manager's. A scale's sticker (lib/scale-label), when the business uses them: the
+    // item at the weight or price printed, `label` true.
     if (action === 'scan') {
       const r: any = await scanToOrder(db, tenantId, tenant, orderId, b.code, b.tapKey);
-      return r.ok ? ok({ order: r.order, line: r.line, name: r.name, pack: r.pack, staffOk })
-        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, itemId: r.itemId || null, scanned: r.scanned || null, staffOk }, { status: r.status });
+      return r.ok ? ok({ order: r.order, line: r.line, name: r.name, pack: r.pack, ...(r.label ? { label: true } : {}), staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, itemId: r.itemId || null, scanned: r.scanned || null, ...(r.scaleNo ? { scaleNo: r.scaleNo } : {}), staffOk }, { status: r.status });
     }
     if (action === 'codeOn') {
       const m = await managerFor(db, tenantId, staff, b.pin);

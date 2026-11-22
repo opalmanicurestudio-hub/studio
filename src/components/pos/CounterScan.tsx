@@ -15,7 +15,9 @@ const usd = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 type Item = { id: string; name: string; section: string; price: number; choices?: unknown[] };
 
 /** "That code is on nothing yet": pick the item it is. `onDone`: the words to show, and the order as it is now. */
-export function CodeOnSheet({ code, orderId, menu, call, onClose, onDone }: { code: string; orderId: string; menu: Item[]; call: (body: any) => Promise<any>; onClose: () => void; onDone: (text: string, d: any) => void }) {
+/** `scaleNo`: with scale labels on, the item number a sticker with this code would be (lib/scale-label), said as the
+ *  other way to it, since a sticker's code changes with each weighing and isn't one to keep on an item. */
+export function CodeOnSheet({ code, orderId, menu, call, onClose, onDone, scaleNo }: { code: string; orderId: string; menu: Item[]; call: (body: any) => Promise<any>; onClose: () => void; onDone: (text: string, d: any) => void; scaleNo?: string | null }) {
   const [q, setQ] = useState(''); const [pick, setPick] = useState<Item | null>(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const shown = useMemo(() => { const k = q.trim().toLowerCase(); return menu.filter((m) => !k || m.name.toLowerCase().includes(k) || m.section.toLowerCase().includes(k)).slice(0, 40); }, [menu, q]);
@@ -32,6 +34,7 @@ export function CodeOnSheet({ code, orderId, menu, call, onClose, onDone }: { co
         <div className="flex items-center justify-between gap-2"><p className="text-[19px] font-semibold">Which item is it?</p>
           <button type="button" onClick={onClose} className={`${btn} text-[14px]`} style={{ color: MUTED }}>Close</button></div>
         <p className="text-[14px]" style={{ color: MUTED }}><span className="font-semibold tabular-nums" style={{ color: INK }}>{code}</span> isn’t on anything yet. Pick the item it is: the code stays on it, so it scans everywhere. A manager okays it.</p>
+        {scaleNo && <p className="rounded-xl px-3 py-2 text-[14px]" style={{ background: '#f5f5f7', color: INK }}>A sticker from your scale? Give the item scale number {scaleNo} on the Menu page instead, then scan it again.</p>}
         <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Find the item
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value.slice(0, 40))} placeholder="Sparkling water" autoComplete="off" className={field} style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
         {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}

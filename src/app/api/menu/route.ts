@@ -34,6 +34,8 @@
 //   laneSettings { tenantId, spots | pickupOnly | readyTexts | tips | discounts } → managers: how many numbered pull-forward spots the drive-thru
 //             has (1 to 8), whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker), or
 //             whether guests can ask for a text when their order is ready (lib/ready-text)
+//             (scaleLabels { on?, holds?, digits?, unit? }: how the business's scale prints its stickers, lib/scale-label;
+//             and save's scaleNo: an item sold by weight's number on that scale, one item to a number.)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
 //   prep    { tenantId, prepId?, name, makes, unit, keepsDays?, minutes?, recipe } → managers: a prep recipe added or
 //             changed (lib/prep-recipes-server savePrep): what goes into a batch, what a batch makes, how long it keeps
@@ -53,6 +55,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf, menuItemNow } from '@/lib/menu-server';
 import { WEIGHT_UNITS, byWeightOf } from '@/lib/menu-weight';
+import { cleanScaleNo, scaleSetOf, SCALE_HOLDS } from '@/lib/scale-label';
 import { itemCost, targetOf } from '@/lib/food-cost';
 import { cleanPace, paceSettingsOf } from '@/lib/kitchen-pace';
 import { forgetPace } from '@/lib/kitchen-pace-server';
@@ -211,7 +214,9 @@ export async function POST(req: NextRequest) {
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
       return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
         // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
-        oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
+        oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null,
+        // Scale labels (lib/scale-label): how the business's scale prints its stickers.
+        scale: canEdit ? scaleSetOf(td) : null, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -431,6 +436,17 @@ export async function POST(req: NextRequest) {
         const tips = tipsOf({ counterTips: { on: b.tips.on === true, pcts: pcts || tipsOf(td).pcts, where: b.tips.where === 'both' ? 'both' : 'counter' } });
         await db.doc(`tenants/${tenantId}`).set({ counterTips: { ...tips, updatedAt: new Date().toISOString() } }, { merge: true });
         return ok({ lane: { tips } });
+      }
+      // Scale labels (lib/scale-label): on or off, what the sticker holds, how many digits its barcode has, the scale's unit.
+      if (b.scaleLabels && typeof b.scaleLabels === 'object') {
+        const x = b.scaleLabels;
+        if (x.holds !== undefined && !(SCALE_HOLDS as string[]).includes(String(x.holds))) return bad('The weight, or the price: which does the sticker hold?');
+        if (x.digits !== undefined && ![12, 13].includes(Number(x.digits))) return bad('12 digits or 13: how many does the sticker’s barcode have?');
+        if (x.unit !== undefined && !(WEIGHT_UNITS as string[]).includes(String(x.unit))) return bad('Pick lb, oz, kg or g.');
+        const now = scaleSetOf(td);
+        const next = scaleSetOf({ scaleLabels: { ...now, ...(typeof x.on === 'boolean' ? { on: x.on } : {}), ...(x.holds !== undefined ? { holds: x.holds } : {}), ...(x.digits !== undefined ? { digits: Number(x.digits) } : {}), ...(x.unit !== undefined ? { unit: x.unit } : {}) } });
+        await db.doc(`tenants/${tenantId}`).set({ scaleLabels: { ...next, updatedAt: new Date().toISOString() } }, { merge: true });
+        return ok({ lane: { scaleLabels: next } });
       }
       // Something not on the menu at the counter (lib/counter-oneoff): up to how much (0 turns it off), or a name taken off
       // the list of what's been rung in (once it's on the menu, say).
@@ -711,6 +727,9 @@ export async function POST(req: NextRequest) {
       }
       timed.byWeight = x.byWeight === null ? null : { unit: String(x.byWeight) };
     }
+    // Its number on the scale (lib/scale-label), when given: up to five digits, or none.
+    const scaleNo = x.scaleNo === undefined ? undefined : x.scaleNo === null || String(x.scaleNo).trim() === '' ? null : cleanScaleNo(x.scaleNo);
+    if (scaleNo === null && x.scaleNo !== undefined && x.scaleNo !== null && String(x.scaleNo).trim() !== '') return bad('Its number on the scale: one to five digits, not all zeros.');
     if (choices.some((cg) => cg.options.some((o) => o.itemId === itemId))) return bad('A combo can’t have itself in it.');
     // Each part (always in it, or made as a choice) is one of the business's own menu items, and not a combo itself.
     const partIds = Array.from(new Set<string>([...(timed.comboParts || []).map((p: any) => String(p.itemId)), ...choices.flatMap((cg) => cg.options.map((o) => String(o.itemId || ''))).filter(Boolean)]));
@@ -836,9 +855,21 @@ export async function POST(req: NextRequest) {
       // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
       // An item from a starter menu goes on the menu only once it has a price (it came in at none, lib/food-starters).
       if (cur.createdVia === 'food-starter' && x.onMenu !== false && !(price > 0)) return { error: 'Give it a price first, then put it on the menu.', status: 400 };
+      // Its number on the scale: only on an item sold by weight, and on one item at a time. No longer sold by weight, it goes.
+      const weighedNow = timed.byWeight !== undefined ? !!timed.byWeight : !!byWeightOf(cur);
+      let scalePatch: Record<string, any> = {};
+      if (!weighedNow && cur.scaleNo) scalePatch = { scaleNo: null };
+      else if (scaleNo !== undefined) {
+        if (scaleNo && !weighedNow) return { error: 'Only an item sold by weight has a number on the scale.', status: 400 };
+        if (scaleNo) {
+          const other = (await tx.get(db.collection(`tenants/${tenantId}/inventory`).where('scaleNo', '==', scaleNo).limit(20))).docs.find((d: any) => d.id !== itemId && d.data()?.archived !== true);
+          if (other) return { error: `${words(other.data()?.name, 40) || 'Another item'} has scale number ${scaleNo} already. Each item has its own.`, status: 409 };
+        }
+        scalePatch = { scaleNo: scaleNo || null };
+      }
       const deskToo = !(Number(cur.msrp) > 0) || Math.round(Number(cur.price) * 100) !== Math.round(price * 100);
       const patch = { name, category: words(x.section, 40) || 'Menu', description: words(x.words, 240), price, ...(deskToo ? { msrp: price } : {}), choices: kept, choiceSetIds: setIdsOf(kept),
-        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...timed, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
+        showInConcierge: x.onMenu !== false, isMembersOnly: x.membersOnly === true, ...timing, ...service, ...safety, ...photo, ...board, ...timed, ...scalePatch, ...(formula ? { formula } : {}), menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null };
       tx.set(ref, patch, { merge: true });
       return { item: menuItemOf(itemId, { ...cur, ...patch }), raw: { ...cur, ...patch } };
     });

@@ -99,6 +99,8 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const [price, setPrice] = useState(item.price.toFixed(2));
   // Sold by weight (lib/menu-weight): the unit its price is per, or none.
   const [byWeight, setByWeight] = useState<WeightUnit | null>(item.byWeight || null); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
+  // Its number on the business's scale (lib/scale-label), for stickers on bags weighed ahead.
+  const [scaleNo, setScaleNo] = useState(item.scaleNo || '');
   // The menu board: shown big up front, a tag, and calories (optional).
   const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   // Each option with what it changes in the recipe (lib/choice-recipe), when it does.
@@ -134,7 +136,7 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const shell = useRef<HTMLDivElement | null>(null); const head = useRef<HTMLHeadingElement | null>(null); const phoneSteps = useRef<HTMLElement | null>(null);
   const noun = nounOf({ section, station: station || item.station });
 
-  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines, upSize, upItems, byWeight]);
+  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines, upSize, upItems, byWeight, scaleNo]);
   const first = useRef(snap); const dirty = snap !== first.current;
 
   // The recipe and the choices as they stand here, priced and costed by the server's own rules.
@@ -229,7 +231,8 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
       ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
       ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}),
       ...(upChanged ? { upgrades: { size: upSize, items: upItems } } : {}),
-      ...((combo ? null : byWeight) !== (item.byWeight || null) ? { byWeight: combo ? null : byWeight } : {}) });
+      ...((combo ? null : byWeight) !== (item.byWeight || null) ? { byWeight: combo ? null : byWeight } : {}),
+      ...(!combo && byWeight && scaleNo.trim() !== (item.scaleNo || '') ? { scaleNo: scaleNo.trim() || null } : {}) });
     setSaving(false); if (e) { setErr(e); return false; } return true;
   };
 
@@ -380,6 +383,10 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
                         {WEIGHT_UNITS.map((u) => <button key={u} type="button" role="radio" aria-checked={byWeight === u} onClick={() => setByWeight(u)} className="min-h-[44px] min-w-[56px] rounded-xl px-3 text-[14.5px] font-semibold" style={byWeight === u ? { background: '#16171a', color: '#fff' } : { color: '#16171a' }}>{u}</button>)}
                       </div>
                       <p className="text-[13px]" style={{ color: MUTED }}>The price above is per {byWeight}. It’s weighed at the counter and the window, so the kiosk, ordering ahead and the drive-thru’s voice leave it off. Stock counted in a weight (lb, oz, kg or g in Inventory) comes off in its own unit, for the whole business rather than store by store.</p>
+                      <label className="block max-w-[260px]"><span className="text-[14px] font-medium">Its number on the scale</span>
+                        <input inputMode="numeric" value={scaleNo} onChange={(e) => setScaleNo(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="Optional, like 00042" aria-describedby="scale-no-hint"
+                          className="mt-1 min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[15px] tabular-nums outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} /></label>
+                      <p id="scale-no-hint" className="text-[13px]" style={{ color: MUTED }}>The digits your scale has it as (its PLU), for scanning the stickers on bags weighed ahead. Turn scale labels on in Settings.</p>
                     </div>}</>}
                 </div>
               </div>}
