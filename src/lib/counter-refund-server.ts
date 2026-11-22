@@ -7,7 +7,7 @@
 //    in the books (its tax and tip carved out, the tip off whoever's it was), and the order keeps what went back.
 // Stock isn't changed: what was paid for was made.
 import { FieldValue } from 'firebase-admin/firestore';
-import { refundPlan, sourcesOf, allocate, cantRefund, type RefundAsk, type Back, type Source } from '@/lib/counter-refund';
+import { refundPlan, sourcesOf, allocate, cantRefund, refundLeftOf, type RefundAsk, type Back, type Source } from '@/lib/counter-refund';
 import { refundAmount } from '@/lib/stripe-refund';
 import { accountOf } from '@/lib/reader-sale';
 
@@ -147,7 +147,7 @@ export async function refundCounterOrder(db: any, tenantId: string, tenant: any,
     return { ok: true, number: String(o.number || '') };
   });
   if (!done.ok) return done;
-  const left = Math.max(0, Math.round(Number(o0.total) * 100) - (Number(o0.refundCents) || 0));
+  const left = refundLeftOf(o0);
   return { ok: true, cents: c.plan.cents, back: (c.back as Back[]).map((b) => ({ kind: b.kind, cents: b.back, ...(b.code ? { code: b.code } : {}) })), machineCents: machineC, cashCents: cashC,
     full: c.plan.cents >= left, ...(claim.resumed ? { resumed: true, startedBy: String(c.approvedBy || '') } : {}), number: String(done.number || o0.number || '') };
 }

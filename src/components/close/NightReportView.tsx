@@ -72,6 +72,7 @@ export function NightReportView({ r }: { r: NightReport }) {
           {r.sales.byMethod.map((m) => <Row key={m.method} k={m.method} v={$(m.amount)} />)}
           <Sep /><Row k="Taken" v={$(r.sales.taken ?? r.sales.total)} strong />
           <Row k="Tax" v={$(r.sales.tax)} /><Row k="Tips" v={$(r.sales.tips)} />
+          {r.giftCards && <Row k={`Gift cards sold, ${r.giftCards.count}, held for guests`} v={$(r.giftCards.total)} />}
           {(r.sales.refunds || 0) > 0 && <Row k="Refunded on tonight’s sales" v={$(r.sales.refunds)} />}
           <Row k="Sales, after discounts and refunds" v={$(r.sales.total)} />
         </Card>

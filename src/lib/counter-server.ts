@@ -28,6 +28,7 @@ import { tendersOf, codeEnd, isPaidPart, paidPartsOf, partBackOpen, PART_BACK_WO
 import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
 import { creditPlan, creditLine } from '@/lib/store-credit';
 import { menuLinesOf, oneOffKey, oneOffLine, oneOffMaxOf } from '@/lib/counter-oneoff';
+import { giftLine, giftCentsOf, giftLineCount } from '@/lib/counter-gift';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -118,7 +119,8 @@ export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choice
   | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
   | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown }
   | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown }
-  | { action: 'oneOff'; name: unknown; price: unknown; quantity?: unknown; taxed?: unknown; tapKey?: unknown };
+  | { action: 'oneOff'; name: unknown; price: unknown; quantity?: unknown; taxed?: unknown; tapKey?: unknown }
+  | { action: 'giftCard'; cents: unknown; to?: unknown; via?: unknown; phone?: unknown; email?: unknown; tapKey?: unknown };
 
 /** One change to an order still being taken. One tap is one change, however many times it's sent (tapKey), and a tap
  *  that arrives after the order went to the kitchen is answered with the order as it is, not an error. */
@@ -161,6 +163,13 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       lines = [...lines, made.line]; line = made.line;
+    } else if (op.action === 'giftCard') {
+      // A gift card sold with it (lib/counter-gift): a line of its own, never merged, money held for the guest.
+      const made = giftLine(op, randomBytes(5).toString('hex'));
+      if (!made.ok) return { error: made.error, status: 400 };
+      if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
+      if (lines.filter((l) => l.giftCard).length >= 10) return { error: 'Ten gift cards on one order at most. Start another for more.', status: 400 };
+      lines = [...lines, made.line]; line = made.line;
     } else if (op.action === 'sizeUp') {
       // The next size up, for what was just added (`quantity` of the line, at most all of it): only when its item offers a
       // size up (lib/menu-upgrades), priced from the menu like any line. The rest of the line stays as it was.
@@ -198,7 +207,9 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       else {
         const q = Math.floor(num(op.quantity)); if (q < 1 || q > 20) return { error: 'How many? Between 1 and 20.', status: 400 };
         // (On the house is as many as a manager okayed: fewer is fine, more is another okay.)
-        const was = lines.find((l) => l.lineId === lineId)!; if (was.comp && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} on the house. Add another from the menu.`, status: 409 };
+        const was = lines.find((l) => l.lineId === lineId)!;
+        if (was.giftCard && q !== was.quantity) return { error: 'One gift card a line. Add another for another.', status: 409 };
+        if (was.comp && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} on the house. Add another from the menu.`, status: 409 };
         lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l));
       }
     }
@@ -466,6 +477,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     if (!opts.unpaid) tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...soldCounts(lines) }, { merge: true });
     // What was rung in that isn't on the menu, kept by name (lib/counter-oneoff): how often, and its price last time.
     for (const l of oneOffs) {
+      // (A gift card isn't something rung in that's missing from the menu.)
+      if (l.giftCard) continue;
       const k = oneOffKey(l.name); if (!k) continue;
       tx.set(db.doc(`${T}/oneOffNames/${k}`), { key: k, name: l.name, count: FieldValue.increment(Math.max(1, num(l.quantity))), lastPrice: num(l.comp?.from ?? l.unitPrice), lastAt: nowIso }, { merge: true });
     }
@@ -501,6 +514,8 @@ export async function staffMeal(db: any, tenantId: string, orderId: string, forN
     // (A split bill with a part paid, or a gift card or store credit on it: given back or taken off first.)
     if (paidPartsOf(o).length) return { error: 'Part of it is paid. Give those parts back first.', status: 409, code: 'parts' };
     if (tendersOf(o).length) return { error: 'A gift card or store credit is on this order. Take it off first.', status: 409, code: 'tender' };
+    // (A gift card is money held for a guest, never part of a meal on the house: lib/counter-gift.)
+    if (giftLineCount(o.lines)) return { error: 'A gift card is on this order. Take it off first, or take payment for it.', status: 409, code: 'gift' };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     tx.set(orderRef, { paidAt: nowIso, payMethod: 'staff', staffMeal: { for: name, by: who.name, byId: who.id || null, at: nowIso, ...(approver ? { approvedBy: approver.name, approvedById: approver.id || null } : {}) }, updatedAt: nowIso }, { merge: true });
     // Settled: it waits to be handed over, like a paid order.
@@ -697,8 +712,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     for (const t of tenders) if (t.kind === 'credit' && ID.test(t.clientId)) { const ref = db.doc(`${T}/clients/${t.clientId}`); creditReads.push({ clientId: t.clientId, ref, cur: (await tx.get(ref)).data() || {} }); }
     // Paid already (another tablet, or the first answer was lost): say how, and the change that was given.
     if (o.paidAt) {
-      if (viaReader && o.cardPaymentId !== how.card!.id) return { ok: true, already: true, paidOtherwise: true, payMethod: o.payMethod || null };
-      return { ok: true, already: true, change: o.changeGiven ?? null, payMethod: o.payMethod || null };
+      if (viaReader && o.cardPaymentId !== how.card!.id) return { ok: true, already: true, paidOtherwise: true, payMethod: o.payMethod || null, lines0: o.lines };
+      return { ok: true, already: true, change: o.changeGiven ?? null, payMethod: o.payMethod || null, lines0: o.lines };
     }
     // (An order for another day is paid when it's placed and kept until its day: lib/ahead-days.)
     if (o.status !== 'sent' && o.status !== 'done' && !(o.status === 'scheduled' && o.channel === 'ahead' && o.ahead?.forDay)) {
@@ -713,7 +728,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     let total = num(o.total); const subtotal = num(o.subtotal), tax = num(o.tax);
     // What its gift cards and store credit cover (never past the total), and what's left for cash or the card.
     const totalC0 = Math.round(total * 100); let room = totalC0;
-    const used = tenders.map((t) => { const c = Math.min(t.cents, room); room -= c; return { ...t, cents: c }; }).filter((t) => t.cents > 0);
+    // (A gift card sold with it is paid in cash or by card, never with another gift card or store credit: lib/counter-gift.)
+    const giftC = giftCentsOf(o.lines); let giftRoom = Math.max(0, totalC0 - giftC);
+    const used = tenders.map((t) => { const gc = t.kind === 'gift' || t.kind === 'credit'; const c = Math.min(t.cents, room, gc ? giftRoom : room); room -= c; if (gc) giftRoom -= c; return { ...t, cents: c }; }).filter((t) => t.cents > 0);
     const dueC = totalC0 - used.reduce((a, t) => a + t.cents, 0);
     if (method === 'tender' && (dueC > 0 || !used.length)) return { error: `There’s still $${(dueC / 100).toFixed(2)} to pay. Take it by cash or card.`, status: 409, code: 'still_due' };
     if (method !== 'tender' && used.length && dueC <= 0) return { error: 'The gift card or store credit covers all of it. Finish with it.', status: 409, code: 'covered' };
@@ -763,6 +780,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       // The week's payout from that app, counted as it goes (lib/app-payouts checks it when it comes in).
       tx.set(db.doc(`${T}/private/${appWeekId(appKey, week)}`), { app: appKey, label: String(o.app.label || ''), week, orders: FieldValue.increment(1), grossCents: FieldValue.increment(am.appCents + am.taxCents), feeCents: FieldValue.increment(am.feeCents), payoutCents: FieldValue.increment(am.payoutCents), updatedAt: nowIso }, { merge: true });
     }
+    // Gift cards sold with it (lib/counter-gift): money held for the guests, never sales, as at the front desk. It's
+    // made once it's paid (issueCounterGifts, below).
+    if (giftC > 0) { const gRef = db.doc(`${T}/transactions/counter_${orderId}_giftsale`); tx.set(gRef, { id: gRef.id, ...common, description: `Gift card${giftLineCount(o.lines) === 1 ? '' : 's'} sold, ${CHANNEL_NAME[o.channel as Channel] || 'Counter'} ${o.number}`, category: 'Gift Card Sales', taxBucket: 'transfer', amount: giftC / 100, hasReceipt: true }); }
     // (The delivery fee's own sales tax, where the business charges it, is a line of its own beside the fee.)
     const feeTax = Math.min(tax, Math.max(0, num(o.deliveryFeeTax)));
     const foodTax = Math.round((tax - feeTax) * 100) / 100;
@@ -801,6 +821,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     const cardIsThis = viaReader && String(o.card?.id || '') === how.card!.id;
     const leftCard = o.card?.id && !cardIsThis && o.card.state !== 'stopped' && o.card.state !== 'paid' && o.card.state !== 'part' ? String(o.card.id) : null;
     tx.set(orderRef, { paidAt: nowIso, payMethod: method === 'tender' ? payWord : method, paidBy: how.by, partsOpen: false, tillId: drawer ? drawer.id : null,
+      // (Gift cards paid for and not made yet: the screens find them by this until they are, lib/counter-gift-server.)
+      ...(giftC > 0 ? { giftsOpen: true } : {}),
       // (With gift cards or store credit: each part, and what each covered.)
       ...(used.length ? { tenders: used, payments: [...used.map((t) => ({ method: t.kind === 'gift' ? 'gift_card' : t.kind === 'credit' ? 'store_credit' : t.kind, amount: t.cents / 100, ...(t.kind === 'gift' ? { code: codeEnd(t.code) } : {}), ...(isPaidPart(t) ? { part: true } : {}) })), ...(rest > 0 ? [{ method, amount: rest / 100 }] : [])] } : {}),
       // (Counted on the day it was taken, the business's day, whenever the car arrived.)
@@ -825,12 +847,16 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null, ...(o.locationId ? { locationId: String(o.locationId) } : {}) }, { merge: true });
       tx.set(orderRef, { carId: carRef.id }, { merge: true });
     }
-    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method === 'tender' ? payWord : method, cardId: leftCard, keptChange: keptC > 0, tipCents: tipC,
+    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method === 'tender' ? payWord : method, cardId: leftCard, keptChange: keptC > 0, tipCents: tipC, lines0: o.lines,
       giftOwners: plans.filter((g) => g.plan.patch).map((g) => String(g.plan.patch.recipientId || '')).filter((x) => ID.test(x)) };
   });
   // The guests' copies of their gift cards' balances (lib/gift-cards), as after any spend.
   if (res?.ok && Array.isArray(res.giftOwners)) { for (const c of res.giftOwners) await syncClientGift(db, tenantId, c).catch(() => null); }
   if (res?.ok) delete res.giftOwners;
+  // Gift cards sold with it, made now and sent (lib/counter-gift-server): once, also when it was paid already and they
+  // weren't made then (the answer was lost), with their codes for the screen.
+  if (res?.ok && giftLineCount(res.lines0) > 0) { try { const G = await import('@/lib/counter-gift-server'); res.gifts = await G.issueCounterGifts(db, tenantId, orderId, how.by); } catch (e: any) { console.error('[counter] gift cards not made', orderId, e?.message); res.gifts = [{ failed: true }]; } }
+  if (res) delete res.lines0;
   // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
   if (res?.ok && !res.already) { try { const P = await import('@/lib/counter-points'); await P.earnForOrder(db, tenantId, null, orderId); } catch (e: any) { console.error('[counter] points not earned', orderId, e?.message); } }
   return res;

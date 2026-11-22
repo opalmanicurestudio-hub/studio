@@ -8,7 +8,7 @@
 //   rest is paid by cash or card, and both are taken when it's paid (lib/counter-server payOrder).
 import { totalsOf } from '@/lib/counter-orders';
 import { cardBusy } from '@/lib/counter-server';
-import { cleanTip, discountsOf, discountCents, discountWords, itemsCentsOf, rewardCentsOf, tipCentsOf, tendersOf, dueCentsOf, codeEnd, isPaidPart, paidPartsOf, type Discount, type Tender } from '@/lib/counter-money';
+import { cleanTip, discountsOf, discountCents, discountWords, itemsCentsOf, rewardCentsOf, tipCentsOf, tendersOf, dueCentsOf, codeEnd, isPaidPart, paidPartsOf, tenderRoomOf, giftCentsOf, GIFT_CASH_WORDS, type Discount, type Tender } from '@/lib/counter-money';
 import { findByCode, giftSpendPlan, holdGiftCard, releaseHold } from '@/lib/gift-cards';
 import { creditBalance } from '@/lib/store-credit';
 
@@ -50,7 +50,8 @@ export async function setTip(db: any, tenantId: string, orderId: string, cents: 
     const o: any = (await tx.get(ref)).data(); const no = notNow(o, 'tip'); if (no) return no;
     if (o.ahead?.way === 'delivery') return fail('A delivery’s tip is the driver’s, chosen when it was ordered.', 409, 'delivery');
     const base = Math.round(Number(o.total || 0) * 100) - tipCentsOf(o);
-    const tip = cleanTip(cents, base); if (tip === null) return fail('How much is the tip?', 400);
+    // (Never more than the order without its gift cards: lib/counter-gift.)
+    const tip = cleanTip(cents, base - giftCentsOf(o.lines)); if (tip === null) return fail('How much is the tip?', 400);
     // (Picked by the guest on their screen, app/drive-thru/[tenantId]/guest: once, and never over a tip already on it.)
     if (opts.guestOnce && (o.tipChosenAt || tipCentsOf(o) > 0)) return fail('The tip is picked at the counter now.', 409, 'chosen');
     const total = r2((base + tip) / 100);
@@ -109,13 +110,14 @@ export async function addTender(db: any, tenantId: string, orderId: string, ask:
   const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/counterOrders/${orderId}`);
   const o0: any = (await ref.get()).data(); const no0 = notNow(o0, 'tender'); if (no0) return no0;
   if (dueCentsOf(o0) <= 0) return fail('Nothing is left to pay on it.', 409, 'nothing');
+  if (tenderRoomOf(o0) <= 0) return fail(GIFT_CASH_WORDS, 409, 'gift_line');
   let gift: { id: string; code: string; promo: boolean; cents: number } | null = null;
   if (ask.kind === 'gift') {
     const code = String(ask.code ?? '').trim().slice(0, 40); if (!code) return fail('Type or scan the gift card’s code.', 400);
     const g: any = await findByCode(db, tenantId, code);
     if (!g) return fail('That gift card code wasn’t found. Check it and try again.', 404, 'not_found');
     if (tendersOf(o0).some((t) => t.kind === 'gift' && t.giftCardId === g.id)) return fail('That gift card is on this order already.', 409, 'twice');
-    const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: holdIdOf(orderId), cents: cap(dueCentsOf(o0)) });
+    const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: holdIdOf(orderId), cents: cap(Math.min(dueCentsOf(o0), tenderRoomOf(o0))) });
     if (!h.ok) return fail(h.error || 'That gift card can’t be used.', 409, 'gift');
     if (!h.cents) { await releaseHold(db, tenantId, g.id, holdIdOf(orderId)); return fail('There’s nothing left on that gift card.', 409, 'empty'); }
     gift = { id: g.id, code: String(g.code || code), promo: g.promo === true, cents: h.cents };
@@ -125,7 +127,10 @@ export async function addTender(db: any, tenantId: string, orderId: string, ask:
   const client: any = ask.kind === 'credit' ? (await db.doc(`${T}/clients/${o0.clientId}`).get()).data() || {} : null;
   const r: any = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(ref)).data(); const no = notNow(o, 'tender'); if (no) return no;
-    const due = dueCentsOf(o); if (due <= 0) return fail('Nothing is left to pay on it.', 409, 'nothing');
+    const due0 = dueCentsOf(o); if (due0 <= 0) return fail('Nothing is left to pay on it.', 409, 'nothing');
+    // (A gift card sold with it is paid in cash or by card: lib/counter-gift.)
+    const room = tenderRoomOf(o); if (room <= 0) return fail(GIFT_CASH_WORDS, 409, 'gift_line');
+    const due = Math.min(due0, room);
     const list = tendersOf(o);
     let t: Tender;
     if (gift) t = { kind: 'gift', giftCardId: gift.id, code: gift.code, cents: cap(Math.min(gift.cents, due)), ...(gift.promo ? { promo: true } : {}), ...(upTo !== null ? { part: true } : {}) };
@@ -136,7 +141,7 @@ export async function addTender(db: any, tenantId: string, orderId: string, ask:
       t = { kind: 'credit', clientId: String(o.clientId), cents: cap(Math.min(have, due)), ...(upTo !== null ? { part: true } : {}) };
     }
     tx.set(ref, { tenders: [...list, t], updatedAt: nowIso(), tenderBy: { id: who.id || null, name: who.name } }, { merge: true });
-    return { ok: true as const, tender: t, due: due - t.cents, number: String(o.number || '') };
+    return { ok: true as const, tender: t, due: due0 - t.cents, number: String(o.number || '') };
   });
   // (Not set aside after all: the hold on the card is let go.)
   if (!r.ok && gift) await releaseHold(db, tenantId, gift.id, holdIdOf(orderId));

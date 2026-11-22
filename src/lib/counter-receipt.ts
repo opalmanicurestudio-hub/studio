@@ -23,8 +23,11 @@ export function counterReceipt(o: any, orderId: string): any {
   const lines = (Array.isArray(o?.lines) ? o.lines : []).map((l: any) => {
     const qty = Math.max(1, Math.floor(num(l.quantity)) || 1); const unit = r2(num(l.unitPrice));
     const extra = clip(l.choicesText, 120);
-    // (On the house, lib/counter-comp-server: said so beside it, at $0.)
-    return { kind: 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}`, qty, unit, amount: r2(unit * qty) };
+    // (On the house, lib/counter-comp-server: said so beside it, at $0. A gift card sold with it, lib/counter-gift: its
+    // code when it's given on the receipt, else how it went; and a bonus card's code, which is the buyer's.)
+    const g = l.giftCard && typeof l.giftCard === 'object' ? l.giftCard : null;
+    const giftWords = g ? (g.via === 'print' ? (g.code ? `, code ${clip(g.code, 20)}` : ', its code once it’s made') : g.via === 'text' ? `, by text${g.sent ? '' : ', not sent yet'}` : `, by email${g.sent ? '' : ', not sent yet'}`) + (g.bonusCode ? `; your bonus card ${clip(g.bonusCode, 20)}` : '') : '';
+    return { kind: g ? 'gift' : 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}${giftWords}`, qty, unit, amount: r2(unit * qty) };
   });
   const items = r2(lines.reduce((s: number, l: any) => s + l.amount, 0));
   const discount = r2(Math.max(0, num(o?.discount)));

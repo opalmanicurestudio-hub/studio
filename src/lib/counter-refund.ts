@@ -5,7 +5,7 @@
 // that machine), then cash out of the drawer. A split bill gives each part back the same way.
 // Kept on the order: refundCents (all refunds so far, tip included), refundTipCents, refundTaxCents, refundedLines
 // ({ lineId: qty }), refundBack ({ source key: cents }), refunds (each one, with why and who okayed it).
-import { tendersOf, itemsCentsOf, codeEnd } from '@/lib/counter-money';
+import { tendersOf, itemsCentsOf, codeEnd, giftCentsOf } from '@/lib/counter-money';
 
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const c0 = (v: unknown) => Math.max(0, Math.round(num(v)));
@@ -19,13 +19,15 @@ export type Back = Source & { back: number };
 /** The reasons offered (another one can be typed). */
 export const REFUND_REASONS = ['Wrong order', 'Made wrong', 'Didn’t like it', 'Took too long', 'Charged twice'];
 
-/** What's left to give back on it, in cents (tip included). */
-export const refundLeftOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - c0(o?.refundCents));
-/** How many of a line are left to refund. */
+/** What's left to give back on it, in cents (tip included). Never its gift cards: they're the guest's to spend, and a
+ *  manager cancels one from Gift cards (lib/counter-gift). */
+export const refundLeftOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - giftCentsOf(o?.lines) - c0(o?.refundCents));
+/** How many of a line are left to refund (a gift card: none, here). */
 export const unitsLeftOf = (o: any, lineId: string) => {
   const l = (Array.isArray(o?.lines) ? o.lines : []).find((x: any) => x.lineId === lineId);
-  return l ? Math.max(0, Math.round(num(l.quantity)) - c0(o?.refundedLines?.[lineId])) : 0;
+  return l && !l.giftCard ? Math.max(0, Math.round(num(l.quantity)) - c0(o?.refundedLines?.[lineId])) : 0;
 };
+export const GIFT_NO_REFUND_WORDS = 'A gift card isn’t refunded here. A manager can cancel it from Gift cards.';
 
 /** Why it can't be refunded here (null: it can). */
 export function cantRefund(o: any): string | null {
@@ -38,7 +40,7 @@ export function cantRefund(o: any): string | null {
   // (An order for another day, not made yet: canceled from Orders ahead, which gives it all back: lib/ahead-days-server.)
   if (o.status === 'scheduled') return 'It’s for another day. Cancel it from Orders ahead.';
   if (o.refundedAt) return 'It was refunded already.';
-  if (refundLeftOf(o) <= 0) return 'All of it was refunded already.';
+  if (refundLeftOf(o) <= 0) return giftCentsOf(o.lines) > 0 && c0(o.refundCents) <= 0 ? GIFT_NO_REFUND_WORDS : 'All of it was refunded already.';
   return null;
 }
 
@@ -62,6 +64,7 @@ export function refundPlan(o: any, ask: RefundAsk): { ok: true; plan: RefundPlan
   let itemsC = 0, taxedC = 0; const out: RefundPlan['lines'] = [];
   for (const p of picks) {
     const l = lines.find((x) => x.lineId === p.lineId); if (!l) return { ok: false, error: 'That item isn’t on the order.' };
+    if (l.giftCard) return { ok: false, error: GIFT_NO_REFUND_WORDS };
     if (p.qty > unitsLeftOf(o, p.lineId)) return { ok: false, error: `Only ${unitsLeftOf(o, p.lineId)} of ${l.name || 'that'} ${unitsLeftOf(o, p.lineId) === 1 ? 'is' : 'are'} left to refund.` };
     const c = Math.round(num(l.unitPrice) * p.qty * 100); itemsC += c; if (l.untaxed !== true) taxedC += c;
     out.push({ lineId: p.lineId, qty: p.qty, name: String(l.name || 'Item') });
@@ -70,7 +73,7 @@ export function refundPlan(o: any, ask: RefundAsk): { ok: true; plan: RefundPlan
   // lib/counter-oneoff, takes no tax back).
   const itemsAll = itemsCentsOf(o); const sub = Math.round(num(o.subtotal) * 100); const share = itemsAll > 0 ? Math.min(1, sub / itemsAll) : 0;
   const netC = Math.round(itemsC * share);
-  const taxedAll = Math.round((itemsAll - lines.reduce((t, l) => t + (l.untaxed === true ? Math.round(num(l.unitPrice) * num(l.quantity) * 100) : 0), 0)) * share);
+  const taxedAll = Math.round((itemsAll - lines.reduce((t, l) => t + (l.untaxed === true && !l.giftCard ? Math.round(num(l.unitPrice) * num(l.quantity) * 100) : 0), 0)) * share);
   const taxC = taxedAll > 0 ? Math.min(taxLeft, Math.round(Math.round(taxedC * share) * taxAll / taxedAll)) : 0;
   const tipC = ask.tip ? tipLeft : 0;
   const cents = Math.min(left, netC + taxC + tipC);

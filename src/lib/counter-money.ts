@@ -69,8 +69,8 @@ export function discountCents(d: Pick<Discount, 'kind' | 'value'>, itemsCents: n
   return Math.max(0, Math.min(want, room));
 }
 
-/** An order's items, in cents (before any reward or discount). */
-export const itemsCentsOf = (o: any) => Math.round((Array.isArray(o?.lines) ? o.lines : []).reduce((t: number, l: any) => t + num(l.unitPrice) * num(l.quantity), 0) * 100);
+/** An order's items, in cents (before any reward or discount; a gift card sold with it isn't one: lib/counter-gift). */
+export const itemsCentsOf = (o: any) => Math.round((Array.isArray(o?.lines) ? o.lines : []).reduce((t: number, l: any) => t + (l?.giftCard ? 0 : num(l.unitPrice) * num(l.quantity)), 0) * 100);
 /** Its reward, in cents. */
 export const rewardCentsOf = (o: any) => (o?.reward ? Math.max(0, Math.round(num(o.reward.cents))) : 0);
 /** Its discount (the business's or a manager's), in cents, as it comes out now beside its reward. */
@@ -120,5 +120,14 @@ export const tenderWords = (t: Tender) => (t.kind === 'gift' ? `Gift card ${code
 export const tenderCentsOf = (o: any) => Math.min(tendersOf(o).reduce((s, t) => s + t.cents, 0), Math.max(0, Math.round(num(o?.total) * 100)));
 /** What's left to pay by cash or card, in cents. */
 export const dueCentsOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - tenderCentsOf(o));
+/** The gift cards sold with an order (lib/counter-gift), in cents: money held for the guest, never tipped on, discounted,
+ *  or paid for with another gift card or store credit. */
+export const giftCentsOf = (lines: any[] | null | undefined) => Math.round((Array.isArray(lines) ? lines : []).reduce((t: number, l: any) => t + (l?.giftCard && typeof l.giftCard === 'object' ? num(l.unitPrice) * num(l.quantity) : 0), 0) * 100);
+/** What a tip's percents are of, in cents: the order before any tip, less the gift cards sold with it. */
+export const tipBaseOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - Math.max(0, Math.round(num(o?.tipCents))) - giftCentsOf(o?.lines));
+/** What a gift card or store credit can still pay for on it, in cents: never its gift cards (paid in cash or by card),
+ *  less what gift cards and store credit cover already. */
+export const tenderRoomOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - giftCentsOf(o?.lines) - tendersOf(o).filter((t) => t.kind === 'gift' || t.kind === 'credit').reduce((s, t) => s + t.cents, 0));
+export const GIFT_CASH_WORDS = 'Pay for a gift card with cash or a card.';
 /** A gift card's code as shown on a screen or a slip: its last four. */
 export const codeEnd = (code: unknown) => { const k = String(code || '').replace(/[^A-Za-z0-9]/g, ''); return k ? `••${k.slice(-4).toUpperCase()}` : '••'; };

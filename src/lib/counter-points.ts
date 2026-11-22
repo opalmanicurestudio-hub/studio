@@ -18,7 +18,7 @@ import { searchFields } from '@/lib/client-search';
 import { createHash } from 'crypto';
 import { cleanName, cardBusy } from '@/lib/counter-server';
 import { moneyWith } from '@/lib/counter-money-server';
-import { markdownCentsOf, paidPartsOf } from '@/lib/counter-money';
+import { markdownCentsOf, paidPartsOf, giftCentsOf } from '@/lib/counter-money';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const nowIso = () => new Date().toISOString();
@@ -46,7 +46,10 @@ export async function earnForOrder(db: any, tenantId: string, tenant: any, order
     // What was paid for each item (before tax), as products; one order is one visit (a visit with nothing charged for
     // it, so a points-per-visit program or a punch card counts it, and points per dollar count only the items).
     // (A reward used on it takes its share off each item: points are earned on what was paid.)
-    sale: { services: [{ serviceId: null, cents: 0 }], products: (o.lines || []).map((l: any) => ({ productId: String(l.itemId || '') || null, cents: Math.round(num(l.unitPrice) * num(l.quantity) * 100 * paidShare(o)) })), giftSpentCents: 0, giftBoughtCents: 0, visits: 1, rebooked: false, renter: false },
+    // (A gift card sold with it isn't an item: it earns only where the business counts gift cards when they're bought,
+    // and one it was paid with counts as spent, so the same money never earns twice: lib/loyalty pointsFor.)
+    sale: { services: [{ serviceId: null, cents: 0 }], products: (o.lines || []).filter((l: any) => !l?.giftCard).map((l: any) => ({ productId: String(l.itemId || '') || null, cents: Math.round(num(l.unitPrice) * num(l.quantity) * 100 * paidShare(o)) })),
+      giftSpentCents: (Array.isArray(o.tenders) ? o.tenders : []).filter((t: any) => t?.kind === 'gift').reduce((s: number, t: any) => s + Math.max(0, Math.round(num(t.cents))), 0), giftBoughtCents: giftCentsOf(o.lines), visits: 1, rebooked: false, renter: false },
   }).catch((e: any) => { console.error('[counter-points] not earned', orderId, e?.message); return { points: 0 }; });
   const pts = Math.max(0, Math.floor(num(r?.points)));
   if (pts > 0) await ref.set({ points: { earned: pts, at: nowIso() } }, { merge: true });
@@ -170,8 +173,10 @@ export async function rewardsOn(db: any, tenantId: string, tenant: any, orderId:
 }
 
 /** The order as a bill a reward can come off: each item one at a time (a free item is one of it). */
-const billOf = (o: any) => ({ lines: (Array.isArray(o.lines) ? o.lines : []).map((l: any) => ({ serviceId: null, itemId: String(l.itemId || '') || null, cents: Math.round(num(l.unitPrice) * 100) })),
-  discountableCents: Math.round((num(o.itemsTotal) || (Array.isArray(o.lines) ? o.lines : []).reduce((t: number, l: any) => t + num(l.unitPrice) * num(l.quantity), 0)) * 100) });
+// (Never a gift card sold with it: a reward comes off what's sold, lib/counter-gift.)
+const billOf = (o: any) => { const sold = (Array.isArray(o.lines) ? o.lines : []).filter((l: any) => !l?.giftCard);
+  return { lines: sold.map((l: any) => ({ serviceId: null, itemId: String(l.itemId || '') || null, cents: Math.round(num(l.unitPrice) * 100) })),
+    discountableCents: Math.round((num(o.itemsTotal) || sold.reduce((t: number, l: any) => t + num(l.unitPrice) * num(l.quantity), 0)) * 100) }; };
 
 /** Use a reward on a sent, unpaid order (one at a time; another replaces it), or take it off (`rewardId` null). The
  *  points are held for the order in the same step that checks the balance, and the total changes with it. Never while the

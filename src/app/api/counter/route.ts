@@ -21,6 +21,9 @@
 //                                                      should be in it; drawerUndo { moveKey, pin? }: one undone
 //   comp   { tenantId, key, orderId, lineId, qty, reason, pin? } → some or all of a line on the house, a manager's, with
 //                                                      why (lib/counter-comp-server); uncomp { …, lineId } its price again
+//   giftCard { tenantId, key, orderId, cents, to?, via: print|text|email, phone?, email?, tapKey? } → a gift card sold
+//                                                      with the order (lib/counter-gift): made and sent once it's paid;
+//                                                      giftIssue { …, orderId }: the ones not made yet, made now
 //   oneOff { tenantId, key, orderId, name, price, quantity?, taxed?, tapKey? } → something not on the menu, up to the
 //                                                      business's amount (lib/counter-oneoff): no kitchen, no stock
 //   sizeUp { tenantId, key, orderId, lineId, quantity?, tapKey? } → that many of the line in the next size up, when its
@@ -157,8 +160,10 @@ import { driverLoad } from '@/lib/driver-load-server';
 import { nightBounds, tonight } from '@/lib/night-close-server';
 import { printersCached } from '@/lib/printing-server';
 import { receiptAfterOf } from '@/lib/printing';
-import { tipsOf, tipsHere, tipChoices, discountsOf, tendersOf, dueCentsOf, codeEnd, sharesPaidOf } from '@/lib/counter-money';
+import { tipsOf, tipsHere, tipChoices, discountsOf, tendersOf, dueCentsOf, codeEnd, sharesPaidOf, tipBaseOf, giftCentsOf } from '@/lib/counter-money';
 import { oneOffMaxOf } from '@/lib/counter-oneoff';
+import { issueCounterGifts, giftsOpenOf } from '@/lib/counter-gift-server';
+import { shopSettings } from '@/lib/gift-designs';
 import { setTip, setDiscount, addTender, removeTender } from '@/lib/counter-money-server';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
@@ -195,7 +200,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -220,7 +225,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -234,7 +239,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -423,6 +428,9 @@ export async function POST(req: NextRequest) {
         money: { tips: tipsHere(tipsOf(tenant), channel) ? { pcts: tipsOf(tenant).pcts } : null, discounts: discountsOf(tenant) },
         // Something not on the menu (lib/counter-oneoff): up to how much (0: not offered here).
         oneOffMax: oneOffMaxOf(tenant),
+        // Gift cards sold with an order (lib/counter-gift): the business's own amounts, as on its Gift cards page.
+        // (And this screen's paid orders whose gift cards weren't made yet, to make now: lib/counter-gift-server.)
+        gift: { amounts: shopSettings(tenant).amounts, open: (await giftsOpenOf(db, tenantId)).filter((g) => counterSide(g.channel) === (channel === 'counter')).map(({ channel: _c, ...g }) => g) },
         receipt: await (async () => { const ps = await printersCached(db, `tenants/${tenantId}`).catch(() => [] as any[]);
           return { after: receiptAfterOf(tenant), printers: ps.filter((p: any) => p.receipts).map((p: any) => ({ id: p.id, name: p.name, drawer: !!p.drawer })), drawer: ps.some((p: any) => p.drawer) }; })(),
       });
@@ -612,6 +620,8 @@ export async function POST(req: NextRequest) {
           // Its discount and tip (lib/counter-money), each by itself, as on the receipt.
           markdown: (shown.mode === 'pay' || shown.mode === 'paid') && o.markdown && num(o.markdown.cents) > 0 ? { name: String(o.markdown.label || 'Discount').slice(0, 40), off: num(o.markdown.cents) / 100, itemsTotal: num(o.itemsTotal) } : null,
           tip: (shown.mode === 'pay' || shown.mode === 'paid') ? Math.max(0, num(o.tipCents)) / 100 : 0,
+          // Gift cards bought with it (lib/counter-gift): beside the subtotal, never in it. (None: left out.)
+          ...((shown.mode === 'pay' || shown.mode === 'paid') && giftCentsOf(o.lines) > 0 ? { giftCards: giftCentsOf(o.lines) / 100 } : {}),
           earned: o.paidAt && num(o.points?.earned) > 0 && shown.mode !== 'pay' ? { points: num(o.points.earned), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points' } : null,
           // Change for cash, while the car is still likely at the window.
           change: o.paidAt && o.payMethod === 'cash' && num(o.changeGiven) > 0 && ageOf(o.paidAt) < 60000 ? num(o.changeGiven) : null,
@@ -990,7 +1000,8 @@ export async function POST(req: NextRequest) {
       // The tip, asked on this screen: the business's three, worked out on what the order comes to before any tip; once
       // picked (or none), not asked again.
       const ts = tipsOf(tenant);
-      const tipBase = o ? Math.round(num(o.total) * 100) - Math.max(0, Math.round(num(o.tipCents))) : 0;
+      // (Never on a gift card sold with it: lib/counter-gift.)
+      const tipBase = o ? tipBaseOf(o) : 0;
       const askTip = mode === 'pay' && tipsHere(ts, 'counter') && !o.tipChosenAt && Math.max(0, Math.round(num(o.tipCents))) === 0 && !o.app?.code && o.status === 'sent' && !cardBusyOf(o) && !(o.phone?.id && o.phone.state === 'open') && !(Array.isArray(o.tenders) && o.tenders.length);
       const choices = askTip ? tipChoices(tipBase, ts.pcts) : [];
       if (action === 'guestTip') {
@@ -1085,7 +1096,7 @@ export async function POST(req: NextRequest) {
         if (!p.ok) return NextResponse.json({ ok: false, error: p.error, code: p.code || null, staffOk }, { status: p.status });
         if (p.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
         if (!p.already) { await stopPhone(db, tenantId, tenant, orderId).catch(() => null); forgetStats(tenantId); }
-        return ok({ paid: true, already: !!p.already, change: p.change ?? null, payMethod: p.payMethod || null, inDrawer: p.drawer ?? null, staffOk });
+        return ok({ paid: true, already: !!p.already, change: p.change ?? null, payMethod: p.payMethod || null, inDrawer: p.drawer ?? null, ...(p.gifts ? { gifts: p.gifts } : {}), staffOk });
       }
       return r.ok ? ok({ paid: false, partId: r.partId, cents: r.cents, change: r.change, due: r.due, inDrawer: !!r.inDrawer, staffOk })
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
@@ -1168,8 +1179,17 @@ export async function POST(req: NextRequest) {
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
       return ok({ order: r.order, name: r.name, already: !!r.already, staffOk });
     }
-    if (action === 'add' || action === 'oneOff' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
+    // Gift cards on a paid order made (the ones that weren't: lib/counter-gift-server), with their codes.
+    if (action === 'giftIssue') {
+      const o: any = (await db.doc(`${T}/counterOrders/${orderId}`).get()).data();
+      if (!o) return bad('That order is gone.', 404);
+      if (!o.paidAt) return bad('It isn’t paid yet. The gift card is made once it is.', 409);
+      return ok({ gifts: await issueCounterGifts(db, tenantId, orderId, by), staffOk });
+    }
+    if (action === 'add' || action === 'oneOff' || action === 'giftCard' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
       const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }
+        // A gift card sold with it (lib/counter-gift): how much, who it's for, and how it gets to them.
+        : action === 'giftCard' ? { action, cents: b.cents, to: b.to, via: b.via, phone: b.phone, email: b.email, tapKey: b.tapKey }
         // Something not on the menu (lib/counter-oneoff): its name, price, how many, and whether it's taxed.
         : action === 'oneOff' ? { action, name: b.name, price: b.price, quantity: b.quantity, taxed: b.taxed !== false, tapKey: b.tapKey }
         : action === 'sizeUp' ? { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey }
@@ -1310,7 +1330,7 @@ export async function POST(req: NextRequest) {
     if (r.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
     // A phone payment the guest had open is called off too (or given back, if they paid at that very moment).
     if (!r.already) await stopPhone(db, tenantId, tenant, orderId).catch(() => null);
-    return ok({ already: !!r.already, inDrawer: r.drawer ?? null, inPouch: !!r.pouch, change: r.change ?? null, payMethod: r.payMethod || null, keptChange: !!r.keptChange, tipCents: r.tipCents ?? 0, staffOk });
+    return ok({ already: !!r.already, inDrawer: r.drawer ?? null, inPouch: !!r.pouch, change: r.change ?? null, payMethod: r.payMethod || null, keptChange: !!r.keptChange, tipCents: r.tipCents ?? 0, ...(r.gifts ? { gifts: r.gifts } : {}), staffOk });
   } catch (e: any) {
     console.error('[counter] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);

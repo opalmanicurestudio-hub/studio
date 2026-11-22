@@ -50,12 +50,16 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   message?: string | null; design?: string | null; line?: string | null; purchaserEmail?: string | null; orderId?: string | null;
   sendVia?: 'text' | 'email' | 'print' | 'code' | null; sendAt?: string | null; transactionId?: string | null; importId?: string | null; importedFrom?: string | null; createdAt?: string | null; lastUsedAt?: string | null;
   locationId?: string | null; limits?: any;   // where it was sold (cards across locations) · advanced limits (lib/gift-limits)
+  /** Its own id, for a card made once for one sale (lib/counter-gift-server): made again, the one made first comes back. */
+  docId?: string | null;
 }) {
   const initial = Math.round(Number(o.amountCents) || 0); if (!(initial > 0) || initial > 500000) return { ok: false as const, error: 'Gift cards are from $1 to $5,000.' };
+  const mine = o.docId && /^[A-Za-z0-9_-]{1,200}$/.test(o.docId) ? db.collection(`${T(tenantId)}/giftCards`).doc(o.docId) : null;
+  if (mine) { const had = (await mine.get()).data(); if (had) return { ok: true as const, card: { ...had, id: mine.id } as GiftCard, already: true }; }
   let code = o.code ? String(o.code).trim().slice(0, 40) : newCode();
   for (let i = 0; i < 5 && (await findByCode(db, tenantId, code)); i++) { if (o.code) return { ok: false as const, error: `A gift card with code ${code} is already here.`, duplicate: true }; code = newCode(); }
   const bal = o.balanceCents == null ? initial : Math.max(0, Math.min(initial, Math.round(Number(o.balanceCents) || 0)));
-  const ref = db.collection(`${T(tenantId)}/giftCards`).doc(); const at = now();
+  const ref = mine || db.collection(`${T(tenantId)}/giftCards`).doc(); const at = now();
   // The business's expiry rule (never, unless they chose 5+ years) — imported cards keep whatever they had.
   let expiresAt: string | null = null;
   if (o.promo) expiresAt = o.promo.expiresAt;
@@ -68,7 +72,10 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
     soldAtLocationId: o.locationId || null, ...(o.limits ? { limits: o.limits } : {}),
     expiresAt, ...(o.promo ? { promo: true, offerId: o.promo.offerId, offerName: o.promo.offerName, usableFrom: o.promo.usableFrom, forCardId: o.promo.forCardId || null } : {}), createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
-  await ref.set(doc); if (doc.recipientId) void syncClientGift(db, tenantId, doc.recipientId).catch(() => {});
+  // (Its own id: made once, so one made meanwhile by another try comes back instead.)
+  if (mine) { try { await ref.create(doc); } catch { const had = (await ref.get()).data(); if (had) return { ok: true as const, card: { ...had, id: ref.id } as GiftCard, already: true }; throw new Error('gift card not made'); } }
+  else await ref.set(doc);
+  if (doc.recipientId) void syncClientGift(db, tenantId, doc.recipientId).catch(() => {});
   return { ok: true as const, card: doc as GiftCard };
 }
 
@@ -214,9 +221,11 @@ export async function giveBonus(db: any, tenantId: string, tenant: any, o: { cha
   const d = bonusDates(offer, today); const email = o.buyer.email && /\S+@\S+\.\S+/.test(o.buyer.email) ? o.buyer.email : null; const phone = o.buyer.phone && String(o.buyer.phone).replace(/\D/g, '').length >= 10 ? o.buyer.phone : null;
   const r: any = await issueGiftCard(db, tenantId, { amountCents: bonus, by: o.by, source: 'offer', promo: { offerId: offer.id, offerName: offer.name, usableFrom: d.usableFrom, expiresAt: d.expiresAt, forCardId: o.forCard.id },
     recipient: { id: o.buyer.id || null, name: o.buyer.name || null, email, phone }, purchaser: { id: null, name: null }, design: o.forCard.design || null, line: 'BONUS',
-    sendVia: email ? 'email' : phone ? 'text' : 'code', transactionId: o.forCard.transactionId || null, orderId: o.forCard.orderId || null });
+    sendVia: email ? 'email' : phone ? 'text' : 'code', transactionId: o.forCard.transactionId || null, orderId: o.forCard.orderId || null,
+    // (One bonus for a card, however often it's asked: its own id, from the card's.)
+    docId: /^[A-Za-z0-9_-]{1,190}$/.test(String(o.forCard.id || '')) ? `bonus_${o.forCard.id}` : null });
   if (!r.ok) return null;
-  if (o.send !== false && (email || phone)) await deliverGiftCard(db, tenantId, tenant, r.card).catch(() => null);
+  if (o.send !== false && (email || phone) && !(r.already && r.card.sentAt)) await deliverGiftCard(db, tenantId, tenant, r.card).catch(() => null);
   await db.doc(`${T(tenantId)}/giftCards/${o.forCard.id}`).set({ bonusCardId: r.card.id, bonusCents: bonus }, { merge: true }).catch(() => {});
   return r.card;
 }

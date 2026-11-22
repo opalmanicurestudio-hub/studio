@@ -74,7 +74,9 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
    *  when the counter said it isn't taxed. */
   oneOff?: boolean; untaxed?: boolean;
   /** On the house (lib/counter-comp-server): $0 here, its price kept, why, and the manager who okayed it. */
-  comp?: { from: number; reason: string; by: string; approvedBy: string; at: string } };
+  comp?: { from: number; reason: string; by: string; approvedBy: string; at: string };
+  /** A gift card sold with the order (lib/counter-gift): who it's for, how it gets to them, and once it's made its code. */
+  giftCard?: { to: string | null; via: 'print' | 'text' | 'email'; phone: string | null; email: string | null; id?: string | null; code?: string | null; sent?: boolean; failed?: string | null; claim?: { token: string; at: string } | null; bonusCode?: string | null } };
 
 /** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
 export const photoOf = (item: any): string | null => {
@@ -104,15 +106,18 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
 /** The order's money: subtotal, the business's sales tax on food and drink, and the total. `off`: a reward used on it
  *  (lib/counter-points useReward), in dollars: the subtotal is what's left after it (what's sold, and what's taxed), and
  *  the items' own total is kept beside it. Something rung in as not taxed (lib/counter-oneoff) is left out of what's
- *  taxed, with its share of the reward. */
-export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: number; tax: number; taxLabel: string; total: number; discount?: number; itemsTotal?: number } {
-  const items = Math.round(lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
+ *  taxed, with its share of the reward. A gift card sold with it (lib/counter-gift) is money held for the guest: never in
+ *  the subtotal (what's sold), never discounted or taxed, only in the total (`giftCards`, beside it). */
+export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: number; tax: number; taxLabel: string; total: number; discount?: number; itemsTotal?: number; giftCards?: number } {
+  const sold = lines.filter((l) => !l.giftCard);
+  const gift = Math.round(lines.reduce((s, l) => s + (l.giftCard ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
+  const items = Math.round(sold.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
   const discount = Math.round(Math.max(0, Math.min(Number(off) || 0, items)) * 100) / 100;
   const subtotal = Math.round((items - discount) * 100) / 100;
-  const untaxed = Math.round(lines.reduce((s, l) => s + (l.untaxed ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
+  const untaxed = Math.round(sold.reduce((s, l) => s + (l.untaxed ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
   const taxed = untaxed > 0 && items > 0 ? Math.round(subtotal * ((items - untaxed) / items) * 100) / 100 : subtotal;
   const tax = posTaxAmount(tenant, { services: 0, products: taxed });
-  return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}) };
+  return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax + gift) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}), ...(gift > 0 ? { giftCards: gift } : {}) };
 }
 
 /** When it should be ready: the channel's target from when it was sent, but never sooner than its slowest line takes. */

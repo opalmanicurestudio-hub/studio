@@ -13,7 +13,8 @@ import { tenantTimeZone, wallToUtc } from '@/lib/tenant-time';
 import { businessDayFor, DEFAULT_DAY_CUTOVER_HOUR } from '@/lib/hosting-sessions';
 import { cleanReportTo, closeSettingsOf, nightReport, reportText, weekdayOf, type Adjustment, type CheckMark, type CloseArea, type DeliveryNight, type NightReport, type Sale, type Till, type TipRow } from '@/lib/night-close';
 import { appBooksOn } from '@/lib/app-orders';
-import { paidPartsOf } from '@/lib/counter-money';
+import { paidPartsOf, giftCentsOf } from '@/lib/counter-money';
+import { giftLineCount } from '@/lib/counter-gift';
 
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -130,6 +131,8 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
           tip: num(o.tip) + dtip, tax: am ? am.taxCents / 100 : num(o.tax), method: String(o.payMethod || 'other'),
           // (Part by gift card or store credit: each part under its own way of paying, lib/counter-money.)
           payments: Array.isArray(o.payments) && o.payments.length ? o.payments.map((p: any) => ({ method: String(p.method || 'other'), amount: num(p.amount) })) : null,
+          // (Gift cards sold with it, lib/counter-gift: in what was taken, not in sales. Its subtotal leaves them out.)
+          giftCards: giftCentsOf(o.lines) > 0 ? { count: giftLineCount(o.lines), amount: giftCentsOf(o.lines) / 100 } : null,
           // (Its reward and its discount, by name: lib/counter-money.)
           offs: [...(o.reward && num(o.reward.cents) > 0 ? [{ label: 'Rewards', amount: num(o.reward.cents) / 100 }] : []),
             ...(o.markdown && num(o.markdown.cents) > 0 ? [{ label: o.markdown.custom ? 'Other amounts' : String(o.markdown.label || 'Discount').slice(0, 40), amount: num(o.markdown.cents) / 100, okBy: o.markdown.okBy || null }] : [])] }; }),

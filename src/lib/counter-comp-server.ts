@@ -51,6 +51,8 @@ export async function compLine(db: any, tenantId: string, tenant: any, orderId: 
     const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
     const line: any = lines.find((l) => l.lineId === lineId); if (!line) return fail('That isn’t on the order.', 404);
     if (line.comp) return fail(`${line.name} is on the house already.`, 409, 'already');
+    // (Money held for the guest, never a sale to give: lib/counter-gift. Take it off instead.)
+    if (line.giftCard) return fail('A gift card can’t go on the house. Take it off instead.', 409, 'gift');
     if (!(num(line.unitPrice) > 0)) return fail(`${line.name} is free already.`, 409, 'free');
     const q = Math.floor(num(qtyRaw)); if (q < 1 || q > line.quantity) return fail(`How many? Between 1 and ${line.quantity}.`, 400);
     // (With the kitchen, each line is its own tickets and its own stock: all of the line, or none.)

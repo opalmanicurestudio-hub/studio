@@ -21,7 +21,7 @@ type At = 'one' | 'pay' | 'pickup';
 const ATS: [At, string, string][] = [['one', 'One window', 'Guests pay and pick up here'], ['pay', 'Pay window', 'Guests pay here, then drive on'], ['pickup', 'Pickup window', 'Guests pick up here']];
 type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name: string | null; spot: string | null;
   lines: { name: string; quantity: number; choicesText: string | null; price: number; comp?: boolean; imageUrl: string | null }[];
-  subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
+  subtotal: number; tax: number; total: number; giftCards?: number; paid: boolean; payMethod: string | null; change: number | null;
   card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null;
   // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
   alsoAhead?: string | null;
@@ -214,6 +214,7 @@ function OrderLines({ s }: { s: Show }) {
         {s.reward && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">Reward: {s.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(s.reward.off)}</span></p>}
         {s.markdown && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">{s.markdown.name}</span><span className="shrink-0 tabular-nums">-{usd(s.markdown.off)}</span></p>}
         {s.tax > 0 && <p className="flex justify-between"><span>Tax</span><span className="tabular-nums">{usd(s.tax)}</span></p>}
+        {(s.giftCards || 0) > 0 && <p className="flex justify-between"><span>Gift card, not taxed</span><span className="tabular-nums">{usd(s.giftCards || 0)}</span></p>}
         {(s.tip || 0) > 0 && <p className="flex justify-between"><span>Tip</span><span className="tabular-nums">{usd(s.tip || 0)}</span></p>}
       </div>
     </div>
