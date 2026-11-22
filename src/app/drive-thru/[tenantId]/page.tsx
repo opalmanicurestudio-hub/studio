@@ -37,6 +37,7 @@ import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type Part
 import type { Discount } from '@/lib/counter-money';
 import { RefundFind } from '@/components/pos/CounterRefund';
 import { CodeOnSheet } from '@/components/pos/CounterScan';
+import { OneOffSheet } from '@/components/pos/CounterOneOff';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
@@ -84,6 +85,8 @@ const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow ===
 type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
   merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean;
+  /** Something not on the menu (lib/counter-oneoff): up to how much, 0 when it isn't offered. */
+  oneOffMax?: number;
   /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
   receipt?: ReceiptSetup;
   /** Tips (when the business takes them at the drive-thru too) and its discounts (lib/counter-money). */
@@ -308,6 +311,8 @@ export default function DriveThru() {
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
   const [codeFor, setCodeFor] = useState<string | null>(null);
+  // Something not on the menu (components/pos/CounterOneOff).
+  const [oneOffOpen, setOneOffOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
@@ -540,7 +545,7 @@ export default function DriveThru() {
       else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
     });
   };
-  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !choiceFor && !partPin && !discountPin, { layer: 'background' });
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
@@ -763,7 +768,8 @@ export default function DriveThru() {
                   <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}{editable && l.offer === 'size' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</p>
                   {l.choicesText && <p className="text-[14px] leading-snug" style={{ color: MUTED }}>{l.choicesText}</p>}
                   {order!.allergy && (() => { const w = conflictWords(dishConflict(lane?.menu.find((m) => m.id === l.itemId), order!.allergy), order!.allergy); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
-                  <LineNote note={l.note} name={l.name} busy={!!busy} editable={editable && order!.status === 'building'} onSave={(n) => void saveNote(l, n)} />
+                  {(l as any).oneOff ? <span className="block text-[13px]" style={{ color: MUTED }}>Not on the menu{(l as any).untaxed ? ', not taxed' : ''}</span>
+                    : <LineNote note={l.note} name={l.name} busy={!!busy} editable={editable && order!.status === 'building'} onSave={(n) => void saveNote(l, n)} />}
                   {!editable && order!.kitchen !== 'not sent' && <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>}
                 </div>
                 <span className="shrink-0 text-[15px] tabular-nums" style={{ color: INK }}>{usd(l.unitPrice * l.quantity)}</span>
@@ -1047,6 +1053,9 @@ export default function DriveThru() {
                           );
                         })}
                       </div>}
+                    {(lane?.oneOffMax ?? 0) > 0 && order?.status === 'building' && (
+                      <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} mt-3 min-h-[52px] w-full text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>
+                    )}
                   </div>
                   <div className="flex flex-col gap-3 xl:sticky xl:top-4 xl:self-start">
                     {aheadOrder && <AheadWith o={aheadOrder} />}
@@ -1209,6 +1218,15 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={async (b) => {
+        if (order.status !== 'building') return 'That order has gone to the kitchen already.';
+        acted.current++; const mySeq = ++seq.current;
+        const { d } = await post({ action: 'oneOff', orderId: order.id, ...b }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+        acted.current++;
+        if (!d.ok) return d.error || 'That didn’t go through. Try again.';
+        if (d.order) putOrder(d.order, mySeq);
+        setOneOffOpen(false); setNotice({ text: `${b.name} added.`, tone: 'good' }); load(); return null;
+      }} />}
       {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={lane?.menu || []} call={refundCall} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); load(); }} />}
       {refundOpen && <RefundFind call={refundCall} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); load(); }} />}
       {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}

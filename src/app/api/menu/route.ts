@@ -93,6 +93,14 @@ import { linesCost, partUnitCost } from '@/lib/food-cost';
 import { unitLabel } from '@/lib/product-cost';
 import { voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
 import { tipsOf, discountsOf, cleanDiscount, DISCOUNTS_MAX } from '@/lib/counter-money';
+import { oneOffMaxOf, ONE_OFF_MAX_CAP, type OneOffName } from '@/lib/counter-oneoff';
+/** What's been rung in at the counter that isn't on the menu, by name, the last three months, most recent first. */
+async function oneOffNamesOf(db: any, tenantId: string): Promise<OneOffName[]> {
+  const since = new Date(Date.now() - 90 * 86400000).toISOString();
+  const snap = await db.collection(`tenants/${tenantId}/oneOffNames`).orderBy('lastAt', 'desc').limit(30).get().catch(() => ({ docs: [] as any[] }));
+  return snap.docs.map((d: any) => d.data() || {}).filter((x: any) => String(x.lastAt || '') >= since && x.name)
+    .map((x: any) => ({ key: String(x.key || ''), name: String(x.name).slice(0, 60), count: Math.max(0, Math.round(Number(x.count) || 0)), lastPrice: Math.round((Number(x.lastPrice) || 0) * 100) / 100, lastAt: String(x.lastAt) }));
+}
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -200,7 +208,9 @@ export async function POST(req: NextRequest) {
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
-      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
+      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
+        // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
+        oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -420,6 +430,19 @@ export async function POST(req: NextRequest) {
         const tips = tipsOf({ counterTips: { on: b.tips.on === true, pcts: pcts || tipsOf(td).pcts, where: b.tips.where === 'both' ? 'both' : 'counter' } });
         await db.doc(`tenants/${tenantId}`).set({ counterTips: { ...tips, updatedAt: new Date().toISOString() } }, { merge: true });
         return ok({ lane: { tips } });
+      }
+      // Something not on the menu at the counter (lib/counter-oneoff): up to how much (0 turns it off), or a name taken off
+      // the list of what's been rung in (once it's on the menu, say).
+      if (b.oneOffMax !== undefined) {
+        const n = b.oneOffMax === null || b.oneOffMax === '' ? NaN : Math.round(Number(b.oneOffMax) * 100) / 100;
+        if (!Number.isFinite(n) || n < 0 || n > ONE_OFF_MAX_CAP) return bad(`Up to how much? $0 to $${ONE_OFF_MAX_CAP}, or $0 to turn it off.`);
+        await db.doc(`tenants/${tenantId}`).set({ counterOneOff: { max: n, updatedAt: new Date().toISOString() } }, { merge: true });
+        return ok({ lane: { oneOffMax: n } });
+      }
+      if (typeof b.oneOffForget === 'string') {
+        if (!/^n-[a-z0-9-]{1,60}$/.test(b.oneOffForget)) return bad('Which one?');
+        await db.doc(`tenants/${tenantId}/oneOffNames/${b.oneOffForget}`).delete();
+        return ok({ lane: { oneOffNames: await oneOffNamesOf(db, tenantId) } });
       }
       // The business's discounts at the counter (lib/counter-money): the whole list, as kept.
       if (Array.isArray(b.discounts)) {

@@ -91,6 +91,8 @@ export async function askReadyText(db: any, tenantId: string, tenant: any, order
     if (!or || !READY_CHANNELS.includes(String(or.channel))) return fail('That order isn’t here.', 404);
     if (or.status === 'voided' || or.status === 'done' || or.status === 'cancelled') return fail('That order is done.', 409, 'done');
     if (or.readyText?.sentAt) return fail('It’s ready, and the text has gone already.', 409, 'sent');
+    // (Nothing for the kitchen to make, only what was rung in that isn't on the menu: it's ready already, so no text.)
+    if (or.kitchenNone === true) return fail('It’s ready now. There’s nothing for the kitchen to make.', 409, 'ready');
     tx.set(ref, { readyText: { to, last4: lastFour(to), via, pendingSince: nowIso, sentAt: null, ok: null, failed: null } }, { merge: true });
     return { ok: true as const, last4: lastFour(to), sent: false };
   });

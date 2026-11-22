@@ -35,6 +35,7 @@ import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type Part
 import type { Discount } from '@/lib/counter-money';
 import { RefundFind } from '@/components/pos/CounterRefund';
 import { CodeOnSheet } from '@/components/pos/CounterScan';
+import { OneOffSheet } from '@/components/pos/CounterOneOff';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
@@ -110,6 +111,8 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
+  /** Something not on the menu (lib/counter-oneoff): up to how much, 0 when it isn't offered. */
+  oneOffMax?: number;
   /** The location this counter is at, with more than one (lib/here-server). */
   location?: { id: string; name: string | null } | null;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
@@ -198,6 +201,8 @@ export default function CounterPage() {
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
   const [codeFor, setCodeFor] = useState<string | null>(null);
+  // Something not on the menu (components/pos/CounterOneOff).
+  const [oneOffOpen, setOneOffOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -303,7 +308,16 @@ export default function CounterPage() {
     if (!id) return; const i = setInterval(() => void post({ action: 'show', orderId: id }).catch(() => null), 60000);
     return () => clearInterval(i);
   }, [order?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !choiceFor && !discountPin && !partPin, { layer: 'background' });
+  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
+  const addOneOff = async (b: { name: string; price: number; taxed: boolean; tapKey: string }) => {
+    if (!order || order.status !== 'building') return 'Tap Next guest first, then add it.';
+    acted.current++;
+    const d = await post({ action: 'oneOff', orderId: order.id, ...b }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    acted.current++;
+    if (!d.ok) return d.error || 'That didn’t go through. Try again.';
+    if (d.order) setLane((l) => (l ? { ...l, orders: { ...l.orders, [d.order.id]: { ...(l.orders[d.order.id] || {}), ...d.order } } } : l));
+    setOneOffOpen(false); setNotice({ text: `${b.name} added.`, tone: 'good' }); void load(); return null;
+  };
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: Item) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => order && just && act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: rid() },
@@ -437,6 +451,9 @@ export default function CounterPage() {
                   {n > 0 && <span className="absolute right-2 top-2 flex h-7 min-w-[28px] items-center justify-center rounded-full px-1.5 text-[13.5px] font-semibold tabular-nums" style={dark}>{n}</span>}
                 </button>
               ); })}</div>}
+          {lane && (lane.oneOffMax ?? 0) > 0 && order?.status === 'building' && guest?.stage !== 'pay' && (
+            <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} w-full text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>
+          )}
         </section>
 
         <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
@@ -460,7 +477,8 @@ export default function CounterPage() {
                 <li key={l.lineId} className="flex items-center justify-between gap-2 text-[14px]">
                   <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}
                     {order.allergy && (() => { const w = conflictWords(dishConflict(menu.find((m) => m.id === l.itemId), order.allergy), order.allergy); return w ? <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
-                    <LineNote note={l.note} name={l.name} busy={!!busy} editable={order.status === 'building'} onSave={(n) => void saveNote(l, n)} /></span>
+                    {(l as any).oneOff ? <span className="block text-[13px]" style={{ color: MUTED }}>Not on the menu{(l as any).untaxed ? ', not taxed' : ''}</span>
+                      : <LineNote note={l.note} name={l.name} busy={!!busy} editable={order.status === 'building'} onSave={(n) => void saveNote(l, n)} />}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
                     <span className="w-6 text-center tabular-nums">{l.quantity}</span>
@@ -604,6 +622,7 @@ export default function CounterPage() {
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
     {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
+    {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={addOneOff} />}
     {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}

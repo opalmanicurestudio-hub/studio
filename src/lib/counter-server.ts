@@ -27,6 +27,7 @@ import { TIP_MAX_CENTS } from '@/lib/counter-money';
 import { tendersOf, codeEnd, isPaidPart, paidPartsOf, partBackOpen, PART_BACK_WORDS } from '@/lib/counter-money';
 import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
 import { creditPlan, creditLine } from '@/lib/store-credit';
+import { menuLinesOf, oneOffKey, oneOffLine, oneOffMaxOf } from '@/lib/counter-oneoff';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -116,7 +117,8 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
 export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown }
   | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
   | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown }
-  | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown };
+  | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown }
+  | { action: 'oneOff'; name: unknown; price: unknown; quantity?: unknown; taxed?: unknown; tapKey?: unknown };
 
 /** One change to an order still being taken. One tap is one change, however many times it's sent (tapKey), and a tap
  *  that arrives after the order went to the kitchen is answered with the order as it is, not an error. */
@@ -143,7 +145,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       // Taken as an offer, right after something else was added (components/menu/OfferAsk): marked only where another
       // line's item offers it (lib/menu-upgrades offerOf), for how often offers are taken. Prices never depend on it.
       if (op.offer === 'item') {
-        const others = Array.from(new Set(lines.map((l) => l.itemId).filter((id) => id !== made.line.itemId))).slice(0, 40);
+        const others = Array.from(new Set(menuLinesOf(lines).map((l) => l.itemId).filter((id) => id !== made.line.itemId && ID.test(String(id || ''))))).slice(0, 40);
         const docs = await Promise.all(others.map((id) => tx.get(db.doc(`${T}/inventory/${id}`))));
         if (offerOf('item', { id: made.line.itemId }, {}, docs.map((d: any, k: number) => ({ id: others[k], upgrades: d.data()?.upgrades }))) === 'item') made.line.offer = 'item';
       }
@@ -153,10 +155,17 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note));
       lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity), ...(l.offer || made.line.offer ? { offer: l.offer || made.line.offer } : {}) } : l)) : [...lines, made.line];
       line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
+    } else if (op.action === 'oneOff') {
+      // Something not on the menu (lib/counter-oneoff): a line of its own, up to the business's amount, never merged.
+      const made = oneOffLine(op, oneOffMaxOf(tenant), randomBytes(5).toString('hex'));
+      if (!made.ok) return { error: made.error, status: 400 };
+      if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
+      lines = [...lines, made.line]; line = made.line;
     } else if (op.action === 'sizeUp') {
       // The next size up, for what was just added (`quantity` of the line, at most all of it): only when its item offers a
       // size up (lib/menu-upgrades), priced from the menu like any line. The rest of the line stays as it was.
       const old = lines.find((l) => l.lineId === String(op.lineId || '')); if (!old) return { error: 'That isn’t on the order.', status: 404 };
+      if (old.oneOff || !ID.test(String(old.itemId || ''))) return { error: `${old.name} isn’t on the menu, so there’s no bigger size.`, status: 409 };
       const it: any = (await tx.get(db.doc(`${T}/inventory/${old.itemId}`))).data();
       const picks = picksOf(old.choices);
       const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
@@ -182,6 +191,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
     } else {
       const lineId = String(op.lineId || ''); if (!lines.some((l) => l.lineId === lineId)) return { error: 'That isn’t on the order.', status: 404 };
       if (op.action === 'remove') lines = lines.filter((l) => l.lineId !== lineId);
+      // (Something not on the menu never goes to the kitchen, so a note on it would go nowhere.)
+      else if (op.action === 'note' && lines.find((l) => l.lineId === lineId)?.oneOff) return { error: 'That isn’t made in the kitchen, so it takes no note.', status: 409 };
       else if (op.action === 'note') { const note = cleanLineNote(op.note); lines = lines.map((l) => { if (l.lineId !== lineId) return l; const { note: _was, ...rest } = l; return note ? { ...rest, note } : rest; }); }
       else { const q = Math.floor(num(op.quantity)); if (q < 1 || q > 20) return { error: 'How many? Between 1 and 20.', status: 400 }; lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l)); }
     }
@@ -259,8 +270,11 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     if (o.status !== 'building' && o.status !== 'scheduled') return { ok: true, already: true, due: o.dueAt || null };
     // (One being canceled, its money on the way back, never goes to the kitchen.)
     if (o.status === 'scheduled' && o.ahead?.later?.cancel) return { error: 'That order is being canceled.', status: 409 };
-    const lines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
-    if (!lines.length) return { error: 'Add something first.', status: 400 };
+    const allLines: OrderLine[] = Array.isArray(o.lines) ? o.lines : [];
+    if (!allLines.length) return { error: 'Add something first.', status: 400 };
+    // What the kitchen makes: everything but what was rung in that isn't on the menu (lib/counter-oneoff), which is
+    // handed over at the counter, with no ticket and no stock.
+    const lines = menuLinesOf(allLines); const oneOffs = allLines.filter((l) => l.oneOff === true);
     // Something added at the speaker to an order placed ahead: the guest's allergies on that order go on this one too
     // (lib/order-allergy), when this one has none of its own.
     const withCar: any = ID.test(String(o.carId || '')) ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
@@ -334,7 +348,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       for (const f of lines) if (!partFor.has(f.id)) partFor.set(f.id, String(it.name || 'item'));
       lineTake[l.lineId] = take;
     }
-    const withOrder = orderExtras(extras, mode);
+    // (A bag goes with what the kitchen makes; something rung in on its own takes none.)
+    const withOrder = lines.length ? orderExtras(extras, mode) : [];
     for (const pid of Array.from(new Set([...toTake.flatMap((x) => [...x.lines, ...x.extra].map((f) => f.id)), ...withOrder.map((f) => f.id)]))) {
       if (docs.has(pid) || !/^[A-Za-z0-9_-]{1,160}$/.test(pid)) continue;
       const pRef = db.doc(`${T}/inventory/${pid}`); const data = (await tx.get(pRef)).data(); if (data) docs.set(pid, { ref: pRef, data });
@@ -436,12 +451,18 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const some = (x: Record<string, number>) => (Object.keys(counted(x)).length ? { extras: counted(x) } : {});
     for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}), ...some(t.extras),
       ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts), ...some(x.extras) }])) } : {}) };
-    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken, ...(soldAt && Object.keys(storeTaken).length ? { storeTaken: { at: soldAt, items: storeTaken } } : {}), toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
+    // (Nothing for the kitchen to make, only what was rung in that isn't on the menu: ready now.)
+    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, ...(tickets.length ? {} : { kitchenNone: true }), partsUsed: used, itemsTaken, stockTaken, ...(soldAt && Object.keys(storeTaken).length ? { storeTaken: { at: soldAt, items: storeTaken } } : {}), toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
     // (A kiosk's order is counted once it's paid: payOrder.)
     const sDay = todayIn(tenantTimeZone(tenant), now);
     if (!opts.unpaid) tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...soldCounts(lines) }, { merge: true });
+    // What was rung in that isn't on the menu, kept by name (lib/counter-oneoff): how often, and its price last time.
+    for (const l of oneOffs) {
+      const k = oneOffKey(l.name); if (!k) continue;
+      tx.set(db.doc(`${T}/oneOffNames/${k}`), { key: k, name: l.name, count: FieldValue.increment(Math.max(1, num(l.quantity))), lastPrice: num(l.unitPrice), lastAt: nowIso }, { merge: true });
+    }
     if (car && car.stage === 'speaker') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pay', stageAt: { ...(car.stageAt || {}), pay: nowIso } }, { merge: true });
     return { ok: true, due };
   });
@@ -510,6 +531,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     // A combo's parts the kitchen never started, line by line ("0", "1"…), when what each took was kept part by part.
     const partsBack = new Map<string, Set<string>>();
     for (const l of lines) {
+      // (Rung in, not on the menu: handed over at the counter, no stock to put back, nothing thrown away.)
+      if (l.oneOff === true) continue;
       const byPart: Record<string, any> | null = o.stockTaken?.[l.lineId]?.byPart && typeof o.stockTaken[l.lineId].byPart === 'object' ? o.stockTaken[l.lineId].byPart : null;
       if (byPart) {
         const ok = new Set<string>(); let made = false;

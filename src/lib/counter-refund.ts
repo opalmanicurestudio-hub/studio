@@ -59,16 +59,19 @@ export function refundPlan(o: any, ask: RefundAsk): { ok: true; plan: RefundPlan
   }
   const picks = (Array.isArray(ask.lines) ? ask.lines : []).map((p) => ({ lineId: String(p?.lineId || ''), qty: Math.round(num(p?.qty)) })).filter((p) => p.qty > 0);
   if (!picks.length) return { ok: false, error: 'Pick what to refund.' };
-  let itemsC = 0; const out: RefundPlan['lines'] = [];
+  let itemsC = 0, taxedC = 0; const out: RefundPlan['lines'] = [];
   for (const p of picks) {
     const l = lines.find((x) => x.lineId === p.lineId); if (!l) return { ok: false, error: 'That item isn’t on the order.' };
     if (p.qty > unitsLeftOf(o, p.lineId)) return { ok: false, error: `Only ${unitsLeftOf(o, p.lineId)} of ${l.name || 'that'} ${unitsLeftOf(o, p.lineId) === 1 ? 'is' : 'are'} left to refund.` };
-    itemsC += Math.round(num(l.unitPrice) * p.qty * 100); out.push({ lineId: p.lineId, qty: p.qty, name: String(l.name || 'Item') });
+    const c = Math.round(num(l.unitPrice) * p.qty * 100); itemsC += c; if (l.untaxed !== true) taxedC += c;
+    out.push({ lineId: p.lineId, qty: p.qty, name: String(l.name || 'Item') });
   }
-  // Their share of what the items came to after any reward or discount, and of the tax.
-  const itemsAll = itemsCentsOf(o); const sub = Math.round(num(o.subtotal) * 100);
-  const netC = itemsAll > 0 ? Math.round(itemsC * Math.min(1, sub / itemsAll)) : 0;
-  const taxC = sub > 0 ? Math.min(taxLeft, Math.round(netC * taxAll / sub)) : 0;
+  // Their share of what the items came to after any reward or discount, and of the tax (something rung in as not taxed,
+  // lib/counter-oneoff, takes no tax back).
+  const itemsAll = itemsCentsOf(o); const sub = Math.round(num(o.subtotal) * 100); const share = itemsAll > 0 ? Math.min(1, sub / itemsAll) : 0;
+  const netC = Math.round(itemsC * share);
+  const taxedAll = Math.round((itemsAll - lines.reduce((t, l) => t + (l.untaxed === true ? Math.round(num(l.unitPrice) * num(l.quantity) * 100) : 0), 0)) * share);
+  const taxC = taxedAll > 0 ? Math.min(taxLeft, Math.round(Math.round(taxedC * share) * taxAll / taxedAll)) : 0;
   const tipC = ask.tip ? tipLeft : 0;
   const cents = Math.min(left, netC + taxC + tipC);
   if (cents <= 0) return { ok: false, error: 'Nothing to give back for that.' };

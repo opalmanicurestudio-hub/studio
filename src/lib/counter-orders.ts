@@ -69,7 +69,10 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
   /** Taken as an offer, right after something else was added (lib/menu-upgrades): a size up, or something to go with it. */
   offer?: 'size' | 'item';
   /** A note for the kitchen about this dish ("no onions"), on its tickets only (lib/order-allergy). */
-  note?: string | null };
+  note?: string | null;
+  /** Something not on the menu, rung in at the counter (lib/counter-oneoff): no item, no kitchen, no stock; `untaxed`
+   *  when the counter said it isn't taxed. */
+  oneOff?: boolean; untaxed?: boolean };
 
 /** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
 export const photoOf = (item: any): string | null => {
@@ -98,12 +101,15 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
 
 /** The order's money: subtotal, the business's sales tax on food and drink, and the total. `off`: a reward used on it
  *  (lib/counter-points useReward), in dollars: the subtotal is what's left after it (what's sold, and what's taxed), and
- *  the items' own total is kept beside it. */
+ *  the items' own total is kept beside it. Something rung in as not taxed (lib/counter-oneoff) is left out of what's
+ *  taxed, with its share of the reward. */
 export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: number; tax: number; taxLabel: string; total: number; discount?: number; itemsTotal?: number } {
   const items = Math.round(lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
   const discount = Math.round(Math.max(0, Math.min(Number(off) || 0, items)) * 100) / 100;
   const subtotal = Math.round((items - discount) * 100) / 100;
-  const tax = posTaxAmount(tenant, { services: 0, products: subtotal });
+  const untaxed = Math.round(lines.reduce((s, l) => s + (l.untaxed ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
+  const taxed = untaxed > 0 && items > 0 ? Math.round(subtotal * ((items - untaxed) / items) * 100) / 100 : subtotal;
+  const tax = posTaxAmount(tenant, { services: 0, products: taxed });
   return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}) };
 }
 
