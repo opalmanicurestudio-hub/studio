@@ -40,6 +40,7 @@ import { CodeOnSheet } from '@/components/pos/CounterScan';
 import { OneOffSheet } from '@/components/pos/CounterOneOff';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
+import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
@@ -320,6 +321,8 @@ export default function DriveThru() {
   const [takeOffFor, setTakeOffFor] = useState<string | null>(null);
   // One item on the house (components/pos/CounterComp).
   const [compFor, setCompFor] = useState<string | null>(null);
+  // Cash in and out of the drawer (components/pos/DrawerMove).
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
@@ -552,7 +555,7 @@ export default function DriveThru() {
       else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
     });
   };
-  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
@@ -852,6 +855,8 @@ export default function DriveThru() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>A tablet with a card reader where guests order and pay themselves. Paid orders wait at the counter.</p>
                   <button type="button" onClick={() => { setMenuOpen(false); setRefundOpen(true); }} className={`flex min-h-[44px] w-full items-center rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: INK }}>Refund an order</button>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Money back on an order paid today, the way it was paid. A manager okays it.</p>
+                  <button type="button" onClick={() => { setMenuOpen(false); setDrawerOpen(true); }} className={`flex min-h-[44px] w-full items-center rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: INK }}>Cash in or out</button>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Pay out of the drawer, put change in, or take cash to the safe.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
                     {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).flatMap(([k, label, hint]): [Role, 1 | 2 | null, string, string][] => (k === 'speaker' && twoLanes
@@ -1234,6 +1239,7 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {drawerOpen && <DrawerSheet call={refundCall} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }} />}
       {compFor && order && (() => { const l = order.lines.find((x) => x.lineId === compFor); return l ? <CompSheet orderId={order.id} number={order.number} line={l} whole={order.status !== 'building'} call={refundCall}
         onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={refundCall}

@@ -86,6 +86,9 @@ const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[
                 {row('Cash sales', money(session.totalCashSales))}
                 {row('Cash tips', money(session.totalCashTips))}
                 {safeNumber(session.totalCashRefunds) > 0 && row('Cash refunds', `−${money(session.totalCashRefunds)}`)}
+                {safeNumber(session.totalPaidOut) > 0 && row('Paid out', `−${money(session.totalPaidOut)}`)}
+                {safeNumber(session.totalPaidIn) > 0 && row('Put in', money(session.totalPaidIn))}
+                {safeNumber(session.totalDrops) > 0 && row('To the safe', `−${money(session.totalDrops)}`)}
                 {row('Counted in the drawer', money(session.actualCash || session.openingFloat), true)}
                 {Math.abs(safeNumber(session.discrepancy)) > 0.01 && row(safeNumber(session.discrepancy) > 0 ? 'Over' : 'Short', `${safeNumber(session.discrepancy) > 0 ? '+' : '−'}${money(Math.abs(safeNumber(session.discrepancy)))}`, true)}
             </div>
@@ -346,7 +349,7 @@ export const TillManagement = ({
                         <motion.div key="count" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} className="space-y-4">
                             {activeTill && <div className="grid grid-cols-2 gap-2">
                                 <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Should be in the drawer</p><p className="text-[26px] font-light tabular-nums tracking-tight">{money(activeTill.expectedCash)}</p>
-                                    <p className="text-[12px]" style={muted}>Sales {money(activeTill.totalCashSales)} · tips {money(activeTill.totalCashTips)}{safeNumber(activeTill.totalCashRefunds) > 0 ? ` · refunds −${money(activeTill.totalCashRefunds)}` : ''}</p></div>
+                                    <p className="text-[12px]" style={muted}>Sales {money(activeTill.totalCashSales)}, tips {money(activeTill.totalCashTips)}{safeNumber(activeTill.totalCashRefunds) > 0 ? `, refunds −${money(activeTill.totalCashRefunds)}` : ''}{safeNumber(activeTill.totalPaidOut) > 0 ? `, paid out −${money(activeTill.totalPaidOut)}` : ''}{safeNumber(activeTill.totalPaidIn) > 0 ? `, put in ${money(activeTill.totalPaidIn)}` : ''}{safeNumber(activeTill.totalDrops) > 0 ? `, to the safe −${money(activeTill.totalDrops)}` : ''}</p></div>
                                 <div className="rounded-2xl p-4" style={{ background: 'var(--soft)' }}><p className="text-[12px]" style={muted}>Opened</p><p className="text-[26px] font-light tracking-tight">{format(safeDate(activeTill.openedAt), 'h:mm a')}</p></div>
                             </div>}
                             <div className="flex items-end justify-between"><p className="text-[14px] font-semibold">{activeTill ? 'Count everything in the drawer' : 'Count the starting cash'}</p><p className="text-[22px] font-light tabular-nums">{money(actualTotal)}</p></div>

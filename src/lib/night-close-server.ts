@@ -38,7 +38,9 @@ export async function nightTills(db: any, T: string, b: { start: string; end: st
   const s = await db.collection(`${T}/tillSessions`).where('openedAt', '>=', since).limit(200).get().catch(() => ({ docs: [] as any[] }));
   return s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((t: any) => String(t.openedAt || '') < b.end && (t.status === 'open' || String(t.closedAt || '') >= b.start) && (!at || String(t.locationId || '') === at))
-    .map((t: any) => ({ id: t.id, openedBy: String(t.openedBy || 'Drawer'), openingFloat: num(t.openingFloat), expectedCash: num(t.expectedCash), actualCash: t.status === 'closed' && t.actualCash !== undefined ? num(t.actualCash) : null, status: t.status === 'open' ? 'open' : 'closed' }));
+    .map((t: any) => ({ id: t.id, openedBy: String(t.openedBy || 'Drawer'), openingFloat: num(t.openingFloat), expectedCash: num(t.expectedCash), actualCash: t.status === 'closed' && t.actualCash !== undefined ? num(t.actualCash) : null, status: t.status === 'open' ? 'open' : 'closed',
+      // (Cash paid out, put in, or taken to the safe: lib/drawer-moves-server.)
+      moves: (Array.isArray(t.cashMoves) ? t.cashMoves : []).filter((m: any) => !m?.undoneAt).slice(-40).map((m: any) => ({ kind: String(m.kind || ''), cents: Math.max(0, Math.round(num(m.cents))), note: m.note ? String(m.note).slice(0, 80) : null, by: String(m.by || 'Someone').slice(0, 60), approvedBy: m.approvedBy ? String(m.approvedBy).slice(0, 60) : null })) }));
 }
 
 /** An approved tip run that covers any of this stretch (lib/tip-share runs, approved here or on the Money page). Payroll

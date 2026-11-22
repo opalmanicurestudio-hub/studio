@@ -104,7 +104,9 @@ export type Sale = { at: string; net: number; refunded?: number; total: number; 
   /** Taken off it before tax, by name: a counter order's discount and reward (lib/counter-money), and who okayed one. */
   offs?: { label: string; amount: number; okBy?: string | null }[] };
 export type Adjustment = { kind: 'comp' | 'void_item' | 'remake'; amount: number; reason: string; askedBy: string; approverName: string; started?: boolean; wasteCost?: number | null; itemName: string };
-export type Till = { openedBy: string; openingFloat: number; expectedCash: number; actualCash: number | null; status: 'open' | 'closed' };
+export type Till = { openedBy: string; openingFloat: number; expectedCash: number; actualCash: number | null; status: 'open' | 'closed';
+  /** Cash paid out, put in, or taken to the safe (lib/drawer-moves-server). */
+  moves?: { kind: string; cents: number; note: string | null; by: string; approvedBy: string | null }[] };
 export type TipRow = { name: string; role: string; earned: number; shared: number; takesHome: number };
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -209,7 +211,10 @@ export function reportText(name: string, rep: NightReport): string {
   if (rep.remakes.count) L.push(`Made again: ${rep.remakes.count}.`);
   L.push(`Waste, cost to make: ${$(rep.waste)}.`);
   if (rep.tips.rows.length) { L.push(''); L.push('Tips'); for (const t of rep.tips.rows) L.push(`  ${t.name}: ${$(t.takesHome)}${t.shared ? ` (${t.shared > 0 ? '+' : '−'}${$(Math.abs(t.shared))})` : ''}`); }
-  if (rep.drawers.length) { L.push(''); for (const d of rep.drawers) L.push(`Drawer (${d.openedBy}): should have ${$(d.expectedCash)}, counted ${d.actualCash === null ? 'not yet' : $(d.actualCash)}.`); }
+  if (rep.drawers.length) { L.push(''); for (const d of rep.drawers) {
+    L.push(`Drawer (${d.openedBy}): should have ${$(d.expectedCash)}, counted ${d.actualCash === null ? 'not yet' : $(d.actualCash)}.`);
+    for (const m of d.moves || []) L.push(`  ${m.kind === 'out' ? 'Paid out' : m.kind === 'in' ? 'Put in' : 'To the safe'} ${$(m.cents / 100)}${m.note ? `: ${m.note}` : ''}, by ${m.by}${m.approvedBy && m.approvedBy !== m.by ? `, okayed by ${m.approvedBy}` : ''}`);
+  } }
   const D = (rep as any).deliveries as DeliveryNight | null | undefined;
   if (D) {
     const c = (n: number) => $(n / 100);

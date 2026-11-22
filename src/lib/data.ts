@@ -1680,6 +1680,11 @@ export type TillSession = {
     totalCashSales?: number;
     totalCashTips?: number;
     totalCashRefunds?: number;
+    /** Cash paid out, put in, and taken to the safe, for something other than a sale (lib/drawer-moves-server). */
+    totalPaidOut?: number;
+    totalPaidIn?: number;
+    totalDrops?: number;
+    cashMoves?: { key: string; kind: 'out' | 'in' | 'drop'; cents: number; note: string | null; by: string; approvedBy?: string; at: string; receiptUrl?: string }[];
     cashTipsByStaff?: Record<string, number>;
     actualCash?: number;
     cashToDeposit?: number;
