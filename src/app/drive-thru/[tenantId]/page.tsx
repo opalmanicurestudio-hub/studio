@@ -39,6 +39,8 @@ import { RefundFind } from '@/components/pos/CounterRefund';
 import { CodeOnSheet } from '@/components/pos/CounterScan';
 import { OneOffSheet } from '@/components/pos/CounterOneOff';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
+import { CompSheet } from '@/components/pos/CounterComp';
+import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
@@ -316,6 +318,8 @@ export default function DriveThru() {
   const [oneOffOpen, setOneOffOpen] = useState(false);
   // Something taken off an order the kitchen has, before it's paid (components/pos/CounterTakeOff).
   const [takeOffFor, setTakeOffFor] = useState<string | null>(null);
+  // One item on the house (components/pos/CounterComp).
+  const [compFor, setCompFor] = useState<string | null>(null);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
@@ -746,6 +750,8 @@ export default function DriveThru() {
   const tenders = order ? Array.from(new Set([cashFor, Math.ceil(cashFor), Math.ceil(cashFor / 5) * 5, Math.ceil(cashFor / 10) * 10, 20, 50, 100].filter((x) => x >= cashFor).map((x) => Math.round(x * 100) / 100))).slice(0, 6) : [];
 
   // (With the kitchen and not paid yet, nothing set aside on it, more than one of something: one can come off.)
+  // (Being taken, or with the kitchen and not paid, nothing set aside on it: an item can go on the house.)
+  const canComp = !!order && (order.status === 'building' || order.status === 'sent') && !order.paidAt && !(order as any).staffMeal && !(order as any).app && !((order as any).tenders || []).length && !(order as any).split && !(order.card && ['on_reader', 'starting', 'capturing'].includes(String((order.card as any).state)));
   const canTakeOff = !!order && order.status === 'sent' && !order.paidAt && !(order as any).staffMeal && !(order as any).app && !((order as any).tenders || []).length && !(order as any).split && !(order.card && ['on_reader', 'starting', 'capturing'].includes(String((order.card as any).state)))
     && (order.lines.length > 1 || (order.lines[0]?.quantity || 0) > 1);
   const ticket = (editable: boolean) => (
@@ -767,15 +773,18 @@ export default function DriveThru() {
                   <div className="flex shrink-0 items-center rounded-full" style={{ background: SOFT }}>
                     <button type="button" onClick={() => setQty(l, l.quantity - 1)} aria-label={l.quantity === 1 ? `Take ${l.name} off` : `One fewer ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" style={{ color: l.quantity === 1 ? RED : INK }} /></button>
                     <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
-                    <button type="button" onClick={() => setQty(l, l.quantity + 1)} disabled={l.quantity >= 20} aria-label={`One more ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => setQty(l, l.quantity + 1)} disabled={l.quantity >= 20 || !!(l as any).comp} aria-label={`One more ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
                   </div>
                 ) : <span className="w-9 shrink-0 text-center text-[16px] font-semibold tabular-nums" style={{ color: INK }}>{l.quantity}×</span>}
                 <div className="min-w-0 flex-1">
                   <p className="text-[15.5px] font-semibold leading-snug" style={{ color: INK }}>{l.name}{editable && l.offer === 'size' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</p>
                   {l.choicesText && <p className="text-[14px] leading-snug" style={{ color: MUTED }}>{l.choicesText}</p>}
                   {order!.allergy && (() => { const w = conflictWords(dishConflict(lane?.menu.find((m) => m.id === l.itemId), order!.allergy), order!.allergy); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
-                  {(l as any).oneOff ? <span className="block text-[13px]" style={{ color: MUTED }}>Not on the menu{(l as any).untaxed ? ', not taxed' : ''}</span>
+                  <span className="flex flex-wrap items-center gap-x-4">{(l as any).oneOff ? <span className="block text-[13px]" style={{ color: MUTED }}>Not on the menu{(l as any).untaxed ? ', not taxed' : ''}</span>
                     : <LineNote note={l.note} name={l.name} busy={!!busy} editable={editable && order!.status === 'building'} onSave={(n) => void saveNote(l, n)} />}
+                  {(l as any).comp ? <span className="flex flex-wrap items-center gap-x-3"><span className="text-[13px] font-medium" style={{ color: GREEN }}>{compWords(l as any)}</span>
+                    {canComp && <button type="button" onClick={() => void act(`uncomp-${l.lineId}`, { action: 'uncomp', orderId: order!.id, lineId: l.lineId }, () => setNotice({ text: `${l.name} is charged for again.`, tone: 'good' }))} disabled={!!busy} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Charge for it</button>}</span>
+                    : canComp && l.unitPrice > 0 && <button type="button" onClick={() => setCompFor(l.lineId)} disabled={!!busy} aria-label={`${l.name} on the house`} className={`flex min-h-[44px] items-center text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>On the house</button>}</span>
                   {!editable && order!.kitchen !== 'not sent' && <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>}
                   {!editable && canTakeOff && (order!.lines.length > 1 || l.quantity > 1) && <button type="button" onClick={() => setTakeOffFor(l.lineId)} disabled={!!busy} aria-label={`Take ${l.name} off`} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}
                 </div>
@@ -1225,6 +1234,8 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {compFor && order && (() => { const l = order.lines.find((x) => x.lineId === compFor); return l ? <CompSheet orderId={order.id} number={order.number} line={l} whole={order.status !== 'building'} call={refundCall}
+        onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={refundCall}
         onClose={() => setTakeOffFor(null)} onDone={(text, d) => { setTakeOffFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={async (b) => {

@@ -16,6 +16,8 @@
 //   takeOff { tenantId, key, orderId, lineId, qty, pin? } → some or all of one line off an order the kitchen has,
 //                                                      before it's paid (lib/counter-takeoff-server): its stock back
 //                                                      when the kitchen hadn't started it, a manager's when it had
+//   comp   { tenantId, key, orderId, lineId, qty, reason, pin? } → some or all of a line on the house, a manager's, with
+//                                                      why (lib/counter-comp-server); uncomp { …, lineId } its price again
 //   oneOff { tenantId, key, orderId, name, price, quantity?, taxed?, tapKey? } → something not on the menu, up to the
 //                                                      business's amount (lib/counter-oneoff): no kitchen, no stock
 //   sizeUp { tenantId, key, orderId, lineId, quantity?, tapKey? } → that many of the line in the next size up, when its
@@ -122,6 +124,7 @@ import { aheadForLane, aheadToCar, aheadNothingMore, aheadOf } from '@/lib/count
 import { readyBoardOf, onReadyBoard, BOARD_CHANNELS, LIVE_TICKETS, MAX_MAKING, MAX_READY } from '@/lib/ready-board';
 import { askReadyText, readyTextView, readyTextsOn, textIfReady } from '@/lib/ready-text';
 import { takeOffSent } from '@/lib/counter-takeoff-server';
+import { compLine, uncompLine } from '@/lib/counter-comp-server';
 import { pointsOn, linkOrder, linkByCode, rewardsOn, useReward } from '@/lib/counter-points';
 import { loyaltyOf } from '@/lib/loyalty';
 import { codesOn } from '@/lib/rewards-code';
@@ -188,7 +191,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -227,7 +230,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -535,7 +538,7 @@ export async function POST(req: NextRequest) {
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' }, lanes: lanesOf(tenant),
         order: show ? { number: o.number, name: cleanName(o.guestName) || null, sent: o.status !== 'building',
           // Their order placed ahead, found at the speaker: "A1, paid and being made".
-          alsoAhead: ID.test(String(newest.aheadId || '')) ? String(newest.aheadNumber || '') || null : null, lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })),
+          alsoAhead: ID.test(String(newest.aheadId || '')) ? String(newest.aheadNumber || '') || null : null, lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })),
           subtotal: num(o.subtotal), tax: num(o.tax), total: num(o.total) } : null,
         now: nowIso,
       });
@@ -597,7 +600,7 @@ export async function POST(req: NextRequest) {
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' },
         show: shown ? { mode: shown.mode === 'pay' && o.paidAt ? 'paid' : shown.mode, number: o.number, name: cleanName(o.guestName) || null, spot: shown.mode === 'forward' ? (shown.car.spot || null) : null,
           // The items and money only while they're paying (a car told where to go, or thanked, doesn't need them).
-          lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })) : [],
+          lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })) : [],
           subtotal: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.subtotal) : 0, tax: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.tax) : 0, total: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.total) : 0, paid: !!o.paidAt, payMethod: o.paidAt ? (o.payMethod || null) : null,
           // A reward used on it (what it took off, and the items' own total), and once it's paid, the points it earned
           // (never their balance: anyone at the window can see it).
@@ -1006,7 +1009,7 @@ export async function POST(req: NextRequest) {
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Welcome' },
         show: mode ? { mode, number: String(o.number || ''), name: cleanName(o.guestName) || null, orderId: oid,
-          lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: money(num(l.unitPrice) * num(l.quantity)) })),
+          lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: money(num(l.unitPrice) * num(l.quantity)), ...(l.comp ? { comp: true } : {}) })),
           reward: o.reward ? { name: String(o.reward.name || 'Reward'), off: num(o.reward.cents) / 100 } : null,
           markdown: o.markdown && num(o.markdown.cents) > 0 ? { name: String(o.markdown.label || 'Discount').slice(0, 40), off: num(o.markdown.cents) / 100 } : null,
           tax: money(o.tax), tip: Math.max(0, num(o.tipCents)) / 100, total: money(o.total),
@@ -1122,6 +1125,22 @@ export async function POST(req: NextRequest) {
       await textIfReady(db, tenantId, [orderId]).catch(() => 0);
       forgetStats(tenantId);
       return ok({ order: r.order, made: r.made, returned: r.returned, name: r.name, qty: r.qty, less: r.less, approvedBy: r.made ? m.approver?.name || null : null, staffOk });
+    }
+    // One item on the house (lib/counter-comp-server): a manager's, with why; and taken back (its price again).
+    if (action === 'comp') {
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'On the house takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await compLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.reason, who, m.approver);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      await logAuditAdmin(db, tenantId, { action: 'counter.comp', targetType: 'order', targetId: orderId, summary: `${r.qty} × ${r.name} on the house ($${(r.cents / 100).toFixed(2)}) on order ${r.order.number}, okayed by ${m.approver.name}: ${String(b.reason || '').slice(0, 60)}.`,
+        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      return ok({ order: r.order, name: r.name, qty: r.qty, cents: r.cents, approvedBy: r.approvedBy, staffOk });
+    }
+    if (action === 'uncomp') {
+      const r: any = await uncompLine(db, tenantId, tenant, orderId, String(b.lineId || ''), who);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      return ok({ order: r.order, name: r.name, already: !!r.already, staffOk });
     }
     if (action === 'add' || action === 'oneOff' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
       const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }

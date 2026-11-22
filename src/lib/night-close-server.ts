@@ -162,6 +162,10 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   const adjustments: Adjustment[] = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => ['comp', 'void_item', 'remake'].includes(a.kind) && a.used === true)
     .filter((a: any) => !at || (String(a.locationId || '') || visitAt.get(String(a.visitId || '')) || '') === at)
     .map((a: any) => ({ kind: a.kind, amount: num(a.amount), reason: String(a.reason || 'No reason'), askedBy: String(a.askedBy || a.requestedBy || 'Someone'), approverName: String(a.approverName || ''), started: a.started === true, wasteCost: a.wasteCost === null || a.wasteCost === undefined ? null : num(a.wasteCost), itemName: String(a.itemName || 'Item') }));
+  // On the house at the counter and the window (lib/counter-comp-server), on orders paid tonight: comps like the floor's.
+  for (const o of co.docs.map((d: any) => d.data() || {}).filter((x: any) => mine(x) && x.paidAt && !x.staffMeal && x.status !== 'voided'))
+    for (const l of Array.isArray(o.lines) ? o.lines : []) if (l?.comp && num(l.comp.from) > 0)
+      adjustments.push({ kind: 'comp', amount: Math.round(num(l.comp.from) * num(l.quantity) * 100) / 100, reason: String(l.comp.reason || 'No reason').slice(0, 60), askedBy: String(l.comp.by || 'Someone'), approverName: String(l.comp.approvedBy || ''), started: false, wasteCost: null, itemName: String(l.name || 'Item') });
   const tables = tb.docs.map((d: any) => d.data() || {}).filter((a: any) => a.isTable === true && mine(a)).map((a: any) => ({ covers: Math.max(1, num(a.partySize) || 1) }));
   const prev = (usual as any[]).filter((v) => typeof v === 'number');
   // (One location's: what was sold tonight at no location, on the whole business's report only, so the two add up.)

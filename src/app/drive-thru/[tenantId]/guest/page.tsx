@@ -14,7 +14,7 @@ const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,25
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
 const POLL_MS = 1500, STALE_MS = 20000;
 type Show = { mode: 'ringing' | 'pay' | 'thanks'; number: string; name: string | null; orderId: string;
-  lines: { name: string; quantity: number; choicesText: string | null; price: number }[];
+  lines: { name: string; quantity: number; choicesText: string | null; price: number; comp?: boolean }[];
   reward: { name: string; off: number } | null; markdown: { name: string; off: number } | null; tax: number; tip: number; total: number;
   tips: { pct: number; cents: number }[] | null; card: 'on_reader' | null; change: number | null; earned: { points: number; unit: string } | null; receiptUrl: string | null };
 type View = { business: { name: string }; show: Show | null };
@@ -83,7 +83,7 @@ export default function GuestScreen() {
             <div className="order-2 min-w-0 lg:order-1">
               <ul className="space-y-[1.6vh]">{s.lines.map((l, i) => (
                 <li key={i} className="flex items-baseline justify-between gap-4 text-[clamp(20px,2.4vw,36px)]">
-                  <span className="min-w-0"><span className="font-semibold">{l.quantity > 1 ? `${l.quantity} × ` : ''}{l.name}</span>{l.choicesText && <span className="block text-[0.72em]" style={{ color: SUB }}>{l.choicesText}</span>}</span>
+                  <span className="min-w-0"><span className="font-semibold">{l.quantity > 1 ? `${l.quantity} × ` : ''}{l.name}</span>{l.choicesText && <span className="block text-[0.72em]" style={{ color: SUB }}>{l.choicesText}</span>}{l.comp && <span className="block text-[0.72em]" style={{ color: SUB }}>On the house</span>}</span>
                   <span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>))}</ul>
               {(s.reward || s.markdown || s.tax > 0 || s.tip > 0) && <div className="mt-[2.4vh] space-y-[1vh] border-t pt-[2vh] text-[clamp(18px,2vw,30px)]" style={{ borderColor: RULE, color: SUB }}>
                 {s.reward && <div className="flex justify-between gap-4" style={{ color: GREEN_ON_DARK }}><span>{s.reward.name}</span><span className="tabular-nums">-{usd(s.reward.off)}</span></div>}

@@ -20,7 +20,7 @@ const POLL_MS = 1500, STALE_MS = 20000;
 type At = 'one' | 'pay' | 'pickup';
 const ATS: [At, string, string][] = [['one', 'One window', 'Guests pay and pick up here'], ['pay', 'Pay window', 'Guests pay here, then drive on'], ['pickup', 'Pickup window', 'Guests pick up here']];
 type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name: string | null; spot: string | null;
-  lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl: string | null }[];
+  lines: { name: string; quantity: number; choicesText: string | null; price: number; comp?: boolean; imageUrl: string | null }[];
   subtotal: number; tax: number; total: number; paid: boolean; payMethod: string | null; change: number | null;
   card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null;
   // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
@@ -202,6 +202,7 @@ function OrderLines({ s }: { s: Show }) {
               <div className="min-w-0">
                 <p className="truncate text-[clamp(20px,2.6vw,42px)] font-semibold leading-tight"><span className="tabular-nums" style={{ color: GREEN_ON_DARK }}>{l.quantity}</span> {l.name}</p>
                 {l.choicesText && <p className="truncate text-[clamp(15px,1.8vw,28px)] leading-snug" style={{ color: SUB }}>{l.choicesText}</p>}
+                {l.comp && <p className="truncate text-[clamp(15px,1.8vw,28px)] leading-snug" style={{ color: SUB }}>On the house</p>}
               </div>
             </div>
             <p className="shrink-0 text-[clamp(20px,2.4vw,38px)] tabular-nums">{usd(l.price)}</p>

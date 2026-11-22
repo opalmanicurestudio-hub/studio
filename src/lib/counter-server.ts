@@ -166,6 +166,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       // size up (lib/menu-upgrades), priced from the menu like any line. The rest of the line stays as it was.
       const old = lines.find((l) => l.lineId === String(op.lineId || '')); if (!old) return { error: 'That isn’t on the order.', status: 404 };
       if (old.oneOff || !ID.test(String(old.itemId || ''))) return { error: `${old.name} isn’t on the menu, so there’s no bigger size.`, status: 409 };
+      if (old.comp) return { error: `${old.name} is on the house. Charge for it first, then size it up.`, status: 409 };
       const it: any = (await tx.get(db.doc(`${T}/inventory/${old.itemId}`))).data();
       const picks = picksOf(old.choices);
       const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
@@ -194,7 +195,12 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       // (Something not on the menu never goes to the kitchen, so a note on it would go nowhere.)
       else if (op.action === 'note' && lines.find((l) => l.lineId === lineId)?.oneOff) return { error: 'That isn’t made in the kitchen, so it takes no note.', status: 409 };
       else if (op.action === 'note') { const note = cleanLineNote(op.note); lines = lines.map((l) => { if (l.lineId !== lineId) return l; const { note: _was, ...rest } = l; return note ? { ...rest, note } : rest; }); }
-      else { const q = Math.floor(num(op.quantity)); if (q < 1 || q > 20) return { error: 'How many? Between 1 and 20.', status: 400 }; lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l)); }
+      else {
+        const q = Math.floor(num(op.quantity)); if (q < 1 || q > 20) return { error: 'How many? Between 1 and 20.', status: 400 };
+        // (On the house is as many as a manager okayed: fewer is fine, more is another okay.)
+        const was = lines.find((l) => l.lineId === lineId)!; if (was.comp && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} on the house. Add another from the menu.`, status: 409 };
+        lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l));
+      }
     }
     const totals = totalsOf(tenant, lines);
     tx.set(orderRef, { lines, ...totals, updatedAt: nowIso, ...(tapKey ? { taps: [...taps, tapKey].slice(-30) } : {}) }, { merge: true });
@@ -461,7 +467,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     // What was rung in that isn't on the menu, kept by name (lib/counter-oneoff): how often, and its price last time.
     for (const l of oneOffs) {
       const k = oneOffKey(l.name); if (!k) continue;
-      tx.set(db.doc(`${T}/oneOffNames/${k}`), { key: k, name: l.name, count: FieldValue.increment(Math.max(1, num(l.quantity))), lastPrice: num(l.unitPrice), lastAt: nowIso }, { merge: true });
+      tx.set(db.doc(`${T}/oneOffNames/${k}`), { key: k, name: l.name, count: FieldValue.increment(Math.max(1, num(l.quantity))), lastPrice: num(l.comp?.from ?? l.unitPrice), lastAt: nowIso }, { merge: true });
     }
     if (car && car.stage === 'speaker') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'pay', stageAt: { ...(car.stageAt || {}), pay: nowIso } }, { merge: true });
     return { ok: true, due };

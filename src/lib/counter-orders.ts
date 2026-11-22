@@ -72,7 +72,9 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
   note?: string | null;
   /** Something not on the menu, rung in at the counter (lib/counter-oneoff): no item, no kitchen, no stock; `untaxed`
    *  when the counter said it isn't taxed. */
-  oneOff?: boolean; untaxed?: boolean };
+  oneOff?: boolean; untaxed?: boolean;
+  /** On the house (lib/counter-comp-server): $0 here, its price kept, why, and the manager who okayed it. */
+  comp?: { from: number; reason: string; by: string; approvedBy: string; at: string } };
 
 /** An item's photo, if it has one that can be shown anywhere (an https address, as the Menu page uploads). */
 export const photoOf = (item: any): string | null => {

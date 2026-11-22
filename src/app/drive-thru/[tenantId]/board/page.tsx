@@ -15,7 +15,7 @@ import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', TILE = '#24262b';
 const POLL_MS = 1500, STALE_MS = 20000;
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
-type Board = { business: { name: string }; lanes?: 1 | 2; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number; alsoAhead?: string | null } };
+type Board = { business: { name: string }; lanes?: 1 | 2; order: null | { number: string; name?: string | null; sent: boolean; lines: { name: string; quantity: number; choicesText: string | null; price: number; comp?: boolean; imageUrl?: string | null }[]; subtotal: number; tax: number; total: number; alsoAhead?: string | null } };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const boardKey = (t: string) => `cf.drivethru.board.${t}`;
 // With two ordering lanes that merge (lib/drive-lanes): the lane this board stands at, kept on the screen.
@@ -104,6 +104,7 @@ export default function OrderBoard() {
                       <div className="min-w-0">
                         <p className={`${dense ? 'text-[clamp(20px,2.6vw,42px)]' : 'text-[clamp(26px,3.6vw,56px)]'} font-semibold leading-tight`}><span className="tabular-nums" style={{ color: GREEN_ON_DARK }}>{l.quantity}</span> {l.name}</p>
                         {l.choicesText && <p className={`${dense ? 'text-[clamp(15px,1.8vw,28px)]' : 'text-[clamp(18px,2.4vw,36px)]'} leading-snug`} style={{ color: SUB }}>{l.choicesText}</p>}
+                        {l.comp && <p className={`${dense ? 'text-[clamp(15px,1.8vw,28px)]' : 'text-[clamp(18px,2.4vw,36px)]'} leading-snug`} style={{ color: SUB }}>On the house</p>}
                       </div>
                     </div>
                     <p className={`shrink-0 ${dense ? 'text-[clamp(20px,2.4vw,38px)]' : 'text-[clamp(24px,3.2vw,50px)]'} tabular-nums`}>{usd(l.price)}</p>

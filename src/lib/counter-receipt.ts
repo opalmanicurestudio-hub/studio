@@ -23,7 +23,8 @@ export function counterReceipt(o: any, orderId: string): any {
   const lines = (Array.isArray(o?.lines) ? o.lines : []).map((l: any) => {
     const qty = Math.max(1, Math.floor(num(l.quantity)) || 1); const unit = r2(num(l.unitPrice));
     const extra = clip(l.choicesText, 120);
-    return { kind: 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}`, qty, unit, amount: r2(unit * qty) };
+    // (On the house, lib/counter-comp-server: said so beside it, at $0.)
+    return { kind: 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}`, qty, unit, amount: r2(unit * qty) };
   });
   const items = r2(lines.reduce((s: number, l: any) => s + l.amount, 0));
   const discount = r2(Math.max(0, num(o?.discount)));
