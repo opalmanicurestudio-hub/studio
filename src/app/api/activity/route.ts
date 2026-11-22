@@ -2,7 +2,8 @@
 // Activity page). For the owner (and admins): every money moment on a day, from the audit log (lib/activity), with the
 // day's totals and what's worth a look; and the rules for who can do each (lib/money-rules), changed only here.
 //   list  { tenantId, day? } → { day, lines, totals, flagged, people }: a day in the business's own time, newest first
-//   rules { tenantId } → { rules, alerts, auto }: who each takes, what's worth a look, the online shop's automatic refunds
+//   rules { tenantId } → { rules, alerts, auto }: who each takes, what's worth a look (and how the owner hears of it: their
+//             phone, the app, or not at all), the online shop's automatic refunds
 //   saveRules { tenantId, rules?, alerts?, autoBelowCents? } → the same, after the change (and a line in Activity). Only
 //             the owner: an admin sees them, but "only the owner" is a rule an admin mustn't be able to loosen.
 // The audit log itself is never changed here: lines are only ever added (lib/audit).
@@ -10,8 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
-import { activityLine, totalsOf, type ActivityLine } from '@/lib/activity';
-import { bigRefundOf } from '@/lib/activity-server';
+import { totalsOf, tellModeOf, TELL_MODES } from '@/lib/activity';
+import { bigRefundOf, moneyLinesIn } from '@/lib/activity-server';
 import { rulesOf, cleanRules, RULES, NEEDS } from '@/lib/money-rules';
 import { addDays, endOfDay, startOfDay, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 
@@ -25,7 +26,7 @@ const PAGE = 1000, PAGES = 5, MAX_LINES = 1000;
 /** The owner themself (as lib/money-rules-server counts them), not an admin. */
 const isOwner = (a: any, tenant: any) => !!a && (a.isTenantOwner === true || String(a.role || '').toLowerCase() === 'owner' || (!!tenant?.ownerId && tenant.ownerId === a.uid));
 
-const alertsOf = (tenant: any) => ({ refundOverCents: bigRefundOf(tenant) });
+const alertsOf = (tenant: any) => ({ refundOverCents: bigRefundOf(tenant), tell: tellModeOf(tenant) });
 const autoOf = (tenant: any) => (tenant?.retailSettings ? { cents: Math.max(0, Math.round(Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0)) } : null);
 
 export async function POST(req: NextRequest) {
@@ -46,19 +47,9 @@ export async function POST(req: NextRequest) {
       const day = /^\d{4}-\d{2}-\d{2}$/.test(String(b.day || '')) && String(b.day) <= today && String(b.day) >= addDays(today, -400) ? String(b.day) : today;
       const from = startOfDay(day, tz).toISOString(), to = endOfDay(day, tz).toISOString();
       // (Read back from the end of the day a page at a time, so other kinds of line never crowd out the money ones.)
-      // (Each page from the last one's oldest time, that time included, so lines written in the same moment are never
-      // skipped; a line already read isn't counted twice.)
-      const seen = new Map<string, ActivityLine>(); const lines: ActivityLine[] = []; let before = to; let more = false; let full = true;
-      for (let page = 0; page < PAGES && full && lines.length < MAX_LINES; page++) {
-        const snap = await db.collection(`${T}/auditLogs`).where('at', '>=', from).where('at', '<=', before).orderBy('at', 'desc').limit(PAGE).get();
-        for (const d of snap.docs) { if (seen.has(d.id)) continue; const l = activityLine(d.id, d.data() || {}); seen.set(d.id, l as any); if (l) lines.push(l); }
-        full = snap.docs.length >= PAGE; if (snap.docs.length) before = String((snap.docs[snap.docs.length - 1].data() || {}).at || before);
-        more = full;
-      }
-      lines.sort((x, y) => String(y.at).localeCompare(String(x.at)));
-      const shown = lines.slice(0, MAX_LINES);
+      const { lines: shown, more } = await moneyLinesIn(db, tenantId, from, to, { max: MAX_LINES, page: PAGE, pages: PAGES });
       const people = Array.from(new Set(shown.flatMap((l) => [l.by, l.okBy]).filter(Boolean) as string[])).sort();
-      return NextResponse.json({ ok: true, day, today, timeZone: tz, lines: shown, totals: totalsOf(shown), flagged: shown.filter((l) => l.flag).map((l) => l.id), people, more: more || lines.length > MAX_LINES, canChange: isOwner(g.actor, tenant) });
+      return NextResponse.json({ ok: true, day, today, timeZone: tz, lines: shown, totals: totalsOf(shown), flagged: shown.filter((l) => l.flag).map((l) => l.id), people, more, canChange: isOwner(g.actor, tenant) });
     }
 
     if (action === 'rules') return NextResponse.json({ ok: true, rules: rulesOf(tenant), alerts: alertsOf(tenant), auto: autoOf(tenant), canChange: isOwner(g.actor, tenant), choices: { rules: RULES, needs: NEEDS } });
@@ -74,6 +65,10 @@ export async function POST(req: NextRequest) {
       if (next.refundSelfCents !== now.refundSelfCents) patch['moneyRules.refundSelfCents'] = next.refundSelfCents;
       for (const r of RULES) if (next[r.id] !== now[r.id]) said.push(`${r.label}: ${NEEDS.find((n) => n.id === next[r.id])!.label}`);
       if (next.refundSelfCents !== now.refundSelfCents) said.push(`Staff refund on their own up to $${(next.refundSelfCents / 100).toFixed(2)}`);
+    }
+    if (b.alerts && typeof b.alerts === 'object' && b.alerts.tell !== undefined) {
+      const m = TELL_MODES.find((x) => x.id === b.alerts.tell); if (!m) return bad('Your phone, the app, or not at all: which?');
+      if (m.id !== tellModeOf(tenant)) { patch['moneyRules.alerts.tell'] = m.id; said.push(`Worth a look: ${m.label.toLowerCase()}`); }
     }
     if (b.alerts && typeof b.alerts === 'object' && b.alerts.refundOverCents !== undefined) {
       const v = b.alerts.refundOverCents === null ? null : Math.round(Number(b.alerts.refundOverCents));

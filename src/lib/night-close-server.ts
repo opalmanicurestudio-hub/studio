@@ -188,6 +188,16 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   const unplaced = at ? [...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && !r.locationId).map((r: any) => Math.max(0, num(r.subtotal) - num(r.discount))),
     ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => !o.locationId && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || ''))).map((o: any) => num(o.subtotal ?? (num(o.total) - num(o.tax))))] : [];
   const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, giftRefunds, priceOffs, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
+  // What was worth a look tonight (lib/activity), on the whole business's report: why, what, who.
+  if (!at) {
+    try {
+      const { worthRows } = await import('@/lib/activity'); const { moneyLinesIn } = await import('@/lib/activity-server');
+      // (Read back a page at a time, as Activity does, so a busy night's other lines never crowd these out.)
+      const { lines } = await moneyLinesIn(db, tenantId, b.start, b.end, { max: 2000, endIncluded: false });
+      const worth = worthRows(lines);
+      if (worth.length) (report as any).worth = worth;
+    } catch { /* the report stands without it */ }
+  }
   return { report, tills };
 }
 

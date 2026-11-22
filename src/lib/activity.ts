@@ -100,3 +100,21 @@ export function lineWho(l: ActivityLine): string {
   const ok = l.okBy && l.okBy !== l.by ? `, okayed by ${l.okBy}` : '';
   return `${who}${ok}${l.reason ? `: ${l.reason}` : ''}`;
 }
+
+/** How the owner hears that something is worth a look: their phone buzzes, it waits in the app, or not at all. */
+export type TellMode = 'push' | 'app' | 'off';
+export const TELL_MODES: { id: TellMode; label: string }[] = [{ id: 'push', label: 'Buzz my phone' }, { id: 'app', label: 'In the app' }, { id: 'off', label: 'Not at all' }];
+export const tellModeOf = (tenant: any): TellMode => { const v = tenant?.moneyRules?.alerts?.tell; return v === 'app' || v === 'off' ? v : 'push'; };
+
+const PLACE: Record<string, string> = { counter: 'at the counter', window: 'at the window', desk: 'at the front desk', online: 'online', app: 'in the app' };
+/** What the owner's notice says: why it's worth a look, then the line. */
+export function lookMessage(l: ActivityLine): string {
+  return `Worth a look: ${l.flag || 'a money moment'}. ${lineTitle(l)}${l.cents ? `, $${(l.cents / 100).toFixed(2)}` : ''}${l.where ? ` ${PLACE[l.where]}` : ''}. ${lineWho(l)}.`;
+}
+
+/** A night's lines worth a look, for the night report: why, what, who, how much. */
+export type WorthRow = { at: string; flag: string; title: string; who: string; cents: number | null };
+export function worthRows(lines: ActivityLine[], max = 20): WorthRow[] {
+  return lines.filter((l) => l.flag).sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(0, max)
+    .map((l) => ({ at: l.at, flag: l.flag!, title: lineTitle(l), who: lineWho(l), cents: l.cents }));
+}

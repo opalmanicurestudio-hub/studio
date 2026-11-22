@@ -230,6 +230,8 @@ export function reportText(name: string, rep: NightReport): string {
   if (rep.priceChanges?.count) L.push(`Different prices ${$(rep.priceChanges.total)} off (${rep.priceChanges.count}): ${rep.priceChanges.byReason.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.`);
   if (rep.noSales?.count) L.push(`Drawer opened with no sale: ${rep.noSales.count} ${rep.noSales.count === 1 ? 'time' : 'times'} (${rep.noSales.byPerson.map((r) => `${r.label} ${r.count}`).join(', ')}).`);
   L.push(`Waste, cost to make: ${$(rep.waste)}.`);
+  const W = (rep as any).worth as { at: string; flag: string; title: string; who: string; cents: number | null }[] | undefined;
+  if (W?.length) { L.push(''); L.push(`Worth a look (${W.length}), in Activity:`); for (const w of W) L.push(`  ${w.flag}. ${w.title}${w.cents ? `, ${$(w.cents / 100)}` : ''}. ${w.who}.`); }
   if (rep.tips.rows.length) { L.push(''); L.push('Tips'); for (const t of rep.tips.rows) L.push(`  ${t.name}: ${$(t.takesHome)}${t.shared ? ` (${t.shared > 0 ? '+' : '−'}${$(Math.abs(t.shared))})` : ''}`); }
   if (rep.drawers.length) { L.push(''); for (const d of rep.drawers) {
     L.push(`Drawer (${d.openedBy}): should have ${$(d.expectedCash)}, counted ${d.actualCash === null ? 'not yet' : $(d.actualCash)}.`);

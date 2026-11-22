@@ -121,6 +121,13 @@ export function NightReportView({ r }: { r: NightReport }) {
           ))}
           {r.noSales && <><Sep /><Row k={`Opened with no sale, ${r.noSales.count} ${r.noSales.count === 1 ? 'time' : 'times'}`} v={r.noSales.byPerson.map((x) => `${x.label} ${x.count}`).join(', ')} /></>}
         </Card>
+        {(r as any).worth?.length > 0 && <Card title="Worth a look" right={String((r as any).worth.length)} sub="From Activity, where each one is in full">
+          {((r as any).worth as { at: string; flag: string; title: string; who: string; cents: number | null }[]).map((w, i) => (
+            <div key={i} className="space-y-0.5 pt-1" style={i ? { borderTop: `1px solid ${LINE}` } : undefined}>
+              <p className="text-[14.5px] font-semibold" style={{ color: 'var(--warn-ink)' }}>{w.flag}</p>
+              <Row k={`${w.title}. ${w.who}`} v={w.cents ? $(w.cents / 100) : ''} />
+            </div>))}
+        </Card>}
       </div>
     </div>
   );

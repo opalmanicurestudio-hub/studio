@@ -6,7 +6,7 @@
 // can refund on their own; what's worth a look; and the online shop's automatic refunds. Nothing here can change a line.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTenant } from '@/context/TenantContext';
-import { ACTIVITY_KINDS, lineTitle, lineWho, type ActivityKind, type ActivityLine } from '@/lib/activity';
+import { ACTIVITY_KINDS, TELL_MODES, lineTitle, lineWho, type ActivityKind, type ActivityLine, type TellMode } from '@/lib/activity';
 import { NEEDS, RULES, type MoneyRules, type Need, type RuleKey } from '@/lib/money-rules';
 import { addDays, formatTime } from '@/lib/tenant-time';
 
@@ -17,7 +17,7 @@ const usd = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
 const WHERE: Record<string, string> = { counter: 'Counter', window: 'Window', desk: 'Front desk', online: 'Online', app: 'App' };
 type Tab = 'activity' | 'rules';
 type Day = { day: string; today: string; timeZone: string; lines: ActivityLine[]; totals: Record<ActivityKind, { n: number; cents: number }>; flagged: string[]; people: string[]; more: boolean };
-type Rules = { rules: MoneyRules; alerts: { refundOverCents: number | null }; auto: { cents: number } | null; canChange?: boolean };
+type Rules = { rules: MoneyRules; alerts: { refundOverCents: number | null; tell?: TellMode }; auto: { cents: number } | null; canChange?: boolean };
 
 export default function ActivityPage() {
   const { selectedTenant } = useTenant() as any;
@@ -179,6 +179,10 @@ function RulesView({ call }: { call: (b: any) => Promise<any> }) {
           <div className="flex flex-wrap items-center gap-2"><span className="text-[14px]" style={{ color: MUTED }}>And refunds of</span>
             {overOpts.map((c) => <button key={String(c)} type="button" aria-pressed={r.alerts.refundOverCents === c} disabled={!!busy || locked} onClick={() => void save('over', { alerts: { refundOverCents: c } }, c ? `Refunds of ${usd(c)} or more are marked.` : 'Big refunds aren’t marked.')}
               className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={chip(r.alerts.refundOverCents === c)}>{c ? `${usd(c).replace('.00', '')} or more` : 'None'}</button>)}</div>
+          <div role="radiogroup" aria-labelledby="tell-h" className="flex flex-wrap items-center gap-2"><span id="tell-h" className="text-[14px]" style={{ color: MUTED }}>When something’s worth a look, tell me</span>
+            {TELL_MODES.map((m) => <button key={m.id} type="button" role="radio" aria-checked={(r.alerts.tell || 'push') === m.id} disabled={!!busy || locked} onClick={() => void save('tell', { alerts: { tell: m.id } }, m.id === 'push' ? 'Your phone buzzes when something’s worth a look.' : m.id === 'app' ? 'Something worth a look waits in the app’s notifications.' : 'Nothing tells you. It’s still marked here.')}
+              className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={chip((r.alerts.tell || 'push') === m.id)}>{m.label}</button>)}</div>
+          <p className="text-[13px]" style={{ color: MUTED }}>It goes to you and your admins, never to whoever it’s about. Your phone follows your own alert settings, like quiet hours.</p>
         </div>
       </section>
 

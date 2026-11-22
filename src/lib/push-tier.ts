@@ -25,6 +25,8 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   renter_concern: 'today', renter_message: 'today', renter_swap: 'today', credential: 'today', rent_late: 'today', renter_barred: 'today', tour_followup: 'today',
   // Online orders (lib/order-alerts)
   orders_cutoff: 'now', orders_missed: 'now', orders_big_day: 'today', orders_fast: 'today',
+  // A money moment worth the owner's look (lib/activity-server); money_look_quiet waits in the app.
+  money_look: 'now',
   // Other tools
   event_invoice_overpaid: 'today', event_invoice_refunded: 'today',
   // Food cost (lib/price-creep-server): a delivery that pushed a dish over the business's aim
