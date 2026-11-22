@@ -108,6 +108,39 @@ export const mostWithPinned = (most: string[] | null | undefined, setup: TileSet
   return Array.from(new Set([...pinned, ...(most || []).filter((id) => !hid.has(id))])).slice(0, MOST_MAX);
 };
 
+// Arranging (the Register tiles card on the Menu page, and Arrange tiles on the register itself): one set of rules.
+/** A section's items as they'll show: pinned first (in pin order), then the order set, then as on the menu; hidden ones
+ *  too, in their place, to bring back. */
+export function sectionRows<T extends { id: string; section: string }>(items: T[], s: TileSetup, section: string): T[] {
+  const pin = new Map(s.pinned.map((id, i) => [id, i])); const at = new Map(s.order.map((id, i) => [id, i]));
+  return items.map((m, i) => ({ m, i })).filter((x) => x.m.section === section)
+    .sort((a, b) => (pin.has(a.m.id) ? 0 : 1) - (pin.has(b.m.id) ? 0 : 1) || (pin.get(a.m.id) ?? at.get(a.m.id) ?? 1e6) - (pin.get(b.m.id) ?? at.get(b.m.id) ?? 1e6) || a.i - b.i).map((x) => x.m);
+}
+/** The ids a tile moves among: pinned ones among the section's pins, the rest among the rest. */
+export const groupOf = (rows: { id: string }[], s: TileSetup, id: string): string[] => { const pinned = new Set(s.pinned); return rows.filter((m) => pinned.has(m.id) === pinned.has(id)).map((m) => m.id); };
+/** One tile moved to place `to` in its group (`rows`: the section as it shows): the change to save, or null for none.
+ *  A pinned one keeps its place among every section's pins (just before the pin now after it, or after the one now
+ *  before it); the rest go in the order, the section's together. */
+export function moveChange(s: TileSetup, rows: { id: string }[], id: string, to: number): Partial<TileSetup> | null {
+  const group = groupOf(rows, s, id); const from = group.indexOf(id); const j = Math.max(0, Math.min(group.length - 1, to));
+  if (from < 0 || from === j) return null;
+  const next = [...group]; next.splice(from, 1); next.splice(j, 0, id);
+  if (s.pinned.includes(id)) {
+    const all = s.pinned.filter((x) => x !== id); const after = next[j + 1], before = next[j - 1];
+    const at = after !== undefined && all.includes(after) ? all.indexOf(after) : before !== undefined && all.includes(before) ? all.indexOf(before) + 1 : all.length;
+    all.splice(at, 0, id); return { pinned: all };
+  }
+  const rest = new Set(next); return { order: [...s.order.filter((x) => !rest.has(x)), ...next] };
+}
+/** Pinned, or unpinned: the change to save (pinning shows a hidden one), or why it can't. */
+export function pinChange(s: TileSetup, id: string): Partial<TileSetup> | { error: string } {
+  if (s.pinned.includes(id)) return { pinned: s.pinned.filter((x) => x !== id) };
+  if (s.pinned.length >= PIN_MAX) return { error: `Up to ${PIN_MAX} pinned. Unpin one first.` };
+  return { pinned: [...s.pinned, id], hidden: s.hidden.filter((x) => x !== id) };
+}
+/** Hidden from the tiles, or back on them: the change to save (hiding unpins it). */
+export const hideChange = (s: TileSetup, id: string): Partial<TileSetup> => (s.hidden.includes(id) ? { hidden: s.hidden.filter((x) => x !== id) } : { hidden: [...s.hidden, id], pinned: s.pinned.filter((x) => x !== id) });
+
 /** Tile size, kept on the device. */
 export type TileSize = 'big' | 'compact';
 export const TILE_SIZE_KEY = 'cf.register.tileSize';

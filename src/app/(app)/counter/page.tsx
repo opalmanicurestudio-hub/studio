@@ -197,8 +197,12 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Pick
 }
 
 export default function CounterPage() {
-  const { selectedTenant } = useTenant() as any;
+  const { selectedTenant, role } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
+  // A manager can arrange the tiles right here (components/pos/RegisterTiles, design board "Arrange tiles", B); what they
+  // set shows at once, until the next read of the lane carries it.
+  const canArrange = role === 'owner' || role === 'admin' || role === 'manager';
+  const [tilesNow, setTilesNow] = useState<{ v: TileSetup; at: number } | null>(null);
   const [lane, setLane] = useState<Lane | null>(null); const [err, setErr] = useState('');
   const [notice, setNotice] = useState<{ text: string; tone: 'good' | 'warn' } | null>(null);
   // Rewards: the sheet that finds them, and the member on the order shown (with what they can use).
@@ -379,6 +383,13 @@ export default function CounterPage() {
     void post({ action: 'giftIssue', orderId: o.id }).then((g) => { if (g?.ok && Array.isArray(g.gifts) && g.gifts.length) setGiftsMade({ orderId: o.id, number: o.number, gifts: g.gifts }); }).catch(() => null);
   };
   const giftRetry = async () => { if (!giftsMade) return null; const g = await post({ action: 'giftIssue', orderId: giftsMade.orderId }); return g?.ok && Array.isArray(g.gifts) ? g.gifts as GiftMade[] : null; };
+  // (Saved for the business: every counter and lane screen; the Menu page's Register tiles card shows the same.)
+  const arrangeTiles = async (change: Partial<TileSetup>): Promise<TileSetup | string> => {
+    const r = await send('/api/menu', { tenantId, action: 'laneSettings', tiles: change }, { label: 'Arrange tiles', auth: 'user', keep: false, tenantId: String(tenantId || '') });
+    const d: any = r.d && typeof r.d === 'object' ? r.d : null;
+    if (!d?.ok || !d.lane?.tiles) return d?.error || 'That didn’t save. Try again.';
+    setTilesNow({ v: d.lane.tiles, at: Date.now() }); return d.lane.tiles as TileSetup;
+  };
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   // Pressed and held: its choices and a note, for any item (components/pos/RegisterTiles).
   const hold = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); setChoiceFor(m); };
@@ -501,7 +512,7 @@ export default function CounterPage() {
           {guest?.stage === 'pay' && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>{guest.number} is with the kitchen. Take payment, or tap Next guest to start another order.</p>}
           {!lane ? <p className="py-10 text-center text-[14px]" style={{ color: MUTED }}>Reading the menu…</p>
             : menu.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[14.5px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-            : <RegisterTiles items={menu} most={lane.most || null} setup={lane.tiles || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} onHold={hold} place="counter" />}
+            : <RegisterTiles items={menu} most={lane.most || null} setup={tilesNow && Date.now() - tilesNow.at < 60000 ? tilesNow.v : lane.tiles || null} onArrange={canArrange ? arrangeTiles : undefined} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} onHold={hold} place="counter" />}
           {lane && order?.status === 'building' && guest?.stage !== 'pay' && ((lane.oneOffMax ?? 0) > 0 || lane.gift) && <div className="flex flex-wrap gap-2">
             {(lane.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
             {lane.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}

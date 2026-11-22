@@ -5,21 +5,13 @@
 // keys), pins favorites so they lead Most sold now and their section, and hides what the counter never sells (still on
 // the menu, the kiosk and online, and still found by Find or a scan). It saves as it goes, for every counter and lane.
 import * as React from 'react';
-import { PIN_MAX, type TileSetup } from '@/lib/register-tiles';
+import { PIN_MAX, groupOf as groupIn, hideChange, moveChange, pinChange, sectionRows, type TileSetup } from '@/lib/register-tiles';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const btn = `min-h-[44px] rounded-xl px-3 text-[13.5px] font-semibold disabled:opacity-50 ${RING}`;
 
 type Item = { id: string; name: string; section: string; imageUrl: string | null; onMenu?: boolean };
-
-/** A section's items as they'll show: pinned first (in pin order), then the order set, then as on the menu; hidden ones
- *  too, in their place, to bring back. */
-function rowsOf(items: Item[], s: TileSetup, section: string) {
-  const pin = new Map(s.pinned.map((id, i) => [id, i])); const at = new Map(s.order.map((id, i) => [id, i]));
-  return items.map((m, i) => ({ m, i })).filter((x) => x.m.section === section)
-    .sort((a, b) => (pin.has(a.m.id) ? 0 : 1) - (pin.has(b.m.id) ? 0 : 1) || (pin.get(a.m.id) ?? at.get(a.m.id) ?? 1e6) - (pin.get(b.m.id) ?? at.get(b.m.id) ?? 1e6) || a.i - b.i).map((x) => x.m);
-}
 
 export function TilesCard({ start, items, call }: { start: TileSetup; items: Item[]; call: (body: any) => Promise<any> }) {
   const menu = React.useMemo(() => items.filter((m) => m.onMenu !== false), [items]);
@@ -41,30 +33,12 @@ export function TilesCard({ start, items, call }: { start: TileSetup; items: Ite
     else { setSetup(was); setMsg({ text: d.error || 'That didn’t save. Try again.', tone: 'warn' }); }
   };
 
-  const rows = rowsOf(menu, setup, shown);
+  const rows = sectionRows(menu, setup, shown);
   const pinned = new Set(setup.pinned); const hidden = new Set(setup.hidden);
   // Moved within its own group (pinned ones among themselves, the rest among themselves): the new order is saved.
-  const move = (id: string, to: number) => {
-    const group = rows.filter((m) => pinned.has(m.id) === pinned.has(id)).map((m) => m.id);
-    const from = group.indexOf(id); const j = Math.max(0, Math.min(group.length - 1, to)); if (from < 0 || from === j) return;
-    const next = [...group]; next.splice(from, 1); next.splice(j, 0, id);
-    const name = menu.find((m) => m.id === id)?.name || 'It';
-    // (A pinned one keeps its place among every section's pins: it goes just before the pin now after it, or after the
-    // one now before it.)
-    if (pinned.has(id)) { const all = setup.pinned.filter((x) => x !== id); const after = next[j + 1], before = next[j - 1];
-      const at = after !== undefined && all.includes(after) ? all.indexOf(after) : before !== undefined && all.includes(before) ? all.indexOf(before) + 1 : all.length;
-      all.splice(at, 0, id); void save({ pinned: all }, `${name} moved.`); }
-    else { const rest = new Set(next); void save({ order: [...setup.order.filter((x) => !rest.has(x)), ...next] }, `${name} moved.`); }
-  };
-  const pin = (m: Item) => {
-    if (pinned.has(m.id)) { void save({ pinned: setup.pinned.filter((x) => x !== m.id) }, `${m.name} unpinned.`); return; }
-    if (setup.pinned.length >= PIN_MAX) { setMsg({ text: `Up to ${PIN_MAX} pinned. Unpin one first.`, tone: 'warn' }); return; }
-    void save({ pinned: [...setup.pinned, m.id], hidden: setup.hidden.filter((x) => x !== m.id) }, `${m.name} pinned: it leads Most sold now and ${m.section}.`);
-  };
-  const hide = (m: Item) => {
-    if (hidden.has(m.id)) { void save({ hidden: setup.hidden.filter((x) => x !== m.id) }, `${m.name} is back on the tiles.`); return; }
-    void save({ hidden: [...setup.hidden, m.id], pinned: setup.pinned.filter((x) => x !== m.id) }, `${m.name} hidden from the tiles. Find or a scan still adds it.`);
-  };
+  const move = (id: string, to: number) => { const c = moveChange(setup, rows, id, to); if (c) void save(c, `${menu.find((m) => m.id === id)?.name || 'It'} moved.`); };
+  const pin = (m: Item) => { const c = pinChange(setup, m.id); if ('error' in c) { setMsg({ text: c.error, tone: 'warn' }); return; } void save(c, pinned.has(m.id) ? `${m.name} unpinned.` : `${m.name} pinned: it leads Most sold now and ${m.section}.`); };
+  const hide = (m: Item) => void save(hideChange(setup, m.id), hidden.has(m.id) ? `${m.name} is back on the tiles.` : `${m.name} hidden from the tiles. Find or a scan still adds it.`);
 
   // Dragging a row by its handle: it follows the finger, the others make room, and it's saved where it's let go.
   const [drag, setDragState] = React.useState<{ id: string; from: number; dy: number; h: number } | null>(null);
@@ -72,7 +46,7 @@ export function TilesCard({ start, items, call }: { start: TileSetup; items: Ite
   const dragRef = React.useRef<typeof drag>(null);
   const setDrag = (d: typeof drag) => { dragRef.current = d; setDragState(d); };
   const handleRefs = React.useRef(new Map<string, HTMLButtonElement | null>());
-  const groupOf = (id: string) => rows.filter((m) => pinned.has(m.id) === pinned.has(id)).map((m) => m.id);
+  const groupOf = (id: string) => groupIn(rows, setup, id);
   const target = drag ? Math.max(0, Math.min(groupOf(drag.id).length - 1, drag.from + Math.round(drag.dy / drag.h))) : -1;
   // (While dragging, nothing moves in the page itself: the row follows the finger and the others slide to make room, so
   // the handle keeps hold of the pointer in every browser.)
