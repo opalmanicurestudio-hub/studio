@@ -155,6 +155,7 @@ import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey, byWindow, forLaneScreen } from '@/lib/drive-lanes';
 import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
+import { forgetLive } from '@/lib/drive-live-server';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
@@ -196,7 +197,8 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 const statsCache = new Map<string, { at: number; stats: any }>();
 // (Kept a business and a line of guests: the drive-thru's and the counter's.)
 // (Each channel's, at each location: lib/here-server.)
-const forgetStats = (tenantId: string) => { for (const k of Array.from(statsCache.keys())) if (k.startsWith(`${tenantId}|`)) statsCache.delete(k); };
+// (A car moved: the day's times and Drive-thru live are read afresh on this server.)
+const forgetStats = (tenantId: string) => { for (const k of Array.from(statsCache.keys())) if (k.startsWith(`${tenantId}|`)) statsCache.delete(k); forgetLive(tenantId); };
 
 // The ready board, per business, for a few seconds (api 'readyBoard'): however many TVs show it.
 const readyCache = new Map<string, { at: number; body: any }>();

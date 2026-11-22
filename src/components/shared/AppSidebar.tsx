@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, ExternalLink, FileText, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine, MonitorSmartphone, ReceiptText } from 'lucide-react';
+import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, CarFront, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, ExternalLink, FileText, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine, MonitorSmartphone, ReceiptText } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -53,6 +53,8 @@ const DAILY_HUB = [
   { href: '/clear',       icon: SprayCan,        label: 'Clear tables'   },
   { href: '/bar-tabs',    icon: Wine,            label: 'Bar tabs'       },
   { href: '/counter',     icon: Receipt,         label: 'Counter'        },
+  // Every car in the drive-thru, where it is and how long it's waited (the Drive-thru live page).
+  { href: '/drive-live',  icon: CarFront,        label: 'Drive-thru live' },
   // Curbside orders, shop and café, for whoever runs them out (components/orders/CurbsideScreen); shown while it's offered.
   { href: '/curbside',    icon: Car,             label: 'Curbside'       },
   { href: '/close',       icon: Moon,            label: 'Close the night' },
