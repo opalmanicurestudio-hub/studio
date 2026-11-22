@@ -43,8 +43,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const type = q.get('type');
   if (type && !/^text\/plain/i.test(type)) return new NextResponse(null, { status: 415 });
   const j = await jobOf(a.db, a.T, a.p, token); if (!j) return none();
-  const headers: Record<string, string> = { 'Content-Type': 'text/plain', 'X-Star-Cut': 'partial; feed=true', 'Cache-Control': 'no-store' };
+  const headers: Record<string, string> = { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' };
+  // (Nothing to print, only the cash drawer to open: no cut, and only a few blank lines feed.)
+  if (j.doc?.blocks?.length) headers['X-Star-Cut'] = 'partial; feed=true';
   if (j.doc?.buzz && a.p.buzz) headers['X-Star-Buzzerstartpattern'] = '1';
+  // A cash sale's drawer, plugged into this printer (lib/printing receiptDoc, drawerDoc).
+  if (j.doc?.drawer && a.p.drawer) headers['X-Star-Cashdrawer'] = 'start';
   return new NextResponse(renderText(j.doc, a.p.cols), { status: 200, headers });
 }
 

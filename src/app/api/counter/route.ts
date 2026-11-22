@@ -131,6 +131,8 @@ import { allergyWords, orderAllergyOf } from '@/lib/order-allergy';
 import { deliveryNowOf, EXTRA_CHOICES, PAUSE_CHOICES } from '@/lib/driver-load';
 import { driverLoad } from '@/lib/driver-load-server';
 import { nightBounds, tonight } from '@/lib/night-close-server';
+import { printersCached } from '@/lib/printing-server';
+import { receiptAfterOf } from '@/lib/printing';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -332,6 +334,10 @@ export async function POST(req: NextRequest) {
         // At the counter: whether "For here or to go" matters (something goes out only to go, or only for here: a box, a
         // real cup), so the screen asks it before the order is sent (lib/plate-extras).
         askToGo: channel === 'counter' && extrasOf(tenant).some((e) => e.per !== 'guest' && e.when !== 'any'),
+        // Receipts after a sale (design board "Receipts at the counter"; api/receipts): ask, print one, or don't print;
+        // the printers that print receipts (a screen with more than one picks its own), and whether one opens a drawer.
+        receipt: await (async () => { const ps = await printersCached(db, `tenants/${tenantId}`).catch(() => [] as any[]);
+          return { after: receiptAfterOf(tenant), printers: ps.filter((p: any) => p.receipts).map((p: any) => ({ id: p.id, name: p.name, drawer: !!p.drawer })), drawer: ps.some((p: any) => p.drawer) }; })(),
       });
     }
 

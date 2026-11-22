@@ -68,7 +68,7 @@ export function missed(from: string) {
 /** A printer's words in its address bar, read safely (a stray "%" is kept as it is). */
 export const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
 export const fromOf = (req: any) => String(req?.headers?.get?.('x-forwarded-for') || '').split(',')[0].trim() || String(req?.headers?.get?.('x-real-ip') || '') || 'here';
-export const forgetPrinter = (T: string, id: string) => { cache.delete(`${T}|${id}`); gone.delete(`${T}|${id}`); };
+export const forgetPrinter = (T: string, id: string) => { cache.delete(`${T}|${id}`); gone.delete(`${T}|${id}`); lists.delete(T); };
 export function keyOk(p: Printer | null, key: string): p is Printer {
   if (!p || !KEY.test(key) || !p.key) return false;
   const a = Buffer.from(p.key); const b = Buffer.from(key);
@@ -104,7 +104,7 @@ async function openJobs(db: any, T: string, printerId: string): Promise<any[]> {
 }
 
 /** A slip for a printer. */
-export async function queueJob(db: any, T: string, printerId: string, kind: 'ticket' | 'check' | 'void' | 'allergy' | 'test', doc: PrintDoc, extra: Record<string, unknown> = {}): Promise<string> {
+export async function queueJob(db: any, T: string, printerId: string, kind: 'ticket' | 'check' | 'void' | 'allergy' | 'test' | 'receipt' | 'drawer', doc: PrintDoc, extra: Record<string, unknown> = {}): Promise<string> {
   const ref = db.collection(`${T}/printJobs`).doc();
   await ref.set({ printerId, kind, doc, status: 'queued', open: true, tries: 0, createdAt: nowIso(), ...extra });
   return ref.id;

@@ -81,7 +81,7 @@ export default function ReceiptPage() {
         </div>
         <div className="rc-title">{r.voided ? 'Void slip' : 'Receipt'}</div>
         <div className="rc-meta">
-          {row('Sale', when(r.date))}{r.clientName && row('Client', r.clientName)}{r.paidBy && r.paidBy !== r.clientName && row('Paid by', r.paidBy)}{r.cashierName && row('Served by', r.cashierName)}{row('Receipt', `#${String(id).slice(-8).toUpperCase()}`)}
+          {row('Sale', when(r.date))}{r.orderNumber && row('Order', `${r.channelName ? `${r.channelName} ` : ''}${r.orderNumber}`)}{r.clientName && row(r.channelName ? 'Name' : 'Client', r.clientName)}{r.paidBy && r.paidBy !== r.clientName && row('Paid by', r.paidBy)}{r.cashierName && row('Served by', r.cashierName)}{row('Receipt', `#${String(id).slice(-8).toUpperCase()}`)}
         </div>
         <hr className="rc-rule" />
         {r.detail ? (() => {

@@ -39,6 +39,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const j = await nextJob(db, T, async () => (await db.doc(T).get()).data() || {}, p).catch((e) => { console.error('[printer epson] next', e); return null; });
   const job = j ? await jobOf(db, T, p, j.id) : null;
   if (!job) return empty();
-  const xml = `<?xml version="1.0" encoding="utf-8"?><PrintRequestInfo Version="2.00"><ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout><printjobid>${job.id}</printjobid></Parameter><PrintData>${renderEpos(job.doc, p.cols)}</PrintData></ePOSPrint></PrintRequestInfo>`;
+  const xml = `<?xml version="1.0" encoding="utf-8"?><PrintRequestInfo Version="2.00"><ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout><printjobid>${job.id}</printjobid></Parameter><PrintData>${renderEpos(p.drawer ? job.doc : { ...job.doc, drawer: false }, p.cols)}</PrintData></ePOSPrint></PrintRequestInfo>`;
   return new NextResponse(xml, { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' } });
 }

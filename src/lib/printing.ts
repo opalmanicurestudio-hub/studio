@@ -9,14 +9,17 @@
 //   - "Taken off" when something already printed is taken off a table's tab;
 //   - "Allergy update" when an allergy changes on a ticket already printed;
 //   - the guest check, when a server asks for it;
+//   - a receipt (design board "Receipts at the counter"): a sale's, for the guest, on a printer that prints receipts;
 //   - a test page.
+// A printer with a cash drawer plugged into it opens the drawer for a cash sale (Epson: a pulse in the slip; Star: a
+// header), with or without a receipt.
 // Nothing here is printed in capitals: the allergy line stands out by being printed white on black (Epson) or set off
 // with marks (Star text).
 import { allergyFlags } from '@/lib/kitchen';
 import { tableLabel } from '@/lib/table-service';
 
 export type PrinterKind = 'star' | 'epson';
-export type PrinterSettings = { name: string; kind: PrinterKind; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean };
+export type PrinterSettings = { name: string; kind: PrinterKind; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean };
 export const COLS: Record<PrinterKind, number> = { star: 48, epson: 42 };
 export const MAX_PRINTERS = 12;
 
@@ -29,6 +32,7 @@ export function cleanPrinter(raw: any): PrinterSettings {
     cols: Number.isFinite(c) && c >= 24 && c <= 64 ? c : COLS[kind],
     stations: Array.from(new Set((Array.isArray(raw?.stations) ? raw.stations : []).map((s: unknown) => clip(s, 24)).filter(Boolean))).slice(0, 12) as string[],
     tickets: raw?.tickets !== false, checks: raw?.checks === true, buzz: raw?.buzz !== false,
+    receipts: raw?.receipts === true, drawer: raw?.drawer === true,
   };
 }
 
@@ -40,7 +44,7 @@ export type Block =
   | { k: 'alert'; text: string }
   | { k: 'rule' }
   | { k: 'qr'; data: string };
-export type PrintDoc = { blocks: Block[]; buzz?: boolean };
+export type PrintDoc = { blocks: Block[]; buzz?: boolean; drawer?: boolean };
 
 /** Plain letters for a printer's own font: curly quotes straight, accents off, and "?" for a letter it can't print
  *  (never just left out, so a line can't look emptier than what was typed). */
@@ -94,7 +98,10 @@ const t = (s: string, a: Record<string, string | boolean> = {}) => `<text${Objec
 const plain = '<text dw="false" dh="false" em="false" reverse="false" align="left"/>';
 /** ePOS-Print XML for an Epson printer (Server Direct Print). */
 export function renderEpos(doc: PrintDoc, cols: number): string {
-  const out: string[] = ['<text lang="en" smooth="true"/>'];
+  // (The cash drawer, plugged into the printer: opened first; just that, with nothing to print.)
+  const pulse = doc.drawer ? '<pulse drawer="drawer_1" time="pulse_100"/>' : '';
+  if (!doc.blocks.length) return `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${pulse}</epos-print>`;
+  const out: string[] = [pulse, '<text lang="en" smooth="true"/>'];
   for (const b of doc.blocks) {
     if (b.k === 'rule') out.push(t('-'.repeat(cols)));
     else if (b.k === 'head') { out.push(t(ascii(b.left), { dw: true, dh: true, em: true }), plain); if (b.right) out.push(t(ascii(b.right))); }
@@ -230,5 +237,48 @@ export function testDoc(o: { business: string; printer: string; what: string; at
 export function printsWords(p: PrinterSettings): string {
   const and = (w: string[]) => (w.length <= 1 ? (w[0] || '') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`);
   const tix = p.tickets ? (p.stations.length ? `${and(p.stations)} tickets` : 'every station’s tickets') : '';
-  return [tix, p.checks ? 'checks' : ''].filter(Boolean).join(', and ') || 'nothing yet';
+  return [tix, p.checks ? 'checks' : '', p.receipts ? 'receipts' : ''].filter(Boolean).join(', and ').replace(/, and (?=[^,]*, and )/g, ', ') || 'nothing yet';
 }
+
+/** A sale's receipt, from a receipt (the front desk's shape, or a counter order's: lib/counter-receipt): the business,
+ *  the order, each line with what was chosen, the totals, how it was paid (with the change), and its page online.
+ *  `drawer`: open the cash drawer with it. */
+export function receiptDoc(r: any, o: { business: string; address?: string | null; tz: string | null; url?: string | null; drawer?: boolean }): PrintDoc {
+  const D = r?.detail || {}; const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+  const blocks: Block[] = [{ k: 'text', text: o.business, center: true, bold: true }];
+  if (o.address) blocks.push({ k: 'text', text: o.address, center: true });
+  blocks.push({ k: 'rule' });
+  const where = r?.source === 'counter' ? [r.channel === 'drive-thru' ? 'Drive-thru' : r.toGo ? 'To go' : r.channel === 'counter' ? 'For here' : String(r.channelName || '')].filter(Boolean)[0] : '';
+  if (r?.orderNumber) blocks.push({ k: 'head', left: String(r.orderNumber), right: where || undefined });
+  if (r?.voided) blocks.push({ k: 'alert', text: r.voidRefunded ? 'Refunded' : 'Voided' });
+  if (r?.clientName) blocks.push({ k: 'text', text: String(r.clientName) });
+  blocks.push({ k: 'text', text: `${dayIn(String(r?.date || ''), o.tz)}, ${clockIn(String(r?.date || ''), o.tz)}` }, { k: 'rule' });
+  for (const l of (Array.isArray(D.lines) ? D.lines : [])) {
+    if (l?.kind === 'note') { blocks.push({ k: 'text', text: String(l.label || '') }); continue; }
+    const name = String(l?.label || 'Item'); const paren = name.match(/^(.*?) \((.+)\)$/);
+    blocks.push({ k: 'money', left: `${Math.max(1, n(l?.qty) || 1)}  ${paren ? paren[1] : name}`, right: l?.redeemed ? 'Included' : money(n(l?.amount)) });
+    if (paren) blocks.push({ k: 'text', text: `   ${paren[2]}` });
+  }
+  for (const f of (Array.isArray(D.fees) ? D.fees : [])) blocks.push({ k: 'money', left: String(f?.label || 'Fee'), right: money(n(f?.amount)) });
+  blocks.push({ k: 'rule' }, { k: 'money', left: 'Subtotal', right: money(n(r?.subtotal)) });
+  const offs = Array.isArray(r?.discounts) && r.discounts.length ? r.discounts : n(r?.discount) > 0 ? [{ label: 'Discount', amount: n(r.discount) }] : [];
+  for (const d of offs) blocks.push({ k: 'money', left: String(d?.label || 'Discount'), right: money(-n(d?.amount)) });
+  if (n(r?.tax) > 0) blocks.push({ k: 'money', left: String(r?.taxLabel || 'Tax'), right: money(n(r.tax)) });
+  if (n(r?.tip) > 0) blocks.push({ k: 'money', left: 'Tip', right: money(n(r.tip)) });
+  blocks.push({ k: 'money', left: 'Total', right: money(n(r?.total)), bold: true });
+  if (String(r?.paymentMethod) === 'cash') {
+    if (r?.amountTendered != null && n(r.amountTendered) > 0) blocks.push({ k: 'money', left: 'Cash', right: money(n(r.amountTendered)) }, { k: 'money', left: 'Change', right: money(n(r.change)) });
+    else blocks.push({ k: 'money', left: 'Paid', right: 'Cash' });
+  } else blocks.push({ k: 'money', left: 'Paid', right: String(r?.paymentMethod) === 'app' ? 'On the app' : 'Card' });
+  for (const x of (Array.isArray(r?.refunds) ? r.refunds : [])) blocks.push({ k: 'money', left: x?.reason ? `Refunded, ${String(x.reason).toLowerCase()}` : 'Refunded', right: money(-n(x?.cents) / 100) });
+  blocks.push({ k: 'rule' }, { k: 'text', text: 'Thank you', center: true });
+  if (o.url) blocks.push({ k: 'qr', data: o.url }, { k: 'text', text: 'Your receipt online', center: true });
+  return { blocks, buzz: false, ...(o.drawer ? { drawer: true } : {}) };
+}
+
+/** After a sale at the counter or the drive-thru: ask about a receipt (the default), print one, or don't print. */
+export type ReceiptAfter = 'ask' | 'print' | 'none';
+export const receiptAfterOf = (tenant: any): ReceiptAfter => (tenant?.receiptSettings?.after === 'print' || tenant?.receiptSettings?.after === 'none' ? tenant.receiptSettings.after : 'ask');
+
+/** Just the cash drawer, opened (a cash sale with no receipt printed). */
+export const drawerDoc = (): PrintDoc => ({ blocks: [], buzz: false, drawer: true });

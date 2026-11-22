@@ -11,6 +11,7 @@ import { useFirebase } from '@/firebase';
 import { DESK_CSS, Btn, Seg, deskAccent } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
 import { pageAccent } from '@/lib/studio-page';
+import { printReceipt, savedReceiptPrinter } from '@/components/pos/ReceiptAsk';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: string }) {
@@ -41,6 +42,8 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
   const [phoneId, setPhoneId] = React.useState<string | null>(null); const [phoneStatus, setPhoneStatus] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null); const [done, setDone] = React.useState<any>(null);
   React.useEffect(() => { if (!phoneId || !firestore) return; return onSnapshot(doc(firestore, `tenants/${tenantId}/approvals/${phoneId}`), (s) => setPhoneStatus((s.data() as any)?.status || null)); }, [phoneId, firestore, tenantId]);
+  // Print a receipt on this screen's receipt printer (components/pos/ReceiptAsk), and what it said.
+  const [printing, setPrinting] = React.useState<string | null>(null); const [printed, setPrinted] = React.useState<{ id: string; text: string; ok: boolean } | null>(null);
   const [filter, setFilter] = React.useState<'all' | 'checkout' | 'online' | 'fees' | 'voided'>('all'); const [search, setSearch] = React.useState(''); const [openKey, setOpenKey] = React.useState<string | null>(null);
   const day = React.useMemo(() => { const from = new Date(); from.setHours(0, 0, 0, 0); const to = new Date(); to.setHours(23, 59, 59, 999); return groupDaySales(transactions || [], data || [], from, to); }, [transactions, data]);
   const reset = () => { setSel(null); setReason(''); setPin(''); setPhoneId(null); setPhoneStatus(null); setErr(null); setDone(null); setHow('pin'); };
@@ -118,7 +121,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Find a client" aria-label="Find a client" className={inp} style={inpS} />
             {(() => {
               const t = search.trim().toLowerCase();
-              const rows = day.sales.filter((x: any) => (filter === 'all' ? true : filter === 'voided' ? x.voided : filter === 'checkout' ? (x.source === 'checkout' || x.source === 'planner') : filter === 'online' ? (x.method === 'online' || x.source === 'deposit' || x.source === 'order') : (x.source === 'fee' || x.source === 'balance'))
+              const rows = day.sales.filter((x: any) => (filter === 'all' ? true : filter === 'voided' ? x.voided : filter === 'checkout' ? (x.source === 'checkout' || x.source === 'planner' || x.source === 'counter') : filter === 'online' ? (x.method === 'online' || x.source === 'deposit' || x.source === 'order') : (x.source === 'fee' || x.source === 'balance'))
                 && (!t || String(x.clientName || '').toLowerCase().includes(t) || String(x.paidBy || '').toLowerCase().includes(t)));
               if (!rows.length) return <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{day.sales.length ? 'Nothing matches.' : 'No sales yet today.'}</p>;
               const who = (id: string) => String((staff || []).find((m: any) => m.id === id)?.name || '').split(' ')[0];
@@ -136,11 +139,14 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                     </div>}
                     <div className="flex flex-wrap gap-1.5">
                       {r && <Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>}
+                      {r && !r.voided && <Btn quiet disabled={printing === r.id} onClick={async () => { setPrinting(r.id); setPrinted(null); const p = await printReceipt(tenantId, String(r.id), { printerId: savedReceiptPrinter() || null }); setPrinting(null); setPrinted({ id: String(r.id), text: p.text, ok: p.ok }); }}>{printing === r.id ? 'Printing…' : 'Print'}</Btn>}
                       {r && !r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
                       {(() => { const aid = x.lines.map((t: any) => t.appointmentId).find(Boolean); return aid ? <Btn quiet onClick={() => openVisit(String(aid))}>Visit ticket</Btn> : null; })()}
                       {(() => { const oid = x.source === 'order' ? x.lines.map((t: any) => t.retailOrderId).find(Boolean) : null; return oid ? <Btn quiet onClick={() => { window.location.href = `/retail-orders?order=${encodeURIComponent(String(oid))}`; }}>Open the order</Btn> : null; })()}
                       {!r && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{x.source === 'planner' ? 'Completed from the planner — no receipt was made.' : x.source === 'order' ? 'An online order — refunds and changes are made from the order.' : x.method === 'online' ? 'Paid online — refunds are made from the payment’s page in Money.' : 'Recorded outside checkout — see it in Money.'}</p>}
                     </div>
+                    {r && printed && printed.id === r.id && <p role="status" className="text-[13px] font-semibold" style={{ color: printed.ok ? 'var(--ink)' : 'var(--warn)' }}>{printed.text}</p>}
+                    {x.source === 'counter' && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>Rung in at the counter, so it isn’t voided here.</p>}
                   </div>}
                 </div>;
               });

@@ -3,11 +3,11 @@
 // no-show / late-cancel fees, online orders, memberships, rent. Every one writes payment lines, so the day's sales are
 // built from those lines: grouped into one sale each (a POS checkout, a card payment, a visit, or a single line),
 // labelled by where the money came from and how it was paid. POS checkouts are matched to their receipts.
-export type SaleSource = 'checkout' | 'planner' | 'deposit' | 'fee' | 'balance' | 'order' | 'membership' | 'rent' | 'other';
+export type SaleSource = 'checkout' | 'counter' | 'planner' | 'deposit' | 'fee' | 'balance' | 'order' | 'membership' | 'rent' | 'other';
 export type SaleMethod = 'cash' | 'card' | 'online' | 'other' | 'split';
 export interface DaySale { key: string; at: string; clientName: string | null; clientId: string | null; paidBy: string | null; source: SaleSource; label: string; method: SaleMethod;
   total: number; tips: number; voided: boolean; lines: any[]; receipt: any | null; staffIds: string[] }
-export const SOURCE_LABEL: Record<SaleSource, string> = { checkout: 'Checkout', planner: 'Completed in the planner', deposit: 'Deposit', fee: 'Fee', balance: 'Owed balance', order: 'Online order', membership: 'Membership', rent: 'Rent', other: 'Payment' };
+export const SOURCE_LABEL: Record<SaleSource, string> = { checkout: 'Checkout', counter: 'Counter', planner: 'Completed in the planner', deposit: 'Deposit', fee: 'Fee', balance: 'Owed balance', order: 'Online order', membership: 'Membership', rent: 'Rent', other: 'Payment' };
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -15,7 +15,11 @@ const methodOf = (m: any): SaleMethod => { const x = String(m || '').toLowerCase
   if (x === 'cash') return 'cash'; if (x === 'split') return 'split'; if (/card|terminal|tap|chip|swipe|cof/.test(x)) return 'card'; if (/online|stripe|link|deposit|web|checkout/.test(x)) return 'online'; return 'other'; };
 // An online order's lines carry its Stripe Checkout session (cs_…); a desk checkout's own id never starts that way.
 const deskCheckout = (t: any) => !!t.checkoutSessionId && !String(t.checkoutSessionId).startsWith('cs_');
+// A sale at the counter, the drive-thru, the kiosk or ordered ahead (lib/counter-server payOrder): its lines (the items,
+// the tax, delivery, a driver's tip) are one sale, matched to its receipt (lib/counter-receipt, `co_<order>`).
+const counterOrderOf = (t: any) => (t.orderId && /^(counter_|ftip_)/.test(String(t.id || '')) ? String(t.orderId) : null);
 function sourceOf(lines: any[]): SaleSource {
+  if (lines.some((t) => counterOrderOf(t))) return 'counter';
   if (lines.some((t) => t.retailOrderId)) return 'order';
   if (lines.some(deskCheckout)) return 'checkout';
   const text = lines.map((t) => `${t.category || ''} ${t.description || ''} ${t.source || ''}`).join(' ').toLowerCase();
@@ -34,10 +38,13 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
   for (const t of txs || []) {
     if (!inDay(t.date) || t.category === 'Void') continue;
     // An online order is one sale (its items, shipping and tax lines); a desk checkout is one; then a card payment, a visit.
-    const key = t.retailOrderId ? `ro:${t.retailOrderId}` : deskCheckout(t) ? `co:${t.checkoutSessionId}` : t.stripePaymentIntentId ? `pi:${t.stripePaymentIntentId}` : t.appointmentId && t.type === 'income' ? `ap:${t.appointmentId}` : `tx:${t.id}`;
+    const key = t.retailOrderId ? `ro:${t.retailOrderId}` : counterOrderOf(t) ? `ct:${counterOrderOf(t)}` : deskCheckout(t) ? `co:${t.checkoutSessionId}` : t.stripePaymentIntentId ? `pi:${t.stripePaymentIntentId}` : t.appointmentId && t.type === 'income' ? `ap:${t.appointmentId}` : `tx:${t.id}`;
     (groups.get(key) || groups.set(key, []).get(key)!).push(t);
   }
-  const byCheckout = new Map((receipts || []).map((r: any) => [String(r.checkoutSessionId || ''), r]));
+  const counterRows = (receipts || []).filter((r: any) => r?.source === 'counter');
+  const byCheckout = new Map((receipts || []).filter((r: any) => r?.source !== 'counter' && r?.checkoutSessionId).map((r: any) => [String(r.checkoutSessionId), r]));
+  const byCounter = new Map(counterRows.map((r: any) => [String(r.id || '').replace(/^co_/, ''), r]));
+  const counterLabel = (r: any, first: any) => (r?.orderNumber ? `${r.channelName || 'Counter'} ${r.orderNumber}` : String(first?.clientOrVendor || 'Counter'));
   const sales: DaySale[] = [];
   for (const [key, lines] of groups) {
     const income = lines.filter((t) => t.type === 'income');
@@ -45,7 +52,8 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
     // An online order's tips are written for the team when it's fulfilled, often another day: not a sale of their own.
     const orderSale = key.startsWith('ro:') ? lines.find((t) => String(t.id || '').startsWith('osale_')) : null;
     if (key.startsWith('ro:') && !orderSale && income.every((t) => t.category === 'Tips')) continue;
-    const receipt = key.startsWith('co:') ? byCheckout.get(key.slice(3)) || null : null;
+    const counter = key.startsWith('ct:');
+    const receipt = key.startsWith('co:') ? byCheckout.get(key.slice(3)) || null : counter ? byCounter.get(key.slice(3)) || null : null;
     const off = lines.filter((t) => t.type === 'expense' && ['Discounts', 'Deposit Applied'].includes(String(t.category))).reduce((s, t) => s + num(t.amount), 0);
     const nonTip = income.filter((t) => t.category !== 'Tips').reduce((s, t) => s + num(t.amount), 0);
     // An online order is what the customer paid for it, tip included (its sale line carries the whole).
@@ -55,12 +63,14 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
     const voided = receipt ? !!receipt.voided : income.every((t) => t.voided);
     const source = sourceOf(lines);
     const first = lines.slice().sort((a, b) => Date.parse(a.date) - Date.parse(b.date))[0];
-    sales.push({ key, at: receipt?.date || first.date, clientName: receipt?.clientName || first.clientOrVendor || null, clientId: receipt?.clientId || first.clientId || null, paidBy: receipt?.paidBy || first.paidBy || null,
-      source, label: SOURCE_LABEL[source], method: methodOf(receipt?.paymentMethod || income[0]?.paymentMethod), total: round2(total), voided,
+    sales.push({ key, at: receipt?.date || first.date, clientName: counter ? receipt?.clientName || null : receipt?.clientName || first.clientOrVendor || null, clientId: receipt?.clientId || first.clientId || null, paidBy: receipt?.paidBy || first.paidBy || null,
+      source, label: counter ? counterLabel(receipt, first) : SOURCE_LABEL[source], method: methodOf(receipt?.paymentMethod || income[0]?.paymentMethod), total: round2(total), voided,
       tips: orderTotal ? orderTips : round2(income.filter((t) => t.category === 'Tips').reduce((s, t) => s + num(t.amount), 0)), lines, receipt, staffIds: Array.from(new Set(income.map((t) => t.staffId).filter(Boolean))) });
   }
   // POS receipts with no lines yet (e.g. a sale recorded moments ago) still count.
-  for (const r of receipts || []) if (!groups.has(`co:${r.checkoutSessionId}`) && inDay(r.date))
+  for (const r of counterRows) { const k = `ct:${String(r.id || '').replace(/^co_/, '')}`; if (!groups.has(k) && inDay(r.date))
+    sales.push({ key: k, at: r.date, clientName: r.clientName || null, clientId: null, paidBy: null, source: 'counter', label: counterLabel(r, null), method: methodOf(r.paymentMethod), total: num(r.total), tips: num(r.tip), voided: false, lines: [], receipt: r, staffIds: [] }); }
+  for (const r of receipts || []) if (r?.source !== 'counter' && !groups.has(`co:${r.checkoutSessionId}`) && inDay(r.date))
     sales.push({ key: `co:${r.checkoutSessionId}`, at: r.date, clientName: r.clientName || null, clientId: r.clientId || null, paidBy: r.paidBy || null, source: 'checkout', label: 'Checkout', method: methodOf(r.paymentMethod), total: num(r.total), tips: num(r.tip), voided: !!r.voided, lines: [], receipt: r, staffIds: [] });
   sales.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   const live = sales.filter((s) => !s.voided);

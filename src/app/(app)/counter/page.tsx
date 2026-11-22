@@ -30,6 +30,7 @@ import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
+import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -101,6 +102,8 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   /** The location this counter is at, with more than one (lib/here-server). */
   location?: { id: string; name: string | null } | null;
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
+  /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
+  receipt?: ReceiptSetup;
   /** Today's hot food deliveries by the business's own drivers (lib/food-delivery-server), when delivery is on. */
   deliveries?: DeliveryRow[]; drivers?: FoodDriver[]; driverNow?: DriverNow | null; slow?: Slow | null;
   /** Sold out here, to mark on each delivery app, or back on there (lib/app-orders appSoldOutTodo). */
@@ -174,6 +177,8 @@ export default function CounterPage() {
   // A number to text when it's ready, while it's being typed (lib/ready-text).
   const [textTo, setTextTo] = useState('');
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
+  // The receipt for the sale just paid (or one asked for again from Waiting: `later`), until it's done.
+  const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
   const [deliveryPin, setDeliveryPin] = useState<{ body: any; line: string; done: (d: any) => void } | null>(null);
@@ -290,16 +295,21 @@ export default function CounterPage() {
     staffDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
   };
   const paidWords = (d: any, how: string) => (how === 'cash' ? (d.change > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') : 'Paid by card.');
-  const pay = (method: 'cash' | 'card', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}) }, (d) => setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' }));
+  const titleOf = (o: Order) => `${o.number}${o.guestName ? `, ${o.guestName}` : ''}`;
+  const pay = (method: 'cash' | 'card', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}) }, (d) => {
+    setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' });
+    if (!d.paidOtherwise) setSlip({ orderId: order.id, title: titleOf(order), cash: (d.payMethod || method) === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
+  });
   const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id });
-  const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => setNotice(d.state === 'paid' ? { text: 'The card went through, so it’s paid.', tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' }));
+  const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => { setNotice(d.state === 'paid' ? { text: 'The card went through, so it’s paid.', tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
+    if (d.state === 'paid') setSlip({ orderId: order.id, title: titleOf(order), cash: false, change: null }); });
   const cancel = () => { if (!order) return; setJust(null); void act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `${order.number} was dropped.`, tone: 'good' })); };
   const call = (g: Guest, o?: Order) => { sayOut(g.number, o?.guestName); void act(`call-${g.id}`, { action: 'call', carId: g.id }); };
   const handOver = (g: Guest) => act(`gone-${g.id}`, { action: 'move', carId: g.id, to: 'gone' }, () => setNotice({ text: `${g.number} was handed over.`, tone: 'good' }), holdFor(g.id, g.number));
   useEffect(() => {
     const id = order?.id; if (!cardOn || !id) return;
     let live = true;
-    const i = setInterval(async () => { const d = await post({ action: 'cardCheck', orderId: id }).catch(() => null); if (!live || !d?.ok) return; if (d.state === 'paid') setNotice({ text: `${order?.number}: paid by card.`, tone: 'good' }); if (d.state !== 'on_reader') void load(); }, 2000);
+    const i = setInterval(async () => { const d = await post({ action: 'cardCheck', orderId: id }).catch(() => null); if (!live || !d?.ok) return; if (d.state === 'paid') { setNotice({ text: `${order?.number}: paid by card.`, tone: 'good' }); if (order) setSlip({ orderId: id, title: titleOf(order), cash: false, change: null }); } if (d.state !== 'on_reader') void load(); }, 2000);
     return () => { live = false; clearInterval(i); };
   }, [cardOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -344,7 +354,9 @@ export default function CounterPage() {
               ); })}</div>}
         </section>
 
-        <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl p-4 lg:sticky lg:top-4 lg:self-start" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+        {slip && <ReceiptAsk key={`${slip.orderId}${slip.later ? '-later' : ''}`} tenantId={tenantId} receiptId={`co_${slip.orderId}`} title={slip.title} cash={slip.cash} change={slip.change} setup={lane?.receipt || null} later={slip.later} auto={slip.auto !== false} onClose={() => setSlip(null)} />}
+        <section aria-label="The order" className="flex flex-col gap-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           {!order ? <div className="space-y-3 py-6 text-center"><p className="text-[15px] font-semibold">No guest ordering</p><p className="text-[14px]" style={{ color: MUTED }}>Tap Next guest to start an order. It gets a counter number, like C14, for calling it out.</p></div> : <>
             <div className="flex items-center justify-between gap-2"><h2 className="text-[19px] font-semibold">{order.number}{order.guestName ? `, ${order.guestName}` : ''}{order.app ? <span className="ml-2 rounded-full px-2.5 py-1 align-middle text-[12.5px] font-semibold" style={{ background: SOFT }}>App order</span> : order.status !== 'building' && order.toGo ? <span className="ml-2 text-[14px] font-medium" style={{ color: MUTED }}>To go</span> : null}</h2>
               {order.status === 'building' && <button type="button" onClick={cancel} disabled={!!busy} className={`${btn} px-3 text-[13.5px]`} style={{ color: MUTED }}>Drop it</button>}</div>
@@ -420,6 +432,7 @@ export default function CounterPage() {
               </div>}
           </>}
         </section>
+        </div>
       </div>
 
       <AppSoldOut rows={lane?.appSoldOut || []} taps={lane?.appSoldOutTaps} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} />
@@ -466,6 +479,7 @@ export default function CounterPage() {
                 </> : ready && (g.calledAt
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
                   : <button type="button" onClick={() => call(g, o)} disabled={busy === `call-${g.id}`} className={`${btn} w-full`} style={dark}>Call {o?.guestName || g.number}</button>)}
+                {o && !o.app?.code && o.paidAt && !o.staffMeal && <button type="button" onClick={() => setSlip({ orderId: o.id, title: titleOf(o), cash: false, change: null, later: true })} className={`${btn} w-full text-[14px]`} style={quiet}>Receipt</button>}
               </li>
             ); })}</ul>}
       </section>
