@@ -26,6 +26,9 @@
 //   paid   { tenantId, key, orderId, method: 'card'|'cash', tendered? } → paid at the window: the sale and its tax in
 //                                                      the books, cash into the open drawer (with what was handed over
 //                                                      and the change); the car moves on to pick up
+//   receipt { tenantId, key, orderId, do: 'link'|'print'|'drawer'|'send', printerId?, drawer?, channel?, to? } → a paid
+//          order's receipt (lib/receipt-actions-server): its private link, printed, the cash drawer for cash taken into
+//          it, or sent by text or email
 //   move   { tenantId, key, carId, to: 'pickup'|'forward'|'gone', spot? } → along the lane, only ever forward;
 //                                                      "forward" parks it (a numbered spot) so the cars behind keep
 //                                                      moving; "gone" hands it over (paid, or never sent)
@@ -163,7 +166,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -188,7 +191,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -202,7 +205,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -210,6 +213,16 @@ export async function POST(req: NextRequest) {
       if (xs.some((x) => x && counterSide(x.channel) !== (channel === 'counter'))) return bad(channel === 'counter' ? 'That order is the drive-thru’s. Open it on the drive-thru screen.' : 'That order is the counter’s. Open it on the counter screen.', 409);
     }
 
+    // A paid order's receipt (lib/receipt-actions-server; components/pos/ReceiptAsk): its link, printed, the cash drawer,
+    // or sent; the same as api/receipts, for a screen that carries its own key.
+    if (action === 'receipt') {
+      const oid = String(b.orderId || ''); const what = String(b.do || '');
+      if (!ID.test(oid)) return bad('Which order?');
+      if (!['link', 'print', 'drawer', 'send'].includes(what)) return bad('Unknown action.');
+      const { receiptAct } = await import('@/lib/receipt-actions-server');
+      const x = await receiptAct(db, tenantId, `co_${oid}`, what, b, { name: by }, req.nextUrl.origin);
+      return NextResponse.json(x.body, { status: x.status });
+    }
     if (action === 'lane') {
       // Only the cars in the lane now (a car is gone once it's handed over, left, or voided), oldest first.
       // (Read generously and sorted here, so however many were left behind, the cars that just arrived are always shown.)

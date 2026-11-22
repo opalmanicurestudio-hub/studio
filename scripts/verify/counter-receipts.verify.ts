@@ -137,7 +137,7 @@ const order = (x: any = {}) => ({ number: 'C14', channel: 'counter', status: 'se
   check('two printers with a drawer and the picked one has none: no drawer guessed, and asking says which to pick', p.body.ok && p.body.drawer === false && d6.status === 409 && /More than one printer opens a drawer/.test(d6.body.error) && !(await get(`${T}/counterOrders/o1`)).drawerOpenedAt);
   const d7 = await call({ action: 'drawer', receiptId: 'co_o1', printerId: 'd2' }); j = await jobs();
   check('…the picked printer’s own drawer', d7.body.ok && d7.body.printer === 'Till two' && j.some((x: any) => x.kind === 'drawer' && x.printerId === 'd2'));
-  const rs = src('src/app/api/receipts/route.ts');
+  const rs = src('src/lib/receipt-actions-server.ts');
   check('a drawer that couldn’t be sent takes its mark back (tried again), and a receipt that couldn’t be says so', rs.includes("const unmark = async () => { if (opened && !drawerQueued) await ref.set({ drawerOpenedAt: null, drawerOpenedBy: null }, { merge: true })") && rs.includes('The drawer didn’t open. Try again.') && rs.includes('The receipt didn’t reach the printer. Try again.'));
   await seed([{ id: 'front', name: 'Front counter', receipts: true, drawer: true }]);
   actor.isRenter = true;
@@ -203,7 +203,7 @@ const order = (x: any = {}) => ({ number: 'C14', channel: 'counter', status: 'se
   check('…“Print one” prints by itself on this screen’s printer; otherwise a cash sale just opens the drawer', ask.includes("if (setup.after === 'print' && printer) void print(cash);") && ask.includes('else if (cash && setup.drawer) void openDrawer();') && ask.includes('if (later || !auto || started.current || !setup) return;'));
   check('…several receipt printers: this screen picks its own, kept on it', ask.includes('aria-label="Receipt printer"') && ask.includes('localStorage.setItem(RECEIPT_PRINTER_KEY, id)') && ask.includes('Pick this screen’s receipt printer first.'));
   check('…no networked printer: this device’s print dialog with the same slip', ask.includes('if (r.doc && printHere(r.doc))') && ask.includes("w.document.write(renderHtml(doc, { font: PRINT_FONT_STACK, fontHref: PRINT_FONT_HREF }))"));
-  check('…text and email send the private link', ask.includes("receiptCall({ tenantId, receiptId, action: 'send', channel: way, to: to.trim() })") && ask.includes('It sends a private link to the full receipt.'));
+  check('…text and email send the private link', ask.includes("await ask({ action: 'send', channel: way, to: to.trim() })") && ask.includes('It sends a private link to the full receipt.'));
   const page = src('src/app/(app)/counter/page.tsx');
   check('…paid already (asked again): nothing prints or opens by itself', ask.includes('if (later || !auto || started.current || !setup) return;') && page.includes('auto={slip.auto !== false}'));
   check('the counter: the receipt after cash (with the change), the card machine and the reader', page.includes("if (!d.paidOtherwise) setSlip({ orderId: order.id, title: titleOf(order), cash: (d.payMethod || method) === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });")
@@ -211,7 +211,7 @@ const order = (x: any = {}) => ({ number: 'C14', channel: 'counter', status: 'se
   check('…shown above the order, with the lane’s setting', page.includes('<ReceiptAsk key={`${slip.orderId}${slip.later ? \'-later\' : \'\'}`} tenantId={tenantId} receiptId={`co_${slip.orderId}`}') && page.includes('setup={lane?.receipt || null}'));
   check('…Waiting: Receipt again (not an app’s order or a staff meal), nothing printed by itself', page.includes("{o && !o.app?.code && o.paidAt && !o.staffMeal && <button") && page.includes('later: true })} className'));
   const ts = src('src/components/pos/desk/TodaysSales.tsx');
-  check('Today’s sales: Print on this screen’s receipt printer; a counter sale isn’t voided there', ts.includes("printReceipt(tenantId, String(r.id), { printerId: savedReceiptPrinter() || null })") && ts.includes("x.source === 'counter' && <p") && ts.includes("x.source === 'planner' || x.source === 'counter')"));
+  check('Today’s sales: Print on this screen’s receipt printer; a counter sale isn’t voided there', ts.includes("printReceipt(deskCall(tenantId, String(r.id)), { printerId: savedReceiptPrinter() || null })") && ts.includes("x.source === 'counter' && <p") && ts.includes("x.source === 'planner' || x.source === 'counter')"));
   const rp = src('src/app/r/[tenantId]/[id]/page.tsx');
   check('the receipt page: the order and where', rp.includes("r.orderNumber && row('Order', `${r.channelName ? `${r.channelName} ` : ''}${r.orderNumber}`)"));
   const sp = src('src/app/(app)/settings/printers/page.tsx');

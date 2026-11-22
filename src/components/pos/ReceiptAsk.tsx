@@ -39,9 +39,14 @@ export function printHere(doc: PrintDoc): boolean {
   } catch { return false; }
 }
 
+/** How a screen asks about a receipt: signed in (api/receipts), or a lane screen with its own key (api/counter
+ *  'receipt'). The same actions either way (lib/receipt-actions-server). */
+export type ReceiptCall = (body: { action: 'link' | 'print' | 'drawer' | 'send'; [k: string]: unknown }) => Promise<any>;
+export const deskCall = (tenantId: string, receiptId: string): ReceiptCall => (x) => receiptCall({ tenantId, receiptId, ...x });
+
 /** Prints a receipt: on the receipt printer picked (or the only one), or here when there's none. The words to show. */
-export async function printReceipt(tenantId: string, receiptId: string, o: { printerId?: string | null; drawer?: boolean } = {}): Promise<{ ok: boolean; text: string; drawer?: boolean }> {
-  const r: any = await receiptCall({ tenantId, receiptId, action: 'print', ...(o.printerId ? { printerId: o.printerId } : {}), ...(o.drawer ? { drawer: true } : {}) });
+export async function printReceipt(call: ReceiptCall, o: { printerId?: string | null; drawer?: boolean } = {}): Promise<{ ok: boolean; text: string; drawer?: boolean }> {
+  const r: any = await call({ action: 'print', ...(o.printerId ? { printerId: o.printerId } : {}), ...(o.drawer ? { drawer: true } : {}) });
   if (!r?.ok) return { ok: false, text: r?.error || 'The receipt didn’t print. Try again.' };
   const drawer = r.drawer === true; const opened = drawer ? ' The drawer opened.' : '';
   if (r.printer) return { ok: true, text: `Printing on ${r.printer}.${opened}`, drawer };
@@ -61,10 +66,13 @@ type Props = {
   later?: boolean;
   /** false: nothing by itself (a sale that was already paid, asked again): Print opens the drawer only if it hasn't been. */
   auto?: boolean;
+  /** A lane screen with its own key asks through api/counter (deskCall otherwise). */
+  call?: ReceiptCall;
   onClose: () => void;
 };
 
-export function ReceiptAsk({ tenantId, receiptId, title, cash, change, setup, later, auto = true, onClose }: Props) {
+export function ReceiptAsk({ tenantId, receiptId, title, cash, change, setup, later, auto = true, call, onClose }: Props) {
+  const ask: ReceiptCall = call || deskCall(tenantId, receiptId);
   const printers = setup?.printers || [];
   const [printerId, setPrinterId] = useState(savedReceiptPrinter);
   const printer = printers.find((p) => p.id === printerId) || (printers.length === 1 ? printers[0] : null);
@@ -77,14 +85,14 @@ export function ReceiptAsk({ tenantId, receiptId, title, cash, change, setup, la
   const print = async (withDrawer: boolean) => {
     if (printers.length > 1 && !printer) { say('Pick this screen’s receipt printer first.', 'warn'); return; }
     setBusy('print');
-    const r = await printReceipt(tenantId, receiptId, { printerId: printer?.id || null, drawer: withDrawer && !drawerOpened.current });
+    const r = await printReceipt(ask, { printerId: printer?.id || null, drawer: withDrawer && !drawerOpened.current });
     setBusy(null); if (r.drawer) drawerOpened.current = true;
     if (r.ok) setDone(true);
     say(r.text, r.ok ? 'good' : 'warn');
   };
   const openDrawer = async () => {
     setBusy('drawer');
-    const r: any = await receiptCall({ tenantId, receiptId, action: 'drawer', ...(printer?.drawer ? { printerId: printer.id } : {}) });
+    const r: any = await ask({ action: 'drawer', ...(printer?.drawer ? { printerId: printer.id } : {}) });
     setBusy(null);
     if (r?.ok) { drawerOpened.current = true; say('The drawer opened.', 'good'); } else say(r?.error || 'The drawer didn’t open. Open it with its key.', 'warn');
   };
@@ -98,7 +106,7 @@ export function ReceiptAsk({ tenantId, receiptId, title, cash, change, setup, la
   const okTo = way === 'sms' ? to.replace(/\D/g, '').length >= 10 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim());
   const sendIt = async () => {
     if (!way || !okTo) return; setBusy('send');
-    const r: any = await receiptCall({ tenantId, receiptId, action: 'send', channel: way, to: to.trim() });
+    const r: any = await ask({ action: 'send', channel: way, to: to.trim() });
     setBusy(null);
     if (r?.ok) { say(`Sent to ${to.trim()}.`, 'good'); setDone(true); setWay(null); setTo(''); } else say(r?.error || 'It didn’t send. Check it and try again.', 'warn');
   };

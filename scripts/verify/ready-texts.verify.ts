@@ -148,7 +148,7 @@ const ago = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
     && /const textTo = b\.textMe === true && phone && readyTextsOn\(tenant\) \? toE164\(phone\) : null;/.test(ahead) && /text: !!textTo(, \.\.\.\(deliv \? [^\n]*\))? \}\);/.test(ahead) && /readyText: \{ to: textTo, last4: lastFour\(textTo\), via: 'ahead'/.test(ahead));
   check('the order’s page shows it, and can put the same order together again (what was picked comes with each line)', /text: readyTextView\(or\), texts: readyTextsOn\(tenant\)/.test(ahead) && /itemId: String\(l\.itemId \|\| ''\), picks: picksOf\(l\.choices\)/.test(ahead));
   const counterApi = src('src/app/api/counter/route.ts');
-  check('the counter: its own line’s orders only, kept on record, shown on the order and the waiting list', (counterApi.match(/'staffMeal', 'readyText'(, 'merged')?(, 'lineClear')?(, 'deliveryOut', 'deliveryDone', 'deliveryFailed'(, 'delivery[A-Za-z]+')*)?(, 'appSoldOut')?(, 'appStart', 'appSend', 'appCode', 'appCancel'|, 'appSend', 'appCode', 'appCancel')?(, 'laterCancel')?(, 'laterSend')?\]\.includes\(action\)/g) || []).length === 2
+  check('the counter: its own line’s orders only, kept on record, shown on the order and the waiting list', (counterApi.match(/'staffMeal', 'readyText'(, 'merged')?(, 'lineClear')?(, 'deliveryOut', 'deliveryDone', 'deliveryFailed'(, 'delivery[A-Za-z]+')*)?(, 'appSoldOut')?(, 'appStart', 'appSend', 'appCode', 'appCancel'|, 'appSend', 'appCode', 'appCancel')?(, 'laterCancel')?(, 'laterSend')?(, 'receipt')?\]\.includes\(action\)/g) || []).length === 2
     && /action: 'counter\.ready_text'/.test(counterApi) && /text: readyTextView\(o\) \?/.test(counterApi) && /texts: readyTextsOn\(tenant\)(, lanes: [^}]+)? \}/.test(counterApi));
   const menuApi = src('src/app/api/menu/route.ts'), menuPage = src('src/app/(app)/menu/page.tsx');
   check('the Menu page switches it on or off for the business (offered only where texting is set up)', /if \(typeof b\.readyTexts === 'boolean'\)/.test(menuApi) && /readyTexts: \{ off: !b\.readyTexts \}/.test(menuApi) && /readyTexts: smsConfigured\(\) \? td\.readyTexts\?\.off !== true : null/.test(menuApi)
@@ -158,7 +158,7 @@ const ago = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
   const kp = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx');
   check('kiosk: Text me when it’s ready after paying, a number pad, one text; it waits while they type and forgets it after',
     /menu\?\.texts && placed\?\.orderId && key && <button[^\n]*>Text me when it’s ready<\/button>/.test(kp) && /function TextMe/.test(kp) && /aria-label="Number pad"/.test(kp) && /One text, just for this order\./.test(kp)
-    && /texting \? now - touched\.current > IDLE_MS : now - paidAt\.current > PAID_MS/.test(kp) && /setTexting\(false\); setTexted\(null\);/.test(kp));
+    && /setTexting\(false\); setTexted\(null\);/.test(kp) && /texting \|\| receipting \? now - touched\.current > IDLE_MS : now - paidAt\.current > PAID_MS/.test(kp));
   const op = src('src/app/order/[tenantId]/page.tsx');
   check('ordering ahead: Text me when it’s ready is a box they tick (never ticked for them the first time), with the phone',
     /const \[textMe, setTextMe\] = React\.useState\(false\);/.test(op) && /setTextMe\(read\('cf\.ahead\.textMe'\) === '1'\)/.test(op) && /Text me when \{way === 'delivery' \? 'it’s on its way' : 'it’s ready'\}<\/label>/.test(op) && /Add your mobile number for the text, or untick Text me when \$\{deliver \? 'it’s on its way' : 'it’s ready'\}\./.test(op)

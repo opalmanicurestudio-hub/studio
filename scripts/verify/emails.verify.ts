@@ -128,7 +128,8 @@ M._load = function (request: string, ...rest: any[]) {
   ok(/codeLabel: 'Your check-in code'/.test(book) && /r\.shortCode && studioVisit/.test(book), 'the check-in code only for visits at the business');
   const rem = src('src/app/api/cron/reminders/route.ts');
   ok(/eyebrow: depositDue \? 'Deposit needed' : daysBefore === 0 \? 'Today' : daysBefore === 1 \? 'Tomorrow' : 'Coming up'/.test(rem) && /`\$\{depositDue \? 'Held for you' : 'See you'\} \$\{dayWord\} at`/.test(rem) && /label: 'Running late', url: `\$\{link\}\?do=late`/.test(rem), 'the reminder: "See you tomorrow at 3:30 PM", running late a tap away');
-  const rec = src('src/app/api/receipts/route.ts');
+  // (Sending a receipt lives in lib/receipt-actions-server: api/receipts and the counter's lanes both use it.)
+  const rec = src('src/lib/receipt-actions-server.ts');
   ok(/eyebrow: 'Receipt', title: first === 'there' \? 'Thanks for coming in' : 'Thanks for coming in,'/.test(rec) && /label: 'Total', value: \$\(r\.total\), strong: true/.test(rec) && /label: 'Book again'/.test(rec), 'the receipt: thanks, the rows with the total, book again');
   ok(!/Tax \(7%\)/.test(src('src/app/api/notifications/send-receipt/route.ts')) && /brandedEmailHtml\(\{ studioName: r\.studioName/.test(src('src/app/api/notifications/send-receipt/route.ts')), 'the cash receipt uses the same shell, and never claims a tax rate');
   ok(/confirmed \? \(where \|\| addressFor\(true\)\) : addressFor\(false\)/.test(book), 'a request or a held time never sends the video link, call-in number or home address before it’s confirmed');

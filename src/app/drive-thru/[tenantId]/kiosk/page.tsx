@@ -113,6 +113,53 @@ function TextMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: st
   );
 }
 
+/** "Get a receipt" (design board "Receipts at the counter"; api/kiosk 'receipt'): a text or an email with a private link
+ *  to the full receipt, for the order just paid here. What's typed is never kept on the kiosk. */
+function ReceiptMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: string; kioskKey: string; orderId: string; onDone: (words: string) => void; onClose: () => void }) {
+  const A = React.useContext(Accent);
+  const [way, setWay] = React.useState<'sms' | 'email'>('sms');
+  const [digits, setDigits] = React.useState(''); const [email, setEmail] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const press = (k: string) => { setErr(''); setDigits((d) => (k === 'back' ? d.slice(0, -1) : k === 'clear' ? '' : d.length >= 10 ? d : d + k)); };
+  const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const ready = way === 'sms' ? digits.length === 10 : okEmail;
+  const send = async () => {
+    if (!ready) return; setBusy(true); setErr('');
+    const { d } = await call({ action: 'receipt', tenantId, key: kioskKey, orderId, channel: way, to: way === 'sms' ? digits : email.trim() });
+    setBusy(false);
+    if (d.ok) onDone(way === 'sms' ? `Your receipt was texted to ···${digits.slice(-4)}.` : 'Your receipt was emailed.'); else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  const tab = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: SOFT, color: INK });
+  return (
+    <Modal label="Get a receipt" onClose={onClose}>
+      <div className="space-y-4 p-6">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-[22px] font-semibold tracking-tight">Get a receipt</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: SOFT }}><X className="h-5 w-5" aria-hidden /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Send it by">
+          <button type="button" aria-pressed={way === 'sms'} onClick={() => { setWay('sms'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'sms')}>Text</button>
+          <button type="button" aria-pressed={way === 'email'} onClick={() => { setWay('email'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'email')}>Email</button>
+        </div>
+        {way === 'sms' ? <>
+          <p className="flex min-h-[60px] items-center justify-center rounded-2xl text-[28px] font-semibold tabular-nums" style={{ border: `1px solid ${LINE}` }}>
+            <output aria-live="polite">{digits ? phoneWords(digits) : <span className="text-[17px] font-normal" style={{ color: MUTED }}>Your mobile number</span>}</output></p>
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Number pad">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
+              <button key={k} type="button" onClick={() => press(k)} disabled={busy || ((k === 'back' || k === 'clear') && !digits) || (/\d/.test(k) && digits.length >= 10)}
+                aria-label={k === 'back' ? 'Delete the last digit' : k === 'clear' ? 'Clear the number' : undefined}
+                className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? 'Back' : k === 'clear' ? 'Clear' : k}</button>))}
+          </div>
+        </> : <label className="block text-[15px] font-semibold" style={{ color: MUTED }}>Your email
+          <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => { setErr(''); setEmail(e.target.value.slice(0, 120)); }} onKeyDown={(e) => { if (e.key === 'Enter') void send(); }}
+            className={`mt-2 block min-h-[60px] w-full rounded-2xl px-4 text-[20px] font-normal outline-none ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK, background: '#fff' }} /></label>}
+        {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
+        <button type="button" disabled={!ready || busy} onClick={send} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? 'Sending…' : 'Send my receipt'}</button>
+        <p className="text-center text-[14px]" style={{ color: MUTED }}>A link to your full receipt. Nothing is kept on this screen.</p>
+      </div>
+    </Modal>
+  );
+}
+
 function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
   const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [tried, setTried] = React.useState(false); const [note, setNote] = React.useState('');
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
@@ -197,6 +244,8 @@ export default function KioskScreen() {
   const [team, setTeam] = React.useState(false); const [leaving, setLeaving] = React.useState(false);
   // "Text me when it's ready" on the paid screen: the number pad open, and once asked, the last four digits.
   const [texting, setTexting] = React.useState(false); const [texted, setTexted] = React.useState<{ last4: string; sent: boolean } | null>(null);
+  // "Get a receipt" on the paid screen: the sheet open, and once sent, what to say.
+  const [receipting, setReceipting] = React.useState(false); const [receiptSent, setReceiptSent] = React.useState('');
   const touched = React.useRef(Date.now()); const paidAt = React.useRef(0); const orderKey = React.useRef(''); const checking = React.useRef(false);
 
   React.useEffect(() => { setKey(read(keyName(tenantId))); setReady(true); }, [tenantId]);
@@ -226,7 +275,7 @@ export default function KioskScreen() {
 
   const startOver = React.useCallback(() => {
     setCart([]); setName(''); setToGo(null); setAllergy(NO_ALLERGY); setPlaced(null); setPaying(null); setAfter(null); setOpen(null); setPassed([]); setOffered(false);
-    setErr(''); setAsk(null); setLeaving(false); setPaidName(''); setTexting(false); setTexted(null); orderKey.current = ''; setStep('start'); void loadMenu();
+    setErr(''); setAsk(null); setLeaving(false); setPaidName(''); setTexting(false); setTexted(null); setReceipting(false); setReceiptSent(''); orderKey.current = ''; setStep('start'); void loadMenu();
   }, [loadMenu]);
   // Let the order go (the reader stops asking; what it held goes back): a card approved at that moment is kept.
   const letGo = React.useCallback(async (then: 'start' | 'review') => {
@@ -249,7 +298,7 @@ export default function KioskScreen() {
       setTick((n) => n + 1);
       const now = Date.now();
       // (Typing a number for a text: it waits while they type, and starts over if they walk away mid-number.)
-      if (step === 'paid') { if (texting ? now - touched.current > IDLE_MS : now - paidAt.current > PAID_MS) startOver(); return; }
+      if (step === 'paid') { if (texting || receipting ? now - touched.current > IDLE_MS : now - paidAt.current > PAID_MS) startOver(); return; }
       if (step === 'start' || open || team) return;
       const limit = step === 'pay' ? PAY_IDLE_MS : IDLE_MS;
       if (ask === null) { if (now - touched.current > limit) setAsk(now); return; }
@@ -436,6 +485,8 @@ export default function KioskScreen() {
         <p className="mt-6 text-[18px] leading-relaxed" style={{ color: MUTED }}>We’ll call your number when it’s ready.</p>
         {texted ? <p className="mt-3 text-[17px] font-medium" style={{ color: GREEN }} role="status">{texted.sent ? `It’s ready. We just texted ···${texted.last4}.` : `We’ll text ···${texted.last4} when it’s ready.`}</p>
           : menu?.texts && placed?.orderId && key && <button type="button" onClick={() => setTexting(true)} className={`${btn} mt-5 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>Text me when it’s ready</button>}
+        {receiptSent ? <p className="mt-3 text-[17px] font-medium" style={{ color: GREEN }} role="status">{receiptSent}</p>
+          : placed?.orderId && key && <button type="button" onClick={() => { touched.current = Date.now(); setReceipting(true); }} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>Get a receipt</button>}
         <button type="button" onClick={startOver} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>Done</button>
         <p className="mt-3 text-[14px]" style={{ color: MUTED }}>This screen starts over in a few seconds.</p>
       </div>
@@ -443,6 +494,11 @@ export default function KioskScreen() {
         <Accent.Provider value={A}>
           <TextMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} onClose={() => setTexting(false)}
             onDone={(last4, sent) => { setTexted({ last4, sent }); setTexting(false); paidAt.current = Date.now(); }} />
+        </Accent.Provider>)}
+      {receipting && placed?.orderId && key && (
+        <Accent.Provider value={A}>
+          <ReceiptMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} onClose={() => setReceipting(false)}
+            onDone={(words) => { setReceiptSent(words); setReceipting(false); paidAt.current = Date.now(); }} />
         </Accent.Provider>)}
     </main>);
 

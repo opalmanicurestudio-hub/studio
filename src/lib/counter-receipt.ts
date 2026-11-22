@@ -54,6 +54,8 @@ export function counterReceipt(o: any, orderId: string): any {
     refunds: refundCents > 0 ? [{ cents: refundCents, reason: o?.ahead?.delivery?.state === 'refunded' ? 'Delivery refunded' : clip(o?.voidReason, 80) || null }] : [],
     voided, voidedAt: voided ? String(o?.voidedAt || o?.refundedAt || '') || null : null, voidReason: voided ? clip(o?.voidReason, 120) || (refundCents ? 'Refunded' : null) : null,
     voidRefunded: voided && refundCents > 0, locationId: o?.locationId || null,
+    // (Cash walked down the line into a person's pouch: never the drawer's.)
+    inPouch: o?.cashInPouch === true,
   };
 }
 

@@ -32,6 +32,7 @@ import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
+import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -71,7 +72,9 @@ type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceN
 const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
 type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
-  merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean };
+  merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean;
+  /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
+  receipt?: ReceiptSetup };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -285,6 +288,9 @@ export default function DriveThru() {
   const [spotOpen, setSpotOpen] = useState(false);
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
+  // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
+  // down the line goes into a pouch, not the drawer, so it never opens the drawer.
+  const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   // Rewards: the phone number being typed in for this order, and whether they're being asked to join.
   const [pointsOpen, setPointsOpen] = useState(false);
   // The member on the order shown, when it was given by their rewards code: their balance and what they can use on it.
@@ -526,6 +532,7 @@ export default function DriveThru() {
   const pouchCash = role === 'line';
   const paid = (method: 'card' | 'cash', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}), ...(method === 'cash' && pouchCash ? { pouch: true } : {}) }, (d) => {
     const how = d.payMethod || method;
+    if (!d.paidOtherwise) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: how === 'cash' && !d.inPouch, change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
     const next = car?.inLine ? ' Ask them to pull up to the pickup window.' : '';
     setNotice({ text: (d.already ? 'It was paid already. ' : '') + (how === 'cash' ? (d.change > 0 ? `Paid in cash${d.inPouch ? ', into your pouch' : ''}. Give ${usd(d.change)} change.` : `Paid in cash${d.inPouch ? ', into your pouch' : ''}, no change.`) + (d.inDrawer === false && !d.inPouch ? ' No drawer is open, so it’s kept with the order for the count.' : '') : 'Paid by card.') + next, tone: 'good' });
     if (d.inPouch) void loadPouch();
@@ -536,10 +543,14 @@ export default function DriveThru() {
   const paidWords = (d: any) => (d.voided ? 'The order was voided, so the card isn’t charged.'
     : d.wrongAmount ? 'That card payment didn’t match the order’s total, so it was let go. Send it again.'
     : d.notKept || (d.already && d.payMethod && d.payMethod !== 'card') ? `It was paid already${d.payMethod === 'cash' ? ' in cash' : ''}, so the card isn’t charged.` : 'Paid by card.');
-  const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id }, (d) => { if (d.state === 'paid') setNotice({ text: paidWords(d), tone: 'good' }); });
+  const cardSlip = (d: any) => { if (order && d.state === 'paid' && !d.voided && !d.wrongAmount && !d.notKept && !(d.already && d.payMethod && d.payMethod !== 'card')) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: false, change: null, auto: !d.already }); };
+  const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id }, (d) => { if (d.state === 'paid') { setNotice({ text: paidWords(d), tone: 'good' }); cardSlip(d); } });
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => {
     setNotice(d.state === 'paid' ? { text: d.justWent ? 'The card went through just before it was stopped, so it’s paid.' : paidWords(d), tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
+    cardSlip(d);
   });
+  // A receipt, asked through this screen's own key (api/counter 'receipt').
+  const receiptVia = (orderId: string): ReceiptCall => async ({ action, ...rest }) => (await post({ ...rest, action: 'receipt', orderId, do: action })).d;
   const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
   // Scan to pay: a code for this order only; the guest pays on their own phone and it's marked paid by itself.
   const showPhone = () => order && act('phoneLink', { action: 'phoneLink', orderId: order.id }, async (d) => {
@@ -594,7 +605,7 @@ export default function DriveThru() {
       try {
         const { d } = await post({ action: 'cardCheck', orderId: id });
         if (!live) return;
-        if (d.ok && (d.state === 'paid' || d.voided || d.wrongAmount)) { setNotice({ text: paidWords(d), tone: d.wrongAmount ? 'warn' : 'good' }); load(); }
+        if (d.ok && (d.state === 'paid' || d.voided || d.wrongAmount)) { setNotice({ text: paidWords(d), tone: d.wrongAmount ? 'warn' : 'good' }); cardSlip(d); load(); }
         else if (d.ok && d.state !== 'on_reader') load();
       } catch { /* asked again */ } finally { asking = false; }
     };
@@ -868,6 +879,8 @@ export default function DriveThru() {
         </aside>
 
         <section aria-label={car ? `Car ${car.number}` : 'No car picked'} className="min-w-0">
+          {slip && <div className="mb-4"><ReceiptAsk key={`${slip.orderId}${slip.later ? '-later' : ''}`} tenantId={tenantId} receiptId={`co_${slip.orderId}`} title={slip.title} cash={slip.cash} change={slip.change} setup={lane?.receipt || null}
+            later={slip.later} auto={slip.auto !== false} call={receiptVia(slip.orderId)} onClose={() => setSlip(null)} /></div>}
           {!car || !order ? (
             <div className="flex h-full min-h-[320px] flex-col items-center justify-center gap-3 rounded-3xl bg-[#fff] p-8 text-center" style={{ border: `1px solid ${LINE}` }}>
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: SOFT }}><Car className="h-7 w-7" style={{ color: MUTED }} aria-hidden /></span>
@@ -1073,6 +1086,8 @@ export default function DriveThru() {
                             <button type="button" onClick={() => setSpotOpen(false)} className={btn} style={quiet}>Back</button>
                           </div>
                         )}
+                        {order.paidAt && order.payMethod !== 'staff' && order.payMethod !== 'app' && slip?.orderId !== order.id && (
+                          <button type="button" onClick={() => setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: false, change: null, later: true })} className={`${btn} w-full text-[15px]`} style={quiet}>Receipt</button>)}
                         {car.stage === 'forward' && (
                           <div className="space-y-3">
                             <p className="rounded-2xl px-4 py-3 text-[16px]" style={{ background: SOFT }}>Parked{car.spot ? ` in spot ${car.spot}` : ''}. Bring it out when it’s ready.</p>

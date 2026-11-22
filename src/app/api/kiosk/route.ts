@@ -6,6 +6,7 @@
 //   place { orderKey, lines, name, toGo } → the order, sent to the kitchen unpaid (its stock held), and its number
 //   pay / check / cancel { orderId }  → the card on this kiosk's reader; paid, the kitchen has it; canceled, it's let go
 //   textMe { orderId, phone }         → "Text me when it's ready" for the order just paid here (lib/ready-text)
+//   receipt { orderId, channel: 'sms'|'email', to } → "Get a receipt": its private link sent to what the guest typed
 //   readers / setReader { pin?, readerId } → a manager (signed in, or their PIN) picks this kiosk's card reader
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -16,11 +17,11 @@ import { screenOf } from '@/lib/screen-keys';
 import { requireRole } from '@/lib/route-guard';
 import { listReaders } from '@/lib/counter-card';
 import { logAuditAdmin } from '@/lib/audit';
-import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, kioskTextMe, managerByPin } from '@/lib/kiosk';
+import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, kioskTextMe, kioskReceipt, managerByPin } from '@/lib/kiosk';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const READER = /^tmr_[A-Za-z0-9]{4,60}$/;
-const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'textMe', 'readers', 'setReader'];
+const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'textMe', 'receipt', 'readers', 'setReader'];
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
 const bad = (error: string, status = 400, extra: any = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 const answer = (r: any) => (r?.ok ? ok(r) : bad(r?.error || 'That didn’t go through. Try again.', r?.status || 500, r?.code ? { code: r.code } : {}));
@@ -55,6 +56,11 @@ export async function POST(req: NextRequest) {
       // Each text costs the business something, so a kiosk can ask for only so many an hour.
       const slow = await limitPublic(req, 'kiosk_text', tenantId, { perHour: 120, perDay: 1500 }); if (slow) return slow;
       return answer(await kioskTextMe(db, tenantId, tenant, screen, b.orderId, b.phone));
+    }
+    if (action === 'receipt') {
+      // Each one sent costs the business something too: so many an hour.
+      const slow = await limitPublic(req, 'kiosk_receipt', tenantId, { perHour: 120, perDay: 1500 }); if (slow) return slow;
+      return answer(await kioskReceipt(db, tenantId, screen, b.orderId, b.channel, b.to, req.nextUrl.origin));
     }
 
     // readers / setReader: a manager only, signed in here or with their PIN typed on the kiosk.

@@ -14,7 +14,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GR
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Line = { name: string; quantity: number; choicesText: string | null; price: number; imageUrl: string | null };
-type View = { ok: true; paid: boolean; business: string; number: string; name: string | null; lines: Line[]; subtotal: number; tax: number; total: number; clientSecret?: string; publishableKey?: string; stripeAccount?: string };
+type View = { ok: true; paid: boolean; receiptUrl?: string | null; business: string; number: string; name: string | null; lines: Line[]; subtotal: number; tax: number; total: number; clientSecret?: string; publishableKey?: string; stripeAccount?: string };
 
 async function call(body: any) {
   try { const r = await fetch('/api/counter/pay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, d: await r.json().catch(() => ({})) }; }
@@ -80,6 +80,7 @@ export default function DriveThruPay() {
       <p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Paid</p>
       <p className="text-[26px] font-semibold leading-tight tracking-tight">Thank you{v.name ? `, ${v.name}` : ''}</p>
       <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Pull up to the window when it’s your turn. Your order is <b className="font-semibold" style={{ color: INK }}>{v.number}</b>.</p>
+      {v.receiptUrl && <a href={v.receiptUrl} className={`mx-auto inline-flex min-h-[44px] items-center rounded-xl px-5 text-[15px] font-semibold ${RING}`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>See your receipt</a>}
       <p className="text-[14px]" style={{ color: MUTED }}>{v.business}</p>
     </div>);
   return shell(
@@ -112,7 +113,7 @@ export default function DriveThruPay() {
       <section aria-label="Pay" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         {v.clientSecret && v.publishableKey ? (
           <Elements stripe={stripeFor(v.publishableKey, v.stripeAccount)} options={{ clientSecret: v.clientSecret, appearance: { theme: 'stripe', variables: { colorPrimary: INK, borderRadius: '14px', fontSizeBase: '16px', fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' } } }}>
-            <PayForm total={v.total} link={link} onPaid={() => setPaid(true)} />
+            <PayForm total={v.total} link={link} onPaid={() => { setPaid(true); void call({ action: 'view', ...link }).then(({ d }) => { if (d.ok) setV(d); }); }} />
           </Elements>
         ) : <p className="text-[15px]" style={{ color: MUTED }}>Card payments aren’t set up here yet. Pay at the window.</p>}
       </section>

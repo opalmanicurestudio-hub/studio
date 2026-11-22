@@ -11,7 +11,7 @@ import { useFirebase } from '@/firebase';
 import { DESK_CSS, Btn, Seg, deskAccent } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
 import { pageAccent } from '@/lib/studio-page';
-import { printReceipt, savedReceiptPrinter } from '@/components/pos/ReceiptAsk';
+import { deskCall, printReceipt, savedReceiptPrinter } from '@/components/pos/ReceiptAsk';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: string }) {
@@ -139,7 +139,7 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                     </div>}
                     <div className="flex flex-wrap gap-1.5">
                       {r && <Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>}
-                      {r && !r.voided && <Btn quiet disabled={printing === r.id} onClick={async () => { setPrinting(r.id); setPrinted(null); const p = await printReceipt(tenantId, String(r.id), { printerId: savedReceiptPrinter() || null }); setPrinting(null); setPrinted({ id: String(r.id), text: p.text, ok: p.ok }); }}>{printing === r.id ? 'Printing…' : 'Print'}</Btn>}
+                      {r && !r.voided && <Btn quiet disabled={printing === r.id} onClick={async () => { setPrinting(r.id); setPrinted(null); const p = await printReceipt(deskCall(tenantId, String(r.id)), { printerId: savedReceiptPrinter() || null }); setPrinting(null); setPrinted({ id: String(r.id), text: p.text, ok: p.ok }); }}>{printing === r.id ? 'Printing…' : 'Print'}</Btn>}
                       {r && !r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
                       {(() => { const aid = x.lines.map((t: any) => t.appointmentId).find(Boolean); return aid ? <Btn quiet onClick={() => openVisit(String(aid))}>Visit ticket</Btn> : null; })()}
                       {(() => { const oid = x.source === 'order' ? x.lines.map((t: any) => t.retailOrderId).find(Boolean) : null; return oid ? <Btn quiet onClick={() => { window.location.href = `/retail-orders?order=${encodeURIComponent(String(oid))}`; }}>Open the order</Btn> : null; })()}

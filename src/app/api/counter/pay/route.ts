@@ -4,6 +4,7 @@
 //                             or that it's paid
 //   done { tenantId, o, s } → after the form says it went through: the order is paid by it (asked of the card company,
 //                             never taken from the page)
+// Paid on this phone: its receipt's private link too (lib/receipt-actions-server), so the guest keeps it.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
@@ -12,6 +13,16 @@ export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const reply = (body: any, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+/** The receipt's private link, for an order paid on the guest's own phone (never one paid at the window). */
+async function receiptUrlOf(db: any, tenantId: string, orderId: string, origin: string): Promise<string | null> {
+  try {
+    const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
+    if (!o?.paidAt || o.paidVia !== 'phone') return null;
+    const { receiptAct } = await import('@/lib/receipt-actions-server');
+    const x = await receiptAct(db, tenantId, `co_${orderId}`, 'link', {}, { name: 'Paid on their phone' }, origin);
+    return x.body?.ok ? String(x.body.url) : null;
+  } catch { return null; }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +33,11 @@ export async function POST(req: NextRequest) {
     if (!phoneSigOk(tenantId, orderId, b.s)) return reply({ ok: false, error: 'This link doesn’t work. Ask at the window for a new one.' }, 404);
     const slow = await limitPublic(req, 'drive_thru_pay', tenantId, { perHour: 600, perDay: 6000 }); if (slow) return slow;
     const db = getAdminDb();
-    if (action === 'view') { const r: any = await phoneView(db, tenantId, orderId, b.s); return reply(r, r.ok ? 200 : r.status); }
+    if (action === 'view') {
+      const r: any = await phoneView(db, tenantId, orderId, b.s);
+      if (r.ok && r.paid) { const url = await receiptUrlOf(db, tenantId, orderId, req.nextUrl.origin); if (url) r.receiptUrl = url; }
+      return reply(r, r.ok ? 200 : r.status);
+    }
     // done: whatever the page says, it's the card company that's asked.
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();

@@ -204,6 +204,22 @@ export async function kioskTextMe(db: any, tenantId: string, tenant: any, screen
   return askReadyText(db, tenantId, tenant, or.id, phone, 'kiosk');
 }
 
+/** "Get a receipt" for the order just paid here (design board "Receipts at the counter"): its private link, texted or
+ *  emailed to what the guest types in (lib/receipt-actions-server). Only this kiosk's order, within half an hour of
+ *  paying; the link itself is never shown on the kiosk. */
+export async function kioskReceipt(db: any, tenantId: string, screen: Screen, orderId: unknown, channel: unknown, to: unknown, origin: string): Promise<any> {
+  const or = await ownOrder(db, tenantId, screen, orderId); if (!or) return fail('That order isn’t this kiosk’s.', 404);
+  if (!or.paidAt || Date.now() - (Date.parse(String(or.paidAt)) || 0) > 30 * 60000) return fail('That order is done here. Ask at the counter.', 409, 'closed');
+  // (A few at most for one order: a guest who mistyped tries again; nobody sends a stranger a stream of them.)
+  if ((Array.isArray(or.receiptSends) ? or.receiptSends : []).length >= 3) return fail('Your receipt was already sent. Ask at the counter if you need another.', 429, 'enough');
+  const ch = channel === 'email' ? 'email' : 'sms'; const t = String(to ?? '').trim().slice(0, 120);
+  if (ch === 'sms' && t.replace(/\D/g, '').length !== 10) return fail('Ten digits, please.', 400);
+  if (ch === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) return fail('That email doesn’t look right. Check it and try again.', 400);
+  const { receiptAct } = await import('@/lib/receipt-actions-server');
+  const x = await receiptAct(db, tenantId, `co_${or.id}`, 'send', { channel: ch, to: t }, { name: screen.name, guest: true }, origin);
+  return x.body?.ok ? { ok: true } : fail(x.body?.error || 'It didn’t send. Try again.', x.status || 502);
+}
+
 /** The guest canceled (or walked away, or the next guest started): the reader stops asking and the order is let go. A
  *  card approved at that very moment is kept: it pays for the order, and the guest is told it's paid. */
 export async function kioskCancel(db: any, tenantId: string, tenant: any, screen: Screen, orderId: unknown, o: { stripe?: any } = {}): Promise<any> {
