@@ -16,7 +16,7 @@ export const counterReceiptId = (orderId: string) => `co_${orderId}`;
  *  marked so (counterReceipt). */
 export const hasReceipt = (o: any) => !!o?.paidAt && o.payMethod !== 'staff' && o.payMethod !== 'app';
 
-const METHOD: Record<string, string> = { cash: 'cash', card: 'card' };
+const METHOD: Record<string, string> = { cash: 'cash', card: 'card', split: 'split', gift_card: 'gift_card', store_credit: 'store_credit' };
 
 /** The order as a receipt (the front desk's shape), with the key its private page asks for. */
 export function counterReceipt(o: any, orderId: string): any {
@@ -58,7 +58,10 @@ export function counterReceipt(o: any, orderId: string): any {
     change: method === 'cash' && o?.changeGiven != null ? r2(num(o.changeGiven)) : null,
     detail: {
       lines, fees: fee > 0 ? [{ label: 'Delivery', amount: fee }] : [],
-      payments: [{ method, amount: r2(total - tip), tip }],
+      // (With a gift card or store credit, each part as it was paid: lib/counter-money.)
+      payments: Array.isArray(o?.payments) && o.payments.length
+        ? o.payments.map((p: any) => ({ method: String(p.method || 'card'), amount: r2(num(p.amount)), ...(p.method === 'gift_card' ? { label: `Gift card ${clip(p.code, 12)}`.trim() } : p.method === 'store_credit' ? { label: 'Store credit' } : {}) }))
+        : [{ method, amount: r2(total - tip), tip }],
     },
     refunds: refundCents > 0 ? [{ cents: refundCents, reason: o?.ahead?.delivery?.state === 'refunded' ? 'Delivery refunded' : clip(o?.voidReason, 80) || null }] : [],
     voided, voidedAt: voided ? String(o?.voidedAt || o?.refundedAt || '') || null : null, voidReason: voided ? clip(o?.voidReason, 120) || (refundCents ? 'Refunded' : null) : null,
@@ -73,6 +76,7 @@ export function counterSaleRow(o: any, orderId: string): any {
   const r = counterReceipt(o, orderId);
   // (Part of it refunded: what was kept.)
   const kept = r.voided ? r.total : r2(r.total - (r.refunds[0]?.cents || 0) / 100);
+  const split = r.detail.payments.length > 1 || r.detail.payments.some((p: any) => p.method === 'gift_card' || p.method === 'store_credit');
   return { id: r.id, source: 'counter', orderNumber: r.orderNumber, channelName: r.channelName, date: r.date, total: kept, tip: r.tip, clientName: r.clientName, clientId: null, paidBy: null,
-    paymentMethod: r.paymentMethod, payments: null, voided: r.voided, voidReason: r.voidReason };
+    paymentMethod: split ? 'split' : r.paymentMethod, payments: split ? r.detail.payments.map((p: any) => ({ method: p.method, amount: p.amount, tip: 0, payerName: null })) : null, voided: r.voided, voidReason: r.voidReason };
 }

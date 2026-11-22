@@ -266,7 +266,12 @@ export function receiptDoc(r: any, o: { business: string; address?: string | nul
   if (n(r?.tax) > 0) blocks.push({ k: 'money', left: String(r?.taxLabel || 'Tax'), right: money(n(r.tax)) });
   if (n(r?.tip) > 0) blocks.push({ k: 'money', left: r?.keptChange ? 'Tip, kept the change' : 'Tip', right: money(n(r.tip)) });
   blocks.push({ k: 'money', left: 'Total', right: money(n(r?.total)), bold: true });
-  if (String(r?.paymentMethod) === 'cash') {
+  // (Part with a gift card or store credit: each part, then the cash handed over for the rest.)
+  const parts = Array.isArray(D.payments) ? D.payments : [];
+  if (parts.some((p: any) => p?.method === 'gift_card' || p?.method === 'store_credit')) {
+    for (const p of parts) blocks.push({ k: 'money', left: p.label ? String(p.label) : p.method === 'cash' ? 'Cash' : p.method === 'card' ? 'Card' : 'Paid', right: money(n(p.amount)) });
+    if (String(r?.paymentMethod) === 'cash' && r?.amountTendered != null && n(r.amountTendered) > 0) blocks.push({ k: 'money', left: 'Cash handed over', right: money(n(r.amountTendered)) }, { k: 'money', left: 'Change', right: money(n(r.change)) });
+  } else if (String(r?.paymentMethod) === 'cash') {
     if (r?.amountTendered != null && n(r.amountTendered) > 0) blocks.push({ k: 'money', left: 'Cash', right: money(n(r.amountTendered)) }, { k: 'money', left: 'Change', right: money(n(r.change)) });
     else blocks.push({ k: 'money', left: 'Paid', right: 'Cash' });
   } else blocks.push({ k: 'money', left: 'Paid', right: String(r?.paymentMethod) === 'app' ? 'On the app' : 'Card' });

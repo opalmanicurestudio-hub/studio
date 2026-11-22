@@ -88,7 +88,7 @@ export default function ReceiptPage() {
           // The full receipt: every line and who did it, fees by reason, each discount, what was already paid, the tax,
           // each provider's share of the tip, every payment and the card used, and what's left on an account.
           const D = r.detail; const sub = (t: React.ReactNode) => <div className="rc-sub">{t}</div>;
-          const card = (x: any) => x.method === 'cash' ? 'Cash' : x.brand ? `${String(x.brand).replace(/^\w/, (c: string) => c.toUpperCase())} ••${x.last4 || ''}${x.wallet ? ` (${String(x.wallet).split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')})` : ''}` : x.method === 'card' || x.method === 'card_on_file' || x.method === 'terminal' ? 'Card' : String(x.method || 'Payment').replace(/_/g, ' ');
+          const card = (x: any) => x.label ? String(x.label) : x.method === 'cash' ? 'Cash' : x.brand ? `${String(x.brand).replace(/^\w/, (c: string) => c.toUpperCase())} ••${x.last4 || ''}${x.wallet ? ` (${String(x.wallet).split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')})` : ''}` : x.method === 'card' || x.method === 'card_on_file' || x.method === 'terminal' ? 'Card' : String(x.method || 'Payment').replace(/_/g, ' ');
           return (<>
             {(D.lines || []).map((l: any, i: number) => (
               <div key={i} className="rc-line">

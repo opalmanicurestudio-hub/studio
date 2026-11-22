@@ -124,7 +124,9 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
         const dtip = dl ? (dl.state === 'delivered' ? Math.max(0, num(o.tipCents)) / 100 : 0) : Math.max(0, num(o.tipCents)) / 100;
         const back = dl ? Math.max(0, num(dl.backCents)) / 100 : 0;
         return { at: String(o.paidAt), net: am ? am.appCents / 100 : num(o.subtotal ?? (num(o.total) - num(o.tax))), total: am ? (am.appCents + am.taxCents) / 100 : Math.round((num(o.total) - back) * 100) / 100,
-          tip: num(o.tip) + dtip, tax: am ? am.taxCents / 100 : num(o.tax), method: String(o.payMethod || 'other'), payments: null,
+          tip: num(o.tip) + dtip, tax: am ? am.taxCents / 100 : num(o.tax), method: String(o.payMethod || 'other'),
+          // (Part by gift card or store credit: each part under its own way of paying, lib/counter-money.)
+          payments: Array.isArray(o.payments) && o.payments.length ? o.payments.map((p: any) => ({ method: String(p.method || 'other'), amount: num(p.amount) })) : null,
           // (Its reward and its discount, by name: lib/counter-money.)
           offs: [...(o.reward && num(o.reward.cents) > 0 ? [{ label: 'Rewards', amount: num(o.reward.cents) / 100 }] : []),
             ...(o.markdown && num(o.markdown.cents) > 0 ? [{ label: o.markdown.custom ? 'Other amounts' : String(o.markdown.label || 'Discount').slice(0, 40), amount: num(o.markdown.cents) / 100, okBy: o.markdown.okBy || null }] : [])] }; }),

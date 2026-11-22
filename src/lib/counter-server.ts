@@ -24,6 +24,9 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
 import { TIP_MAX_CENTS } from '@/lib/counter-money';
+import { tendersOf, codeEnd } from '@/lib/counter-money';
+import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
+import { creditPlan, creditLine } from '@/lib/store-credit';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -483,7 +486,7 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   const T = `tenants/${tenantId}`; const nowIso = new Date().toISOString();
   if (!ID.test(orderId)) return { error: 'Which order?', status: 400 };
   const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
-  let gaveBack: string | null = null;
+  let gaveBack: string | null = null; let heldGifts: string[] = [];
   const res = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(orderRef)).data(); if (!o) return { error: 'That order is gone.', status: 404 };
     if (o.status === 'voided' || o.status === 'cancelled') return { ok: true, already: true, returned: 0, wasted: 0 };
@@ -609,6 +612,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     if (o.app?.code && ID.test(String(o.app.claimId || ''))) tx.delete(db.doc(`${T}/private/${o.app.claimId}`));
     // A reward held for it (never used: it wasn't paid) goes back to them.
     if (o.reward) { tx.delete(db.doc(`${T}/loyaltyLedger/redeem_counter_${orderId}`)); gaveBack = String(o.clientId || '') || null; }
+    // Gift cards set aside on it (never taken: it wasn't paid) are let go, below.
+    heldGifts = tendersOf(o).filter((t) => t.kind === 'gift').map((t: any) => String(t.giftCardId));
     // (A car with an order placed ahead going with it carries on to pickup with that: it was paid for.)
     if (car && car.stage !== 'gone' && car.orderId === orderId && ID.test(String(car.aheadId || ''))) tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { ...carryOn(car, nowIso), addOnVoided: true }, { merge: true });
     else if (car && car.stage !== 'gone') tx.set(db.doc(`${T}/driveThruCars/${o.carId}`), { stage: 'gone', goneAt: nowIso, left: true, voided: true, stageAt: { ...(car.stageAt || {}), gone: nowIso } }, { merge: true });
@@ -616,10 +621,11 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   });
   // (Their balance and wallet card show the reward back.)
   if (gaveBack && ID.test(gaveBack)) { try { const L = await import('@/lib/loyalty-server'); await L.refreshMember(db, tenantId, gaveBack); } catch { /* the ledger is right; the copy catches up */ } }
+  if ((res as any)?.ok) for (const g of heldGifts) if (ID.test(g)) await releaseHold(db, tenantId, g, `counter_${orderId}`).catch(() => null);
   return res;
 }
 
-export type PayHow = { method: 'card' | 'cash' | 'app'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string;
+export type PayHow = { method: 'card' | 'cash' | 'app' | 'tender'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string;
   /** Cash, and the guest kept the change: what was handed over is the total, the change the tip (lib/counter-money). */
   keepChange?: boolean };
 export type PayDone = { ok: true; already?: boolean; drawer?: boolean; pouch?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null; keptChange?: boolean; tipCents?: number };
@@ -647,6 +653,13 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     const unpaid = o.channel === 'kiosk' && !o.paidAt ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId))).docs.filter((d: any) => d.data()?.status === 'unpaid') : [];
     // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
     const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
+    // Gift cards set aside on it (lib/counter-money-server addTender), read in the same step: each is taken as it's paid.
+    const tenders = o.paidAt ? [] : tendersOf(o);
+    const giftReads: { giftCardId: string; ref: any; cur: any }[] = [];
+    for (const t of tenders) if (t.kind === 'gift') { const ref = db.doc(`${T}/giftCards/${t.giftCardId}`); giftReads.push({ giftCardId: t.giftCardId, ref, cur: (await tx.get(ref)).data() || null }); }
+    // Store credit set aside on it, read in the same step too: taken with the sale, or the payment stops (lib/store-credit).
+    const creditReads: { clientId: string; ref: any; cur: any }[] = [];
+    for (const t of tenders) if (t.kind === 'credit' && ID.test(t.clientId)) { const ref = db.doc(`${T}/clients/${t.clientId}`); creditReads.push({ clientId: t.clientId, ref, cur: (await tx.get(ref)).data() || {} }); }
     // Paid already (another tablet, or the first answer was lost): say how, and the change that was given.
     if (o.paidAt) {
       if (viaReader && o.cardPaymentId !== how.card!.id) return { ok: true, already: true, paidOtherwise: true, payMethod: o.payMethod || null };
@@ -661,13 +674,34 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // A pouch is only for cash taken in line, from a car that was taken there.
     if (how.pouch && method === 'cash' && !(car?.inLine === true || car?.wasInLine === true)) return { error: 'Cash goes in a pouch only for a car taken in line. Take it at the window.', status: 409 };
     let total = num(o.total); const subtotal = num(o.subtotal), tax = num(o.tax);
-    if (viaReader && Math.round(how.card!.cents) !== Math.round(total * 100)) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
-    if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
+    // What its gift cards and store credit cover (never past the total), and what's left for cash or the card.
+    const totalC0 = Math.round(total * 100); let room = totalC0;
+    const used = tenders.map((t) => { const c = Math.min(t.cents, room); room -= c; return { ...t, cents: c }; }).filter((t) => t.cents > 0);
+    const dueC = totalC0 - used.reduce((a, t) => a + t.cents, 0);
+    if (method === 'tender' && (dueC > 0 || !used.length)) return { error: `There’s still $${(dueC / 100).toFixed(2)} to pay. Take it by cash or card.`, status: 409, code: 'still_due' };
+    if (method !== 'tender' && used.length && dueC <= 0) return { error: 'The gift card or store credit covers all of it. Finish with it.', status: 409, code: 'covered' };
+    if (viaReader && Math.round(how.card!.cents) !== dueC) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
+    if (tendered !== null && Math.round(tendered * 100) < dueC) return { error: used.length ? `That’s less than what’s left ($${(dueC / 100).toFixed(2)}).` : `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
     // Kept the change: it's a tip, so the total is what was handed over (never a delivery's or an app's order).
-    const keptC = method === 'cash' && how.keepChange === true && tendered !== null && o.ahead?.way !== 'delivery' && !o.app?.code ? Math.max(0, Math.round(tendered * 100) - Math.round(total * 100)) : 0;
+    const keptC = method === 'cash' && how.keepChange === true && tendered !== null && o.ahead?.way !== 'delivery' && !o.app?.code ? Math.max(0, Math.round(tendered * 100) - dueC) : 0;
     // (Never more than the order itself, or the most a tip can be: a mistyped amount isn't booked as someone's tip.)
-    if (keptC > Math.min(TIP_MAX_CENTS, Math.round(total * 100))) return { error: 'That’s a lot to keep as a tip. Check what they handed over.', status: 400, code: 'tip_too_big' };
-    if (keptC) total = Math.round(tendered! * 100) / 100;
+    if (keptC > Math.min(TIP_MAX_CENTS, totalC0)) return { error: 'That’s a lot to keep as a tip. Check what they handed over.', status: 400, code: 'tip_too_big' };
+    if (keptC) total = (totalC0 + keptC) / 100;
+    // Each gift card taken now (lib/gift-cards giftSpendPlan: its hold for this order first). One that can't cover its
+    // part any more stops the payment, with nothing taken.
+    const plans = giftReads.map((g) => { const u = used.find((t) => t.kind === 'gift' && t.giftCardId === g.giftCardId);
+      return { ...g, plan: giftSpendPlan(g.cur ? { ...g.cur, id: g.ref.id } : null, null, { cents: u ? u.cents : 0, holdId: `counter_${orderId}`, by: how.by, transactionRef: `counter_${orderId}`, giftCardId: g.ref.id }) as any }; });
+    const short = plans.find((g) => !g.plan.ok); if (short) return { error: short.plan.error, status: 409, code: 'gift', tender: short.giftCardId };
+    // Their store credit, taken now: less than was set aside (used meanwhile somewhere else) stops the payment.
+    const credits = creditReads.map((c) => { const u = used.find((t) => t.kind === 'credit' && t.clientId === c.clientId);
+      return { ...c, cents: u ? u.cents : 0, plan: creditPlan(c.cur, (u ? u.cents : 0) / 100, { checkoutSessionId: `counter_${orderId}` }, Date.parse(nowIso)) }; });
+    // Still the member on the order, by their rewards code (someone else's number put on it meanwhile never spends theirs).
+    if (credits.some((c) => c.cents > 0 && (c.clientId !== o.clientId || o.points?.verified !== true))) return { error: 'Store credit is used with their rewards code. Take it off, or add their code again.', status: 409, code: 'credit', tender: 'credit' };
+    const lowCredit = credits.find((c) => c.cents > 0 && Math.round(c.plan.applied * 100) < c.cents);
+    if (lowCredit) return { error: `Their store credit changed: ${(Math.round(lowCredit.plan.applied * 100) / 100).toFixed(2) === '0.00' ? 'none is' : `$${lowCredit.plan.applied.toFixed(2)} is`} left. Take it off and set it aside again.`, status: 409, code: 'credit', tender: 'credit' };
+    // How it was paid: by cash or card, or with gift cards and store credit as well (or only).
+    const rest = dueC + keptC;
+    const payWord = !used.length ? method : rest > 0 ? 'split' : used.every((t) => t.kind === 'gift') ? 'gift_card' : used.every((t) => t.kind === 'credit') ? 'store_credit' : 'split';
     // Paid through a delivery app (lib/app-orders): only an app's order, and only once it's sent.
     if (method === 'app' && !o.app?.code) return { error: 'Only a delivery app’s order is paid on the app.', status: 409 };
     if (method !== 'app' && o.app?.code) return { error: `${appName(o.app)} is paid on the app. Hand it to the courier.`, status: 409 };
@@ -679,7 +713,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // (A week whose payout was already checked and its difference booked: counted in the next one, so the booked week
     // stays as it was. Read here, before anything is written.)
     for (let i = 0; viaApp && i < 3; i++) { const wk: any = (await tx.get(db.doc(`${T}/private/${appWeekId(appKey, week)}`))).data(); if (!wk?.adjustedAt) break; week = payoutWeek(new Date(Date.parse(`${week}T12:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10)); }
-    const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: method, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
+    const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: payWord, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
       ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}), ...(viaApp ? { appName: String(o.app.label || ''), appOrderCode: String(o.app.code || '') } : {}) };
     tx.set(saleRef, { id: saleRef.id, ...common, description: viaApp ? `${appName(o.app)} (paid out by the app, less its fees)` : `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: am ? am.appCents / 100 : subtotal,
       ...(am ? { appKey, appWeek: week, appMenuCents: am.menuCents, appFeeCents: am.feeCents, appTaxCents: am.taxCents, appPayoutCents: am.payoutCents } : {}) });
@@ -705,17 +739,31 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // A tip at the counter or the window (lib/counter-money): the one who took the payment's, shared from there by the
     // business's tip policy (lib/tip-share). With no name on the screen, it's kept with no one on it, for the owner.
     else if (tipC > 0) { const tipRef = db.doc(`${T}/transactions/ctip_${orderId}`); tx.set(tipRef, { id: tipRef.id, ...common, description: `Tip, ${CHANNEL_NAME[o.channel as Channel] || 'Counter'} ${o.number}${keptC ? ' (kept the change)' : ''}`, category: 'Tips', taxBucket: 'gratuity', amount: tipC / 100, staffId: how.byId || null, hasReceipt: false }); }
+    // The gift cards' new balances, and a bonus card's money as a discount it gave (as at the front desk).
+    for (const g of plans) if (g.plan.patch) tx.update(g.ref, g.plan.patch);
+    // (A gift card it didn't need after all, the order smaller now: its hold for this order is let go.)
+      else if (g.cur?.holds?.[`counter_${orderId}`]) tx.update(g.ref, { [`holds.counter_${orderId}`]: FieldValue.delete() });
+    for (const c of credits) if (c.plan.patch && c.cents > 0) {
+      tx.set(c.ref, c.plan.patch, { merge: true });
+      const cRef = db.doc(`${T}/transactions/counter_${orderId}_credit`);
+      tx.set(cRef, creditLine(tenantId, cRef.id, c.clientId, c.plan.applied, c.plan.ids, { checkoutSessionId: `counter_${orderId}`, by: how.by }, nowIso));
+    }
+    const bonusC = plans.filter((g) => g.cur?.promo === true).reduce((a, g) => a + Math.max(0, Math.round(num(g.plan.cents))), 0);
+    if (bonusC > 0) { const bRef = db.doc(`${T}/transactions/counter_${orderId}_giftbonus`); tx.set(bRef, { id: bRef.id, ...common, type: 'expense', category: 'Discounts', taxBucket: 'adjustment', description: `Gift card bonus used, ${CHANNEL_NAME[o.channel as Channel] || 'Counter'} ${o.number}`, clientOrVendor: 'Internal', paymentMethod: 'Internal', amount: bonusC / 100, hasReceipt: false, discountKind: 'gift_offer' }); }
     // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count); taken
-    // in line, it goes into that person's own pouch, counted as theirs for the day.
+    // in line, it goes into that person's own pouch, counted as theirs for the day. (Only the cash part, beside a gift
+    // card or store credit.)
     const pouch = method === 'cash' && how.pouch === true;
     const drawer = method === 'cash' && !pouch && till.length === 1 ? till[0].ref : null;
-    if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(total), totalCashSales: FieldValue.increment(total) }, { merge: true });
-    const change = tendered !== null ? Math.round((tendered - total) * 100) / 100 : null;
+    if (drawer) tx.set(drawer, { expectedCash: FieldValue.increment(rest / 100), totalCashSales: FieldValue.increment(rest / 100) }, { merge: true });
+    const change = tendered !== null ? Math.round(Math.round(tendered * 100) - rest) / 100 : null;
     // A reader payment started for it and not the one paying (declined, left, or the guest paid on their phone instead):
     // called off by the caller, so it can't go through later.
     const cardIsThis = viaReader && String(o.card?.id || '') === how.card!.id;
     const leftCard = o.card?.id && !cardIsThis && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
-    tx.set(orderRef, { paidAt: nowIso, payMethod: method, paidBy: how.by, tillId: drawer ? drawer.id : null,
+    tx.set(orderRef, { paidAt: nowIso, payMethod: method === 'tender' ? payWord : method, paidBy: how.by, tillId: drawer ? drawer.id : null,
+      // (With gift cards or store credit: each part, and what each covered.)
+      ...(used.length ? { tenders: used, payments: [...used.map((t) => ({ method: t.kind === 'gift' ? 'gift_card' : 'store_credit', amount: t.cents / 100, ...(t.kind === 'gift' ? { code: codeEnd(t.code) } : {}) })), ...(rest > 0 ? [{ method, amount: rest / 100 }] : [])] } : {}),
       // (Counted on the day it was taken, the business's day, whenever the car arrived.)
       ...(pouch ? { cashInPouch: true, pouchOpen: true, cashWith: how.by, cashWithId: how.byId || null, cashDay: how.day || o.day || null } : method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
       ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
@@ -738,8 +786,12 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null, ...(o.locationId ? { locationId: String(o.locationId) } : {}) }, { merge: true });
       tx.set(orderRef, { carId: carRef.id }, { merge: true });
     }
-    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard, keptChange: keptC > 0, tipCents: tipC };
+    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method === 'tender' ? payWord : method, cardId: leftCard, keptChange: keptC > 0, tipCents: tipC,
+      giftOwners: plans.filter((g) => g.plan.patch).map((g) => String(g.plan.patch.recipientId || '')).filter((x) => ID.test(x)) };
   });
+  // The guests' copies of their gift cards' balances (lib/gift-cards), as after any spend.
+  if (res?.ok && Array.isArray(res.giftOwners)) { for (const c of res.giftOwners) await syncClientGift(db, tenantId, c).catch(() => null); }
+  if (res?.ok) delete res.giftOwners;
   // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
   if (res?.ok && !res.already) { try { const P = await import('@/lib/counter-points'); await P.earnForOrder(db, tenantId, null, orderId); } catch (e: any) { console.error('[counter] points not earned', orderId, e?.message); } }
   return res;

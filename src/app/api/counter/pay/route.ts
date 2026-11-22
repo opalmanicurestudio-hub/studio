@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
-import { phoneSigOk, phoneView, settlePhone, NOT_KEPT } from '@/lib/counter-phone';
+import { phoneSigOk, phoneView, settlePhone, NOT_KEPT, CHANGED } from '@/lib/counter-phone';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     // Paid another way already: whether their card went through as well (then it goes back) is asked all the same.
     const r: any = await settlePhone(db, tenantId, tenant, orderId, String(o.phone.id));
     if (!r.ok) return reply({ ok: false, error: r.error }, r.status);
-    if (r.notKept) return reply({ ok: false, notKept: true, error: NOT_KEPT }, 409);
+    if (r.notKept) return reply({ ok: false, notKept: true, changed: !!r.changed, error: r.changed ? CHANGED : NOT_KEPT }, 409);
     if (r.pending) return reply({ ok: false, pending: true, error: 'Your payment is still going through.' }, 202);
     // Called off: paid another way (nothing charged to their card), or not, and it's paid at the window.
     if (!r.paid) return o.paidAt ? reply({ ok: true, paid: true, viaPhone: false }) : reply({ ok: false, error: 'This payment was called off. Pay at the window.' }, 409);

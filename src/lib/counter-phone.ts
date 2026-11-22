@@ -15,6 +15,8 @@ import { payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
 import { photoOf } from '@/lib/counter-orders';
 import { ensureWalletDomainsSoon, walletsOn } from '@/lib/wallet-domains';
+import { dueCentsOf } from '@/lib/counter-money';
+import { tendersStillCover, removeTender } from '@/lib/counter-money-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const LINK_HOURS = 3;
@@ -27,6 +29,8 @@ const orderRefOf = (db: any, tenantId: string, orderId: string) => db.doc(`tenan
 type Fail = { ok: false; error: string; status: number; code?: string };
 /** A phone payment made after the order was paid another way. */
 export const NOT_KEPT = 'This order was already paid another way, so your card payment is going back to your card. It can take a few days to show.';
+/** A gift card or store credit on the order that couldn't cover its part after all. */
+export const CHANGED = 'Your order changed at the window, so your card payment is going back to your card. It can take a few days to show. Ask at the window.';
 const fail = (error: string, status: number, code?: string): Fail => ({ ok: false, error, status, ...(code ? { code } : {}) });
 
 /** The signature on one order's pay link (none when the server has no secret to sign with). */
@@ -57,7 +61,8 @@ export async function phoneLink(db: any, tenantId: string, tenant: any, orderId:
     const o: any = (await tx.get(ref)).data(); if (!o) return fail('That order is gone.', 404);
     if (o.paidAt) return fail('That order is paid already.', 409, 'paid');
     if (o.status !== 'sent' && o.status !== 'done') return fail(o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', 409);
-    if (centsOf(o.total) < 50) return fail('Card payments start at $0.50. Take this one in cash.', 409, 'too_small');
+    if (dueCentsOf(o) < 50) return fail('Card payments start at $0.50. Take this one in cash.', 409, 'too_small');
+    const tenderBad = await tendersStillCover(tx, db, tenantId, o, orderId); if (tenderBad) return fail(tenderBad, 409, 'tender');
     tx.set(ref, { phone: { ...(o.phone || {}), shownAt: nowIso(), shownBy: by } }, { merge: true });
     return { ok: true };
   });
@@ -77,12 +82,13 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
   const business = String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru';
   const summary = { business, number: String(or.number || ''), name: cleanName(or.guestName) || null,
     lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l) })),
-    subtotal: num(or.subtotal), tax: num(or.tax), total: num(or.total) };
+    // (What's left to pay, after any gift card or store credit on it: lib/counter-money.)
+    subtotal: num(or.subtotal), tax: num(or.tax), total: or.paidAt ? num(or.total) : dueCentsOf(or) / 100 };
   // Paid: says so while the link would still work (after that, the guest's name and order aren't shown to anyone).
   if (or.paidAt) return fresh(or) ? { ok: true, paid: true, ...summary } : fail('This link has expired.', 410);
   if (!payable(or)) return fail(or.status === 'voided' ? 'This order was canceled.' : 'This link has expired. Ask at the window.', 410);
   if (!acct || !stripe || !process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) return fail('Card payments aren’t set up here yet. Pay at the window.', 409);
-  const cents = centsOf(or.total);
+  const cents = dueCentsOf(or);
   for (let round = 0; round < 7; round++) {
     const claim: any = await db.runTransaction(async (tx: any) => {
       const x: any = (await tx.get(ref)).data(); if (!x) return { gone: true };
@@ -91,6 +97,8 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
       if (p.id && Math.round(num(p.cents)) === cents && p.state !== 'stopped') return { reuse: String(p.id) };
       // Opened twice at once (a double scan): the other one is making it; wait for it rather than make another.
       if (!p.id && p.state === 'starting' && Date.now() - (Date.parse(String(p.at || '')) || 0) < 4000) return { wait: true };
+      // (Its gift cards and store credit still cover their part, before the guest is asked for the rest.)
+      if (await tendersStillCover(tx, db, tenantId, x, orderId)) return { tender: true };
       const attempt = Math.max(0, Math.floor(num(p.attempt))) + 1;
       tx.set(ref, { phone: { ...p, attempt, id: null, cents, state: 'starting', at: nowIso() } }, { merge: true });
       return { attempt };
@@ -98,6 +106,7 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
     if (claim.gone) return fail('This order isn’t here any more.', 404);
     if (claim.paid) return { ok: true, paid: true, ...summary };
     if (claim.wait) { await new Promise((r) => setTimeout(r, 800)); continue; }
+    if (claim.tender) return fail('Your order changed. Ask at the window.', 409);
     let pi: any = null;
     if (claim.reuse) {
       // Not reachable just now: never a second payment while the first may still be open on someone's phone.
@@ -105,7 +114,7 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
       if (pi?.status === 'succeeded') {
         const s: any = await settlePhone(db, tenantId, tenant, orderId, pi.id, { stripe });
         if (s.ok && s.paid) return { ok: true, paid: true, ...summary };
-        if (s.ok && s.notKept) return fail(NOT_KEPT, 409);
+        if (s.ok && s.notKept) return fail(s.changed ? CHANGED : NOT_KEPT, 409);
         return fail('Your payment is still being confirmed. Show this screen at the window.', 503);
       }
       if (pi.status === 'processing') return fail('Your payment is still going through. Show this screen at the window.', 409);
@@ -143,7 +152,7 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
 
 /** A phone payment the card company says went through: the order is paid by it, once. Paid another way first, it goes
  *  back to the guest's card. `pending`: not through yet. */
-export async function settlePhone(db: any, tenantId: string, tenant: any, orderId: string, piId: string, o: { stripe?: any } = {}): Promise<{ ok: true; paid: boolean; pending?: boolean; notKept?: boolean; canceled?: boolean } | Fail> {
+export async function settlePhone(db: any, tenantId: string, tenant: any, orderId: string, piId: string, o: { stripe?: any } = {}): Promise<{ ok: true; paid: boolean; pending?: boolean; notKept?: boolean; changed?: boolean; canceled?: boolean } | Fail> {
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
   if (!acct || !stripe || !ID.test(orderId)) return fail('Card payments aren’t set up for this business yet.', 409);
   let pi: any;
@@ -159,6 +168,17 @@ export async function settlePhone(db: any, tenantId: string, tenant: any, orderI
     // A card the reader was asking for meanwhile is called off (or given back, if it went through at that moment).
     if (r.cardId) { const { stopCard } = await import('@/lib/counter-card'); await stopCard(db, tenantId, tenant, orderId, 'Paid on their phone', { stripe }).catch(() => null); }
     return { ok: true, paid: true };
+  }
+  // A gift card or store credit on it that couldn't cover its part after all: their card payment goes back, and that one
+  // is taken off, so the window can take the payment again.
+  if (!r.ok && (r.code === 'gift' || r.code === 'credit')) {
+    const or: any = (await ref.get()).data() || {};
+    if (or.cardBack?.[pi.id]?.refunded !== true) await giveBack(db, stripe, acct, tenantId, orderId, pi, String(or.number || ''));
+    await markPhone(db, ref, pi.id, 'stopped');
+    const off: any = await removeTender(db, tenantId, orderId, r.tender === 'credit' ? { credit: true } : { giftCardId: r.tender }).catch(() => null);
+    // (Not taken off, a screen busy with it that moment: the window sees it on the order, with Take off.)
+    if (!off?.ok) console.warn('[counter-phone] a tender that failed as it was paid is still on the order', { tenantId, orderId });
+    return { ok: true, paid: false, notKept: true, changed: true };
   }
   // Paid another way first, voided, or (never expected: a sent order's total can't change) not the order's total: it goes
   // back to their card.

@@ -20,6 +20,8 @@ import { createHash } from 'crypto';
 import { accountOf, captureReaderPayment, readerStripe, recordReaderFee, releaseReaderPayment } from '@/lib/reader-sale';
 import { refundAmount } from '@/lib/stripe-refund';
 import { payOrder } from '@/lib/counter-server';
+import { dueCentsOf } from '@/lib/counter-money';
+import { tendersStillCover, removeTender } from '@/lib/counter-money-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const READER = /^tmr_[A-Za-z0-9]{4,60}$/;
@@ -153,7 +155,8 @@ async function settle(db: any, stripe: any, acct: string, tenantId: string, orde
     const o: any = (await tx.get(ref)).data(); if (!o) return { gone: true };
     if (o.paidAt && o.cardPaymentId === pi.id) return { paid: true, payMethod: o.payMethod };
     if (o.paidAt || o.status === 'voided' || o.status === 'cancelled') return { notKept: true, number: o.number };
-    if (centsOf(o.total) !== cents) return { notKept: true, number: o.number };
+    // (What's left after any gift card or store credit on it: lib/counter-money.)
+    if (dueCentsOf(o) !== cents) return { notKept: true, number: o.number };
     tx.set(ref, { card: { ...(o.card || {}), id: pi.id, state: 'capturing', updatedAt: nowIso() }, cardOpen: true }, { merge: true });
     return { number: o.number };
   });
@@ -175,6 +178,13 @@ async function settle(db: any, stripe: any, acct: string, tenantId: string, orde
   }
   const r: any = await payOrder(db, tenantId, orderId, { method: 'card', by, card: { id: pi.id, cents } });
   if (r.paidOtherwise) return giveBack(db, stripe, acct, tenantId, orderId, taken, claim.number);
+  // A gift card or store credit on it that couldn't cover its part after all: the card payment goes back, and that one is
+  // taken off, so the order can be paid again (never charged and stuck).
+  if (!r.ok && (r.code === 'gift' || r.code === 'credit')) {
+    await giveBack(db, stripe, acct, tenantId, orderId, taken, claim.number);
+    const off: any = await removeTender(db, tenantId, orderId, r.tender === 'credit' ? { credit: true } : { giftCardId: r.tender }).catch(() => null);
+    return fail(`${r.error} Their card payment goes back to them. ${off?.ok ? 'Take the payment again.' : `Take the ${r.tender === 'credit' ? 'store credit' : 'gift card'} off the order, then take the payment again.`}`, 409);
+  }
   if (!r.ok) { await putCard(db, ref, mine, { state: 'on_reader' }).catch(() => {}); return fail(r.error || 'That didn’t go through. Try again.', r.status || 500); }
   // A payment on the guest's own phone meanwhile is called off (or given back, if it went through at that moment).
   if (!r.already) { const P = await import('@/lib/counter-phone'); const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; await P.stopPhone(db, tenantId, t, orderId, { stripe }).catch(() => null); }
@@ -232,7 +242,10 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
       const or: any = (await tx.get(ref)).data(); if (!or) return { error: 'That order is gone.', status: 404 };
       if (or.paidAt) return { paid: true, payMethod: or.payMethod || null };
       if (or.status !== 'sent' && or.status !== 'done') return { error: or.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
-      const amount = centsOf(or.total);
+      // (What's left after any gift card or store credit on it: lib/counter-money.)
+      const amount = dueCentsOf(or);
+      // (Its gift cards and store credit still cover their part, before the guest is asked for the rest.)
+      const tenderBad = await tendersStillCover(tx, db, tenantId, or, orderId); if (tenderBad) return { error: tenderBad, status: 409, code: 'tender' };
       if (amount < 50) return { error: 'Card payments start at $0.50. Take this one in cash.', status: 409, code: 'too_small' };
       const c: any = or.card || null;
       const attempt = Math.max(0, Math.floor(Number(c?.attempt) || 0));

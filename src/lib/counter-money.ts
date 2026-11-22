@@ -80,3 +80,19 @@ export const markdownCentsOf = (o: any) => {
 };
 /** Its tip, in cents. */
 export const tipCentsOf = (o: any) => Math.max(0, Math.round(num(o?.tipCents)));
+
+// GIFT CARDS AND STORE CREDIT ON AN ORDER (design board "Money at the counter", part 2; lib/counter-money-server
+// addTender): set aside before the rest is paid, and taken when it's paid (lib/counter-server payOrder). A gift card's
+// amount is held on the card meanwhile (lib/gift-cards), so two registers can't spend the same money.
+export type Tender = { kind: 'gift'; giftCardId: string; code: string; cents: number; promo?: boolean } | { kind: 'credit'; clientId: string; cents: number };
+/** The gift cards and store credit set aside on it. */
+export function tendersOf(o: any): Tender[] {
+  return (Array.isArray(o?.tenders) ? o.tenders : []).filter((t: any) => (t?.kind === 'gift' && t.giftCardId) || (t?.kind === 'credit' && t.clientId))
+    .map((t: any) => ({ ...t, cents: Math.max(0, Math.round(num(t.cents))) }));
+}
+/** What they cover now, in cents (never more than the order). */
+export const tenderCentsOf = (o: any) => Math.min(tendersOf(o).reduce((s, t) => s + t.cents, 0), Math.max(0, Math.round(num(o?.total) * 100)));
+/** What's left to pay by cash or card, in cents. */
+export const dueCentsOf = (o: any) => Math.max(0, Math.round(num(o?.total) * 100) - tenderCentsOf(o));
+/** A gift card's code as shown on a screen or a slip: its last four. */
+export const codeEnd = (code: unknown) => { const k = String(code || '').replace(/[^A-Za-z0-9]/g, ''); return k ? `••${k.slice(-4).toUpperCase()}` : '••'; };

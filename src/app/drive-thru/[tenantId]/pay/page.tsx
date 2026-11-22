@@ -39,7 +39,7 @@ function PayForm({ total, link, onPaid }: { total: number; link: { tenantId: str
     for (let i = 0; i < 6; i++) {
       const { status, d } = await call({ action: 'done', ...link });
       if (d.ok && d.paid) { onPaid(); return; }
-      if (status !== 202) { setErr(d.error || 'We couldn’t confirm the payment. Show this screen at the window.'); if (d.notKept) setHeld('Paid at the window'); setBusy(false); return; }
+      if (status !== 202) { setErr(d.error || 'We couldn’t confirm the payment. Show this screen at the window.'); if (d.notKept) setHeld(d.changed ? 'Ask at the window' : 'Paid at the window'); setBusy(false); return; }
       await new Promise((r) => setTimeout(r, 1500));
     }
     setErr('Your payment is still going through. The window sees it as soon as it’s done.');

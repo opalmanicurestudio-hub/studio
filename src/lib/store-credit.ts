@@ -12,26 +12,39 @@ export function availableCredits(client: any, now = Date.now()): any[] {
 }
 export const creditBalance = (client: any, now = Date.now()) => r2(availableCredits(client, now).reduce((n: number, c: any) => n + (Number(c.amount) || 0), 0));
 
+/** What using up to `amount` dollars of the client's credit does (pure): how much it covers, which credits, and the
+ *  client record's new credits. Used inside a step that read the client: useCredit below, and the counter's payment
+ *  (lib/counter-server payOrder), which takes the credit in the same step as the sale. */
+export function creditPlan(c: any, amount: number, o: { appointmentId?: string | null; checkoutSessionId?: string | null }, now = Date.now()): { applied: number; ids: string[]; patch: any | null } {
+  const want = r2(Math.max(0, Number(amount) || 0)); if (!want) return { applied: 0, ids: [], patch: null };
+  const at = new Date(now).toISOString(); const all = Array.isArray(c?.storeCredits) ? c.storeCredits : [];
+  const order = availableCredits(c, now); let left = want; const ids: string[] = []; const extra: any[] = [];
+  const byId = new Map<string, any>();
+  for (const x of order) { if (left <= 0.0001) break; const amt = Number(x.amount) || 0; const take = r2(Math.min(amt, left)); left = r2(left - take); ids.push(x.id);
+    const rest = r2(amt - take);
+    byId.set(x.id, { ...x, status: 'used', usedAt: at, usedOnAppointmentId: o.appointmentId || null, usedOnCheckout: o.checkoutSessionId || null, ...(rest > 0 ? { amount: take, amountCents: Math.round(take * 100), originalAmount: amt } : {}) });
+    if (rest > 0) extra.push({ ...x, id: `${x.id}_r${now.toString(36)}`, amount: rest, amountCents: Math.round(rest * 100), status: 'available', usedAt: null, usedOnAppointmentId: null, splitFrom: x.id }); }
+  const applied = r2(want - left); if (!applied) return { applied: 0, ids: [], patch: null };
+  return { applied, ids, patch: { storeCredits: [...all.map((x: any) => byId.get(x.id) || x), ...extra], totalStoreCredit: Math.max(0, r2((Number(c?.totalStoreCredit) || 0) - applied)) } };
+}
+/** The record of credit used on a sale (a ledger line). */
+export const creditLine = (tenantId: string, id: string, clientId: string, applied: number, ids: string[], o: { appointmentId?: string | null; checkoutSessionId?: string | null; by?: string | null }, at: string) =>
+  ({ id, tenantId, appointmentId: o.appointmentId || null, checkoutSessionId: o.checkoutSessionId || null, clientId, type: 'store_credit_redemption', category: 'Store Credit Applied', amount: -applied, amountCents: -Math.round(applied * 100), status: 'applied', creditIdsUsed: ids, appliedBy: o.by || 'checkout', createdAt: at });
+
 /** Use up to `amount` dollars of the client's credit for this sale. Returns what was actually used. */
 export async function useCredit(db: any, tenantId: string, clientId: string, amount: number, o: { appointmentId?: string | null; checkoutSessionId?: string | null; by?: string | null }, now = Date.now()): Promise<{ applied: number; ids: string[] }> {
   const want = r2(Math.max(0, Number(amount) || 0)); if (!want || !clientId) return { applied: 0, ids: [] };
   const ref = db.doc(`tenants/${tenantId}/clients/${clientId}`); const at = new Date(now).toISOString();
   const run = async (tx: any) => {
-    const snap = await tx.get(ref); const c: any = snap.data() || {}; const all = Array.isArray(c.storeCredits) ? c.storeCredits : [];
-    const order = availableCredits(c, now); let left = want; const ids: string[] = []; const extra: any[] = [];
-    const byId = new Map<string, any>();
-    for (const x of order) { if (left <= 0.0001) break; const amt = Number(x.amount) || 0; const take = r2(Math.min(amt, left)); left = r2(left - take); ids.push(x.id);
-      const rest = r2(amt - take);
-      byId.set(x.id, { ...x, status: 'used', usedAt: at, usedOnAppointmentId: o.appointmentId || null, usedOnCheckout: o.checkoutSessionId || null, ...(rest > 0 ? { amount: take, amountCents: Math.round(take * 100), originalAmount: amt } : {}) });
-      if (rest > 0) extra.push({ ...x, id: `${x.id}_r${now.toString(36)}`, amount: rest, amountCents: Math.round(rest * 100), status: 'available', usedAt: null, usedOnAppointmentId: null, splitFrom: x.id }); }
-    const applied = r2(want - left); if (!applied) return { applied: 0, ids: [] };
-    await tx.set(ref, { storeCredits: [...all.map((x: any) => byId.get(x.id) || x), ...extra], totalStoreCredit: Math.max(0, r2((Number(c.totalStoreCredit) || 0) - applied)) }, { merge: true });
-    return { applied, ids };
+    const snap = await tx.get(ref); const c: any = snap.data() || {};
+    const plan = creditPlan(c, want, o, now); if (!plan.applied) return { applied: 0, ids: [] };
+    await tx.set(ref, plan.patch, { merge: true });
+    return { applied: plan.applied, ids: plan.ids };
   };
   const res = db.runTransaction ? await db.runTransaction(run) : await run({ get: (r: any) => r.get(), set: (r: any, v: any, opt: any) => r.set(v, opt) });
   if (res.applied > 0) {
     const tx = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await tx.set({ id: tx.id, tenantId, appointmentId: o.appointmentId || null, checkoutSessionId: o.checkoutSessionId || null, clientId, type: 'store_credit_redemption', category: 'Store Credit Applied', amount: -res.applied, amountCents: -Math.round(res.applied * 100), status: 'applied', creditIdsUsed: res.ids, appliedBy: o.by || 'checkout', createdAt: at }).catch(() => {});
+    await tx.set(creditLine(tenantId, tx.id, clientId, res.applied, res.ids, o, at)).catch(() => {});
   }
   return res;
 }

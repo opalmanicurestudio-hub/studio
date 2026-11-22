@@ -31,6 +31,9 @@
 //   discount { tenantId, key, orderId, discountId? | custom: { kind: 'pct'|'off', value, reason }, pin? } → one of the
 //          business's discounts, or another amount a manager okays (signed in or working here as one, else their PIN);
 //          neither takes it off
+//   tender { tenantId, key, orderId, do: 'gift'|'credit'|'remove', code?, giftCardId? } → a gift card (by its code, held
+//          on the card) or the guest's store credit set aside for what's left, or one taken off; paid { method: 'tender' }
+//          finishes an order they cover all of
 //   receipt { tenantId, key, orderId, do: 'link'|'print'|'drawer'|'send', printerId?, drawer?, channel?, to? } → a paid
 //          order's receipt (lib/receipt-actions-server): its private link, printed, the cash drawer for cash taken into
 //          it, or sent by text or email
@@ -141,8 +144,8 @@ import { driverLoad } from '@/lib/driver-load-server';
 import { nightBounds, tonight } from '@/lib/night-close-server';
 import { printersCached } from '@/lib/printing-server';
 import { receiptAfterOf } from '@/lib/printing';
-import { tipsOf, tipsHere, discountsOf } from '@/lib/counter-money';
-import { setTip, setDiscount } from '@/lib/counter-money-server';
+import { tipsOf, tipsHere, discountsOf, tendersOf, dueCentsOf, codeEnd } from '@/lib/counter-money';
+import { setTip, setDiscount, addTender, removeTender } from '@/lib/counter-money-server';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -173,7 +176,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -198,7 +201,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -212,7 +215,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -227,6 +230,15 @@ export async function POST(req: NextRequest) {
       if (!tipsHere(tipsOf(tenant), channel)) return bad('Tips aren’t taken here. A manager can turn them on under Menu.', 409);
       const r: any = await setTip(db, tenantId, String(b.orderId || ''), b.cents, who);
       return r.ok ? ok({ tipCents: r.tipCents, total: r.total, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    // A gift card or store credit (lib/counter-money-server addTender): set aside for what's left, or taken off.
+    if (action === 'tender') {
+      const oid = String(b.orderId || ''); const what = String(b.do || '');
+      if (!['gift', 'credit', 'remove'].includes(what)) return bad('Gift card or store credit?');
+      const r: any = what === 'remove' ? await removeTender(db, tenantId, oid, { giftCardId: b.giftCardId, credit: b.credit === true })
+        : await addTender(db, tenantId, oid, { kind: what as 'gift' | 'credit', code: b.code }, who);
+      return r.ok ? ok({ due: (Number(r.due) || 0) / 100, cents: r.tender?.cents ?? 0, code: r.tender?.kind === 'gift' ? codeEnd(r.tender.code) : null, staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     if (action === 'discount') {
       const custom = b.custom && typeof b.custom === 'object' ? b.custom : null;
@@ -286,6 +298,9 @@ export async function POST(req: NextRequest) {
           toGo: o.toGo === true, staffMeal: o.staffMeal ? { for: String(o.staffMeal.for || '') } : null,
           // Its tip and discount (lib/counter-money): the tip in its total; the discount's name, how much, and who okayed one.
           tipCents: Math.max(0, Math.round(Number(o.tipCents) || 0)), keptChange: o.keptChange === true,
+          // Gift cards and store credit set aside on it, and what's left for cash or card (lib/counter-money).
+          tenders: tendersOf(o).map((t) => (t.kind === 'gift' ? { kind: 'gift', giftCardId: t.giftCardId, code: codeEnd(t.code), cents: t.cents } : { kind: 'credit', cents: t.cents })),
+          due: dueCentsOf(o) / 100, creditShort: Math.max(0, Math.round(Number(o.creditShort) || 0)),
           markdown: o.markdown ? { id: String(o.markdown.id || ''), label: String(o.markdown.label || 'Discount'), words: String(o.markdown.words || ''), cents: Math.max(0, Math.round(Number(o.markdown.cents) || 0)), okBy: o.markdown.okBy || null, reason: o.markdown.reason || null } : null,
           // A delivery app's order (lib/app-orders): which app, its code, its spot on the shelf, and when the courier is due.
           app: o.app ? { state: String(o.app.state || 'taking'), app: o.app.app || null, label: o.app.label || null, code: o.app.code || null, shelf: o.app.shelf || null, courierAt: o.app.courierAt || null,
@@ -1067,7 +1082,7 @@ export async function POST(req: NextRequest) {
 
     // paid (cash, or a card machine of the business's own): lib/counter-server payOrder. A card payment the window's
     // reader started for it and that isn't needed now is called off, so it can never go through later.
-    const method = b.method === 'cash' ? 'cash' : b.method === 'card' ? 'card' : null; if (!method) return bad('Card or cash?');
+    const method = b.method === 'cash' ? 'cash' : b.method === 'card' ? 'card' : b.method === 'tender' ? 'tender' : null; if (!method) return bad('Card or cash?');
     // Cash into the pouch of the person taking orders in line: theirs, so they're signed in with their PIN.
     const pouch = method === 'cash' && b.pouch === true;
     if (pouch && !staff?.id) return NextResponse.json({ ok: false, needsStaff: true, error: 'Enter your PIN first, so the cash is counted as yours.', staffOk }, { status: 403 });

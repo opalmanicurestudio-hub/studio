@@ -79,3 +79,23 @@ export function DiscountPick({ list, current, busy, onPick, onCustom, onClose }:
     </div>
   );
 }
+
+/** A gift card by its code (scanned or typed), or the guest's store credit (an order with a rewards member on it by
+ *  their rewards code; `needsCode`: one added by their number only), set aside for what's left to pay. */
+export function GiftAsk({ dueCents, member, needsCode, busy, onGift, onCredit, onClose }: { dueCents: number; member: boolean; needsCode?: boolean; busy: boolean; onGift: (code: string) => void; onCredit: () => void; onClose: () => void }) {
+  const [code, setCode] = useState('');
+  const ok = code.replace(/[^A-Za-z0-9]/g, '').length >= 4;
+  return (
+    <div className="space-y-3 rounded-2xl p-3" style={{ background: SOFT }} role="group" aria-label="Gift card or store credit">
+      <div className="flex items-baseline justify-between gap-2"><p className="text-[17px] font-semibold">Gift card</p><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(dueCents)} left</span></div>
+      <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Its code
+        <input autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter' && ok) onGift(code); }} placeholder="Scan or type it" autoComplete="off" autoCapitalize="characters" spellCheck={false}
+          className={field} style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
+      <button type="button" disabled={busy || !ok} onClick={() => onGift(code)} className={`${btn} w-full`} style={dark}>Use the gift card</button>
+      <p className="text-[12.5px]" style={{ color: MUTED }}>It covers what’s left, or what it has. Anything more is paid by cash or card.</p>
+      {member ? <button type="button" disabled={busy} onClick={onCredit} className={`${btn} w-full`} style={quiet}>Use their store credit</button>
+        : needsCode ? <p className="text-[12.5px]" style={{ color: MUTED }}>Their store credit is used with the rewards code on their rewards page. Add it to the order first.</p> : null}
+      <button type="button" onClick={onClose} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Done</button>
+    </div>
+  );
+}
