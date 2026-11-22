@@ -18,7 +18,7 @@ export type KitchenNow = 'not sent' | 'making' | 'ready';
 export type LiveCar = {
   id: string; number: string; name: string | null; looks: string | null; stage: LiveStage; lane: Lane | null; spot: number | null;
   /** (`window`: when the pickup window's sensor saw it get there.) */
-  since: string; stageAt: Partial<Record<LiveStage | 'window', string>>; ahead: boolean; inLine: boolean;
+  since: string; stageAt: Partial<Record<LiveStage | 'window' | 'payWindow', string>>; ahead: boolean; inLine: boolean;
   kitchen: KitchenNow; waitingOn: string[]; mergeAt?: string | null; hereAt?: string | null;
   /** When someone started its order, when the speaker's sensor saw it pull up before that (lib/lane-entry). */
   greetedAt?: string | null;
@@ -30,6 +30,8 @@ export type LiveSide = {
   ahead: { open: number; here: number; nextAt: string | null } | null;
   /** The counter's line: guests waiting, and since when the longest has. */
   counter: { waiting: number; longestSince: string | null } | null;
+  /** With a mobile pickup sensor: cars parked in its spots whose guest hasn't said they're here, and since when. */
+  parked?: { n: number; since: string | null } | null;
 };
 export type LiveNow = {
   now: string; target: number; lanes: 1 | 2; spots: number; cars: LiveCar[];

@@ -33,6 +33,10 @@ import { atHere } from '@/lib/business-locations';
 /** With more than one location, the one picked in the app (lib/here-server). */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
 const clock = (iso: string | null) => { const t = Date.parse(String(iso || '')); return Number.isFinite(t) ? new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''; };
+/** The mobile pickup spots' note: cars parked whose guest hasn't said they're here (`mins`: since the first parked). */
+export const parkedWords = (n: number, mins: number | null) => n === 1
+  ? `A car parked in mobile pickup${mins ? ` ${mins} min ago` : ''} and its guest hasn’t said they’re here. Check the spots.`
+  : `${n} cars parked in mobile pickup${mins ? `, the first ${mins} min ago,` : ''} and their guests haven’t said they’re here. Check the spots.`;
 
 export function CurbsideScreen() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
@@ -50,7 +54,9 @@ export function CurbsideScreen() {
 
   const [orders, setOrders] = React.useState<any[]>([]); const [shopLoaded, setShopLoaded] = React.useState(false);
   const [cafe, setCafe] = React.useState<CafeCurb[]>([]); const [cafeLoaded, setCafeLoaded] = React.useState(false); const [cafeErr, setCafeErr] = React.useState('');
-  const [cafeOn, setCafeOn] = React.useState(true);   // ordering ahead offers curbside: kept asking; otherwise asked once
+  const [cafeOn, setCafeOn] = React.useState(true);   // ordering ahead offers curbside, or a car is parked: kept asking; otherwise asked once
+  // Cars the mobile pickup sensor saw park whose guest hasn't said they're here (lib/lane-entry-server parkedNow).
+  const [parked, setParked] = React.useState<{ n: number; since: string | null } | null>(null);
   const [now, setNow] = React.useState(() => Date.now());
   const [openId, setOpenId] = React.useState<string | null>(null); const [focus, setFocus] = React.useState<{ tab: WorkTab; n: number } | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
@@ -68,7 +74,7 @@ export function CurbsideScreen() {
     try {
       const r = await fetch('/api/curbside', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'list', ...hereAsked() }) });
       const d = await r.json().catch(() => ({}));
-      if (d.ok) { setCafe(d.cafe || []); setHere(typeof d.here === 'string' ? d.here : ''); setCafeErr(''); setCafeOn(d.on === true || (d.cafe || []).length > 0); } else setCafeErr(d.error || 'Café orders didn’t load.');
+      if (d.ok) { setCafe(d.cafe || []); setHere(typeof d.here === 'string' ? d.here : ''); setCafeErr(''); setParked(d.parked || null); setCafeOn(d.on === true || (d.cafe || []).length > 0 || !!d.parked); } else setCafeErr(d.error || 'Café orders didn’t load.');
     } catch { setCafeErr('No connection. Café orders will show again when it’s back.'); } finally { setCafeLoaded(true); }
   }, [tenantId]);
   React.useEffect(() => { void loadCafe(); }, [loadCafe]);
@@ -132,6 +138,11 @@ export function CurbsideScreen() {
         <div className="px-4 pt-5"><LargeTitle title="Curbside" sub={board.outside.length ? `${board.outside.length} outside` : `${selectedTenant?.businessName || selectedTenant?.name || ''}`.trim() || undefined} /></div>
         <section aria-label="Outside now" className="px-4 pt-4">
           <h2 className="m-0 pb-2 text-[13px] font-semibold" style={muted}>Outside now</h2>
+          {!!parked?.n && (
+            <p role="status" className="m-0 mb-2.5 rounded-2xl px-4 py-3 text-[14.5px] font-medium" style={{ background: C.warnSoft, color: C.warn }}>
+              {parkedWords(parked.n, parked.since ? Math.max(1, Math.round((now - Date.parse(parked.since)) / 60000)) : null)}
+            </p>
+          )}
           {loading && !board.outside.length ? <p className="m-0 text-[15px]" style={muted}>Loading…</p>
             : !board.outside.length ? <Empty title="Nobody’s outside yet" sub="When a customer taps I’m here on a curbside order, they show up here with their car and how long they’ve waited." />
             : <div className="grid gap-2.5">{board.outside.map(card)}</div>}

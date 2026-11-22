@@ -365,6 +365,9 @@ function Side({ live, now }: { live: LiveNow; now: number }) {
   }
   if (ahead) cards.push({ title: 'Ordered ahead, for the drive-thru', main: ahead.open ? `${ahead.open} to pick up` : 'None to pick up', sub: [ahead.here ? `${ahead.here} here now` : '', ahead.nextAt ? `next due ${formatTime(ahead.nextAt, live.timeZone)}` : ''].filter(Boolean).join(', ') || 'Paid and waiting for their car' });
   if (counter) { const sec = counter.longestSince ? secondsSince(counter.longestSince, now) : 0; cards.push({ title: 'Counter', main: `${counter.waiting} waiting`, sub: `longest ${clock(sec)}` }); }
+  // (With a mobile pickup sensor: cars parked whose guest hasn't said they're here.)
+  const parked = live.side.parked;
+  if (parked) cards.push(parked.n ? { title: 'Mobile pickup spots', main: `${parked.n} parked, not checked in`, sub: `the first ${clock(parked.since ? secondsSince(parked.since, now) : 0)} ago. Check the spots.`, tone: 'over' } : { title: 'Mobile pickup spots', main: 'Everyone checked in', sub: 'Every car parked has said they’re here' });
   if (!cards.length) return null;
   return (
     <section aria-label="Also waiting" className="grid gap-2 sm:grid-cols-3">

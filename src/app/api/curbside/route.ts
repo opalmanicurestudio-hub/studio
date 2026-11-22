@@ -1,7 +1,8 @@
 // src/app/api/curbside/route.ts — THE CURBSIDE SCREEN's café half (lib/curbside-server; the screen is
 // components/orders/CurbsideScreen). Signed in: the app, or the team app with a PIN. The shop's curbside orders the
 // screen reads and moves itself, through the shop's own steps (lib/orders-flow).
-//   list    { tenantId }          → café orders placed ahead for curbside, not handed over yet
+//   list    { tenantId }          → café orders placed ahead for curbside, not handed over yet (and, with a mobile pickup
+//                                    sensor, cars parked whose guest hasn't said they're here)
 //   out     { tenantId, orderId } → someone's taking it out (ready, and they're here): their page says so
 //   handed  { tenantId, orderId } → handed over: done
 // Renters, who run their own business here, don't see or move the business's orders.
@@ -26,7 +27,13 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   // (With more than one location, the one picked in the app: its curbside orders only. lib/here-server)
   // (A location in another time zone: its own today. lib/here-server zonedHere)
-  if (action === 'list') { const here = await hereOf(db, tenantId, b.locationId); return NextResponse.json({ ok: true, here, cafe: (await cafeCurbside(db, tenantId, await zonedHere(db, tenantId, auth.tenant, here))).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true }); }
+  if (action === 'list') {
+    const here = await hereOf(db, tenantId, b.locationId);
+    // (With a mobile pickup sensor: cars parked whose guest hasn't said they're here. lib/lane-entry-server parkedNow)
+    const { parkedNow } = await import('@/lib/lane-entry-server');
+    const parked = await parkedNow(db, tenantId, auth.tenant, here).catch(() => null);
+    return NextResponse.json({ ok: true, here, cafe: (await cafeCurbside(db, tenantId, await zonedHere(db, tenantId, auth.tenant, here))).filter((c: any) => atHere(c, here)), on: auth.tenant?.orderAhead?.curbside === true, parked });
+  }
   const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return fail('Which order?');
   if (action === 'out' || action === 'handed') {
     const r = action === 'out' ? await cafeOut(db, tenantId, orderId, auth.actor) : await cafeHanded(db, tenantId, orderId, auth.actor);

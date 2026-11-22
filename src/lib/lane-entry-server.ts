@@ -10,7 +10,7 @@
 //   its own line, rush and Line's clear. One set up before there were locations (no location) counts for screens that
 //   aren't set up for one.
 import { createHash, randomBytes } from 'crypto';
-import { addEntry, waitingByLane, isRush, earlyLines, ENTRY_KEEP_MS, POINT_GAP_MS, pointOf, addArrival, unclaimedArrivals, windowCar, exitPick, SPEAKER_MATCH_MS, speakerDocId, type EntryLog, type EarlyLine, type SensorPoint, type ArrivalLog } from '@/lib/lane-entry';
+import { addEntry, waitingByLane, isRush, earlyLines, ENTRY_KEEP_MS, POINT_GAP_MS, pointOf, addArrival, unclaimedArrivals, windowCar, exitPick, payCar, mobileDocId, MOBILE_KEEP_MS, parkedUnknown, SPEAKER_MATCH_MS, speakerDocId, type EntryLog, type EarlyLine, type SensorPoint, type ArrivalLog } from '@/lib/lane-entry';
 import { lanesOf, cleanLane, byWindow } from '@/lib/drive-lanes';
 import { forgetLive } from '@/lib/drive-live-server';
 import { inLineNow, atDriveThru } from '@/lib/counter-orders';
@@ -61,7 +61,7 @@ export async function pointsView(db: any, tenantId: string, two: boolean, places
   const s: any = (await db.doc(`tenants/${tenantId}/private/laneSensors`).get()).data() || {};
   const all = Object.values((s.tokens || {}) as Record<string, Sensor>); const live = await liveIds(db, tenantId);
   const row = (point: SensorPoint, l: 1 | 2, at: string | null, place: string | null): PointView => ({ point, lane: l, on: all.some((x) => samePlace(x, l, at, point, live)), lastAt: (s.last || {})[lastKey(l, at, point)] || null, locationId: at, place });
-  const rows = (at: string | null, place: string | null) => [...(two ? [1, 2] as const : [1] as const).map((l) => row('speaker', l, at, place)), row('window', 1, at, place), row('exit', 1, at, place)];
+  const rows = (at: string | null, place: string | null) => [...(two ? [1, 2] as const : [1] as const).map((l) => row('speaker', l, at, place)), row('pay', 1, at, place), row('window', 1, at, place), row('exit', 1, at, place), row('mobile', 1, at, place)];
   return places.length < 2 ? rows(null, null) : places.flatMap((p) => rows(p.id, p.name));
 }
 
@@ -73,10 +73,13 @@ export async function newSensor(db: any, tenantId: string, lane: 1 | 2, by: stri
     const s: any = (await tx.get(ref)).data() || {};
     const tokens: Record<string, Sensor> = Object.fromEntries(Object.entries((s.tokens || {}) as Record<string, Sensor>).filter(([, v]) => !samePlace(v, lane, at, point, live)));
     tokens[hash(key)] = { lane, createdAt: new Date().toISOString(), createdBy: String(by).slice(0, 80), ...(at ? { locationId: at } : {}), ...(point !== 'entry' ? { point } : {}) };
-    // (Its count starts now, empty, so the lane screen shows the line from the first car.)
+    // (Its count starts now, empty, so the lane screen shows the line from the first car; and the mobile pickup spots'
+    // list, so the curbside screen keeps watching for a car from the first.)
     const eRef = db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`); const e = (await tx.get(eRef)).data();
+    const mRef = db.doc(`tenants/${tenantId}/private/${mobileDocId(at)}`); const m = point === 'mobile' ? (await tx.get(mRef)).data() : true;
     tx.set(ref, { tokens, last: s.last || {} });
     if (!e && point === 'entry') tx.set(eRef, { at: [], clearedAt: new Date().toISOString() });
+    if (!m) tx.set(mRef, { at: [] });
   });
   forget(tenantId);
   return key;
@@ -93,6 +96,7 @@ export async function stopSensor(db: any, tenantId: string, lane: 1 | 2, at: str
     if (point === 'entry') tx.delete(db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`));
     if (point === 'speaker') tx.delete(db.doc(`tenants/${tenantId}/private/${speakerId(lane, at)}`));
     if (point === 'exit') tx.delete(db.doc(`tenants/${tenantId}/private/${exitId(at)}`));
+    if (point === 'mobile') tx.delete(db.doc(`tenants/${tenantId}/private/${mobileDocId(at)}`));
   });
   forget(tenantId);
 }
@@ -166,7 +170,30 @@ async function pointCar(db: any, tenantId: string, point: SensorPoint, lane: 1 |
     });
   }
 
+  if (point === 'mobile') {
+    // A car parked in a mobile pickup spot: kept ten minutes for its guest to say they're here (lib/lane-entry
+    // parkedUnknown; the curbside screen and Drive-thru live).
+    const ref = db.doc(`${T}/private/${mobileDocId(at)}`);
+    return db.runTransaction(async (tx: any) => {
+      const [on, log] = await Promise.all([stillOn(tx), tx.get(ref)]); if (!on) return false;
+      const r = addArrival(log.data() as ArrivalLog | undefined, nowMs, MOBILE_KEEP_MS);
+      if (r.counted) tx.set(ref, r.log);
+      return r.counted;
+    });
+  }
+
   const two = lanesOf((await db.doc(T).get()).data() || {}) === 2;
+  if (point === 'pay') {
+    // The first car on its way to pay that isn't at the pay window yet got there.
+    const line = (await read(db.collection(`${T}/driveThruCars`).where('stage', '==', 'pay').limit(100))).filter(here).sort(byWindow(two));
+    const c = payCar(line); if (!c) return false;
+    return db.runTransaction(async (tx: any) => {
+      const [on, snap] = await Promise.all([stillOn(tx), tx.get(carRef(c.id))]); const car: any = snap.data();
+      if (!on || !car || car.stage !== 'pay' || car.stageAt?.payWindow) return false;
+      tx.set(carRef(c.id), { stageAt: { ...(car.stageAt || {}), payWindow: nowIso } }, { merge: true });
+      return true;
+    });
+  }
   if (point === 'window') {
     // The first paid car in the line to the window that isn't at the window yet got there.
     const line = (await read(db.collection(`${T}/driveThruCars`).where('stage', '==', 'pickup').limit(100))).filter(here).sort(byWindow(two));
@@ -219,6 +246,30 @@ async function pointCar(db: any, tenantId: string, point: SensorPoint, lane: 1 |
   // Which car it was isn't certain: the window is asked to check (Drive-thru live).
   await askRef.set({ askAt: nowIso }, { merge: true });
   return true;
+}
+
+/** Cars parked in the mobile pickup spots lately whose guest hasn't said they're here (lib/lane-entry parkedUnknown), at
+ *  one location: null when there's no mobile pickup sensor there (nothing to say). Curbside guests say they're here from
+ *  their café order placed ahead or the shop's curbside page; one handed their order without saying so was here too. */
+export async function parkedNow(db: any, tenantId: string, tenant: any, here: string | null, nowMs = Date.now()): Promise<{ n: number; since: string | null } | null> {
+  const T = `tenants/${tenantId}`;
+  const log: any = (await db.doc(`${T}/private/${mobileDocId(here)}`).get()).data();
+  if (!log) return null;
+  const cars = unclaimedArrivals(log, nowMs, MOBILE_KEEP_MS); if (!cars.length) return { n: 0, since: null };
+  // (Read by when, from just before the first of those cars parked: every location's own day alike.)
+  const since = new Date(Date.parse(cars[0]) - MOBILE_KEEP_MS).toISOString();
+  const none = Promise.resolve({ docs: [] as any[] }); const shopOn = tenant?.modules?.retail === true;
+  const [said, handed, shopSaid, shopDone] = await Promise.all([
+    db.collection(`${T}/counterOrders`).where('ahead.hereAt', '>=', since).limit(300).get(),
+    db.collection(`${T}/counterOrders`).where('ahead.curb.handedAt', '>=', since).limit(300).get(),
+    shopOn ? db.collection(`${T}/retailOrders`).where('curbside.arrivedAt', '>=', since).limit(300).get() : none,
+    shopOn ? db.collection(`${T}/retailOrders`).where('completedAt', '>=', since).limit(300).get() : none,
+  ]);
+  // Each guest once: when they said they're here, else when they were handed their order.
+  const told = new Map<string, string>();
+  for (const d of [...said.docs, ...handed.docs]) { const o = d.data() || {}; if (o.ahead?.way !== 'curbside' || !atHere(o, here)) continue; told.set(`c${d.id}`, String(o.ahead?.hereAt || o.ahead?.curb?.handedAt || '')); }
+  for (const d of [...shopSaid.docs, ...shopDone.docs]) { const o = d.data() || {}; if (o.method !== 'curbside' || !atHere(o, here)) continue; told.set(`s${d.id}`, String(o.curbside?.arrivedAt || o.completedAt || '')); }
+  return parkedUnknown(log, Array.from(told.values()).filter(Boolean), nowMs);
 }
 
 /** "Line's clear" on the lane screen: nobody waiting to order, in one lane or both (`at`: that location's lanes). */

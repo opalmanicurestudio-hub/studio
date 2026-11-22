@@ -28,7 +28,7 @@ function kitchenOf(order: any, tix: any[]): KitchenNow {
 
 const cache = new Map<string, { at: number; v: LiveNow }>();
 /** Something moved a car: the next read is fresh. */
-export const forgetLive = (tenantId: string) => { for (const m of [cache, curbCache] as Map<string, unknown>[]) for (const k of Array.from(m.keys())) if (k.startsWith(`${tenantId}|`)) m.delete(k); };
+export const forgetLive = (tenantId: string) => { for (const m of [cache, curbCache, parkCache] as Map<string, unknown>[]) for (const k of Array.from(m.keys())) if (k.startsWith(`${tenantId}|`)) m.delete(k); };
 
 /** The drive-thru now, at one location (`here`) or the whole business. */
 export async function liveNow(db: any, tenantId: string, tenant: any, here: string | null, o: { nowMs?: number; locationName?: string | null; timeZone?: string | null } = {}): Promise<LiveNow> {
@@ -62,7 +62,7 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
     const kitchen: KitchenNow = states.includes('making') ? 'making' : states.includes('not sent') ? 'not sent' : 'ready';
     const making = tix.filter((t) => WAITING.includes(String(t.status)));
     const stageAt: LiveCar['stageAt'] = {};
-    for (const s of [...LIVE_STAGES, 'window'] as const) { const v = iso(c.stageAt?.[s]); if (v) stageAt[s] = v; }
+    for (const s of [...LIVE_STAGES, 'window', 'payWindow'] as const) { const v = iso(c.stageAt?.[s]); if (v) stageAt[s] = v; }
     const spot = Math.floor(num(c.spot));
     return {
       id: String(c.id), number: String(c.number || '').slice(0, 12), name: first(ord?.guestName), looks: cleanLooks(c.looks), stage: (LIVE_STAGES.includes(c.stage) ? c.stage : 'speaker') as LiveStage,
@@ -75,13 +75,15 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
   // The line before the speaker (only with a lane entry sensor), and what's underneath: read side by side.
   const { lineNow, speakerId, exitId } = await import('@/lib/lane-entry-server');
   const { unclaimedArrivals } = await import('@/lib/lane-entry');
-  const [line, ahead, curb, pulled, exitDoc] = await Promise.all([
+  const [line, ahead, curb, pulled, exitDoc, parked] = await Promise.all([
     lineNow(db, tenantId, tenant, { cars: all, nowMs, at: here }).catch(() => null),
     (async () => { if (tenant?.orderAhead?.on !== true) return null; const { aheadForLane } = await import('@/lib/counter-ahead'); return (await aheadForLane(db, tenantId, tenant, nowMs)).filter((x: any) => atHere(x, here)); })().catch(() => null),
     curbsideNow(db, tenantId, tenant, here, nowMs).catch(() => null),
     // Cars the speaker's sensor saw pull up that nobody has started yet, and a car the exit's couldn't tell.
     Promise.all(([1, 2] as const).filter((l) => l === 1 || two).map(async (l) => unclaimedArrivals(((await db.doc(`${T}/private/${speakerId(l, here)}`).get()).data() as any) || null, nowMs).map((since) => ({ lane: l, since })))).catch(() => []),
     db.doc(`${T}/private/${exitId(here)}`).get().then((d: any) => d.data() || null).catch(() => null),
+    // (Read with curbside, at most every 15 seconds.)
+    parkedCached(db, tenantId, tenant, here, nowMs).catch(() => null),
   ]);
   const askAt = iso(exitDoc?.askAt); const exitAsk = askAt && nowMs - Date.parse(askAt) < 2 * 60000 ? askAt : null;
   const aheadRows = (ahead || []) as any[];
@@ -91,7 +93,7 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
     now: new Date(nowMs).toISOString(), target: targetsOf(tenant)['drive-thru'], lanes: two ? 2 : 1, spots: spotsOf(tenant), cars,
     waiting: { 1: line?.byLane?.[1] || 0, 2: two ? line?.byLane?.[2] || 0 : 0 }, sensor: !!line?.sensor, rush: !!line?.rush,
     side: {
-      curbside: curb,
+      curbside: curb, parked: parked as LiveNow['side']['parked'],
       ahead: ahead ? { open: aheadRows.length, here: aheadRows.filter((x) => x.hereAt).length, nextAt } : null,
       counter: counter.length ? { waiting: counter.length, longestSince: counterSince } : null,
     },
@@ -108,6 +110,15 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
 /** Curbside now: café orders placed ahead for curbside (lib/curbside-server) and the shop's curbside orders, while
  *  curbside is offered: guests outside (and the longest wait), and those on their way. */
 const curbCache = new Map<string, { at: number; v: LiveNow['side']['curbside'] }>();
+const parkCache = new Map<string, { at: number; v: LiveNow['side']['parked'] }>();
+async function parkedCached(db: any, tenantId: string, tenant: any, here: string | null, nowMs: number): Promise<LiveNow['side']['parked']> {
+  const key = `${tenantId}|${here || ''}`; const hit = parkCache.get(key);
+  if (hit && nowMs - hit.at < 15000) return hit.v;
+  const { parkedNow } = await import('@/lib/lane-entry-server');
+  const v = await parkedNow(db, tenantId, tenant, here, nowMs);
+  parkCache.set(key, { at: nowMs, v }); if (parkCache.size > 500) parkCache.delete(parkCache.keys().next().value as string);
+  return v;
+}
 async function curbsideNow(db: any, tenantId: string, tenant: any, here: string | null, nowMs: number): Promise<LiveNow['side']['curbside']> {
   const { curbsideOn } = await import('@/lib/modules');
   if (!curbsideOn(tenant)) return null;

@@ -46,7 +46,12 @@ const rearm = (point: string) => db.doc(`tenants/t1/private/lanePoint_${point}_1
   const NOW = Date.now(); const at = (s: number) => new Date(NOW + s * 1000).toISOString();
 
   console.log('the rules (lib/lane-entry)');
-  check('four places along the lane; a link from before is the lane entry', E.SENSOR_POINTS.map((p) => p.id).join() === 'entry,speaker,window,exit' && E.pointOf(undefined) === 'entry' && E.pointOf('exit') === 'exit' && E.pointOf('roof') === 'entry');
+  check('six places along the lane; a link from before is the lane entry', E.SENSOR_POINTS.map((p) => p.id).join() === 'entry,speaker,pay,window,exit,mobile' && E.pointOf(undefined) === 'entry' && E.pointOf('exit') === 'exit' && E.pointOf('pay') === 'pay' && E.pointOf('mobile') === 'mobile' && E.pointOf('roof') === 'entry');
+  check('the pay window: the first car on its way to pay that isn’t there yet', E.payCar([{ id: 'x', stage: 'pickup', stageAt: {} }, { id: 'y', stage: 'pay', stageAt: { payWindow: at(-5) } }, { id: 'z', stage: 'pay', stageAt: {} }])?.id === 'z');
+  const mlog = { at: [at(-300), at(-120), at(-30)] };
+  check('mobile pickup: three cars parked, one guest said they’re here: two unaccounted for, since the second parked', JSON.stringify(E.parkedUnknown(mlog, [at(-100)], NOW)) === JSON.stringify({ n: 2, since: at(-120) }) && E.parkedUnknown(mlog, [at(-1), at(-2), at(-3)], NOW).n === 0 && E.parkedUnknown({ at: [at(-700)] }, [], NOW).n === 0);
+  check('…a guest who said so before any of these cars parked (or as they pulled in, just before) accounts for none of them', E.parkedUnknown({ at: [at(-30)] }, [at(-630)], NOW).n === 1 && E.parkedUnknown({ at: [at(-30)] }, [at(-400)], NOW).n === 1 && E.parkedUnknown({ at: [at(-30)] }, [at(-90)], NOW).n === 0);
+  check('…the same car seen again while it parks: once; a second car parking a little later still counts', E.POINT_GAP_MS.mobile === 15000);
   let a = E.addArrival(null, NOW - 20000); const a2 = E.addArrival(a.log, NOW - 19500); a = E.addArrival(a2.log, NOW - 5000);
   check('a car pulled up to the speaker; the same car again in a moment, once; the next car', a.counted && !a2.counted && a.log.at.length === 2);
   const cl = E.claimArrival(a.log, NOW);
@@ -72,12 +77,12 @@ const rearm = (point: string) => db.doc(`tenants/t1/private/lanePoint_${point}_1
   await db.doc(T).set({ name: 'Northside', timezone: 'UTC', retailSettings: { taxRatePercent: 10 }, salesTax: { configured: true }, driveThru: { askName: false } });
   await db.doc(`${T}/inventory/burger`).set({ type: 'refreshment', name: 'Burger', category: 'Food', price: 6, totalStock: 50, makeSeconds: 120 });
   let r: any = await menuApi(req({ tenantId: 't1', action: 'list' }));
-  check('the Menu page: the speaker, the pickup window and the exit, none set up; the lane entry as before', r.body.lane?.points?.map((x: any) => x.point).join() === 'speaker,window,exit' && r.body.lane.points.every((x: any) => !x.on) && r.body.lane.sensors.length === 2, r.body.lane);
+  check('the Menu page: the speaker, the pickup window and the exit, none set up; the lane entry as before', r.body.lane?.points?.map((x: any) => x.point).join() === 'speaker,pay,window,exit,mobile' && r.body.lane.points.every((x: any) => !x.on) && r.body.lane.sensors.length === 2, r.body.lane);
   const make = async (point: string) => { const x: any = await menuApi(req({ tenantId: 't1', action: 'laneSettings', sensor: 'new', lane: 1, point })); return { body: x.body, link: String(x.body.sensorLink?.link || '') }; };
   const spk = await make('speaker'); const win = await make('window'); const ext = await make('exit');
   const sens: any = await get(`${T}/private/laneSensors`);
   check('a link each, shown once, only its fingerprint kept; the lane entry still not set up',
-    [spk, win, ext].every((x) => /\/api\/counter\/lane-entry\?t=t1&k=[a-f0-9]{48}$/.test(x.link)) && ext.body.lane.points.every((x: any) => x.on) && ext.body.lane.sensors[0].on === false
+    [spk, win, ext].every((x) => /\/api\/counter\/lane-entry\?t=t1&k=[a-f0-9]{48}$/.test(x.link)) && ext.body.lane.points.filter((x: any) => ['speaker', 'window', 'exit'].includes(x.point)).every((x: any) => x.on) && ext.body.lane.points.filter((x: any) => ['pay', 'mobile'].includes(x.point)).every((x: any) => !x.on) && ext.body.lane.sensors[0].on === false
     && Object.values(sens.tokens).map((t: any) => t.point).sort().join() === 'exit,speaker,window' && ![spk, win, ext].some((x) => JSON.stringify(sens).includes(new URL(x.link).searchParams.get('k')!)), ext.body.lane);
   const again = await make('speaker');
   check('a new speaker link stops the old one, and leaves the others', (await entryGet(getReq(spk.link))).status === 404 && Object.keys((await get(`${T}/private/laneSensors`)).tokens).length === 3);
@@ -170,9 +175,47 @@ const rearm = (point: string) => db.doc(`tenants/t1/private/lanePoint_${point}_1
   check('…the speaker’s, with the cars it saw', !(await get(`${T}/private/laneSpeaker_1`)) && (await entryGet(getReq(win.link))).status === 200);
   await db.doc(T).set({ driveThru: { lanes: 2 } }, { merge: true });
   r = await menuApi(req({ tenantId: 't1', action: 'list' }));
-  check('two ordering lanes: a speaker each; one pickup window and one exit', r.body.lane.points.map((x: any) => `${x.point}${x.lane}`).join() === 'speaker1,speaker2,window1,exit1');
+  check('two ordering lanes: a speaker each; one pay window, one pickup window, one exit, one mobile pickup', r.body.lane.points.map((x: any) => `${x.point}${x.lane}`).join() === 'speaker1,speaker2,pay1,window1,exit1,mobile1');
   r = await menuApi(req({ tenantId: 't1', action: 'laneSettings', sensor: 'new', lane: 2, point: 'window' }));
   check('…the window’s link is the one for both lanes', r.body.sensorLink?.lane === 1);
+
+  console.log('the pay window and mobile pickup');
+  manager = true;
+  const pay = await make('pay'); const mob = await make('mobile');
+  await db.doc(`${T}/driveThruCars/p1`).set({ id: 'p1', channel: 'drive-thru', number: 'P1', stage: 'pay', arrivedAt: at(-90), stageAt: { speaker: at(-90), pay: at(-40) } });
+  r = await entryGet(getReq(pay.link));
+  check('a car at the pay window: its pay time runs from there', r.body.counted === true && r.body.point === 'pay' && !!(await get(`${T}/driveThruCars/p1`)).stageAt.payWindow);
+  const SB = await import('../../src/lib/scoreboard');
+  check('…the scoreboard’s pay time from reaching the pay window', SB.boardCar({ arrivedAt: at(-200), goneAt: at(0), stageAt: { speaker: at(-200), pay: at(-150), payWindow: at(-120), pickup: at(-100) } })!.pay === 20);
+  const LS = await import('../../src/lib/lane-entry-server');
+  let pk = await LS.parkedNow(db, 't1', await get(T), null);
+  check('a mobile pickup sensor just set up: everyone checked in (the curbside screen keeps watching from the first car)', pk?.n === 0, pk);
+  r = await entryGet(getReq(mob.link));
+  pk = await LS.parkedNow(db, 't1', await get(T), null);
+  check('a car parks in mobile pickup, nobody has said they’re here: the curbside screen and Drive-thru live say so', r.body.counted === true && pk?.n === 1 && !!pk.since, pk);
+  const tday = new Date().toISOString().slice(0, 10);
+  await db.doc(`${T}/counterOrders/ah1`).set({ channel: 'ahead', day: tday, number: 'A9', status: 'sent', ahead: { way: 'curbside', hereAt: new Date().toISOString() } });
+  pk = await LS.parkedNow(db, 't1', await get(T), null);
+  check('…a guest says they’re here: accounted for', pk?.n === 0, pk);
+  await db.doc(`${T}/private/laneMobile`).set({ at: [at(-240), at(-120), at(-60)] });
+  await db.doc(`${T}/counterOrders/ah1`).set({ channel: 'ahead', number: 'A9', status: 'sent', ahead: { way: 'pickup', hereAt: at(-50) } });
+  await db.doc(`${T}/counterOrders/ah2`).set({ channel: 'ahead', number: 'A10', status: 'done', ahead: { way: 'curbside', curb: { handedAt: at(-20) } } });
+  await db.doc(`${T}/counterOrders/ah3`).set({ channel: 'ahead', number: 'A11', status: 'sent', locationId: 'elsewhere', ahead: { way: 'curbside', hereAt: at(-10) } });
+  pk = await LS.parkedNow(db, 't1', await get(T), null);
+  check('…only curbside guests count: one picking up inside accounts for no car; one handed their order without saying so does', pk?.n === 1 && pk.since === at(-60), pk);
+  await db.doc(`${T}/counterOrders/ah4`).set({ channel: 'ahead', number: 'A12', status: 'sent', ahead: { way: 'curbside', hereAt: at(-800), curb: { handedAt: at(-5) } } });
+  pk = await LS.parkedNow(db, 't1', await get(T), null);
+  check('…one who said so long before these cars parked, handed over now: still accounts for none', pk?.n === 1, pk);
+  await db.doc(`${T}/private/laneMobile_main`).set({ at: [at(-200), at(-30)] });
+  pk = await LS.parkedNow(db, 't1', await get(T), 'main');
+  check('…at one location: a guest at another location accounts for none of its cars', pk?.n === 1 && pk.since === at(-30), pk);
+  await db.doc(`${T}/private/laneMobile_main`).delete();
+  check('…no mobile pickup sensor at another business: nothing to say', (await LS.parkedNow(db, 't2', { timezone: 'UTC' }, null)) === null);
+  r = await menuApi(req({ tenantId: 't1', action: 'laneSettings', sensor: 'stop', lane: 1, point: 'mobile' }));
+  check('…turned off: the cars it saw go with it', !(await get(`${T}/private/laneMobile`)) && (await LS.parkedNow(db, 't1', await get(T), null)) === null);
+  const cs = src('src/components/orders/CurbsideScreen.tsx');
+  check('the curbside screen says it, and Drive-thru live', /parked in mobile pickup/.test(cs) && /Check the spots\./.test(cs) && /Mobile pickup spots/.test(src('src/app/(app)/drive-live/page.tsx')) && /parkedNow\(db, tenantId, auth\.tenant, here\)/.test(src('src/app/api/curbside/route.ts')));
+  manager = false;
 
   console.log('waiting to order');
   // (Another business, with no cars of its own yet.)

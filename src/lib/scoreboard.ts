@@ -41,11 +41,13 @@ export function boardCar(c: any): { total: number; menu: number | null; pay: num
   if (!c || c.left === true || c.voided === true) return null;
   const t = (v: unknown) => { const x = Date.parse(String(v || '')); return Number.isFinite(x) ? x : null; };
   const start = t(c.stageAt?.speaker) ?? t(c.arrivedAt), sent = t(c.stageAt?.pay), paid = t(c.stageAt?.pickup), gone = t(c.goneAt);
+  // (Pay: from reaching the pay window, when its sensor saw it, else from the order sent.)
+  const atPay = t(c.stageAt?.payWindow); const payFrom = atPay !== null && sent !== null && atPay >= sent ? atPay : sent;
   if (start === null || gone === null || gone < start) return null;
   const span = (a: number | null, z: number | null) => (a !== null && z !== null && z >= a ? Math.round((z - a) / 1000) : null);
   const viaSpeaker = c.inLine !== true && c.wasInLine !== true;
   const total = Math.round((gone - (t(c.arrivedAt) ?? start)) / 1000); if (total > FORGOTTEN_SEC) return null;
-  return { total, menu: viaSpeaker ? span(start, sent) : null, pay: viaSpeaker ? span(sent, paid) : null, service: span(paid, gone) };
+  return { total, menu: viaSpeaker ? span(start, sent) : null, pay: viaSpeaker ? span(payFrom, paid) : null, service: span(paid, gone) };
 }
 
 export type Board = {
