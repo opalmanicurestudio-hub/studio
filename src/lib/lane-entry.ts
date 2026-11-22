@@ -68,3 +68,68 @@ export function earlyLines(order: any): EarlyLine[] {
     choicesText: l?.choicesText ? String(l.choicesText).slice(0, 160) : null, itemId: String(l?.itemId || ''),
   })).filter((l: EarlyLine) => l.itemId);
 }
+
+// ── SENSORS ALONG THE LANE (design board "Speed of service, and what slows it", part 4) ─────────────────────────────
+// Besides the lane entry, a sensor can call a link of its own at three more places:
+// - The speaker: a car pulled up. Its time starts then (not when someone first spoke to it), and a car nobody has
+//   started an order for yet shows on Drive-thru live, counting up.
+// - The pickup window: a car got there. The first paid car in the line to the window that isn't there yet is.
+// - The exit: a car drove off. When there's no doubt which car it was (one car at the window, ready and paid, none
+//   parked), it's handed over on its own; otherwise Drive-thru live asks the window to check.
+
+export type SensorPoint = 'entry' | 'speaker' | 'window' | 'exit';
+export const SENSOR_POINTS: { id: SensorPoint; label: string; hint: string; perLane: boolean }[] = [
+  { id: 'entry', label: 'Lane entry', hint: 'A car joins the line: counts the cars waiting to order.', perLane: true },
+  { id: 'speaker', label: 'Speaker', hint: 'A car pulls up: its time starts then, and a car nobody has greeted shows.', perLane: true },
+  { id: 'window', label: 'Pickup window', hint: 'A car reaches the window: where its time goes, to the second.', perLane: false },
+  { id: 'exit', label: 'Exit', hint: 'A car drives off: handed over on its own when there’s no doubt which car it was.', perLane: false },
+];
+export const pointOf = (v: unknown): SensorPoint => (v === 'speaker' || v === 'window' || v === 'exit' ? v : 'entry');
+
+/** A car at the speaker that nobody has started an order for counts this long (after that it's taken to have left, and
+ *  never makes the next car's time start early). */
+export const SPEAKER_KEEP_MS = 90000;
+/** The same car seen again by a sensor past the entry within this long is the same car: a long or slow car, or a sensor
+ *  that fires again while it's there. A car can't leave the speaker, the window or the exit and the next take its place
+ *  any sooner. */
+export const POINT_GAP_MS: Record<Exclude<SensorPoint, 'entry'>, number> = { speaker: 12000, window: 15000, exit: 15000 };
+/** A car started at the speaker this recently is the one the speaker's sensor just saw pull up (the crew was quick). */
+export const SPEAKER_MATCH_MS = 30000;
+export type ArrivalLog = { at: string[] };
+/** Where the cars the speaker's sensor saw pull up are kept (tenants/{t}/private/…), for one lane at one location. */
+export const speakerDocId = (lane: 1 | 2, at?: string | null) => (at ? `laneSpeaker_${at}_${lane}` : `laneSpeaker_${lane}`);
+const keptArrivals = (log: ArrivalLog | null | undefined, nowMs: number) =>
+  (Array.isArray(log?.at) ? log!.at : []).filter((x) => { const t = Date.parse(String(x)); return Number.isFinite(t) && t > nowMs - SPEAKER_KEEP_MS && t <= nowMs + 60000; }).sort();
+
+/** A car pulled up to the speaker (the same car seen again within a moment, once). */
+export function addArrival(log: ArrivalLog | null | undefined, nowMs: number): { log: ArrivalLog; counted: boolean } {
+  const kept = keptArrivals(log, nowMs);
+  const last = kept.length ? Date.parse(kept[kept.length - 1]) : -Infinity;
+  if (nowMs - last < ENTRY_GAP_MS) return { log: { at: kept }, counted: false };
+  return { log: { at: [...kept, new Date(nowMs).toISOString()].slice(-20) }, counted: true };
+}
+/** Someone started an order at the speaker: the car that pulled up first and hasn't been started yet is this one. */
+export function claimArrival(log: ArrivalLog | null | undefined, nowMs: number): { at: string | null; log: ArrivalLog } {
+  const kept = keptArrivals(log, nowMs).filter((x) => Date.parse(x) <= nowMs);
+  return kept.length ? { at: kept[0], log: { at: keptArrivals(log, nowMs).filter((x) => x !== kept[0]) } } : { at: null, log: { at: keptArrivals(log, nowMs) } };
+}
+/** Cars at the speaker nobody has started an order for yet: when each pulled up. */
+export const unclaimedArrivals = (log: ArrivalLog | null | undefined, nowMs: number): string[] => keptArrivals(log, nowMs).filter((x) => Date.parse(x) <= nowMs);
+
+type LaneCar = { id: string; stage?: unknown; stageAt?: Record<string, unknown> | null; goneAt?: unknown; left?: unknown; exitAt?: unknown };
+/** The car the pickup window's sensor saw: the first paid car in the line to the window (`line`, in its order) that
+ *  hasn't reached the window yet; none when every one has. */
+export const windowCar = <C extends LaneCar>(line: C[]): C | null => line.find((c) => c.stage === 'pickup' && !c.stageAt?.window) || null;
+
+/** A car drove past the exit: a car just handed over (in the last minute, not yet seen leaving) is the one; or, when
+ *  there's no doubt, the one car at the window with none parked (`handover`: handed over on its own, if its order is
+ *  ready and paid); otherwise the window is asked to check. `atWindow`: cars waiting at the pickup window, `parked`:
+ *  cars in the spots, `gone`: cars handed over lately. */
+export function exitPick<C extends LaneCar>(o: { atWindow: C[]; parked: C[]; gone: C[] }, nowMs: number): { kind: 'handed' | 'handover'; car: C } | { kind: 'ask' } {
+  const just = o.gone.filter((c) => !c.left && !c.exitAt && nowMs - (Date.parse(String(c.goneAt || '')) || 0) < 60000).sort((a, b) => String(a.goneAt).localeCompare(String(b.goneAt)))[0];
+  if (just) return { kind: 'handed', car: just };
+  // (Those the window's sensor saw at the window, or with no window sensor, every paid car waiting.)
+  const seen = o.atWindow.filter((c) => !!c.stageAt?.window);
+  const at = seen.length ? seen : o.atWindow;
+  return at.length === 1 && !o.parked.length ? { kind: 'handover', car: at[0] } : { kind: 'ask' };
+}

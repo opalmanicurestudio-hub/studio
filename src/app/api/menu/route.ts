@@ -72,7 +72,8 @@ import { appMoneyFrom, MARKUP_CHOICES, FEE_MAX, appOrdersOf, cleanAppName, SHELF
 import { deliveryFrom, deliveryProblems } from '@/lib/delivery-plan';
 import { hasMapsKey } from '@/lib/geocode-server';
 import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
-import { sensorsView, newSensor, stopSensor } from '@/lib/lane-entry-server';
+import { sensorsView, newSensor, stopSensor, pointsView } from '@/lib/lane-entry-server';
+import { pointOf } from '@/lib/lane-entry';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
 import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
@@ -212,7 +213,7 @@ export async function POST(req: NextRequest) {
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
-      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
+      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
         // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
         oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null,
         // Scale labels (lib/scale-label): how the business's scale prints its stickers.
@@ -473,16 +474,18 @@ export async function POST(req: NextRequest) {
       // The lane entry sensor (lib/lane-entry-server): a new link for a lane (shown once; the old one stops), turned off,
       // or how each is doing (when it last counted a car).
       if (b.sensor === 'new' || b.sensor === 'stop' || b.sensor === 'check') {
-        const two = lanesOf(td) === 2; const lane = b.lane === 2 && two ? 2 : 1;
+        // (Where along the lane: the entry, the speaker, the pickup window or the exit; past the speaker, one for both lanes.)
+        const point = pointOf(b.point);
+        const two = lanesOf(td) === 2; const lane = b.lane === 2 && two && (point === 'entry' || point === 'speaker') ? 2 : 1;
         // (With more than one location, each location's own lanes: `at`. None: one set up before there were locations.)
         const places = await sensorPlaces(db, tenantId); const at = places.find((p) => p.id === String(b.at || ''))?.id || null;
         if (b.sensor === 'new') {
-          const key = await newSensor(db, tenantId, lane, words(g.actor?.name, 60) || 'A manager', at);
+          const key = await newSensor(db, tenantId, lane, words(g.actor?.name, 60) || 'A manager', at, point);
           const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl?.origin || '').replace(/\/+$/, '');
-          return ok({ lane: { sensors: await sensorsView(db, tenantId, td, places) }, sensorLink: { lane, at, link: `${origin}/api/counter/lane-entry?t=${encodeURIComponent(tenantId)}&k=${key}` } });
+          return ok({ lane: { sensors: await sensorsView(db, tenantId, td, places), points: await pointsView(db, tenantId, two, places) }, sensorLink: { lane, at, point, link: `${origin}/api/counter/lane-entry?t=${encodeURIComponent(tenantId)}&k=${key}` } });
         }
-        if (b.sensor === 'stop') await stopSensor(db, tenantId, lane, at);
-        return ok({ lane: { sensors: await sensorsView(db, tenantId, td, places) } });
+        if (b.sensor === 'stop') await stopSensor(db, tenantId, lane, at, point);
+        return ok({ lane: { sensors: await sensorsView(db, tenantId, td, places), points: await pointsView(db, tenantId, two, places) } });
       }
       // When the kitchen sees what's being ordered at the speaker before it's sent (lib/lane-entry).
       if (b.kitchenEarly === 'rush' || b.kitchenEarly === 'always' || b.kitchenEarly === 'off') {

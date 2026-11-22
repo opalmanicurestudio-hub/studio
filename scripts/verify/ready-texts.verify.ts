@@ -134,7 +134,7 @@ const ago = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
   check('a send that throws is marked not sent, and the logs are told to forget the number', /catch \(e: any\) \{ r = \{ ok: false, error: e\?\.message \}; \}/.test(src('src/lib/ready-text.ts')) && /skipMessageLog: true, forget: true, logBody: readyWords\(claim\.or, null\)/.test(src('src/lib/ready-text.ts')));
   check('dropped at the counter before it was sent: the number goes', /cancelledBy: by, \.\.\.\(o\.readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}\)/.test(src('src/app/api/counter/route.ts')));
   check('voided at the counter or handed over: the number goes',
-    /\.\.\.\(o\.readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}\)/.test(src('src/lib/counter-server.ts')) && /doneAt: nowIso, \.\.\.\(order\.readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}\)/.test(src('src/app/api/counter/route.ts')));
+    /\.\.\.\(o\.readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}\)/.test(src('src/lib/counter-server.ts')) && /doneAt: nowIso, \.\.\.\(order\.readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}\)/.test(src('src/lib/counter-handover.ts')) && /if \(to === 'gone'\) handOverInTx\(/.test(src('src/app/api/counter/route.ts')));
   const ahead = src('src/lib/counter-ahead.ts');
   check('an order placed ahead and never paid: the number goes', (ahead.match(/readyText\?\.to \? \{ readyText: \{ to: null, pendingSince: null \} \} : \{\}/g) || []).length === 2);
   const cron = src('src/app/api/cron/retail-payments/route.ts');

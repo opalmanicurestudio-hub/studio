@@ -10,18 +10,27 @@
 //   its own line, rush and Line's clear. One set up before there were locations (no location) counts for screens that
 //   aren't set up for one.
 import { createHash, randomBytes } from 'crypto';
-import { addEntry, waitingByLane, isRush, earlyLines, ENTRY_KEEP_MS, type EntryLog, type EarlyLine } from '@/lib/lane-entry';
-import { lanesOf, cleanLane } from '@/lib/drive-lanes';
+import { addEntry, waitingByLane, isRush, earlyLines, ENTRY_KEEP_MS, POINT_GAP_MS, pointOf, addArrival, unclaimedArrivals, windowCar, exitPick, SPEAKER_MATCH_MS, speakerDocId, type EntryLog, type EarlyLine, type SensorPoint, type ArrivalLog } from '@/lib/lane-entry';
+import { lanesOf, cleanLane, byWindow } from '@/lib/drive-lanes';
+import { forgetLive } from '@/lib/drive-live-server';
 import { inLineNow, atDriveThru } from '@/lib/counter-orders';
 import { atHere } from '@/lib/business-locations';
 
 const hash = (k: string) => createHash('sha256').update(String(k)).digest('hex');
 const LIVE = ['speaker', 'pay', 'pickup', 'forward'];
-type Sensor = { lane: 1 | 2; createdAt: string; createdBy: string; lastAt?: string | null; locationId?: string | null };
+type Sensor = { lane: 1 | 2; createdAt: string; createdBy: string; lastAt?: string | null; locationId?: string | null;
+  /** Where along the lane (lib/lane-entry SENSOR_POINTS); none: the lane entry, as every link made before there were more. */
+  point?: SensorPoint };
 const ID = /^[A-Za-z0-9_-]{1,120}$/;
 /** A lane's count (and when its sensor last counted a car), for one location or none. */
 export const entryId = (lane: 1 | 2, at?: string | null) => (at ? `laneEntry_${at}_${lane}` : `laneEntry_${lane}`);
-const lastKey = (lane: 1 | 2, at?: string | null) => (at ? `${at}_${lane}` : String(lane));
+const lastKey = (lane: 1 | 2, at?: string | null, point: SensorPoint = 'entry') => `${point === 'entry' ? '' : `${point}_`}${at ? `${at}_${lane}` : String(lane)}`;
+/** Cars the speaker's sensor saw pull up, not started yet (lib/lane-entry ArrivalLog), for one lane at one location. */
+export const speakerId = speakerDocId;
+/** When the exit's sensor last saw a car leave that it couldn't tell, at one location. */
+export const exitId = (at?: string | null) => (at ? `laneExit_${at}` : 'laneExit');
+/** The same link: its lane, location and place along the lane. */
+const samePlace = (v: Sensor | undefined, lane: 1 | 2, at: string | null, point: SensorPoint, live: Set<string>) => !!v && v.lane === lane && liveAt(v, live) === at && pointOf(v.point) === point;
 const atOf = (x: Sensor | undefined) => (x?.locationId && ID.test(String(x.locationId)) ? String(x.locationId) : null);
 /** The business's locations, when it has more than one (a sensor's location counts only then, and only while it's still
  *  one of them: back to one location, or that location closed, it's the business's own again). */
@@ -38,44 +47,58 @@ export type SensorView = { lane: 1 | 2; on: boolean; lastAt: string | null; loca
 export async function sensorsView(db: any, tenantId: string, _tenant?: any, places: { id: string; name: string }[] = []): Promise<SensorView[]> {
   const s: any = (await db.doc(`tenants/${tenantId}/private/laneSensors`).get()).data() || {};
   const all = Object.values((s.tokens || {}) as Record<string, Sensor>); const live = await liveIds(db, tenantId);
-  const on = (l: 1 | 2, at: string | null) => all.some((x) => x.lane === l && liveAt(x, live) === at);
+  const on = (l: 1 | 2, at: string | null) => all.some((x) => x.lane === l && liveAt(x, live) === at && pointOf(x.point) === 'entry');
   const row = (l: 1 | 2, at: string | null, place: string | null): SensorView => ({ lane: l, on: on(l, at), lastAt: (s.last || {})[lastKey(l, at)] || null, locationId: at, place });
   // (Both lanes, so the page shows lane 2's at once when two lanes are turned on.)
   if (places.length < 2) return ([1, 2] as const).map((l) => row(l, null, null));
   return [...places.flatMap((p) => ([1, 2] as const).map((l) => row(l, p.id, p.name))), ...([1, 2] as const).filter((l) => on(l, null)).map((l) => row(l, null, null))];
 }
 
+export type PointView = { point: SensorPoint; lane: 1 | 2; on: boolean; lastAt: string | null; locationId: string | null; place: string | null };
+/** The sensors further along the lane, for the Menu page: the speaker (each lane's), the pickup window and the exit, at
+ *  each location with more than one; which are set up, and when each last saw a car (never the link). */
+export async function pointsView(db: any, tenantId: string, two: boolean, places: { id: string; name: string }[] = []): Promise<PointView[]> {
+  const s: any = (await db.doc(`tenants/${tenantId}/private/laneSensors`).get()).data() || {};
+  const all = Object.values((s.tokens || {}) as Record<string, Sensor>); const live = await liveIds(db, tenantId);
+  const row = (point: SensorPoint, l: 1 | 2, at: string | null, place: string | null): PointView => ({ point, lane: l, on: all.some((x) => samePlace(x, l, at, point, live)), lastAt: (s.last || {})[lastKey(l, at, point)] || null, locationId: at, place });
+  const rows = (at: string | null, place: string | null) => [...(two ? [1, 2] as const : [1] as const).map((l) => row('speaker', l, at, place)), row('window', 1, at, place), row('exit', 1, at, place)];
+  return places.length < 2 ? rows(null, null) : places.flatMap((p) => rows(p.id, p.name));
+}
+
 /** A new link for a lane's sensor (the old one, if any, stops): its key, shown once. `at`: at that location. */
-export async function newSensor(db: any, tenantId: string, lane: 1 | 2, by: string, at: string | null = null): Promise<string> {
+export async function newSensor(db: any, tenantId: string, lane: 1 | 2, by: string, at: string | null = null, point: SensorPoint = 'entry'): Promise<string> {
   const key = randomBytes(24).toString('hex');
   const ref = db.doc(`tenants/${tenantId}/private/laneSensors`); const live = await liveIds(db, tenantId);
   await db.runTransaction(async (tx: any) => {
     const s: any = (await tx.get(ref)).data() || {};
-    const tokens: Record<string, Sensor> = Object.fromEntries(Object.entries((s.tokens || {}) as Record<string, Sensor>).filter(([, v]) => !(v?.lane === lane && liveAt(v, live) === at)));
-    tokens[hash(key)] = { lane, createdAt: new Date().toISOString(), createdBy: String(by).slice(0, 80), ...(at ? { locationId: at } : {}) };
+    const tokens: Record<string, Sensor> = Object.fromEntries(Object.entries((s.tokens || {}) as Record<string, Sensor>).filter(([, v]) => !samePlace(v, lane, at, point, live)));
+    tokens[hash(key)] = { lane, createdAt: new Date().toISOString(), createdBy: String(by).slice(0, 80), ...(at ? { locationId: at } : {}), ...(point !== 'entry' ? { point } : {}) };
     // (Its count starts now, empty, so the lane screen shows the line from the first car.)
     const eRef = db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`); const e = (await tx.get(eRef)).data();
     tx.set(ref, { tokens, last: s.last || {} });
-    if (!e) tx.set(eRef, { at: [], clearedAt: new Date().toISOString() });
+    if (!e && point === 'entry') tx.set(eRef, { at: [], clearedAt: new Date().toISOString() });
   });
   forget(tenantId);
   return key;
 }
 
 /** A lane's sensor turned off: its link stops counting. `at`: that location's. */
-export async function stopSensor(db: any, tenantId: string, lane: 1 | 2, at: string | null = null): Promise<void> {
+export async function stopSensor(db: any, tenantId: string, lane: 1 | 2, at: string | null = null, point: SensorPoint = 'entry'): Promise<void> {
   const ref = db.doc(`tenants/${tenantId}/private/laneSensors`); const live = await liveIds(db, tenantId);
   await db.runTransaction(async (tx: any) => {
     const s: any = (await tx.get(ref)).data() || {};
-    tx.set(ref, { tokens: Object.fromEntries(Object.entries((s.tokens || {}) as Record<string, Sensor>).filter(([, v]) => !(v?.lane === lane && liveAt(v, live) === at))), last: s.last || {} });
-    // (Its count goes with it: the lane screen stops showing a line it can't see.)
-    tx.delete(db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`));
+    tx.set(ref, { tokens: Object.fromEntries(Object.entries((s.tokens || {}) as Record<string, Sensor>).filter(([, v]) => !samePlace(v, lane, at, point, live))), last: s.last || {} });
+    // (Its count goes with it: the lane screen stops showing a line it can't see; the same for the cars the speaker's
+    // saw pull up, and a car the exit's couldn't tell.)
+    if (point === 'entry') tx.delete(db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`));
+    if (point === 'speaker') tx.delete(db.doc(`tenants/${tenantId}/private/${speakerId(lane, at)}`));
+    if (point === 'exit') tx.delete(db.doc(`tenants/${tenantId}/private/${exitId(at)}`));
   });
   forget(tenantId);
 }
 
 /** A car passed the sensor whose key this is: counted in its lane (the same car seen twice in a moment, once). */
-export async function sensorCar(db: any, tenantId: string, key: string, nowMs = Date.now()): Promise<{ ok: true; lane: 1 | 2; counted: boolean } | { ok: false }> {
+export async function sensorCar(db: any, tenantId: string, key: string, nowMs = Date.now()): Promise<{ ok: true; lane: 1 | 2; counted: boolean; point?: SensorPoint } | { ok: false }> {
   if (!/^[a-f0-9]{48}$/.test(key) || !/^[A-Za-z0-9_-]{1,160}$/.test(tenantId)) return { ok: false };
   const sRef = db.doc(`tenants/${tenantId}/private/laneSensors`);
   const s: any = (await sRef.get()).data();
@@ -83,6 +106,14 @@ export async function sensorCar(db: any, tenantId: string, key: string, nowMs = 
   const lane = cleanLane(me?.lane); if (!lane) return { ok: false };
   // (Counted at its own location's lane, when it's set up for one that's still one of the business's several.)
   const at = liveAt(me, await liveIds(db, tenantId));
+  // The speaker, the pickup window or the exit: a car there now (pointCar).
+  const point = pointOf(me?.point);
+  if (point !== 'entry') {
+    const counted = await pointCar(db, tenantId, point, lane, at, key, nowMs);
+    if (!(nowMs - (Date.parse(String(s?.last?.[lastKey(lane, at, point)] || '')) || 0) < 30000)) await sRef.set({ last: { [lastKey(lane, at, point)]: new Date(nowMs).toISOString() } }, { merge: true }).catch(() => null);
+    forget(tenantId); forgetLive(tenantId);
+    return { ok: true, lane, counted, point };
+  }
   const ref = db.doc(`tenants/${tenantId}/private/${entryId(lane, at)}`);
   const counted = await db.runTransaction(async (tx: any) => {
     // (Its link read again with the count: one turned off this instant never starts a count again.)
@@ -97,6 +128,97 @@ export async function sensorCar(db: any, tenantId: string, key: string, nowMs = 
   if (!(nowMs - (Date.parse(String(s?.last?.[lastKey(lane, at)] || '')) || 0) < 30000)) await sRef.set({ last: { [lastKey(lane, at)]: new Date(nowMs).toISOString() } }, { merge: true }).catch(() => null);
   forget(tenantId);
   return { ok: true, lane, counted };
+}
+
+/** A car at the speaker, the pickup window or the exit (lib/lane-entry). Never throws past the caller's answer: a car it
+ *  can't place is only counted. `key`: the link's own key, so a link turned off this instant does nothing. */
+async function pointCar(db: any, tenantId: string, point: SensorPoint, lane: 1 | 2, at: string | null, key: string, nowMs: number): Promise<boolean> {
+  const T = `tenants/${tenantId}`; const nowIso = new Date(nowMs).toISOString(); const sRef = db.doc(`${T}/private/laneSensors`);
+  const stillOn = async (tx: any) => { const v: Sensor | undefined = ((await tx.get(sRef)).data() as any)?.tokens?.[hash(key)]; return !!v && pointOf(v.point) === point && cleanLane(v.lane) === lane; };
+  const here = (c: any) => atDriveThru(c) && atHere(c, at) && inLineNow([c], nowMs) === 1;
+  const read = async (q: any) => (await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  const carRef = (id: string) => db.doc(`${T}/driveThruCars/${id}`);
+  // (The same car seen again while it's there is one car: lib/lane-entry POINT_GAP_MS. Checked before anything else is
+  // read, so a sensor that keeps firing costs one read a call.)
+  const seenRef = db.doc(`${T}/private/lanePoint_${point}${at ? `_${at}` : ''}_${lane}`);
+  const fresh = await db.runTransaction(async (tx: any) => {
+    const last = Number(((await tx.get(seenRef)).data() || {}).lastMs) || 0;
+    if (nowMs - last < POINT_GAP_MS[point as Exclude<SensorPoint, 'entry'>] && nowMs >= last) return false;
+    tx.set(seenRef, { lastMs: nowMs }); return true;
+  }).catch(() => true);
+  if (!fresh) return false;
+
+  if (point === 'speaker') {
+    // A car someone started at this speaker a moment ago (quicker than the sensor) is the one it saw; otherwise a car
+    // pulled up that nobody has started yet: kept until someone does (lib/counter-server createCar takes it).
+    const just = (await read(db.collection(`${T}/driveThruCars`).where('arrivedAt', '>=', new Date(nowMs - SPEAKER_MATCH_MS).toISOString()).limit(30)))
+      .filter((c: any) => here(c) && c.stage === 'speaker' && c.inLine !== true && !c.speakerSeen && !c.greetedAt && (cleanLane(c.lane) || 1) === lane)
+      .sort((a: any, b: any) => String(a.arrivedAt).localeCompare(String(b.arrivedAt)))[0];
+    const ref = db.doc(`${T}/private/${speakerId(lane, at)}`);
+    return db.runTransaction(async (tx: any) => {
+      const [on, log, car] = await Promise.all([stillOn(tx), tx.get(ref), just ? tx.get(carRef(just.id)) : Promise.resolve(null)]);
+      if (!on) return false;
+      const c: any = car?.data?.();
+      if (c && c.stage === 'speaker' && !c.speakerSeen && !c.greetedAt) { tx.set(carRef(just.id), { speakerSeen: nowIso }, { merge: true }); return true; }
+      const r = addArrival(log.data() as ArrivalLog | undefined, nowMs);
+      if (r.counted) tx.set(ref, r.log);
+      return r.counted;
+    });
+  }
+
+  const two = lanesOf((await db.doc(T).get()).data() || {}) === 2;
+  if (point === 'window') {
+    // The first paid car in the line to the window that isn't at the window yet got there.
+    const line = (await read(db.collection(`${T}/driveThruCars`).where('stage', '==', 'pickup').limit(100))).filter(here).sort(byWindow(two));
+    const c = windowCar(line); if (!c) return false;
+    return db.runTransaction(async (tx: any) => {
+      const [on, snap] = await Promise.all([stillOn(tx), tx.get(carRef(c.id))]); const car: any = snap.data();
+      if (!on || !car || car.stage !== 'pickup' || car.stageAt?.window) return false;
+      tx.set(carRef(c.id), { stageAt: { ...(car.stageAt || {}), window: nowIso } }, { merge: true });
+      return true;
+    });
+  }
+
+  // The exit: which car drove off (lib/lane-entry exitPick).
+  const [waiting, gone] = await Promise.all([
+    read(db.collection(`${T}/driveThruCars`).where('stage', 'in', ['pickup', 'forward']).limit(100)),
+    read(db.collection(`${T}/driveThruCars`).where('goneAt', '>=', new Date(nowMs - 60000).toISOString()).limit(30)),
+  ]);
+  const mine = waiting.filter(here);
+  const pick = exitPick({ atWindow: mine.filter((c: any) => c.stage === 'pickup'), parked: mine.filter((c: any) => c.stage === 'forward'), gone: gone.filter((c: any) => atDriveThru(c) && atHere(c, at)) }, nowMs);
+  const askRef = db.doc(`${T}/private/${exitId(at)}`);
+  if (pick.kind === 'handed') { await carRef(pick.car.id).set({ exitAt: nowIso }, { merge: true }); return true; }
+  if (pick.kind === 'handover') {
+    // Handed over on its own only when nothing's in doubt: paid, everything ready, no allergy the kitchen hasn't noted,
+    // not a delivery app's (its courier is handed it at the counter).
+    const { handOverInTx } = await import('@/lib/counter-handover');
+    const { ticketFrom, needsAllergyNote } = await import('@/lib/kitchen');
+    const done = await db.runTransaction(async (tx: any) => {
+      const [on, snap] = await Promise.all([stillOn(tx), tx.get(carRef(pick.car.id))]); const car: any = snap.data();
+      // (Handed over by the crew in the meantime: nothing to ask.)
+      if (car?.stage === 'gone') return 'gone';
+      if (!on || !car || car.stage !== 'pickup') return false;
+      const order: any = ID.test(String(car.orderId || '')) ? (await tx.get(db.doc(`${T}/counterOrders/${car.orderId}`))).data() || null : null;
+      const aheadRef = ID.test(String(car.aheadId || '')) ? db.doc(`${T}/counterOrders/${car.aheadId}`) : null;
+      const ahead: any = aheadRef ? (await tx.get(aheadRef)).data() || null : null;
+      const tix = order ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', String(car.orderId)))).docs : [];
+      const aheadTix = aheadRef ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', String(car.aheadId)))).docs : [];
+      const liveOf = (docs: any[]) => docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((t: any) => t.status !== 'cancelled' && t.status !== 'voided');
+      // Each order: sent and paid (never one voided, canceled or done), and everything for it made: tickets that are all
+      // ready, or one sent with nothing for the kitchen at all. No tickets yet is never "made".
+      const settled = (o: any, live: any[]) => !!o && !['building', 'voided', 'cancelled', 'done'].includes(String(o.status)) && !!o.paidAt
+        && (live.length ? live.every((t: any) => ['ready', 'delivered', 'served', 'done'].includes(String(t.status))) : o.kitchenNone === true);
+      const all = [...liveOf(tix), ...liveOf(aheadTix)];
+      const allergy = all.some((t: any) => t.status !== 'delivered' && needsAllergyNote(ticketFrom(t, 'kdsTickets') as any));
+      if (!settled(order, liveOf(tix)) || (aheadRef && !settled(ahead, liveOf(aheadTix))) || order.app?.code || allergy) return false;
+      handOverInTx(tx, db, T, { carRef: carRef(pick.car.id), car, order, tix, aheadRef, aheadTix, by: 'Exit sensor', nowIso, extra: { exitAt: nowIso } });
+      return true;
+    }).catch(() => false);
+    if (done) return true;
+  }
+  // Which car it was isn't certain: the window is asked to check (Drive-thru live).
+  await askRef.set({ askAt: nowIso }, { merge: true });
+  return true;
 }
 
 /** "Line's clear" on the lane screen: nobody waiting to order, in one lane or both (`at`: that location's lanes). */
@@ -148,6 +270,11 @@ export async function lineNow(db: any, tenantId: string, tenant: any, o: { nowMs
     }
   }
   const arrivals = recent.filter((c: any) => c.arrivedAt && here(c)).map((c: any) => ({ at: String(c.arrivedAt), lane: two ? (c.inLine === true || c.wasInLine === true ? null : cleanLane(c.lane)) : (1 as const) }));
+  // (A car the speaker's sensor saw pull up has reached the speaker, though nobody has started its order yet.)
+  if (live(l1) || live(l2)) {
+    const pulled = await Promise.all(([1, 2] as const).filter((l) => l === 1 || two).map(async (l) => unclaimedArrivals(((await db.doc(`${T}/private/${speakerId(l, at)}`).get()).data() as ArrivalLog | undefined) || null, nowMs).map((x) => ({ at: x, lane: two ? l : (1 as const) }))));
+    arrivals.push(...pulled.flat());
+  }
   const byLane = sensor ? waitingByLane({ 1: l1, 2: l2 }, arrivals, nowMs) : { 1: 0, 2: 0 };
   const waiting = byLane[1] + byLane[2];
   let ordering: EarlyOrder[] = [];

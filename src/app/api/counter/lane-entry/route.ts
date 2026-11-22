@@ -1,6 +1,7 @@
 // src/app/api/counter/lane-entry/route.ts — THE LANE ENTRY SENSOR'S LINK (lib/lane-entry-server). A sensor at the
 // drive-thru's lane entry calls it each time a car passes: a vehicle loop or a driveway sensor through a smart relay, or
-// a camera with line crossing. Most can only call a plain link, so it answers a GET as well as a POST:
+// a camera with line crossing. Sensors at the speaker, the pickup window and the exit call their own links here too.
+// Most can only call a plain link, so it answers a GET as well as a POST:
 //   GET|POST /api/counter/lane-entry?t={tenantId}&k={key}   → { ok, counted } (the same car seen twice in a moment: once)
 // The key is the one shown once on the Menu page for that lane; it does nothing else anywhere. A key that isn't one gets
 // the same answer as a business that isn't one, so the link gives nothing away.
@@ -25,7 +26,8 @@ async function count(req: NextRequest, tenantId: string, key: string) {
   try {
     const r = await sensorCar(getAdminDb(), tenantId, key);
     if (!r.ok) return NextResponse.json({ ok: false, error: 'That link isn’t set up. Make a new one on the Menu page.' }, { status: 404 });
-    return NextResponse.json({ ok: true, lane: r.lane, counted: r.counted });
+    // (`point`: a sensor further along the lane, lib/lane-entry SENSOR_POINTS.)
+    return NextResponse.json({ ok: true, lane: r.lane, counted: r.counted, ...(r.point ? { point: r.point } : {}) });
   } catch {
     return NextResponse.json({ ok: false, error: 'That didn’t count. The sensor can try again.' }, { status: 500 });
   }

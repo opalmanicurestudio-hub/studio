@@ -1,16 +1,19 @@
 'use client';
 // src/components/menu/LaneEntrySettings.tsx — THE LINE BEFORE THE SPEAKER, on the Menu page (a manager; design board
 // "Rush and the lane entry"): a link per lane for a sensor at the lane entry to call each time a car passes (shown once:
-// a new one stops the old), when it last counted a car, and when the kitchen sees orders as they're said.
+// a new one stops the old), when it last counted a car, and when the kitchen sees orders as they're said. Further along
+// the lane (design board "Speed of service, and what slows it", part 4): a link each for a sensor at the speaker, the
+// pickup window and the exit (lib/lane-entry SENSOR_POINTS), so cars move and time themselves on Drive-thru live.
 // api/menu 'laneSettings' (sensor, kitchenEarly); lib/lane-entry, lib/lane-entry-server. With more than one location,
 // each location's lanes have their own link (and one set up before there were locations shows until it's turned off).
 import { useState } from 'react';
+import { SENSOR_POINTS, type SensorPoint } from '@/lib/lane-entry';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', GREEN = '#1f7a4d', RED = '#b42318';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
 const QUIET = { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` } as const;
-export type SensorRow = { lane: 1 | 2; on: boolean; lastAt: string | null; locationId?: string | null; place?: string | null };
+export type SensorRow = { lane: 1 | 2; on: boolean; lastAt: string | null; locationId?: string | null; place?: string | null; point?: SensorPoint };
 export type EarlyMode = 'rush' | 'always' | 'off';
 
 /** How long ago, in words ("12 sec ago", "4 min ago", "Nov 20"). */
@@ -21,22 +24,24 @@ function ago(iso: string | null, now: number): string {
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function LaneEntrySettings({ sensors: start, early: startEarly, two, call }: { sensors: SensorRow[]; early: EarlyMode; two: boolean; call: (body: any) => Promise<any> }) {
+export function LaneEntrySettings({ sensors: start, points: startPoints = [], early: startEarly, two, call }: { sensors: SensorRow[]; points?: SensorRow[]; early: EarlyMode; two: boolean; call: (body: any) => Promise<any> }) {
   const [sensors, setSensors] = useState<SensorRow[]>(start);
+  const [points, setPoints] = useState<SensorRow[]>(startPoints);
   const [early, setEarly] = useState<EarlyMode>(startEarly);
-  const [link, setLink] = useState<{ lane: 1 | 2; at?: string | null; link: string } | null>(null);
+  const [link, setLink] = useState<{ lane: 1 | 2; at?: string | null; point?: SensorPoint; link: string } | null>(null);
   const several = sensors.some((x) => !!x.locationId);
-  const same = (l: { lane: 1 | 2; at?: string | null } | null, x: SensorRow) => !!l && l.lane === x.lane && (l.at || null) === (x.locationId || null);
+  const same = (l: { lane: 1 | 2; at?: string | null; point?: SensorPoint } | null, x: SensorRow) => !!l && l.lane === x.lane && (l.at || null) === (x.locationId || null) && (l.point || 'entry') === (x.point || 'entry');
   const nameOf = (x: SensorRow) => (several ? `${x.place || 'Every location'}${two ? `, lane ${x.lane}` : ''}` : two ? `Lane ${x.lane}` : '');
   const [busy, setBusy] = useState(''); const [err, setErr] = useState(''); const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const sensor = async (x: SensorRow, what: 'new' | 'stop' | 'check') => {
-    setBusy(`${what}${x.locationId || ''}${x.lane}`); setErr('');
-    const d = await call({ action: 'laneSettings', sensor: what, lane: x.lane, at: x.locationId || null });
+    setBusy(`${what}${x.point || ''}${x.locationId || ''}${x.lane}`); setErr('');
+    const d = await call({ action: 'laneSettings', sensor: what, lane: x.lane, at: x.locationId || null, point: x.point || 'entry' });
     setBusy(''); setNow(Date.now());
     if (!d.ok) { setErr(d.error || 'That didn’t save.'); return; }
     if (Array.isArray(d.lane?.sensors)) setSensors(d.lane.sensors);
+    if (Array.isArray(d.lane?.points)) setPoints(d.lane.points);
     setLink(what === 'new' && d.sensorLink?.link ? d.sensorLink : what === 'stop' && same(link, x) ? null : link);
   };
   const copy = async () => { if (!link) return; try { await navigator.clipboard.writeText(link.link); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setErr('Couldn’t copy. Select the link and copy it.'); } };
@@ -73,6 +78,31 @@ export function LaneEntrySettings({ sensors: start, early: startEarly, two, call
         ))}
         {sensors.some((x) => x.on && (two || x.lane === 1)) && <p className="text-[13px]" style={{ color: MUTED }}>To check it, pass the sensor (or drive past it), then tap Check it.</p>}
       </div>
+      {points.length > 0 && (
+        <div role="group" aria-labelledby="lane-points" className="space-y-2.5 border-t pt-3" style={{ borderColor: LINE }}>
+          <span><span id="lane-points" className="block text-[15px] font-medium">Sensors further along the lane</span>
+            <span className="block text-[13px]" style={{ color: MUTED }}>Each one moves cars on Drive-thru live and times them to the second, without anyone tapping. The same kind of sensor as the lane entry works at each.</span></span>
+          {points.map((x) => { const def = SENSOR_POINTS.find((p) => p.id === x.point)!; const name = `${several ? `${x.place || 'Every location'}: ` : ''}${def.label}${two && def.perLane ? `, lane ${x.lane}` : ''}`; return (
+            <div key={`${x.point}${x.locationId || ''}${x.lane}`} className="space-y-2 rounded-xl p-3" style={{ boxShadow: `inset 0 0 0 1px ${LINE}`, background: '#fff' }}>
+              <p className="text-[14px]"><b className="font-semibold">{name}: </b>{x.on ? <><span className="font-semibold" style={{ color: GREEN }}>Set up.</span> {x.lastAt ? `Last car ${ago(x.lastAt, now)}.` : 'No car seen yet.'}</> : <span style={{ color: MUTED }}>Not set up.</span>}</p>
+              <p className="text-[13px]" style={{ color: MUTED }}>{def.hint}</p>
+              {link && same(link, x) && (
+                <div className="space-y-1.5">
+                  <p className="text-[13px]" style={{ color: MUTED }}>Give this link to the sensor. It’s shown only now; make a new one if it’s lost.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input readOnly value={link.link} onFocus={(e) => e.currentTarget.select()} aria-label={`The link for the sensor at the ${name.toLowerCase()}`} className="min-h-[44px] min-w-0 flex-1 rounded-xl px-3 text-[13px]" style={{ background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }} />
+                    <button type="button" onClick={copy} className={BTN} style={{ background: INK, color: '#fff' }}>{copied ? 'Copied' : 'Copy'}</button>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={!!busy} onClick={() => void sensor(x, 'new')} className={BTN} style={x.on ? QUIET : { background: INK, color: '#fff' }}>{x.on ? 'Make a new link' : 'Set up a sensor'}</button>
+                {x.on && <button type="button" disabled={!!busy} onClick={() => void sensor(x, 'check')} className={BTN} style={QUIET}>Check it</button>}
+                {x.on && <button type="button" disabled={!!busy} onClick={() => void sensor(x, 'stop')} className={BTN} style={{ ...QUIET, color: RED }}>Turn off</button>}
+              </div>
+            </div>); })}
+        </div>
+      )}
       <div role="group" aria-labelledby="kitchen-early" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
         <span><span id="kitchen-early" className="block text-[15px] font-medium">Show the kitchen orders as they’re taken</span>
           <span className="block text-[13px]" style={{ color: MUTED }}>What’s said at the speaker shows on the kitchen screen before it’s sent, so the grill can start. Only shown: nothing comes out of stock until it’s sent.</span></span>

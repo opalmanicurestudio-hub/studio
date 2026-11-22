@@ -156,6 +156,7 @@ import { stopCarCall } from '@/lib/drive-thru-voice';
 import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey, byWindow, forLaneScreen } from '@/lib/drive-lanes';
 import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { forgetLive } from '@/lib/drive-live-server';
+import { handOverInTx } from '@/lib/counter-handover';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
@@ -975,18 +976,9 @@ export async function POST(req: NextRequest) {
           tx.set(carRef, carryOn(car, nowIso), { merge: true });
           return { ok: true, carriedOn: true };
         }
-        tx.set(carRef, { stage: to, stageAt: { ...(car.stageAt || {}), [to]: nowIso }, ...(to === 'gone' ? { goneAt: nowIso, handedBy: by } : {}), ...(to === 'gone' && (!order || order.status === 'building') ? { left: true } : {}), ...(spot !== undefined ? { spot } : {}) }, { merge: true });
-        if (to === 'gone' && order) {
-          // (A number left for a ready text that never went goes with it: lib/ready-text.)
-          tx.set(db.doc(`${T}/counterOrders/${car.orderId}`), { status: order.status === 'building' ? 'cancelled' : 'done', doneAt: nowIso, ...(order.readyText?.to ? { readyText: { to: null, pendingSince: null } } : {}) }, { merge: true });
-          // Handed over: whatever the kitchen hadn't marked served is now.
-          for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'delivered', deliveredAt: nowIso, deliveredBy: { name: by, via: 'lane' } }, { merge: true }); }
-        }
-        // …and the order placed ahead with it, the same.
-        if (to === 'gone' && aheadRef) {
-          tx.set(aheadRef, { status: 'done', doneAt: nowIso }, { merge: true });
-          for (const d of aheadTix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'delivered', deliveredAt: nowIso, deliveredBy: { name: by, via: 'lane' } }, { merge: true }); }
-        }
+        // Handed over: the car, its order and the kitchen's tickets, and an order placed ahead with it (lib/counter-handover).
+        if (to === 'gone') handOverInTx(tx, db, T, { carRef, car, order, tix, aheadRef, aheadTix, by, nowIso });
+        else tx.set(carRef, { stage: to, stageAt: { ...(car.stageAt || {}), [to]: nowIso }, ...(spot !== undefined ? { spot } : {}) }, { merge: true });
         return { ok: true };
       });
       forgetStats(tenantId);   // again once it's done, so a read in between never keeps the old numbers

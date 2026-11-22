@@ -11,6 +11,7 @@ import { cleanKeys, itemAllergens, ticketAllergyPatch } from '@/lib/allergens';
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'crypto';
 import { lineFor, makeSecondsOf, partsOfLine, totalsOf, dueAt, orderNumber, carryOn, CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
+import { claimArrival, speakerDocId } from '@/lib/lane-entry';
 import { itemSoldOut, picksOf, priceChoices, type Picks } from '@/lib/menu-choices';
 import { isMenuItem } from '@/lib/menu-server';
 import { nextSize, offerOf, sizedUp, upgradesOf } from '@/lib/menu-upgrades';
@@ -102,13 +103,20 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
     const had: any = k ? (await tx.get(carRef)).data() : null;
     if (had) return { carId: carRef.id, orderId: had.orderId, number: had.number, already: true };
     const c: any = (await tx.get(counterRef)).data() || {};
+    // A car the speaker's sensor saw pull up (lib/lane-entry): its time starts then, not now (and when it was greeted is
+    // kept). The first one nobody has started yet, at this lane.
+    const claimRef = channel === 'drive-thru' && !opts.inLine ? db.doc(`${T}/private/${speakerDocId(opts.lane || 1, here)}`) : null;
+    const claimLog: any = claimRef ? (await tx.get(claimRef)).data() : null;
+    const claim = claimLog ? claimArrival(claimLog, now.getTime()) : null;
+    const startIso = claim?.at || nowIso;
     const n = Math.floor(num(c[channel])) + 1;
     const number = orderNumber(channel, n);
+    if (claim?.at) tx.set(claimRef, claim.log);
     tx.set(counterRef, { [channel]: n, day }, { merge: true });
     tx.set(orderRef, { id: orderRef.id, number, channel, status: 'building', lines: [], subtotal: 0, tax: 0, total: 0, carId: carRef.id, createdAt: nowIso, createdBy: who.name, day, ...(here ? { locationId: here } : {}),
       // A delivery app's order being rung in at the counter (lib/app-orders): which app and its code come when it's sent.
       ...(opts.app && channel === 'counter' ? { app: { state: 'taking' } } : {}) });
-    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: nowIso, stageAt: { speaker: nowIso }, orderId: orderRef.id, takenBy: who.name, day, channel, ...(here ? { locationId: here } : {}),
+    tx.set(carRef, { id: carRef.id, number, stage: 'speaker', arrivedAt: startIso, stageAt: { speaker: startIso }, ...(claim?.at ? { greetedAt: nowIso } : {}), orderId: orderRef.id, takenBy: who.name, day, channel, ...(here ? { locationId: here } : {}),
       ...(opts.inLine ? { inLine: true } : {}), ...(opts.looks ? { looks: opts.looks } : {}),
       // The ordering lane it pulled up to, with two that merge (lib/drive-lanes); never for one taken in line.
       ...(opts.lane && !opts.inLine && channel === 'drive-thru' ? { lane: opts.lane } : {}) });

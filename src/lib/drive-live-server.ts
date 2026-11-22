@@ -61,24 +61,29 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
     const states: KitchenNow[] = [...(own ? [kitchenOf(ord, ticketsOf.get(own) || [])] : ahead ? [] : ['not sent' as KitchenNow]), ...(ahead ? [kitchenOf(orderOf.get(ahead) || null, ticketsOf.get(ahead) || [])] : [])];
     const kitchen: KitchenNow = states.includes('making') ? 'making' : states.includes('not sent') ? 'not sent' : 'ready';
     const making = tix.filter((t) => WAITING.includes(String(t.status)));
-    const stageAt: Partial<Record<LiveStage, string>> = {};
-    for (const s of LIVE_STAGES) { const v = iso(c.stageAt?.[s]); if (v) stageAt[s] = v; }
+    const stageAt: LiveCar['stageAt'] = {};
+    for (const s of [...LIVE_STAGES, 'window'] as const) { const v = iso(c.stageAt?.[s]); if (v) stageAt[s] = v; }
     const spot = Math.floor(num(c.spot));
     return {
       id: String(c.id), number: String(c.number || '').slice(0, 12), name: first(ord?.guestName), looks: cleanLooks(c.looks), stage: (LIVE_STAGES.includes(c.stage) ? c.stage : 'speaker') as LiveStage,
       lane: two ? cleanLane(c.lane) : null, spot: spot >= 1 && spot <= 8 ? spot : null, since: String(iso(c.arrivedAt) || Object.values(stageAt).sort()[0] || new Date(nowMs).toISOString()), stageAt,
       ahead: c.ahead === true || !!c.aheadId, inLine: c.inLine === true || c.wasInLine === true, kitchen,
       waitingOn: making.slice(0, 4).map((t) => `${num(t.quantity) > 1 ? `${num(t.quantity)} ` : ''}${String(t.menuItemName || 'an item').slice(0, 40)}`),
-      mergeAt: iso(c.mergeAt), hereAt: iso(c.hereAt),
+      mergeAt: iso(c.mergeAt), hereAt: iso(c.hereAt), greetedAt: iso(c.greetedAt),
     };
   });
   // The line before the speaker (only with a lane entry sensor), and what's underneath: read side by side.
-  const { lineNow } = await import('@/lib/lane-entry-server');
-  const [line, ahead, curb] = await Promise.all([
+  const { lineNow, speakerId, exitId } = await import('@/lib/lane-entry-server');
+  const { unclaimedArrivals } = await import('@/lib/lane-entry');
+  const [line, ahead, curb, pulled, exitDoc] = await Promise.all([
     lineNow(db, tenantId, tenant, { cars: all, nowMs, at: here }).catch(() => null),
     (async () => { if (tenant?.orderAhead?.on !== true) return null; const { aheadForLane } = await import('@/lib/counter-ahead'); return (await aheadForLane(db, tenantId, tenant, nowMs)).filter((x: any) => atHere(x, here)); })().catch(() => null),
     curbsideNow(db, tenantId, tenant, here, nowMs).catch(() => null),
+    // Cars the speaker's sensor saw pull up that nobody has started yet, and a car the exit's couldn't tell.
+    Promise.all(([1, 2] as const).filter((l) => l === 1 || two).map(async (l) => unclaimedArrivals(((await db.doc(`${T}/private/${speakerId(l, here)}`).get()).data() as any) || null, nowMs).map((since) => ({ lane: l, since })))).catch(() => []),
+    db.doc(`${T}/private/${exitId(here)}`).get().then((d: any) => d.data() || null).catch(() => null),
   ]);
+  const askAt = iso(exitDoc?.askAt); const exitAsk = askAt && nowMs - Date.parse(askAt) < 2 * 60000 ? askAt : null;
   const aheadRows = (ahead || []) as any[];
   const nextAt = aheadRows.map((x) => iso(x.at)).filter((x): x is string => !!x && Date.parse(x) >= nowMs - 3600000).sort()[0] || null;
   const counterSince = counter.map((c) => iso(c.arrivedAt)).filter((x): x is string => !!x).sort()[0] || null;
@@ -91,6 +96,7 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
       counter: counter.length ? { waiting: counter.length, longestSince: counterSince } : null,
     },
     location: here ? { id: here, name: o.locationName ?? null } : null, timeZone: o.timeZone || tenantTimeZone(tenant),
+    atSpeaker: (pulled as { lane: 1 | 2; since: string }[][]).flat(), exitAsk,
   };
   cache.set(key, { at: nowMs, v }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   return v;

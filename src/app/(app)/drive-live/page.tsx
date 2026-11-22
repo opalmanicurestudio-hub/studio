@@ -7,7 +7,7 @@
 // underneath. Read every few seconds while it's on screen; nothing here moves a car.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTenant } from '@/context/TenantContext';
-import { clock, laneShape, lengthFor, liveTotals, placeLane, secondsSince, stuckWords, timesOf, toneOf, TONE_WORDS, type LiveCar, type LiveNow, type Tone } from '@/lib/drive-live';
+import { clock, greetTone, laneShape, lengthFor, liveTotals, placeLane, secondsSince, stuckWords, timesOf, toneOf, TONE_WORDS, type LiveCar, type LiveNow, type Tone } from '@/lib/drive-live';
 import { formatTime } from '@/lib/tenant-time';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', DEEP_GREEN = '#1f7a4d', DEEP_AMBER = '#b45309', AMBER = 'var(--warn-ink)', GREEN = 'var(--ok-ink)';
@@ -78,10 +78,16 @@ export default function DriveLivePage() {
               {stale || err ? `Not updating. Last seen ${clock((nowMs - lastOk) / 1000)} ago. Check the connection.` : 'A rush: the line is long. Orders are kept short at the speaker, and the kitchen sees them as they’re said.'}
             </p>
           )}
+          {live.exitAsk && (
+            <p role="status" className="rounded-xl px-4 py-3 text-[14.5px] font-medium" style={{ background: 'var(--warn-soft)', color: AMBER }}>
+              A car drove off at {formatTime(live.exitAsk, live.timeZone)} that nobody handed over. Check the window: tap Handed over for it on the lane screen.
+            </p>
+          )}
           <Lane live={live} now={now} open={open} onOpen={setOpen} />
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]" style={{ color: MUTED }} aria-label="What the colors mean">
             <Key tone="ok" label="On time" /><Key tone="near" label={`Near the target (from ${clock(live.target * 0.75)})`} /><Key tone="over" label={`Over ${clock(live.target)}`} />
             {live.sensor && <span className="inline-flex items-center gap-2"><span aria-hidden className="inline-block h-3 w-4 rounded bg-[#d6d7db] dark:bg-[#3a3b40]" />Counted at the entry, not ordering yet</span>}
+            {!!live.atSpeaker?.length && <span className="inline-flex items-center gap-2"><span aria-hidden className="inline-block h-3 w-4 rounded" style={{ border: `2px dashed ${INK}`, background: '#fff' }} />New car: at the speaker, not greeted yet</span>}
           </div>
           <Side live={live} now={now} />
         </>
@@ -121,9 +127,12 @@ function Lane({ live, now, open, onOpen }: { live: LiveNow; now: number; open: s
   const pad = 18, start = wide ? 18 : 38, kitchenDepth = wide ? 74 : 96;
   // (Without a lane entry sensor, nobody is counted before the speaker.)
   const waiting = live.sensor ? live.waiting : { 1: 0, 2: 0 };
-  const length = wide ? Math.max(560, width - pad * 2) : lengthFor(live.cars, { min: 520, slot, laneWidth, two, waiting, spots: live.spots });
+  // (Cars at the speaker nobody has greeted yet, longest there first, by lane.)
+  const pulled = { 1: (live.atSpeaker || []).filter((x) => x.lane === 1).map((x) => x.since).sort(), 2: (live.atSpeaker || []).filter((x) => x.lane === 2).map((x) => x.since).sort() };
+  const atSpeaker = { 1: pulled[1].length, 2: two ? pulled[2].length : 0 };
+  const length = wide ? Math.max(560, width - pad * 2) : lengthFor(live.cars, { min: 520, slot, laneWidth, two, waiting, spots: live.spots, atSpeaker });
   const shape = laneShape({ length, slot, laneWidth, two });
-  const plan = placeLane(live.cars, shape, { two, waiting, spots: live.spots, squeeze: wide, perRow: wide ? 4 : 8, minGap: CHIP.w + 6 });
+  const plan = placeLane(live.cars, shape, { two, waiting, spots: live.spots, squeeze: wide, perRow: wide ? 4 : 8, minGap: CHIP.w + 6, atSpeaker });
   // How far the drawing reaches either side of the lane: the kitchen on one side, the spots on the other.
   // (On a phone, the names beside the lane, a speaker's and how many are waiting, need room of their own.)
   const outer = (two ? shape.laneAcross[2] : 0) + laneWidth / 2; const named = wide ? 0 : 84;
@@ -208,6 +217,13 @@ function Lane({ live, now, open, onOpen }: { live: LiveNow; now: number; open: s
             {plan.spots.map((s) => { const p = at(s.along, s.across); const w = wide ? CHIP.w + 6 : CHIP.w + 6, h = CHIP.h + 6; return (
               <div key={s.n} aria-hidden className="absolute flex items-end justify-end rounded-xl border-2 border-dashed border-[#d0d1d5] p-1 text-[11px] dark:border-[#3a3b40]" style={{ left: p.x - w / 2, top: p.y - h / 2, width: w, height: h, color: MUTED }}>{s.carId ? '' : s.n}</div>); })}
             {plan.spots.length > 0 && label(plan.spots.length === 1 ? 'Spot' : 'Spots', Math.min(...plan.spots.map((s) => s.along)) - (wide ? CHIP.w * 0.9 : CHIP.h * 0.95), plan.spots[0].across)}
+            {plan.greeting.map((g) => { const since = pulled[g.lane][g.i]; if (!since) return null; const p = at(g.along, g.across); const sec = secondsSince(since, now); const t = greetTone(sec); return (
+              <span key={`g${g.lane}-${since}`} role="img" aria-label={`A car at the speaker${two ? ` ${g.lane}` : ''} nobody has started an order for yet, ${clock(sec)}`} className="absolute flex flex-col items-center justify-center rounded-xl"
+                style={{ left: 0, top: 0, width: CHIP.w, height: CHIP.h, transform: `translate(${p.x - CHIP.w / 2}px, ${p.y - CHIP.h / 2}px)`, transition: move, zIndex: 2,
+                  ...(t === 'over' ? { background: DEEP_AMBER, color: '#fff', border: `2px solid ${DEEP_AMBER}` } : { background: '#fff', color: t === 'near' ? AMBER : INK, border: `2px dashed ${t === 'near' ? AMBER : INK}` }) }}>
+                <span className="text-[13px] font-semibold leading-none">New car</span>
+                <span className="mt-1 text-[12.5px] font-medium leading-none tabular-nums">{clock(sec)}</span>
+              </span>); })}
             {plan.waiting.map((w, i) => { const p = at(w.along, w.across); return (
               <div key={`w${w.lane}-${i}`} aria-hidden className="absolute rounded-xl bg-[#d6d7db] dark:bg-[#3a3b40]" style={{ left: 0, top: 0, width: CHIP.w, height: CHIP.h, transform: `translate(${p.x - CHIP.w / 2}px, ${p.y - CHIP.h / 2}px)`, transition: move }} />); })}
             {([1, 2] as const).filter((l) => l === 1 || two).map((l) => { const n = plan.waiting.filter((w) => w.lane === l).length + moreWaiting(l);
@@ -241,7 +257,7 @@ function Lane({ live, now, open, onOpen }: { live: LiveNow; now: number; open: s
               })}
             {plan.moreCars.length > 0 && (() => { const p = at(shape.at.entry + slot * 0.2, two ? shape.laneAcross[1] : 0); return <span className="absolute z-[4] whitespace-nowrap rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ left: p.x, top: p.y, transform: 'translate(-50%, -50%)', background: '#fff', border: `1px solid ${LINE}` }}>+{plan.moreCars.length} more {plan.moreCars.length === 1 ? 'car' : 'cars'}</span>; })()}
             {plan.moreParked.length > 0 && (() => { const s = plan.spots[0]; const p = at(s.along - slot, s.across); return <span className="absolute rounded-full px-2 py-0.5 text-[12px] font-semibold" style={{ left: p.x, top: p.y, transform: 'translate(-50%, -50%)', background: '#fff', border: `1px solid ${LINE}` }}>+{plan.moreParked.length} parked</span>; })()}
-            {!live.cars.length && !plan.waiting.length && label('No cars in the lane right now.', length / 2 - slot, 0, { strong: true })}
+            {!live.cars.length && !plan.waiting.length && !plan.greeting.length && label('No cars in the lane right now.', length / 2 - slot, 0, { strong: true })}
           </div>
         )}
       </div>
@@ -293,7 +309,7 @@ function CarSheet({ car, live, now, onClose }: { car: LiveCar; live: LiveNow; no
   }, [onClose]);
   const sec = secondsSince(car.since, now); const tone = toneOf(sec, live.target);
   const x = timesOf(car, now);
-  const rows: [string, number | null][] = [['Ordering', x.ordering], ['On to the window', x.toWindow], [car.stage === 'forward' ? 'At the window, then parked' : 'At the window', x.atWindow]];
+  const rows: [string, number | null][] = [['Waiting to be greeted', x.greet], ['Ordering', x.ordering], ['Getting to the window', x.toWindow], [car.stage === 'forward' ? 'At the window, then parked' : 'At the window', x.atWindow]];
   const most = Math.max(1, ...rows.map((r) => r[1] || 0));
   const kitchen = car.kitchen === 'not sent' ? 'Not sent to the kitchen yet' : car.kitchen === 'ready' ? 'Ready' : car.waitingOn.length ? `Making ${car.waitingOn.join(', ')}` : 'Being made';
   return (

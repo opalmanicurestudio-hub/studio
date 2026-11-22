@@ -40,8 +40,12 @@ const req = (body: any) => ({ json: async () => body, headers: { get: () => null
   const c1 = car('b38', 'pickup', { waited: 264, stageAt: { speaker: ago(264), pay: ago(212), pickup: ago(150) }, kitchen: 'making', waitingOn: ['Shake'] });
   const t1 = L.timesOf(c1, NOW);
   check('where a car’s time went: ordering, on to the window, at the window', t1.ordering === 52 && t1.toWindow === 62 && t1.atWindow === 150, t1);
-  check('…still ordering: only ordering so far', JSON.stringify(L.timesOf(car('b41', 'speaker', { waited: 38, stageAt: { speaker: ago(38) } }), NOW)) === JSON.stringify({ ordering: 38, toWindow: null, atWindow: null }));
-  check('…come for an order placed ahead, straight to pickup: only at the window', JSON.stringify(L.timesOf(car('a12', 'pickup', { waited: 70, ahead: true, stageAt: { pickup: ago(70) } }), NOW)) === JSON.stringify({ ordering: null, toWindow: null, atWindow: 70 }));
+  check('…still ordering: only ordering so far', JSON.stringify(L.timesOf(car('b41', 'speaker', { waited: 38, stageAt: { speaker: ago(38) } }), NOW)) === JSON.stringify({ greet: null, ordering: 38, toWindow: null, atWindow: null }));
+  check('…come for an order placed ahead, straight to pickup: only at the window', JSON.stringify(L.timesOf(car('a12', 'pickup', { waited: 70, ahead: true, stageAt: { pickup: ago(70) } }), NOW)) === JSON.stringify({ greet: null, ordering: null, toWindow: null, atWindow: 70 }));
+  const seen = L.timesOf(car('b45', 'pickup', { waited: 200, greetedAt: ago(188), stageAt: { speaker: ago(200), pay: ago(140), pickup: ago(100), window: ago(60) } }), NOW);
+  check('with the speaker’s and the window’s sensors: waiting to be greeted, then ordering, then getting to the window (until it got there), then at the window',
+    JSON.stringify(seen) === JSON.stringify({ greet: 12, ordering: 48, toWindow: 80, atWindow: 60 }), seen);
+  check('…a car at the speaker nobody has greeted: fine, worth a look from 15 seconds, too long from 30', L.greetTone(14) === 'ok' && L.greetTone(15) === 'near' && L.greetTone(30) === 'over');
   check('what it’s stuck on, in words', L.stuckWords(c1, NOW) === 'Most of it at the window: 2:30, waiting on Shake', L.stuckWords(c1, NOW));
 
   console.log('the lane, from above');

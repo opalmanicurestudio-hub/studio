@@ -17,8 +17,11 @@ export type KitchenNow = 'not sent' | 'making' | 'ready';
  *  when it reached each stage. */
 export type LiveCar = {
   id: string; number: string; name: string | null; looks: string | null; stage: LiveStage; lane: Lane | null; spot: number | null;
-  since: string; stageAt: Partial<Record<LiveStage, string>>; ahead: boolean; inLine: boolean;
+  /** (`window`: when the pickup window's sensor saw it get there.) */
+  since: string; stageAt: Partial<Record<LiveStage | 'window', string>>; ahead: boolean; inLine: boolean;
   kitchen: KitchenNow; waitingOn: string[]; mergeAt?: string | null; hereAt?: string | null;
+  /** When someone started its order, when the speaker's sensor saw it pull up before that (lib/lane-entry). */
+  greetedAt?: string | null;
 };
 export type LiveSide = {
   /** Curbside: guests outside now (the one waiting longest since when), and those on their way. */
@@ -33,6 +36,10 @@ export type LiveNow = {
   /** Cars counted at the lane entry that haven't reached the speaker yet, by lane (lib/lane-entry). */
   waiting: Record<1 | 2, number>; sensor: boolean; rush: boolean; side: LiveSide;
   location: { id: string; name: string | null } | null; timeZone: string;
+  /** Cars the speaker's sensor saw pull up that nobody has started an order for yet: their lane, and since when. */
+  atSpeaker?: { lane: 1 | 2; since: string }[];
+  /** A car drove past the exit that nobody handed over, and the exit's sensor couldn't tell which: when. */
+  exitAsk?: string | null;
 };
 
 /** Seconds from an ISO time to now (0 when it isn't one). */
@@ -51,19 +58,27 @@ export function toneOf(sec: number, target: number): Tone {
   return sec >= target * NEAR_SHARE ? 'near' : 'ok';
 }
 export const TONE_WORDS: Record<Tone, string> = { ok: 'on time', near: 'near the target', over: 'over the target' };
+/** A car at the speaker nobody has greeted: fine for a few seconds, worth a look from 15, too long from 30. */
+export const greetTone = (sec: number): Tone => (sec >= 30 ? 'over' : sec >= 15 ? 'near' : 'ok');
 
-/** Where a car's time has gone so far, in seconds: ordering (at the speaker until its order was sent), on to the window
- *  (until it paid), and at the window (since it paid: waiting for its order, or parked in a spot). A part it never had
- *  (one taken in line, or come for an order placed ahead) is null. */
-export function timesOf(c: Pick<LiveCar, 'stage' | 'since' | 'stageAt' | 'inLine' | 'ahead'>, nowMs: number): { ordering: number | null; toWindow: number | null; atWindow: number | null } {
-  const t = (k: LiveStage) => { const v = Date.parse(String(c.stageAt?.[k] || '')); return Number.isFinite(v) ? v : null; };
+/** Where a car's time has gone so far, in seconds: waiting to be greeted (from pulling up to the speaker until someone
+ *  started its order, when the speaker's sensor saw it), ordering (until its order was sent), getting to the window
+ *  (until it reached the pickup window, as its sensor saw it, or else until it paid), and at the window (since then:
+ *  waiting for its order, or parked in a spot). A part it never had (one taken in line, or come for an order placed
+ *  ahead) is null. */
+export function timesOf(c: Pick<LiveCar, 'stage' | 'since' | 'stageAt' | 'inLine' | 'ahead'> & { greetedAt?: string | null }, nowMs: number): { greet: number | null; ordering: number | null; toWindow: number | null; atWindow: number | null } {
+  const t = (k: LiveStage | 'window') => { const v = Date.parse(String(c.stageAt?.[k] || '')); return Number.isFinite(v) ? v : null; };
   const start = Date.parse(String(c.stageAt?.speaker || c.since || '')); const pay = t('pay'), pickup = t('pickup');
+  const greeted = Date.parse(String(c.greetedAt || '')); const hi = Number.isFinite(greeted) && greeted > start ? greeted : null;
+  // (At the window: from when its sensor saw it there, once it had paid; or from when it paid.)
+  const win = t('window'); const at = win !== null && pickup !== null ? Math.max(win, pickup) : pickup;
   const span = (a: number | null, z: number | null) => (a === null || !Number.isFinite(a) ? null : Math.max(0, Math.round(((z ?? nowMs) - a) / 1000)));
   const direct = !c.stageAt?.speaker && !pay;
   return {
-    ordering: direct ? null : span(start, pay ?? (c.stage === 'speaker' ? null : pickup)),
-    toWindow: pay === null ? null : span(pay, pickup),
-    atWindow: pickup === null ? null : span(pickup, null),
+    greet: direct || hi === null ? null : span(start, hi),
+    ordering: direct ? null : span(hi ?? start, pay ?? (c.stage === 'speaker' ? null : pickup)),
+    toWindow: pay === null ? null : span(pay, at),
+    atWindow: at === null ? null : span(at, null),
   };
 }
 
@@ -71,7 +86,7 @@ export function timesOf(c: Pick<LiveCar, 'stage' | 'since' | 'stageAt' | 'inLine
  *  still making. */
 export function stuckWords(c: LiveCar, nowMs: number): string {
   const x = timesOf(c, nowMs);
-  const parts: [string, number | null][] = [['ordering', x.ordering], ['on the way to the window', x.toWindow], ['at the window', x.atWindow]];
+  const parts: [string, number | null][] = [['waiting to be greeted', x.greet], ['ordering', x.ordering], ['getting to the window', x.toWindow], ['at the window', x.atWindow]];
   const [name, sec] = parts.reduce((a, b) => ((b[1] ?? -1) > (a[1] ?? -1) ? b : a));
   const kitchen = c.kitchen === 'making' && c.waitingOn.length ? `, waiting on ${c.waitingOn.slice(0, 2).join(' and ')}` : c.kitchen === 'ready' && c.stage !== 'speaker' ? ', its order is ready' : '';
   return sec === null ? `${c.stage === 'speaker' ? 'Ordering' : 'Waiting'}${kitchen}` : `Most of it ${name}: ${clock(sec)}${kitchen}`;
@@ -105,6 +120,8 @@ export type Placed = { id: string; along: number; across: number };
 export type LanePlan = { shape: LaneShape; cars: Placed[]; waiting: { lane: 1 | 2; along: number; across: number }[]; moreWaiting: Record<1 | 2, number>;
   /** Cars at the back of a line too long to show a car apart on a wide screen: counted, not drawn. */
   moreCars: string[];
+  /** Cars at the speaker nobody has greeted yet (the `i`th that lane's, longest there first). */
+  greeting: { lane: 1 | 2; i: number; along: number; across: number }[];
   spots: { n: number; along: number; across: number; carId: string | null }[]; moreParked: string[] };
 
 /** The lane's places for a length (`fit`: fixed, as on a wide screen: a long line squeezes up; otherwise the lane grows
@@ -120,20 +137,20 @@ export function laneShape(o: { length: number; slot: number; laneWidth: number; 
 
 /** How long a phone's lane must be to hold every car without squeezing (it scrolls): at least `min`, longer by however
  *  far the line runs back past the entry. */
-export function lengthFor(cars: LiveCar[], o: { min: number; slot: number; laneWidth: number; two: boolean; waiting: Record<1 | 2, number>; spots: number }): number {
+export function lengthFor(cars: LiveCar[], o: { min: number; slot: number; laneWidth: number; two: boolean; waiting: Record<1 | 2, number>; spots: number; atSpeaker?: Record<1 | 2, number> }): number {
   const min = Math.max(o.min, Math.min(8, Math.max(1, Math.floor(o.spots) || 4)) * o.slot + o.slot);
   const shape = laneShape({ length: min, slot: o.slot, laneWidth: o.laneWidth, two: o.two });
-  const plan = placeLane(cars, shape, { two: o.two, waiting: o.waiting, spots: o.spots, squeeze: false });
+  const plan = placeLane(cars, shape, { two: o.two, waiting: o.waiting, spots: o.spots, squeeze: false, atSpeaker: o.atSpeaker });
   const parked = new Set(plan.spots.map((s) => s.carId).filter(Boolean));
   const lo = shape.at.entry + o.slot * 0.55;
-  const least = Math.min(lo, ...plan.cars.filter((p) => !parked.has(p.id)).map((p) => p.along), ...plan.waiting.map((w) => w.along));
+  const least = Math.min(lo, ...plan.cars.filter((p) => !parked.has(p.id)).map((p) => p.along), ...plan.waiting.map((w) => w.along), ...plan.greeting.map((w) => w.along));
   return Math.ceil(min + (lo - least));
 }
 
 /** Every car's place. Squeezes a long line into the room there is (`squeeze`), or lets it run past the entry (the lane
  *  was made long enough: lengthFor). Waiting cars beyond what fits are counted (`moreWaiting`); parked cars beyond the
  *  spots too (`moreParked`). */
-export function placeLane(cars: LiveCar[], shape: LaneShape, o: { two: boolean; waiting: Record<1 | 2, number>; spots: number; squeeze: boolean; perRow?: number; minGap?: number }): LanePlan {
+export function placeLane(cars: LiveCar[], shape: LaneShape, o: { two: boolean; waiting: Record<1 | 2, number>; spots: number; squeeze: boolean; perRow?: number; minGap?: number; atSpeaker?: Record<1 | 2, number> }): LanePlan {
   const { slot, at } = shape; const lo = at.entry + slot * 0.55; const minGap = o.minGap ?? slot * 0.9;
   const { line, ordering } = lineOrder(cars, o.two);
   const placed: Placed[] = [];
@@ -159,30 +176,35 @@ export function placeLane(cars: LiveCar[], shape: LaneShape, o: { two: boolean; 
   // One lane: one line from the pickup window back to the entry (paying and waiting at the window, then ordering, then
   // waiting to order), squeezed together when it's longer than the lane.
   // Two lanes: the line to the window runs back to where the lanes meet; each lane's cars from its own speaker.
-  const runs: { cars: LiveCar[]; waiting: number; lane: 1 | 2; across: number; floor: number; line: boolean }[] = o.two
-    ? [{ cars: line, waiting: 0, lane: 1, across: 0, floor: at.merge! + slot * 0.2, line: true },
-      { cars: ordering[1], waiting: toShow(1), lane: 1, across: shape.laneAcross[1], floor: lo, line: false },
-      { cars: ordering[2], waiting: toShow(2), lane: 2, across: shape.laneAcross[2], floor: lo, line: false }]
-    : [{ cars: [...line, ...ordering[1]], waiting: toShow(1), lane: 1, across: 0, floor: lo, line: true }];
+  // (Cars at the speaker nobody has greeted yet: behind those ordering, before those waiting to order.)
+  const greetN = (l: 1 | 2) => Math.max(0, Math.min(4, Math.floor(o.atSpeaker?.[l] || 0)));
+  const runs: { cars: LiveCar[]; greet: number; waiting: number; lane: 1 | 2; across: number; floor: number; line: boolean }[] = o.two
+    ? [{ cars: line, greet: 0, waiting: 0, lane: 1, across: 0, floor: at.merge! + slot * 0.2, line: true },
+      { cars: ordering[1], greet: greetN(1), waiting: toShow(1), lane: 1, across: shape.laneAcross[1], floor: lo, line: false },
+      { cars: ordering[2], greet: greetN(2), waiting: toShow(2), lane: 2, across: shape.laneAcross[2], floor: lo, line: false }]
+    : [{ cars: [...line, ...ordering[1]], greet: greetN(1), waiting: toShow(1), lane: 1, across: 0, floor: lo, line: true }];
+  const greeting: LanePlan['greeting'] = [];
   let lineTail = null as number | null;
   for (const r of runs) {
     // (Two lanes on a phone: a line to the window backed up past where the lanes meet holds each lane's cars behind it.)
     const behind: number | null = o.two && !r.line && !o.squeeze && lineTail !== null && lineTail < at.merge! + slot * 0.2 ? lineTail : null;
-    let cs = r.cars; let w = r.waiting;
-    const build = (): number[] => queue([...cs.map(anchor), ...Array.from({ length: w }, () => ({ anchor: at.speaker - slot }))], behind);
+    let cs = r.cars; let w = r.waiting; let g = r.greet;
+    const build = (): number[] => queue([...cs.map(anchor), ...Array.from({ length: g }, () => ({ anchor: at.speaker })), ...Array.from({ length: w }, () => ({ anchor: at.speaker - slot }))], behind);
     let xs: number[] = build();
     if (o.squeeze && xs.length && xs[xs.length - 1] < r.floor) {
       // More than fits a car apart: the waiting ones are counted instead first, then the cars at the back.
       const room = Math.max(1, Math.floor((xs[0] - r.floor) / minGap) + 1);
-      if (cs.length + w > room) {
-        const drop = Math.min(w, cs.length + w - room); w -= drop; moreWaiting[r.lane] += drop;
+      if (cs.length + g + w > room) {
+        const drop = Math.min(w, cs.length + g + w - room); w -= drop; moreWaiting[r.lane] += drop;
+        g = Math.max(0, Math.min(g, room - cs.length));
         if (cs.length > room) { moreCars.push(...cs.slice(room).map((c) => c.id)); cs = cs.slice(0, room); }
         xs = build();
       }
       xs = squeeze(xs, r.floor);
     }
     cs.forEach((c, i) => placed.push({ id: c.id, along: xs[i], across: r.across }));
-    for (let i = 0; i < w; i++) waiting.push({ lane: r.lane, along: xs[cs.length + i], across: r.across });
+    for (let i = 0; i < g; i++) greeting.push({ lane: r.lane, i, along: xs[cs.length + i], across: r.across });
+    for (let i = 0; i < w; i++) waiting.push({ lane: r.lane, along: xs[cs.length + g + i], across: r.across });
     if (r.line) lineTail = cs.length ? xs[cs.length - 1] : null;
   }
   // Parked: each in the spot it was given (or the first free one), in a row beside the lane up to the exit.
@@ -198,7 +220,7 @@ export function placeLane(cars: LiveCar[], shape: LaneShape, o: { two: boolean; 
     if (free) free.carId = c.id; else moreParked.push(c.id);
   }
   for (const s of spots) if (s.carId) placed.push({ id: s.carId, along: s.along, across: s.across });
-  return { shape, cars: placed, waiting, moreWaiting, moreCars, spots, moreParked };
+  return { shape, cars: placed, waiting, moreWaiting, moreCars, greeting, spots, moreParked };
 }
 
 /** The strip above the lane: cars in it now, those waiting to order, the longest wait now, and how many are over. */
