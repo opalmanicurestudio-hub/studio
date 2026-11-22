@@ -24,6 +24,9 @@
 //   giftCard { tenantId, key, orderId, cents, to?, via: print|text|email, phone?, email?, tapKey? } → a gift card sold
 //                                                      with the order (lib/counter-gift): made and sent once it's paid;
 //                                                      giftIssue { …, orderId }: the ones not made yet, made now
+//   price  { tenantId, key, orderId, lineId, qty, price, reason, pin? } → some or all of a line at a different price
+//                                                      (lib/counter-price-server), lower a manager's; priceBack { …, lineId }
+//   noSale { tenantId, key, reason, moveKey, printerId? } → the drawer opened with no sale, on its record by who and why
 //   oneOff { tenantId, key, orderId, name, price, quantity?, taxed?, tapKey? } → something not on the menu, up to the
 //                                                      business's amount (lib/counter-oneoff): no kitchen, no stock
 //   sizeUp { tenantId, key, orderId, lineId, quantity?, tapKey? } → that many of the line in the next size up, when its
@@ -131,7 +134,8 @@ import { readyBoardOf, onReadyBoard, BOARD_CHANNELS, LIVE_TICKETS, MAX_MAKING, M
 import { askReadyText, readyTextView, readyTextsOn, textIfReady } from '@/lib/ready-text';
 import { takeOffSent } from '@/lib/counter-takeoff-server';
 import { compLine, uncompLine } from '@/lib/counter-comp-server';
-import { drawerMove, drawerUndo, drawerView } from '@/lib/drawer-moves-server';
+import { drawerMove, drawerUndo, drawerView, drawerNoSale } from '@/lib/drawer-moves-server';
+import { priceLine, priceBack } from '@/lib/counter-price-server';
 import { pointsOn, linkOrder, linkByCode, rewardsOn, useReward } from '@/lib/counter-points';
 import { loyaltyOf } from '@/lib/loyalty';
 import { codesOn } from '@/lib/rewards-code';
@@ -200,7 +204,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'price', 'priceBack', 'noSale', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -225,7 +229,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'noSale', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -239,7 +243,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -1076,6 +1080,14 @@ export async function POST(req: NextRequest) {
         actor: { type: 'user', id: String((m.approver?.id || who.id) || 'counter'), name: m.approver?.name || who.name } } as any).catch(() => null);
       return ok({ kind: r.kind, cents: r.cents, expectedCash: r.expectedCash, already: !!r.already, words: r.words, approvedBy: m.approver?.name || null, staffOk });
     }
+    // The drawer opened with no sale (lib/drawer-moves-server drawerNoSale): someone signed in here, with why.
+    if (action === 'noSale') {
+      const r: any = await drawerNoSale(db, tenantId, b.reason, who, { key: b.moveKey, printerId: b.printerId });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, ...(r.code === 'staff' ? { needsStaff: true } : {}), staffOk }, { status: r.status });
+      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.no_sale', targetType: 'tillSession', targetId: 'open', summary: `${who.name} opened the drawer with no sale: ${String(b.reason || '').slice(0, 60)}.`,
+        actor: { type: 'user', id: String(who.id || 'counter'), name: who.name } } as any).catch(() => null);
+      return ok({ printer: r.printer || null, already: !!r.already, staffOk });
+    }
     const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
     // With two lanes that merge (lib/drive-lanes): a car that starts paying at the window, or pays there, merged first,
     // whatever was taken to be ahead of it, so the windows and the kitchen follow it. (Nothing with one lane.)
@@ -1182,6 +1194,18 @@ export async function POST(req: NextRequest) {
       await logAuditAdmin(db, tenantId, { action: 'counter.comp', targetType: 'order', targetId: orderId, summary: `${r.qty} × ${r.name} on the house ($${(r.cents / 100).toFixed(2)}) on order ${r.order.number}, okayed by ${m.approver.name}: ${String(b.reason || '').slice(0, 60)}.`,
         actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
       return ok({ order: r.order, name: r.name, qty: r.qty, cents: r.cents, approvedBy: r.approvedBy, staffOk });
+    }
+    // One item at a different price (lib/counter-price-server): lower takes a manager, higher doesn't.
+    if (action === 'price' || action === 'priceBack') {
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      const r: any = action === 'price' ? await priceLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.price, b.reason, who, m.approver)
+        : await priceBack(db, tenantId, tenant, orderId, String(b.lineId || ''), who, m.approver);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, ...(r.code === 'manager' ? { needsManager: true } : {}), staffOk }, { status: r.status });
+      if (!r.already) await logAuditAdmin(db, tenantId, { action: action === 'price' ? 'counter.price' : 'counter.price_back', targetType: 'order', targetId: orderId,
+        summary: action === 'price' ? `${r.qty} × ${r.name} at $${Number(r.to).toFixed(2)} (was $${Number(r.from).toFixed(2)}) on order ${r.order.number}${r.approvedBy ? `, okayed by ${r.approvedBy}` : ''}: ${String(b.reason || '').slice(0, 60)}` : `${r.name} back at its menu price on order ${r.order.number}.`,
+        actor: { type: 'user', id: String((m.approver?.id || who.id) || 'counter'), name: m.approver?.name || who.name } } as any).catch(() => null);
+      return ok({ order: r.order, name: r.name, qty: r.qty ?? null, from: r.from ?? null, to: r.to ?? null, back: !!r.back, approvedBy: r.approvedBy || null, already: !!r.already, staffOk });
     }
     if (action === 'uncomp') {
       const r: any = await uncompLine(db, tenantId, tenant, orderId, String(b.lineId || ''), who);

@@ -27,7 +27,7 @@ export function counterReceipt(o: any, orderId: string): any {
     // code when it's given on the receipt, else how it went; and a bonus card's code, which is the buyer's.)
     const g = l.giftCard && typeof l.giftCard === 'object' ? l.giftCard : null;
     const giftWords = g ? (g.refundedAt ? ', refunded and cancelled' : '') + (g.via === 'print' ? (g.code ? `, code ${clip(g.code, 20)}` : ', its code once it’s made') : g.via === 'text' ? `, by text${g.sent ? '' : ', not sent yet'}` : `, by email${g.sent ? '' : ', not sent yet'}`) + (g.bonusCode ? `; your bonus card ${clip(g.bonusCode, 20)}` : '') : '';
-    return { kind: g ? 'gift' : 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}${giftWords}`, qty, unit, amount: r2(unit * qty) };
+    return { kind: g ? 'gift' : 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}${l.priceChange && !l.comp ? `, was $${num(l.priceChange.from).toFixed(2)}` : ''}${giftWords}`, qty, unit, amount: r2(unit * qty) };
   });
   const items = r2(lines.reduce((s: number, l: any) => s + l.amount, 0));
   const discount = r2(Math.max(0, num(o?.discount)));

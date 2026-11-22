@@ -57,6 +57,9 @@ export function NightReportView({ r }: { r: NightReport }) {
           {r.comps.byPerson.length > 0 && <><Sep />{r.comps.byPerson.map((x) => <Row key={x.label} k={x.label} v={$(x.amount)} />)}</>}
           {!r.comps.count && <p className="text-[14px]" style={{ color: MUTED }}>None tonight.</p>}
         </Card>
+        {r.priceChanges && <Card title="Different prices" right={$(r.priceChanges.total)} sub={`${r.priceChanges.count} charged less than the menu, by why`}>
+          {r.priceChanges.byReason.map((x) => <Row key={x.label} k={`${x.label}, ${x.count}`} v={$(x.amount)} />)}
+        </Card>}
         {(r.discounts?.count || 0) > 0 && <Card title="Discounts" right={$(r.discounts.total)} sub={`${r.discounts.count} at the counter, by name`}>
           {r.discounts.byLabel.map((x) => <Row key={x.label} k={`${x.label}, ${x.count}`} v={$(x.amount)} />)}
           {r.discounts.okayed.length > 0 && <><Sep />{r.discounts.okayed.map((x) => <Row key={x.label} k={`Okayed by ${x.label}`} v={$(x.amount)} />)}</>}
@@ -116,6 +119,7 @@ export function NightReportView({ r }: { r: NightReport }) {
               {d.overShort !== null && <Row k={d.overShort < 0 ? 'Short' : d.overShort > 0 ? 'Over' : 'Even'} v={d.overShort ? $(Math.abs(d.overShort)) : ''} strong />}
             </div>
           ))}
+          {r.noSales && <><Sep /><Row k={`Opened with no sale, ${r.noSales.count} ${r.noSales.count === 1 ? 'time' : 'times'}`} v={r.noSales.byPerson.map((x) => `${x.label} ${x.count}`).join(', ')} /></>}
         </Card>
       </div>
     </div>

@@ -89,6 +89,7 @@ const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[
                 {safeNumber(session.totalPaidOut) > 0 && row('Paid out', `−${money(session.totalPaidOut)}`)}
                 {safeNumber(session.totalPaidIn) > 0 && row('Put in', money(session.totalPaidIn))}
                 {safeNumber(session.totalDrops) > 0 && row('To the safe', `−${money(session.totalDrops)}`)}
+                {safeNumber(session.noSales) > 0 && row('Opened with no sale', `${safeNumber(session.noSales)} ${safeNumber(session.noSales) === 1 ? 'time' : 'times'}`)}
                 {row('Counted in the drawer', money(session.actualCash || session.openingFloat), true)}
                 {Math.abs(safeNumber(session.discrepancy)) > 0.01 && row(safeNumber(session.discrepancy) > 0 ? 'Over' : 'Short', `${safeNumber(session.discrepancy) > 0 ? '+' : '−'}${money(Math.abs(safeNumber(session.discrepancy)))}`, true)}
             </div>

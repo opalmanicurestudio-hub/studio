@@ -40,6 +40,8 @@ export async function nightTills(db: any, T: string, b: { start: string; end: st
   return s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((t: any) => String(t.openedAt || '') < b.end && (t.status === 'open' || String(t.closedAt || '') >= b.start) && (!at || String(t.locationId || '') === at))
     .map((t: any) => ({ id: t.id, openedBy: String(t.openedBy || 'Drawer'), openingFloat: num(t.openingFloat), expectedCash: num(t.expectedCash), actualCash: t.status === 'closed' && t.actualCash !== undefined ? num(t.actualCash) : null, status: t.status === 'open' ? 'open' : 'closed',
+      // (Opened with no sale: how many times, and by who, from its own list: lib/drawer-moves-server drawerNoSale.)
+      ...(num(t.noSales) > 0 ? { noSales: { count: Math.round(num(t.noSales)), by: (Array.isArray(t.noSaleLog) ? t.noSaleLog : []).map((m: any) => String(m?.by || 'Someone').slice(0, 60)) } } : {}),
       // (Cash paid out, put in, or taken to the safe: lib/drawer-moves-server.)
       moves: (Array.isArray(t.cashMoves) ? t.cashMoves : []).filter((m: any) => !m?.undoneAt).slice(-40).map((m: any) => ({ kind: String(m.kind || ''), cents: Math.max(0, Math.round(num(m.cents))), note: m.note ? String(m.note).slice(0, 80) : null, by: String(m.by || 'Someone').slice(0, 60), approvedBy: m.approvedBy ? String(m.approvedBy).slice(0, 60) : null })) }));
 }
@@ -171,6 +173,11 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   const adjustments: Adjustment[] = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => ['comp', 'void_item', 'remake'].includes(a.kind) && a.used === true)
     .filter((a: any) => !at || (String(a.locationId || '') || visitAt.get(String(a.visitId || '')) || '') === at)
     .map((a: any) => ({ kind: a.kind, amount: num(a.amount), reason: String(a.reason || 'No reason'), askedBy: String(a.askedBy || a.requestedBy || 'Someone'), approverName: String(a.approverName || ''), started: a.started === true, wasteCost: a.wasteCost === null || a.wasteCost === undefined ? null : num(a.wasteCost), itemName: String(a.itemName || 'Item') }));
+  // Items charged less than the menu's price at the counter and the window (lib/counter-price-server), on orders paid
+  // tonight: what it took off, by why.
+  const priceOffs = co.docs.map((d: any) => d.data() || {}).filter((o: any) => mine(o) && o.paidAt && !o.staffMeal && o.status !== 'voided')
+    .flatMap((o: any) => (Array.isArray(o.lines) ? o.lines : []).filter((l: any) => l?.priceChange && num(l.priceChange.to) < num(l.priceChange.from))
+      .map((l: any) => ({ amount: Math.round((num(l.priceChange.from) - num(l.priceChange.to)) * num(l.quantity) * 100) / 100, reason: String(l.priceChange.reason || 'No reason').slice(0, 60) })));
   // On the house at the counter and the window (lib/counter-comp-server), on orders paid tonight: comps like the floor's.
   for (const o of co.docs.map((d: any) => d.data() || {}).filter((x: any) => mine(x) && x.paidAt && !x.staffMeal && x.status !== 'voided'))
     for (const l of Array.isArray(o.lines) ? o.lines : []) if (l?.comp && num(l.comp.from) > 0)
@@ -180,7 +187,7 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   // (One location's: what was sold tonight at no location, on the whole business's report only, so the two add up.)
   const unplaced = at ? [...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && !r.locationId).map((r: any) => Math.max(0, num(r.subtotal) - num(r.discount))),
     ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => !o.locationId && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || ''))).map((o: any) => num(o.subtotal ?? (num(o.total) - num(o.tax))))] : [];
-  const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, giftRefunds, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
+  const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, giftRefunds, priceOffs, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
   return { report, tills };
 }
 

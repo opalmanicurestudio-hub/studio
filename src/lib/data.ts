@@ -1684,7 +1684,9 @@ export type TillSession = {
     totalPaidOut?: number;
     totalPaidIn?: number;
     totalDrops?: number;
-    cashMoves?: { key: string; kind: 'out' | 'in' | 'drop'; cents: number; note: string | null; by: string; approvedBy?: string; at: string; receiptUrl?: string }[];
+    cashMoves?: { key: string; kind: 'out' | 'in' | 'drop' | 'nosale'; cents: number; note: string | null; by: string; approvedBy?: string; at: string; receiptUrl?: string }[];
+    /** Times the drawer was opened with no sale (lib/drawer-moves-server drawerNoSale). */
+    noSales?: number;
     cashTipsByStaff?: Record<string, number>;
     actualCash?: number;
     cashToDeposit?: number;

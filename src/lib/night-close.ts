@@ -108,7 +108,9 @@ export type Sale = { at: string; net: number; refunded?: number; total: number; 
 export type Adjustment = { kind: 'comp' | 'void_item' | 'remake'; amount: number; reason: string; askedBy: string; approverName: string; started?: boolean; wasteCost?: number | null; itemName: string };
 export type Till = { openedBy: string; openingFloat: number; expectedCash: number; actualCash: number | null; status: 'open' | 'closed';
   /** Cash paid out, put in, or taken to the safe (lib/drawer-moves-server). */
-  moves?: { kind: string; cents: number; note: string | null; by: string; approvedBy: string | null }[] };
+  moves?: { kind: string; cents: number; note: string | null; by: string; approvedBy: string | null }[];
+  /** Opened with no sale (lib/drawer-moves-server drawerNoSale): every time, and who (as many as its list keeps). */
+  noSales?: { count: number; by: string[] } };
 export type TipRow = { name: string; role: string; earned: number; shared: number; takesHome: number };
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -151,6 +153,8 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
   /** Given back tonight on counter orders, whenever they were paid (lib/counter-refund-server): off tonight's sales,
    *  before tax and tips. */
   counterRefunds?: number;
+  /** Items charged less than their menu price at the counter tonight (lib/counter-price-server): what it took off, why. */
+  priceOffs?: { amount: number; reason: string }[];
   /** Gift cards sold at the counter given back tonight (lib/counter-refund-server): apart from sales. */
   giftRefunds?: { count: number; amount: number } | null }) {
   const sales = x.sales;
@@ -186,6 +190,10 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
     voids: { total: r2(voids.reduce((s, a) => s + a.amount, 0)), count: voids.length, before: { count: before.length, amount: r2(before.reduce((s, a) => s + a.amount, 0)) }, after: { count: after.length, amount: r2(after.reduce((s, a) => s + a.amount, 0)) },
       byReason: sumBy(voids, (a) => a.reason, (a) => a.amount) },
     remakes: { count: remakes.length, byReason: sumBy(remakes, (a) => a.reason, () => 0) },
+    // Items at a lower price than the menu's, by why, and the drawer opened with no sale, by who (left out with none).
+    priceChanges: x.priceOffs?.length ? { count: x.priceOffs.length, total: r2(x.priceOffs.reduce((t, p) => t + p.amount, 0)), byReason: sumBy(x.priceOffs, (p) => p.reason, (p) => p.amount) } : null,
+    noSales: (() => { const count = x.tills.reduce((t, d) => t + Math.max(0, Math.round(Number(d.noSales?.count) || 0)), 0); const by = x.tills.flatMap((d) => d.noSales?.by || []);
+      return count ? { count, byPerson: sumBy(by, (b) => b, () => 0) } : null; })(),
     waste,
     tips: { total: tips, mode: x.tips.mode, rows: x.tips.rows },
     drawers: cash,
@@ -219,6 +227,8 @@ export function reportText(name: string, rep: NightReport): string {
   if (rep.discounts?.count) L.push(`Discounts ${$(rep.discounts.total)} (${rep.discounts.count}): ${rep.discounts.byLabel.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.${rep.discounts.okayed.length ? ` Okayed by ${rep.discounts.okayed.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.` : ''}`);
   L.push(`Voids ${$(rep.voids.total)} (${rep.voids.count}): ${rep.voids.before.count} before the kitchen started, ${rep.voids.after.count} after.`);
   if (rep.remakes.count) L.push(`Made again: ${rep.remakes.count}.`);
+  if (rep.priceChanges?.count) L.push(`Different prices ${$(rep.priceChanges.total)} off (${rep.priceChanges.count}): ${rep.priceChanges.byReason.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.`);
+  if (rep.noSales?.count) L.push(`Drawer opened with no sale: ${rep.noSales.count} ${rep.noSales.count === 1 ? 'time' : 'times'} (${rep.noSales.byPerson.map((r) => `${r.label} ${r.count}`).join(', ')}).`);
   L.push(`Waste, cost to make: ${$(rep.waste)}.`);
   if (rep.tips.rows.length) { L.push(''); L.push('Tips'); for (const t of rep.tips.rows) L.push(`  ${t.name}: ${$(t.takesHome)}${t.shared ? ` (${t.shared > 0 ? '+' : '−'}${$(Math.abs(t.shared))})` : ''}`); }
   if (rep.drawers.length) { L.push(''); for (const d of rep.drawers) {

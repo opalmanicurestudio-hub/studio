@@ -40,6 +40,8 @@ import { GiftSheet, GiftsMade, GiftsOpen, giftsPaidWords, giftsFailed, type Gift
 import { giftWords } from '@/lib/counter-gift';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
+import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
+import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { compWords } from '@/lib/counter-comp';
@@ -219,6 +221,8 @@ export default function CounterPage() {
   const [takeOffFor, setTakeOffFor] = useState<string | null>(null);
   // One item on the house (components/pos/CounterComp).
   const [compFor, setCompFor] = useState<string | null>(null);
+  // A line at a different price (components/pos/CounterPrice).
+  const [priceFor, setPriceFor] = useState<string | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -330,7 +334,7 @@ export default function CounterPage() {
     if (!id) return; const i = setInterval(() => void post({ action: 'show', orderId: id }).catch(() => null), 60000);
     return () => clearInterval(i);
   }, [order?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !drawerOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
+  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !drawerOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
   const addOneOff = async (b: { name: string; price: number; taxed: boolean; tapKey: string }) => {
     if (!order || order.status !== 'building') return 'Tap Next guest first, then add it.';
     acted.current++;
@@ -524,7 +528,9 @@ export default function CounterPage() {
                       : <LineNote note={l.note} name={l.name} busy={!!busy} editable={order.status === 'building'} onSave={(n) => void saveNote(l, n)} />}
                     {(l as any).comp ? <span className="flex flex-wrap items-center gap-x-3"><span className="text-[13px] font-medium" style={{ color: GREEN }}>{compWords(l as any)}</span>
                       {canComp && <button type="button" onClick={() => void act(`uncomp-${l.lineId}`, { action: 'uncomp', orderId: order.id, lineId: l.lineId }, () => setNotice({ text: `${l.name} is charged for again.`, tone: 'good' }))} disabled={!!busy} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Charge for it</button>}</span>
-                      : canComp && l.unitPrice > 0 && !(l as any).giftCard && <button type="button" onClick={() => setCompFor(l.lineId)} disabled={!!busy} aria-label={`${l.name} on the house`} className={`flex min-h-[44px] items-center text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>On the house</button>}</span></span>
+                      : canComp && !(l as any).giftCard && !(l as any).priceChange && <PriceMenu name={l.name} free={l.unitPrice > 0} busy={!!busy} onFree={() => setCompFor(l.lineId)} onPrice={() => setPriceFor(l.lineId)} />}</span>
+                    {(l as any).priceChange && !(l as any).comp && <span className="flex flex-wrap items-center gap-x-3"><span className="text-[13px] font-medium" style={{ color: GREEN }}>{priceWords(l as any)}</span>
+                      {canComp && <button type="button" onClick={() => void act(`priceBack-${l.lineId}`, { action: 'priceBack', orderId: order.id, lineId: l.lineId }, () => setNotice({ text: `${l.name} is back at its menu price.`, tone: 'good' }))} disabled={!!busy} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Menu price</button>}</span>}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
                     {canTakeOff && (order.lines.length > 1 || l.quantity > 1) && <button type="button" onClick={() => setTakeOffFor(l.lineId)} disabled={!!busy} aria-label={`Take ${l.name} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}
@@ -673,6 +679,8 @@ export default function CounterPage() {
     {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {drawerOpen && <DrawerSheet call={post} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }}
       photo={(set) => <ImageUpload onImageUploaded={set} label="Add a photo" enableMarkup={false} storageFolder="uploads" maxWidthOrHeight={1400} />} />}
+    {priceFor && order && (() => { const l = order.lines.find((x) => x.lineId === priceFor); return l ? <PriceSheet orderId={order.id} number={order.number} line={l as any} whole={order.status !== 'building'} call={post}
+      onClose={() => setPriceFor(null)} onDone={(text, d) => { setPriceFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
     {compFor && order && (() => { const l = order.lines.find((x) => x.lineId === compFor); return l ? <CompSheet orderId={order.id} number={order.number} line={l} whole={order.status !== 'building'} call={post}
       onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
     {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={post}

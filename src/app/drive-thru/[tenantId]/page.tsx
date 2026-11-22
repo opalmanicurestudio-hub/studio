@@ -42,6 +42,8 @@ import { GiftSheet, GiftsMade, GiftsOpen, giftsPaidWords, giftsFailed, type Gift
 import { giftWords } from '@/lib/counter-gift';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
+import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
+import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
@@ -328,6 +330,8 @@ export default function DriveThru() {
   const [takeOffFor, setTakeOffFor] = useState<string | null>(null);
   // One item on the house (components/pos/CounterComp).
   const [compFor, setCompFor] = useState<string | null>(null);
+  // A line at a different price (components/pos/CounterPrice).
+  const [priceFor, setPriceFor] = useState<string | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -562,7 +566,7 @@ export default function DriveThru() {
       else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
     });
   };
-  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
@@ -803,7 +807,9 @@ export default function DriveThru() {
                     : <LineNote note={l.note} name={l.name} busy={!!busy} editable={editable && order!.status === 'building'} onSave={(n) => void saveNote(l, n)} />}
                   {(l as any).comp ? <span className="flex flex-wrap items-center gap-x-3"><span className="text-[13px] font-medium" style={{ color: GREEN }}>{compWords(l as any)}</span>
                     {canComp && <button type="button" onClick={() => void act(`uncomp-${l.lineId}`, { action: 'uncomp', orderId: order!.id, lineId: l.lineId }, () => setNotice({ text: `${l.name} is charged for again.`, tone: 'good' }))} disabled={!!busy} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Charge for it</button>}</span>
-                    : canComp && l.unitPrice > 0 && !(l as any).giftCard && <button type="button" onClick={() => setCompFor(l.lineId)} disabled={!!busy} aria-label={`${l.name} on the house`} className={`flex min-h-[44px] items-center text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>On the house</button>}</span>
+                    : canComp && !(l as any).giftCard && !(l as any).priceChange && <PriceMenu name={l.name} free={l.unitPrice > 0} busy={!!busy} onFree={() => setCompFor(l.lineId)} onPrice={() => setPriceFor(l.lineId)} />}</span>
+                  {(l as any).priceChange && !(l as any).comp && <span className="flex flex-wrap items-center gap-x-3"><span className="text-[13px] font-medium" style={{ color: GREEN }}>{priceWords(l as any)}</span>
+                    {canComp && <button type="button" onClick={() => void act(`priceBack-${l.lineId}`, { action: 'priceBack', orderId: order!.id, lineId: l.lineId }, () => setNotice({ text: `${l.name} is back at its menu price.`, tone: 'good' }))} disabled={!!busy} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Menu price</button>}</span>}
                   {!editable && order!.kitchen !== 'not sent' && <p className="text-[13px] font-medium" style={{ color: waiting ? MUTED : GREEN }}>{waiting ? 'Being made' : 'Ready'}</p>}
                   {!editable && canTakeOff && (order!.lines.length > 1 || l.quantity > 1) && <button type="button" onClick={() => setTakeOffFor(l.lineId)} disabled={!!busy} aria-label={`Take ${l.name} off`} className={`min-h-[44px] text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}
                 </div>
@@ -1260,6 +1266,8 @@ export default function DriveThru() {
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
       {drawerOpen && <DrawerSheet call={refundCall} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }} />}
+      {priceFor && order && (() => { const l = order.lines.find((x) => x.lineId === priceFor); return l ? <PriceSheet orderId={order.id} number={order.number} line={l as any} whole={order.status !== 'building'} call={refundCall}
+        onClose={() => setPriceFor(null)} onDone={(text, d) => { setPriceFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {compFor && order && (() => { const l = order.lines.find((x) => x.lineId === compFor); return l ? <CompSheet orderId={order.id} number={order.number} line={l} whole={order.status !== 'building'} call={refundCall}
         onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={refundCall}

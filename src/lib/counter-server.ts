@@ -154,7 +154,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       // A note for the kitchen about this dish (lib/order-allergy): a line of its own unless another has the same note.
       const note = cleanLineNote(op.note); if (note) made.line.note = note;
       // The same item with the same choices (and the same note) is one line with more of it (taken as an offer stays marked).
-      const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note));
+      // (Never into a line at a different price, or one on the house: lib/counter-price-server, lib/counter-comp-server.)
+      const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note) && !l.priceChange && !l.comp);
       lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity), ...(l.offer || made.line.offer ? { offer: l.offer || made.line.offer } : {}) } : l)) : [...lines, made.line];
       line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
     } else if (op.action === 'oneOff') {
@@ -176,6 +177,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const old = lines.find((l) => l.lineId === String(op.lineId || '')); if (!old) return { error: 'That isn’t on the order.', status: 404 };
       if (old.oneOff || !ID.test(String(old.itemId || ''))) return { error: `${old.name} isn’t on the menu, so there’s no bigger size.`, status: 409 };
       if (old.comp) return { error: `${old.name} is on the house. Charge for it first, then size it up.`, status: 409 };
+      if (old.priceChange) return { error: `${old.name} is at a different price. Charge the menu price first, then size it up.`, status: 409 };
       const it: any = (await tx.get(db.doc(`${T}/inventory/${old.itemId}`))).data();
       const picks = picksOf(old.choices);
       const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
@@ -188,7 +190,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       if (old.note) made.line.note = old.note;
       // Into a line already in that size, only when all of them fit (20 on a line: one tap is all of it or nothing); a new
       // line only while the order has room for one.
-      const same = lines.find((l) => l !== old && l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note));
+      const same = lines.find((l) => l !== old && l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note) && !l.priceChange && !l.comp);
       if (same && same.quantity + q > 20) return { error: 'That’s as many as one line takes. Send this one, and start another.', status: 400 };
       if (!same && old.quantity > q && lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       made.line.quantity = q;
@@ -209,6 +211,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
         // (On the house is as many as a manager okayed: fewer is fine, more is another okay.)
         const was = lines.find((l) => l.lineId === lineId)!;
         if (was.giftCard && q !== was.quantity) return { error: 'One gift card a line. Add another for another.', status: 409 };
+        // (At a lower price: more of it is another okay.)
+        if (was.priceChange && was.priceChange.to < was.priceChange.from && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} at that price. Add another from the menu.`, status: 409 };
         if (was.comp && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} on the house. Add another from the menu.`, status: 409 };
         lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l));
       }

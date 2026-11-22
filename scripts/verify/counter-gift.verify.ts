@@ -337,7 +337,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
 
   console.log('the screens');
   const counter = src('src/app/(app)/counter/page.tsx'), window = src('src/app/drive-thru/[tenantId]/page.tsx'), sheet = src('src/components/pos/CounterGift.tsx');
-  check('“A gift card” at the counter and the window, its sheet, and the codes once it’s paid', [counter, window].every((p) => p.includes('<GiftSheet') && p.includes('<GiftsMade') && p.includes('giftsPaidWords(d.gifts)') && p.includes("action: 'giftIssue'") && p.includes('tipBaseOf(order)') && p.includes('!(l as any).giftCard && <button') && p.includes(', not taxed</span>') && p.includes('giftsFailed(d.gifts) ? \'warn\' : \'good\'')));
+  check('“A gift card” at the counter and the window, its sheet, and the codes once it’s paid', [counter, window].every((p) => p.includes('<GiftSheet') && p.includes('<GiftsMade') && p.includes('giftsPaidWords(d.gifts)') && p.includes("action: 'giftIssue'") && p.includes('tipBaseOf(order)') && p.includes('!(l as any).giftCard && !(l as any).priceChange && <PriceMenu') && p.includes(', not taxed</span>') && p.includes('giftsFailed(d.gifts) ? \'warn\' : \'good\'')));
   check('the sheet: amounts, other, who it’s for, on the receipt, by text or by email', sheet.includes('On the receipt') && sheet.includes('By text') && sheet.includes('By email') && sheet.includes('Other') && sheet.includes('Who it’s for'));
   const route = src('src/app/api/counter/route.ts');
   check('the guest screen’s tip leaves the gift card out', route.includes('const tipBase = o ? tipBaseOf(o) : 0;'));

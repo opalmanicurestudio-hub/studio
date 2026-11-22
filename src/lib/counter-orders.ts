@@ -75,6 +75,9 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
   oneOff?: boolean; untaxed?: boolean;
   /** On the house (lib/counter-comp-server): $0 here, its price kept, why, and the manager who okayed it. */
   comp?: { from: number; reason: string; by: string; approvedBy: string; at: string };
+  /** At a different price (lib/counter-price-server): its menu price, the price now, why, who, and the manager who okayed
+   *  a lower one. */
+  priceChange?: { from: number; to: number; reason: string; by: string; approvedBy: string | null; at: string };
   /** A gift card sold with the order (lib/counter-gift): who it's for, how it gets to them, and once it's made its code. */
   giftCard?: { to: string | null; via: 'print' | 'text' | 'email'; phone: string | null; email: string | null; id?: string | null; code?: string | null; sent?: boolean; failed?: string | null; claim?: { token: string; at: string } | null; bonusCode?: string | null } };
 
