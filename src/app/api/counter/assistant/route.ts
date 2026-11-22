@@ -82,7 +82,8 @@ export async function POST(req: NextRequest) {
       : fits.length ? `tool|${String(fits[fits.length - 1].tool_call_id)}|${turn}`
       : `${name}|${JSON.stringify(sorted(args ?? {}))}|${turn}`;
     const tapKey = `v${createHash('sha256').update(`${retellCallId}|${named}`).digest('hex').slice(0, 30)}`;
-    const menu = await readMenu(db, tenantId);
+    // (As the order's own location sees it: sold out there, or everywhere. lib/menu-choices outWhere)
+    const menu = await readMenu(db, tenantId, String(order.locationId || '') || null);
     const said = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
     const lineFor = (spoken: string) => {
       const lines: any[] = Array.isArray(order.lines) ? order.lines : [];

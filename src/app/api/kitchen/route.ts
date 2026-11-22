@@ -496,7 +496,11 @@ export async function POST(req: NextRequest) {
     if (staff && !teamMember) { const st: any = ID.test(staff.id) ? (await db.doc(`tenants/${tenantId}/staff/${staff.id}`).get()).data() : null; if (offTeam(st)) staff = null; }
     const staffOk = b.staffPass && !teamMember ? !!staff : undefined;   // a pass that no longer counts: the screen stops showing that name
 
-    if (action === 'menu') return ok({ menu: await readMenu(db, tenantId), staffOk });
+    // With more than one location: the menu as this screen's location sees it, and its sold out here or everywhere
+    // (lib/menu-choices outWhere; design board "Sold out here or everywhere").
+    const soldHere = action === 'menu' || action === 'soldout' ? await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null }) : null;
+    const soldHereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
+    if (action === 'menu') return ok({ menu: await readMenu(db, tenantId, soldHere), here: soldHere ? { id: soldHere, name: soldHereName } : null, staffOk });
     // Food safety (lib/food-safety): today's readings and the batches still cooling, each with its next mark; a reading
     // taken here carries a person's name (a PIN on a shared tablet), like the dish machine's.
     if (action === 'safety' || action === 'safetyLog' || action === 'coolCheck') {
@@ -527,7 +531,7 @@ export async function POST(req: NextRequest) {
       return ok({ day, closed: cur.status === 'closed', items: closeSettingsOf(tenant).items.filter((i) => i.area !== 'front'), checks: cur.checks || {} });
     }
     if (action === 'soldout') {
-      const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, staff?.name || screen.name);
+      const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out, where: b.where }, staff?.name || screen.name, soldHere);
       if (r.ok) forgetWord(tenantId);
       return r.ok ? ok({ item: r.item, staffOk }) : bad(r.error, r.status);
     }

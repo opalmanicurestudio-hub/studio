@@ -131,7 +131,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
     let line: OrderLine | undefined;
     if (op.action === 'add') {
       if (!itemSnap) return { error: 'Which item?', status: 400 };
-      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant });
+      // (Sold out at the order's own location, or everywhere: lib/menu-choices outWhere.)
+      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant, here: String(o.locationId || '') || null });
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       // Taken as an offer, right after something else was added (components/menu/OfferAsk): marked only where another
@@ -156,7 +157,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
       if (!up) return { error: `There’s no bigger size of ${old.name} to offer.`, status: 409 };
       const q = Math.min(old.quantity, Math.max(1, Math.floor(num(op.quantity)) || old.quantity));
-      const made = lineFor(it, old.itemId, q, sizedUp(picks, up), randomBytes(5).toString('hex'), { tenant });
+      const made = lineFor(it, old.itemId, q, sizedUp(picks, up), randomBytes(5).toString('hex'), { tenant, here: String(o.locationId || '') || null });
       if (!made.ok) return { error: made.error, status: 400 };
       made.line.offer = 'size';
       // (Its note goes with it.)
@@ -265,11 +266,13 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     // (Never dropped: every allergen and severe from both, and as many of their words as an order keeps.)
     const fromAhead = joined && !sameAllergy(orderAllergyOf(o), joined) ? { keys: joined.keys, other: joined.other, severe: joined.severe, by: aheadAllergy!.by || 'The guest', at: aheadAllergy!.at || nowIso } : null;
     const lineIds = Array.from(new Set(lines.map((l) => l.itemId)));
+    // (Sold out at the order's own location, or everywhere: lib/menu-choices outWhere.)
+    const soldAt = String(o.locationId || '') || null;
     const lineRefs = lineIds.map((id) => db.doc(`${T}/inventory/${id}`));
     const lineItems = (await Promise.all(lineRefs.map((ref) => tx.get(ref)))).map((s: any) => s.data());
     for (const [k, it] of lineItems.entries()) {
       if (!isMenuItem(it)) return { error: `${lines.find((l) => l.itemId === lineIds[k])?.name || 'Something'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
-      if (itemSoldOut(it)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
+      if (itemSoldOut(it, soldAt)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
     }
     // What's made: each line as itself, or a combo as its parts (lib/counter-orders partsOfLine), each its own stock and
     // its own ticket at its own station.
@@ -281,7 +284,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const qtyOf = (id: string) => made.filter((m) => m.itemId === id).reduce((n, m) => n + m.l.quantity, 0);
     for (const [k, it] of items.entries()) {
       if (!it || it.archived === true || it.isActive === false) return { error: `Part of ${made.find((m) => m.itemId === ids[k])?.l.name || 'an order line'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
-      if (itemSoldOut(it)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
+      if (itemSoldOut(it, soldAt)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
       // Made from a recipe: its ingredients are what's counted (below), not the item itself (lib/menu-stock).
       if (recipeOf(it, ids[k]).length) continue;
       if (num(it.totalStock) < qtyOf(ids[k])) return { error: num(it.totalStock) > 0 ? `Only ${num(it.totalStock)} ${String(it.name || 'of that')} left. Change the order first.` : `${String(it.name || 'That')} just ran out. Take it off the order first.`, status: 409 };
@@ -290,7 +293,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     for (const l of lines) {
       const picks: Record<string, string[]> = {};
       for (const c of Array.isArray(l.choices) ? l.choices : []) (picks[c.groupId] = picks[c.groupId] || []).push(c.optionId);
-      const still = priceChoices(lineItem(l), picks);
+      const still = priceChoices(lineItem(l), picks, soldAt);
       if (!still.ok) return { error: `${l.name}: ${still.error} Change that line, then send it.`, status: 409 };
     }
     // What each line takes: an item without a recipe, its own count; one made from a recipe, its ingredients (the bun

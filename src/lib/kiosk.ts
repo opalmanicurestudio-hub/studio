@@ -58,9 +58,12 @@ function kioskItem(m: MenuItem, tenant: any, at: Date, shown: Set<string>) {
 const menuCache = new Map<string, { at: number; menu: MenuItem[] }>();
 export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: Screen, o: { stripe?: any; at?: Date } = {}) {
   const at = o.at || new Date();
-  const c = menuCache.get(tenantId); let all: MenuItem[];
+  // (Its own location's: sold out there or everywhere, lib/menu-choices outWhere.)
+  const here = await hereFor(db, tenantId, { screen });
+  const key = `${tenantId}|${here || ''}`;
+  const c = menuCache.get(key); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
-  else { all = await readMenu(db, tenantId); menuCache.set(tenantId, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
+  else { all = await readMenu(db, tenantId, here); menuCache.set(key, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
   const menu = all.filter((m) => m.onMenu && !m.membersOnly && servedNow(m, tenant, at).ok);
   const shown = new Set(menu.map((m) => m.id));
   const sections: { name: string; items: ReturnType<typeof kioskItem>[] }[] = [];
@@ -94,13 +97,15 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
   const ids = Array.from(new Set(raw.map((l: any) => String(l?.itemId || '')).filter((x) => ID.test(x))));
   const snaps = await Promise.all(ids.map((id) => db.doc(`${T}/inventory/${id}`).get()));
   const item = new Map<string, any>(); snaps.forEach((s: any, k: number) => { const d = s.data(); if (d) item.set(ids[k], d); });
-  const menu = new Map((await readMenu(db, tenantId)).map((m) => [m.id, m]));
+  // (At the kiosk's location, while it's still one of the business's, on its own clock when it keeps one: lib/here-server.)
+  const here = await hereFor(db, tenantId, { screen });
+  const menu = new Map((await readMenu(db, tenantId, here)).map((m) => [m.id, m]));
   const lines: OrderLine[] = []; const want = new Map<string, number>();
   for (const [k, l] of raw.entries()) {
     const id = String((l as any)?.itemId || ''); const m = menu.get(id); const it = item.get(id);
     if (!m || !it || !m.onMenu || m.membersOnly) return fail('Something in your order isn’t on the menu any more. Take it off and try again.', 409, 'gone');
     // Priced now (happy hour), and only what's served now (lib/menu-time), as at the counter.
-    const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, { tenant, at });
+    const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, { tenant, at, here });
     if (!r.ok) return fail(`${m.name}: ${r.error}`, 409, 'line');
     // (A note for the kitchen about this dish: lib/order-allergy.)
     const note = cleanLineNote((l as any)?.note); if (note) r.line.note = note;
@@ -134,8 +139,6 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     const prev = await letGo(db, tenantId, tenant, screen.kioskOrder, screen.name, o);
     if (prev?.state === 'busy') return prev.code === 'processing' ? fail('The card reader is finishing another payment. Try again in a moment.', 409, 'processing') : fail(prev.error, prev.status, prev.code);
   }
-  // (At the kiosk's location, while it's still one of the business's, on its own clock when it keeps one: lib/here-server.)
-  const here = await hereFor(db, tenantId, { screen });
   const day = todayIn(tenantTimeZone(await zonedHere(db, tenantId, tenant, here)), at);
   const made: any = had ? { number: had.number } : await db.runTransaction(async (tx: any) => {
     const again: any = (await tx.get(orderRef)).data(); if (again) return { had: again };

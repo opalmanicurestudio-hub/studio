@@ -42,7 +42,7 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
-import { bizLocationsOf, forgetLocations, zoneOf, zoneToAsk, zonedFor } from '@/lib/here-server';
+import { bizLocationsOf, forgetLocations, hereOf, zoneOf, zoneToAsk, zonedFor } from '@/lib/here-server';
 import { locateMissing } from '@/lib/locate-server';
 import { cleanWeek } from '@/lib/ahead-places';
 import { smsConfigured } from '@/lib/sms';
@@ -58,7 +58,7 @@ import { forgetPace } from '@/lib/kitchen-pace-server';
 import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
 import { forgetMenuFacts } from '@/lib/klair-menu-server';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
-import { choiceGroups, cleanForSave, outNow, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
+import { choiceGroups, cleanForSave, outNow, outAtOf, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
 import { targetsOf, photoOf, spotsOf, aheadAtDriveThru, CHANNELS } from '@/lib/counter-orders';
 import { lanesOf } from '@/lib/drive-lanes';
@@ -156,8 +156,11 @@ export async function POST(req: NextRequest) {
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
+    // With more than one location: the menu as the location picked in the app sees it, and its sold out here or
+    // everywhere (lib/menu-choices outWhere).
+    const soldHere = action === 'list' || action === 'soldout' || action === 'save' ? await hereOf(db, tenantId, b.locationId) : null;
     if (action === 'list') {
-      const [menu, t, items] = await Promise.all([readMenu(db, tenantId), db.doc(`tenants/${tenantId}`).get(), db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get()]);
+      const [menu, t, items] = await Promise.all([readMenu(db, tenantId, soldHere), db.doc(`tenants/${tenantId}`).get(), db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get()]);
       const td: any = t.data() || {};
       const setUp = !!process.env.RETELL_API_KEY && !!agentOf(td);
       // Each item's recipe (what goes into one), for the Menu page's editor.
@@ -166,7 +169,8 @@ export async function POST(req: NextRequest) {
       // Tonight's counts, for "3 left" beside each counted dish (lib/dish-counts).
       const counts = (await liveCounts(db, tenantId, td, items.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
       // One the count just sold out (or brought back) shows that way here too.
-      for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut; }
+      // (Never lowering one sold out at this location only: the counts are the business's.)
+      for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut || m.outWhere === 'here'; }
       const canEdit = !!(g.actor?.isManager || g.actor?.isTenantOwner);
       // For managers: what each costs to make from its recipe, as a share of its price (lib/food-cost).
       let costs: Record<string, { cost: number | null; share: number | null; over: boolean; typical: boolean; target: number; thin?: string[] }> | undefined;
@@ -187,7 +191,8 @@ export async function POST(req: NextRequest) {
         sets = (await db.collection(`tenants/${tenantId}/choiceSets`).limit(60).get().catch(() => ({ docs: [] as any[] }))).docs
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
-      return ok({ menu, recipes, counts, canEdit, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
+      const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
+      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -534,7 +539,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'soldout') {
-      const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out }, String(g.actor?.name || 'The team'));
+      const r: any = await setSoldOut(db, tenantId, { itemId: b.itemId, groupId: b.groupId, optionId: b.optionId, out: b.out, where: b.where }, String(g.actor?.name || 'The team'), soldHere);
       return r.ok ? ok({ item: r.item }) : bad(r.error, r.status);
     }
 
@@ -753,9 +758,14 @@ export async function POST(req: NextRequest) {
       if (setChanges.size) { const { fitChanges } = await import('@/lib/choice-sets-server'); for (const [key, list] of setChanges) { const fit = fitChanges(list, recipeNow, parts); if (fit.length) checked.set(key, fit); } }
       // What's sold out is the kitchen's to say (one tap, api/menu 'soldout' or the kitchen screen): a save keeps it as
       // it is now, whatever the form had when it opened.
-      const nowOut = new Map<string, string | null>();
-      for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
+      // (Each location's own sold out, `outAt`, kept the same way.)
+      const nowOut = new Map<string, string | null>(); const nowAt = new Map<string, Record<string, string>>();
+      for (const cg of Array.isArray(cur.choices) ? cur.choices : []) for (const o of Array.isArray(cg?.options) ? cg.options : []) {
+        if (outNow(o)) nowOut.set(`${cg.id}/${o.id}`, o.soldOutUntil || null);
+        const at = outAtOf(o); if (Object.keys(at).length) nowAt.set(`${cg.id}/${o.id}`, at);
+      }
       const kept = mine.map((cg) => ({ ...cg, options: cg.options.map((o) => ({ ...(nowOut.has(`${cg.id}/${o.id}`) ? { ...o, soldOut: true, soldOutUntil: nowOut.get(`${cg.id}/${o.id}`) } : { ...o, soldOut: false }),
+        ...(nowAt.has(`${cg.id}/${o.id}`) ? { outAt: nowAt.get(`${cg.id}/${o.id}`) } : {}),
         ...(checked.has(`${cg.id}/${o.id}`) ? { changes: checked.get(`${cg.id}/${o.id}`) } : {}) })) }));
       // The desk and a table's tab charge an item's Inventory price (lib/variants deskPrice): set to the menu's when the
       // menu's price changes (or there isn't one yet), so a dish costs the same at the counter, at a table and at the desk.
@@ -771,7 +781,7 @@ export async function POST(req: NextRequest) {
     // A nightly count just changed: counts are read fresh next time.
     if (safety.dailyCount !== undefined) forgetCounts(tenantId);
     // As every menu shows it now: with its recipe's ingredients counted.
-    const item = await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item);
+    const item = await menuItemNow(db, tenantId, itemId, r.raw, soldHere).catch(() => r.item);
     return ok({ item, recipe: recipeOf(r.raw, itemId), changes: Object.fromEntries(optionChanges(r.raw)) });
   } catch (e: any) {
     console.error('[menu] failed', e?.message || e);

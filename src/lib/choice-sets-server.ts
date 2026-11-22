@@ -6,7 +6,7 @@
 // morning on its own, like any choice.
 import { cleanSet, groupKey, groupOfSet, idsOnItem, kindOfGroup, MAX_SETS, optionsLine, setIdsOf, setRule, type ChoiceSet } from '@/lib/choice-sets';
 import { cleanChanges, type ChoiceChange } from '@/lib/choice-recipe';
-import { choiceGroups, MAX_GROUPS } from '@/lib/menu-choices';
+import { choiceGroups, outPatch, MAX_GROUPS } from '@/lib/menu-choices';
 import { isMenuItem, soldOutUntil } from '@/lib/menu-server';
 import { recipeOf, type RecipeLine } from '@/lib/menu-stock';
 import { canBeIngredient } from '@/lib/prep-recipes-server';
@@ -196,14 +196,18 @@ export async function setFromGroup(db: any, tenantId: string, itemId: string, gr
 
 /** Sold out (or back) on a set's option: on the set and every item with it, back on its own in the morning. One item
  *  that can't be written doesn't stop the rest (the next tap puts it right). */
-export async function setOptionSoldOut(db: any, tenantId: string, setId: string, optionId: string, out: boolean, by: string): Promise<number> {
+export async function setOptionSoldOut(db: any, tenantId: string, setId: string, optionId: string, out: boolean, by: string,
+  // With more than one location (lib/menu-server setSoldOut): at that location only, unless for every location.
+  at0?: { here: string | null; everywhere: boolean; until: string | null; others: string[] }): Promise<number> {
   const T = `tenants/${tenantId}`; if (!ID.test(setId) || !/^[A-Za-z0-9_-]{1,40}$/.test(optionId)) throw new SetStop('Which choice?');
-  const tenant: any = (await db.doc(T).get()).data() || {}; const until = out ? soldOutUntil(tenant) : null; const at = new Date().toISOString();
+  const tenant: any = (await db.doc(T).get()).data() || {}; const until = at0 ? at0.until : out ? soldOutUntil(tenant) : null; const at = new Date().toISOString();
+  const sw = { out, here: at0?.here ?? null, everywhere: at0 ? at0.everywhere : true, until, others: at0?.others || [] };
+  const patchOf = (o: any, withBy: boolean) => { const { soldOutBy, ...p } = outPatch(o, { ...sw, by: out ? words(by, 60) || null : null }); return withBy && sw.everywhere ? { ...p, soldOutBy } : p; };
   const sref = db.doc(`${T}/choiceSets/${setId}`);
   await db.runTransaction(async (tx: any) => {
     const x: any = (await tx.get(sref)).data(); if (!x) throw new SetStop('That set isn’t there any more.', 404);
     if (!(x.options || []).some((o: any) => String(o?.id) === optionId)) throw new SetStop('That choice isn’t in the set.', 404);
-    tx.set(sref, { options: (x.options || []).map((o: any) => (String(o?.id) === optionId ? { ...o, soldOut: out, soldOutUntil: until, soldOutBy: out ? words(by, 60) || null : null } : o)), updatedAt: at }, { merge: true });
+    tx.set(sref, { options: (x.options || []).map((o: any) => (String(o?.id) === optionId ? { ...o, ...patchOf(o, true) } : o)), updatedAt: at }, { merge: true });
   });
   let n = 0;
   for (const [id] of await itemsWith(db, tenantId, setId)) {
@@ -212,7 +216,7 @@ export async function setOptionSoldOut(db: any, tenantId: string, setId: string,
       await db.runTransaction(async (tx: any) => {
         const y: any = (await tx.get(ref)).data(); if (!y) return;
         // The item's own id for the set's option (lib/choice-sets groupOfSet: `setOption`).
-        const next = (Array.isArray(y.choices) ? y.choices : []).map((g: any) => (g?.setId !== setId ? g : { ...g, options: (g.options || []).map((o: any) => (String(o?.setOption || o?.id) === optionId ? { ...o, soldOut: out, soldOutUntil: until } : o)) }));
+        const next = (Array.isArray(y.choices) ? y.choices : []).map((g: any) => (g?.setId !== setId ? g : { ...g, options: (g.options || []).map((o: any) => (String(o?.setOption || o?.id) === optionId ? { ...o, ...patchOf(o, false) } : o)) }));
         tx.set(ref, { choices: next }, { merge: true });
       });
       n++;

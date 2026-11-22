@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
       // (Read generously and sorted here, so however many were left behind, the cars that just arrived are always shown.)
       // (With two ordering lanes that merge, the line to the window first, then the cars still ordering: lib/drive-lanes.)
       const twoLanes = channel === 'drive-thru' && lanesOf(tenant) === 2;
-      const [carSnap, menu] = await Promise.all([db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(), readMenu(db, tenantId)]);
+      const [carSnap, menu] = await Promise.all([db.collection(`${T}/driveThruCars`).where('stage', 'in', LIVE).limit(300).get(), readMenu(db, tenantId, here)]);
       const live = carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => (counterSide(c.channel) ? 'counter' : 'drive-thru') === channel && atHere(c, here)).sort(forLaneScreen(twoLanes)).slice(-40);
       // (Each button carries the number guests order by, as on the menu board: lib/menu-numbers.)
       const laneNums = menuNumbers(menu);
@@ -339,12 +339,14 @@ export async function POST(req: NextRequest) {
     // shown as it happens, and the code to order ahead when that's on. Only what's on the menu for everyone.
     if (action === 'menuBoard') {
       // (Read at most every 10 seconds per business, however many boards poll; the week's best sellers every 10 minutes.)
-      const hit = menuBoardCache.get(tenantId);
+      // (Each location's board its own: sold out there or everywhere, lib/menu-choices outWhere.)
+      const boardKey = `${tenantId}|${here || ''}`;
+      const hit = menuBoardCache.get(boardKey);
       let sections: { name: string; kind?: 'product'; items: any[] }[];
       if (hit && now.getTime() - hit.at < 10000) sections = hit.sections;
       else {
         // The menu, and the shop's products picked for the window (lib/pickup-window), shown after it.
-        const [items, products] = await Promise.all([readMenu(db, tenantId).then((l) => l.filter((m) => m.onMenu && !m.membersOnly)),
+        const [items, products] = await Promise.all([readMenu(db, tenantId, here).then((l) => l.filter((m) => m.onMenu && !m.membersOnly)),
           // (Only while the business has the shop.)
           moduleEnabled(tenant, 'pickup') ? readWindow(db, tenantId, tenant).catch((e: any) => { console.error('[counter] window not read', e?.message); return [] as any[]; }) : Promise.resolve([] as any[])]);
         // Popular: the three best sellers on the board over the last 7 days (at least 5 each), from the day's counts sendOrder keeps.
@@ -392,7 +394,7 @@ export async function POST(req: NextRequest) {
             kind: 'product', size: p.size, prosOnly: p.prosOnly, swatches: p.swatches.map((w: any) => ({ label: w.label, color: w.color, soldOut: w.soldOut })) });
         }
         // (Not read just now, it tries again on the next ask: the tags it had stay until then.)
-        menuBoardCache.set(tenantId, { at: now.getTime(), sections, popular, popularAt });
+        menuBoardCache.set(boardKey, { at: now.getTime(), sections, popular, popularAt });
         if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
       }
       const A = aheadOf(tenant);

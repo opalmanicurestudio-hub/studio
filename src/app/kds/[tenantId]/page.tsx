@@ -377,15 +377,19 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
 }
 
 // ─── Sold out: an item, or one of its choices, off every menu in one tap (lib/menu-server) ──────────────────────────
+// With more than one location: here only, or every location (lib/menu-choices outWhere; design board "Sold out here or
+// everywhere"). Each switch is for the place picked: under Every location, one out here only shows off until it's out
+// everywhere too; under Here, one out everywhere switched back is back here only, still out at the others.
 function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status: number; d: any }>; onClose: () => void }) {
   const [menu, setMenu] = useState<MenuItem[] | null>(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState<string | null>(null);
+  const [here, setHere] = useState<{ id: string; name: string | null } | null>(null); const [where, setWhere] = useState<'here' | 'everywhere'>('here');
   const gen = useRef(0);
   const [q, setQ] = useState('');
   const box = useRef<HTMLDivElement | null>(null); const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
     // Read again every 20 seconds while it's open, so a switch flipped on another screen (or the morning's reset) shows here.
     // A read that left before a switch was flipped is dropped, so it can never flip the switch back on screen.
-    const load = () => { const g = gen.current; void post({ action: 'menu' }).then(({ d }) => { if (g !== gen.current) return; if (d.ok) { setMenu(d.menu); setErr(''); } else setErr(d.error || 'The menu didn’t load.'); }, () => undefined); };
+    const load = () => { const g = gen.current; void post({ action: 'menu' }).then(({ d }) => { if (g !== gen.current) return; if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setErr(''); } else setErr(d.error || 'The menu didn’t load.'); }, () => undefined); };
     load(); const t = setInterval(load, 20000); return () => clearInterval(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -395,7 +399,7 @@ function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status
   }, []);
   const flip = async (m: MenuItem, out: boolean, groupId?: string, optionId?: string) => {
     const k = `${m.id}${groupId || ''}${optionId || ''}`; setBusy(k); setErr(''); gen.current++;
-    const { d } = await post({ action: 'soldout', itemId: m.id, groupId, optionId, out }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    const { d } = await post({ action: 'soldout', itemId: m.id, groupId, optionId, out, where: here ? where : 'everywhere' }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
     gen.current++; setBusy(null);
     if (d.ok) setMenu((cur) => (cur ? cur.map((x) => (x.id === m.id ? d.item : x)) : cur)); else setErr(d.error || 'That didn’t go through.');
   };
@@ -407,13 +411,23 @@ function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status
       </span>
     </button>);
   const list = (menu || []).filter((m) => m.onMenu && (!q.trim() || m.name.toLowerCase().includes(q.trim().toLowerCase())));
+  // (On for the place picked; and what each says, with more than one location.)
+  const all = !here || where === 'everywhere';
+  const isOn = (x: { soldOut: boolean; outWhere?: 'here' | 'everywhere' }) => x.soldOut && (!all || !here || x.outWhere !== 'here');
+  const outWord = (x: { soldOut: boolean; outWhere?: 'here' | 'everywhere' }, long: boolean) => !x.soldOut ? '' : !here ? (long ? ', sold out' : ', out') : x.outWhere === 'here' ? (long ? ', sold out here' : ', out here') : x.outWhere === 'everywhere' ? (long ? ', sold out everywhere' : ', out everywhere') : (long ? ', sold out' : ', out');
+  const scope = all ? (here ? ' at every location' : '') : ' here';
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="sold-title" className="w-full sm:max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#fff] p-5 sm:p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
-          <div><h2 id="sold-title" className="text-[20px] font-semibold" style={{ color: INK }}>Sold out</h2><p className="text-[14px] mt-1" style={{ color: MUTED }}>Off every menu straight away. Switch it back when there’s more.</p></div>
+          <div><h2 id="sold-title" className="text-[20px] font-semibold" style={{ color: INK }}>Sold out</h2><p className="text-[14px] mt-1" style={{ color: MUTED }}>{!here ? 'Off every menu straight away. Switch it back when there’s more.' : all ? 'Off the menu at every location straight away. Switch it back when there’s more.' : `Off the menu at ${here.name || 'this location'} straight away: its guests, counter, kiosk and speaker. Switch it back when there’s more.`}</p></div>
           <button type="button" onClick={onClose} aria-label="Close" className="h-11 w-11 shrink-0 rounded-full border text-[20px]" style={{ borderColor: LINE, color: INK }}>×</button>
         </div>
+        {here && <div role="group" aria-label="Sold out where" className="flex gap-1.5">
+          {([['here', `Here, ${here.name || 'this location'}`], ['everywhere', 'Every location']] as const).map(([v, label]) => (
+            <button key={v} type="button" aria-pressed={where === v} onClick={() => setWhere(v)} className="min-h-[44px] flex-1 rounded-xl px-3 text-[15px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2"
+              style={where === v ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{label}</button>))}
+        </div>}
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className="w-full min-h-[44px] rounded-xl border px-3 text-[16px] outline-none focus:border-[#16171a]" style={{ borderColor: LINE }} />
         {err && <p role="alert" className="rounded-xl px-3 py-2 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {!menu ? <p className="py-6 text-center text-[15px]" style={{ color: MUTED }}>Loading the menu…</p>
@@ -421,18 +435,19 @@ function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status
           : <ul className="space-y-2">{list.map((m) => (
             <li key={m.id} className="rounded-2xl p-3" style={{ background: m.soldOut ? AMBER_TINT : SOFT }}>
               <div className="flex min-h-[44px] items-center justify-between gap-3">
-                <span className="text-[16px] font-semibold" style={{ color: m.soldOut ? AMBER : INK }}>{m.name}{m.soldOut ? ', sold out' : ''}</span>
-                {sw(m.soldOut, `${m.name} sold out`, m.id, () => flip(m, !m.soldOut))}
+                <span className="text-[16px] font-semibold" style={{ color: m.soldOut ? AMBER : INK }}>{m.name}{outWord(m, true)}</span>
+                {sw(isOn(m), `${m.name} sold out${scope}`, m.id, () => flip(m, !isOn(m)))}
               </div>
               {!m.soldOut && m.choices.map((g) => (
                 <div key={g.id} className="mt-1 flex flex-wrap items-center gap-2">
                   <span className="text-[13px]" style={{ color: MUTED }}>{g.name}:</span>
                   {g.options.map((o) => (
-                    <button key={o.id} type="button" aria-pressed={o.soldOut} disabled={busy === `${m.id}${g.id}${o.id}`} onClick={() => flip(m, !o.soldOut, g.id, o.id)}
-                      className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium disabled:opacity-50" style={o.soldOut ? { background: AMBER, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}
-                      aria-label={`${o.name}${o.soldOut ? ' is sold out. Tap when it’s back' : '. Tap if it’s sold out'}`}>{o.name}{o.soldOut ? ', out' : ''}</button>))}
+                    <button key={o.id} type="button" aria-pressed={isOn(o)} disabled={busy === `${m.id}${g.id}${o.id}`} onClick={() => flip(m, !isOn(o), g.id, o.id)}
+                      className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium disabled:opacity-50" style={isOn(o) ? { background: AMBER, color: '#fff' } : o.soldOut ? { background: AMBER_TINT, color: AMBER, border: `1px solid ${AMBER}` } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}
+                      aria-label={`${o.name}${isOn(o) ? ` is sold out${scope}. Tap when it’s back` : `${outWord(o, true)}. Tap if it’s sold out${scope}`}`}>{o.name}{outWord(o, false)}</button>))}
                 </div>))}
             </li>))}</ul>}
+        {here && !all && <p className="text-[13px]" style={{ color: MUTED }}>Back on here, when it was out everywhere: back here, still out at the others.</p>}
       </div>
     </div>
   );

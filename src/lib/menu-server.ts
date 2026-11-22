@@ -3,7 +3,7 @@
 // name, section, words, price, picture and choices (lib/menu-choices), never its cost or supplier. Whether it can be made
 // now comes from its recipe's ingredients when it has one, else its own count (lib/menu-stock).
 import { happyPriceOf } from '@/lib/menu-time';
-import { choiceGroups, itemSoldOut, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
+import { choiceGroups, outPatch, outWhere, startingPrice, type ChoiceGroup } from '@/lib/menu-choices';
 import { makeSecondsOf, holdMinutesOf, photoOf } from '@/lib/counter-orders';
 import { batchSizeOf } from '@/lib/holding';
 import { addDays, tenantTimeZone, todayIn, wallToUtc } from '@/lib/tenant-time';
@@ -19,6 +19,8 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
   soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
+  /** With more than one location, read for one (`here`): sold out at this location only, or everywhere. */
+  outWhere?: 'here' | 'everywhere';
   /** The delivery apps the counter has marked it sold out on (lib/app-orders appSoldOutTodo), and when. */
   appOut?: Record<string, string>;
   /** Made from a recipe: the first ingredient that's run out (null when there's enough, or it isn't counted), and how
@@ -52,12 +54,12 @@ export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archi
 
 /** What the team (and the kitchen screen) sees of one item. `parts`: its recipe's ingredients as read (an ingredient
  *  not given isn't counted, so it never holds the item back). */
-export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map()): MenuItem {
-  const start = startingPrice(i); const stock = stockOf(i, id, parts);
+export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map(), here: string | null = null): MenuItem {
+  const start = startingPrice(i); const stock = stockOf(i, id, parts); const w = outWhere(i, here);
   return {
     id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
-    choices: choiceGroups(i, true), soldOut: itemSoldOut(i), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
+    choices: choiceGroups(i, true, here), soldOut: w !== null, ...(w && here ? { outWhere: w } : {}), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
     appOut: Object.fromEntries(Object.entries(i.appOut && typeof i.appOut === 'object' ? i.appOut : {}).filter(([k, v]) => /^[a-z]{2,12}$/.test(k) && typeof v === 'string' && v)) as Record<string, string>,
     short: stock.short, canMake: stock.canMake, byRecipe: stock.byRecipe,
     makeSeconds: makeSecondsOf(i), holdMinutes: holdMinutesOf(i), batchSize: batchSizeOf(i),
@@ -76,12 +78,13 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
 }
 
 /** The whole menu, by section then name. */
-export async function readMenu(db: any, tenantId: string): Promise<MenuItem[]> {
+/** `here` (with more than one location): as that location sees it, its own sold out too (lib/menu-choices outWhere). */
+export async function readMenu(db: any, tenantId: string, here: string | null = null): Promise<MenuItem[]> {
   const snap = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'refreshment').limit(400).get();
   const all = snap.docs.map((d: any) => ({ id: d.id, i: d.data() || {} }));
   const items = all.filter((x: any) => isMenuItem(x.i));
   const parts = await readIngredients(db, tenantId, ingredientIds(items), new Map(all.map((x: any) => [x.id, x.i])));
-  const menu: MenuItem[] = items.map((x: any) => menuItemOf(x.id, x.i, parts));
+  const menu: MenuItem[] = items.map((x: any) => menuItemOf(x.id, x.i, parts, here));
   // A combo can be made while each part it always has can (on the menu, not sold out, in stock); a choice of an item
   // that can't be made right now shows as sold out.
   const byId = new Map(menu.map((m) => [m.id, m]));
@@ -116,9 +119,9 @@ export async function stockNow(db: any, tenantId: string, items: { id: string; i
 }
 
 /** One item as the team sees it now, its ingredients read fresh (after a save, or a sold-out tap). */
-export async function menuItemNow(db: any, tenantId: string, id: string, i: any): Promise<MenuItem> {
+export async function menuItemNow(db: any, tenantId: string, id: string, i: any, here: string | null = null): Promise<MenuItem> {
   const parts = await readIngredients(db, tenantId, recipeOf(i, id).map((l) => l.id));
-  return menuItemOf(id, i, parts);
+  return menuItemOf(id, i, parts, here);
 }
 
 /** When something marked sold out comes back on its own: 4 in the morning, the business's time, so "sold out tonight"
@@ -133,7 +136,7 @@ export function soldOutUntil(tenant: any, now = new Date()): string {
 
 /** Sold out (or back), in one step: the whole item, or one of its choices ("no oat milk tonight"). Who did it and when
  *  are kept with it, and it comes back on its own in the morning. Returns the item as it now is, or an error. */
-export async function setSoldOut(db: any, tenantId: string, input: { itemId: unknown; groupId?: unknown; optionId?: unknown; out: unknown }, by: string)
+export async function setSoldOut(db: any, tenantId: string, input: { itemId: unknown; groupId?: unknown; optionId?: unknown; out: unknown; where?: unknown }, by: string, here: string | null = null)
   : Promise<{ ok: true; item: MenuItem } | { ok: false; error: string; status: number }> {
   const itemId = String(input.itemId || ''); if (!ID.test(itemId)) return { ok: false, error: 'Which item?', status: 400 };
   if (typeof input.out !== 'boolean') return { ok: false, error: 'Sold out, or back?', status: 400 };
@@ -142,34 +145,44 @@ export async function setSoldOut(db: any, tenantId: string, input: { itemId: unk
   const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
   const nowIso = new Date().toISOString();
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-  const until = out ? soldOutUntil(tenant) : null;
+  // With more than one location (`here`, a screen's own, lib/here-server): at that location only unless it's for every
+  // location (`where: 'everywhere'`); it comes back the next morning on that location's own clock.
+  const { bizLocationsOf, zonedFor } = await import('@/lib/here-server');
+  const locs = here ? await bizLocationsOf(db, tenantId) : [];
+  const loc = here ? locs.find((l) => l.id === here) || null : null;
+  const everywhere = !loc || input.where === 'everywhere';
+  const until = out ? soldOutUntil(everywhere ? tenant : zonedFor(tenant, loc)) : null;
+  const sw = { out, here: loc ? loc.id : null, everywhere, until, by: out ? words(by, 60) || null : null, others: locs.map((l) => l.id) };
   const r: any = await db.runTransaction(async (tx: any) => {
     const i: any = (await tx.get(ref)).data();
     if (!isMenuItem(i)) return { ok: false, error: 'That isn’t on the menu.', status: 404 };
     if (!groupId) {
-      const patch = { soldOut: out, soldOutAt: out ? nowIso : null, soldOutBy: out ? words(by, 60) || null : null, soldOutUntil: until };
-      tx.set(ref, patch, { merge: true });
-      return { ok: true, item: menuItemOf(itemId, { ...i, ...patch }), raw: { ...i, ...patch } };
+      const p0 = outPatch(i, sw);
+      const patch = { ...p0, ...(out && everywhere ? { soldOutAt: nowIso } : !out && everywhere ? { soldOutAt: null } : {}) };
+      // (Each location's own, `outAt`, replaced whole: one switched back is gone, not kept by a merge.)
+      tx.update(ref, patch);
+      return { ok: true, raw: { ...i, ...patch } };
     }
     const raw = Array.isArray(i.choices) ? i.choices : [];
     let found = false;
     const next = raw.map((g: any) => (String(g?.id) !== groupId ? g : { ...g, options: (Array.isArray(g?.options) ? g.options : []).map((o: any) => {
-      if (String(o?.id) !== optionId) return o; found = true; return { ...o, soldOut: out, soldOutUntil: until };
+      if (String(o?.id) !== optionId) return o; found = true; const { soldOutBy: _by, ...p1 } = outPatch(o, sw); return { ...o, ...p1 };
     }) }));
     if (!found) return { ok: false, error: 'That choice isn’t on this item.', status: 404 };
     tx.set(ref, { choices: next }, { merge: true });
-    return { ok: true, item: menuItemOf(itemId, { ...i, choices: next }), raw: { ...i, choices: next } };
+    return { ok: true, raw: { ...i, choices: next } };
   });
   if (!r.ok) return r;
+  r.item = menuItemOf(itemId, r.raw, new Map(), sw.here);
   // A choice from a set (lib/choice-sets): sold out on every item with that set, not this one alone.
   const linked = groupId ? (Array.isArray(r.raw.choices) ? r.raw.choices : []).find((g: any) => String(g?.id) === groupId && g?.setId) : null;
   if (linked) {
     // The set's own id for this option (the item may keep its own id for it: lib/choice-sets groupOfSet).
     const opt = (Array.isArray(linked.options) ? linked.options : []).find((o: any) => String(o?.id) === optionId);
     const { setOptionSoldOut } = await import('@/lib/choice-sets-server');
-    await setOptionSoldOut(db, tenantId, String(linked.setId), String(opt?.setOption || optionId), out, by).catch((e: any) => console.error('[menu] set sold out', e?.message || e));
+    await setOptionSoldOut(db, tenantId, String(linked.setId), String(opt?.setOption || optionId), out, by, sw).catch((e: any) => console.error('[menu] set sold out', e?.message || e));
     r.raw = (await ref.get()).data() || r.raw;
   }
   // With its recipe's ingredients counted, as every menu shows it.
-  return { ok: true, item: await menuItemNow(db, tenantId, itemId, r.raw).catch(() => r.item) };
+  return { ok: true, item: await menuItemNow(db, tenantId, itemId, r.raw, sw.here).catch(() => r.item) };
 }

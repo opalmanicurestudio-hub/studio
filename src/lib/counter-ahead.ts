@@ -164,9 +164,11 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?
   // (Its own clock, when it keeps one: its times, its hours and its days.)
   if (place) tenant = zonedFor(tenant, place);
   if (places.length && !place) return { ok: true as const, on: true, pick: true, business, places: placeRows, ways: A.ways, times: [] as string[], sections: [] as any[], timeZone: tenantTimeZone(tenant) };
-  const c = menuCache.get(tenantId); let all: MenuItem[];
+  // (The picked location's: sold out there or everywhere, lib/menu-choices outWhere.)
+  const menuKey = `${tenantId}|${place?.id || ''}`;
+  const c = menuCache.get(menuKey); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
-  else { all = await readMenu(db, tenantId); menuCache.set(tenantId, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
+  else { all = await readMenu(db, tenantId, place?.id || null); menuCache.set(menuKey, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
   const menu = all.filter((m) => m.onMenu && !m.membersOnly);
   const sections: { name: string; items: ReturnType<typeof guestItem>[] }[] = [];
   const shown = new Set(menu.map((m) => m.id));
@@ -252,12 +254,13 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   const ids = Array.from(new Set(raw.map((l: any) => String(l?.itemId || '')).filter((x) => ID.test(x))));
   const snaps = await Promise.all(ids.map((id) => db.doc(`${T}/inventory/${id}`).get()));
   const item = new Map<string, any>(); snaps.forEach((s: any, k: number) => { const d = s.data(); if (d) item.set(ids[k], d); });
-  const menu = new Map((await readMenu(db, tenantId)).map((m) => [m.id, m]));
+  // (At the picked location: sold out there, or everywhere. lib/menu-choices outWhere)
+  const menu = new Map((await readMenu(db, tenantId, picked?.id || null)).map((m) => [m.id, m]));
   const lines: OrderLine[] = []; const want = new Map<string, number>();
   for (const [k, l] of raw.entries()) {
     const id = String((l as any)?.itemId || ''); const m = menu.get(id); const it = item.get(id);
     if (!m || !it || !m.onMenu || m.membersOnly) return fail('Something in your order isn’t on the menu any more. Take it off and try again.', 409, 'gone');
-    const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, undefined, forDay ? LATER_MAX_QTY : 20);
+    const r = lineFor(it, id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, picked ? { here: picked.id } : undefined, forDay ? LATER_MAX_QTY : 20);
     if (!r.ok) return fail(`${m.name}: ${r.error}`, 409, 'line');
     // (A note for the kitchen about this dish: lib/order-allergy.)
     const note = cleanLineNote((l as any)?.note); if (note) r.line.note = note;
@@ -307,6 +310,12 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   // Where it's made: the location picked, or for a delivery, the one it goes from (with one location, none).
   const ep: BizLocation | null = from || picked;
   if (ep && ep !== picked) tenant = zonedFor(base, ep);
+  // (Delivered from another of its locations: sold out there says so too, before it's paid for.)
+  if (ep && ep !== picked) for (const [k, l] of raw.entries()) {
+    const id = String((l as any)?.itemId || '');
+    const r = lineFor(item.get(id), id, (l as any)?.quantity, (l as any)?.choices, `l${k + 1}`, { here: ep.id }, forDay ? LATER_MAX_QTY : 20);
+    if (!r.ok) return fail(`${menu.get(id)?.name || 'Something'}: ${r.error} It would come from ${ep.name}.`, 409, 'line');
+  }
   if (forDay && ep && ep !== picked && !laterOk(L, weekOf(ep, await aheadWeek(db, tenantId, now)), tenantTimeZone(tenant), forDay, String(at), now)) return fail(`It would come from ${ep.name}, which isn’t open then. Pick the day and time again.`, 400, 'at');
   // Its day: today, or the day it's for (its pickup code and number are that day's, at its location).
   const day = forDay || todayIn(tenantTimeZone(tenant), new Date(now));

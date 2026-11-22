@@ -67,6 +67,9 @@ export default function MenuPage() {
   const { selectedTenant } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
   const [menu, setMenu] = useState<MenuItem[] | null>(null);
+  // With more than one location: the one picked in the app, and sold out there only or at every location (lib/menu-choices
+  // outWhere). Each switch is for the place picked, as on the kitchen screen.
+  const [here, setHere] = useState<{ id: string; name: string | null } | null>(null); const [where, setWhere] = useState<'here' | 'everywhere'>('here');
   const [recipes, setRecipes] = useState<Record<string, RecipeLine[]>>({});
   // For managers: what each item's choices change in its recipe, and the prep recipes made in batches.
   const [changes, setChanges] = useState<Record<string, Record<string, ChoiceChange[]>>>({});
@@ -110,7 +113,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list' }).then((d) => { if (d.ok) { setMenu(d.menu); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -176,7 +179,7 @@ export default function MenuPage() {
   const put = (item: MenuItem) => setMenu((m) => (m ? m.map((x) => (x.id === item.id ? item : x)) : m));
   const soldOut = async (item: MenuItem, out: boolean, groupId?: string, optionId?: string): Promise<MenuItem | null> => {
     const key = `${item.id}${groupId || ''}${optionId || ''}`; setBusy(key); setErr('');
-    const d = await call({ action: 'soldout', itemId: item.id, groupId, optionId, out });
+    const d = await call({ action: 'soldout', itemId: item.id, groupId, optionId, out, ...(here ? { locationId: here.id, where } : {}) });
     setBusy(null); if (d.ok) { put(d.item); return d.item; } setErr(d.error || 'That didn’t go through.'); return null;
   };
 
@@ -187,6 +190,10 @@ export default function MenuPage() {
   }, [menu, q]);
   const hasPhotos = (menu || []).some((m) => !!m.imageUrl);
   const outCount = (menu || []).filter((m) => m.soldOut || m.choices.some((g) => g.options.some((o) => o.soldOut))).length;
+  const all = !here || where === 'everywhere';
+  const isOn = (x: { soldOut: boolean; outWhere?: 'here' | 'everywhere' }) => x.soldOut && (!all || !here || x.outWhere !== 'here');
+  const outLabel = (x: { soldOut: boolean; outWhere?: 'here' | 'everywhere' }) => !x.soldOut || !here ? 'Sold out' : x.outWhere === 'here' ? 'Sold out here' : x.outWhere === 'everywhere' ? 'Sold out everywhere' : 'Sold out';
+  const scope = all ? (here ? ' at every location' : '') : ' here';
 
   return (
     <div className="min-h-dvh" style={{ background: SOFT, color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
@@ -314,6 +321,15 @@ export default function MenuPage() {
         </div>}
         {(!canEdit || tab === 'items') && <div id="menu-items" role={canEdit ? 'tabpanel' : undefined} aria-labelledby={canEdit ? 'tab-items' : undefined} className="space-y-5">
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an item" aria-label="Find an item" className={`${field} mt-0`} style={{ borderColor: LINE }} />
+        {here && <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-[14.5px] font-medium" style={{ color: MUTED }}>Sold out</span>
+          <span role="group" aria-label="Sold out where" className="flex flex-1 gap-1.5 sm:flex-none">
+            {([['here', `Here, ${here.name || 'this location'}`], ['everywhere', 'Every location']] as const).map(([v, label]) => (
+              <button key={v} type="button" aria-pressed={where === v} onClick={() => setWhere(v)} className={`${BTN} flex-1 sm:flex-none`}
+                style={where === v ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>))}
+          </span>
+          {!all && <span className="w-full text-[13px]" style={{ color: MUTED }}>Back on here, when it was out everywhere: back here, still out at the others.</span>}
+        </div>}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {!menu ? <div className="h-40 rounded-3xl bg-[#fff]" aria-busy="true" />
           : menu.length === 0 ? <p className="rounded-3xl border bg-[#fff] px-6 py-10 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nothing on the menu yet. Add drinks and food in Inventory as refreshments, and they show here.</p>
@@ -344,8 +360,8 @@ export default function MenuPage() {
                         {(costs[m.id]?.thin || []).length > 0 && <span className="mt-0.5 block text-[13px] font-semibold" style={{ color: AMBER }}>{costs[m.id].thin!.join(', ')} barely {costs[m.id].thin!.length === 1 ? 'pays' : 'pay'} for {costs[m.id].thin!.length === 1 ? 'itself' : 'themselves'}</span>}
                       </button>
                       <span className="flex items-center gap-2.5">
-                        <span className="hidden text-[14px] sm:inline" style={{ color: m.soldOut ? AMBER : MUTED, fontWeight: m.soldOut ? 600 : 400 }}>Sold out</span>
-                        <Switch on={m.soldOut} label={`${m.name} sold out`} busy={busy === m.id} onClick={() => soldOut(m, !m.soldOut)} />
+                        <span className="hidden text-[14px] sm:inline" style={{ color: m.soldOut ? AMBER : MUTED, fontWeight: m.soldOut ? 600 : 400 }}>{outLabel(m)}</span>
+                        <Switch on={isOn(m)} label={`${m.name} sold out${scope}`} busy={busy === m.id} onClick={() => soldOut(m, !isOn(m))} />
                       </span>
                     </li>);
                 })}
@@ -363,15 +379,20 @@ export default function MenuPage() {
             onClose={() => { setEditing(null); setFresh(false); }}
             onOpenSet={(id) => { setEditing(null); setFresh(false); setTab('sets'); setOpenSet(id); }}
             onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
-            onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null); setFresh(false);
+            onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch, ...(here ? { locationId: here.id } : {}) }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null); setFresh(false);
               void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />
-        : <SoldOutSheet item={editing} busy={busy} onClose={() => setEditing(null)} onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }} />)}
+        : <SoldOutSheet item={editing} busy={busy} here={here} all={all} isOn={isOn} onClose={() => setEditing(null)} onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }} />)}
     </div>
   );
 }
 
+/** The location picked in the app (components/shared/LocationSwitcher), when there's more than one. */
+function pickedLocation(): string { try { return localStorage.getItem('selectedLocationId') || ''; } catch { return ''; } }
+
 /** For the team: an item's choices to mark sold out tonight (a manager changes the rest). */
-function SoldOutSheet({ item, busy, onClose, onSoldOut }: { item: MenuItem; busy: string | null; onClose: () => void; onSoldOut: (groupId: string, optionId: string, out: boolean) => void }) {
+function SoldOutSheet({ item, busy, here, all, isOn, onClose, onSoldOut }: { item: MenuItem; busy: string | null; here: { id: string; name: string | null } | null; all: boolean;
+  isOn: (x: { soldOut: boolean; outWhere?: 'here' | 'everywhere' }) => boolean; onClose: () => void; onSoldOut: (groupId: string, optionId: string, out: boolean) => void }) {
+  const scope = all ? (here ? ' at every location' : '') : ' here';
   const box = useRef<HTMLDivElement | null>(null);
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
@@ -395,11 +416,11 @@ function SoldOutSheet({ item, busy, onClose, onSoldOut }: { item: MenuItem; busy
               <p className="text-[14px] font-medium" style={{ color: MUTED }}>{g.name}</p>
               {g.options.map((o) => (
                 <div key={o.id} className="flex min-h-[48px] items-center justify-between gap-3 rounded-xl px-3" style={{ background: o.soldOut ? AMBER_TINT : SOFT }}>
-                  <span className="text-[15px]" style={{ color: o.soldOut ? AMBER : INK, fontWeight: o.soldOut ? 600 : 400 }}>{o.name}{o.soldOut ? ', sold out' : ''}</span>
-                  <Switch on={o.soldOut} label={`${o.name} sold out`} busy={busy === `${item.id}${g.id}${o.id}`} onClick={() => onSoldOut(g.id, o.id, !o.soldOut)} />
+                  <span className="text-[15px]" style={{ color: o.soldOut ? AMBER : INK, fontWeight: o.soldOut ? 600 : 400 }}>{o.name}{!o.soldOut ? '' : here && o.outWhere === 'here' ? ', sold out here' : here && o.outWhere === 'everywhere' ? ', sold out everywhere' : ', sold out'}</span>
+                  <Switch on={isOn(o)} label={`${o.name} sold out${scope}`} busy={busy === `${item.id}${g.id}${o.id}`} onClick={() => onSoldOut(g.id, o.id, !isOn(o))} />
                 </div>))}
             </div>))}
-          <p className="text-[13px]" style={{ color: GREEN }}>Sold out shows straight away on every menu, and on the kitchen screen.</p>
+          <p className="text-[13px]" style={{ color: GREEN }}>{here && !all ? `Sold out shows straight away at ${here.name || 'this location'}, and on its kitchen screen.` : 'Sold out shows straight away on every menu, and on the kitchen screen.'}</p>
         </div>}
       </div>
     </div>

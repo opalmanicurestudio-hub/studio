@@ -8,6 +8,7 @@
 // someone ordered), the amount they add, and the words the kitchen reads ("Large, oat milk, extra shot").
 
 export type ChoiceOption = { id: string; name: string; price: number; soldOut: boolean; itemId?: string;
+  /** Sold out at this location only, or everywhere (with more than one location: outWhere). */ outWhere?: 'here' | 'everywhere';
   /** In a choice from a set: which of the set's options it is, when the item kept its own id for it. */ setOption?: string };
 export type ChoiceGroup = { id: string; name: string; pick: 'one' | 'any'; required: boolean; max: number; options: ChoiceOption[];
   /** From a choice set (lib/choice-sets): the same on every item it's on, changed in one place. */ setId?: string };
@@ -18,11 +19,43 @@ const ID = /^[A-Za-z0-9_-]{1,40}$/;
 export const MAX_GROUPS = 8, MAX_OPTIONS = 20;
 
 /** Sold out right now: switched off, and not past the time it comes back on its own (the next morning, so "sold out
- *  tonight" never hides it tomorrow; lib/menu-server sets the time). */
-export function outNow(x: any, now = Date.now()): boolean {
-  if (x?.soldOut !== true) return false;
-  const until = Date.parse(String(x?.soldOutUntil || ''));
-  return !Number.isFinite(until) || until > now;
+ *  tonight" never hides it tomorrow; lib/menu-server sets the time). With more than one location, `here`: also sold out
+ *  at that location only (`outAt`: each location's own time it comes back; design board "Sold out here or everywhere"). */
+export function outNow(x: any, now = Date.now(), here: string | null = null): boolean {
+  return outWhere(x, here, now) !== null;
+}
+/** Where it's sold out: every location, this one only, or not at all. */
+export function outWhere(x: any, here: string | null = null, now = Date.now()): 'everywhere' | 'here' | null {
+  if (x?.soldOut === true) { const until = Date.parse(String(x?.soldOutUntil || '')); if (!Number.isFinite(until) || until > now) return 'everywhere'; }
+  if (here && x?.outAt && typeof x.outAt === 'object') { const u = Date.parse(String(x.outAt[here] || '')); if (Number.isFinite(u) && u > now) return 'here'; }
+  return null;
+}
+/** Out until switched back on (kept as a time, far off). */
+export const UNTIL_BACK = '9999-12-31T00:00:00.000Z';
+/** Each location's own sold out, as kept: only those still on (one past its time is dropped). */
+export function outAtOf(x: any, now = Date.now()): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (x?.outAt && typeof x.outAt === 'object') for (const [k, v] of Object.entries(x.outAt)) { const u = Date.parse(String(v || '')); if (/^[A-Za-z0-9_-]{1,160}$/.test(k) && Number.isFinite(u) && u > now) out[k] = String(v); }
+  return out;
+}
+/**
+ * The sold-out fields after a switch (lib/menu-server, lib/choice-sets-server). `here` with `everywhere` false: at that
+ * location only. Back on at one location when it was out everywhere: back there, still out at the others (`others`: the
+ * business's locations), each until it was going to come back.
+ */
+export function outPatch(x: any, o: { out: boolean; here: string | null; everywhere: boolean; until: string | null; by?: string | null; others: string[]; now?: number }): Record<string, any> {
+  const now = o.now ?? Date.now(); const outAt = outAtOf(x, now);
+  const all = o.everywhere || !o.here;
+  // (A location's own with no time it comes back: until it's switched back, as one out everywhere with none.)
+  if (o.out) return all ? { soldOut: true, soldOutUntil: o.until, soldOutBy: o.by ?? null, outAt: {} } : { outAt: { ...outAt, [o.here as string]: String(o.until || UNTIL_BACK) } };
+  if (all) return { soldOut: false, soldOutUntil: null, soldOutBy: null, outAt: {} };
+  const next = { ...outAt }; delete next[o.here as string];
+  if (outWhere(x, null, now) === 'everywhere') {
+    const until = String(x?.soldOutUntil || o.until || UNTIL_BACK);
+    for (const id of o.others) if (id !== o.here) next[id] = until;
+    return { soldOut: false, soldOutUntil: null, soldOutBy: null, outAt: next };
+  }
+  return { outAt: next };
 }
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const cents = (v: unknown) => { const x = Math.round(Number(v) * 100) / 100; return Number.isFinite(x) ? Math.max(-1000, Math.min(1000, x)) : 0; };
@@ -31,7 +64,7 @@ export const money = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed
 /** An item's groups, cleaned: what a screen shows and what the server prices against. Anything malformed is left out.
  *  `withSets`: also which choice set a group comes from (lib/choice-sets), for the team's screens and the server; a
  *  guest's menu doesn't carry it. */
-export function choiceGroups(item: any, withSets = false): ChoiceGroup[] {
+export function choiceGroups(item: any, withSets = false, here: string | null = null): ChoiceGroup[] {
   const raw = Array.isArray(item?.choices) ? item.choices : [];
   const out: ChoiceGroup[] = [];
   const seenG = new Set<string>();
@@ -48,7 +81,8 @@ export function choiceGroups(item: any, withSets = false): ChoiceGroup[] {
       // An option that is another menu item (a combo's side or drink): made and counted as that item (lib/counter-orders).
       const itemId = typeof o?.itemId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(o.itemId) ? o.itemId : null;
       const setOption = setId && ID.test(String(o?.setOption || '')) && String(o.setOption) !== oid ? String(o.setOption) : null;
-      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: outNow(o), ...(itemId ? { itemId } : {}), ...(setOption ? { setOption } : {}) });
+      const w = outWhere(o, here);
+      seenO.add(oid); options.push({ id: oid, name: oname, price: cents(o?.price), soldOut: w !== null, ...(w && here ? { outWhere: w } : {}), ...(itemId ? { itemId } : {}), ...(setOption ? { setOption } : {}) });
     }
     if (!options.length) continue;
     const pick: 'one' | 'any' = g?.pick === 'any' ? 'any' : 'one';
@@ -58,13 +92,13 @@ export function choiceGroups(item: any, withSets = false): ChoiceGroup[] {
   return out;
 }
 
-/** Is the whole item off tonight? (The kitchen's one-tap "Sold out".) */
-export const itemSoldOut = (item: any) => outNow(item);
+/** Is the whole item off tonight? (The kitchen's one-tap "Sold out"; `here`: at that location too.) */
+export const itemSoldOut = (item: any, here: string | null = null) => outNow(item, Date.now(), here);
 
 /** Can it be ordered at all right now: not sold out, and every choice they must make still has something left. */
-export function orderable(item: any): boolean {
-  if (itemSoldOut(item)) return false;
-  return choiceGroups(item).every((g) => !g.required || g.options.some((o) => !o.soldOut));
+export function orderable(item: any, here: string | null = null): boolean {
+  if (itemSoldOut(item, here)) return false;
+  return choiceGroups(item, false, here).every((g) => !g.required || g.options.some((o) => !o.soldOut));
 }
 
 /** What a guest sees first when nothing's picked: the plain price, or "from" the cheapest a required choice allows. */
@@ -91,8 +125,8 @@ export function defaultPicks(item: any): Picks {
 /** What these picks come to, checked against the item: the lines kept on the order, what they add to the price, and
  *  the kitchen's words. Refuses a required group left empty, too many in a group, an option that isn't on the item, and
  *  one that's sold out. */
-export function priceChoices(item: any, picks: unknown): { ok: true; lines: PickedChoice[]; extra: number; text: string } | { ok: false; error: string } {
-  const groups = choiceGroups(item);
+export function priceChoices(item: any, picks: unknown, here: string | null = null): { ok: true; lines: PickedChoice[]; extra: number; text: string } | { ok: false; error: string } {
+  const groups = choiceGroups(item, false, here);
   const given: Picks = picks && typeof picks === 'object' && !Array.isArray(picks) ? picks as Picks : {};
   for (const k of Object.keys(given)) if (!groups.some((g) => g.id === k)) return { ok: false, error: 'That choice isn’t on this item any more. Please choose again.' };
   const lines: PickedChoice[] = [];

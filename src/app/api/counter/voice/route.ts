@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
       // From here, anything that goes wrong leaves the car able to be greeted again (never stuck "starting").
       let r: { status: number; data: any }; let busy = false;
       try {
-        const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
+        const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId, String((claim as any).car?.locationId || '') || here), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
         const menu = menuForVoice(menuItems);
         // A long line (this many cars in it, counting this one and those waiting to order) puts the assistant in rush
         // mode: no suggestions, a short read-back. Only cars that arrived in the last three hours count, so one left behind
