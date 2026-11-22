@@ -184,7 +184,9 @@ export async function POST(req: NextRequest) {
         // Tables that need someone: something isn't right, or food later than the business's minutes (lib/table-recovery).
         troubles: troublesOf(read, tenant, Date.now()),
         // What the kitchen tells the floor: tonight's 86 list and its message (lib/floor-word).
-        word: await floorWordNow(db, tenantId, tenant).catch(() => ({ eightySix: [], note: null })) });
+        // (The host stand's location's 86 list, with more than one: the one picked in the app.)
+        word: await (async () => { const { hereOf, zonedHere } = await import('@/lib/here-server'); const at = await hereOf(db, tenantId, b.locationId);
+          return floorWordNow(db, tenantId, await zonedHere(db, tenantId, tenant, at), { at, house: tenant }); })().catch(() => ({ eightySix: [], note: null })) });
     }
 
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {

@@ -130,7 +130,9 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     return () => { live = false; }; }, [tenantId, visitId, guestId]);
   const takeCounts = (d: any) => { if (!d?.ok) return null; const m: Record<string, CountRow> = Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r])); setCounts(m);
     if (Array.isArray(d.soldOut)) setOutNow(new Set(d.soldOut.map(String))); return m; };
-  const loadCounts = React.useCallback(() => { void tabCall({ tenantId, action: 'counts' }, '/api/menu').then(takeCounts); }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (The table's location's own counts, with more than one: lib/dish-counts-server.)
+  const countsAt = String(visit?.locationId || '');
+  const loadCounts = React.useCallback(() => { void tabCall({ tenantId, action: 'counts', ...(countsAt ? { locationId: countsAt } : {}) }, '/api/menu').then(takeCounts); }, [tenantId, countsAt]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { loadCounts(); const i = setInterval(loadCounts, 30000); return () => clearInterval(i); }, [loadCounts]);
   React.useEffect(() => { if (!tenant) return; Promise.all([getDocs(collection(firestore, `tenants/${tenantId}/inventory`)), getDocs(collection(firestore, `tenants/${tenantId}/services`))]).then(([inv, sv]) => {
     // Products as the desk sells them (lib/variants), each with its course, station and make time (lib/table-service).
@@ -167,7 +169,7 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     if (!sv.ok) { setMsg(`${it.name} isn’t on now: ${sv.when}.`); return; }
     if (!choice && it.type === 'product' && hasChoices(it)) { setChoose(it); return; }
     let m = counts;
-    if (counts[it.id]) { setBusy(true); m = takeCounts(await tabCall({ tenantId, action: 'counts', fresh: true }, '/api/menu')) || counts; setBusy(false); }
+    if (counts[it.id]) { setBusy(true); m = takeCounts(await tabCall({ tenantId, action: 'counts', fresh: true, ...(countsAt ? { locationId: countsAt } : {}) }, '/api/menu')) || counts; setBusy(false); }
     if (outOf(it, m)) { setMsg(`${it.name} is sold out tonight.`); return; }
     const c = it.type === 'product' ? conflicts(it.allergens || [], allergies, seat || null) : { keys: [], who: [] };
     if (c.keys.length) { setWarn({ it, keys: c.keys, who: c.who, choice }); return; }

@@ -20,13 +20,14 @@ export type FloorWord = { eightySix: EightySix[]; note: FloorNote | null };
 const clip = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
 /** Tonight's 86 list from the menu items and tonight's counts: sold out first, then a choice run out, then nearly gone. */
-export function eightySixOf(items: { id: string; x: any }[], rows: CountRow[], now = Date.now()): EightySix[] {
+export function eightySixOf(items: { id: string; x: any }[], rows: CountRow[], now = Date.now(), at: string | null = null): EightySix[] {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: EightySix[] = [];
   for (const { id, x } of items) {
     const name = clip(x?.name, 60); if (!name) continue;
-    const gone = outNow(x, now) || !!byId.get(id)?.soldOut;
-    const choices: string[] = gone ? [] : (Array.isArray(x?.choices) ? x.choices : []).flatMap((g: any) => (Array.isArray(g?.options) ? g.options : []).filter((o: any) => outNow(o, now)).map((o: any) => clip(o?.name, 40)).filter(Boolean));
+    // (At a location, with more than one: sold out there, or everywhere.)
+    const gone = outNow(x, now, at) || !!byId.get(id)?.soldOut;
+    const choices: string[] = gone ? [] : (Array.isArray(x?.choices) ? x.choices : []).flatMap((g: any) => (Array.isArray(g?.options) ? g.options : []).filter((o: any) => outNow(o, now, at)).map((o: any) => clip(o?.name, 40)).filter(Boolean));
     const r = byId.get(id);
     const left = !gone && r && r.left > 0 && r.left <= LOW_LEFT ? r.left : null;
     if (gone || choices.length || left !== null) out.push({ id, name, out: gone, choices: Array.from(new Set(choices)).slice(0, 6), left });

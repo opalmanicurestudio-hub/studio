@@ -380,7 +380,7 @@ export default function MenuPage() {
             onOpenSet={(id) => { setEditing(null); setFresh(false); setTab('sets'); setOpenSet(id); }}
             onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }}
             onSave={async (patch) => { const d = await call({ action: 'save', itemId: editing.id, item: patch, ...(here ? { locationId: here.id } : {}) }); if (d.ok) { put(d.item); if (Array.isArray(d.recipe)) setRecipes((r) => ({ ...r, [editing.id]: d.recipe })); if (d.changes) setChanges((c) => ({ ...c, [editing.id]: d.changes })); setEditing(null); setFresh(false);
-              void call({ action: 'counts' }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />
+              void call({ action: 'counts', ...(here ? { locationId: here.id } : {}) }).then((c) => { if (c.ok) setCounts(Object.fromEntries((c.counts || []).map((r: CountRow) => [r.id, r]))); }); return null; } return d.error || 'That didn’t save.'; }} />
         : <SoldOutSheet item={editing} busy={busy} here={here} all={all} isOn={isOn} onClose={() => setEditing(null)} onSoldOut={(g, o, out) => { void soldOut(editing, out, g, o).then((it) => { if (it) setEditing(it); }); }} />)}
     </div>
   );

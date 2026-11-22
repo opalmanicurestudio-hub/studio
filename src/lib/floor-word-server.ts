@@ -22,17 +22,19 @@ const off = (s: any) => !s || s.isActive === false || s.status === 'archived' ||
 const FLOOR_JOBS: JobId[] = ['server', 'host', 'bartender', 'runner', 'busser', 'barback', 'shift_lead', 'manager'];
 
 /** Tonight's 86 list and the kitchen's message. */
-export async function floorWordNow(db: any, tenantId: string, tenant: any, o: { fresh?: boolean } = {}): Promise<FloorWord> {
-  const day = tonight(tenant); const key = `${tenantId}|${day}`;
+/** `at` (with more than one location): that location's 86 list, from its own counts and its own sold out. */
+/** `house`: the business as it is (the kitchen's message is the business's night, on its own clock: setFloorNote). */
+export async function floorWordNow(db: any, tenantId: string, tenant: any, o: { fresh?: boolean; at?: string | null; house?: any } = {}): Promise<FloorWord> {
+  const at = o.at || null; const day = tonight(tenant); const noteDay = tonight(o.house || tenant); const key = `${tenantId}|${at || ''}|${day}|${noteDay}`;
   const hit = cache.get(key); if (!o.fresh && hit && Date.now() - hit.at < WORD_MS) return hit.v;
   const T = `tenants/${tenantId}`;
   const [items, doc] = await Promise.all([
     db.collection(`${T}/inventory`).where('type', '==', 'refreshment').limit(400).get()
       .then((s: any) => s.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => [] as { id: string; x: any }[]),
-    db.doc(`${T}/dishCounts/${day}`).get().then((s: any) => s.data() || {}).catch(() => ({})),
+    db.doc(`${T}/dishCounts/${noteDay}`).get().then((s: any) => s.data() || {}).catch(() => ({})),
   ]);
-  const counts = items.length ? await liveCounts(db, tenantId, tenant, items).catch(() => ({ rows: [] as any[] })) : { rows: [] as any[] };
-  const v: FloorWord = { eightySix: eightySixOf(items, counts.rows), note: noteNow(doc.floorNote) };
+  const counts = items.length ? await liveCounts(db, tenantId, tenant, items, { at }).catch(() => ({ rows: [] as any[] })) : { rows: [] as any[] };
+  const v: FloorWord = { eightySix: eightySixOf(items, counts.rows, Date.now(), at), note: noteNow(doc.floorNote) };
   if (cache.size > 500) cache.clear();
   cache.set(key, { at: Date.now(), v });
   return v;

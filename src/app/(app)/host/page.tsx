@@ -215,7 +215,8 @@ export default function HostScreen() {
 
   const loadFloor = useCallback(async () => {
     if (!tenantId) return;
-    let r = await api('/api/host/floor', { action: 'floor' });
+    // (The location picked in the app, with more than one: its 86 list.)
+    let r = await api('/api/host/floor', { action: 'floor', locationId: (() => { try { return localStorage.getItem('selectedLocationId') || undefined; } catch { return undefined; } })() });
     if (r?.offline) {
       if (good.current) { setAsOf(good.current); return; }
       const last = lastOf<any>(`floor.${tenantId}`); setAsOf(last?.at || Date.now()); if (!last) return; good.current = last.at; r = last.data;

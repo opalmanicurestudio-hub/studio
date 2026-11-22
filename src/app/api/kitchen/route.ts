@@ -388,7 +388,8 @@ export async function POST(req: NextRequest) {
       // With more than one location: this screen's (or, signed in on a device, the one picked) only (lib/here-server), its
       // day on its own clock when it keeps one.
       const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
-      const tz = tenantTimeZone(await zonedHere(db, tenantId, tenant, here));
+      const hereTenant = await zonedHere(db, tenantId, tenant, here);
+      const tz = tenantTimeZone(hereTenant);
       const since = startOfDay(todayIn(tz), tz).toISOString();
       const [la, ka, lt, kt] = await Promise.all([
         db.collection(`${T}/refreshmentRequests`).where('status', 'in', [...ACTIVE_STATUSES]).limit(1500).get(),
@@ -460,16 +461,18 @@ export async function POST(req: NextRequest) {
       const cook = holdable.length ? await (await import('@/lib/cook-ahead-server')).cookAheadSoon(db, T, tenant, holdable, holds as any, Date.now(), (p) => after(p)).catch(() => []) : [];
       const tossedToday = tossedSnap.docs.reduce((n: number, d: any) => n + num((d.data() || {}).tossedQty), 0);
       // Tonight's counts (lib/dish-counts), from the menu just read: one at zero is sold out on every menu now.
-      const counts = (await liveCounts(db, tenantId, tenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
+      // (This screen's location's own, with more than one: sold out there only at zero.)
+      const counts = (await liveCounts(db, tenantId, hereTenant, holdItems.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x)), { at: here }).catch(() => ({ rows: [] as any[] }))).rows;
+      const place = here ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === here)?.name || null : null;
       // The printers that print tickets, and whether each is answering (lib/printing-server): the screen says when one isn't.
       const PS = await import('@/lib/printing-server');
       const printers = PS.printerSummary(await PS.printersCached(db, T).catch(() => []), Date.now(), tz).filter((p) => p.tickets).map((p) => ({ name: p.name, stations: p.stations, ok: p.ok, words: p.words }));
       // How far behind the kitchen is (lib/kitchen-pace): the host stand and ordering ahead are counting it.
       const pace = await paceNow(db, T, tenant);
-      return ok({ counts, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, early, stations, items, today, holds, holdable, tossedToday, cook, printers,
+      return ok({ counts, place, finishTogether: finishTogetherOn(tenant), screen: screen.name, business: { name: String(tenant.name || tenant.businessName || 'Kitchen'), timeZone: tz }, tickets, unfired, early, stations, items, today, holds, holdable, tossedToday, cook, printers,
         pace: pace.level === 'calm' ? null : { behindMin: pace.behindMin, level: pace.level },
         // What the kitchen told the floor, still up (lib/floor-word), so the screen can change or clear it.
-        floorNote: (await floorWordNow(db, tenantId, tenant).catch(() => ({ note: null }))).note, now: new Date().toISOString() });
+        floorNote: (await floorWordNow(db, tenantId, hereTenant, { at: here, house: tenant }).catch(() => ({ note: null }))).note, now: new Date().toISOString() });
     }
 
     if (action === 'pin') {
@@ -634,9 +637,12 @@ export async function POST(req: NextRequest) {
 
     // Tonight's number for a dish (lib/dish-counts): the kitchen knows how many it made.
     if (action === 'count') {
-      const r = await setTonightCount(db, tenantId, tenant, b.itemId, b.value, staff?.name || screen.name);
+      // (This screen's location's own number, with more than one, on its own clock.)
+      const countAt = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
+      const countTenant = await zonedHere(db, tenantId, tenant, countAt);
+      const r = await setTonightCount(db, tenantId, countTenant, b.itemId, b.value, staff?.name || screen.name, countAt);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status });
-      const c = await liveCounts(db, tenantId, tenant, undefined, { fresh: true }).catch(() => ({ rows: [] as any[] }));
+      const c = await liveCounts(db, tenantId, countTenant, undefined, { fresh: true, at: countAt }).catch(() => ({ rows: [] as any[] }));
       forgetWord(tenantId);
       return ok({ counts: c.rows, staffOk });
     }

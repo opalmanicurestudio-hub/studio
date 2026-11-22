@@ -64,7 +64,7 @@ type Early = { orderId: string; number: string; lane: 1 | 2 | null; since: strin
 type Cook = { itemId: string; name: string; batches: number; batchSize: number; by: string | null; need: number; from: string; to: string; held: number; weekday: string };
 type Item = { id: string; name: string; imageUrl: string | null; unit: string | null; formula: { id: string; name: string; quantityUsed: number; unit: string }[] };
 type Today = { status: string; at: string; deliveredAt: string | null; item: string };
-type Data = { screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; early?: Early[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook?: Cook[]; counts: CountRow[]; finishTogether?: boolean;
+type Data = { place?: string | null; screen: string; business: { name: string; timeZone: string | null }; pace?: { behindMin: number; level: string } | null; tickets: KitchenTicket[]; unfired?: KitchenTicket[]; early?: Early[]; stations?: string[]; items: Record<string, Item>; today: Today[]; holds: HoldBin[]; holdable: Holdable[]; tossedToday: number; cook?: Cook[]; counts: CountRow[]; finishTogether?: boolean;
   /** The printers that print tickets, and whether each is answering (lib/printing-server). */
   printers?: { name: string; stations: string[]; ok: boolean; words: string }[] };
 type Staff = { id: string; name: string; pass: string };
@@ -454,7 +454,8 @@ function SoldOutSheet({ post, onClose }: { post: (body: any) => Promise<{ status
 }
 
 // ─── Tonight's counts: how many of a dish were made, counted down as it's rung in (lib/dish-counts) ─────────────────
-function CountsSheet({ rows, post, onChanged, onClose }: { rows: CountRow[]; post: (body: any) => Promise<{ status: number; d: any }>; onChanged: (rows: CountRow[]) => void; onClose: () => void }) {
+// (With more than one location: this screen's location's own counts, and sold out there only at zero.)
+function CountsSheet({ rows, post, onChanged, onClose, place }: { rows: CountRow[]; post: (body: any) => Promise<{ status: number; d: any }>; onChanged: (rows: CountRow[]) => void; onClose: () => void; place?: string | null }) {
   const [menu, setMenu] = useState<MenuItem[] | null>(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState(''); const [adding, setAdding] = useState<Record<string, string>>({});
   useEffect(() => { void post({ action: 'menu' }).then(({ d }) => { if (d.ok) setMenu(d.menu); else setErr(d.error || 'The menu didn’t load.'); }, () => setErr('No connection.')); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -469,7 +470,7 @@ function CountsSheet({ rows, post, onChanged, onClose }: { rows: CountRow[]; pos
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="counts-title" className="w-full sm:max-w-lg max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#fff] p-5 sm:p-6 space-y-3" style={{ color: INK }}>
         <div className="flex items-start justify-between gap-3">
-          <div><h2 id="counts-title" className="text-[20px] font-semibold">Tonight’s counts</h2><p className="text-[14px] mt-1" style={{ color: MUTED }}>Change tonight’s number if you made more or fewer. At zero it’s sold out everywhere; tomorrow starts again from the menu’s number.</p></div>
+          <div><h2 id="counts-title" className="text-[20px] font-semibold">Tonight’s counts{place ? `, ${place}` : ''}</h2><p className="text-[14px] mt-1" style={{ color: MUTED }}>{place ? `Change tonight’s number if you made more or fewer. At zero it’s sold out at ${place} only; tomorrow starts again from the menu’s number.` : 'Change tonight’s number if you made more or fewer. At zero it’s sold out everywhere; tomorrow starts again from the menu’s number.'}</p></div>
           <button type="button" onClick={onClose} aria-label="Close" className="h-11 w-11 shrink-0 rounded-full border text-[20px]" style={{ borderColor: LINE }}>×</button>
         </div>
         {err && <p role="alert" className="rounded-xl px-3 py-2 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
@@ -791,7 +792,7 @@ function KitchenScreenInner() {
       if (status === 403 && !key) { forgetHere(d.error || 'This is for the business’s own team.'); return; }
       if (!d.ok) return;
       setClosed('');
-      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], early: Array.isArray(d.early) ? d.early : [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, cook: Array.isArray(d.cook) ? d.cook : [], counts: d.counts || [], finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
+      const next: Data = { screen: d.screen, business: d.business, tickets: d.tickets || [], unfired: d.unfired || [], early: Array.isArray(d.early) ? d.early : [], stations: d.stations || [], items: d.items || {}, today: d.today || [], holds: d.holds || [], holdable: d.holdable || [], tossedToday: Number(d.tossedToday) || 0, cook: Array.isArray(d.cook) ? d.cook : [], counts: d.counts || [], place: typeof d.place === 'string' ? d.place : null, finishTogether: d.finishTogether !== false, printers: Array.isArray(d.printers) ? d.printers : [],
         pace: d.pace && Number(d.pace.behindMin) > 0 ? { behindMin: Math.round(Number(d.pace.behindMin)), level: String(d.pace.level || 'busy') } : null };
       // The server's clock, not the tablet's: countdowns and holding times are never off because a tablet's clock is.
       if (d.now && Number.isFinite(Date.parse(d.now))) setSkew(Date.parse(d.now) - Date.now());
@@ -1122,7 +1123,7 @@ function KitchenScreenInner() {
       {safetyOpen && <SafetySheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSafetyOpen(false)} onPin={() => setPinOpen(true)} />}
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line={say('Your PIN puts your name on the tickets you move. The screen works without it.')} />}
       {soldOpen && <SoldOutSheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSoldOpen(false)} />}
-      {countsOpen && <CountsSheet rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
+      {countsOpen && <CountsSheet place={data?.place || null} rows={data?.counts || []} post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onChanged={(rows) => setData((x) => (x ? { ...x, counts: rows } : x))} onClose={() => setCountsOpen(false)} />}
       {callOpen && <CallSheet post={postBack} station={view === 'expo' ? 'Expo' : myStation || null} people tables={callTables} onClose={() => setCallOpen(false)} onSent={(m) => { setNotice(m); setCallTick((n) => n + 1); }} />}
       {floorOpen && <FloorNoteSheet post={post} note={(data as any)?.floorNote || null} onClose={() => setFloorOpen(false)} onSent={(m) => { setNotice(m); void load(); }} />}
       {coolDue.length > 0 && !safetyOpen && (

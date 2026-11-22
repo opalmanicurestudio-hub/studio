@@ -73,7 +73,8 @@ export default function MyTablesPage() {
 
   const load = useCallback(async () => {
     if (!tenantId) return;
-    const r = await call({ tenantId, action: 'nudges', mine });
+    // (The location picked in the app, with more than one: its 86 list.)
+    const r = await call({ tenantId, action: 'nudges', mine, locationId: (() => { try { return localStorage.getItem('selectedLocationId') || undefined; } catch { return undefined; } })() });
     if (r.offline) {
       if (!good.current) { const last = lastOf<Data>(`tables.${tenantId}.${mine ? 'mine' : 'all'}`); if (last) { good.current = last.at; setD(last.data); } }
       setAsOf(good.current || Date.now()); return;

@@ -42,7 +42,7 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
-import { bizLocationsOf, forgetLocations, hereOf, zoneOf, zoneToAsk, zonedFor } from '@/lib/here-server';
+import { bizLocationsOf, forgetLocations, hereOf, zoneOf, zoneToAsk, zonedFor, zonedHere } from '@/lib/here-server';
 import { locateMissing } from '@/lib/locate-server';
 import { cleanWeek } from '@/lib/ahead-places';
 import { smsConfigured } from '@/lib/sms';
@@ -172,7 +172,9 @@ export async function POST(req: NextRequest) {
       const recipes: Record<string, any[]> = {};
       for (const d of items.docs) { const r = recipeOf(d.data() || {}, d.id); if (r.length) recipes[d.id] = r; }
       // Tonight's counts, for "3 left" beside each counted dish (lib/dish-counts).
-      const counts = (await liveCounts(db, tenantId, td, items.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x))).catch(() => ({ rows: [] as any[] }))).rows;
+      // (The location picked in the app's own, with more than one, on its own clock.)
+      const countsTenant = soldHere ? await zonedHere(db, tenantId, td, soldHere) : td;
+      const counts = (await liveCounts(db, tenantId, countsTenant, items.docs.map((d: any) => ({ id: d.id, x: d.data() || {} })).filter((r: any) => isMenuItem(r.x)), { at: soldHere }).catch(() => ({ rows: [] as any[] }))).rows;
       // One the count just sold out (or brought back) shows that way here too.
       // (Never lowering one sold out at this location only: the counts are the business's.)
       for (const r of counts) { const m = menu.find((x) => x.id === r.id); if (m) m.soldOut = r.soldOut || m.outWhere === 'here'; }
@@ -204,9 +206,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'counts' || action === 'count') {
-      const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      if (action === 'count') { const r = await setTonightCount(db, tenantId, td, b.itemId, b.value, String(g.actor?.name || 'A manager')); if (!r.ok) return bad(r.error, r.status); }
-      const c = await liveCounts(db, tenantId, td, undefined, { fresh: b.fresh === true || action === 'count' });
+      // (A location's own, with more than one: the one picked in the app, or the table's.)
+      const countAt = await hereOf(db, tenantId, b.locationId);
+      const td: any = await zonedHere(db, tenantId, (await db.doc(`tenants/${tenantId}`).get()).data() || {}, countAt);
+      if (action === 'count') { const r = await setTonightCount(db, tenantId, td, b.itemId, b.value, String(g.actor?.name || 'A manager'), countAt); if (!r.ok) return bad(r.error, r.status); }
+      const c = await liveCounts(db, tenantId, td, undefined, { fresh: b.fresh === true || action === 'count', at: countAt });
       return ok({ day: c.day, counts: c.rows, soldOut: c.soldOut });
     }
 

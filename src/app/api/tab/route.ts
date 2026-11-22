@@ -128,7 +128,9 @@ export async function POST(req: NextRequest) {
       const [tables, calls, word, mine] = await Promise.all([
         tablesNow(db, T, tenantNow, me.id, b.mine === true),
         readCalls(db, T).catch(() => [] as any[]),
-        floorWordNow(db, tenantId, tenantNow).catch(() => ({ eightySix: [], note: null })),
+        // (Their location's 86 list, with more than one: the one picked in the app, or the one they work at.)
+        (async () => { const { hereFor, zonedHere } = await import('@/lib/here-server'); const at = await hereFor(db, tenantId, { asked: b.locationId, memberId: me.id });
+          return floorWordNow(db, tenantId, await zonedHere(db, tenantId, tenantNow, at), { at, house: tenantNow }); })().catch(() => ({ eightySix: [], note: null })),
         /^[A-Za-z0-9_-]{1,160}$/.test(me.id) ? db.doc(`${T}/staff/${me.id}`).get().then((x: any) => x.data() || {}).catch(() => ({})) : Promise.resolve({}),
       ]);
       const forMe = callsFor(calls, { id: me.id, runner: jobDef((mine as any).job)?.id === 'runner', manager });
