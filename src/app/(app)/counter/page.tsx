@@ -28,7 +28,7 @@ import { outWords } from '@/lib/menu-stock';
 import { courierLate } from '@/lib/app-orders';
 import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
-import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
+import { AllergySheet, LineNote, NoteField, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
@@ -158,9 +158,12 @@ function sayOut(number: string, name: string | null | undefined) {
   } catch { /* no voice on this device */ }
 }
 
-function ChoiceSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
-  const [picks, setPicks] = useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = useState(1);
+// Its choices, and a note for the kitchen (pressed and held on the tiles, it opens for any item).
+function ChoiceSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+  const [picks, setPicks] = useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = useState(1); const [note, setNote] = useState('');
   const box = useRef<HTMLDivElement>(null); const close = useRef(onClose); close.current = onClose;
+  // (A tap on the backdrop right as it opens is the press that opened it, not a close.)
+  const openedAt = useRef(Date.now());
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input:not([disabled]), button')?.focus();
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; document.addEventListener('keydown', k);
@@ -169,22 +172,22 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Pick
   const priced = priceChoices(item, picks);
   const each = Math.max(0, (item.happy && typeof item.priceNow === 'number' ? item.priceNow : item.price) + (priced.ok ? priced.extra : 0));
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget && Date.now() - openedAt.current > 400) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="counter-choice" style={{ background: '#fff', color: INK }} className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-start justify-between gap-3 px-6 pt-6">
-          <div className="min-w-0"><h2 id="counter-choice" className="text-[21px] font-semibold" style={{ color: INK }}>{item.name}: choose</h2>
+          <div className="min-w-0"><h2 id="counter-choice" className="text-[21px] font-semibold" style={{ color: INK }}>{item.choices.length ? `${item.name}: choose` : item.name}</h2>
             {item.combo && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Each part goes to its own station.</p>}</div>
           <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${RING}`} style={{ borderColor: LINE, color: INK }}>×</button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5"><ChoicePicker item={item} picks={picks} onChange={setPicks} /></div>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">{item.choices.length > 0 && <ChoicePicker item={item} picks={picks} onChange={setPicks} />}<NoteField id="counter-choice-note" value={note} onChange={setNote} /></div>
         {!priced.ok && <p role="status" className="px-6 pb-2 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
         <div className="flex items-center gap-3 border-t px-6 py-4" style={{ borderColor: LINE }}>
-          <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
+          {!item.byWeight && <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
             <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`h-12 w-12 rounded-full text-[20px] disabled:opacity-30 ${RING}`}>−</button>
             <span className="w-7 text-center text-[17px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
             <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`h-12 w-12 rounded-full text-[20px] disabled:opacity-30 ${RING}`}>+</button>
-          </div>
-          <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={dark}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+          </div>}
+          <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, item.byWeight ? 1 : qty, note)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={dark}>{item.byWeight ? `Next, weigh it (${usd(each)}/${item.byWeight})` : `Add${qty > 1 ? ` ${qty}` : ''}, ${usd(each * qty)}`}</button>
         </div>
       </div>
     </div>
@@ -231,7 +234,7 @@ export default function CounterPage() {
   // A line at a different price (components/pos/CounterPrice).
   const [priceFor, setPriceFor] = useState<string | null>(null);
   // An item sold by weight being weighed, with its choices picked (components/pos/CounterWeight).
-  const [weighFor, setWeighFor] = useState<{ m: Item; picks: Picks } | null>(null);
+  const [weighFor, setWeighFor] = useState<{ m: Item; picks: Picks; note?: string } | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -324,7 +327,8 @@ export default function CounterPage() {
   const nextGuest = () => act('car', { action: 'car', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
   // (Sold by weight: what the scale reads first, components/pos/CounterWeight.)
-  const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item', weight?: number) => order && (m.byWeight && weight === undefined ? void setWeighFor({ m, picks }) : act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}), ...(weight !== undefined ? { weight } : {}) },
+  // (With a note for the kitchen, from the choices sheet: a line of its own.)
+  const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item', weight?: number, note = '') => order && (m.byWeight && weight === undefined ? void setWeighFor({ m, picks, note }) : act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}), ...(weight !== undefined ? { weight } : {}), ...(note.trim() ? { note: note.trim() } : {}) },
     (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null))));
   // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
   // like a tap; one with choices opens them; one on nothing yet asks which item it is; a scale's sticker is the item at
@@ -374,6 +378,8 @@ export default function CounterPage() {
   };
   const giftRetry = async () => { if (!giftsMade) return null; const g = await post({ action: 'giftIssue', orderId: giftsMade.orderId }); return g?.ok && Array.isArray(g.gifts) ? g.gifts as GiftMade[] : null; };
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
+  // Pressed and held: its choices and a note, for any item (components/pos/RegisterTiles).
+  const hold = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); setChoiceFor(m); };
   const takeOffer = (m: Item) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => order && just && act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: rid() },
     (d) => setJust((j) => (j ? { ...j, sized: true, took: true, lineId: d.line?.lineId || j.lineId } : j)));
@@ -493,7 +499,7 @@ export default function CounterPage() {
           {guest?.stage === 'pay' && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>{guest.number} is with the kitchen. Take payment, or tap Next guest to start another order.</p>}
           {!lane ? <p className="py-10 text-center text-[14px]" style={{ color: MUTED }}>Reading the menu…</p>
             : menu.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[14.5px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-            : <RegisterTiles items={menu} most={lane.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} place="counter" />}
+            : <RegisterTiles items={menu} most={lane.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} onHold={hold} place="counter" />}
           {lane && order?.status === 'building' && guest?.stage !== 'pay' && ((lane.oneOffMax ?? 0) > 0 || lane.gift) && <div className="flex flex-wrap gap-2">
             {(lane.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
             {lane.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}
@@ -688,7 +694,7 @@ export default function CounterPage() {
     {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={post}
       onClose={() => setTakeOffFor(null)} onDone={(text, d) => { setTakeOffFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
     {weighFor && order && (() => { const p = pickedOf(weighFor.m.choices, weighFor.picks); return <WeightSheet name={weighFor.m.name} unit={weighFor.m.byWeight!} price={weighFor.m.priceNow ?? weighFor.m.price} extra={p.extra} choicesText={p.text} onClose={() => setWeighFor(null)}
-      add={async (weight) => { const d = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: rid(), weight }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+      add={async (weight) => { const d = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: rid(), weight, ...(weighFor.note?.trim() ? { note: weighFor.note.trim() } : {}) }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d.ok) return d.error || 'That didn’t go through. Try again.'; setWeighFor(null); setNotice({ text: `${weighFor.m.name} added.`, tone: 'good' }); acted.current++; void load(); return null; }} />; })()}
     {giftOpen && order && <GiftSheet amounts={lane?.gift?.amounts || []} onClose={() => setGiftOpen(false)} add={addGift} />}
     {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={addOneOff} />}
@@ -702,6 +708,6 @@ export default function CounterPage() {
       onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
         setPointsOpen(false); setNotice({ text: d.already ? 'Rewards were already on this order.' : d.earned ? `Rewards added: earned ${d.earned} ${d.unit}.` : 'Rewards added. It earns when it’s paid.', tone: 'good' }); res(null);
       }, (d) => { res(d.code === 'not_found' || d.code === 'not_member' ? d.code : d.error || 'That didn’t go through.'); return true; }); })} />}
-    {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
+    {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q, note) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined, undefined, note); setChoiceFor(null); }} />}
   </>);
 }

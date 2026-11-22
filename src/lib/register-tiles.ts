@@ -3,7 +3,7 @@
 // - Most sold now opens first: what sells at this hour, from the business's own sales (menuSales/{day}, counted by hour
 //   as orders are sent: lib/counter-server soldCounts), so the morning rush sees coffee and lunch sees sandwiches. Every
 //   location's sales together (each in its own local hour): one menu, and a busy hour is much the same at each.
-// - Tap to add, tap again for one more; the count shows on the tile.
+// - Tap to add, tap again for one more; the count shows on the tile. Press and hold for every choice and a note.
 // - Find: a few letters, or the number guests order by, from any section (a scanner still scans).
 // - Sold out, and "3 left" once few can be made (lib/menu-stock canMake), so nobody rings in what isn't there.
 // - Big or compact: bigger tiles for a phone or a busy rush, more per screen on a large tablet (kept on the device).
@@ -65,6 +65,9 @@ export function findTiles<T extends Pick<TileItem, 'name' | 'number'>>(items: T[
     return words.every((w) => own.some((x) => x.startsWith(w)));
   });
 }
+
+/** Pressed this long, a tile opens its choices and a note instead of adding it. */
+export const HOLD_MS = 450;
 
 /** Tile size, kept on the device. */
 export type TileSize = 'big' | 'compact';

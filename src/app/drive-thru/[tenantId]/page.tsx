@@ -32,7 +32,7 @@ import { RegisterTiles } from '@/components/pos/RegisterTiles';
 import { priceOf } from '@/lib/register-tiles';
 import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
-import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
+import { AllergySheet, LineNote, NoteField, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
@@ -257,9 +257,12 @@ function NameField({ value, onSave }: { value: string; onSave: (v: string) => Pr
 }
 
 // ─── Choosing an item's choices (a size, a milk, extras) ─────────────────────────────────────────────────────────────
-function ChoiceSheet({ item, onAdd, onClose }: { item: LaneItem; onAdd: (picks: Picks, qty: number) => void; onClose: () => void }) {
-  const [picks, setPicks] = useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = useState(1);
+// Its choices, and a note for the kitchen (pressed and held on the tiles, it opens for any item).
+function ChoiceSheet({ item, onAdd, onClose }: { item: LaneItem; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+  const [picks, setPicks] = useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = useState(1); const [note, setNote] = useState('');
   const box = useRef<HTMLDivElement>(null); const close = useRef(onClose); close.current = onClose;
+  // (A tap on the backdrop right as it opens is the press that opened it, not a close.)
+  const openedAt = useRef(Date.now());
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null; box.current?.querySelector<HTMLElement>('input:not([disabled]), button')?.focus();
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; document.addEventListener('keydown', k);
@@ -268,7 +271,7 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: LaneItem; onAdd: (picks: 
   const priced = priceChoices(item, picks);
   const each = Math.max(0, (item.happy && typeof item.priceNow === 'number' ? item.priceNow : item.price) + (priced.ok ? priced.extra : 0));
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} onClick={(e) => { if (e.target === e.currentTarget && Date.now() - openedAt.current > 400) onClose(); }}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby="choice-title" className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[#fff] sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-start justify-between gap-3 px-6 pt-6">
           <div className="flex min-w-0 items-center gap-4">
@@ -277,15 +280,15 @@ function ChoiceSheet({ item, onAdd, onClose }: { item: LaneItem; onAdd: (picks: 
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className={`h-11 w-11 shrink-0 rounded-full border text-[20px] ${RING}`} style={{ borderColor: LINE, color: INK }}>×</button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5"><ChoicePicker item={item} picks={picks} onChange={setPicks} /></div>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">{item.choices.length > 0 && <ChoicePicker item={item} picks={picks} onChange={setPicks} />}<NoteField id="lane-choice-note" value={note} onChange={setNote} big /></div>
         {!priced.ok && <p role="status" className="px-6 pb-2 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
         <div className="flex items-center gap-3 border-t px-6 py-4" style={{ borderColor: LINE }}>
-          <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
+          {!item.byWeight && <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
             <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-4 w-4" /></button>
             <span className="w-7 text-center text-[17px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
             <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
-          </div>
-          <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+          </div>}
+          <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, item.byWeight ? 1 : qty, note)} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>{item.byWeight ? `Next, weigh it (${usd(each)}/${item.byWeight})` : `Add${qty > 1 ? ` ${qty}` : ''}, ${usd(each * qty)}`}</button>
         </div>
       </div>
     </div>
@@ -340,7 +343,7 @@ export default function DriveThru() {
   // A line at a different price (components/pos/CounterPrice).
   const [priceFor, setPriceFor] = useState<string | null>(null);
   // An item sold by weight being weighed, with its choices picked (components/pos/CounterWeight).
-  const [weighFor, setWeighFor] = useState<{ m: LaneItem; picks: Picks } | null>(null);
+  const [weighFor, setWeighFor] = useState<{ m: LaneItem; picks: Picks; note?: string } | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -561,9 +564,11 @@ export default function DriveThru() {
   }, `car${at || ''}`);
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
   // (Sold by weight: what the scale reads first, components/pos/CounterWeight.)
-  const add = (m: MenuItem, picks: Picks = {}, quantity = 1, offer?: 'item') => {
-    if (!order) return; if (m.byWeight) { setWeighFor({ m: m as LaneItem, picks }); return; } const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}`; const forOrder = order.id;
-    void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig), ...(offer ? { offer } : {}) },
+  // (With a note for the kitchen, from the choices sheet: a line of its own.)
+  const add = (m: MenuItem, picks: Picks = {}, quantity = 1, offer?: 'item', note = '') => {
+    const said = note.trim();
+    if (!order) return; if (m.byWeight) { setWeighFor({ m: m as LaneItem, picks, note: said }); return; } const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}${said ? `|${said}` : ''}`; const forOrder = order.id;
+    void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig), ...(offer ? { offer } : {}), ...(said ? { note: said } : {}) },
       (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: forOrder, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)), sig);
   };
   // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
@@ -579,6 +584,8 @@ export default function DriveThru() {
   };
   useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
+  // Pressed and held: its choices and a note, for any item (components/pos/RegisterTiles).
+  const holdItem = (m: LaneItem) => { setChoiceOffer(false); setChoiceFor(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
     if (!order || !just) return; const sig = `size|${just.lineId}|${just.quantity}`;
@@ -1058,7 +1065,7 @@ export default function DriveThru() {
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="min-w-0 space-y-3">
                     {menu.length === 0 ? <p className="rounded-2xl bg-[#fff] px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-                      : <RegisterTiles items={menu} most={lane?.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} onTap={tapItem} place="lane" />}
+                      : <RegisterTiles items={menu} most={lane?.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} onTap={tapItem} onHold={holdItem} place="lane" />}
                     {((lane?.oneOffMax ?? 0) > 0 || lane?.gift) && order?.status === 'building' && <div className="mt-3 flex flex-wrap gap-2">
                       {(lane?.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
                       {lane?.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}
@@ -1223,7 +1230,7 @@ export default function DriveThru() {
 
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
-      {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
+      {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q, note) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined, note); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
       {drawerOpen && <DrawerSheet call={refundCall} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }} />}
       {priceFor && order && (() => { const l = order.lines.find((x) => x.lineId === priceFor); return l ? <PriceSheet orderId={order.id} number={order.number} line={l as any} whole={order.status !== 'building'} call={refundCall}
@@ -1236,7 +1243,7 @@ export default function DriveThru() {
         add={async (weight) => {
           if (order.status !== 'building') return 'That order has gone to the kitchen already.';
           acted.current++; const mySeq = ++seq.current;
-          const { d } = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: keyFor(`weigh|${order.id}|${weighFor.m.id}|${weight}|${Date.now()}`), weight }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+          const { d } = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: keyFor(`weigh|${order.id}|${weighFor.m.id}|${weight}|${Date.now()}`), weight, ...(weighFor.note ? { note: weighFor.note } : {}) }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
           acted.current++;
           if (!d.ok) return d.error || 'That didn’t go through. Try again.';
           if (d.order) putOrder(d.order, mySeq);

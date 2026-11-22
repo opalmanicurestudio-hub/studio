@@ -130,7 +130,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const counter = src('src/app/(app)/counter/page.tsx'); const lane = src('src/app/drive-thru/[tenantId]/page.tsx');
   for (const [name, s] of [['counter', counter], ['lane', lane]] as const) {
     check(`${name}: shown under the order while it’s being taken, with the add’s line and the menu’s prices`, /<OfferAsk just=\{just\} orderId=\{order\.id\}/.test(s) && /onSizeUp=\{sizeUp\} onAdd=\{takeOffer\}/.test(s) && /lineId: d\.line\.lineId, took: false, sized: false/.test(s));
-    check(`${name}: size up for what was just added; something with choices opens its choices first, still as an offer`, /action: 'sizeUp', orderId: order\.id, lineId: just\.lineId, quantity: just\.quantity/.test(s) && /setChoiceOffer\(true\); setChoiceFor\(m\)/.test(s) && /add\(choiceFor, p, q, choiceOffer \? 'item' : undefined\)/.test(s));
+    check(`${name}: size up for what was just added; something with choices opens its choices first, still as an offer`, /action: 'sizeUp', orderId: order\.id, lineId: just\.lineId, quantity: just\.quantity/.test(s) && /setChoiceOffer\(true\); setChoiceFor\(m\)/.test(s) && /add\(choiceFor, p, q, choiceOffer \? 'item' : undefined(, undefined)?, note\)/.test(s));
     check(`${name}: closed when anything else changes on the order, or it’s sent`, /if \(!order\) return; setJust\(null\);/.test(s) && (/setJust\(null\); void act\('send'/.test(s) || /\(setJust\(null\), act\('send'/.test(s)));
     check(`${name}: a sized-up line says so while the order is being taken, and another order picked closes it`, />Sized up</.test(s) && (/setJust\(null\);( setSection\(null\);)? \}, \[order\?\.id\]\)/.test(s) || /setJust\(null\); if \(order && nameFor/.test(s)));
   }

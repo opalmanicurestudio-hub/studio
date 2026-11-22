@@ -5,15 +5,18 @@
 //   name alone. With none, tiles are names and prices, the most to a screen.
 // - Most sold now first (what sells at this hour), then the menu's sections.
 // - Find from any section, by a few letters or the number guests order by; a scanner still scans.
-// - Tap to add, tap again for one more; the count on the tile. Sold out, outside its hours, and "3 left" on the tile.
+// - Tap to add, tap again for one more; the count on the tile. Press and hold (or Shift and Enter) for every choice and
+//   a note. Sold out, outside its hours, and "3 left" on the tile.
 // - Bigger tiles, or more to a screen, kept on this device.
 import * as React from 'react';
-import { MOST_ID, MOST_MIN, MOST_TAB, TILE_SIZE_KEY, findTiles, fullOf, leftOf, priceOf, sizeOf, type TileItem, type TileSize } from '@/lib/register-tiles';
+import { HOLD_MS, MOST_ID, MOST_MIN, MOST_TAB, TILE_SIZE_KEY, findTiles, fullOf, leftOf, priceOf, sizeOf, type TileItem, type TileSize } from '@/lib/register-tiles';
 import { outWords } from '@/lib/menu-stock';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+// (A long press on a phone neither selects the name nor opens the browser's own menu.)
+const noCallout = { WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties;
 
 type Props<T extends TileItem> = {
   items: T[]; most: string[] | null; counts: Record<string, number>;
@@ -22,11 +25,13 @@ type Props<T extends TileItem> = {
   /** The item being added right now; `locked`: nothing can be added (the guest is paying). */
   busyId: string | null; locked?: boolean;
   onTap: (m: T) => void;
+  /** Pressed and held: its choices and a note, before it goes on the order. */
+  onHold?: (m: T) => void;
   /** The lane screen, read at arm's length: bigger type and tabs. */
   place: 'counter' | 'lane';
 };
 
-export function RegisterTiles<T extends TileItem>({ items, most, counts, section, onSection, busyId, locked, onTap, place }: Props<T>) {
+export function RegisterTiles<T extends TileItem>({ items, most, counts, section, onSection, busyId, locked, onTap, onHold, place }: Props<T>) {
   const [q, setQ] = React.useState('');
   const [size, setSize] = React.useState<TileSize>('big');
   React.useEffect(() => { try { setSize(sizeOf(localStorage.getItem(TILE_SIZE_KEY))); } catch { /* private window */ } }, []);
@@ -89,13 +94,40 @@ export function RegisterTiles<T extends TileItem>({ items, most, counts, section
         </div>}
 
       <div className={`grid gap-2.5 ${lane ? 'sm:gap-3' : ''} ${cols}`} id={`tiles-${place}`} role="tabpanel" aria-label={finding ? 'Found' : shown === MOST_ID ? MOST_TAB : shown || 'Menu'}>
-        {list.map((m) => <Tile key={m.id} m={m} n={counts[m.id] || 0} busy={busyId === m.id} locked={!!locked} photos={withPhotos} big={big} lane={lane} onTap={() => onTap(m)} />)}
+        {list.map((m) => <Tile key={m.id} m={m} n={counts[m.id] || 0} busy={busyId === m.id} locked={!!locked} photos={withPhotos} big={big} lane={lane} onTap={() => onTap(m)} onHold={onHold ? () => onHold(m) : undefined} hint={`hold-${place}`} />)}
       </div>
+      {onHold && list.length > 0 && <p id={`hold-${place}`} className="text-[13px]" style={{ color: MUTED }}>Press and hold a tile for its choices and a note (or Shift and Enter).</p>}
     </div>
   );
 }
 
-function Tile<T extends TileItem>({ m, n, busy, locked, photos, big, lane, onTap }: { m: T; n: number; busy: boolean; locked: boolean; photos: boolean; big: boolean; lane: boolean; onTap: () => void }) {
+function Tile<T extends TileItem>({ m, n, busy, locked, photos, big, lane, onTap, onHold, hint }: { m: T; n: number; busy: boolean; locked: boolean; photos: boolean; big: boolean; lane: boolean; onTap: () => void; onHold?: () => void; hint: string }) {
+  // Press and hold: its choices and a note (a press that becomes a scroll is neither). Held long enough, the tile shows
+  // it, and the sheet opens as the finger lifts (with no click after it, so the lift can't land on the sheet). Where the browser
+  // takes a long press as its own (its menu, or a right-click), the sheet opens then instead, once.
+  const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null); const armed = React.useRef(false); const done = React.useRef(false);
+  const from = React.useRef<[number, number]>([0, 0]); const [ready, setReady] = React.useState(false);
+  const stop = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  const disarm = () => { stop(); armed.current = false; setReady(false); };
+  React.useEffect(() => stop, []);
+  // (Opened outright: the click that may follow is swallowed, for a moment only, so the next tap or key still adds.)
+  const opened = () => { disarm(); done.current = true; setTimeout(() => { done.current = false; }, 800); onHold?.(); };
+  const press = onHold ? {
+    onPointerDown: (e: React.PointerEvent) => { disarm(); done.current = false; if (e.pointerType === 'mouse' && e.button !== 0) return; from.current = [e.clientX, e.clientY]; timer.current = setTimeout(() => { timer.current = null; armed.current = true; setReady(true); }, HOLD_MS); },
+    onPointerMove: (e: React.PointerEvent) => { if ((timer.current || armed.current) && Math.hypot(e.clientX - from.current[0], e.clientY - from.current[1]) > 10) disarm(); },
+    onPointerUp: stop,
+    // (A finger lifted on a tile held long enough: the sheet opens now, and no click follows it, so nothing lands on the
+    // sheet as it opens and a phone that sends no click after a long press still opens it.)
+    onTouchEnd: (e: React.TouchEvent) => { if (!armed.current) return; e.preventDefault(); opened(); },
+    // (A finger's pointer leaves as it lifts, before the click: only a mouse moved off the tile lets go of it.)
+    onPointerLeave: (e: React.PointerEvent) => { if (e.pointerType === 'mouse') disarm(); else stop(); },
+    onPointerCancel: disarm,
+    onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); if (!done.current) opened(); },
+    // (Shift and Enter, or the menu key; never the Enter that ends a scan, which the scanner has taken.)
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.nativeEvent.defaultPrevented) return; if (e.key === 'ContextMenu' || (e.key === 'Enter' && e.shiftKey)) { e.preventDefault(); if (!done.current) opened(); } else { done.current = false; disarm(); } },
+    'aria-describedby': hint,
+  } : {};
+  const tap = () => { if (done.current) { done.current = false; return; } if (armed.current) { disarm(); onHold?.(); return; } onTap(); };
   // Switched to sold out, an ingredient run out, none left of it (lib/menu-stock), or outside its hours ("Breakfast, from
   // 7 AM"), said as such; a few left, said too.
   const why = m.off || outWords(m); const out = !!why; const left = out ? null : leftOf(m);
@@ -106,13 +138,13 @@ function Tile<T extends TileItem>({ m, n, busy, locked, photos, big, lane, onTap
   const small = big ? 'text-[14px]' : 'text-[13px]';
   const count = n > 0 && <span className={`absolute right-2 top-2 flex items-center justify-center rounded-full px-1.5 font-semibold tabular-nums ${big ? 'h-8 min-w-[32px] text-[15px]' : 'h-7 min-w-[28px] text-[13.5px]'}`} style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>;
   const leftTag = left !== null && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{left} left</span>;
-  const edge = { border: `${n ? 2 : 1}px solid ${n ? INK : LINE}` };
+  const edge = { border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, ...(ready ? { boxShadow: `0 0 0 3px ${INK}`, transform: 'scale(0.98)' } : {}) };
   const cls = `relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:active:scale-100 ${RING}`;
 
   // A photo: the item as it looks, its name and price under it (on the lane screen, its price under its name, as every
   // tile there is narrow; at the counter beside it, and under it when there isn't room).
   if (photos && m.imageUrl) return (
-    <button type="button" disabled={out || busy || locked} onClick={onTap} aria-label={label} className={cls} style={{ ...edge, background: '#fff', padding: n ? 4 : 5 }}>
+    <button type="button" disabled={out || busy || locked} onClick={tap} {...press} aria-label={label} className={cls} style={{ ...edge, ...noCallout, background: '#fff', padding: n ? 4 : 5 }}>
       <span className="relative block aspect-[16/10] w-full overflow-hidden rounded-xl" style={{ background: SOFT }}>
         <img src={m.imageUrl} alt="" draggable={false} loading="lazy" className="h-full w-full object-cover" style={out ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
         {leftTag && <span className="absolute left-2 top-2">{leftTag}</span>}
@@ -126,8 +158,8 @@ function Tile<T extends TileItem>({ m, n, busy, locked, photos, big, lane, onTap
   );
   // Its name alone: no photo (beside photos, as tall as the row), or a menu without photos (the most to a screen).
   return (
-    <button type="button" disabled={out || busy || locked} onClick={onTap} aria-label={label} className={cls}
-      style={{ ...edge, background: out ? SOFT : '#fff', padding: big ? (n ? 13 : 14) : (n ? 10 : 11), minHeight: big ? (lane ? 96 : 84) : 72 }}>
+    <button type="button" disabled={out || busy || locked} onClick={tap} {...press} aria-label={label} className={cls}
+      style={{ ...edge, ...noCallout, background: out ? SOFT : '#fff', padding: big ? (n ? 13 : 14) : (n ? 10 : 11), minHeight: big ? (lane ? 96 : 84) : 72 }}>
       <span className={`pr-8 ${nameSize} font-semibold leading-snug`} style={{ color: out ? MUTED : INK }}>{num}{m.name}</span>
       <span className={`mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-2 ${small} tabular-nums`} style={{ color: MUTED }}>
         <span>{out ? why : price}</span>{leftTag}
