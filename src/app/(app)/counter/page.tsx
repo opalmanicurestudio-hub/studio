@@ -48,6 +48,8 @@ import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
+import { RegisterTiles } from '@/components/pos/RegisterTiles';
+import { priceOf } from '@/lib/register-tiles';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -140,12 +142,12 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   /** Orders for another day still waiting for their day (lib/ahead-days-server). */
   comingUp?: ComingUpRow[];
   /** The delivery apps it takes orders from (lib/app-orders), for App order. */
-  apps?: { code: string; label: string }[] };
+  apps?: { code: string; label: string }[];
+  /** What sells at this hour, most sold first (lib/register-tiles-server): the tiles' first tab. */
+  most?: string[] | null };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
-const priceOf = (m: Item) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
-const fullOf = (m: Item) => (m.from ? m.startPrice : m.price);
 const minsAgo = (iso: string | null | undefined, now: number) => { const m = Math.max(0, Math.floor((now - (Date.parse(String(iso || '')) || now)) / 60000)); return m < 1 ? 'just now' : `${m} min ago`; };
 /** Said out loud: "Dev, order C 12 is ready." (the letter apart from the number, so it's read as one). */
 function sayOut(number: string, name: string | null | undefined) {
@@ -199,7 +201,8 @@ export default function CounterPage() {
   // Their rewards didn't load: said, with Try again (`memberTry` reads them again).
   const [memberErr, setMemberErr] = useState(false); const [memberTry, setMemberTry] = useState(0);
   const [picked, setPicked] = useState<string | null>(null); const [busy, setBusy] = useState<string | null>(null);
-  const [section, setSection] = useState(''); const [choiceFor, setChoiceFor] = useState<Item | null>(null);
+  // The menu's tab (null: the first, Most sold now), back to the first for each new order.
+  const [section, setSection] = useState<string | null>(null); const [choiceFor, setChoiceFor] = useState<Item | null>(null);
   // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
   const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [name, setName] = useState(''); const [cash, setCash] = useState<string | null>(null);
@@ -267,8 +270,8 @@ export default function CounterPage() {
   const guest = guests.find((c) => c.id === picked && (c.stage === 'speaker' || c.stage === 'pay')) || null;
   const order = guest?.orderId ? lane?.orders[guest.orderId] : undefined;
   const menu = useMemo(() => lane?.menu || [], [lane]);
-  const sections = useMemo(() => Array.from(new Set(menu.map((m) => m.section))), [menu]);
-  const shown = sections.includes(section) ? section : sections[0] || '';
+  // What's on the order, item by item: the count on each tile.
+  const onOrder = useMemo(() => { const n: Record<string, number> = {}; for (const l of order?.lines || []) n[l.itemId] = (n[l.itemId] || 0) + l.quantity; return n; }, [order?.lines]);
   const reader = readers.find((x) => x.id === readerId) || (readers.length === 1 ? readers[0] : null);
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // (With the kitchen and not paid yet, nothing set aside on it, more than one line: one can come off.)
@@ -277,7 +280,7 @@ export default function CounterPage() {
   const canTakeOff = !!order && order.status === 'sent' && !order.paidAt && !order.staffMeal && !order.app && !(order.tenders || []).length && !order.split && !cardOn && (order.lines.length > 1 || (order.lines[0]?.quantity || 0) > 1);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setPartC(null); setGiftUpTo(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSection(null); setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setPartC(null); setGiftUpTo(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
@@ -488,21 +491,9 @@ export default function CounterPage() {
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <section aria-label="Menu" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
           {guest?.stage === 'pay' && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>{guest.number} is with the kitchen. Take payment, or tap Next guest to start another order.</p>}
-          {sections.length > 1 && <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Menu sections">{sections.map((s) => <button key={s} type="button" role="tab" aria-selected={s === shown} onClick={() => setSection(s)} className={`${btn} shrink-0 text-[14px]`} style={s === shown ? dark : { background: SOFT, color: INK }}>{s}</button>)}</div>}
           {!lane ? <p className="py-10 text-center text-[14px]" style={{ color: MUTED }}>Reading the menu…</p>
             : menu.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[14.5px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-            : <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3" role="tabpanel">{menu.filter((m) => m.section === shown).map((m) => {
-              const why = m.off || outWords(m); const n = (order?.lines || []).filter((l) => l.itemId === m.id).reduce((s, l) => s + l.quantity, 0);
-              return (
-                <button key={m.id} type="button" disabled={!!why || busy === `add-${m.id}` || guest?.stage === 'pay'} onClick={() => tap(m)} aria-label={`${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.byWeight ? ` a ${m.byWeight}` : ''}${m.happy ? ', happy hour' : ''}${why ? `, ${why}` : ''}${n ? `, ${n} on the order` : ''}`}
-                  className={`relative flex min-h-[78px] flex-col justify-between rounded-2xl p-3 text-left disabled:cursor-not-allowed ${RING}`} style={{ background: why ? '#fff' : SOFT, color: INK, border: `${n ? 2 : 1}px solid ${n ? 'currentColor' : why ? LINE : 'transparent'}` }}>
-                  <span className="pr-7 text-[15px] font-semibold leading-snug" style={{ color: why ? MUTED : INK }}>{m.name}</span>
-                  <span className="mt-1.5 text-[13px] tabular-nums" style={{ color: why ? AMBER : MUTED }}>
-                    {why ? why : <>{m.from ? 'from ' : ''}{m.happy ? <><s>{usd(fullOf(m))}</s> {usd(priceOf(m))} now</> : usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}, weighed` : m.combo ? ', a combo' : m.choices.length ? ', choices' : ''}</>}
-                  </span>
-                  {n > 0 && <span className="absolute right-2 top-2 flex h-7 min-w-[28px] items-center justify-center rounded-full px-1.5 text-[13.5px] font-semibold tabular-nums" style={dark}>{n}</span>}
-                </button>
-              ); })}</div>}
+            : <RegisterTiles items={menu} most={lane.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} place="counter" />}
           {lane && order?.status === 'building' && guest?.stage !== 'pay' && ((lane.oneOffMax ?? 0) > 0 || lane.gift) && <div className="flex flex-wrap gap-2">
             {(lane.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
             {lane.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}

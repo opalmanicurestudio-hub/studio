@@ -255,7 +255,7 @@ const at = (iso: string) => new Date(iso);
   console.log('the counter page');
   const cp = src('src/app/(app)/counter/page.tsx');
   check('the counter page asks the server for everything, as counter orders', /send\('\/api\/counter', \{ tenantId, channel: 'counter', (\.\.\.hereAsked\(\), )?\.\.\.body \}/.test(cp) && !/firebase\/firestore/.test(cp));
-  check('…Next guest, the menu with happy-hour prices and when the rest is back, and the order with a first name', /Next guest/.test(cp) && /m\.off \|\| outWords\(m\)/.test(cp) && /<s>\{usd\(fullOf\(m\)\)\}<\/s>/.test(cp) && /First name, for calling it out/.test(cp));
+  check('…Next guest, the menu with happy-hour prices and when the rest is back, and the order with a first name', /Next guest/.test(cp) && /<RegisterTiles items=\{menu\}/.test(cp) && /m\.off \|\| outWords\(m\)/.test(src('src/components/pos/RegisterTiles.tsx')) && /<s>\{usd\(fullOf\(m\)\)\}<\/s>/.test(src('src/components/pos/RegisterTiles.tsx')) && /First name, for calling it out/.test(cp));
   check('…send and take payment: cash with the change, or the card reader', /Send and take payment/.test(cp) && /Change: \{usd\(tendered - (order\.total|due|cashFor)\)\}/.test(cp) && /action: 'card', orderId: order\.id, readerId: reader\.id/.test(cp));
   check('…Waiting: Call says it out loud and marks it called; Handed over takes it off', /new SpeechSynthesisUtterance/.test(cp) && /action: 'call', carId: g\.id/.test(cp) && /action: 'move', carId: g\.id, to: 'gone'/.test(cp) && /Called \$\{minsAgo/.test(cp));
   check('…keeps the writing rules', !/uppercase|font-black|\{\/\*/.test(cp) && !/ · /.test(cp) && /min-h-\[44px\]/.test(cp));
@@ -263,7 +263,7 @@ const at = (iso: string) => new Date(iso);
   check('the counter job opens on the counter (the front desk a tap away), in the app’s pages and the team app', J.jobDef('counter')?.home === '/counter' && !!J.jobDef('counter')?.menu.includes('/pos') && /'counter'/.test(src('src/lib/app-theme.ts')) && /hospitality: \{[^}]*'\/counter'/.test(src('src/lib/modules.ts'))
     && /href: '\/counter'/.test(src('src/components/shared/AppSidebar.tsx')) && /'\/bar-tabs', '\/counter', '\/curbside', '\/drive-live'\]/.test(src('src/components/shared/PortalScope.tsx')) && /href: '\/counter'/.test(src('src/components/portal/FloorLinks.tsx')));
   const lp = src('src/app/drive-thru/[tenantId]/page.tsx');
-  check('the drive-thru lane shows happy-hour prices and when an item is back too', /const why = m\.off \|\| outWords\(m\)/.test(lp) && /usd\(priceOf\(m\)\)/.test(lp));
+  check('the drive-thru lane shows happy-hour prices and when an item is back too', /<RegisterTiles items=\{menu\}/.test(lp) && /const why = m\.off \|\| outWords\(m\)/.test(src('src/components/pos/RegisterTiles.tsx')) && /usd\(priceOf\(m\)\)/.test(src('src/components/pos/RegisterTiles.tsx')));
 
   console.log('the kitchen, dish and barback screens in Spanish');
   const L = await import('../../src/lib/screen-lang');

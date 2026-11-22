@@ -28,6 +28,8 @@ import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { readBack, timeLeft, CAR_COLORS, CAR_KINDS } from '@/lib/counter-orders';
 import { byWindow, laneOf } from '@/lib/drive-lanes';
 import { outWords } from '@/lib/menu-stock';
+import { RegisterTiles } from '@/components/pos/RegisterTiles';
+import { priceOf } from '@/lib/register-tiles';
 import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
@@ -91,8 +93,9 @@ type Ahead = { id: string; number: string; name: string | null; code: string; at
 // An item as the lane reads it: its price right now (happy hour) and, outside its menus by time of day, when it's back.
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
-const priceOf = (m: LaneItem) => { const base = m.happy && typeof m.priceNow === 'number' ? m.priceNow : m.price; return Math.max(0, base + (m.from ? m.startPrice - m.price : 0)); };
 type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
+  /** What sells at this hour, most sold first (lib/register-tiles-server): the tiles' first tab. */
+  most?: string[] | null;
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
   merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Something not on the menu (lib/counter-oneoff): up to how much, 0 when it isn't offered. */
@@ -396,7 +399,6 @@ export default function DriveThru() {
   useEffect(() => {
     setKey(read(keyName(tenantId)));
     if (read('cf.drivethru.sound') === 'off') setSoundOn(false);
-    const sec = read('cf.drivethru.section'); if (sec) setSection(sec);
     try { const s = JSON.parse(sessionStorage.getItem('cf.drivethru.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     setReady(true);
   }, [tenantId]);
@@ -668,7 +670,8 @@ export default function DriveThru() {
   const phoneOn = !!order && !order.paidAt && phoneFor?.orderId === order.id;
   useEffect(() => { if (phoneFor && (!order || order.id !== phoneFor.orderId || order.paidAt)) setPhoneFor(null); }, [order?.id, order?.paidAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // Another car picked: what was being offered on the last one is closed (as at the counter).
-  useEffect(() => { setJust(null); }, [order?.id]);
+  // A new order: nothing offered yet, and the menu back on its first tab (Most sold now).
+  useEffect(() => { setJust(null); setSection(null); }, [order?.id]);
   // While the code is up, whether they've paid (every few seconds; the card company tells the server too).
   useEffect(() => {
     const id = phoneOn ? order?.id : null; if (!id) return;
@@ -750,9 +753,6 @@ export default function DriveThru() {
 
   // The menu, by section; members-only things aren't sold at the lane.
   const menu = useMemo(() => (lane?.menu || []).filter((m) => !m.membersOnly), [lane?.menu]);
-  const sections = useMemo(() => Array.from(new Set(menu.map((m) => m.section))), [menu]);
-  const shownSection = section && sections.includes(section) ? section : sections[0] || null;
-  const withPhotos = menu.some((m) => !!m.imageUrl);
   const onOrder = useMemo(() => { const n: Record<string, number> = {}; for (const l of order?.lines || []) n[l.itemId] = (n[l.itemId] || 0) + l.quantity; return n; }, [order?.lines]);
 
   if (!ready) return <main className="min-h-dvh" style={{ background: SOFT }} />;
@@ -1057,59 +1057,8 @@ export default function DriveThru() {
               {car.stage === 'speaker' && order.status === 'building' ? (
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="min-w-0 space-y-3">
-                    {sections.length > 1 && (
-                      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Menu sections">
-                        {sections.map((s) => <button key={s} type="button" role="tab" aria-selected={s === shownSection} onClick={() => { setSection(s); write('cf.drivethru.section', s); }}
-                          className={`min-h-[48px] shrink-0 rounded-full px-5 text-[15px] font-semibold ${RING}`} style={s === shownSection ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{s}</button>)}
-                      </div>
-                    )}
                     {menu.length === 0 ? <p className="rounded-2xl bg-[#fff] px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-                      : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4" role="tabpanel">
-                        {menu.filter((m) => m.section === shownSection).map((m) => {
-                          // Switched to sold out, an ingredient run out, or none left of it (lib/menu-stock), said as such.
-                          // (Outside its menus by time of day, it says when it's back: "Breakfast, from 7 AM".)
-                          const why = m.off || outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
-                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.byWeight ? ` a ${m.byWeight}, weighed` : ''}${m.happy ? ', happy hour' : ''}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
-                          // The number guests order by, as on the menu board ("number 3"): lib/menu-numbers. (Light, so it isn't
-                          // taken for the count on the order, which is dark.)
-                          const num = m.number ? <span className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12.5px] font-bold tabular-nums" style={{ background: LINE, color: INK }} aria-hidden>{m.number}</span> : null;
-                          // With photos on the menu, every button is a picture first (the way a fast-food screen is read at a
-                          // glance); an item without one keeps its place with its first letter. With none, the buttons stay compact.
-                          if (withPhotos) return (
-                            <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={label}
-                              className={`relative flex flex-col overflow-hidden rounded-2xl bg-[#fff] text-left transition-transform active:scale-[0.98] disabled:active:scale-100 ${RING}`}
-                              style={{ border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 5 : 6 }}>
-                              <span className="relative block aspect-[16/10] w-full overflow-hidden rounded-xl" style={{ background: SOFT }}>
-                                {m.imageUrl
-                                  ? <img src={m.imageUrl} alt="" draggable={false} className="h-full w-full object-cover" style={out ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
-                                  : <span className="flex h-full w-full items-center justify-center text-[30px] font-semibold" style={{ color: '#c4c6ca' }} aria-hidden>{m.name.trim().charAt(0).toUpperCase()}</span>}
-                                {why && <span className="absolute left-2 top-2 max-w-[calc(100%-16px)] truncate rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>}
-                                {n > 0 && <span className="absolute right-2 top-2 flex h-8 min-w-[32px] items-center justify-center rounded-full px-2 text-[15px] font-semibold tabular-nums" style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>}
-                              </span>
-                              <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
-                                <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
-                                <span className="flex items-center justify-between gap-2">
-                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}` : ''}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
-                                  {!out && m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                          return (
-                            <button key={m.id} type="button" disabled={out || busy === `add-${m.id}`} onClick={() => tapItem(m)} aria-label={label}
-                              className={`relative flex min-h-[96px] flex-col justify-between rounded-2xl p-3.5 text-left transition-transform active:scale-[0.98] disabled:active:scale-100 ${RING}`}
-                              style={{ background: out ? SOFT : '#fff', border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 13 : 14 }}>
-                              <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
-                              <span className="mt-2 flex items-center justify-between gap-2">
-                                <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}` : ''}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
-                                {why ? <span className="min-w-0 truncate rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>
-                                  : m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
-                              </span>
-                              {n > 0 && <span className="absolute right-2.5 top-2.5 flex h-7 min-w-[28px] items-center justify-center rounded-full px-1.5 text-[14px] font-semibold tabular-nums" style={{ background: INK, color: '#fff' }}>{n}</span>}
-                            </button>
-                          );
-                        })}
-                      </div>}
+                      : <RegisterTiles items={menu} most={lane?.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} onTap={tapItem} place="lane" />}
                     {((lane?.oneOffMax ?? 0) > 0 || lane?.gift) && order?.status === 'building' && <div className="mt-3 flex flex-wrap gap-2">
                       {(lane?.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
                       {lane?.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}

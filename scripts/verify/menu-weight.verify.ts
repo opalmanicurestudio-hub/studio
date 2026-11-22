@@ -154,7 +154,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
 
   console.log('the screens');
   const counter = src('src/app/(app)/counter/page.tsx'), window = src('src/app/drive-thru/[tenantId]/page.tsx'), sheet = src('src/components/pos/CounterWeight.tsx'), builder = src('src/components/menu/ItemBuilder.tsx');
-  check('the counter and the window weigh it first, and say its price per unit', [counter, window].every((p) => p.includes('<WeightSheet') && p.includes("d.code === 'weigh'") && p.includes('m.byWeight ?') && p.includes('!!(l as any).weight}')));
+  check('the counter and the window weigh it first, and say its price per unit', [counter, window].every((p) => p.includes('<WeightSheet') && p.includes("d.code === 'weigh'") && p.includes('<RegisterTiles') && p.includes('!!(l as any).weight}')) && src('src/components/pos/RegisterTiles.tsx').includes('m.byWeight ?'));
   check('the sheet: what the scale reads, quick weights, the price as it’s typed', sheet.includes('What the scale reads') && sheet.includes('QUICK[unit]') && sheet.includes('Add to the order'));
   check('the Menu page: Sold by weight, and its unit', builder.includes('Sold by weight') && builder.includes('WEIGHT_UNITS.map'));
   const mine = sheet + src('src/lib/menu-weight.ts');

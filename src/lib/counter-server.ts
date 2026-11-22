@@ -21,7 +21,8 @@ import { extrasOf, itemExtras, modeOf, orderExtras } from '@/lib/plate-extras';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
 import { stockAtOf, storeFollowNested, storeMoveNested } from '@/lib/store-stock';
-import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { todayIn, tenantTimeZone, hourIn } from '@/lib/tenant-time';
+import { hourKey } from '@/lib/register-tiles';
 import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
 import { TIP_MAX_CENTS } from '@/lib/counter-money';
@@ -503,12 +504,15 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}), ...some(t.extras),
       ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts), ...some(x.extras) }])) } : {}) };
     // (Nothing for the kitchen to make, only what was rung in that isn't on the menu: ready now.)
-    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, ...(tickets.length ? {} : { kitchenNone: true }), partsUsed: used, itemsTaken, stockTaken, ...(soldAt && Object.keys(storeTaken).length ? { storeTaken: { at: soldAt, items: storeTaken } } : {}), toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
+    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, ...(tickets.length ? {} : { kitchenNone: true }), partsUsed: used, itemsTaken, stockTaken, ...(soldAt && Object.keys(storeTaken).length ? { storeTaken: { at: soldAt, items: storeTaken } } : {}), toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}),
+      // (A kiosk's, paid later: the hour it's counted in once it's paid.)
+      ...(opts.unpaid ? { salesHour: hourIn(now, tenantTimeZone(tenant)) } : {}) }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
-    // (A kiosk's order is counted once it's paid: payOrder.)
-    const sDay = todayIn(tenantTimeZone(tenant), now);
-    if (!opts.unpaid) tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...soldCounts(lines) }, { merge: true });
+    // (A kiosk's order is counted once it's paid: payOrder, in the hour it was placed.) By the hour it was sent too, in
+    // the business's time, for the register's Most sold now (lib/register-tiles).
+    const sDay = todayIn(tenantTimeZone(tenant), now); const sHour = hourIn(now, tenantTimeZone(tenant));
+    if (!opts.unpaid) tx.set(db.doc(`${T}/menuSales/${sDay}`), { day: sDay, ...soldCounts(lines, sHour) }, { merge: true });
     // What was rung in that isn't on the menu, kept by name (lib/counter-oneoff): how often, and its price last time.
     for (const l of oneOffs) {
       // (A gift card isn't something rung in that's missing from the menu.)
@@ -521,10 +525,11 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
   });
 }
 
-/** The day's count of each item on an order, to add to that day's menuSales (the menu board's Popular tags). */
-function soldCounts(lines: OrderLine[]): Record<string, any> {
-  const qty = new Map<string, number>();
-  for (const l of lines) { const id = String(l.itemId || ''); if (!ID.test(id)) continue; qty.set(`n_${id}`, (qty.get(`n_${id}`) || 0) + num(l.quantity)); }
+/** The day's count of each item on an order, to add to that day's menuSales (the menu board's Popular tags), and the
+ *  hour's (`hour`, in the business's time: the register's Most sold now, lib/register-tiles). */
+function soldCounts(lines: OrderLine[], hour: number | null): Record<string, any> {
+  const qty = new Map<string, number>(); const h = hour !== null && Number.isInteger(hour) && hour >= 0 && hour < 24 ? hour : null;
+  for (const l of lines) { const id = String(l.itemId || ''); if (!ID.test(id)) continue; qty.set(`n_${id}`, (qty.get(`n_${id}`) || 0) + num(l.quantity)); if (h !== null) qty.set(hourKey(h, id), (qty.get(hourKey(h, id)) || 0) + num(l.quantity)); }
   const sold: Record<string, any> = {}; for (const [k, q] of qty) if (q > 0) sold[k] = FieldValue.increment(q);
   return sold;
 }
@@ -877,7 +882,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       const due = new Date(Date.parse(nowIso) + (took || 300000)).toISOString();
       for (const d of unpaid) tx.set(d.ref, { status: 'pending', createdAt: nowIso, requestedAt: nowIso, dueAt: due }, { merge: true });
       tx.set(orderRef, { sentAt: nowIso, dueAt: due, kiosk: { ...(o.kiosk || {}), state: 'paid' } }, { merge: true });
-      if (unpaid.length) tx.set(db.doc(`${T}/menuSales/${String(o.day || nowIso.slice(0, 10))}`), { day: String(o.day || nowIso.slice(0, 10)), ...soldCounts(Array.isArray(o.lines) ? o.lines : []) }, { merge: true });
+      if (unpaid.length) tx.set(db.doc(`${T}/menuSales/${String(o.day || nowIso.slice(0, 10))}`), { day: String(o.day || nowIso.slice(0, 10)), ...soldCounts(Array.isArray(o.lines) ? o.lines : [], typeof o.salesHour === 'number' ? o.salesHour : null) }, { merge: true });
       const carRef = db.doc(`${T}/driveThruCars/kiosk_${orderId}`);
       tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null, ...(o.locationId ? { locationId: String(o.locationId) } : {}) }, { merge: true });
       tx.set(orderRef, { carId: carRef.id }, { merge: true });

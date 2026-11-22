@@ -1,0 +1,138 @@
+'use client';
+// src/components/pos/RegisterTiles.tsx — THE REGISTER'S MENU TILES (design board "Tiles at the register", look B: the
+// case, on the screen; lib/register-tiles). On the counter and the drive-thru lane screen alike:
+// - With photos on the menu, each item is its own photo with its name and price under it; one without a photo is its
+//   name alone. With none, tiles are names and prices, the most to a screen.
+// - Most sold now first (what sells at this hour), then the menu's sections.
+// - Find from any section, by a few letters or the number guests order by; a scanner still scans.
+// - Tap to add, tap again for one more; the count on the tile. Sold out, outside its hours, and "3 left" on the tile.
+// - Bigger tiles, or more to a screen, kept on this device.
+import * as React from 'react';
+import { MOST_ID, MOST_MIN, MOST_TAB, TILE_SIZE_KEY, findTiles, fullOf, leftOf, priceOf, sizeOf, type TileItem, type TileSize } from '@/lib/register-tiles';
+import { outWords } from '@/lib/menu-stock';
+
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+
+type Props<T extends TileItem> = {
+  items: T[]; most: string[] | null; counts: Record<string, number>;
+  /** The tab picked (null: the first, Most sold now when there is one). */
+  section: string | null; onSection: (s: string | null) => void;
+  /** The item being added right now; `locked`: nothing can be added (the guest is paying). */
+  busyId: string | null; locked?: boolean;
+  onTap: (m: T) => void;
+  /** The lane screen, read at arm's length: bigger type and tabs. */
+  place: 'counter' | 'lane';
+};
+
+export function RegisterTiles<T extends TileItem>({ items, most, counts, section, onSection, busyId, locked, onTap, place }: Props<T>) {
+  const [q, setQ] = React.useState('');
+  const [size, setSize] = React.useState<TileSize>('big');
+  React.useEffect(() => { try { setSize(sizeOf(localStorage.getItem(TILE_SIZE_KEY))); } catch { /* private window */ } }, []);
+  const pickSize = (s: TileSize) => { setSize(s); try { localStorage.setItem(TILE_SIZE_KEY, s); } catch { /* private window */ } };
+  const lane = place === 'lane'; const big = size === 'big';
+
+  const byId = React.useMemo(() => new Map(items.map((m) => [m.id, m])), [items]);
+  const mostItems = React.useMemo(() => (most || []).map((id) => byId.get(id)).filter((m): m is T => !!m), [most, byId]);
+  const sections = React.useMemo(() => Array.from(new Set(items.map((m) => m.section))), [items]);
+  const tabs = mostItems.length >= MOST_MIN ? [MOST_ID, ...sections] : sections;
+  const shown = section && tabs.includes(section) ? section : tabs[0] || null;
+  const finding = q.trim().length > 0;
+  const list = finding ? findTiles(items, q) : shown === MOST_ID ? mostItems : items.filter((m) => m.section === shown);
+  const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  // (Arrow keys move along the tabs, as tabs do.)
+  const tabKey = (e: React.KeyboardEvent, i: number) => {
+    const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
+    if (to === null) return; e.preventDefault(); const j = (to + tabs.length) % tabs.length; onSection(tabs[j]); tabRefs.current[j]?.focus();
+  };
+  // Enter in Find: the one item found goes on the order, and the box clears for the next (a scan into the box is the
+  // scanner's, and clears it too).
+  const findKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { setQ(''); return; }
+    if (e.key !== 'Enter') return;
+    const scanned = e.nativeEvent.defaultPrevented; e.preventDefault();
+    if (scanned) { setQ(''); return; }
+    const hits = findTiles(items, q); const one = hits.length === 1 ? hits[0] : null;
+    if (one && !(one.off || outWords(one)) && !locked && busyId !== one.id) { onTap(one); setQ(''); }
+  };
+  const withPhotos = items.some((m) => !!m.imageUrl);
+
+  const cols = withPhotos
+    ? big ? (lane ? 'grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3') : (lane ? 'grid-cols-3 sm:grid-cols-4 2xl:grid-cols-5' : 'grid-cols-3 sm:grid-cols-4 xl:grid-cols-5')
+    : big ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-3 sm:grid-cols-4 xl:grid-cols-5';
+  const tabH = lane ? 'min-h-[48px] px-5 text-[15px]' : 'min-h-[44px] px-4 text-[14px]';
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <label htmlFor={`find-${place}`} className="sr-only">Find on the menu</label>
+          <input id={`find-${place}`} type="text" inputMode="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={findKey} placeholder="Find, or scan" autoComplete="off" enterKeyHint="search" data-scan-field
+            className={`h-11 w-full rounded-full pl-10 pr-11 text-[15px] ${RING}`} style={{ background: lane ? '#fff' : SOFT, color: INK, border: `1px solid ${lane ? LINE : SOFT}` }} />
+          <svg aria-hidden viewBox="0 0 20 20" className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2" fill="none" stroke={MUTED} strokeWidth="1.8" strokeLinecap="round"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M13 13l4 4" /></svg>
+          {finding && <button type="button" onClick={() => setQ('')} aria-label="Clear" className={`absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-full text-[19px] ${RING}`} style={{ color: MUTED }}>×</button>}
+        </div>
+        <button type="button" onClick={() => pickSize(big ? 'compact' : 'big')} aria-label={big ? 'More tiles to a screen' : 'Bigger tiles'} title={big ? 'More tiles to a screen' : 'Bigger tiles'}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: lane ? '#fff' : SOFT, color: INK, border: lane ? `1px solid ${LINE}` : undefined }}>
+          {big
+            ? <svg aria-hidden viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill={INK}>{[0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={2 + c * 6} y={2 + r * 6} width="4.4" height="4.4" rx="1.2" />))}</svg>
+            : <svg aria-hidden viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill={INK}>{[0, 1].flatMap((r) => [0, 1].map((c) => <rect key={`${r}${c}`} x={2 + c * 9} y={2 + r * 9} width="7" height="7" rx="1.8" />))}</svg>}
+        </button>
+      </div>
+
+      {finding
+        ? <p className="text-[13.5px]" style={{ color: MUTED }} role="status">{list.length ? `${list.length} found` : 'Nothing on the menu matches. Try fewer letters.'}</p>
+        : tabs.length > 1 && <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Menu sections">
+          {tabs.map((s, i) => <button key={s} ref={(el) => { tabRefs.current[i] = el; }} type="button" role="tab" id={`tab-${place}-${i}`} aria-selected={s === shown} aria-controls={`tiles-${place}`} tabIndex={s === shown ? 0 : -1} onClick={() => onSection(s)} onKeyDown={(e) => tabKey(e, i)}
+            className={`${tabH} shrink-0 rounded-full font-semibold ${RING}`} style={s === shown ? { background: INK, color: '#fff' } : { background: lane ? '#fff' : SOFT, color: INK, border: lane ? `1px solid ${LINE}` : undefined }}>{s === MOST_ID ? MOST_TAB : s}</button>)}
+        </div>}
+
+      <div className={`grid gap-2.5 ${lane ? 'sm:gap-3' : ''} ${cols}`} id={`tiles-${place}`} role="tabpanel" aria-label={finding ? 'Found' : shown === MOST_ID ? MOST_TAB : shown || 'Menu'}>
+        {list.map((m) => <Tile key={m.id} m={m} n={counts[m.id] || 0} busy={busyId === m.id} locked={!!locked} photos={withPhotos} big={big} lane={lane} onTap={() => onTap(m)} />)}
+      </div>
+    </div>
+  );
+}
+
+function Tile<T extends TileItem>({ m, n, busy, locked, photos, big, lane, onTap }: { m: T; n: number; busy: boolean; locked: boolean; photos: boolean; big: boolean; lane: boolean; onTap: () => void }) {
+  // Switched to sold out, an ingredient run out, none left of it (lib/menu-stock), or outside its hours ("Breakfast, from
+  // 7 AM"), said as such; a few left, said too.
+  const why = m.off || outWords(m); const out = !!why; const left = out ? null : leftOf(m);
+  const price = <>{m.from ? 'from ' : ''}{m.happy ? <><s>{usd(fullOf(m))}</s> <span style={{ color: AMBER }}>{usd(priceOf(m))}</span></> : usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}` : ''}</>;
+  const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.byWeight ? ` a ${m.byWeight}, weighed` : ''}${m.happy ? ', happy hour' : ''}${why ? `, ${why.toLowerCase()}` : ''}${left ? `, ${left} left` : ''}${n ? `, ${n} on the order` : ''}`;
+  const num = m.number ? <span className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12.5px] font-semibold tabular-nums" style={{ background: LINE, color: INK }} aria-hidden>{m.number}</span> : null;
+  const nameSize = big ? (lane ? 'text-[16px]' : 'text-[15px]') : 'text-[14px]';
+  const small = big ? 'text-[14px]' : 'text-[13px]';
+  const count = n > 0 && <span className={`absolute right-2 top-2 flex items-center justify-center rounded-full px-1.5 font-semibold tabular-nums ${big ? 'h-8 min-w-[32px] text-[15px]' : 'h-7 min-w-[28px] text-[13.5px]'}`} style={{ background: INK, color: '#fff', boxShadow: '0 0 0 2px #fff' }}>{n}</span>;
+  const leftTag = left !== null && <span className="rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{left} left</span>;
+  const edge = { border: `${n ? 2 : 1}px solid ${n ? INK : LINE}` };
+  const cls = `relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:active:scale-100 ${RING}`;
+
+  // A photo: the item as it looks, its name and price under it (on the lane screen, its price under its name, as every
+  // tile there is narrow; at the counter beside it, and under it when there isn't room).
+  if (photos && m.imageUrl) return (
+    <button type="button" disabled={out || busy || locked} onClick={onTap} aria-label={label} className={cls} style={{ ...edge, background: '#fff', padding: n ? 4 : 5 }}>
+      <span className="relative block aspect-[16/10] w-full overflow-hidden rounded-xl" style={{ background: SOFT }}>
+        <img src={m.imageUrl} alt="" draggable={false} loading="lazy" className="h-full w-full object-cover" style={out ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
+        {leftTag && <span className="absolute left-2 top-2">{leftTag}</span>}
+      </span>
+      <span className={`flex flex-1 content-start gap-x-2 gap-y-0.5 px-2 ${lane ? 'flex-col' : 'flex-wrap items-baseline justify-between'} ${big ? 'pb-2 pt-2.5' : 'pb-1.5 pt-2'}`}>
+        <span className={`${nameSize} font-semibold leading-snug`} style={{ color: out ? MUTED : INK }}>{num}{m.name}</span>
+        <span className={`${small} tabular-nums`} style={{ color: MUTED }}>{out ? why : price}</span>
+      </span>
+      {count}
+    </button>
+  );
+  // Its name alone: no photo (beside photos, as tall as the row), or a menu without photos (the most to a screen).
+  return (
+    <button type="button" disabled={out || busy || locked} onClick={onTap} aria-label={label} className={cls}
+      style={{ ...edge, background: out ? SOFT : '#fff', padding: big ? (n ? 13 : 14) : (n ? 10 : 11), minHeight: big ? (lane ? 96 : 84) : 72 }}>
+      <span className={`pr-8 ${nameSize} font-semibold leading-snug`} style={{ color: out ? MUTED : INK }}>{num}{m.name}</span>
+      <span className={`mt-auto flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-2 ${small} tabular-nums`} style={{ color: MUTED }}>
+        <span>{out ? why : price}</span>{leftTag}
+      </span>
+      {count}
+    </button>
+  );
+}

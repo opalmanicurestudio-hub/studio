@@ -420,6 +420,8 @@ export async function POST(req: NextRequest) {
         // (lib/menu-time): ordering it then is refused anyway (lib/counter-orders lineFor).
         menu: menu.filter((m) => m.onMenu).map((m) => { const s = servedNow(m, tenant, now); const p = priceNow(m, tenant, now);
           return { ...m, number: laneNums.get(m.id) ?? null, off: s.ok ? null : s.when, priceNow: p.price, happy: p.happy }; }),
+        // What sells at this hour, most sold first (lib/register-tiles-server): the register's first tab.
+        most: await (await import('@/lib/register-tiles-server')).mostSoldNow(db, tenantId, tz, menu.filter((m) => m.onMenu).map((m) => m.id), now).catch(() => null),
         // Orders placed ahead for the drive-thru, paid and not picked up yet (lib/counter-ahead): those on their way first.
         // (Even with ordering ahead switched off since: an order already paid is still picked up.)
         ahead: channel !== 'drive-thru' ? [] : (await aheadForLane(db, tenantId, tenant).catch((e: any) => { console.error('[counter] orders placed ahead not read', e?.message); return []; })).filter((o: any) => atHere(o, here)),
