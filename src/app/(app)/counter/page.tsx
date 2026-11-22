@@ -34,6 +34,8 @@ import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
 import { RefundFind } from '@/components/pos/CounterRefund';
+import { CodeOnSheet } from '@/components/pos/CounterScan';
+import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -194,6 +196,8 @@ export default function CounterPage() {
   // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
+  // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
+  const [codeFor, setCodeFor] = useState<string | null>(null);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -281,6 +285,17 @@ export default function CounterPage() {
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
   const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item') => order && act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}) },
     (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)));
+  // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
+  // like a tap; one with choices opens them; one on nothing yet asks which item it is.
+  const scan = (code: string) => {
+    if (!order || order.status !== 'building') { setNotice({ text: order ? `${order.number} has gone to the kitchen. Tap Next guest, then scan.` : 'Tap Next guest first, then scan.', tone: 'warn' }); return; }
+    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: rid() }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), (d) => {
+      if (d.code === 'choices') { const m = menu.find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); return true; } }
+      if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); return true; }
+      return false;
+    });
+  };
+  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !choiceFor && !discountPin && !partPin, { layer: 'background' });
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: Item) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => order && just && act('size', { action: 'sizeUp', orderId: order.id, lineId: just.lineId, quantity: just.quantity, tapKey: rid() },
@@ -579,6 +594,7 @@ export default function CounterPage() {
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
+    {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}

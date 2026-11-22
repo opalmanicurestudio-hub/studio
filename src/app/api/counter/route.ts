@@ -152,6 +152,7 @@ import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { takePart, undoPart, setSplit } from '@/lib/counter-split-server';
 import { previewRefund, refundCounterOrder, cleanAsk } from '@/lib/counter-refund-server';
 import { refundLeftOf, cantRefund, unitsLeftOf } from '@/lib/counter-refund';
+import { scanToOrder, codeOnItem } from '@/lib/counter-scan-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -179,7 +180,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -218,7 +219,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -1023,6 +1024,23 @@ export async function POST(req: NextRequest) {
       return ok({ due: r.due, cents: r.cents, kind: r.kind || null, machine: !!r.machine, fromDrawer: !!r.fromDrawer, already: !!r.already, staffOk });
     }
 
+    // A barcode scanned (lib/counter-scan-server; design board "Register tools"): the menu item it's on, added like a tap;
+    // one on no item yet put on one, a manager's.
+    if (action === 'scan') {
+      const r: any = await scanToOrder(db, tenantId, tenant, orderId, b.code, b.tapKey);
+      return r.ok ? ok({ order: r.order, line: r.line, name: r.name, pack: r.pack, staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, itemId: r.itemId || null, scanned: r.scanned || null, staffOk }, { status: r.status });
+    }
+    if (action === 'codeOn') {
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'Putting a code on an item takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await codeOnItem(db, tenantId, tenant, orderId, b.code, String(b.itemId || ''), m.approver.name, b.tapKey);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      await logAuditAdmin(db, tenantId, { action: 'counter.codeOn', targetType: 'inventory', targetId: String(b.itemId || ''), summary: `${m.approver.name} put code ••${r.codeEnd || ''} on ${r.item || 'an item'} at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}. It scans everywhere now.`,
+        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      return ok({ order: r.order || null, line: r.line || null, name: r.name || null, learned: r.learned, after: r.after || null, staffOk });
+    }
     if (action === 'add' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
       const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }
         : action === 'sizeUp' ? { action, lineId: String(b.lineId || ''), quantity: b.quantity, tapKey: b.tapKey }

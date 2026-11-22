@@ -36,6 +36,8 @@ import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/po
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
 import { RefundFind } from '@/components/pos/CounterRefund';
+import { CodeOnSheet } from '@/components/pos/CounterScan';
+import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -304,6 +306,8 @@ export default function DriveThru() {
   // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders on this side, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
+  // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
+  const [codeFor, setCodeFor] = useState<string | null>(null);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
@@ -527,6 +531,16 @@ export default function DriveThru() {
     void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig), ...(offer ? { offer } : {}) },
       (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: forOrder, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)), sig);
   };
+  // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
+  // to the order being taken like a tap; one with choices opens them; one on nothing yet asks which item it is.
+  const scan = (code: string) => {
+    if (!order || order.status !== 'building') { setNotice({ text: 'Scan while an order is being taken.', tone: 'warn' }); return; }
+    void act('scan', { action: 'scan', orderId: order.id, code, tapKey: keyFor(`scan|${order.id}|${code}|${Date.now()}`) }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), undefined, (d) => {
+      if (d.code === 'choices') { const m = (lane?.menu || []).find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); } }
+      else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
+    });
+  };
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
@@ -1195,6 +1209,7 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={lane?.menu || []} call={refundCall} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); load(); }} />}
       {refundOpen && <RefundFind call={refundCall} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); load(); }} />}
       {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
       {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
