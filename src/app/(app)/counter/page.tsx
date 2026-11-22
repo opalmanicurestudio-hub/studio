@@ -49,7 +49,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { RegisterTiles } from '@/components/pos/RegisterTiles';
-import { priceOf } from '@/lib/register-tiles';
+import { priceOf, type TileSetup } from '@/lib/register-tiles';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -144,7 +144,9 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   /** The delivery apps it takes orders from (lib/app-orders), for App order. */
   apps?: { code: string; label: string }[];
   /** What sells at this hour, most sold first (lib/register-tiles-server): the tiles' first tab. */
-  most?: string[] | null };
+  most?: string[] | null;
+  /** How the business arranges the tiles (lib/register-tiles TileSetup). */
+  tiles?: TileSetup | null };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
 /** What an item costs right now ("from" its cheapest choices), happy hour included. */
@@ -499,7 +501,7 @@ export default function CounterPage() {
           {guest?.stage === 'pay' && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>{guest.number} is with the kitchen. Take payment, or tap Next guest to start another order.</p>}
           {!lane ? <p className="py-10 text-center text-[14px]" style={{ color: MUTED }}>Reading the menu…</p>
             : menu.length === 0 ? <p className="rounded-2xl px-4 py-10 text-center text-[14.5px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-            : <RegisterTiles items={menu} most={lane.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} onHold={hold} place="counter" />}
+            : <RegisterTiles items={menu} most={lane.most || null} setup={lane.tiles || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} locked={guest?.stage === 'pay'} onTap={tap} onHold={hold} place="counter" />}
           {lane && order?.status === 'building' && guest?.stage !== 'pay' && ((lane.oneOffMax ?? 0) > 0 || lane.gift) && <div className="flex flex-wrap gap-2">
             {(lane.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
             {lane.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-w-[12rem] flex-1 text-[14.5px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}

@@ -114,6 +114,7 @@
 // Part of Lounge & hospitality: closed while it isn't part of the plan (lib/tool-lock).
 import { bizLocationsOf, hereFor, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
+import { tileSetupOf } from '@/lib/register-tiles';
 import { daypartNow, happyHourOf, inHappyHour, priceNow, servedNow, timeWords } from '@/lib/menu-time';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -422,6 +423,10 @@ export async function POST(req: NextRequest) {
           return { ...m, number: laneNums.get(m.id) ?? null, off: s.ok ? null : s.when, priceNow: p.price, happy: p.happy }; }),
         // What sells at this hour, most sold first (lib/register-tiles-server): the register's first tab.
         most: await (await import('@/lib/register-tiles-server')).mostSoldNow(db, tenantId, tz, menu.filter((m) => m.onMenu).map((m) => m.id), now).catch(() => null),
+        // How the business arranges the tiles (lib/register-tiles TileSetup): the look, the order, pinned and hidden.
+        // (Only ids on the menu now: a long-gone item never rides along on every look.)
+        tiles: (() => { const onMenu = new Set(menu.filter((m) => m.onMenu).map((m) => m.id)); const t = tileSetupOf(tenant);
+          return { ...t, order: t.order.filter((x) => onMenu.has(x)), pinned: t.pinned.filter((x) => onMenu.has(x)), hidden: t.hidden.filter((x) => onMenu.has(x)) }; })(),
         // Orders placed ahead for the drive-thru, paid and not picked up yet (lib/counter-ahead): those on their way first.
         // (Even with ordering ahead switched off since: an order already paid is still picked up.)
         ahead: channel !== 'drive-thru' ? [] : (await aheadForLane(db, tenantId, tenant).catch((e: any) => { console.error('[counter] orders placed ahead not read', e?.message); return []; })).filter((o: any) => atHere(o, here)),

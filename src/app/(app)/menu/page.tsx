@@ -26,6 +26,8 @@ import { OrderAheadCard, type AheadSettings } from '@/components/menu/OrderAhead
 import { AppOrdersCard, type AppSettings } from '@/components/menu/AppOrdersCard';
 import { CounterMoneyCard, type MoneySettings } from '@/components/menu/CounterMoneyCard';
 import { OneOffCard, type OneOffSettings } from '@/components/menu/OneOffCard';
+import { TilesCard } from '@/components/menu/TilesCard';
+import type { TileSetup } from '@/lib/register-tiles';
 import { ScaleLabelsCard } from '@/components/menu/ScaleLabelsCard';
 import type { ScaleSet } from '@/lib/scale-label';
 import { LaneEntrySettings, type SensorRow, type EarlyMode } from '@/components/menu/LaneEntrySettings';
@@ -104,6 +106,8 @@ export default function MenuPage() {
   const [moneySet, setMoneySet] = useState<MoneySettings | null>(null);
   // Something not on the menu at the counter (components/menu/OneOffCard).
   const [oneOffSet, setOneOffSet] = useState<OneOffSettings | null>(null);
+  // How the register's tiles are arranged (components/menu/TilesCard).
+  const [tilesSet, setTilesSet] = useState<TileSetup | null>(null);
   // Scale labels at the counter (components/menu/ScaleLabelsCard).
   const [scaleSet, setScaleSet] = useState<ScaleSet | null>(null);
   const [timesOpen, setTimesOpen] = useState(false);
@@ -123,7 +127,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -232,6 +236,7 @@ export default function MenuPage() {
         {canEdit && apps && <div id="delivery-apps" className="scroll-mt-6"><AppOrdersCard start={apps} call={call} /></div>}
         {canEdit && moneySet && <div id="tips-discounts" className="scroll-mt-6"><CounterMoneyCard start={moneySet} call={call} /></div>}
         {canEdit && oneOffSet && <div id="not-on-menu" className="scroll-mt-6"><OneOffCard start={oneOffSet} call={call} /></div>}
+        {canEdit && tilesSet && menu && <div id="register-tiles" className="scroll-mt-6"><TilesCard start={tilesSet} items={menu} call={call} /></div>}
         {canEdit && scaleSet && <div id="scale-labels" className="scroll-mt-6"><ScaleLabelsCard start={scaleSet} call={call} /></div>}
         {canEdit && times && <div id="menu-times" className="scroll-mt-6"><MenuTimesCard start={times} onSave={async (next) => { const d = await call({ action: 'times', ...next }); if (d.ok) { setTimes({ dayparts: d.dayparts, happyHour: d.happyHour }); return null; } return d.error || 'That didn’t save.'; }} /></div>}
         {canEdit && service && <div id="table-service" className="scroll-mt-6"><TableServiceSettings service={service} onSave={async (next) => { const d = await call({ action: 'service', ...next }); if (d.ok) { setService(d.service); return null; } return d.error || 'That didn’t save.'; }} /></div>}

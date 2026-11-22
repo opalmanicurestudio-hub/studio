@@ -31,7 +31,7 @@
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts,
 //             and upgrades { size, items }: what's offered at the end, once it's added (lib/menu-upgrades).
-//   laneSettings { tenantId, spots | pickupOnly | readyTexts | tips | discounts } → managers: how many numbered pull-forward spots the drive-thru
+//   laneSettings { tenantId, spots | pickupOnly | readyTexts | tips | discounts | tiles } → managers: how many numbered pull-forward spots the drive-thru
 //             has (1 to 8), whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker), or
 //             whether guests can ask for a text when their order is ready (lib/ready-text)
 //             (scaleLabels { on?, holds?, digits?, unit? }: how the business's scale prints its stickers, lib/scale-label;
@@ -216,6 +216,8 @@ export async function POST(req: NextRequest) {
       return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
         // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
         oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null,
+        // How the register's tiles are arranged (lib/register-tiles): for the Register tiles card.
+        tiles: canEdit ? (await import('@/lib/register-tiles')).tileSetupOf(td) : null,
         // Scale labels (lib/scale-label): how the business's scale prints its stickers.
         scale: canEdit ? scaleSetOf(td) : null, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
@@ -429,6 +431,24 @@ export async function POST(req: NextRequest) {
       if (typeof b.readyTexts === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ readyTexts: { off: !b.readyTexts } }, { merge: true });
         return ok({ lane: { readyTexts: b.readyTexts } });
+      }
+      // How the register's tiles are arranged (lib/register-tiles; components/menu/TilesCard): the look, the order, pinned
+      // and hidden, among the menu's own items. Read and written in one go, so two managers' saves never lose the other's.
+      // (Only an item not in it yet is looked up, to be sure it's one of the business's: a drag reads nothing more.)
+      if (b.tiles && typeof b.tiles === 'object') {
+        const { cleanTileSetup, tileSetupOf } = await import('@/lib/register-tiles');
+        const was = tileSetupOf(td); const known = new Set<string>([...was.order, ...was.pinned, ...was.hidden]);
+        const asked = Array.from(new Set((['order', 'pinned', 'hidden'] as const).flatMap((k) => (Array.isArray(b.tiles[k]) ? b.tiles[k].map(String) : [])).filter((x: string) => /^[A-Za-z0-9_-]{1,128}$/.test(x) && !known.has(x)))).slice(0, 1000);
+        const found = asked.length ? (await db.getAll(...asked.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`)))).filter((s: any) => s.exists).map((s: any) => String(s.id)) : [];
+        const ids = new Set<string>([...known, ...found]);
+        const r: any = await db.runTransaction(async (tx: any) => {
+          const now: any = (await tx.get(db.doc(`tenants/${tenantId}`))).data() || {};
+          const next = cleanTileSetup(b.tiles, ids, tileSetupOf(now)); if ('error' in next) return next;
+          tx.set(db.doc(`tenants/${tenantId}`), { registerTiles: { ...next, updatedAt: new Date().toISOString() } }, { merge: true });
+          return next;
+        });
+        if ('error' in r) return bad(r.error);
+        return ok({ lane: { tiles: r } });
       }
       // Tips at the counter (lib/counter-money): on or off, the three percents, and the drive-thru too.
       if (b.tips && typeof b.tips === 'object') {

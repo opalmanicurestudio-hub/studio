@@ -69,6 +69,45 @@ export function findTiles<T extends Pick<TileItem, 'name' | 'number'>>(items: T[
 /** Pressed this long, a tile opens its choices and a note instead of adding it. */
 export const HOLD_MS = 450;
 
+/** How the business arranges its tiles (tenants/{t}.registerTiles; design board "Arrange tiles", A: a list on the Menu
+ *  page; components/menu/TilesCard): photo tiles or names only; the order the crew reaches for them (item ids; any not
+ *  in it follow in the menu's order); favorites pinned to lead Most sold now and their section; and items hidden from
+ *  the tiles (still on the menu, the kiosk and online, and still found by Find or a scan). The same on every screen. */
+export type TileSetup = { look: 'photos' | 'names'; order: string[]; pinned: string[]; hidden: string[] };
+export const PIN_MAX = 6;
+const IDS = (v: unknown, max: number) => (Array.isArray(v) ? Array.from(new Set(v.map(String).filter((x) => /^[A-Za-z0-9_-]{1,128}$/.test(x)))).slice(0, max) : []);
+/** The business's, as kept (nothing set: photos when there are some, the menu's order, nothing pinned or hidden). */
+export function tileSetupOf(tenant: any): TileSetup {
+  const t = tenant?.registerTiles || {};
+  return { look: t.look === 'names' ? 'names' : 'photos', order: IDS(t.order, 1000), pinned: IDS(t.pinned, PIN_MAX), hidden: IDS(t.hidden, 1000) };
+}
+/** A change from a manager, among the menu's items (`ids`): kept to those items, at most PIN_MAX pinned, and an item
+ *  pinned or hidden, never both (the later word wins: pinning shows it, hiding unpins it). */
+export function cleanTileSetup(b: any, ids: Set<string>, was: TileSetup): TileSetup | { error: string } {
+  if (!b || typeof b !== 'object') return { error: 'Nothing to save.' };
+  if (b.look !== undefined && b.look !== 'photos' && b.look !== 'names') return { error: 'Photo tiles, or names only.' };
+  const keep = (v: unknown, max: number) => IDS(v, max).filter((x) => ids.has(x));
+  const out: TileSetup = { look: b.look ?? was.look, order: b.order !== undefined ? keep(b.order, 1000) : was.order.filter((x) => ids.has(x)),
+    pinned: b.pinned !== undefined ? keep(b.pinned, 1000) : was.pinned.filter((x) => ids.has(x)), hidden: b.hidden !== undefined ? keep(b.hidden, 1000) : was.hidden.filter((x) => ids.has(x)) };
+  if (out.pinned.length > PIN_MAX) return { error: `Up to ${PIN_MAX} pinned. Unpin one first.` };
+  if (b.pinned !== undefined) out.hidden = out.hidden.filter((x) => !out.pinned.includes(x));
+  else out.pinned = out.pinned.filter((x) => !out.hidden.includes(x));
+  return out;
+}
+/** The tiles in the business's order: hidden ones left out, pinned ones first, then the order set, then the rest as on
+ *  the menu. */
+export function arranged<T extends { id: string }>(items: T[], setup: TileSetup | null | undefined): T[] {
+  if (!setup) return items;
+  const hid = new Set(setup.hidden); const pin = new Map(setup.pinned.map((id, i) => [id, i])); const at = new Map(setup.order.map((id, i) => [id, i]));
+  const rank = (m: T, i: number) => [pin.has(m.id) ? 0 : 1, pin.get(m.id) ?? at.get(m.id) ?? 1e6, i] as const;
+  return items.map((m, i) => ({ m, k: rank(m, i) })).filter((x) => !hid.has(x.m.id)).sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map((x) => x.m);
+}
+/** Most sold now with the favorites: those pinned first, then what sells at this hour, a screen of them at most. */
+export const mostWithPinned = (most: string[] | null | undefined, setup: TileSetup | null | undefined): string[] => {
+  const pinned = setup?.pinned || []; const hid = new Set(setup?.hidden || []);
+  return Array.from(new Set([...pinned, ...(most || []).filter((id) => !hid.has(id))])).slice(0, MOST_MAX);
+};
+
 /** Tile size, kept on the device. */
 export type TileSize = 'big' | 'compact';
 export const TILE_SIZE_KEY = 'cf.register.tileSize';

@@ -29,7 +29,7 @@ import { readBack, timeLeft, CAR_COLORS, CAR_KINDS } from '@/lib/counter-orders'
 import { byWindow, laneOf } from '@/lib/drive-lanes';
 import { outWords } from '@/lib/menu-stock';
 import { RegisterTiles } from '@/components/pos/RegisterTiles';
-import { priceOf } from '@/lib/register-tiles';
+import { priceOf, type TileSetup } from '@/lib/register-tiles';
 import { allergyWords, conflictWords, dishConflict } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, NoteField, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
@@ -96,6 +96,8 @@ type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceN
 type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
   /** What sells at this hour, most sold first (lib/register-tiles-server): the tiles' first tab. */
   most?: string[] | null;
+  /** How the business arranges the tiles (lib/register-tiles TileSetup). */
+  tiles?: TileSetup | null;
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
   merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Something not on the menu (lib/counter-oneoff): up to how much, 0 when it isn't offered. */
@@ -1065,7 +1067,7 @@ export default function DriveThru() {
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="min-w-0 space-y-3">
                     {menu.length === 0 ? <p className="rounded-2xl bg-[#fff] px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Nothing is on the menu yet. A manager can add items on the Menu page.</p>
-                      : <RegisterTiles items={menu} most={lane?.most || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} onTap={tapItem} onHold={holdItem} place="lane" />}
+                      : <RegisterTiles items={menu} most={lane?.most || null} setup={lane?.tiles || null} counts={onOrder} section={section} onSection={setSection} busyId={busy?.startsWith('add-') ? busy.slice(4) : null} onTap={tapItem} onHold={holdItem} place="lane" />}
                     {((lane?.oneOffMax ?? 0) > 0 || lane?.gift) && order?.status === 'building' && <div className="mt-3 flex flex-wrap gap-2">
                       {(lane?.oneOffMax ?? 0) > 0 && <button type="button" onClick={() => setOneOffOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Another item, not on the menu</button>}
                       {lane?.gift && <button type="button" onClick={() => setGiftOpen(true)} className={`${btn} min-h-[52px] min-w-[12rem] flex-1 text-[15px]`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>A gift card</button>}

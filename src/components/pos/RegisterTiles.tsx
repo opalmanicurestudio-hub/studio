@@ -9,7 +9,7 @@
 //   a note. Sold out, outside its hours, and "3 left" on the tile.
 // - Bigger tiles, or more to a screen, kept on this device.
 import * as React from 'react';
-import { HOLD_MS, MOST_ID, MOST_MIN, MOST_TAB, TILE_SIZE_KEY, findTiles, fullOf, leftOf, priceOf, sizeOf, type TileItem, type TileSize } from '@/lib/register-tiles';
+import { HOLD_MS, MOST_ID, MOST_MIN, MOST_TAB, TILE_SIZE_KEY, arranged, findTiles, fullOf, leftOf, mostWithPinned, priceOf, sizeOf, type TileItem, type TileSetup, type TileSize } from '@/lib/register-tiles';
 import { outWords } from '@/lib/menu-stock';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -27,11 +27,13 @@ type Props<T extends TileItem> = {
   onTap: (m: T) => void;
   /** Pressed and held: its choices and a note, before it goes on the order. */
   onHold?: (m: T) => void;
+  /** How the business arranges them (lib/register-tiles TileSetup): the look, the order, pinned and hidden. */
+  setup?: TileSetup | null;
   /** The lane screen, read at arm's length: bigger type and tabs. */
   place: 'counter' | 'lane';
 };
 
-export function RegisterTiles<T extends TileItem>({ items, most, counts, section, onSection, busyId, locked, onTap, onHold, place }: Props<T>) {
+export function RegisterTiles<T extends TileItem>({ items, most, counts, section, onSection, busyId, locked, onTap, onHold, setup, place }: Props<T>) {
   const [q, setQ] = React.useState('');
   const [size, setSize] = React.useState<TileSize>('big');
   React.useEffect(() => { try { setSize(sizeOf(localStorage.getItem(TILE_SIZE_KEY))); } catch { /* private window */ } }, []);
@@ -39,12 +41,14 @@ export function RegisterTiles<T extends TileItem>({ items, most, counts, section
   const lane = place === 'lane'; const big = size === 'big';
 
   const byId = React.useMemo(() => new Map(items.map((m) => [m.id, m])), [items]);
-  const mostItems = React.useMemo(() => (most || []).map((id) => byId.get(id)).filter((m): m is T => !!m), [most, byId]);
-  const sections = React.useMemo(() => Array.from(new Set(items.map((m) => m.section))), [items]);
+  // (In the business's order, pinned first, hidden ones left out: Find and a scan still reach those.)
+  const shownItems = React.useMemo(() => arranged(items, setup), [items, setup]);
+  const mostItems = React.useMemo(() => mostWithPinned(most, setup).map((id) => byId.get(id)).filter((m): m is T => !!m), [most, setup, byId]);
+  const sections = React.useMemo(() => Array.from(new Set(shownItems.map((m) => m.section))), [shownItems]);
   const tabs = mostItems.length >= MOST_MIN ? [MOST_ID, ...sections] : sections;
   const shown = section && tabs.includes(section) ? section : tabs[0] || null;
   const finding = q.trim().length > 0;
-  const list = finding ? findTiles(items, q) : shown === MOST_ID ? mostItems : items.filter((m) => m.section === shown);
+  const list = finding ? findTiles(items, q) : shown === MOST_ID ? mostItems : shownItems.filter((m) => m.section === shown);
   const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
   // (Arrow keys move along the tabs, as tabs do.)
   const tabKey = (e: React.KeyboardEvent, i: number) => {
@@ -61,7 +65,7 @@ export function RegisterTiles<T extends TileItem>({ items, most, counts, section
     const hits = findTiles(items, q); const one = hits.length === 1 ? hits[0] : null;
     if (one && !(one.off || outWords(one)) && !locked && busyId !== one.id) { onTap(one); setQ(''); }
   };
-  const withPhotos = items.some((m) => !!m.imageUrl);
+  const withPhotos = setup?.look !== 'names' && items.some((m) => !!m.imageUrl);
 
   const cols = withPhotos
     ? big ? (lane ? 'grid-cols-2 sm:grid-cols-3 2xl:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3') : (lane ? 'grid-cols-3 sm:grid-cols-4 2xl:grid-cols-5' : 'grid-cols-3 sm:grid-cols-4 xl:grid-cols-5')
@@ -96,6 +100,7 @@ export function RegisterTiles<T extends TileItem>({ items, most, counts, section
       <div className={`grid gap-2.5 ${lane ? 'sm:gap-3' : ''} ${cols}`} id={`tiles-${place}`} role="tabpanel" aria-label={finding ? 'Found' : shown === MOST_ID ? MOST_TAB : shown || 'Menu'}>
         {list.map((m) => <Tile key={m.id} m={m} n={counts[m.id] || 0} busy={busyId === m.id} locked={!!locked} photos={withPhotos} big={big} lane={lane} onTap={() => onTap(m)} onHold={onHold ? () => onHold(m) : undefined} hint={`hold-${place}`} />)}
       </div>
+      {!finding && !list.length && items.length > 0 && <p className="rounded-2xl px-4 py-8 text-center text-[14.5px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>Everything here is hidden from the tiles. Find still adds any item, and a manager can bring tiles back on the Menu page.</p>}
       {onHold && list.length > 0 && <p id={`hold-${place}`} className="text-[13px]" style={{ color: MUTED }}>Press and hold a tile for its choices and a note (or Shift and Enter).</p>}
     </div>
   );
