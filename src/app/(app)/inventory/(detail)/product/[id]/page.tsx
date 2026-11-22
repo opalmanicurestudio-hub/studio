@@ -32,6 +32,8 @@ import { CountSheet } from '@/components/products/CountSheet';
 import { UseTestSheet, canTestUses, startUseTest } from '@/components/products/UseTestSheet';
 import { productFeatures } from '@/lib/product-features';
 import { YieldPanel } from '@/components/products/YieldPanel';
+import { StoreStockPanel } from '@/components/products/StoreStockPanel';
+import { businessLocations } from '@/lib/business-locations';
 import { recipeOf } from '@/lib/menu-stock';
 import { hasYield, perEachOf } from '@/lib/kitchen-units';
 import { makesWords, prepOf } from '@/lib/prep-recipes';
@@ -77,6 +79,8 @@ function Line({ k, v }: { k: React.ReactNode; v: React.ReactNode }) {
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
     const { inventory, locations, services, staff, isLoading: isInventoryLoading } = useInventory();
+    // With more than one location, what each store has (components/products/StoreStockPanel).
+    const severalStores = businessLocations(locations as any[]).length > 1;
     // Who a service-use entry was for: recent visits from the shared window, and just those visits' clients.
     const { appointments } = useAppointmentWindow();
     const usedForIds = useMemo(() => (appointments || []).map((a: any) => a.clientId).filter(Boolean), [appointments]);
@@ -488,6 +492,7 @@ export default function ProductDetailPage() {
                                         {variants.length > 4 ? <p className="m-0 pt-2 text-[14px]" style={muted}>and {variants.length - 4} more</p> : null}
                                     </Panel>
                                 )}
+                                {countable && !variantIds.length && p.costingMethod !== 'uses' && p.costingMethod !== 'size' && tenantId && severalStores && <StoreStockPanel tenantId={tenantId} itemId={String(p.id)} />}
                                 {countable && (
                                     <Panel title="Where it is">
                                         <p className="m-0 text-[15px]">{where.length ? where.join(', ') : <span style={muted}>No place set yet. Add one in Edit details so anyone can find it.</span>}</p>

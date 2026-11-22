@@ -1,0 +1,74 @@
+// src/lib/store-stock.ts — STOCK AT EACH STORE (pure; design board "Stock at each store, and tonight's counts at each
+// location"). With more than one location, an item can be counted at each one: `stockAt` keeps each location's own
+// number. `totalStock` stays the business's total, the one number every report and every older screen uses; what isn't
+// counted at a store yet is "Not at a store yet" (the total less the stores'). Until an item is counted at a store,
+// everything is there and the shop works as before.
+// - A count at a store: that store's number is what was counted. The first count takes what it found from "Not at a
+//   store yet" (and adds to the total only past it); a later one changes the total by the difference, except what was
+//   already taken off the total by a sale that didn't say where it was (`short`).
+// - A move: from one store to another, or from or to "Not at a store yet"; the total stays.
+// - Sold or used without a store (an older screen): the total goes down and the stores don't, so the stores can add up to
+//   more than the total for a while (`short`), until they're counted again.
+
+const ID = /^[A-Za-z0-9_-]{1,120}$/;
+const whole = (v: unknown) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? Math.min(n, 1_000_000) : 0; };
+
+export type Store = { id: string; name: string };
+export type StoreRowView = { id: string; name: string; count: number | null };
+export type StoreStockView = { total: number; stores: StoreRowView[]; unplaced: number; short: number; tracked: boolean };
+
+/** Each location's own number, as kept (only well-formed ids and whole numbers). */
+export function stockAtOf(item: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  const x = item?.stockAt;
+  if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) if (ID.test(k) && v !== null && v !== undefined && Number.isFinite(Number(v))) out[k] = whole(v);
+  return out;
+}
+
+/** What each of the business's stores has (only its current ones: a closed store's units are "Not at a store yet"). */
+export function storeView(item: any, stores: Store[]): StoreStockView {
+  const total = whole(item?.totalStock);
+  const at = stockAtOf(item);
+  const rows = stores.map((s) => ({ id: s.id, name: s.name, count: s.id in at ? at[s.id] : null }));
+  const counted = rows.reduce((n, r) => n + (r.count ?? 0), 0);
+  return { total, stores: rows, unplaced: Math.max(0, total - counted), short: Math.max(0, counted - total), tracked: rows.some((r) => r.count !== null) };
+}
+
+/** After a count of `n` at store `at`: the new total and each store's number. */
+/** Each current store's own number (a closed store's left out: its units are "Not at a store yet"). */
+const keptAt = (item: any, stores: Store[]) => Object.fromEntries(Object.entries(stockAtOf(item)).filter(([k]) => stores.some((s) => s.id === k)));
+
+export function afterCount(item: any, stores: Store[], at: string, n: number): { totalStock: number; stockAt: Record<string, number>; delta: number } {
+  const v = storeView(item, stores); const keep = keptAt(item, stores);
+  const old = v.stores.find((s) => s.id === at)?.count ?? null;
+  const count = whole(n);
+  let total = v.total;
+  if (old === null) total += Math.max(0, count - v.unplaced);
+  else { const d = count - old; total += d < 0 && v.short > 0 ? d + Math.min(v.short, -d) : d; }
+  return { totalStock: total, stockAt: { ...keep, [at]: count }, delta: total - v.total };
+}
+
+/** A move between stores (`none`: "Not at a store yet"). The total stays. */
+export function afterMove(item: any, stores: Store[], from: string, to: string, qty: number): { stockAt: Record<string, number> } | { error: string } {
+  const v = storeView(item, stores); const keep = keptAt(item, stores); const n = whole(qty);
+  if (!n) return { error: 'How many to move?' };
+  if (from === to) return { error: 'Pick two different places.' };
+  const known = (id: string) => id === 'none' || stores.some((s) => s.id === id);
+  if (!known(from) || !known(to)) return { error: 'Pick the stores again.' };
+  const has = from === 'none' ? v.unplaced : v.stores.find((s) => s.id === from)?.count ?? 0;
+  const where = from === 'none' ? 'Not at a store yet' : stores.find((s) => s.id === from)?.name || 'That store';
+  if (n > has) return { error: has ? `${where} has ${has}. Move ${has} or fewer.` : `${where} has none to move.` };
+  const next = { ...keep };
+  if (from !== 'none') next[from] = (next[from] ?? 0) - n;
+  if (to !== 'none') next[to] = (next[to] ?? 0) + n;
+  return { stockAt: next };
+}
+
+/** How many a store can sell now: its own number (never more than the business has), or with no number of its own yet,
+ *  the business's (as before stores were counted). `free`: what the business can sell (held and kept back taken off). */
+export function sellableAt(item: any, stores: Store[], at: string | null, free: number): number {
+  if (!at) return free;
+  const v = storeView(item, stores); if (!v.tracked) return free;
+  const mine = v.stores.find((s) => s.id === at)?.count;
+  return mine === null || mine === undefined ? 0 : Math.max(0, Math.min(mine, free));
+}
