@@ -1233,7 +1233,7 @@ export async function POST(req: NextRequest) {
       if (!r.already) await logMoney(db, tenantId, { action: action === 'price' ? 'counter.price' : 'counter.price_back', kind: 'price', targetType: 'order', targetId: orderId, where, by: who,
         okBy: r.approvedBy && m.approver && m.approver.id !== who.id ? m.approver : null, ref: r.order?.number || null,
         cents: action === 'price' ? Math.round(Math.abs(Number(r.from) - Number(r.to)) * (Number(r.qty) || 1) * 100) : null,
-        reason: action === 'price' ? `${Number(r.to) < Number(r.from) ? 'Lower' : 'Higher'}: ${String(b.reason || '').slice(0, 60)}` : 'Back at its menu price',
+        reason: action === 'price' ? `${String(b.reason || '').slice(0, 60)} (${Number(r.to) < Number(r.from) ? 'lower' : 'higher'})` : 'Back at its menu price',
         summary: action === 'price' ? `${r.qty} × ${r.name} at $${Number(r.to).toFixed(2)} (was $${Number(r.from).toFixed(2)}) on order ${r.order.number}${r.approvedBy && m.approver?.id !== who.id ? `, okayed by ${r.approvedBy}` : ''}: ${String(b.reason || '').slice(0, 60)}` : `${r.name} back at its menu price on order ${r.order.number}.` }, tenant);
       return ok({ order: r.order, name: r.name, qty: r.qty ?? null, from: r.from ?? null, to: r.to ?? null, back: !!r.back, approvedBy: r.approvedBy || null, already: !!r.already, staffOk });
     }

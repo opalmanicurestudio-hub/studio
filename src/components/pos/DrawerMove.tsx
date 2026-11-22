@@ -6,7 +6,7 @@
 // no sale (design board "Register tools, part 3", part 3): someone signed in here, with why, on its record. `call` posts to the screen's own api/counter with its own key. White surfaces are set
 // inline, so the app's black look (lib/app-theme) takes them over.
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { PinPad } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle } from '@/components/kitchen/PinPad';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -24,7 +24,7 @@ const KINDS: { id: Kind; label: string; what: string; hint: string }[] = [
 export function DrawerSheet({ call, onClose, onDone, photo }: { call: (body: any) => Promise<any>; onClose: () => void; onDone: (text: string) => void; photo?: (set: (url: string) => void) => ReactNode }) {
   const [kind, setKind] = useState<Kind>('out'); const [amount, setAmount] = useState(''); const [note, setNote] = useState(''); const [receiptUrl, setReceiptUrl] = useState('');
   const [view, setView] = useState<{ open: boolean; two?: boolean; expectedCash?: number; moves?: any[] } | null>(null);
-  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false);
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false); const [owner, setOwner] = useState(false);
   // A move to undo (a manager's PIN), by its key.
   const [undo, setUndo] = useState<any | null>(null);
   // (One move, however often it's sent.)
@@ -49,7 +49,7 @@ export function DrawerSheet({ call, onClose, onDone, photo }: { call: (body: any
   const words = (d: any) => `${d.words} ${usd(d.cents / 100)}${note.trim() ? `: ${note.trim()}` : ''}${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}. The drawer should have ${usd(d.expectedCash)}.`;
   const go = async () => {
     if (!ready || busy) return; setBusy(true); setErr('');
-    try { const d = await call(body); if (d?.ok) onDone(words(d)); else if (d?.needsManager) setPin(true); else setErr(d?.error || 'That didn’t go through. Try again.'); }
+    try { const d = await call(body); if (d?.ok) onDone(words(d)); else if (d?.needsManager) { setOwner(!!d.owner); setPin(true); } else setErr(d?.error || 'That didn’t go through. Try again.'); }
     catch { setErr('No connection. Try again.'); } finally { setBusy(false); }
   };
   const seg = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` });
@@ -102,7 +102,7 @@ export function DrawerSheet({ call, onClose, onDone, photo }: { call: (body: any
     {undo && <PinPad title="A manager’s PIN" line={`Undo ${KINDS.find((x) => x.id === undo.kind)?.label || 'it'} ${usd(undo.cents / 100)}${undo.note ? `: ${undo.note}` : ''}.${undo.kind === 'out' ? ' Its expense comes off the books.' : ''}`} onClose={() => setUndo(null)} onDone={() => setUndo(null)}
       check={async (p) => { const d = await call({ action: 'drawerUndo', moveKey: undo.key, pin: p }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d?.ok) return { ok: false as const, error: d?.error || 'That didn’t go through. Try again.' }; onDone(`${d.words} ${usd(d.cents / 100)} undone.`); return { ok: true as const, staff: { id: '', name: '', pass: '' } }; }} />}
-    {pin && <PinPad title="A manager’s PIN" line={`${k.label} ${usd(cents / 100)}. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
+    {pin && <PinPad title={pinTitle(owner)} line={`${k.label} ${usd(cents / 100)}. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
       check={async (p) => { const d = await call({ ...body, pin: p }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d?.ok) return { ok: false as const, error: d?.error || 'That didn’t go through. Try again.' }; onDone(words(d)); return { ok: true as const, staff: { id: '', name: '', pass: '' } }; }} />}
   </>);

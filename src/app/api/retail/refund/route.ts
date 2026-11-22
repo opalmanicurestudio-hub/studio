@@ -13,6 +13,7 @@ import Stripe from 'stripe';
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { logMoney } from '@/lib/activity-server';
 
 // ─── /api/retail/refund ───────────────────────────────────────────────────────
 // POST { tenantId, orderId, qrToken, reason? }
@@ -545,6 +546,14 @@ async function handle(req: NextRequest) {
   if (already) return NextResponse.json({ ok: true, refundId, amountCents: cents, leftCents: left, overCardCents: 0, message: 'That refund was already recorded on the order.' });
   const given = gave.giftCents + gave.creditCents;
   const total = cents + given;
+
+  // One line in Activity (lib/activity-server): who sent it, or the shop's own rules on their own.
+  const autoLine = actor.uid === 'system' || actor.uid === 'customer';
+  const num4 = `Order #${String(order.orderNumber || '').padStart(4, '0')}`;
+  await logMoney(db, tenantId, { action: 'retail.refund', kind: 'refund', targetType: 'retailOrder', targetId: orderId, cents: total, where: 'online',
+    by: { id: autoLine ? null : String(actor.uid || '') || null, name: autoLine ? 'Automatic refund' : actor.name }, auto: autoLine,
+    reason: autoLine ? actor.name : policyPath ? 'Within your automatic amount' : body.add ? 'Part of the order' : 'Refund sent', ref: num4,
+    summary: `${money(total)} refunded on ${num4}${autoLine ? ', on its own by the shop’s rules' : `, by ${actor.name}`}.` }, tenant);
 
   // A gift card topped back up: the customer's wallet shows it.
   if (gave.giftCents > 0 && payerNow?.giftCardId) {

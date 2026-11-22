@@ -20,7 +20,7 @@ import { useFirebase } from '@/firebase';
 import { Car, CreditCard, Mic, Minus, Plus, QrCode, Volume2, VolumeX } from 'lucide-react';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
-import { PinPad, type ScreenStaff } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle, type ScreenStaff } from '@/components/kitchen/PinPad';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
 import { VoiceBar, useOnTheSpeakerHere, type CarVoice } from '@/components/drive-thru/VoiceBar';
 import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
@@ -322,7 +322,9 @@ export default function DriveThru() {
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders on this side, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
-  const [codeFor, setCodeFor] = useState<string | null>(null); const [codeScale, setCodeScale] = useState<string | null>(null);
+  const [codeFor, setCodeFor] = useState<string | null>(null);
+  // Whether the PIN asked for is the owner's (their rules say only they will do, lib/money-rules) or a manager's.
+  const [pinOwner, setPinOwner] = useState(false); const [codeScale, setCodeScale] = useState<string | null>(null);
   // Something not on the menu (components/pos/CounterOneOff).
   const [oneOffOpen, setOneOffOpen] = useState(false);
   // A gift card sold with the order (components/pos/CounterGift), and the ones made once it's paid.
@@ -604,7 +606,7 @@ export default function DriveThru() {
   const creditIt = () => order && act('tender', { action: 'tender', orderId: order.id, do: 'credit' }, (d) => tenderDone(d, `store credit covers ${usd((Number(d.cents) || 0) / 100)}.`));
   const untender = (t: { kind: string; giftCardId?: string }) => order && act('tender', { action: 'tender', orderId: order.id, do: 'remove', ...(t.kind === 'credit' ? { credit: true } : { giftCardId: t.giftCardId }) }, (d) => setNotice({ text: `Order ${order.number}: taken off. ${usd(d.due)} to pay.`, tone: 'good' }));
   const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
-  const customOff = (c: CustomDiscount, pass?: string) => order && act('discount', { action: 'discount', orderId: order.id, custom: c, ...(pass ? { staffPass: pass } : {}) }, offDone, undefined, (d) => { if (d.needsManager) setDiscountPin(c); });
+  const customOff = (c: CustomDiscount, pass?: string) => order && act('discount', { action: 'discount', orderId: order.id, custom: c, ...(pass ? { staffPass: pass } : {}) }, offDone, undefined, (d) => { if (d.needsManager) { setPinOwner(!!d.owner); setDiscountPin(c); } });
   const paid = (method: 'card' | 'cash', tendered?: number, keepChange?: boolean) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}), ...(keepChange ? { keepChange: true } : {}), ...(method === 'cash' && pouchCash ? { pouch: true } : {}) }, (d) => {
     const how = d.payMethod || method;
     if (!d.paidOtherwise) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: how === 'cash' && !d.inPouch, change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
@@ -648,7 +650,7 @@ export default function DriveThru() {
   const partBack = (t: { partId?: string; cents: number; kind: string }, pass?: string) => order && t.partId && act('partUndo', { action: 'partUndo', orderId: order.id, partId: t.partId, ...(pass ? { staffPass: pass } : {}) }, (d) => {
     setPartPin(null);
     setNotice({ text: `Order ${order.number}: ${d.kind === 'cash' ? `${usd((Number(d.cents) || 0) / 100)} back to them in cash${d.fromDrawer ? ', out of the drawer' : ''}` : d.machine ? `give ${usd((Number(d.cents) || 0) / 100)} back on that card machine` : `${usd((Number(d.cents) || 0) / 100)} back to their card`}. ${usd(d.due)} to pay.`, tone: 'good' });
-  }, undefined, (d) => { if (d.needsManager) setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); });
+  }, undefined, (d) => { if (d.needsManager) { setPinOwner(!!d.owner); setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); } });
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => {
     setNotice(d.state === 'paid' ? { text: d.justWent ? 'The card went through just before it was stopped, so it’s paid.' : paidWords(d), tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
     cardSlip(d);
@@ -730,7 +732,7 @@ export default function DriveThru() {
   const doVoid = (reason: string, pass?: string) => order && act('void', { action: 'void', orderId: order.id, reason, ...(pass ? { staffPass: pass } : {}) }, (d) => {
     setVoidOpen(false); setVoidPin(null);
     setNotice({ text: `Order ${order.number} voided.${d.returned ? ` ${d.returned} not yet made went back on the shelf.` : ''}`, tone: 'good' });
-  }, undefined, (d) => { if (d.needsManager) setVoidPin(reason); });
+  }, undefined, (d) => { if (d.needsManager) { setPinOwner(!!d.owner); setVoidPin(reason); } });
 
   const checkPin = async (pin: string): Promise<{ ok: true; staff: ScreenStaff } | { ok: false; error: string }> => {
     try {
@@ -1311,9 +1313,9 @@ export default function DriveThru() {
       }} />}
       {codeFor && order && <CodeOnSheet code={codeFor} scaleNo={codeScale} orderId={order.id} menu={lane?.menu || []} call={refundCall} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); load(); }} />}
       {refundOpen && <RefundFind call={refundCall} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); load(); }} />}
-      {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
-      {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
-      {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
+      {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} title={pinTitle(pinOwner)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes ${pinOwner ? 'the owner' : 'a manager'}. It doesn’t change who’s signed in here.`} />}
+      {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} title={pinTitle(pinOwner)} line={`Another amount off takes ${pinOwner ? 'the owner' : 'a manager'}: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
+      {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} title={pinTitle(pinOwner)} line={`${pinOwner ? 'The owner’s' : 'A manager’s'} PIN is needed to void an order. It doesn’t change who’s working here.`} />}
       {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
         onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {
           setPointsOpen(false); takeMember(order.id, d.member); setNotice({ text: d.earned ? `Rewards added for ${d.member?.name || 'them'}: earned ${d.earned}.` : `Rewards added for ${d.member?.name || 'them'}.`, tone: 'good' }); res(null);

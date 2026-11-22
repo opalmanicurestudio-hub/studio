@@ -9,6 +9,9 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AM
 
 export type ScreenStaff = { id: string; name: string; pass: string };
 
+/** The PIN a money moment asks for: a manager's, or the owner's when only they will do (lib/money-rules). */
+export const pinTitle = (owner?: boolean) => (owner ? 'The owner’s PIN' : 'A manager’s PIN');
+
 export function PinPad({ check, onDone, onClose, line = 'Your PIN puts your name on what you do here. The screen works without it.', title = 'Who’s working?' }: {
   check: (pin: string) => Promise<{ ok: true; staff: ScreenStaff } | { ok: false; error: string }>; onDone: (s: ScreenStaff) => void; onClose: () => void; line?: string;
   /** What it's for, when it isn't who's working (a manager's PIN to ring in a staff meal). */

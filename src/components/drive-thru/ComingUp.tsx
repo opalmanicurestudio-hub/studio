@@ -19,14 +19,14 @@ export type ComingUpRow = { orderId: string; number: string; name: string | null
 
 export function ComingUp({ rows, now, busy, act, notify, askPin }: { rows: ComingUpRow[]; now: number; busy: string | null;
   act: (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => void; notify?: (text: string) => void;
-  askPin?: (body: any, line: string, done: (d: any) => void) => void }) {
+  askPin?: (body: any, line: string, done: (d: any) => void, owner?: boolean) => void }) {
   const [asking, setAsking] = useState<string | null>(null);
   if (!rows.length) return null;
   const week = rows.filter((r) => Date.parse(r.at) - now < 7 * 864e5).length;
   const cancel = (r: ComingUpRow) => {
     const body = { action: 'laterCancel', orderId: r.orderId };
     const done = (d: any) => { setAsking(null); notify?.(`${r.number} canceled. ${usd((Number(d.cents) || 0) / 100)} is going back to their card${r.phone ? ', and they got a text' : ''}.`); };
-    act(`lcancel-${r.orderId}`, body, done, (d) => { if (!d.needsManager || !askPin) return false; askPin(body, `It cancels ${r.number} and refunds ${usd(r.total)} to their card. It doesn’t change who’s signed in here.`, done); return true; });
+    act(`lcancel-${r.orderId}`, body, done, (d) => { if (!d.needsManager || !askPin) return false; askPin(body, `It cancels ${r.number} and refunds ${usd(r.total)} to their card. It doesn’t change who’s signed in here.`, done, !!d.owner); return true; });
   };
   const send = (r: ComingUpRow) => act(`lsend-${r.orderId}`, { action: 'laterSend', orderId: r.orderId }, () => notify?.(`${r.number} is on the kitchen screen.`));
   return (

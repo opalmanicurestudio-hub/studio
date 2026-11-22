@@ -5,7 +5,7 @@
 // to the screen's own api/counter with its own key. White surfaces are set inline, so the app's black look
 // (lib/app-theme) takes them over.
 import { useEffect, useState } from 'react';
-import { PinPad } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle } from '@/components/kitchen/PinPad';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -17,13 +17,13 @@ type Line = { lineId: string; name: string; quantity: number; unitPrice: number;
 /** "Take off" on one line of an order with the kitchen (`max`: how many can come off; the last of an order is a void
  *  instead). `onDone`: the words to show, and the answer (its order). */
 export function TakeOffSheet({ orderId, number, line, max, call, onClose, onDone }: { orderId: string; number: string; line: Line; max: number; call: (body: any) => Promise<any>; onClose: () => void; onDone: (text: string, d: any) => void }) {
-  const [n, setN] = useState(Math.max(1, max)); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false);
+  const [n, setN] = useState(Math.max(1, max)); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false); const [owner, setOwner] = useState(false);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const body = { action: 'takeOff', orderId, lineId: line.lineId, qty: n };
   const words = (d: any) => `${d.qty} ${d.name} off ${number}${d.made ? `, kept as waste${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}` : ', back on the shelf'}. ${usd(d.less)} less.`;
   const go = async () => {
     setBusy(true); setErr('');
-    try { const d = await call(body); if (d?.ok) onDone(words(d), d); else if (d?.needsManager) setPin(true); else setErr(d?.error || 'That didn’t go through. Try again.'); }
+    try { const d = await call(body); if (d?.ok) onDone(words(d), d); else if (d?.needsManager) { setOwner(!!d.owner); setPin(true); } else setErr(d?.error || 'That didn’t go through. Try again.'); }
     catch { setErr('No connection. Try again.'); } finally { setBusy(false); }
   };
   const quiet = { background: '#fff', color: INK, border: `1px solid ${LINE}` };
@@ -45,7 +45,7 @@ export function TakeOffSheet({ orderId, number, line, max, call, onClose, onDone
         <p className="text-[13px]" style={{ color: MUTED }}>If the kitchen hasn’t started it, it goes back on the shelf and its ticket comes off. If it has, a manager okays it and it’s kept as waste. Paid already? Refund it instead.</p>
       </div>
     </div>
-    {pin && <PinPad title="A manager’s PIN" line={`The kitchen started on ${line.name}. Taking it off keeps it as waste. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
+    {pin && <PinPad title={pinTitle(owner)} line={`The kitchen started on ${line.name}. Taking it off keeps it as waste. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
       check={async (p) => { const d = await call({ ...body, pin: p }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d?.ok) return { ok: false as const, error: d?.error || 'That didn’t go through. Try again.' }; onDone(words(d), d); return { ok: true as const, staff: { id: '', name: '', pass: '' } }; }} />}
   </>);

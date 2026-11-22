@@ -5,7 +5,7 @@
 // manager's PIN. `call` posts to the screen's own api/counter with its own key. White surfaces are set inline, so the
 // app's black look (lib/app-theme) takes them over.
 import { useEffect, useMemo, useState } from 'react';
-import { PinPad } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle } from '@/components/kitchen/PinPad';
 import { REFUND_REASONS, backWords, type SourceKind } from '@/lib/counter-refund';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
@@ -68,7 +68,7 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
   const [qty, setQty] = useState<Record<string, number>>({});
   const [tip, setTip] = useState(true);
   const [reason, setReason] = useState(''); const [other, setOther] = useState(false);
-  const [pv, setPv] = useState<Preview | null>(null); const [pvErr, setPvErr] = useState(''); const [resuming, setResuming] = useState<Unfinished | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pin, setPin] = useState(false);
+  const [pv, setPv] = useState<Preview | null>(null); const [pvErr, setPvErr] = useState(''); const [resuming, setResuming] = useState<Unfinished | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pin, setPin] = useState(false); const [owner, setOwner] = useState(false);
   const some = mode === 'some';
   // (A gift card is refunded on its own, under Some items, while nothing's been spent from it.)
   const lines = row.lines.filter((l) => l.left > 0 && (some || !l.gift));
@@ -95,7 +95,7 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
     setBusy(true); setErr('');
     try {
       const d = await call(ask);
-      if (d?.ok) done(d); else if (d?.needsManager) setPin(true); else if (d?.unfinished) { setResuming(d.unfinished); setPv(null); } else setErr(d?.error || 'That didn’t go through. Try again.');
+      if (d?.ok) done(d); else if (d?.needsManager) { setOwner(!!d.owner); setPin(true); } else if (d?.unfinished) { setResuming(d.unfinished); setPv(null); } else setErr(d?.error || 'That didn’t go through. Try again.');
     } catch { setErr('No connection. Try again.'); } finally { setBusy(false); }
   };
   const seg = (on: boolean) => (on ? dark : quiet);
@@ -157,7 +157,7 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
         <button type="button" disabled={busy || !pv || !why} onClick={() => void go()} className={`${btn} flex-[2]`} style={dark}>{pv ? `Refund ${usd(pv.plan.cents)}` : 'Refund'}</button></div>
       <p className="text-[12.5px]" style={{ color: MUTED }}>A refund takes a manager’s PIN. It’s kept on record with why and who okayed it.</p>
     </Sheet>}
-    {pin && (pv || resuming) && <PinPad title="A manager’s PIN" line={`${resuming ? `Finishing the ${usd(resuming.cents)}` : `A ${usd(pv!.plan.cents)}`} refund on ${row.number} takes a manager. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
+    {pin && (pv || resuming) && <PinPad title={pinTitle(owner)} line={`${resuming ? `Finishing the ${usd(resuming.cents)}` : `A ${usd(pv!.plan.cents)}`} refund on ${row.number} takes ${owner ? 'the owner' : 'a manager'}. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
       check={async (p) => { const d = await call({ ...ask, pin: p }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d?.ok) return { ok: false as const, error: d?.error || 'That didn’t go through. Try again.' }; done(d); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } }; }} />}
   </>);

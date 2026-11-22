@@ -18,7 +18,7 @@ import { send } from '@/lib/outbox';
 import { useKeepPage } from '@/components/pwa/keep-page';
 import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { OfferAsk, type JustAdded } from '@/components/menu/OfferAsk';
-import { PinPad } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle } from '@/components/kitchen/PinPad';
 import { AppSoldOut, type AppSoldOutRow } from '@/components/drive-thru/AppSoldOut';
 import { ComingUp, type ComingUpRow } from '@/components/drive-thru/ComingUp';
 import { PointsSheet, RewardsRow, memberFrom, type RewardMember } from '@/components/drive-thru/Rewards';
@@ -213,7 +213,9 @@ export default function CounterPage() {
   // Refunding a paid order (components/pos/CounterRefund): today's paid orders, then the one picked.
   const [refundOpen, setRefundOpen] = useState(false);
   // A barcode scanned that's on nothing yet (components/pos/CounterScan): which item it is.
-  const [codeFor, setCodeFor] = useState<string | null>(null); const [codeScale, setCodeScale] = useState<string | null>(null);
+  const [codeFor, setCodeFor] = useState<string | null>(null);
+  // Whether the PIN asked for is the owner's (their rules say only they will do, lib/money-rules) or a manager's.
+  const [pinOwner, setPinOwner] = useState(false); const [codeScale, setCodeScale] = useState<string | null>(null);
   // Something not on the menu (components/pos/CounterOneOff).
   const [oneOffOpen, setOneOffOpen] = useState(false);
   // A gift card sold with the order (components/pos/CounterGift), and the ones made once it's paid.
@@ -290,7 +292,7 @@ export default function CounterPage() {
   const appStart = () => act('appStart', { action: 'appStart', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
   // Cancelled on the app: asked once more first; once the kitchen started on it, a manager's PIN (unless one is signed in).
   const appCancelDone = (d: any) => { setAppOff(null); setAppPin(null); setNotice({ text: `${d.name} was taken off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${d.returned ? ' What the kitchen hadn’t started went back.' : ''}`, tone: 'good' }); };
-  const appCancel = (o: Order) => act(`appCancel-${o.id}`, { action: 'appCancel', orderId: o.id }, appCancelDone, (d) => { if (!d.needsManager) return false; setAppPin(o); return true; });
+  const appCancel = (o: Order) => act(`appCancel-${o.id}`, { action: 'appCancel', orderId: o.id }, appCancelDone, (d) => { if (!d.needsManager) return false; setPinOwner(!!d.owner); setAppPin(o); return true; });
   // The guest's allergies, and a note on a dish (lib/order-allergy): while the order is being taken.
   const saveAllergy = (v: AllergyValue) => order && act('allergy', { action: 'allergy', orderId: order.id, allergy: allergyBody(v) }, (d) => { setAllergyOpen(false); setNotice({ text: d.already ? `${order.number}: that allergy is on the order already.` : d.tickets ? `${order.number}: allergy added to what’s still being made. Tell the kitchen too.` : d.allergy ? `${order.number}: allergy noted for the kitchen.` : `${order.number}: no allergies.`, tone: 'good' }); });
   // Handed over with an allergy the kitchen hasn't noted: refused; a manager can hand it over with their PIN.
@@ -391,7 +393,7 @@ export default function CounterPage() {
   const sendIt = () => { if (!order) return; setJust(null); void act('send', { action: 'send', orderId: order.id, ...(lane?.askToGo ? { toGo } : {}) }, () => setNotice({ text: `${order.number} is with the kitchen${lane?.askToGo && toGo ? ', to go' : ''}. Take ${usd(order.total)}.`, tone: 'good' })); };
   // A manager's: one signed in here goes straight through; anyone else is asked for a manager's PIN.
   const staffDone = (d: any) => { setStaffFor(null); setStaffPin(false); setNotice({ text: `${order?.number}: a staff meal for ${d.for}${d.approvedBy ? `, rung in by ${d.approvedBy}` : ''}. Nothing to take.`, tone: 'good' }); };
-  const staffMeal = () => order && staffFor && staffFor.trim() && act('staff', { action: 'staffMeal', orderId: order.id, for: staffFor.trim() }, staffDone, (d) => { if (!d.needsManager) return false; setStaffPin(true); return true; });
+  const staffMeal = () => order && staffFor && staffFor.trim() && act('staff', { action: 'staffMeal', orderId: order.id, for: staffFor.trim() }, staffDone, (d) => { if (!d.needsManager) return false; setPinOwner(!!d.owner); setStaffPin(true); return true; });
   const staffPinCheck = async (pin: string) => {
     if (!order || !staffFor?.trim()) return { ok: false as const, error: 'Type who it’s for first.' };
     const d = await post({ action: 'staffMeal', orderId: order.id, for: staffFor.trim(), pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -410,7 +412,7 @@ export default function CounterPage() {
   const creditIt = () => order && act('tender', { action: 'tender', orderId: order.id, do: 'credit' }, (d) => tenderDone(d, `store credit covers ${usd((Number(d.cents) || 0) / 100)}.`));
   const untender = (t: { kind: string; giftCardId?: string }) => order && act('tender', { action: 'tender', orderId: order.id, do: 'remove', ...(t.kind === 'credit' ? { credit: true } : { giftCardId: t.giftCardId }) }, (d) => setNotice({ text: `${order.number}: taken off. ${usd(d.due)} to pay.`, tone: 'good' }));
   const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
-  const customOff = (c: CustomDiscount) => order && act('discount', { action: 'discount', orderId: order.id, custom: c }, offDone, (d) => { if (!d.needsManager) return false; setDiscountPin(c); return true; });
+  const customOff = (c: CustomDiscount) => order && act('discount', { action: 'discount', orderId: order.id, custom: c }, offDone, (d) => { if (!d.needsManager) return false; setPinOwner(!!d.owner); setDiscountPin(c); return true; });
   const discountPinCheck = async (pin: string) => {
     if (!order || !discountPin) return { ok: false as const, error: 'Pick the order again.' };
     const d = await post({ action: 'discount', orderId: order.id, custom: discountPin, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -439,7 +441,7 @@ export default function CounterPage() {
     void act('part', { action: 'part', orderId: order.id, method: 'card', cents }, (d) => partDone(d, 'card'));
   };
   const partBackDone = (d: any) => { setPartPin(null); setNotice({ text: `${order?.number}: ${d.kind === 'cash' ? `${usd((Number(d.cents) || 0) / 100)} back to them in cash${d.fromDrawer ? ', out of the drawer' : ''}` : d.machine ? `give ${usd((Number(d.cents) || 0) / 100)} back on that card machine` : `${usd((Number(d.cents) || 0) / 100)} back to their card`}. ${usd(d.due)} to pay.`, tone: 'good' }); };
-  const partBack = (t: { partId?: string; cents: number; kind: string }) => order && t.partId && act('partUndo', { action: 'partUndo', orderId: order.id, partId: t.partId }, partBackDone, (d) => { if (!d.needsManager) return false; setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); return true; });
+  const partBack = (t: { partId?: string; cents: number; kind: string }) => order && t.partId && act('partUndo', { action: 'partUndo', orderId: order.id, partId: t.partId }, partBackDone, (d) => { if (!d.needsManager) return false; setPinOwner(!!d.owner); setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); return true; });
   const partPinCheck = async (pin: string) => {
     if (!order || !partPin) return { ok: false as const, error: 'Pick the order again.' };
     const d = await post({ action: 'partUndo', orderId: order.id, partId: partPin.partId, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -629,9 +631,9 @@ export default function CounterPage() {
       </div>
 
       <AppSoldOut rows={lane?.appSoldOut || []} taps={lane?.appSoldOutTaps} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} />
-      <ComingUp rows={lane?.comingUp || []} now={now} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done) => setDeliveryPin({ body, line, done })} />
+      <ComingUp rows={lane?.comingUp || []} now={now} busy={busy} act={act} notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done, owner) => { setPinOwner(!!owner); setDeliveryPin({ body, line, done }); }} />
       <Deliveries rows={lane?.deliveries || []} drivers={lane?.drivers || []} now={now} busy={busy} act={act} driverNow={lane?.driverNow || null} slow={lane?.slow || null}
-        notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done) => setDeliveryPin({ body, line, done })} />
+        notify={(text) => setNotice({ text, tone: 'good' })} askPin={(body, line, done, owner) => { setPinOwner(!!owner); setDeliveryPin({ body, line, done }); }} />
 
       <section aria-labelledby="counter-waiting" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -682,9 +684,9 @@ export default function CounterPage() {
     </main>
     {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || order.number} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
     {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
-    {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
-    {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
-    {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
+    {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title={pinTitle(pinOwner)} line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so ${pinOwner ? 'the owner' : 'a manager'} okays taking it off. It doesn’t change who’s signed in here.`} />}
+    {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title={pinTitle(pinOwner)} line={deliveryPin.line} />}
+    {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title={pinTitle(pinOwner)} line={`Another amount off takes ${pinOwner ? 'the owner' : 'a manager'}: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
     {codeFor && order && <CodeOnSheet code={codeFor} scaleNo={codeScale} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {drawerOpen && <DrawerSheet call={post} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }}
       photo={(set) => <ImageUpload onImageUploaded={set} label="Add a photo" enableMarkup={false} storageFolder="uploads" maxWidthOrHeight={1400} />} />}
@@ -700,8 +702,8 @@ export default function CounterPage() {
     {giftOpen && order && <GiftSheet amounts={lane?.gift?.amounts || []} onClose={() => setGiftOpen(false)} add={addGift} />}
     {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={addOneOff} />}
     {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
-    {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
-    {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
+    {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title={pinTitle(pinOwner)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes ${pinOwner ? 'the owner' : 'a manager'}. It doesn’t change who’s signed in here.`} />}
+    {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title={pinTitle(pinOwner)} line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
       onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {
         setPointsOpen(false); setMember(memberFrom(order.id, d.member)); setNotice({ text: d.earned ? `Rewards added for ${d.member?.name || 'them'}: earned ${d.earned}.` : `Rewards added for ${d.member?.name || 'them'}.`, tone: 'good' }); res(null);

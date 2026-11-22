@@ -203,7 +203,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const line6 = (await get(`${T}/counterOrders/${o6}`)).lines[0];
   r = await K({ action: 'price', orderId: o6, lineId: line6.lineId, qty: 1, price: 1.5, reason: 'Damaged' });
   a = await lastOf('price');
-  check('a lower price anyone can give: done with no PIN, $1.00 off, in Activity', r.body.ok && a.cents === 100 && a.reason === 'Lower: Damaged' && a.by?.name === 'Kai Park' && !a.okBy, [r.body, a]);
+  check('a lower price anyone can give: done with no PIN, $1.00 off, in Activity', r.body.ok && a.cents === 100 && a.reason === 'Damaged (lower)' && a.by?.name === 'Kai Park' && !a.okBy, [r.body, a]);
   await db.doc(T).set({ moneyRules: { lowerPrice: 'owner' } }, { merge: true });
   r = await K({ action: 'price', orderId: o6, lineId: (await get(`${T}/counterOrders/${o6}`)).lines.find((x: any) => !x.priceChange).lineId, qty: 1, price: 1, reason: 'Damaged', pin: '1357' });
   check('…only the owner’s: a manager’s PIN isn’t enough', r.status === 403 && r.body.owner === true && r.body.needsManager, r.body);

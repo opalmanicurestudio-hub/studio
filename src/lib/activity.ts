@@ -5,7 +5,7 @@
 // did it, who okayed it, why, and, when it's worth a second look, why that is.
 // Lines written before these fields existed are read by their action's name, so the whole history shows.
 
-export type ActivityKind = 'refund' | 'void' | 'comp' | 'price' | 'discount' | 'drawer' | 'cash' | 'staffMeal' | 'pin';
+export type ActivityKind = 'refund' | 'void' | 'comp' | 'price' | 'discount' | 'drawer' | 'cash' | 'staffMeal' | 'pin' | 'rules';
 export type ActivityWhere = 'counter' | 'window' | 'desk' | 'online' | 'app';
 export type ActivityWho = { id: string | null; name: string };
 
@@ -19,6 +19,7 @@ export const ACTIVITY_KINDS: { id: ActivityKind; label: string; one: string; man
   { id: 'cash', label: 'Cash in and out', one: 'cash in or out', many: 'cash in or out' },
   { id: 'staffMeal', label: 'Staff meals', one: 'staff meal', many: 'staff meals' },
   { id: 'pin', label: 'PINs', one: 'wrong PINs', many: 'wrong PINs' },
+  { id: 'rules', label: 'Rule changes', one: 'rule change', many: 'rule changes' },
 ];
 const KINDS = new Set<string>(ACTIVITY_KINDS.map((k) => k.id));
 
@@ -34,6 +35,7 @@ const BY_ACTION: Record<string, ActivityKind> = {
   'counter.drawer_in': 'cash', 'counter.drawer_out': 'cash', 'counter.drawer_safe': 'cash', 'counter.drawer_undo': 'cash',
   'counter.staff_meal': 'staffMeal',
   'counter.pin_lockout': 'pin',
+  'rule.money': 'rules',
 };
 
 /** What kind of money moment an audit line is (null: not one the Activity page shows). */
@@ -42,7 +44,7 @@ export function kindOf(e: any): ActivityKind | null {
   return BY_ACTION[String(e?.action || '')] || null;
 }
 
-export type ActivityLine = { id: string; at: string; kind: ActivityKind; cents: number | null; where: ActivityWhere | null; by: string | null; okBy: string | null;
+export type ActivityLine = { id: string; at: string; kind: ActivityKind; action: string; cents: number | null; where: ActivityWhere | null; by: string | null; okBy: string | null;
   reason: string | null; ref: string | null; summary: string; auto: boolean; flag: string | null };
 
 const s = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? v.replace(/\s+/g, ' ').trim().slice(0, n) : null);
@@ -54,8 +56,8 @@ export function activityLine(id: string, e: any): ActivityLine | null {
   const cents = Number.isFinite(Number(e?.cents)) ? Math.round(Number(e.cents)) : Number.isFinite(Number(e?.amount)) && e?.amount !== null && e?.amount !== undefined ? Math.round(Number(e.amount) * 100) : null;
   const auto = e?.actor?.type === 'system' || e?.auto === true;
   return {
-    id: String(id), at: String(e?.at || ''), kind, cents, where: WHERE.has(String(e?.where)) ? e.where : null,
-    by: s(e?.by?.name, 60) || (auto ? null : s(e?.actor?.name, 60)), okBy: s(e?.okBy?.name, 60), reason: s(e?.reason, 120), ref: s(e?.ref, 40),
+    id: String(id), at: String(e?.at || ''), kind, action: String(e?.action || '').slice(0, 60), cents, where: WHERE.has(String(e?.where)) ? e.where : null,
+    by: auto ? null : s(e?.by?.name, 60) || s(e?.actor?.name, 60), okBy: s(e?.okBy?.name, 60), reason: s(e?.reason, 120), ref: s(e?.ref, 40),
     summary: s(e?.summary, 300) || '', auto, flag: s(e?.flag, 120),
   };
 }
@@ -84,9 +86,12 @@ export function flagFor(e: { kind: ActivityKind; cents?: number | null; afterKit
 }
 
 /** One line of the Activity page: "Refund, C18 Jordan", "Drawer opened, no sale". */
+/** Cash in or out, by what it was. */
+const NAMED: Record<string, string> = { 'rule.money': 'Who can do what changed' };
+const CASH: Record<string, string> = { 'counter.drawer_in': 'Cash in', 'counter.drawer_out': 'Paid out', 'counter.drawer_safe': 'Cash to the safe', 'counter.drawer_undo': 'Cash move undone' };
 export function lineTitle(l: ActivityLine): string {
   const k = ACTIVITY_KINDS.find((x) => x.id === l.kind)!;
-  const head = l.auto ? `Automatic ${k.one}` : k.one.charAt(0).toUpperCase() + k.one.slice(1);
+  const head = l.auto ? `Automatic ${k.one}` : NAMED[l.action] || CASH[l.action] || (l.action === 'counter.uncomp' ? 'Charged again' : l.action === 'counter.price_back' ? 'Menu price again' : k.one.charAt(0).toUpperCase() + k.one.slice(1));
   return l.ref ? `${head}, ${l.ref}` : head;
 }
 /** Who did it and why: "Ana, okayed by Mo: Wrong order". */

@@ -146,6 +146,8 @@ const TEAM_ADMIN = [
 const FINANCIAL_SUITE = [
   { href: '/financials', icon: Landmark,      label: 'Pricing foundation' },
   { href: '/money',      icon: Wallet,        label: 'Money'         },
+  // Every money moment from every screen, as it happens, and who can do each (/activity).
+  { href: '/activity',   icon: ScrollText,    label: 'Activity'      },
   // What the accountant, a payroll check or the IRS asks for, a month at a time (/records).
   { href: '/records',    icon: Archive,       label: 'Records'       },
   { href: '/disputes',   icon: AlertTriangle, label: 'Disputes'    },

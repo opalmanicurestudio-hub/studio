@@ -4,7 +4,7 @@
 // (all of the line once it's with the kitchen), and a manager's PIN. `call` posts to the screen's own api/counter with
 // its own key. White surfaces are set inline, so the app's black look (lib/app-theme) takes them over.
 import { useEffect, useState } from 'react';
-import { PinPad } from '@/components/kitchen/PinPad';
+import { PinPad, pinTitle } from '@/components/kitchen/PinPad';
 import { COMP_REASONS } from '@/lib/counter-comp';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309';
@@ -16,7 +16,7 @@ type Line = { lineId: string; name: string; quantity: number; unitPrice: number;
 
 export function CompSheet({ orderId, number, line, whole, call, onClose, onDone }: { orderId: string; number: string; line: Line; whole: boolean; call: (body: any) => Promise<any>; onClose: () => void; onDone: (text: string, d: any) => void }) {
   const [n, setN] = useState(line.quantity); const [why, setWhy] = useState(''); const [other, setOther] = useState(false); const [typed, setTyped] = useState('');
-  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false);
+  const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [pin, setPin] = useState(false); const [owner, setOwner] = useState(false);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const reason = other ? typed.trim() : why;
   const body = { action: 'comp', orderId, lineId: line.lineId, qty: whole ? line.quantity : n, reason };
@@ -24,7 +24,7 @@ export function CompSheet({ orderId, number, line, whole, call, onClose, onDone 
   const go = async () => {
     if (!reason) { setErr('Why is it on the house?'); return; }
     setBusy(true); setErr('');
-    try { const d = await call(body); if (d?.ok) onDone(words(d), d); else if (d?.needsManager) setPin(true); else setErr(d?.error || 'That didn’t go through. Try again.'); }
+    try { const d = await call(body); if (d?.ok) onDone(words(d), d); else if (d?.needsManager) { setOwner(!!d.owner); setPin(true); } else setErr(d?.error || 'That didn’t go through. Try again.'); }
     catch { setErr('No connection. Try again.'); } finally { setBusy(false); }
   };
   const chip = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: SOFT, color: INK });
@@ -52,7 +52,7 @@ export function CompSheet({ orderId, number, line, whole, call, onClose, onDone 
         <p className="text-[13px]" style={{ color: MUTED }}>{whole && line.quantity > 1 ? 'It’s with the kitchen, so it’s the whole line. ' : ''}A manager’s PIN. It’s still made and still comes off stock; the night report shows what was given and why.</p>
       </div>
     </div>
-    {pin && <PinPad title="A manager’s PIN" line={`${line.name} on the house: ${reason}. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
+    {pin && <PinPad title={pinTitle(owner)} line={`${line.name} on the house: ${reason}. It doesn’t change who’s signed in here.`} onClose={() => setPin(false)} onDone={() => setPin(false)}
       check={async (p) => { const d = await call({ ...body, pin: p }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
         if (!d?.ok) return { ok: false as const, error: d?.error || 'That didn’t go through. Try again.' }; onDone(words(d), d); return { ok: true as const, staff: { id: '', name: '', pass: '' } }; }} />}
   </>);

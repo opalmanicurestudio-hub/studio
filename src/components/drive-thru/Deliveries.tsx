@@ -51,7 +51,7 @@ export function Deliveries({ rows, drivers = [], now, busy, act, driverNow = nul
   /** Said on the counter screen when a step goes through. */
   notify?: (text: string) => void;
   /** A manager's PIN for a refund, when the person here isn't one: the same step again with it. */
-  askPin?: (body: any, line: string, done: (d: any) => void) => void }) {
+  askPin?: (body: any, line: string, done: (d: any) => void, owner?: boolean) => void }) {
   // Kept as 'id:<their team record>' for one of the drivers, or the name typed for someone else.
   const [driver, setDriver] = useState(''); const [other, setOther] = useState(false); const [failing, setFailing] = useState<string | null>(null); const [slowOpen, setSlowOpen] = useState(false);
   // Refunding one: which, and whether the delivery fee goes back too (the second-try rule's answer to start with).
@@ -82,7 +82,7 @@ export function Deliveries({ rows, drivers = [], now, busy, act, driverNow = nul
   const refunded = (d: any) => { setRefunding(null); notify?.(`${d.number || 'It'}: ${usd((Number(d.cents) || 0) / 100)} refunded to their card${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.`); };
   const refund = (r: DeliveryRow) => {
     const body = { action: 'deliveryRefund', orderId: r.orderId, fee: feeOffered(r) && feeToo };
-    act(`drefund-${r.orderId}`, body, refunded, (d) => { if (!d.needsManager || !askPin) return false; askPin(body, `It refunds ${r.number}, ${usd(refundTotal(r))}, to their card. It doesn’t change who’s signed in here.`, refunded); return true; });
+    act(`drefund-${r.orderId}`, body, refunded, (d) => { if (!d.needsManager || !askPin) return false; askPin(body, `It refunds ${r.number}, ${usd(refundTotal(r))}, to their card. It doesn’t change who’s signed in here.`, refunded, !!d.owner); return true; });
   };
   return (
     <section aria-labelledby="counter-deliveries" className="space-y-3 rounded-3xl p-4" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
