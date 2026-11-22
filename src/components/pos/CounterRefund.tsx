@@ -17,7 +17,9 @@ const usd = (cents: number) => `$${(Math.round(Number(cents) || 0) / 100).toFixe
 const field = `mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal outline-none focus:border-[#16171a]`;
 
 export type PaidRow = { id: string; number: string; guestName: string | null; total: number; paidAt: string; refundCents: number; left: number; why: string | null; tipCents: number;
-  lines: { lineId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; left: number }[] };
+  lines: { lineId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; left: number;
+    /** A gift card sold with it (lib/counter-gift): its code, and why it can't be refunded (spent from, or cancelled). */
+    gift?: { code: string | null; id: string | null; refunded?: boolean; spentCents?: number | null; why?: string } }[] };
 type Call = (body: any) => Promise<any>;
 const timeOf = (iso: string) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''; };
 
@@ -56,7 +58,7 @@ export function RefundFind({ call, onClose, onDone }: { call: Call; onClose: () 
   );
 }
 
-type Preview = { plan: { cents: number; netCents: number; taxCents: number; tipCents: number }; back: { kind: SourceKind; cents: number; code?: string }[] };
+type Preview = { plan: { cents: number; netCents: number; taxCents: number; tipCents: number; giftCents?: number }; back: { kind: SourceKind; cents: number; code?: string }[] };
 /** A refund started on it that didn't finish (the card company didn't answer): finished first, as it was okayed. */
 type Unfinished = { cents: number; reason: string; approvedBy: string; back: { kind: SourceKind; cents: number; code?: string }[] };
 
@@ -68,7 +70,10 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
   const [reason, setReason] = useState(''); const [other, setOther] = useState(false);
   const [pv, setPv] = useState<Preview | null>(null); const [pvErr, setPvErr] = useState(''); const [resuming, setResuming] = useState<Unfinished | null>(null); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [pin, setPin] = useState(false);
   const some = mode === 'some';
-  const lines = row.lines.filter((l) => l.left > 0);
+  // (A gift card is refunded on its own, under Some items, while nothing's been spent from it.)
+  const lines = row.lines.filter((l) => l.left > 0 && (some || !l.gift));
+  const giftsHere = row.lines.some((l) => l.gift && l.left > 0);
+  const spentGifts = some ? row.lines.filter((l) => l.gift && !l.gift.refunded && l.gift.id && l.left <= 0) : [];
   const body = useMemo(() => ({ orderId: row.id, all: !some, lines: some ? Object.entries(qty).filter(([, n]) => n > 0).map(([lineId, n]) => ({ lineId, qty: n })) : [], tip: !some && row.tipCents > 0 ? tip : false }), [row, some, qty, tip]);
   useEffect(() => {
     if (some && !body.lines.length) { setPv(null); setPvErr(''); return; }
@@ -82,7 +87,7 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
   const why = reason.trim();
   const done = (d: any) => {
     const cash = Number(d.cashCents) || 0; const mach = Number(d.machineCents) || 0;
-    onDone(`${row.number}: ${usd(d.cents)} refunded${d.resumed ? ', the refund that didn’t finish' : d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${cash ? ` Give ${usd(cash)} back in cash.` : ''}${mach ? ` Give ${usd(mach)} back on your card machine.` : ''}`);
+    onDone(`${row.number}: ${usd(d.cents)} refunded${d.resumed ? ', the refund that didn’t finish' : d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}.${cash ? ` Give ${usd(cash)} back in cash.` : ''}${mach ? ` Give ${usd(mach)} back on your card machine.` : ''}${Array.isArray(d.cancelled) && d.cancelled.length ? ` Gift card ${d.cancelled.join(', ')} ${d.cancelled.length === 1 ? 'is' : 'are'} cancelled.` : ''}`);
   };
   // (Finishing one that didn't: as it was okayed; anything picked here waits until it's done.)
   const ask = resuming ? { action: 'refund', orderId: row.id, resume: true } : { action: 'refund', ...body, reason: why };
@@ -115,19 +120,24 @@ export function RefundAsk({ row, call, onBack, onClose, onDone }: { row: PaidRow
       </div>
       <ul className="space-y-1">{lines.map((l) => { const n = qty[l.lineId] || 0; return (
         <li key={l.lineId} className="flex min-h-[44px] items-center justify-between gap-2">
-          <span className="min-w-0"><span className="block truncate text-[14.5px]">{l.name}{l.left > 1 ? ` × ${l.left}` : ''}</span>{l.choicesText && <span className="block truncate text-[12.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}</span>
+          <span className="min-w-0"><span className="block truncate text-[14.5px]">{l.name}{l.left > 1 ? ` × ${l.left}` : ''}</span>{l.gift && <span className="block truncate text-[12.5px]" style={{ color: MUTED }}>{l.gift.code ? `${l.gift.code}, nothing spent` : 'Nothing spent'}</span>}{l.choicesText && <span className="block truncate text-[12.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}</span>
           {some ? <span className="flex shrink-0 items-center gap-1">
             <button type="button" aria-label={`One ${l.name} fewer`} disabled={n <= 0} onClick={() => setQty((m) => ({ ...m, [l.lineId]: Math.max(0, n - 1) }))} className={step} style={{ background: SOFT, color: INK }}>−</button>
             <span className="w-8 text-center text-[15px] font-semibold tabular-nums" aria-live="polite">{n}</span>
             <button type="button" aria-label={`One ${l.name} more`} disabled={n >= l.left} onClick={() => setQty((m) => ({ ...m, [l.lineId]: Math.min(l.left, n + 1) }))} className={step} style={{ background: SOFT, color: INK }}>+</button></span>
           : <span className="shrink-0 text-[14.5px] tabular-nums">{usd(Math.round(l.unitPrice * l.left * 100))}</span>}
         </li>); })}</ul>
+      {spentGifts.map((l) => <div key={l.lineId} className="flex min-h-[44px] items-center justify-between gap-2 text-[14.5px]" style={{ color: MUTED }}>
+        <span className="min-w-0"><span className="block truncate">{l.name}</span><span className="block truncate text-[12.5px]">{l.gift?.why === 'spent' ? `${usd(l.gift?.spentCents || 0)} spent, so it stays as it is` : `${l.gift?.why || 'Cancelled'}, so it stays as it is`}</span></span>
+        <span className="shrink-0 tabular-nums">{usd(Math.round(l.unitPrice * 100))}</span></div>)}
+      {!some && giftsHere && <p className="text-[12.5px]" style={{ color: MUTED }}>All of it is everything but the gift cards. A gift card is picked on its own, under Some items.</p>}
       {row.tipCents > 0 && !some && <label className="flex min-h-[44px] items-center gap-3 text-[14.5px]"><input type="checkbox" checked={tip} onChange={(e) => setTip(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Give the tip back too ({usd(row.tipCents)})</label>}
       <div className="space-y-1 rounded-2xl p-3" style={{ background: SOFT }}>
         {pvErr ? <p className="text-[13.5px]" style={{ color: AMBER }}>{pvErr}</p>
           : !pv ? <p className="text-[13.5px]" style={{ color: MUTED }}>{some ? 'Pick what to refund.' : 'Working it out…'}</p>
           : <>
-            <div className="flex justify-between text-[14px]"><span>Items</span><span className="tabular-nums">{usd(pv.plan.netCents)}</span></div>
+            {(pv.plan.netCents > 0 || !pv.plan.giftCents) && <div className="flex justify-between text-[14px]"><span>Items</span><span className="tabular-nums">{usd(pv.plan.netCents)}</span></div>}
+            {(pv.plan.giftCents || 0) > 0 && <div className="flex justify-between text-[14px]"><span>Gift card, cancelled as it’s refunded</span><span className="tabular-nums">{usd(pv.plan.giftCents || 0)}</span></div>}
             {pv.plan.taxCents > 0 && <div className="flex justify-between text-[14px]" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{usd(pv.plan.taxCents)}</span></div>}
             {pv.plan.tipCents > 0 && <div className="flex justify-between text-[14px]"><span>Tip</span><span className="tabular-nums">{usd(pv.plan.tipCents)}</span></div>}
             <p className="pt-2 text-[12.5px] font-semibold" style={{ color: MUTED }}>Back the way it was paid</p>

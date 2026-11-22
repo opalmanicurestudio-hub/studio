@@ -1041,8 +1041,17 @@ export async function POST(req: NextRequest) {
       const snap = await db.collection(`${T}/counterOrders`).where('paidAt', '>=', since).orderBy('paidAt', 'desc').limit(600).get();
       const rows = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((o: any) => counterSide(o.channel) === (channel === 'counter') && !o.staffMeal && o.status !== 'voided' && o.status !== 'scheduled').slice(0, 80)
         .map((o: any) => ({ id: o.id, number: String(o.number || ''), guestName: o.guestName || null, total: Number(o.total) || 0, paidAt: o.paidAt, refundCents: Math.max(0, Math.round(Number(o.refundCents) || 0)),
-          left: refundLeftOf(o), why: cantRefund(o), lines: (Array.isArray(o.lines) ? o.lines : []).map((l: any) => ({ lineId: l.lineId, name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, choicesText: l.choicesText || null, left: unitsLeftOf(o, l.lineId) })),
+          left: refundLeftOf(o), why: cantRefund(o), lines: (Array.isArray(o.lines) ? o.lines : []).map((l: any) => ({ lineId: l.lineId, name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, choicesText: l.choicesText || null, left: unitsLeftOf(o, l.lineId),
+            ...(l.giftCard ? { gift: { code: l.giftCard.code || null, id: l.giftCard.id || null, refunded: !!l.giftCard.refundedAt } } : {}) })),
           tipCents: Math.max(0, Math.round(Number(o.tipCents) || 0) - Math.round(Number(o.refundTipCents) || 0)) }));
+      // A gift card sold here that something's been spent from stays as it is (lib/counter-refund-server): said so.
+      const giftIds = rows.flatMap((r: any) => r.lines.filter((l: any) => l.gift?.id && l.left > 0).map((l: any) => String(l.gift.id))).filter((x: string) => ID.test(x)).slice(0, 30);
+      const cards = new Map<string, any>((await Promise.all(giftIds.map((id: string) => db.doc(`${T}/giftCards/${id}`).get()))).map((d: any) => [d.id, d.data() || null]));
+      for (const r of rows as any[]) for (const l of r.lines) if (l.gift?.id && cards.has(l.gift.id)) {
+        const c = cards.get(l.gift.id); const spent = !c || c.status === 'void' ? null : Math.max(0, Math.round(Number(c.initialCents) || 0) - Math.round(Number(c.balanceCents) || 0));
+        if (!c || c.status === 'void' || (spent || 0) > 0) { l.left = 0; l.gift.spentCents = spent; l.gift.why = !c ? 'Not found' : c.status === 'void' ? 'Cancelled' : 'spent'; }
+      }
+      for (const r of rows as any[]) if (!r.why && r.left <= 0 && !r.lines.some((l: any) => l.left > 0)) r.why = 'Its gift card has been used, so nothing is left to refund.';
       return ok({ orders: rows, staffOk });
     }
     // Cash in and out of the open drawer, for something other than a sale (lib/drawer-moves-server): a pay out and a drop
@@ -1117,7 +1126,7 @@ export async function POST(req: NextRequest) {
       await logAuditAdmin(db, tenantId, { action: 'counter.refund', targetType: 'order', targetId: orderId,
         summary: `${m.approver.name} ${r.resumed ? `finished the $${(r.cents / 100).toFixed(2)} refund on ${r.number} that ${r.startedBy || 'another manager'} okayed` : `okayed a $${(r.cents / 100).toFixed(2)} refund on ${r.number}`}${m.approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
         actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
-      return ok({ cents: r.cents, back: r.back, machineCents: r.machineCents, cashCents: r.cashCents, full: r.full, resumed: !!r.resumed, approvedBy: m.approver.name, staffOk });
+      return ok({ cents: r.cents, back: r.back, machineCents: r.machineCents, cashCents: r.cashCents, full: r.full, resumed: !!r.resumed, approvedBy: m.approver.name, ...(r.cancelled?.length ? { cancelled: r.cancelled } : {}), staffOk });
     }
     if (action === 'partUndo') {
       const m = await managerFor(db, tenantId, staff, b.pin);

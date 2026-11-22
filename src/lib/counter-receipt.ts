@@ -26,7 +26,7 @@ export function counterReceipt(o: any, orderId: string): any {
     // (On the house, lib/counter-comp-server: said so beside it, at $0. A gift card sold with it, lib/counter-gift: its
     // code when it's given on the receipt, else how it went; and a bonus card's code, which is the buyer's.)
     const g = l.giftCard && typeof l.giftCard === 'object' ? l.giftCard : null;
-    const giftWords = g ? (g.via === 'print' ? (g.code ? `, code ${clip(g.code, 20)}` : ', its code once it’s made') : g.via === 'text' ? `, by text${g.sent ? '' : ', not sent yet'}` : `, by email${g.sent ? '' : ', not sent yet'}`) + (g.bonusCode ? `; your bonus card ${clip(g.bonusCode, 20)}` : '') : '';
+    const giftWords = g ? (g.refundedAt ? ', refunded and cancelled' : '') + (g.via === 'print' ? (g.code ? `, code ${clip(g.code, 20)}` : ', its code once it’s made') : g.via === 'text' ? `, by text${g.sent ? '' : ', not sent yet'}` : `, by email${g.sent ? '' : ', not sent yet'}`) + (g.bonusCode ? `; your bonus card ${clip(g.bonusCode, 20)}` : '') : '';
     return { kind: g ? 'gift' : 'item', label: `${clip(l.name, 80) || 'Item'}${extra ? ` (${extra})` : ''}${l.comp ? ', on the house' : ''}${giftWords}`, qty, unit, amount: r2(unit * qty) };
   });
   const items = r2(lines.reduce((s: number, l: any) => s + l.amount, 0));

@@ -145,10 +145,14 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   const refundDocs = ((await db.collection(`${T}/counterOrders`).where('lastRefundAt', '>=', b.start).where('lastRefundAt', '<', b.end).limit(300).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
     .map((d: any) => d.data() || {}).filter(mine);
   const tonight = refundDocs.flatMap((o: any) => (Array.isArray(o.refunds) ? o.refunds : []).filter((f: any) => String(f.at) >= b.start && String(f.at) < b.end)
-    .map((f: any) => ({ number: String(o.number || ''), cents: Math.max(0, Math.round(num(f.cents))), net: Math.max(0, Math.round(num(f.cents) - num(f.tipCents) - num(f.taxCents))), reason: String(f.reason || 'No reason').slice(0, 80), approvedBy: String(f.approvedBy || 'A manager').slice(0, 60) })));
+    // (A gift card given back is never off sales: it was never a sale, lib/counter-gift.)
+    .map((f: any) => ({ number: String(o.number || ''), cents: Math.max(0, Math.round(num(f.cents))), gift: Math.max(0, Math.round(num(f.giftCents))), net: Math.max(0, Math.round(num(f.cents) - num(f.tipCents) - num(f.taxCents) - num(f.giftCents))), reason: String(f.reason || 'No reason').slice(0, 80), approvedBy: String(f.approvedBy || 'A manager').slice(0, 60) })));
   if (tonight.length) deliveries.refunds = { count: tonight.length, cents: tonight.reduce((n, f) => n + f.cents, 0), rows: tonight.slice(0, 40).map((f) => ({ number: f.number, cents: f.cents, reason: f.reason, approvedBy: f.approvedBy })) };
   // (Off tonight's sales by when it was given back, not when it was paid.)
   const counterRefunds = tonight.reduce((n, f) => n + f.net, 0) / 100;
+  // Gift cards sold at the counter given back tonight (lib/counter-refund-server): apart from sales, as they were sold.
+  const giftBack = tonight.filter((f) => f.gift > 0);
+  const giftRefunds = giftBack.length ? { count: giftBack.length, amount: giftBack.reduce((n, f) => n + f.gift, 0) / 100 } : null;
   if (heldDocs.length) {
     const parts = heldDocs.flatMap((o: any) => paidPartsOf(o));
     deliveries.held = { orders: heldDocs.length, cashCents: parts.filter((p) => p.kind === 'cash').reduce((n, p) => n + p.cents, 0), cardCents: parts.filter((p) => p.kind === 'card').reduce((n, p) => n + p.cents, 0),
@@ -176,7 +180,7 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   // (One location's: what was sold tonight at no location, on the whole business's report only, so the two add up.)
   const unplaced = at ? [...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && !r.locationId).map((r: any) => Math.max(0, num(r.subtotal) - num(r.discount))),
     ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => !o.locationId && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || ''))).map((o: any) => num(o.subtotal ?? (num(o.total) - num(o.tax))))] : [];
-  const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
+  const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, giftRefunds, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
   return { report, tills };
 }
 

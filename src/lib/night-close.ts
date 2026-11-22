@@ -150,7 +150,9 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
   unplaced?: { count: number; total: number } | null;
   /** Given back tonight on counter orders, whenever they were paid (lib/counter-refund-server): off tonight's sales,
    *  before tax and tips. */
-  counterRefunds?: number }) {
+  counterRefunds?: number;
+  /** Gift cards sold at the counter given back tonight (lib/counter-refund-server): apart from sales. */
+  giftRefunds?: { count: number; amount: number } | null }) {
   const sales = x.sales;
   const refunds = r2(sales.reduce((s, v) => s + (Number(v.refunded) || 0), 0) + Math.max(0, Number(x.counterRefunds) || 0));
   const total = r2(sales.reduce((s, v) => s + v.net, 0) - refunds);
@@ -175,7 +177,8 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
     guests: { tables: x.tables.length, covers, perGuest: covers > 0 ? r2(total / covers) : null },
     // Gift cards sold at the counter and the window (lib/counter-gift): in what was taken, not in sales. (None: left out.)
     giftCards: (() => { const g = sales.map((v) => v.giftCards).filter((x): x is { count: number; amount: number } => !!x && x.count > 0);
-      return g.length ? { count: g.reduce((t, x) => t + x.count, 0), total: r2(g.reduce((t, x) => t + x.amount, 0)) } : null; })(),
+      const back = x.giftRefunds && x.giftRefunds.count > 0 ? { count: x.giftRefunds.count, total: r2(x.giftRefunds.amount) } : null;
+      return g.length || back ? { count: g.reduce((t, y) => t + y.count, 0), total: r2(g.reduce((t, y) => t + y.amount, 0)), ...(back ? { refunded: back } : {}) } : null; })(),
     // Discounts and rewards taken off the counter's sales, by name, and the ones a manager okayed (lib/counter-money).
     discounts: (() => { const offs = sales.flatMap((v) => v.offs || []); return { total: r2(offs.reduce((t, o) => t + o.amount, 0)), count: offs.length, byLabel: sumBy(offs, (o) => o.label, (o) => o.amount),
       okayed: sumBy(offs.filter((o) => o.okBy), (o) => String(o.okBy), (o) => o.amount) }; })(),
@@ -206,7 +209,8 @@ export function reportText(name: string, rep: NightReport): string {
   L.push(`${name}${rep.place ? `, ${rep.place}` : ''}, ${weekdayOf(rep.day)} ${rep.day}`);
   L.push('');
   L.push(`Sales ${$(rep.sales.total)} from ${rep.sales.count} ${rep.sales.count === 1 ? 'sale' : 'sales'}, after discounts${rep.sales.refunds ? ` and ${$(rep.sales.refunds)} refunded` : ''}. Taken ${$(rep.sales.taken)} with tax ${$(rep.sales.tax)} and tips ${$(rep.sales.tips)}.`);
-  if (rep.giftCards) L.push(`Gift cards sold: ${rep.giftCards.count}, ${$(rep.giftCards.total)}. In what was taken, not in sales: it’s held for guests until they spend it.`);
+  if (rep.giftCards?.count) L.push(`Gift cards sold: ${rep.giftCards.count}, ${$(rep.giftCards.total)}. In what was taken, not in sales: it’s held for guests until they spend it.`);
+  if (rep.giftCards?.refunded) L.push(`Gift cards refunded: ${rep.giftCards.refunded.count}, ${$(rep.giftCards.refunded.total)}, each cancelled. Not off sales.`);
   if (rep.unplaced) L.push(`${rep.unplaced.count === 1 ? 'One sale' : `${rep.unplaced.count} sales`} tonight, ${$(rep.unplaced.total)}, ${rep.unplaced.count === 1 ? 'wasn’t' : 'weren’t'} at a location, so ${rep.unplaced.count === 1 ? 'it’s' : 'they’re'} on the whole business’s report.`);
   if (rep.guests.covers) L.push(`${rep.guests.covers} guests at ${rep.guests.tables} tables${rep.guests.perGuest !== null ? `, ${$(rep.guests.perGuest)} a guest` : ''}.`);
   if (rep.sales.byMethod.length) L.push(`Paid by ${rep.sales.byMethod.map((m) => `${m.method.toLowerCase()} ${$(m.amount)}`).join(', ')}.`);
