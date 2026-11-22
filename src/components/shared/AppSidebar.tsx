@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, CarFront, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, ExternalLink, FileText, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine, MonitorSmartphone, ReceiptText } from 'lucide-react';
+import { Archive, NotebookPen, Tent, ShoppingBasket, HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, Car, CarFront, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, ExternalLink, FileText, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode, ScrollText, Home as HomeIcon, Moon, BellRing, SprayCan, PieChart, ShoppingCart, Wine, MonitorSmartphone, ReceiptText, CirclePlus } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -17,6 +17,8 @@ import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { useAuth, useFirebase, useUser } from '@/firebase';
 import { pageVisible } from '@/lib/modules';
+import { ADD_TOOL_HREF, NAV_SECTIONS, navShown, sectionPages, servesFood, stockLabel, type NavSectionId } from '@/lib/nav';
+import { takesBookings } from '@/lib/business-shape';
 import { pageHref, runsTheNight, STATION_SCREENS, TONIGHT } from '@/lib/jobs';
 import { isFoodBusiness } from '@/lib/food-setup';
 import { SCREEN_AREAS, shownAreas, screenPath, screenShown, type ScreenArea } from '@/lib/screens';
@@ -193,15 +195,18 @@ const GUEST_PAGES: { href: string; icon: any; label: string; when?: (t: any) => 
  *  menu (/kds, /dish) is the screen itself. */
 const SCREEN_INFO = SCREEN_AREAS.flatMap((a) => a.screens.filter((s) => !s.sub && !s.noTenant).map((s) => ({ href: s.page, icon: SCREEN_ICONS[s.id], label: s.label })));
 const PAGE_INFO: Record<string, { icon: any; label: string }> = Object.fromEntries([...DAILY_HUB, ...STUDIO_ASSETS, ...SCREEN_INFO].map((i) => [i.href, { icon: i.icon, label: i.label }]));
+/** Every page the menu's sections hold (lib/nav), by page: its name and icon. */
+const NAV_ITEM: Record<string, { href: string; icon: any; label: string }> = Object.fromEntries(
+  [...DAILY_HUB, ...CLIENT_GROWTH, ...STUDIO_ASSETS, ...COMMERCE, ...TEAM_FULL, ...FINANCIAL_SUITE, ...BOOTH_RENTAL, ...EVENTS].map((i) => [i.href, i]));
 
 /** Every page in the menu, by area — what the header search looks through. A screen is found by its name and opens the
  *  Screens page on it (/screens?show=kiosk), where it opens here or on a tablet; `gate` is the page its tool goes by. */
 export type NavFind = { href: string; label: string; gate?: string; when?: (t: any) => boolean };
 const SCREEN_FINDS: NavFind[] = [{ href: '/screens', label: 'Screens' },
   ...SCREEN_AREAS.flatMap((a) => a.screens.map((s) => ({ href: `/screens?show=${s.id}`, label: s.label, gate: s.page, when: (t: any) => screenShown(t, s) })))];
+// (By the menu's sections, lib/nav: the search finds only what the business's menu shows, AppSearch navShown.)
 export const NAV_AREAS: { area: string; items: NavFind[] }[] = [
-  { area: 'Today', items: DAILY_HUB }, { area: 'Clients', items: CLIENT_GROWTH }, { area: 'Business', items: STUDIO_ASSETS }, { area: 'Shop', items: COMMERCE },
-  { area: 'Team', items: TEAM_FULL }, { area: 'Money', items: FINANCIAL_SUITE }, { area: 'Rentals', items: BOOTH_RENTAL }, { area: 'Events', items: EVENTS },
+  ...NAV_SECTIONS.map((s) => ({ area: s.label, items: s.pages.map((h) => NAV_ITEM[h]).filter(Boolean) })),
   { area: 'Screens', items: SCREEN_FINDS },
 ];
 
@@ -290,6 +295,8 @@ function NavSection({
   const [open, setOpen] = useState<boolean>(holdsCurrent || (defaultOpen ?? label === 'Today'));
   useEffect(() => { if (holdsCurrent) setOpen(true); }, [holdsCurrent]);
   const shown = isCollapsed || open;
+  // (A section with nothing in it for this business isn't shown at all.)
+  if (!items.some((item: any) => isPortal || pageVisible(selectedTenant, item.href))) return null;
 
   return (
     <SidebarGroup className="py-1">
@@ -496,9 +503,15 @@ export function AppSidebar() {
    * confirm it works, and has nowhere to look when a client says "I sent a
    * request". An empty queue is information; an invisible one is not. */
   const approvalMode = String((selectedTenant as any)?.bookingMode?.mode || 'instant') === 'approval';
-  const dailyItems = DAILY_HUB.filter(
-    (i) => i.href !== '/appointments/requests' || approvalMode || requestBadgeCount > 0,
-  );
+  // The menu's sections at this business (lib/nav): only what its plan includes and fits how it works, in one order.
+  // (Requests shows while the business asks for approval, or while one is waiting.)
+  const books = takesBookings(selectedTenant);
+  const sec = (id: NavSectionId) => sectionPages(selectedTenant, id).filter((h) => h !== '/appointments/requests' || approvalMode || requestBadgeCount > 0).map((h) => NAV_ITEM[h]).filter(Boolean);
+  // (What's already in someone's own group isn't listed again underneath.)
+  const daily = (id: NavSectionId) => sec(id).filter((i) => !ownHrefs.has(i.href));
+  // (At a business without bookings, the front desk and curbside go with the shop, which only the owner's menu has: the
+  // team keeps them with Today.)
+  const teamShop = !isOwner ? daily('shop').filter((i) => i.href === '/pos' || i.href === '/curbside') : [];
   const dailyBadges = {
     ...(inboxBadgeCount > 0 ? { '/inbox': inboxBadgeCount } : {}),
     ...(messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : {}),
@@ -558,58 +571,25 @@ export function AppSidebar() {
           {!viaPortal && tonightItems.length > 0 && <NavSection label="Tonight" items={tonightItems} defaultOpen />}
           {!viaPortal && runsNight && tenantId && <ScreensSection areas={shownAreas(selectedTenant, { only: STATION_SCREENS })} tenantId={tenantId} defaultOpen />}
 
-          {!viaPortal && <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={dailyItems.filter((i) => !ownHrefs.has(i.href))} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />}
+          {!viaPortal && <>
+            <NavSection key={workItems.length > 0 || tonightItems.length > 0 ? 'rest' : 'today'} label={workItems.length > 0 ? 'Everything else' : 'Today'} items={[...daily('today'), ...teamShop]} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0} />
+            <NavSection key={`appointments-${books}`} label="Appointments" items={daily('appointments')} badges={Object.keys(dailyBadges).length > 0 ? dailyBadges : undefined} defaultOpen={workItems.length === 0 && tonightItems.length === 0 && books} />
+            <NavSection key={`food-${books}`} label="Food and drink" items={daily('food')} defaultOpen={workItems.length === 0 && tonightItems.length === 0 && !books} />
+          </>}
 
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Clients" items={CLIENT_GROWTH} />
-            </>
-          )}
-
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Business" items={STUDIO_ASSETS} />
-              <NavSection label="Shop" items={COMMERCE} />
-            </>
-          )}
-
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Team" items={TEAM_FULL} />
-            </>
-          )}
+          {isOwner && <>
+            <NavSection key={`shop-${books}-${servesFood(selectedTenant)}`} label="Shop" items={sec('shop')} defaultOpen={!books && !servesFood(selectedTenant)} />
+            <NavSection label={books ? 'Clients' : 'Customers'} items={sec('customers')} />
+            <NavSection label={stockLabel(selectedTenant)} items={sec('stock')} />
+            <NavSection label="Rentals" items={sec('rentals')} badges={rentalBadges} />
+            <NavSection label="Events and classes" items={sec('events')} />
+            <NavSection label="Team" items={sec('team')} />
+            <NavSection label="Money" items={sec('money')} badges={financialBadges} />
+          </>}
           {isAdmin && !isOwner && !viaPortal && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection label="Team" items={TEAM_ADMIN} />
-            </>
-          )}
-
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection
-                label="Money"
-                items={FINANCIAL_SUITE}
-                badges={financialBadges}
-              />
-            </>
-          )}
-
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Rentals" items={BOOTH_RENTAL} badges={rentalBadges} />
-            </>
-          )}
-
-          {isOwner && (
-            <>
-              <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Events" items={EVENTS} />
             </>
           )}
 
@@ -618,11 +598,12 @@ export function AppSidebar() {
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection
                 label="Guest pages"
-                items={GUEST_PAGES.filter((p) => !p.when || p.when(selectedTenant))}
+                items={GUEST_PAGES.filter((p) => (!p.when || p.when(selectedTenant)) && navShown(selectedTenant, p.href))}
                 isPortal
                 tenantId={tenantId}
               />
               <ScreensSection areas={shownAreas(selectedTenant)} tenantId={tenantId} />
+              <SidebarMenu className="gap-px px-0 pt-1"><NavItem href={ADD_TOOL_HREF} icon={CirclePlus} label="Add a tool" /></SidebarMenu>
             </>
           )}
         </SidebarContent>
@@ -663,7 +644,7 @@ export function AppSidebar() {
                 <TooltipTrigger asChild>
                   <SidebarMenuButton
                     onClick={handleLogout}
-                    className="rounded-xl h-10 font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/8 hover:text-destructive transition-all"
+                    className="rounded-xl h-10 text-[14px] font-medium text-muted-foreground hover:bg-primary/5 hover:text-primary transition-colors"
                   >
                     <LogOut className="w-[17px] h-[17px] shrink-0" />
                     <span>Sign out</span>

@@ -10,6 +10,7 @@ import { visibleGroups } from '@/lib/settings-registry';
 import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
 import { useTenant } from '@/context/TenantContext';
 import { pageVisible } from '@/lib/modules';
+import { planShown, sectionLabelOf } from '@/lib/nav';
 
 type Hit = { title: string; where: string; href: string; hay: string };
 
@@ -19,8 +20,10 @@ export function AppSearch() {
   const box = React.useRef<HTMLInputElement>(null);
   const { hits: settingHits, loading: settingsLoading } = useRowSearch(selectedTenant, q, 6);
   const all = React.useMemo<Hit[]>(() => {
-    // A screen goes by its own page's tool, and how the business runs (lib/screens): `gate` and `when`.
-    const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => pageVisible(selectedTenant, i.gate || i.href) && (!i.when || i.when(selectedTenant))).map((i) => ({ title: i.label, where: a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
+    // A screen goes by its own page's tool, and how the business runs (lib/screens): `gate` and `when`. A page, by the
+    // business's plan (lib/nav planShown): never one it doesn't have, but one the menu leaves out on how it works can
+    // still be found by name; beside it, the section the menu shows it in.
+    const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => (i.gate ? pageVisible(selectedTenant, i.gate) : planShown(selectedTenant, i.href)) && (!i.when || i.when(selectedTenant))).map((i) => ({ title: i.label, where: (i.gate ? null : sectionLabelOf(selectedTenant, i.href)) || a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
     const settings = (selectedTenant ? visibleGroups(selectedTenant) : []).flatMap((g) => g.pages.map((p) => ({ title: p.title, where: `Settings · ${g.title}`, href: p.href, hay: `${p.title} ${p.meaning} ${p.words || ''} ${g.title}`.toLowerCase() })));
     const seen = new Set<string>(); return [...pages, ...settings].filter((h) => (seen.has(h.href + h.title) ? false : (seen.add(h.href + h.title), true)));
   }, [selectedTenant]);

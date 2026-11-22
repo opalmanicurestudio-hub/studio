@@ -70,7 +70,7 @@ const areaIds = (areas: any[]) => areas.map((a) => a.id);
   const side = src('src/components/shared/AppSidebar.tsx');
   check('Public pages is now Guest pages and Screens', !/PUBLIC_PORTALS|"Public pages"/.test(side) && /label="Guest pages"/.test(side) && /<ScreensSection areas=\{shownAreas\(selectedTenant\)\} tenantId=\{tenantId\} \/>/.test(side));
   check('guest pages: booking page, online shop, order ahead (while on), rewards page (while on), gift card page',
-    /href: '\/order',[^\n]*when: \(t\) => t\?\.orderAhead\?\.on === true/.test(side) && /href: '\/rewards',[^\n]*when: \(t\) => t\?\.loyalty\?\.on === true/.test(side) && /GUEST_PAGES\.filter\(\(p\) => !p\.when \|\| p\.when\(selectedTenant\)\)/.test(side));
+    /href: '\/order',[^\n]*when: \(t\) => t\?\.orderAhead\?\.on === true/.test(side) && /href: '\/rewards',[^\n]*when: \(t\) => t\?\.loyalty\?\.on === true/.test(side) && /GUEST_PAGES\.filter\(\(p\) => \(!p\.when \|\| p\.when\(selectedTenant\)\) && navShown\(selectedTenant, p\.href\)\)/.test(side));
   check('the Screens group: All screens first, then each area under its own name, each screen in a new tab',
     /<NavItem href="\/screens" icon=\{MonitorSmartphone\} label="All screens" \/>/.test(side) && /aria-labelledby=\{isCollapsed \? undefined : `side-screens-\$\{a\.id\}`\}/.test(side) && /href=\{screenPath\(s, tenantId\)\}[^\n]*newTab/.test(side));
   check('a new-tab link says so to a screen reader, and opens with noopener', /\(opens in a new tab\)/.test(side) && /rel=\{outside \? 'noopener' : undefined\}/.test(side));
@@ -79,7 +79,7 @@ const areaIds = (areas: any[]) => areas.map((a) => a.id);
   const search = src('src/components/shared/AppSearch.tsx');
   check('the search finds each screen by name, by its own tool and how the business runs, and opens the Screens page on it',
     /\{ area: 'Screens', items: SCREEN_FINDS \}/.test(side) && /href: `\/screens\?show=\$\{s\.id\}`, label: s\.label, gate: s\.page, when: \(t: any\) => screenShown\(t, s\)/.test(side)
-    && /pageVisible\(selectedTenant, i\.gate \|\| i\.href\) && \(!i\.when \|\| i\.when\(selectedTenant\)\)/.test(search));
+    && /\(i\.gate \? pageVisible\(selectedTenant, i\.gate\) : planShown\(selectedTenant, i\.href\)\) && \(!i\.when \|\| i\.when\(selectedTenant\)\)/.test(search));
 
   console.log('The Screens page');
   const page = src('src/app/(app)/screens/page.tsx');
