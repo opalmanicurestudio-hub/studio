@@ -143,6 +143,10 @@ import { pageAccent } from '@/lib/studio-page';
 import { menuNumbers } from '@/lib/menu-numbers';
 import { extrasOf } from '@/lib/plate-extras';
 import { logAuditAdmin } from '@/lib/audit';
+import { rulesOf, needFor, needWords, type RuleKey } from '@/lib/money-rules';
+import { okayFor } from '@/lib/money-rules-server';
+import { logMoney } from '@/lib/activity-server';
+import type { ActivityWhere } from '@/lib/activity';
 import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
 import { readWindow, boardNumbers } from '@/lib/pickup-window';
 import { moduleEnabled } from '@/lib/modules';
@@ -241,6 +245,21 @@ export async function POST(req: NextRequest) {
     const here = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: member?.id || null });
     tenant = await zonedHere(db, tenantId, tenant, here);
     const tz = tenantTimeZone(tenant);
+    // The owner's rules for the money moments (lib/money-rules): who each takes, and who okayed it (lib/money-rules-server).
+    // When it takes nobody else, the person at this screen okayed it. Each one is a line in Activity (lib/activity-server).
+    const rules = rulesOf(tenant); const where: ActivityWhere = channel === 'counter' ? 'counter' : 'window';
+    type Okay = { approver: { id: string | null; name: string }; reply: null } | { approver: null; reply: ReturnType<typeof NextResponse.json> };
+    const okayBy = async (key: RuleKey, cents?: number | null): Promise<Okay> => {
+      const need = needFor(rules, key, cents);
+      const m = await okayFor(db, tenantId, staff, b.pin, need, { where, tenant });
+      if (m.approver) return { approver: m.approver, reply: null };
+      // (Anyone, but someone: it's on their name, never a screen's.)
+      if (need === 'anyone') return who.id ? { approver: { id: who.id, name: who.name }, reply: null } : { approver: null, reply: signInFirst() };
+      if (m.error && !m.notEnough) return { approver: null, reply: bad(m.error, m.status || 400) };
+      return { approver: null, reply: NextResponse.json({ ok: false, needsManager: true, ...(need === 'owner' ? { owner: true } : {}), error: m.error || needWords(key, need), staffOk }, { status: 403 }) };
+    };
+    const atScreen = (a: { id: string | null; name: string }) => (a.id !== who.id ? ` at ${who.name}’s ${where}` : '');
+    const signInFirst = () => NextResponse.json({ ok: false, needsStaff: true, error: 'Sign in first: tap Who’s working? and enter your PIN, so it’s on your name.', staffOk }, { status: 403 });
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
     if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
@@ -270,18 +289,12 @@ export async function POST(req: NextRequest) {
     }
     if (action === 'discount') {
       const custom = b.custom && typeof b.custom === 'object' ? b.custom : null;
-      let approver: { id: string; name: string } | null = null;
-      if (custom) {
-        const m = await managerFor(db, tenantId, staff, b.pin);
-        if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-        approver = m.approver;
-        if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'Another amount takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
-      }
-      const r: any = await setDiscount(db, tenantId, tenant, String(b.orderId || ''), { id: custom ? null : b.discountId ? String(b.discountId) : null, custom }, who, approver);
+      let approver: { id: string | null; name: string } | null = null;
+      if (custom) { const m = await okayBy('customDiscount'); if (m.reply) return m.reply; approver = m.approver; }
+      const r: any = await setDiscount(db, tenantId, tenant, String(b.orderId || ''), { id: custom ? null : b.discountId ? String(b.discountId) : null, custom }, who, approver as any);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      if (r.custom && approver) await logAuditAdmin(db, tenantId, { action: 'counter.discount', targetType: 'order', targetId: String(b.orderId),
-        summary: `${approver.name} okayed $${(r.cents / 100).toFixed(2)} off ${r.number} (${r.reason || r.label})${approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
-        actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => null);
+      if (r.custom && approver) await logMoney(db, tenantId, { action: 'counter.discount', kind: 'discount', targetType: 'order', targetId: String(b.orderId), cents: r.cents, where, by: who, okBy: approver, reason: r.reason || r.label, ref: r.number,
+        summary: `${approver.name} okayed $${(r.cents / 100).toFixed(2)} off ${r.number} (${r.reason || r.label})${atScreen(approver)}.` }, tenant);
       return ok({ total: r.total, cents: r.cents ?? 0, off: !!r.off, approvedBy: approver?.name || null, staffOk });
     }
     if (action === 'receipt') {
@@ -705,14 +718,16 @@ export async function POST(req: NextRequest) {
       const id = String(b.orderId || '');
       // Cancelled once the kitchen started on it throws food out with no sale, so a manager okays that, as any void: one
       // signed in or working here, or their PIN typed here. Before then, anyone at the counter.
-      let approver: { id: string | null; name: string } | null = null;
+      let approver: { id: string | null; name: string } | null = null; let pinSaid: string | null = null;
       if (action === 'appCancel') {
-        const m = await managerFor(db, tenantId, staff, b.pin);
-        if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-        approver = m.approver;
+        // (Asked for, and said, only once the kitchen started on it.)
+        const need = needFor(rules, 'void');
+        if (need === 'anyone') approver = who.id ? { id: who.id, name: who.name } : null;
+        else { const m = await okayFor(db, tenantId, staff, b.pin, need, { where, tenant }); if (m.error && !m.notEnough) return bad(m.error, m.status || 400); approver = m.approver; pinSaid = m.error || null; }
       }
       const r: any = action === 'appSend' ? await appSend(db, tenantId, tenant, id, { app: b.app, code: b.code, courierIn: b.courierIn }, who) : await appCancel(db, tenantId, id, who, { manager: !!approver });
-      if (!r.ok) return r.needsManager ? NextResponse.json({ ok: false, needsManager: true, error: r.error, staffOk }, { status: 403 }) : bad(r.error, r.status);
+      if (!r.ok && r.needsManager && needFor(rules, 'void') === 'anyone') return signInFirst();
+      if (!r.ok) return r.needsManager ? NextResponse.json({ ok: false, needsManager: true, ...(needFor(rules, 'void') === 'owner' ? { owner: true, error: pinSaid || needWords('void', 'owner') } : { error: pinSaid || r.error }), staffOk }, { status: 403 }) : bad(r.error, r.status);
       forgetStats(tenantId);
       if (action === 'appCancel' && !r.already) {
         const okayed = approver && r.wasted && approver.id !== who.id ? `${approver.name} okayed it at ${by}’s counter. ` : '';
@@ -792,13 +807,11 @@ export async function POST(req: NextRequest) {
         const r: any = await sendOwed(db, tenantId, tenant, id, by);
         return r.ok ? ok({ cents: r.cents, owed: r.owed || 0, number: r.number, staffOk }) : bad(r.error, r.status);
       }
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      const m = await okayBy('refund'); if (m.reply) return m.reply;
       const approver = m.approver;
-      if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager refunds it. Their PIN, or ask one to.', staffOk }, { status: 403 });
       const r: any = await settleFailed(db, tenantId, tenant, id, 'refund', { by: approver.name, guest: false, ...(typeof b.fee === 'boolean' ? { fee: b.fee } : {}) });
-      if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.delivery_refunded', targetType: 'order', targetId: id,
-        summary: `${approver.name} refunded ${r.number} ($${(r.cents / 100).toFixed(2)}), which couldn’t be delivered${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
+      if (r.ok && !r.already) await logMoney(db, tenantId, { action: 'counter.delivery_refunded', kind: 'refund', targetType: 'order', targetId: id, cents: r.cents, where, by: who, okBy: approver, reason: 'Couldn’t be delivered', ref: r.number,
+        summary: `${approver.name} refunded ${r.number} ($${(r.cents / 100).toFixed(2)}), which couldn’t be delivered${atScreen(approver)}.` }, tenant);
       return r.ok ? ok({ already: !!r.already, cents: r.cents, number: r.number, approvedBy: approver.name, staffOk }) : bad(r.error, r.status);
     }
     if (action === 'laterCancel' || action === 'laterSend') {
@@ -814,13 +827,11 @@ export async function POST(req: NextRequest) {
         if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.later_sent', targetType: 'order', targetId: id, summary: `${by} sent ${r.number}, an order for another day, to the kitchen.`, actor: { type: 'user', id: who.id || 'counter', name: by } } as any).catch(() => {});
         return r.ok ? ok({ already: !!r.already, number: r.number, staffOk }) : bad(r.error, r.status);
       }
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      const m = await okayBy('refund'); if (m.reply) return m.reply;
       const approver = m.approver;
-      if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager cancels it. Their PIN, or ask one to.', staffOk }, { status: 403 });
       const r: any = await cancelLater(db, tenantId, tenant, id, { by: approver.name, guest: false });
-      if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'counter.later_canceled', targetType: 'order', targetId: id,
-        summary: `${approver.name} canceled ${r.number}, an order for another day, and refunded $${(r.cents / 100).toFixed(2)}${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
+      if (r.ok && !r.already) await logMoney(db, tenantId, { action: 'counter.later_canceled', kind: 'refund', targetType: 'order', targetId: id, cents: r.cents, where, by: who, okBy: approver, reason: 'An order for another day, canceled', ref: r.number,
+        summary: `${approver.name} canceled ${r.number}, an order for another day, and refunded $${(r.cents / 100).toFixed(2)}${atScreen(approver)}.` }, tenant);
       return r.ok ? ok({ already: !!r.already, cents: r.cents, number: r.number, approvedBy: approver.name, staffOk }) : bad(r.error, r.status);
     }
     if (action === 'lineClear') {
@@ -1064,30 +1075,29 @@ export async function POST(req: NextRequest) {
     // to the safe are a manager's; and how much should be in it now, with today's moves.
     if (action === 'drawerView') return ok({ drawer: await drawerView(db, tenantId), staffOk });
     if (action === 'drawerUndo') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'Undoing it takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
-      const r: any = await drawerUndo(db, tenantId, b.moveKey, who, m.approver);
+      const m = await okayBy('cashMove'); if (m.reply) return m.reply;
+      const r: any = await drawerUndo(db, tenantId, b.moveKey, who, m.approver as any);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.drawer_undo', targetType: 'tillSession', targetId: String(b.moveKey || ''), summary: `${r.words} $${(r.cents / 100).toFixed(2)} undone by ${m.approver.name}.`, actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      if (!r.already) await logMoney(db, tenantId, { action: 'counter.drawer_undo', kind: 'cash', targetType: 'tillSession', targetId: String(b.moveKey || ''), cents: r.cents, where, by: who, okBy: m.approver, reason: 'Undone',
+        summary: `${r.words} $${(r.cents / 100).toFixed(2)} undone by ${m.approver.name}${atScreen(m.approver)}.` }, tenant);
       return ok({ kind: r.kind, cents: r.cents, words: r.words, already: !!r.already, staffOk });
     }
     if (action === 'drawer') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: `${b.kind === 'out' ? 'A pay out' : b.kind === 'in' ? 'Putting cash in' : 'Cash to the safe'} takes a manager. Their PIN, or ask one to.`, staffOk }, { status: 403 });
-      const r: any = await drawerMove(db, tenantId, b.kind, b.cents, b.note, who, m.approver, { receiptUrl: b.receiptUrl, key: b.moveKey });
+      const m = await okayBy('cashMove'); if (m.reply) return m.reply;
+      const r: any = await drawerMove(db, tenantId, b.kind, b.cents, b.note, who, m.approver as any, { receiptUrl: b.receiptUrl, key: b.moveKey });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      if (!r.already) await logAuditAdmin(db, tenantId, { action: `counter.drawer_${r.kind}`, targetType: 'tillSession', targetId: String(r.tillId || ''), summary: `${r.words} $${(r.cents / 100).toFixed(2)}${b.note ? `: ${String(b.note).slice(0, 80)}` : ''}, at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}${m.approver ? `, okayed by ${m.approver.name}` : ''}.`,
-        actor: { type: 'user', id: String((m.approver?.id || who.id) || 'counter'), name: m.approver?.name || who.name } } as any).catch(() => null);
-      return ok({ kind: r.kind, cents: r.cents, expectedCash: r.expectedCash, already: !!r.already, words: r.words, approvedBy: m.approver?.name || null, staffOk });
+      if (!r.already) await logMoney(db, tenantId, { action: `counter.drawer_${r.kind}`, kind: 'cash', targetType: 'tillSession', targetId: String(r.tillId || ''), cents: r.cents, where, by: who, okBy: m.approver, reason: b.note ? String(b.note) : r.words,
+        summary: `${r.words} $${(r.cents / 100).toFixed(2)}${b.note ? `: ${String(b.note).slice(0, 80)}` : ''}, at ${who.name}’s ${where}${m.approver.id !== who.id ? `, okayed by ${m.approver.name}` : ''}.` }, tenant);
+      return ok({ kind: r.kind, cents: r.cents, expectedCash: r.expectedCash, already: !!r.already, words: r.words, approvedBy: needFor(rules, 'cashMove') === 'anyone' && m.approver.id === who.id ? null : m.approver.name, staffOk });
     }
     // The drawer opened with no sale (lib/drawer-moves-server drawerNoSale): someone signed in here, with why.
     if (action === 'noSale') {
+      // (Anyone signed in, with why, unless the owner's rules say a manager or only them.)
+      const m = await okayBy('noSale'); if (m.reply) return m.reply;
       const r: any = await drawerNoSale(db, tenantId, b.reason, who, { key: b.moveKey, printerId: b.printerId });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, ...(r.code === 'staff' ? { needsStaff: true } : {}), staffOk }, { status: r.status });
-      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.no_sale', targetType: 'tillSession', targetId: 'open', summary: `${who.name} opened the drawer with no sale: ${String(b.reason || '').slice(0, 60)}.`,
-        actor: { type: 'user', id: String(who.id || 'counter'), name: who.name } } as any).catch(() => null);
+      if (!r.already) await logMoney(db, tenantId, { action: 'counter.no_sale', kind: 'drawer', targetType: 'tillSession', targetId: 'open', where, by: who, okBy: m.approver.id !== who.id ? m.approver : null, reason: b.reason,
+        summary: `${who.name} opened the drawer with no sale: ${String(b.reason || '').slice(0, 60)}${m.approver.id !== who.id ? `, okayed by ${m.approver.name}` : ''}.` }, tenant);
       return ok({ printer: r.printer || null, already: !!r.already, staffOk });
     }
     const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
@@ -1131,26 +1141,34 @@ export async function POST(req: NextRequest) {
       return r.ok ? ok({ plan: r.plan || null, back: r.back || [], resuming: r.resuming || null, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
     if (action === 'refund') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A refund takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      // (How much, first: staff may refund a small amount on their own, by the owner's rules.)
+      // (With what's been refunded on the order already, so a refund in small pieces is one refund.)
+      const pv: any = await previewRefund(db, tenantId, orderId, cleanAsk(b)).catch(() => null);
+      const askCents = pv?.ok ? Number(pv.resuming?.cents ?? pv.plan?.cents) : NaN;
+      const ro: any = (await db.doc(`${T}/counterOrders/${orderId}`).get()).data() || {};
+      const soFar = Math.max(0, Math.round(Number(ro.refundCents) || 0)) + Object.values(ro.partsBack && typeof ro.partsBack === 'object' ? ro.partsBack : {}).reduce((n: number, x: any) => n + Math.max(0, Math.round(Number(x?.cents) || 0)), 0);
+      const m = await okayBy('refund', Number.isFinite(askCents) && askCents > 0 ? askCents + soFar : null); if (m.reply) return m.reply;
       const r: any = await refundCounterOrder(db, tenantId, tenant, orderId, cleanAsk(b), { id: m.approver.id, name: m.approver.name }, who.name, b.resume === true);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, unfinished: r.unfinished || null, staffOk }, { status: r.status });
       forgetStats(tenantId);
-      await logAuditAdmin(db, tenantId, { action: 'counter.refund', targetType: 'order', targetId: orderId,
-        summary: `${m.approver.name} ${r.resumed ? `finished the $${(r.cents / 100).toFixed(2)} refund on ${r.number} that ${r.startedBy || 'another manager'} okayed` : `okayed a $${(r.cents / 100).toFixed(2)} refund on ${r.number}`}${m.approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
-        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      const paidBy = String(((await db.doc(`${T}/counterOrders/${orderId}`).get()).data() || {}).paidBy || '');
+      await logMoney(db, tenantId, { action: 'counter.refund', kind: 'refund', targetType: 'order', targetId: orderId, cents: r.cents, where, by: who, okBy: m.approver, reason: b.reason, ref: r.number,
+        // (Cash back by the person who took the payment, with nobody else okaying it.)
+        toCash: Number(r.cashCents) > 0, sameAsPaid: !!paidBy && paidBy === who.name && m.approver.id === who.id,
+        summary: `${m.approver.name} ${r.resumed ? `finished the $${(r.cents / 100).toFixed(2)} refund on ${r.number} that ${r.startedBy || 'another manager'} okayed` : m.approver.id === who.id ? `refunded $${(r.cents / 100).toFixed(2)} on ${r.number}` : `okayed a $${(r.cents / 100).toFixed(2)} refund on ${r.number}`}${atScreen(m.approver)}.` }, tenant);
       return ok({ cents: r.cents, back: r.back, machineCents: r.machineCents, cashCents: r.cashCents, full: r.full, resumed: !!r.resumed, approvedBy: m.approver.name, ...(r.cancelled?.length ? { cancelled: r.cancelled } : {}), staffOk });
     }
     if (action === 'partUndo') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'Giving a part back takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      // (A part of a split bill given back is a refund, by the owner's rules: how much, first.)
+      const po: any = (await db.doc(`${T}/counterOrders/${orderId}`).get()).data() || {};
+      const part = (Array.isArray(po.tenders) ? po.tenders : []).find((t: any) => t?.partId && t.partId === b.partId);
+      const soFar = Math.max(0, Math.round(Number(po.refundCents) || 0)) + Object.values(po.partsBack && typeof po.partsBack === 'object' ? po.partsBack : {}).reduce((n: number, x: any) => n + Math.max(0, Math.round(Number(x?.cents) || 0)), 0);
+      const m = await okayBy('refund', part ? (Math.round(Number(part.cents) || 0) + soFar) || null : null); if (m.reply) return m.reply;
       const r: any = await undoPart(db, tenantId, tenant, orderId, b.partId, { id: m.approver.id, name: m.approver.name });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.partBack', targetType: 'order', targetId: orderId,
-        summary: `${m.approver.name} gave back a $${(r.cents / 100).toFixed(2)} ${r.kind === 'cash' ? 'cash' : 'card'} part of a split bill${m.approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
-        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      if (!r.already) await logMoney(db, tenantId, { action: 'counter.partBack', kind: 'refund', targetType: 'order', targetId: orderId, cents: r.cents, where, by: who, okBy: m.approver, reason: 'Part of a split bill given back', ref: po.number || null,
+        toCash: r.kind === 'cash', sameAsPaid: false,
+        summary: `${m.approver.name} gave back a $${(r.cents / 100).toFixed(2)} ${r.kind === 'cash' ? 'cash' : 'card'} part of a split bill${atScreen(m.approver)}.` }, tenant);
       return ok({ due: r.due, cents: r.cents, kind: r.kind || null, machine: !!r.machine, fromDrawer: !!r.fromDrawer, already: !!r.already, staffOk });
     }
 
@@ -1175,13 +1193,18 @@ export async function POST(req: NextRequest) {
     // Some or all of one line off an order the kitchen has, before it's paid (lib/counter-takeoff-server): a manager's
     // once the kitchen started it.
     if (action === 'takeOff') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error && !m.notManager) return bad(m.error, m.status);
-      const r: any = await takeOffSent(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, who, m.approver);
-      if (!r.ok && r.code === 'made') return NextResponse.json({ ok: false, needsManager: true, error: m.notManager ? m.error : r.error, staffOk }, { status: 403 });
+      // (Something already made, thrown out with no sale: a void, by the owner's rules. Not made yet, anyone.)
+      const need = needFor(rules, 'void');
+      const mm = need === 'anyone' ? { approver: who.id ? { id: who.id, name: who.name } : null } : await okayFor(db, tenantId, staff, b.pin, need, { where, tenant });
+      if ((mm as any).error && !(mm as any).notEnough) return bad((mm as any).error, (mm as any).status || 400);
+      const r: any = await takeOffSent(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, who, mm.approver as any);
+      if (!r.ok && r.code === 'made' && need === 'anyone') return signInFirst();
+      if (!r.ok && r.code === 'made') return NextResponse.json({ ok: false, needsManager: true, ...(need === 'owner' ? { owner: true } : {}), error: (mm as any).error || (need === 'owner' ? needWords('void', 'owner') : r.error), staffOk }, { status: 403 });
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      await logAuditAdmin(db, tenantId, { action: 'counter.takeOff', targetType: 'order', targetId: orderId, summary: `${r.qty} × ${r.name} taken off order ${r.order.number} at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}${r.made ? `, made already, okayed by ${m.approver?.name || 'a manager'}` : ''}.`,
-        actor: { type: 'user', id: String((r.made ? m.approver?.id : who.id) || 'counter'), name: r.made ? m.approver?.name || who.name : who.name } } as any).catch(() => null);
+      const m = { approver: mm.approver };
+      await logMoney(db, tenantId, { action: 'counter.takeOff', kind: 'void', targetType: 'order', targetId: orderId, cents: Math.round((Number(r.less) || 0) * 100), where, by: who, okBy: r.made ? m.approver : null, ref: r.order?.number || null,
+        reason: r.made ? 'Taken off, made already' : 'Taken off before it was made', afterKitchen: !!r.made,
+        summary: `${r.qty} × ${r.name} taken off order ${r.order.number} at ${who.name}’s ${where}${r.made ? `, made already, okayed by ${m.approver?.name || 'a manager'}` : ''}.` }, tenant);
       // (What's left may be ready now: the guest's text, if they asked for one.)
       await textIfReady(db, tenantId, [orderId]).catch(() => 0);
       forgetStats(tenantId);
@@ -1189,30 +1212,36 @@ export async function POST(req: NextRequest) {
     }
     // One item on the house (lib/counter-comp-server): a manager's, with why; and taken back (its price again).
     if (action === 'comp') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'On the house takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
-      const r: any = await compLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.reason, who, m.approver);
+      const m = await okayBy('comp'); if (m.reply) return m.reply;
+      const r: any = await compLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.reason, who, m.approver as any);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
-      await logAuditAdmin(db, tenantId, { action: 'counter.comp', targetType: 'order', targetId: orderId, summary: `${r.qty} × ${r.name} on the house ($${(r.cents / 100).toFixed(2)}) on order ${r.order.number}, okayed by ${m.approver.name}: ${String(b.reason || '').slice(0, 60)}.`,
-        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      await logMoney(db, tenantId, { action: 'counter.comp', kind: 'comp', targetType: 'order', targetId: orderId, cents: r.cents, where, by: who, okBy: m.approver, reason: b.reason, ref: r.order?.number || null,
+        summary: `${r.qty} × ${r.name} on the house ($${(r.cents / 100).toFixed(2)}) on order ${r.order.number}${m.approver.id !== who.id ? `, okayed by ${m.approver.name}` : `, by ${who.name}`}: ${String(b.reason || '').slice(0, 60)}.` }, tenant);
       return ok({ order: r.order, name: r.name, qty: r.qty, cents: r.cents, approvedBy: r.approvedBy, staffOk });
     }
     // One item at a different price (lib/counter-price-server): lower takes a manager, higher doesn't.
     if (action === 'price' || action === 'priceBack') {
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      const r: any = action === 'price' ? await priceLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.price, b.reason, who, m.approver)
-        : await priceBack(db, tenantId, tenant, orderId, String(b.lineId || ''), who, m.approver);
-      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, ...(r.code === 'manager' ? { needsManager: true } : {}), staffOk }, { status: r.status });
-      if (!r.already) await logAuditAdmin(db, tenantId, { action: action === 'price' ? 'counter.price' : 'counter.price_back', targetType: 'order', targetId: orderId,
-        summary: action === 'price' ? `${r.qty} × ${r.name} at $${Number(r.to).toFixed(2)} (was $${Number(r.from).toFixed(2)}) on order ${r.order.number}${r.approvedBy ? `, okayed by ${r.approvedBy}` : ''}: ${String(b.reason || '').slice(0, 60)}` : `${r.name} back at its menu price on order ${r.order.number}.`,
-        actor: { type: 'user', id: String((m.approver?.id || who.id) || 'counter'), name: m.approver?.name || who.name } } as any).catch(() => null);
+      // (Lower than it is now takes someone, by the owner's rules; higher never does. Which it is, the order says.)
+      const need = needFor(rules, 'lowerPrice');
+      const mm: any = need === 'anyone' ? { approver: who.id ? { id: who.id, name: who.name } : null } : await okayFor(db, tenantId, staff, b.pin, need, { where, tenant });
+      if (mm.error && !mm.notEnough) return bad(mm.error, mm.status || 400);
+      const m = { approver: mm.approver as { id: string | null; name: string } | null };
+      const r: any = action === 'price' ? await priceLine(db, tenantId, tenant, orderId, String(b.lineId || ''), b.qty, b.price, b.reason, who, m.approver as any)
+        : await priceBack(db, tenantId, tenant, orderId, String(b.lineId || ''), who, m.approver as any);
+      if (!r.ok && r.code === 'manager' && need === 'anyone') return signInFirst();
+      if (!r.ok) return NextResponse.json({ ok: false, code: r.code || null, ...(r.code === 'manager' ? { needsManager: true, ...(need === 'owner' ? { owner: true } : {}), error: mm.error || (need === 'owner' ? needWords('lowerPrice', 'owner') : r.error) } : { error: r.error }), staffOk }, { status: r.status });
+      if (!r.already) await logMoney(db, tenantId, { action: action === 'price' ? 'counter.price' : 'counter.price_back', kind: 'price', targetType: 'order', targetId: orderId, where, by: who,
+        okBy: r.approvedBy && m.approver && m.approver.id !== who.id ? m.approver : null, ref: r.order?.number || null,
+        cents: action === 'price' ? Math.round(Math.abs(Number(r.from) - Number(r.to)) * (Number(r.qty) || 1) * 100) : null,
+        reason: action === 'price' ? `${Number(r.to) < Number(r.from) ? 'Lower' : 'Higher'}: ${String(b.reason || '').slice(0, 60)}` : 'Back at its menu price',
+        summary: action === 'price' ? `${r.qty} × ${r.name} at $${Number(r.to).toFixed(2)} (was $${Number(r.from).toFixed(2)}) on order ${r.order.number}${r.approvedBy && m.approver?.id !== who.id ? `, okayed by ${r.approvedBy}` : ''}: ${String(b.reason || '').slice(0, 60)}` : `${r.name} back at its menu price on order ${r.order.number}.` }, tenant);
       return ok({ order: r.order, name: r.name, qty: r.qty ?? null, from: r.from ?? null, to: r.to ?? null, back: !!r.back, approvedBy: r.approvedBy || null, already: !!r.already, staffOk });
     }
     if (action === 'uncomp') {
       const r: any = await uncompLine(db, tenantId, tenant, orderId, String(b.lineId || ''), who);
       if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      if (!r.already) await logMoney(db, tenantId, { action: 'counter.uncomp', kind: 'comp', targetType: 'order', targetId: orderId, where, by: who, ref: r.order?.number || null, reason: 'Charged for again',
+        summary: `${r.name} charged for again on order ${r.order?.number || ''}, by ${who.name}.` }, tenant);
       return ok({ order: r.order, name: r.name, already: !!r.already, staffOk });
     }
     // Gift cards on a paid order made (the ones that weren't: lib/counter-gift-server), with their codes.
@@ -1311,16 +1340,16 @@ export async function POST(req: NextRequest) {
       // A staff meal: settled with no money, for a named member of the team (lib/counter-server staffMeal). It writes the
       // order off as a void does, so a manager rings it in: signed in or working here as one, or with their PIN typed here
       // (checked with the same lockout as any PIN, lib/pin).
-      const m = await managerFor(db, tenantId, staff, b.pin);
-      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-      const approver = m.approver;
-      if (!approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager rings in a staff meal. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const m = await okayBy('staffMeal'); if (m.reply) return m.reply;
+      const approver = m.approver as { id: string; name: string };
+      const mealOf: any = (await db.doc(`${T}/counterOrders/${orderId}`).get()).data() || {};
       const r: any = await staffMeal(db, tenantId, orderId, b.for, who, approver);
       if (r.error) return bad(r.error, r.status);
       forgetStats(tenantId);
       if (!r.already) {
         await stopPhone(db, tenantId, tenant, orderId).catch(() => null);
-        await logAuditAdmin(db, tenantId, { action: 'counter.staff_meal', targetType: 'counterOrder', targetId: orderId, summary: `${approver.name} rang in a staff meal for ${r.for}${approver.id !== who.id ? ` (at ${who.name}’s counter)` : ''}.`, actor: { type: 'user', id: String(approver.id || 'counter'), name: approver.name } } as any).catch(() => {});
+        await logMoney(db, tenantId, { action: 'counter.staff_meal', kind: 'staffMeal', targetType: 'counterOrder', targetId: orderId, cents: Math.round((Number(mealOf.total) || 0) * 100) || null, where, by: who, okBy: approver, reason: `For ${r.for}`, ref: mealOf.number || null,
+          summary: `${approver.name} rang in a staff meal for ${r.for}${atScreen(approver)}.` }, tenant);
       }
       return ok({ already: !!r.already, for: r.for, approvedBy: approver.name, staffOk });
     }
@@ -1332,16 +1361,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'void') {
-      // A manager only: their PIN on this screen, or signed in on their own device as one.
-      let manager = false;
-      if (staff) manager = await isManager(db, tenantId, staff.id);
-      if (!manager) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager’s PIN is needed to void an order.', staffOk }, { status: 403 });
+      // By the owner's rules (a manager, unless they say otherwise): their PIN on this screen, or signed in as one.
+      const m = await okayBy('void'); if (m.reply) return m.reply;
       const reason = String(b.reason || '').replace(/\s+/g, ' ').trim().slice(0, 120);
       if (!reason) return bad('Why is it being voided?');
+      const before: any = (await orderRef.get()).data() || {};
       const r: any = await voidOrder(db, tenantId, orderId, reason, who);
       forgetStats(tenantId);
       if (!r.error) {
         const vo: any = (await orderRef.get()).data() || {}; const carId = String(vo.carId || '');
+        if (!r.already) await logMoney(db, tenantId, { action: 'counter.void', kind: 'void', targetType: 'order', targetId: orderId, cents: Math.round((Number(before.total) || 0) * 100) || null, where, by: who, okBy: m.approver, reason, ref: before.number || null,
+          afterKitchen: Number(r.wasted) > 0 || ['making', 'ready'].includes(String(before.kitchen || '')),
+          summary: `${before.number || 'An order'} voided${m.approver.id !== who.id ? `, okayed by ${m.approver.name}` : ` by ${who.name}`}: ${reason}.` }, tenant);
         if (ID.test(carId)) await stopCarCall(db, tenantId, carId, 'voided');
         // A card payment started for it (declined, or left) is called off, so it can never go through later.
         if (vo.card?.id && !['stopped', 'paid'].includes(String(vo.card.state))) await stopCard(db, tenantId, tenant, orderId, who.name).catch(() => null);
