@@ -6,6 +6,7 @@
 // black look, lib/app-theme, takes them over.)
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { USUAL_SHOW, usualWords, type UsualEntry } from '@/lib/counter-usual';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -13,18 +14,26 @@ const btn = `min-h-[44px] px-4 rounded-xl text-[15px] font-semibold disabled:opa
 const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
 
 /** The member on an order (api/counter 'rewards'): their name, balance and the rewards they can use now. */
-export type RewardMember = { orderId: string; name: string; balance: number; unit: string; ready: { id: string; name: string; points: number; cents?: number }[] };
+export type RewardMember = { orderId: string; name: string; balance: number; unit: string; ready: { id: string; name: string; points: number; cents?: number }[];
+  /** What they usually get (lib/counter-usual): for staff only. */ usual?: UsualEntry[] };
 export type RewardOrder = { id: string; status: string; paidAt: string | null; points?: { phone: string | null; earned: number; verified?: boolean } | null; reward?: { name: string; cents: number } | null };
 /** The member from an answer (or none). */
-export const memberFrom = (orderId: string, m: any): RewardMember | null => (m ? { orderId, name: String(m.name || ''), balance: Number(m.balance) || 0, unit: String(m.unit || 'points'), ready: Array.isArray(m.ready) ? m.ready : [] } : null);
+export const memberFrom = (orderId: string, m: any): RewardMember | null => (m ? { orderId, name: String(m.name || ''), balance: Number(m.balance) || 0, unit: String(m.unit || 'points'), ready: Array.isArray(m.ready) ? m.ready : [], usual: Array.isArray(m.usual) ? m.usual : [] } : null);
 
 /** The order's rewards row: who it's for and what it earned; with their code, a reward to use once it's sent (and before
  *  it's paid), or the one in use and Take it off; with neither, Add rewards (paid already, it earns at once). */
-export function RewardsRow({ order, member, codes, busy, onAdd, onUse }: { order: RewardOrder; member: RewardMember | null; codes: boolean; busy: boolean; onAdd: () => void; onUse: (rewardId: string | null) => void }) {
+export function RewardsRow({ order, member, codes, busy, onAdd, onUse, usualOk, onUsual }: { order: RewardOrder; member: RewardMember | null; codes: boolean; busy: boolean; onAdd: () => void; onUse: (rewardId: string | null) => void;
+  /** Their usual, while the order is being taken: whether each can be added now (on the menu, not sold out), and adding it. */
+  usualOk?: (u: UsualEntry) => boolean; onUsual?: (u: UsualEntry) => void }) {
   const earns = order.points?.earned ? <span style={{ color: GREEN }}>, earned {order.points.earned}</span> : order.paidAt ? '' : ', earns when paid';
   if (order.points && order.points.verified && member?.orderId === order.id) return (
     <div className="w-full space-y-2">
       <p className="text-[14px]" style={{ color: MUTED }}>Rewards: <b className="font-semibold" style={{ color: INK }}>{member.name}</b>, {member.balance} {member.unit}{earns}</p>
+      {order.status === 'building' && onUsual && (() => { const list = (member.usual || []).filter((u) => !usualOk || usualOk(u)).slice(0, USUAL_SHOW); return list.length ? (
+        <div role="group" aria-labelledby={`usual-${order.id}`} className="space-y-1.5"><p id={`usual-${order.id}`} className="text-[13px] font-semibold" style={{ color: MUTED }}>Their usual</p>
+          {list.map((u) => <button key={`${u.itemId}-${u.choicesText || ''}`} type="button" disabled={busy} onClick={() => onUsual(u)} aria-label={`Add their usual: ${usualWords(u)}, ordered ${u.n} times`} className={`${btn} flex w-full items-center justify-between gap-3 px-3 text-left text-[14px] font-medium`} style={quiet}>
+            <span className="min-w-0"><b className="font-semibold">{u.name}</b>{u.choicesText ? `, ${u.choicesText}` : ''}</span><span className="shrink-0 text-[13px]" style={{ color: MUTED }}>{u.n} times</span></button>)}
+        </div>) : null; })()}
       {order.reward ? (
         <div className="flex items-center justify-between gap-2">
           <p className="text-[14px] font-semibold" style={{ color: GREEN }}>Using {order.reward.name}</p>

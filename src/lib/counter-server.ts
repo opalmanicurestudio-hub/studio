@@ -872,5 +872,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
   if (res) delete res.lines0;
   // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
   if (res?.ok && !res.already) { try { const P = await import('@/lib/counter-points'); await P.earnForOrder(db, tenantId, null, orderId); } catch (e: any) { console.error('[counter] points not earned', orderId, e?.message); } }
+  // (Asked for twice, the first answer lost: what was on it still goes on their usual, once; lib/counter-usual-server.)
+  else if (res?.ok && res.already) { try { const U = await import('@/lib/counter-usual-server'); await U.noteUsual(db, tenantId, orderId); } catch (e: any) { console.error('[counter] usual not noted', orderId, e?.message); } }
   return res;
 }

@@ -19,6 +19,7 @@ import { createHash } from 'crypto';
 import { cleanName, cardBusy } from '@/lib/counter-server';
 import { moneyWith } from '@/lib/counter-money-server';
 import { markdownCentsOf, paidPartsOf, giftCentsOf } from '@/lib/counter-money';
+import { noteUsual, usualNow } from '@/lib/counter-usual-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const nowIso = () => new Date().toISOString();
@@ -53,6 +54,8 @@ export async function earnForOrder(db: any, tenantId: string, tenant: any, order
   }).catch((e: any) => { console.error('[counter-points] not earned', orderId, e?.message); return { points: 0 }; });
   const pts = Math.max(0, Math.floor(num(r?.points)));
   if (pts > 0) await ref.set({ points: { earned: pts, at: nowIso() } }, { merge: true });
+  // What they got, added to their usual (lib/counter-usual-server): once, with their code.
+  await noteUsual(db, tenantId, orderId);
   return pts;
 }
 
@@ -169,7 +172,8 @@ export async function rewardsOn(db: any, tenantId: string, tenant: any, orderId:
   const balance = await balanceFor(db, tenantId, String(o.clientId));
   const bill = billOf(o);
   const ready = rewardsFor(S, balance + (o.paidAt ? 0 : held)).ready.map((x) => ({ id: x.id, name: x.name, points: x.points, cents: rewardCents(x, bill) })).filter((x) => x.cents > 0);
-  return { member: { name: firstOf(c), balance, unit: unitOf(tenant), ready, using: o.reward ? { id: String(o.reward.id), name: String(o.reward.name), cents: num(o.reward.cents) } : null } };
+  // (Their usual, lib/counter-usual: for the staff's screen only, never the guest's.)
+  return { member: { name: firstOf(c), balance, unit: unitOf(tenant), ready, using: o.reward ? { id: String(o.reward.id), name: String(o.reward.name), cents: num(o.reward.cents) } : null, usual: await usualNow(db, tenantId, c.counterUsual) } };
 }
 
 /** The order as a bill a reward can come off: each item one at a time (a free item is one of it). */

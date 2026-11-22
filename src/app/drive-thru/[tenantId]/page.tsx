@@ -830,7 +830,9 @@ export default function DriveThru() {
         have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} /></div>}
       {lane?.pointsOn && order && order.status !== 'voided' && (
         <div className="flex items-center justify-between gap-2 border-t px-4 py-2" style={{ borderColor: LINE }}>
-          <RewardsRow order={order} member={member} codes={!!lane?.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)} />
+          <RewardsRow order={order} member={member} codes={!!lane?.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)}
+            usualOk={(u) => { const m = (lane?.menu || []).find((x) => x.id === u.itemId); return !!m && !m.off && !outWords(m) && !m.byWeight && m.onMenu; }}
+            onUsual={(u) => { const m = (lane?.menu || []).find((x) => x.id === u.itemId); if (m) add(m, u.picks); }} />
         </div>)}
       <div className="space-y-1 border-t px-4 py-3 text-[14.5px]" style={{ borderColor: LINE }}>
         <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order?.reward || order?.markdown ? order.itemsTotal || 0 : order?.subtotal || 0)}</span></div>

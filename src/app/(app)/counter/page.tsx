@@ -549,7 +549,9 @@ export default function CounterPage() {
             {order.status === 'building' && <OfferAsk just={just} orderId={order.id} item={menu.find((m) => m.id === just?.itemId)} find={(id) => menu.find((m) => m.id === id && !m.off && !outWords(m))}
               have={(id) => order.lines.some((l) => l.itemId === id)} price={priceOf} busy={!!busy} onSizeUp={sizeUp} onAdd={takeOffer} onClose={() => setJust(null)} />}
             {lane?.pointsOn && !order.staffMeal && !order.app && <div className="border-t pt-2" style={{ borderColor: LINE }}>
-              <RewardsRow order={order} member={member} codes={!!lane.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)} />
+              <RewardsRow order={order} member={member} codes={!!lane.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)}
+                usualOk={(u) => { const m = menu.find((x) => x.id === u.itemId); return !!m && !m.off && !outWords(m) && !m.byWeight && m.onMenu; }}
+                onUsual={(u) => { const m = menu.find((x) => x.id === u.itemId); if (m) void add(m, u.picks); }} />
               {memberErr && order.points?.verified && member?.orderId !== order.id && <p className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--warn-ink)' }} role="status">Their rewards didn’t load.
                 <button type="button" onClick={() => setMemberTry((n) => n + 1)} className={`min-h-[44px] rounded-lg px-1 font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Try again</button></p>}</div>}
             <div className="space-y-1 border-t pt-3 text-[14px]" style={{ borderColor: LINE }}>
