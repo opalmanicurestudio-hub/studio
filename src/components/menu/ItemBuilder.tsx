@@ -28,6 +28,7 @@ import type { Daypart } from '@/lib/menu-time';
 import { ALLERGENS, cleanKeys, type AllergenKey } from '@/lib/allergens';
 import { isSizeGroup, MAX_UPGRADE_ITEMS, nextSize, offersFor } from '@/lib/menu-upgrades';
 import { uploadImage } from '@/lib/upload-image';
+import { WEIGHT_UNITS, type WeightUnit } from '@/lib/menu-weight';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -95,7 +96,9 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const [stock, setStock] = useState<Ingredient[] | null>(null);
   useEffect(() => { void call({ action: 'ingredients' }).then((d: any) => { if (d.ok) setStock(d.ingredients || []); }); }, [call]);
   const [name, setName] = useState(item.name); const [section, setSection] = useState(item.section); const [words, setWords] = useState(item.words || '');
-  const [price, setPrice] = useState(item.price.toFixed(2)); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
+  const [price, setPrice] = useState(item.price.toFixed(2));
+  // Sold by weight (lib/menu-weight): the unit its price is per, or none.
+  const [byWeight, setByWeight] = useState<WeightUnit | null>(item.byWeight || null); const [onMenu, setOnMenu] = useState(item.onMenu); const [membersOnly, setMembersOnly] = useState(item.membersOnly);
   // The menu board: shown big up front, a tag, and calories (optional).
   const [featured, setFeatured] = useState(!!item.featured); const [badge, setBadge] = useState<string>(item.badge || ''); const [calories, setCalories] = useState(item.calories === null || item.calories === undefined ? '' : String(item.calories));
   // Each option with what it changes in the recipe (lib/choice-recipe), when it does.
@@ -131,7 +134,7 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const shell = useRef<HTMLDivElement | null>(null); const head = useRef<HTMLHeadingElement | null>(null); const phoneSteps = useRef<HTMLElement | null>(null);
   const noun = nounOf({ section, station: station || item.station });
 
-  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines, upSize, upItems]);
+  const snap = JSON.stringify([name, section, words, price, onMenu, membersOnly, featured, badge, calories, photo, groups, station, course, also, allergens, daily, makeSeconds, held, holdMinutes, batchSize, parts, happy, combo, inIt, lines, upSize, upItems, byWeight]);
   const first = useRef(snap); const dirty = snap !== first.current;
 
   // The recipe and the choices as they stand here, priced and costed by the server's own rules.
@@ -225,7 +228,8 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
       ...(JSON.stringify(also) !== JSON.stringify(item.alsoAt || []) ? { alsoAt: also.map((a) => ({ station: a.station, part: a.part.trim() })) } : {}),
       ...(happy !== (item.happyPrice === null || item.happyPrice === undefined ? '' : item.happyPrice.toFixed(2)) ? { happyPrice: happy === '' ? null : Number(happy) } : {}),
       ...(combo !== !!item.combo || JSON.stringify(inIt) !== JSON.stringify(item.comboParts || []) ? { combo, comboParts: combo ? inIt : [] } : {}),
-      ...(upChanged ? { upgrades: { size: upSize, items: upItems } } : {}) });
+      ...(upChanged ? { upgrades: { size: upSize, items: upItems } } : {}),
+      ...((combo ? null : byWeight) !== (item.byWeight || null) ? { byWeight: combo ? null : byWeight } : {}) });
     setSaving(false); if (e) { setErr(e); return false; } return true;
   };
 
@@ -235,7 +239,7 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
   const upWords = [...(upSize ? ['the size up'] : []), ...upPicked.map((x) => x.name)];
   const allergenWords = (allergens || []).map((k) => (ALLERGENS.find((a) => a.key === k)?.label || k).toLowerCase());
   const summary: Record<Step, string> = {
-    1: `${[name.trim() || 'No name yet', Number(price) > 0 ? money(Number(price)) : 'no price yet', section.trim() || 'no section'].join(', ')}.${photo && words.trim() ? ' A photo and a line guests read.' : photo ? ' A photo.' : words.trim() ? ' A line guests read.' : ''}${onMenu ? '' : ' Not on the menu yet.'}`,
+    1: `${[name.trim() || 'No name yet', Number(price) > 0 ? `${money(Number(price))}${byWeight ? `/${byWeight}` : ''}` : 'no price yet', section.trim() || 'no section'].join(', ')}.${photo && words.trim() ? ' A photo and a line guests read.' : photo ? ' A photo.' : words.trim() ? ' A line guests read.' : ''}${onMenu ? '' : ' Not on the menu yet.'}`,
     2: sizeG ? `${andList(sizeG.options.filter((o) => o.name.trim()).map((o) => (Number(o.price) ? `${o.name} (${Number(o.price) > 0 ? '+' : ''}${money(Number(o.price))})` : o.name)))}.${sizeG.options.some((o) => o.changes?.length) ? ' The recipe grows with the size.' : ''}` : 'One size.',
     3: `${otherGroups.length ? `${andList(otherGroups.map((g, k) => (k ? g.name.toLowerCase() : g.name)).filter(Boolean))}.` : 'None yet.'}${upWords.length ? ` Offered at the end: ${andList(upWords)}.` : ''}`,
     4: combo ? `A combo${inIt.length ? `: ${andList(inIt.map((id) => others.find((x) => x.id === id)?.name || '').filter(Boolean))}` : ''}.`
@@ -360,7 +364,7 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
                 <div className="grid gap-3 sm:grid-cols-[1fr_180px_140px]">
                   <label><span className="text-[14px] font-medium">Name</span><input value={name} onChange={(e) => setName(e.target.value.slice(0, 80))} className={field} style={{ borderColor: LINE }} /></label>
                   <label><span className="text-[14px] font-medium">Section</span><input value={section} onChange={(e) => setSection(e.target.value.slice(0, 40))} placeholder="Coffee, Food" className={field} style={{ borderColor: LINE }} /></label>
-                  <label><span className="text-[14px] font-medium">Price</span>
+                  <label><span className="text-[14px] font-medium">{byWeight ? `Price per ${byWeight}` : 'Price'}</span>
                     <span className="relative block"><span aria-hidden className="pointer-events-none absolute left-3 top-[calc(50%+3px)] -translate-y-1/2 text-[16px]" style={{ color: MUTED }}>$</span>
                       <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, '').slice(0, 8))} className={`${field} pl-6`} style={{ borderColor: LINE }} /></span></label>
                 </div>
@@ -370,6 +374,13 @@ export function ItemBuilder({ item, recipe, changes, tenantId, service, dayparts
                   <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={onMenu} onChange={(e) => setOnMenu(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />On the menu guests see</label>
                   {item.starter && !item.onMenu && <p className="text-[13px]" style={{ color: MUTED }}>From your starter menu: give it a price, then tick this to put it on the menu.</p>}
                   <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Members only</label>
+                  {!combo && <><label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={!!byWeight} onChange={(e) => setByWeight(e.target.checked ? 'lb' : null)} className="h-5 w-5 accent-[#16171a]" />Sold by weight</label>
+                    {byWeight && <div className="space-y-2 pl-8">
+                      <div role="radiogroup" aria-label="Weighed in" className="inline-flex rounded-2xl border bg-[#fff] p-1" style={{ borderColor: LINE }}>
+                        {WEIGHT_UNITS.map((u) => <button key={u} type="button" role="radio" aria-checked={byWeight === u} onClick={() => setByWeight(u)} className="min-h-[44px] min-w-[56px] rounded-xl px-3 text-[14.5px] font-semibold" style={byWeight === u ? { background: '#16171a', color: '#fff' } : { color: '#16171a' }}>{u}</button>)}
+                      </div>
+                      <p className="text-[13px]" style={{ color: MUTED }}>The price above is per {byWeight}. It’s weighed at the counter and the window, so the kiosk, ordering ahead and the drive-thru’s voice leave it off. Stock counted in a weight (lb, oz, kg or g in Inventory) comes off in its own unit, for the whole business rather than store by store.</p>
+                    </div>}</>}
                 </div>
               </div>}
 

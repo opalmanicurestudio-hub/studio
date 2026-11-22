@@ -52,6 +52,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { readMenu, setSoldOut, isMenuItem, menuItemOf, menuItemNow } from '@/lib/menu-server';
+import { WEIGHT_UNITS, byWeightOf } from '@/lib/menu-weight';
 import { itemCost, targetOf } from '@/lib/food-cost';
 import { cleanPace, paceSettingsOf } from '@/lib/kitchen-pace';
 import { forgetPace } from '@/lib/kitchen-pace-server';
@@ -698,13 +699,25 @@ export async function POST(req: NextRequest) {
       if (timed.combo && Array.isArray(service.alsoAt) && service.alsoAt.length) return bad('A combo’s parts each go to their own station already. Take Also made at off.');
       if (timed.combo) service.alsoAt = [];
     }
+    // Sold by weight, when given (lib/menu-weight): the unit its price is per, or none. Never a combo.
+    if (x.byWeight !== undefined) {
+      if (x.byWeight !== null && !(WEIGHT_UNITS as string[]).includes(String(x.byWeight))) return bad('Pick lb, oz, kg or g.');
+      if (x.byWeight !== null && timed.combo === true) return bad('A combo isn’t sold by weight.');
+      // (Already part of a combo: weighed on its own, so it comes out of the combo first.)
+      if (x.byWeight !== null) {
+        const combos = (await db.collection(`tenants/${tenantId}/inventory`).where('combo', '==', true).limit(300).get()).docs.map((d: any) => d.data() || {});
+        const inOne = combos.find((c: any) => c.archived !== true && ((Array.isArray(c.comboParts) && c.comboParts.some((p: any) => String(p?.itemId || '') === itemId)) || (Array.isArray(c.choices) && c.choices.some((g: any) => (g?.options || []).some((o: any) => String(o?.itemId || '') === itemId)))));
+        if (inOne) return bad(`It’s part of ${String(inOne.name || 'a combo')}. Take it out of the combo first, then sell it by weight.`);
+      }
+      timed.byWeight = x.byWeight === null ? null : { unit: String(x.byWeight) };
+    }
     if (choices.some((cg) => cg.options.some((o) => o.itemId === itemId))) return bad('A combo can’t have itself in it.');
     // Each part (always in it, or made as a choice) is one of the business's own menu items, and not a combo itself.
     const partIds = Array.from(new Set<string>([...(timed.comboParts || []).map((p: any) => String(p.itemId)), ...choices.flatMap((cg) => cg.options.map((o) => String(o.itemId || ''))).filter(Boolean)]));
     if (partIds.length) {
       const docs = await Promise.all(partIds.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`).get()));
-      const bad1 = docs.findIndex((d: any) => { const x: any = d.data(); return !x || x.type !== 'refreshment' || x.archived === true || x.combo === true; });
-      if (bad1 >= 0) { const x: any = docs[bad1].data(); return bad(x?.combo === true ? `${String(x.name || 'That item')} is a combo itself. Pick the items it’s made of.` : 'One of its parts isn’t on the menu any more. Pick another.'); }
+      const bad1 = docs.findIndex((d: any) => { const x: any = d.data(); return !x || x.type !== 'refreshment' || x.archived === true || x.combo === true || !!byWeightOf(x); });
+      if (bad1 >= 0) { const x: any = docs[bad1].data(); return bad(x?.combo === true ? `${String(x.name || 'That item')} is a combo itself. Pick the items it’s made of.` : byWeightOf(x) ? `${String(x.name || 'That item')} is sold by weight, so it’s weighed on its own, not part of a combo.` : 'One of its parts isn’t on the menu any more. Pick another.'); }
     }
     // Offered at the end, when given (lib/menu-upgrades): the next size up on or off, and up to two of the business's own
     // menu items to go with it (never itself).

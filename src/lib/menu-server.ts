@@ -17,6 +17,7 @@ const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
+import { byWeightOf, type WeightUnit } from '@/lib/menu-weight';
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
   soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
   /** With more than one location, read for one (`here`): sold out at this location only, or everywhere. */
@@ -47,6 +48,8 @@ export type MenuItem = { id: string; name: string; section: string; words: strin
   alsoAt: AlsoAt[];
   /** Offered at the end (lib/menu-upgrades): the next size up, and up to two items to go with it. */
   upgrades: Upgrades;
+  /** Sold by weight (lib/menu-weight): the unit its price is per, or null. Weighed at the counter or the window only. */
+  byWeight: WeightUnit | null;
 };
 
 /** Is it a menu item at all (a refreshment that isn't archived or switched off)? */
@@ -73,7 +76,7 @@ export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map
     // Its menus by time of day, happy-hour price, and as a combo the parts it always has (lib/menu-time, lib/counter-orders).
     dayparts: Array.isArray(i.dayparts) ? i.dayparts.map(String).slice(0, 6) : [], happyPrice: happyPriceOf(i),
     combo: i.combo === true, comboParts: i.combo === true && Array.isArray(i.comboParts) ? i.comboParts.map((p: any) => String(p?.itemId || '')).filter(Boolean).slice(0, 6) : [],
-    alsoAt: i.combo === true ? [] : alsoAtOf(i), upgrades: upgradesOf(i.upgrades, id),
+    alsoAt: i.combo === true ? [] : alsoAtOf(i), upgrades: upgradesOf(i.upgrades, id), byWeight: i.combo === true ? null : byWeightOf(i),
   };
 }
 

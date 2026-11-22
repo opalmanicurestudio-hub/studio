@@ -29,6 +29,7 @@ import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
 import { creditPlan, creditLine } from '@/lib/store-credit';
 import { menuLinesOf, oneOffKey, oneOffLine, oneOffMaxOf } from '@/lib/counter-oneoff';
 import { giftLine, giftCentsOf, giftLineCount } from '@/lib/counter-gift';
+import { unitsOf, byWeightOf } from '@/lib/menu-weight';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -115,7 +116,7 @@ export async function createCar(db: any, tenantId: string, tenant: any, carKey: 
   });
 }
 
-export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown }
+export type EditOp = { action: 'add'; itemId: string; quantity?: unknown; choices?: Picks | unknown; tapKey?: unknown; offer?: unknown; note?: unknown; weight?: unknown }
   | { action: 'remove'; lineId: string; tapKey?: unknown } | { action: 'qty'; lineId: string; quantity: unknown; tapKey?: unknown }
   | { action: 'sizeUp'; lineId: string; quantity?: unknown; tapKey?: unknown }
   | { action: 'note'; lineId: string; note: unknown; tapKey?: unknown }
@@ -141,7 +142,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
     if (op.action === 'add') {
       if (!itemSnap) return { error: 'Which item?', status: 400 };
       // (Sold out at the order's own location, or everywhere: lib/menu-choices outWhere.)
-      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant, here: String(o.locationId || '') || null });
+      // (Sold by weight: what the scale read, lib/menu-weight.)
+      const made = lineFor(itemSnap.data(), String(op.itemId), op.quantity ?? 1, op.choices, randomBytes(5).toString('hex'), { tenant, here: String(o.locationId || '') || null }, 20, op.weight);
       if (!made.ok) return { error: made.error, status: 400 };
       if (lines.length >= 40) return { error: 'That’s a big order. Send this one, and start another.', status: 400 };
       // Taken as an offer, right after something else was added (components/menu/OfferAsk): marked only where another
@@ -155,7 +157,8 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       const note = cleanLineNote(op.note); if (note) made.line.note = note;
       // The same item with the same choices (and the same note) is one line with more of it (taken as an offer stays marked).
       // (Never into a line at a different price, or one on the house: lib/counter-price-server, lib/counter-comp-server.)
-      const same = lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note) && !l.priceChange && !l.comp);
+      // (A weighing is a line of its own.)
+      const same = made.line.weight ? undefined : lines.find((l) => l.itemId === made.line.itemId && l.choicesText === made.line.choicesText && l.unitPrice === made.line.unitPrice && sameNote(l.note, made.line.note) && !l.priceChange && !l.comp && !l.weight);
       lines = same ? lines.map((l) => (l === same ? { ...l, quantity: Math.min(20, l.quantity + made.line.quantity), ...(l.offer || made.line.offer ? { offer: l.offer || made.line.offer } : {}) } : l)) : [...lines, made.line];
       line = same ? lines.find((l) => l.lineId === same.lineId) : made.line;
     } else if (op.action === 'oneOff') {
@@ -178,6 +181,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
       if (old.oneOff || !ID.test(String(old.itemId || ''))) return { error: `${old.name} isn’t on the menu, so there’s no bigger size.`, status: 409 };
       if (old.comp) return { error: `${old.name} is on the house. Charge for it first, then size it up.`, status: 409 };
       if (old.priceChange) return { error: `${old.name} is at a different price. Charge the menu price first, then size it up.`, status: 409 };
+      if (old.weight) return { error: `${old.name} is sold by weight, so there’s no bigger size.`, status: 409 };
       const it: any = (await tx.get(db.doc(`${T}/inventory/${old.itemId}`))).data();
       const picks = picksOf(old.choices);
       const up = it && upgradesOf(it.upgrades, old.itemId).size ? nextSize(it, picks) : null;
@@ -211,6 +215,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
         // (On the house is as many as a manager okayed: fewer is fine, more is another okay.)
         const was = lines.find((l) => l.lineId === lineId)!;
         if (was.giftCard && q !== was.quantity) return { error: 'One gift card a line. Add another for another.', status: 409 };
+        if (was.weight && q !== was.quantity) return { error: `${was.name} is weighed: weigh it again for more.`, status: 409 };
         // (At a lower price: more of it is another okay.)
         if (was.priceChange && was.priceChange.to < was.priceChange.from && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} at that price. Add another from the menu.`, status: 409 };
         if (was.comp && q > was.quantity) return { error: `Only ${was.quantity} ${was.name} ${was.quantity === 1 ? 'is' : 'are'} on the house. Add another from the menu.`, status: 409 };
@@ -321,7 +326,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const ids = Array.from(new Set(made.map((m) => m.itemId)));
     const itemRefs = ids.map((id) => db.doc(`${T}/inventory/${id}`));
     const items = (await Promise.all(itemRefs.map((ref, k) => (lineIds.includes(ids[k]) ? Promise.resolve({ data: () => lineItems[lineIds.indexOf(ids[k])] }) : tx.get(ref))))).map((s: any) => s.data());
-    const qtyOf = (id: string) => made.filter((m) => m.itemId === id).reduce((n, m) => n + m.l.quantity, 0);
+    // (How much comes off stock: a weighed line's weight in the item's own unit, lib/menu-weight.)
+    const qtyOf = (id: string) => made.filter((m) => m.itemId === id).reduce((n, m) => n + unitsOf(m.l), 0);
     for (const [k, it] of items.entries()) {
       if (!it || it.archived === true || it.isActive === false) return { error: `Part of ${made.find((m) => m.itemId === ids[k])?.l.name || 'an order line'} isn’t on the menu any more. Take it off the order first.`, status: 409 };
       if (itemSoldOut(it, soldAt)) return { error: `${String(it.name || 'Something')} just sold out. Take it off the order first.`, status: 409 };
@@ -360,9 +366,10 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       const pt: PartTake | null = m.combo ? (take.byPart[String(m.n)] = take.byPart[String(m.n)] || { item: m.itemId, items: {}, parts: {}, extras: {} }) : null;
       // A combo's part without a recipe comes off its own count, kept with the line by item (so a void puts it back).
       if (!recipe.length) {
-        if (m.combo) take.items[m.itemId] = (take.items[m.itemId] || 0) + l.quantity; else take.own += l.quantity;
-        if (pt) pt.items[m.itemId] = (pt.items[m.itemId] || 0) + l.quantity;
-        ownNeed.set(m.itemId, (ownNeed.get(m.itemId) || 0) + l.quantity);
+        const units = unitsOf(l);
+        if (m.combo) take.items[m.itemId] = (take.items[m.itemId] || 0) + units; else take.own = Math.round((take.own + units) * 1000) / 1000;
+        if (pt) pt.items[m.itemId] = (pt.items[m.itemId] || 0) + units;
+        ownNeed.set(m.itemId, Math.round(((ownNeed.get(m.itemId) || 0) + units) * 1000) / 1000);
       }
       const lines = m.combo ? recipe : madeWith(it, m.itemId, picksOf(l.choices)); const extra = itemExtras(extras, it, mode);
       if (lines.length || extra.length) toTake.push({ l, take, pt, lines, extra });
@@ -378,7 +385,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const partData = new Map<string, any>(Array.from(docs.entries()).map(([id, d]) => [id, d.data]));
     const extraNeed = new Map<string, number>();
     for (const x of toTake) for (const [list, into] of [[x.lines, partNeed], [x.extra, extraNeed]] as [RecipeLine[], Map<string, number>][]) for (const [pid, need] of needsOf(list, partData)) {
-      const use = Math.round(need * x.l.quantity * 1000) / 1000; if (!(use > 0)) continue;
+      const use = Math.round(need * unitsOf(x.l) * 1000) / 1000; if (!(use > 0)) continue;
       x.take.parts[pid] = (x.take.parts[pid] || 0) + use; if (x.pt) x.pt.parts[pid] = (x.pt.parts[pid] || 0) + use;
       if (into === extraNeed) { x.take.extras[pid] = (x.take.extras[pid] || 0) + use; if (x.pt) x.pt.extras[pid] = (x.pt.extras[pid] || 0) + use; }
       into.set(pid, Math.round(((into.get(pid) || 0) + use) * 1000) / 1000);
@@ -453,7 +460,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       // kept as taken, so a void never puts back more than came off.
       let extraMoved = extra;
       if (part || extra) { const mv = moveStock(after, Math.round((part + extra) * 1000) / 1000); tx.set(d.ref, { ...mv.patch, ...tookAt(id, d.data, storeFollowNested(d.data, soldAt, mv.patch.totalStock)) }, { merge: true }); if (extra && mv.shortfall > 0) extraMoved = Math.max(0, Math.round((extra - mv.shortfall) * 1000) / 1000); }
-      else tx.set(d.ref, { totalStock: FieldValue.increment(-own), ...tookAt(id, d.data, storeMoveNested(d.data, soldAt, { stock: -own })) }, { merge: true });
+      // (Sold by weight: counted for the whole business, never store by store, whose numbers are whole: lib/menu-weight.)
+      else tx.set(d.ref, { totalStock: FieldValue.increment(-own), ...(byWeightOf(d.data) ? {} : { ...tookAt(id, d.data, storeMoveNested(d.data, soldAt, { stock: -own })) }) }, { merge: true });
       if (extraMoved < extra) shrinkExtra(id, extra > 0 ? extraMoved / extra : 0);
       if (own) {
         itemsTaken.push(id);
@@ -571,8 +579,9 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       }
       // (A combo line sent before parts were kept one by one: it goes back only if the kitchen started none of them.)
       const mine = tix.filter((d: any) => d.id === `${orderId}_${l.lineId}` || String(d.id).startsWith(`${orderId}_${l.lineId}_`)).map((d: any) => d.data() || {});
-      if (mine.every(untouched)) { back[l.itemId] = (back[l.itemId] || 0) + l.quantity; returned += l.quantity; goesBack.add(l.lineId); }
-      else { wasted += l.quantity; if (ID.test(String(l.itemId || ''))) wastedItems[l.itemId] = (wastedItems[l.itemId] || 0) + l.quantity; }
+      // (A weighed line: its weight goes back, or is what was thrown away: lib/menu-weight.)
+      if (mine.every(untouched)) { back[l.itemId] = Math.round(((back[l.itemId] || 0) + unitsOf(l)) * 1000) / 1000; returned += l.quantity; goesBack.add(l.lineId); }
+      else { wasted += l.quantity; if (ID.test(String(l.itemId || ''))) wastedItems[l.itemId] = Math.round(((wastedItems[l.itemId] || 0) + unitsOf(l)) * 1000) / 1000; }
     }
     // (Only while the kitchen hasn't started on any of it, when asked: a delivery app's order cancelled without a manager.)
     if (opts.nothingMade && wasted > 0) return { error: 'The kitchen started on it, so a manager okays this.', status: 403, code: 'made' };

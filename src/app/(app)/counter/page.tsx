@@ -41,6 +41,7 @@ import { giftWords } from '@/lib/counter-gift';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
 import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
+import { WeightSheet, pickedOf } from '@/components/pos/CounterWeight';
 import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -223,6 +224,8 @@ export default function CounterPage() {
   const [compFor, setCompFor] = useState<string | null>(null);
   // A line at a different price (components/pos/CounterPrice).
   const [priceFor, setPriceFor] = useState<string | null>(null);
+  // An item sold by weight being weighed, with its choices picked (components/pos/CounterWeight).
+  const [weighFor, setWeighFor] = useState<{ m: Item; picks: Picks } | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -314,14 +317,16 @@ export default function CounterPage() {
   };
   const nextGuest = () => act('car', { action: 'car', carKey: rid() }, (d) => { setPicked(d.carId); setName(''); nameFor.current = d.orderId; setNotice(null); });
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
-  const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item') => order && act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}) },
-    (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)));
+  // (Sold by weight: what the scale reads first, components/pos/CounterWeight.)
+  const add = (m: Item, picks: Picks = {}, quantity = 1, offer?: 'item', weight?: number) => order && (m.byWeight && weight === undefined ? void setWeighFor({ m, picks }) : act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: rid(), ...(offer ? { offer } : {}), ...(weight !== undefined ? { weight } : {}) },
+    (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: order.id, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null))));
   // A barcode from any scanner that types (lib/use-wedge-scanner; lib/counter-scan-server): the menu item it's on, added
   // like a tap; one with choices opens them; one on nothing yet asks which item it is.
   const scan = (code: string) => {
     if (!order || order.status !== 'building') { setNotice({ text: order ? `${order.number} has gone to the kitchen. Tap Next guest, then scan.` : 'Tap Next guest first, then scan.', tone: 'warn' }); return; }
     void act('scan', { action: 'scan', orderId: order.id, code, tapKey: rid() }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), (d) => {
       if (d.code === 'choices') { const m = menu.find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); return true; } }
+      if (d.code === 'weigh') { const m = menu.find((x) => x.id === d.itemId); if (m) { if (m.choices.length) { setChoiceOffer(false); setChoiceFor(m); } else setWeighFor({ m, picks: {} }); return true; } }
       if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); return true; }
       return false;
     });
@@ -334,7 +339,7 @@ export default function CounterPage() {
     if (!id) return; const i = setInterval(() => void post({ action: 'show', orderId: id }).catch(() => null), 60000);
     return () => clearInterval(i);
   }, [order?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !drawerOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
+  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
   const addOneOff = async (b: { name: string; price: number; taxed: boolean; tapKey: string }) => {
     if (!order || order.status !== 'building') return 'Tap Next guest first, then add it.';
     acted.current++;
@@ -485,11 +490,11 @@ export default function CounterPage() {
             : <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3" role="tabpanel">{menu.filter((m) => m.section === shown).map((m) => {
               const why = m.off || outWords(m); const n = (order?.lines || []).filter((l) => l.itemId === m.id).reduce((s, l) => s + l.quantity, 0);
               return (
-                <button key={m.id} type="button" disabled={!!why || busy === `add-${m.id}` || guest?.stage === 'pay'} onClick={() => tap(m)} aria-label={`${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.happy ? ', happy hour' : ''}${why ? `, ${why}` : ''}${n ? `, ${n} on the order` : ''}`}
+                <button key={m.id} type="button" disabled={!!why || busy === `add-${m.id}` || guest?.stage === 'pay'} onClick={() => tap(m)} aria-label={`${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.byWeight ? ` a ${m.byWeight}` : ''}${m.happy ? ', happy hour' : ''}${why ? `, ${why}` : ''}${n ? `, ${n} on the order` : ''}`}
                   className={`relative flex min-h-[78px] flex-col justify-between rounded-2xl p-3 text-left disabled:cursor-not-allowed ${RING}`} style={{ background: why ? '#fff' : SOFT, color: INK, border: `${n ? 2 : 1}px solid ${n ? 'currentColor' : why ? LINE : 'transparent'}` }}>
                   <span className="pr-7 text-[15px] font-semibold leading-snug" style={{ color: why ? MUTED : INK }}>{m.name}</span>
                   <span className="mt-1.5 text-[13px] tabular-nums" style={{ color: why ? AMBER : MUTED }}>
-                    {why ? why : <>{m.from ? 'from ' : ''}{m.happy ? <><s>{usd(fullOf(m))}</s> {usd(priceOf(m))} now</> : usd(priceOf(m))}{m.combo ? ', a combo' : m.choices.length ? ', choices' : ''}</>}
+                    {why ? why : <>{m.from ? 'from ' : ''}{m.happy ? <><s>{usd(fullOf(m))}</s> {usd(priceOf(m))} now</> : usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}, weighed` : m.combo ? ', a combo' : m.choices.length ? ', choices' : ''}</>}
                   </span>
                   {n > 0 && <span className="absolute right-2 top-2 flex h-7 min-w-[28px] items-center justify-center rounded-full px-1.5 text-[13.5px] font-semibold tabular-nums" style={dark}>{n}</span>}
                 </button>
@@ -521,7 +526,7 @@ export default function CounterPage() {
             {order.lines.length === 0 ? <p className="rounded-2xl px-3 py-5 text-center text-[14px]" style={{ background: SOFT, color: MUTED }}>Tap the menu to add to the order.</p>
               : <ul className="space-y-2">{order.lines.map((l) => (
                 <li key={l.lineId} className="flex items-center justify-between gap-2 text-[14px]">
-                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className="block truncate text-[13px]" style={{ color: MUTED }}>{l.choicesText}</span>}
+                  <span className="min-w-0"><span className="block font-semibold">{l.name}{l.happy ? ' (happy hour)' : ''}{l.offer === 'size' && order.status === 'building' ? <span className="ml-1.5 rounded-full px-2 py-0.5 text-[13px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Sized up</span> : null}</span>{l.choicesText && <span className={`block ${(l as any).weight ? '' : 'truncate '}text-[13px]`} style={{ color: MUTED }}>{l.choicesText}</span>}
                     {order.allergy && (() => { const w = conflictWords(dishConflict(menu.find((m) => m.id === l.itemId), order.allergy), order.allergy); return w ? <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
                     <span className="flex flex-wrap items-center gap-x-4">{(l as any).giftCard ? <span className="block text-[13px]" style={{ color: MUTED }}>{giftWords((l as any).giftCard)}</span>
                       : (l as any).oneOff ? <span className="block text-[13px]" style={{ color: MUTED }}>Not on the menu{(l as any).untaxed ? ', not taxed' : ''}</span>
@@ -535,7 +540,7 @@ export default function CounterPage() {
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
                     {canTakeOff && (order.lines.length > 1 || l.quantity > 1) && <button type="button" onClick={() => setTakeOffFor(l.lineId)} disabled={!!busy} aria-label={`Take ${l.name} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}
                     <span className="w-6 text-center tabular-nums">{l.quantity}</span>
-                    {order.status === 'building' && <button type="button" aria-label={`One more ${l.name}`} onClick={() => setQty(l, l.quantity + 1)} disabled={!!busy || l.quantity >= 20 || !!(l as any).comp || !!(l as any).giftCard} className={`h-11 w-11 rounded-full text-[18px] disabled:opacity-30 ${RING}`} style={quiet}>+</button>}
+                    {order.status === 'building' && <button type="button" aria-label={`One more ${l.name}`} onClick={() => setQty(l, l.quantity + 1)} disabled={!!busy || l.quantity >= 20 || !!(l as any).comp || !!(l as any).giftCard || !!(l as any).weight} className={`h-11 w-11 rounded-full text-[18px] disabled:opacity-30 ${RING}`} style={quiet}>+</button>}
                     <span className="w-16 text-right tabular-nums">{usd(l.unitPrice * l.quantity)}</span>
                   </span>
                 </li>))}</ul>}
@@ -685,6 +690,9 @@ export default function CounterPage() {
       onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
     {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={post}
       onClose={() => setTakeOffFor(null)} onDone={(text, d) => { setTakeOffFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
+    {weighFor && order && (() => { const p = pickedOf(weighFor.m.choices, weighFor.picks); return <WeightSheet name={weighFor.m.name} unit={weighFor.m.byWeight!} price={weighFor.m.priceNow ?? weighFor.m.price} extra={p.extra} choicesText={p.text} onClose={() => setWeighFor(null)}
+      add={async (weight) => { const d = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: rid(), weight }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+        if (!d.ok) return d.error || 'That didn’t go through. Try again.'; setWeighFor(null); setNotice({ text: `${weighFor.m.name} added.`, tone: 'good' }); acted.current++; void load(); return null; }} />; })()}
     {giftOpen && order && <GiftSheet amounts={lane?.gift?.amounts || []} onClose={() => setGiftOpen(false)} add={addGift} />}
     {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={addOneOff} />}
     {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}

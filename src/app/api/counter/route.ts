@@ -10,7 +10,7 @@
 //                                                      else): the newest car's order as it's built, nothing else
 //   car    { tenantId, key, carKey? }               → a car at the speaker: its number and an empty order (the same
 //                                                      carKey sent twice is the same car)
-//   add    { tenantId, key, orderId, itemId, quantity?, choices?, tapKey?, offer? } → a line, priced from the menu (the
+//   add    { tenantId, key, orderId, itemId, quantity?, choices?, tapKey?, offer?, weight? } → a line, priced from the menu (the
 //                                                      same tapKey twice adds it once); offer 'item': taken from what
 //                                                      the last thing added offers (components/menu/OfferAsk)
 //   takeOff { tenantId, key, orderId, lineId, qty, pin? } → some or all of one line off an order the kitchen has,
@@ -485,7 +485,9 @@ export async function POST(req: NextRequest) {
           sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
             featured: m.featured, badge: m.badge || (popular.has(m.id) ? 'popular' : null), calories: m.calories,
             // The number guests can order by ("number 3"), the same on every screen (lib/menu-numbers).
-            number: nums.get(m.id) ?? null });
+            number: nums.get(m.id) ?? null,
+            // (Sold by weight: its price is per this unit, lib/menu-weight.)
+            ...(m.byWeight ? { per: m.byWeight } : {}) });
         }
         // The window's products after the menu: their size and shades instead of calories, and Pros only when it's sold
         // to licensed pros alone.
@@ -1220,7 +1222,7 @@ export async function POST(req: NextRequest) {
       return ok({ gifts: await issueCounterGifts(db, tenantId, orderId, by), staffOk });
     }
     if (action === 'add' || action === 'oneOff' || action === 'giftCard' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
-      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }
+      const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note, ...(b.weight !== undefined ? { weight: b.weight } : {}) }
         // A gift card sold with it (lib/counter-gift): how much, who it's for, and how it gets to them.
         : action === 'giftCard' ? { action, cents: b.cents, to: b.to, via: b.via, phone: b.phone, email: b.email, tapKey: b.tapKey }
         // Something not on the menu (lib/counter-oneoff): its name, price, how many, and whether it's taxed.

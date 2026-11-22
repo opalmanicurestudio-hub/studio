@@ -35,6 +35,7 @@ const INK = '#16171a';
 const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif";
 const POLL_MS = 15000, ROTATE_MS = 12000, HERO_MS = 8000;
 type Item = { id: string; name: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; soldOut: boolean;
+  /** Sold by weight (lib/menu-weight): the unit its price is per. */ per?: string | null;
   featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null ;
   /** A product from the shop's window (lib/pickup-window): its size, its shades, and Pros only. */
   kind?: 'product'; size?: string | null; prosOnly?: boolean; swatches?: { label: string; color: string | null; soldOut: boolean }[] };
@@ -220,7 +221,7 @@ export default function MenuBoard() {
   // What sits beside the price: calories for the menu, the size for a product.
   const extra = (i: Item, size: string) => i.calories != null ? <span style={{ fontSize: size, color: C.sub }}>{i.calories} cal</span>
     : i.size ? <span style={{ fontSize: size, color: C.sub }}>{i.size}</span> : null;
-  const price = (i: Item) => <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(i.from ? i.startPrice : i.price)}</>;
+  const price = (i: Item) => <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(i.from ? i.startPrice : i.price)}{i.per && <span style={{ fontSize: '0.62em', fontWeight: 600 }}>/{i.per}</span>}</>;
   const picture = (i: Item, letter: string) => i.imageUrl
     // (A product's photo whole, the way a shop shows it; a dish's or drink's photo filling its space.)
     ? <img key={i.imageUrl} src={i.imageUrl} alt="" onError={hide} className={`h-full w-full ${i.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} style={i.soldOut ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />

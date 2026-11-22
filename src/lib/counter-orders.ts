@@ -8,6 +8,7 @@ import { priceChoices, choicesText, itemSoldOut, type PickedChoice } from '@/lib
 import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 import { offeredOnMenu } from '@/lib/menu-stock';
 import { priceNow, servedNow } from '@/lib/menu-time';
+import { byWeightOf, cleanWeight, stockAmountOf, weightText, perText, type WeightUnit } from '@/lib/menu-weight';
 
 export type Channel = 'drive-thru' | 'counter' | 'kiosk' | 'ahead';
 export const CHANNELS: Channel[] = ['drive-thru', 'counter', 'kiosk', 'ahead'];
@@ -78,6 +79,8 @@ export type OrderLine = { lineId: string; itemId: string; name: string; quantity
   /** At a different price (lib/counter-price-server): its menu price, the price now, why, who, and the manager who okayed
    *  a lower one. */
   priceChange?: { from: number; to: number; reason: string; by: string; approvedBy: string | null; at: string };
+  /** Sold by weight (lib/menu-weight): what it weighed, in what unit, at what price per unit, and what came off stock. */
+  weight?: { amount: number; unit: 'lb' | 'oz' | 'kg' | 'g'; per: number; stock: number };
   /** A gift card sold with the order (lib/counter-gift): who it's for, how it gets to them, and once it's made its code. */
   giftCard?: { to: string | null; via: 'print' | 'text' | 'email'; phone: string | null; email: string | null; id?: string | null; code?: string | null; sent?: boolean; failed?: string | null; claim?: { token: string; at: string } | null; bonusCode?: string | null } };
 
@@ -90,7 +93,7 @@ export const photoOf = (item: any): string | null => {
 /** One line, from the menu item itself (never a price from a screen). With the business (`at`: when it's ordered), an item
  *  in a menu by time of day is sold only while that's on, and happy hour prices it (lib/menu-time). `here`: the location
  *  it's ordered at, with more than one (sold out there, or everywhere: lib/menu-choices outWhere). */
-export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string, ctx?: { tenant?: any; at?: Date; here?: string | null }, maxQty = 20): { ok: true; line: OrderLine } | { ok: false; error: string } {
+export function lineFor(item: any, itemId: string, quantity: unknown, picks: unknown, lineId: string, ctx?: { tenant?: any; at?: Date; here?: string | null }, maxQty = 20, weight?: unknown): { ok: true; line: OrderLine } | { ok: false; error: string } {
   const here = ctx?.here || null; const timed = !!ctx && 'tenant' in ctx;
   // Off the menu (never priced yet, or taken off): not sold, even from a screen that still shows it.
   if (!item || item.type !== 'refreshment' || item.archived === true || item.isActive === false || !offeredOnMenu(item)) return { ok: false, error: 'That isn’t on the menu.' };
@@ -102,6 +105,18 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
   const c = priceChoices(item, picks, here);
   if (!c.ok) return { ok: false, error: c.error };
   const base = timed ? priceNow(item, ctx!.tenant, ctx!.at) : { price: Number(item.price || 0), happy: false };
+  // Sold by weight (lib/menu-weight): one weighing a line, the weight times the price per unit, its choices' extras once.
+  const wu: WeightUnit | null = byWeightOf(item);
+  if (wu) {
+    if (weight === undefined || weight === null || weight === '') return { ok: false, error: `${String(item.name || 'That')} is weighed at the counter. Type what the scale reads.` };
+    const w = cleanWeight(weight, wu); if (w === null) return { ok: false, error: `How much does it weigh, in ${wu}?` };
+    if (q !== 1) return { ok: false, error: 'One weighing a line. Weigh it again for more.' };
+    const price = Math.max(0, Math.round((w * base.price + c.extra) * 100) / 100);
+    if (!(price > 0)) return { ok: false, error: 'That weighs too little to charge for. Weigh it again.' };
+    const words = `${weightText(w, wu)} at ${perText(base.price, wu)}`;
+    return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: 1, unitPrice: price, choices: c.lines, choicesText: c.text ? `${words}, ${c.text}` : words, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item),
+      weight: { amount: w, unit: wu, per: Math.round(base.price * 100) / 100, stock: stockAmountOf(w, wu, item) }, ...(base.happy ? { happy: true } : {}) } };
+  }
   const unit = Math.max(0, Math.round((base.price + c.extra) * 100) / 100);
   return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item), ...(base.happy ? { happy: true } : {}) } };
 }

@@ -42,6 +42,8 @@ export async function scanToOrder(db: any, tenantId: string, tenant: any, orderI
   const f = await itemForCode(db, tenantId, raw); if (!f.ok) return f;
   // (An item with choices to pick: its choices open on the screen, as a tap on its tile does.)
   const m = menuItemOf(f.itemId, f.item);
+  // (Sold by weight: the screen asks what the scale reads, lib/menu-weight.)
+  if (m.byWeight) return fail(`Weigh ${m.name}.`, 409, 'weigh', { itemId: f.itemId, name: m.name });
   if (m.choices.length) return fail(`Pick ${m.name}’s choices.`, 409, 'choices', { itemId: f.itemId, name: m.name });
   // (A case of more than one line takes: added by hand, never short.)
   if (f.pack > 20) return fail(`That code is a case of ${f.pack}, more than one line takes. Add them from the menu instead.`, 409, 'case');

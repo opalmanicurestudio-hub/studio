@@ -83,7 +83,8 @@ export async function POST(req: NextRequest) {
       : `${name}|${JSON.stringify(sorted(args ?? {}))}|${turn}`;
     const tapKey = `v${createHash('sha256').update(`${retellCallId}|${named}`).digest('hex').slice(0, 30)}`;
     // (As the order's own location sees it: sold out there, or everywhere. lib/menu-choices outWhere)
-    const menu = await readMenu(db, tenantId, String(order.locationId || '') || null);
+    // (Sold by weight: weighed at the window, never ordered by voice: lib/menu-weight.)
+    const menu = (await readMenu(db, tenantId, String(order.locationId || '') || null)).filter((m) => !m.byWeight);
     const said = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
     const lineFor = (spoken: string) => {
       const lines: any[] = Array.isArray(order.lines) ? order.lines : [];

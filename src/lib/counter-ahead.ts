@@ -169,7 +169,8 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?
   const c = menuCache.get(menuKey); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
   else { all = await readMenu(db, tenantId, place?.id || null); menuCache.set(menuKey, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
-  const menu = all.filter((m) => m.onMenu && !m.membersOnly);
+  // (Sold by weight: weighed at the counter, never ordered ahead: lib/menu-weight.)
+  const menu = all.filter((m) => m.onMenu && !m.membersOnly && !m.byWeight);
   const sections: { name: string; items: ReturnType<typeof guestItem>[] }[] = [];
   const shown = new Set(menu.map((m) => m.id));
   for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(guestItem(m, shown)); }

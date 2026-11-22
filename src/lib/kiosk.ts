@@ -64,7 +64,8 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
   const c = menuCache.get(key); let all: MenuItem[];
   if (c && Date.now() - c.at < 15000) all = c.menu;
   else { all = await readMenu(db, tenantId, here); menuCache.set(key, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
-  const menu = all.filter((m) => m.onMenu && !m.membersOnly && servedNow(m, tenant, at).ok);
+  // (Sold by weight: weighed at the counter, never ordered here: lib/menu-weight.)
+  const menu = all.filter((m) => m.onMenu && !m.membersOnly && !m.byWeight && servedNow(m, tenant, at).ok);
   const shown = new Set(menu.map((m) => m.id));
   const sections: { name: string; items: ReturnType<typeof kioskItem>[] }[] = [];
   for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(kioskItem(m, tenant, at, shown)); }

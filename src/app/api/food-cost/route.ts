@@ -29,6 +29,7 @@ import { requireRole } from '@/lib/route-guard';
 import { toolLocked } from '@/lib/tool-lock';
 import { logAuditAdmin } from '@/lib/audit';
 import { isMenuItem } from '@/lib/menu-server';
+import { unitsOf } from '@/lib/menu-weight';
 import { recipeOf } from '@/lib/menu-stock';
 import { perContainer } from '@/lib/product-cost';
 import { nightBounds, tonight } from '@/lib/night-close-server';
@@ -244,7 +245,7 @@ export async function POST(req: NextRequest) {
     if (o.staffMeal) {
       const who = String(o.staffMeal.for || 'Team').slice(0, 40); const cur = staff.get(who.toLowerCase()) || { for: who, count: 0, cost: 0, unknown: 0 };
       cur.count += 1;
-      for (const l of Array.isArray(o.lines) ? o.lines : []) { const id = String(l?.itemId || ''); const x = all.get(id); if (!x) continue; const each = costWith(id, x, all, picksOf(l.choices || [])); if (each === null) cur.unknown += 1; else cur.cost = Math.round((cur.cost + each * num(l.quantity)) * 100) / 100; }
+      for (const l of Array.isArray(o.lines) ? o.lines : []) { const id = String(l?.itemId || ''); const x = all.get(id); if (!x) continue; const each = costWith(id, x, all, picksOf(l.choices || [])); if (each === null) cur.unknown += 1; else cur.cost = Math.round((cur.cost + each * unitsOf(l)) * 100) / 100; }
       staff.set(who.toLowerCase(), cur); continue;
     }
     const t = num(o.total); paidAll += t; if (o.payMethod === 'card') paidCard += t;
@@ -252,7 +253,8 @@ export async function POST(req: NextRequest) {
       const id = String(l?.itemId || ''); if (!all.has(id)) continue;
       // Made as it was chosen, when its choices change the recipe (an oat latte costs more than a plain one: lib/choice-recipe).
       const x = all.get(id); const each = x && changesRecipe(x) && Array.isArray(l.choices) && l.choices.length ? costWith(id, x, all, picksOf(l.choices)) : undefined;
-      sold.push({ itemId: id, qty: num(l.quantity), amount: num(l.unitPrice) * num(l.quantity), at: String(o.paidAt), ...(each !== undefined ? { each } : {}) });
+      // (A weighed line: its weight in the item's own unit, lib/menu-weight.)
+      sold.push({ itemId: id, qty: unitsOf(l), amount: num(l.unitPrice) * num(l.quantity), at: String(o.paidAt), ...(each !== undefined ? { each } : {}) });
     }
   }
   const report = periodCost(sold, costs, days, dayOf);

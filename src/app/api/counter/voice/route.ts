@@ -135,7 +135,8 @@ export async function POST(req: NextRequest) {
       let r: { status: number; data: any }; let busy = false;
       try {
         const [menuItems, laneSnap] = await Promise.all([readMenu(db, tenantId, String((claim as any).car?.locationId || '') || here), db.collection(`${T}/driveThruCars`).where('stage', 'in', ['speaker', 'pay', 'pickup', 'forward']).limit(60).get()]);
-        const menu = menuForVoice(menuItems);
+        // (Sold by weight: weighed at the window, never ordered by voice: lib/menu-weight.)
+        const menu = menuForVoice(menuItems.filter((m) => !m.byWeight));
         // A long line (this many cars in it, counting this one and those waiting to order) puts the assistant in rush
         // mode: no suggestions, a short read-back. Only cars that arrived in the last three hours count, so one left behind
         // yesterday never does.

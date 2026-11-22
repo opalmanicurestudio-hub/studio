@@ -43,6 +43,7 @@ import { giftWords } from '@/lib/counter-gift';
 import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { CompSheet } from '@/components/pos/CounterComp';
 import { PriceSheet, PriceMenu } from '@/components/pos/CounterPrice';
+import { WeightSheet, pickedOf } from '@/components/pos/CounterWeight';
 import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
@@ -332,6 +333,8 @@ export default function DriveThru() {
   const [compFor, setCompFor] = useState<string | null>(null);
   // A line at a different price (components/pos/CounterPrice).
   const [priceFor, setPriceFor] = useState<string | null>(null);
+  // An item sold by weight being weighed, with its choices picked (components/pos/CounterWeight).
+  const [weighFor, setWeighFor] = useState<{ m: LaneItem; picks: Picks } | null>(null);
   // Cash in and out of the drawer (components/pos/DrawerMove).
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
@@ -552,8 +555,9 @@ export default function DriveThru() {
       orders: { ...l.orders, [d.orderId]: l.orders[d.orderId] || { id: d.orderId, number: d.number, status: 'building', lines: [], subtotal: 0, tax: 0, taxLabel: 'Tax', total: 0, paidAt: null, payMethod: null, sentAt: null, dueAt: null, kitchen: 'not sent', waitingOn: [], readyCount: 0, ticketCount: 0 } } } : l));
   }, `car${at || ''}`);
   // Something added from the menu is what's offered with next; something taken from an offer keeps the offer open.
+  // (Sold by weight: what the scale reads first, components/pos/CounterWeight.)
   const add = (m: MenuItem, picks: Picks = {}, quantity = 1, offer?: 'item') => {
-    if (!order) return; const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}`; const forOrder = order.id;
+    if (!order) return; if (m.byWeight) { setWeighFor({ m: m as LaneItem, picks }); return; } const sig = `add|${order.id}|${m.id}|${JSON.stringify(picks)}|${quantity}${offer ? '|offer' : ''}`; const forOrder = order.id;
     void act(`add-${m.id}`, { action: 'add', orderId: order.id, itemId: m.id, choices: picks, quantity, tapKey: keyFor(sig), ...(offer ? { offer } : {}) },
       (d) => setJust((j) => (offer ? (j ? { ...j, took: true } : j) : d.line?.lineId ? { orderId: forOrder, itemId: m.id, name: m.name, picks, quantity, lineId: d.line.lineId, took: false, sized: false } : null)), sig);
   };
@@ -563,10 +567,11 @@ export default function DriveThru() {
     if (!order || order.status !== 'building') { setNotice({ text: 'Scan while an order is being taken.', tone: 'warn' }); return; }
     void act('scan', { action: 'scan', orderId: order.id, code, tapKey: keyFor(`scan|${order.id}|${code}|${Date.now()}`) }, (d) => setNotice({ text: `${d.name}${Number(d.pack) > 1 ? ` × ${d.pack}` : ''} added.`, tone: 'good' }), undefined, (d) => {
       if (d.code === 'choices') { const m = (lane?.menu || []).find((x) => x.id === d.itemId); if (m) { setChoiceOffer(false); setChoiceFor(m); } }
+      else if (d.code === 'weigh') { const m = (lane?.menu || []).find((x) => x.id === d.itemId); if (m) { if (m.choices.length) { setChoiceOffer(false); setChoiceFor(m); } else setWeighFor({ m, picks: {} }); } }
       else if (d.code === 'unknown') setCodeFor(String(d.scanned || code));
     });
   };
-  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: LaneItem) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
   const sizeUp = () => {
@@ -795,7 +800,7 @@ export default function DriveThru() {
                   <div className="flex shrink-0 items-center rounded-full" style={{ background: SOFT }}>
                     <button type="button" onClick={() => setQty(l, l.quantity - 1)} aria-label={l.quantity === 1 ? `Take ${l.name} off` : `One fewer ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" style={{ color: l.quantity === 1 ? RED : INK }} /></button>
                     <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
-                    <button type="button" onClick={() => setQty(l, l.quantity + 1)} disabled={l.quantity >= 20 || !!(l as any).comp || !!(l as any).giftCard} aria-label={`One more ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => setQty(l, l.quantity + 1)} disabled={l.quantity >= 20 || !!(l as any).comp || !!(l as any).giftCard || !!(l as any).weight} aria-label={`One more ${l.name}`} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
                   </div>
                 ) : <span className="w-9 shrink-0 text-center text-[16px] font-semibold tabular-nums" style={{ color: INK }}>{l.quantity}×</span>}
                 <div className="min-w-0 flex-1">
@@ -1058,7 +1063,7 @@ export default function DriveThru() {
                           // Switched to sold out, an ingredient run out, or none left of it (lib/menu-stock), said as such.
                           // (Outside its menus by time of day, it says when it's back: "Breakfast, from 7 AM".)
                           const why = m.off || outWords(m); const out = !!why; const n = onOrder[m.id] || 0;
-                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.happy ? ', happy hour' : ''}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
+                          const label = `${m.number ? `Number ${m.number}, ` : ''}${m.name}, ${m.from ? 'from ' : ''}${usd(priceOf(m))}${m.byWeight ? ` a ${m.byWeight}, weighed` : ''}${m.happy ? ', happy hour' : ''}${why ? `, ${why.toLowerCase()}` : ''}${n ? `, ${n} on the order` : ''}`;
                           // The number guests order by, as on the menu board ("number 3"): lib/menu-numbers. (Light, so it isn't
                           // taken for the count on the order, which is dark.)
                           const num = m.number ? <span className="mr-1.5 inline-flex h-6 min-w-[24px] items-center justify-center rounded-full px-1 align-[2px] text-[12.5px] font-bold tabular-nums" style={{ background: LINE, color: INK }} aria-hidden>{m.number}</span> : null;
@@ -1078,7 +1083,7 @@ export default function DriveThru() {
                               <span className="flex flex-1 flex-col justify-between gap-1 px-2 pb-1.5 pt-2.5">
                                 <span className="text-[15.5px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                                 <span className="flex items-center justify-between gap-2">
-                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
+                                  <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}` : ''}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
                                   {!out && m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
                                 </span>
                               </span>
@@ -1090,7 +1095,7 @@ export default function DriveThru() {
                               style={{ background: out ? SOFT : '#fff', border: `${n ? 2 : 1}px solid ${n ? INK : LINE}`, padding: n ? 13 : 14 }}>
                               <span className="pr-7 text-[16px] font-semibold leading-snug" style={{ color: out ? MUTED : INK, textDecoration: out ? 'line-through' : undefined }}>{num}{m.name}</span>
                               <span className="mt-2 flex items-center justify-between gap-2">
-                                <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
+                                <span className="text-[14.5px] tabular-nums" style={{ color: MUTED }}>{m.from ? 'from ' : ''}{usd(priceOf(m))}{m.byWeight ? `/${m.byWeight}` : ''}{m.happy && <span style={{ color: AMBER }}> happy hour</span>}</span>
                                 {why ? <span className="min-w-0 truncate rounded-full px-2 py-0.5 text-[12.5px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{why}</span>
                                   : m.choices.length > 0 && <span className="text-[12.5px] font-medium" style={{ color: MUTED }}>Choices</span>}
                               </span>
@@ -1272,6 +1277,16 @@ export default function DriveThru() {
         onClose={() => setCompFor(null)} onDone={(text, d) => { setCompFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
       {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={refundCall}
         onClose={() => setTakeOffFor(null)} onDone={(text, d) => { setTakeOffFor(null); if (d.order) putOrder(d.order, ++seq.current); setNotice({ text, tone: 'good' }); load(); }} /> : null; })()}
+      {weighFor && order && (() => { const p = pickedOf(weighFor.m.choices, weighFor.picks); return <WeightSheet name={weighFor.m.name} unit={weighFor.m.byWeight!} price={weighFor.m.happy && typeof weighFor.m.priceNow === 'number' ? weighFor.m.priceNow : weighFor.m.price} extra={p.extra} choicesText={p.text} onClose={() => setWeighFor(null)}
+        add={async (weight) => {
+          if (order.status !== 'building') return 'That order has gone to the kitchen already.';
+          acted.current++; const mySeq = ++seq.current;
+          const { d } = await post({ action: 'add', orderId: order.id, itemId: weighFor.m.id, choices: weighFor.picks, quantity: 1, tapKey: keyFor(`weigh|${order.id}|${weighFor.m.id}|${weight}|${Date.now()}`), weight }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+          acted.current++;
+          if (!d.ok) return d.error || 'That didn’t go through. Try again.';
+          if (d.order) putOrder(d.order, mySeq);
+          setWeighFor(null); setNotice({ text: `${weighFor.m.name} added.`, tone: 'good' }); load(); return null;
+        }} />; })()}
       {giftOpen && order && <GiftSheet amounts={lane?.gift?.amounts || []} onClose={() => setGiftOpen(false)} add={async (b) => {
         if (order.status !== 'building') return 'That order has gone to the kitchen already.';
         acted.current++; const mySeq = ++seq.current;

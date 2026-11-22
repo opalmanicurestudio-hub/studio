@@ -7,6 +7,7 @@
 // - The order's money follows: its discount worked out again on what's left, its reward and tip as they were. Paid
 //   already, it's a refund instead (lib/counter-refund-server); something set aside on it (a gift card, a part of a
 //   split bill) or a card payment under way stops it until that's taken off.
+import { unitsOf } from '@/lib/menu-weight';
 import { FieldValue } from 'firebase-admin/firestore';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
@@ -123,7 +124,9 @@ export async function takeOffSent(db: any, tenantId: string, tenant: any, orderI
     const takenOffWaste: Record<string, number> = { ...(o.takenOffWaste || {}) };
     if (made) {
       const byPart = take?.byPart && typeof take.byPart === 'object' ? Object.values<any>(take.byPart).map((x) => String(x?.item || '')).filter((x) => ID.test(x)) : [];
-      for (const id of byPart.length ? byPart : [line.itemId]) if (ID.test(id)) takenOffWaste[id] = (takenOffWaste[id] || 0) + q;
+      // (A weighed line: its weight, in the item's own unit: lib/menu-weight.)
+      const units = line.weight ? unitsOf(line) : q;
+      for (const id of byPart.length ? byPart : [line.itemId]) if (ID.test(id)) takenOffWaste[id] = Math.round(((takenOffWaste[id] || 0) + units) * 1000) / 1000;
     }
     const off = { lineId, name: line.name, qty: q, made, by: who.name, ...(approver ? { approvedBy: approver.name } : {}), at: nowIso };
     tx.set(ref, { lines: next, subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
