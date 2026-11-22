@@ -77,9 +77,11 @@ const src = (p: string) => readFileSync(p, 'utf8');
   r = await R.POST(req({ tenantId: 't1', action: 'receive', orderId: 'o3' }));
   check('one location: no store asked, the total only, as before', r.body.ok && !r.body.storeName && (await get(`${T}/inventory/oil`)).totalStock === 46 && (await all(`${T}/stockCorrections`)).filter((e: any) => e.refId === 'o3').every((e: any) => !e.storeId));
   const op = src('src/app/(app)/inventory/ordering/page.tsx');
-  check('the page: “Came to” above the orders, starting on this screen’s store; Received waits for a store; the store sent', op.includes('<CameTo stores={stores} at={at} onPick={setAt} id="order-came-to" />') && op.includes('const [at, setAt] = useCameTo(stores);')
-    && op.includes("disabled={busy === `recv-${o.id}` || needStore} onClick={() => void receive(o, false)}") && op.includes('...(stores.length > 1 ? { at } : {})'));
-  check('…and says where it went, and what waits in “Not at a store yet”', op.includes("const shelf = d.storeName ? `on ${d.storeName}’s shelf` : 'on the shelf';") && op.includes('so ${waits.length === 1 ? \'it waits\' : \'they wait\'} in “Not at a store yet” on Inventory.') && op.includes("One tap puts it all on {atName ? `${atName}’s shelf` : 'the shelf'} at these costs."));
+  check('the page: “Came to” above the orders, starting on this screen’s store; Received waits for a store; the store sent', op.includes('<CameTo stores={stores} at={at} onPick={setAt} id="order-came-to"') && op.includes('const [at, setAt] = useCameTo(stores);')
+    && op.includes("disabled={busy === `recv-${o.id}` || (stores.length > 1 && !cameFor(o))} onClick={() => void receive(o, false)}") && op.includes('...(stores.length > 1 ? { at: to } : {})')
+    // (An order for one store goes there unless another is picked on it: verify ordering-store.)
+    && op.includes('const cameFor = (o: SupplyOrder) => cameOther[o.id] ?? (storeOf(o) || at);'));
+  check('…and says where it went, and what waits in “Not at a store yet”', op.includes("const shelf = d.storeName ? `on ${d.storeName}’s shelf` : 'on the shelf';") && op.includes('so ${waits.length === 1 ? \'it waits\' : \'they wait\'} in “Not at a store yet” on Inventory.') && op.includes("One tap puts it all on {to ? `${to}’s shelf` : 'the shelf'} at these costs."));
 
   console.log('Inventory: a purchase order, and a quick receive');
   const at = src('src/components/inventory/ReceiveAtStore.tsx');

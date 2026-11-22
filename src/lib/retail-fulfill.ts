@@ -965,9 +965,10 @@ function convertSaleInTxn(
     };
     txn.update(ref, patch);
     after.set(String(line.productId), withDotted(item, patch));
-    txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
-      correction(line.productId, item.unit || 'units', -qty,
-        `Online order fulfilled (Order #${order.orderNumber})`, order.id, actor));
+    // (A sale on the stock history, at the store it went out from, so Ordering counts it: lib/ordering, lib/ordering-store.)
+    txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
+      ...correction(line.productId, item.unit || 'units', -qty, `Online order fulfilled (Order #${order.orderNumber})`, order.id, actor),
+      type: 'sold', ...(typeof (order as any).locationId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test((order as any).locationId) ? { storeId: (order as any).locationId } : {}) });
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
       productId: line.productId,
       type: 'released',

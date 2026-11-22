@@ -6,7 +6,9 @@
 // orders; when it comes in, one tap puts it all on the shelf at its costs, or "Edit first" for what came in different.
 // Anything that came in at another price than last time says so right after, with the dishes it pushed over the aim
 // (lib/price-creep), and links to Food cost to set them right. With more than one location, a delivery asks which store
-// it came to (components/inventory/ReceiveAtStore), and goes on that store's shelf for anything counted there.
+// it came to (components/inventory/ReceiveAtStore), and goes on that store's shelf for anything counted there. And it can
+// order for one store (lib/ordering-store; design board "Running low at each store", parts 3 and 4; `?at=` opens on it):
+// its own shelf and pace, a set number kept there, another store's spare to move first, and the delivery put away there.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
@@ -14,12 +16,15 @@ import { useTenant } from '@/context/TenantContext';
 import { moduleEnabled } from '@/lib/modules';
 import { CameTo, useCameTo } from '@/components/inventory/ReceiveAtStore';
 import { lineWords, orderText, orderTotal, remainingOf, type SupplyOrder, type Suggestion, type SupplierPlan } from '@/lib/ordering';
+import type { StoreSuggestion } from '@/lib/ordering-store';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `min-h-[44px] rounded-xl px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
 const FIELD = 'min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
-type Plan = { coverDays: number; lookback: number; plan: SupplierPlan[]; uncounted: { id: string; name: string }[]; orders: SupplyOrder[]; suppliers: string[]; business: string; stores?: { id: string; name: string }[] };
+type Plan = { coverDays: number; lookback: number; plan: SupplierPlan[]; uncounted: { id: string; name: string }[]; orders: SupplyOrder[]; suppliers: string[]; business: string; stores?: { id: string; name: string }[];
+  at?: string; atName?: string; shared?: boolean; notHere?: { id: string; name: string }[] };
+const ID = /^[A-Za-z0-9_-]{1,160}$/;
 
 /** What's still to come of an order, one row per product (the same product on two lines is one row). */
 const stillToCome = (o: SupplyOrder) => {
@@ -30,9 +35,9 @@ const stillToCome = (o: SupplyOrder) => {
 const money = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dayWords = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-async function post(body: any) {
+async function post(body: any, url = '/api/ordering') {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
-  try { const r = await fetch('/api/ordering', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }); return await r.json(); }
+  try { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }); return await r.json(); }
   catch { return { ok: false, error: 'No connection. Try again.' }; }
 }
 
@@ -61,38 +66,52 @@ export default function OrderingPage() {
   const [note, setNote] = useState('');
   const stores = useMemo(() => p?.stores || [], [p]);
   const [at, setAt] = useCameTo(stores);
-  const atName = stores.find((x) => x.id === at)?.name || '';
-  const needStore = stores.length > 1 && !at;
+  // The store this is ordering for ('' for every store together), from `?at=` (a running-low note links here).
+  const [forAt, setForAt] = useState<string | null>(null);
+  useEffect(() => { let v = ''; try { v = new URLSearchParams(window.location.search).get('at') || ''; } catch { /* no address */ } setForAt(ID.test(v) ? v : ''); }, []);
+  const pickFor = (id: string) => {
+    setForAt(id); setSent({}); setNote('');
+    try { const u = new URL(window.location.href); if (id) u.searchParams.set('at', id); else u.searchParams.delete('at'); window.history.replaceState(null, '', u.toString()); } catch { /* no address */ }
+  };
+  // An order for one store is put away there, unless it came to another (picked on that order).
+  const [cameOther, setCameOther] = useState<Record<string, string>>({});
+  const storeOf = (o: SupplyOrder) => (o.storeId && stores.some((x) => x.id === o.storeId) ? o.storeId : '');
+  const cameFor = (o: SupplyOrder) => cameOther[o.id] ?? (storeOf(o) || at);
+  const forName = p?.atName || '';
   type Moved = { id: string; name: string; up: boolean; words: string; dishes: { name: string; share: number | null; was: number | null; fix: number | null }[]; options: { item: string; option: string; cost: number; charges: number }[] };
   const [moved, setMoved] = useState<Moved[]>([]);
 
   const load = useCallback(async () => {
-    if (!tenantId) return;
-    const d = await post({ tenantId, action: 'plan' });
-    if (d.ok) { setP(d); setErr(''); setQty({}); } else setErr(d.error || 'That didn’t load. Try again.');
-  }, [tenantId]);
+    if (!tenantId || forAt === null) return;
+    const d = await post({ tenantId, action: 'plan', ...(forAt ? { at: forAt } : {}) });
+    if (d.ok) { setP(d); setErr(''); setQty({}); }
+    // (A store that isn't one any more: back to every store, saying why.)
+    else if (forAt && d.error) { setForAt(''); setErr(d.error); }
+    else setErr(d.error || 'That didn’t load. Try again.');
+  }, [tenantId, forAt]);
   useEffect(() => { void load(); }, [load]);
 
   const q = (s: Suggestion) => (qty[s.id] ?? s.suggest);
-  const run = async (key: string, body: any, after?: (d: any) => void) => {
+  const run = async (key: string, body: any, after?: (d: any) => void, url?: string) => {
     if (!tenantId) return null; setBusy(key); setErr(''); setNote(''); setMoved([]);
-    const d = await post({ tenantId, ...body }); setBusy(null);
+    const d = await post({ tenantId, ...body }, url); setBusy(null);
     if (!d.ok) { setErr(d.error || 'That didn’t go through. Try again.'); return null; }
     after?.(d); return d;
   };
   const order = async (sp: SupplierPlan) => {
     const lines = sp.lines.map((s) => ({ itemId: s.id, qty: q(s) })).filter((l) => l.qty > 0);
-    await run(`order-${sp.key}`, { action: 'order', supplier: sp.name, lines }, (d) => { setSent((m) => ({ ...m, [sp.key]: d.order })); void load(); });
+    await run(`order-${sp.key}`, { action: 'order', supplier: sp.name, lines, ...(p?.at ? { at: p.at } : {}) }, (d) => { setSent((m) => ({ ...m, [sp.key]: d.order })); void load(); });
   };
   const receive = async (o: SupplyOrder, edited: boolean) => {
     const lines = edited ? stillToCome(o).map((l) => { const g = got[l.productId]; return { itemId: l.productId, qty: g ? g.qty : l.remaining, ...(g && g.cost.trim() !== '' ? { cost: Number(g.cost.replace(/[$,\s]/g, '')) } : {}) }; }) : undefined;
     // What this screen showed as still to come, so an order put away meanwhile from another screen isn't put away twice.
     const expect: Record<string, number> = {}; for (const l of o.items) expect[l.productId] = (expect[l.productId] || 0) + remainingOf(l);
-    if (needStore) { setErr('Pick the store it came to.'); return; }
-    await run(`recv-${o.id}`, { action: 'receive', orderId: o.id, expect, ...(lines ? { lines } : {}), ...(stores.length > 1 ? { at } : {}) }, async (d) => {
+    const to = cameFor(o);
+    if (stores.length > 1 && !to) { setErr('Pick the store it came to.'); return; }
+    await run(`recv-${o.id}`, { action: 'receive', orderId: o.id, expect, ...(lines ? { lines } : {}), ...(stores.length > 1 ? { at: to } : {}) }, async (d) => {
       const shelf = d.storeName ? `on ${d.storeName}’s shelf` : 'on the shelf';
       const waits: string[] = Array.isArray(d.unplaced) ? d.unplaced : [];
-      setEditing(null); setGot({}); setMoved(Array.isArray(d.moved) ? d.moved : []);
+      setEditing(null); setGot({}); setMoved(Array.isArray(d.moved) ? d.moved : []); setCameOther((m) => { const n = { ...m }; delete n[o.id]; return n; });
       setNote(d.already ? `Order #${o.number} was already put away.` : `${d.status === 'Partially Received' ? `What came of order #${o.number} is ${shelf}. The rest is still to come.` : `Order #${o.number} from ${o.supplier} is ${shelf}.`}${waits.length ? ` ${waits.slice(0, 3).join(', ')}${waits.length > 3 ? ` and ${waits.length - 3} more` : ''} ${waits.length === 1 ? 'isn’t' : 'aren’t'} counted at ${d.storeName} yet, so ${waits.length === 1 ? 'it waits' : 'they wait'} in “Not at a store yet” on Inventory.` : ''}${d.missing?.length ? ` ${d.missing.join(', ')} ${d.missing.length === 1 ? 'isn’t' : 'aren’t'} in Inventory any more, so ${d.missing.length === 1 ? 'it wasn’t' : 'they weren’t'} put away.` : ''}`);
       // A delivery can let a shop order that was waiting for it go out (lib/retail-fulfill), as a quick receive does.
       if (!d.already && moduleEnabled(selectedTenant, 'retail')) {
@@ -100,6 +119,11 @@ export default function OrderingPage() {
       }
       void load();
     });
+  };
+  // Moved from a store with more than it needs, before more is bought (api/inventory/stores).
+  const moveIn = async (s: StoreSuggestion, n: number) => {
+    if (!tenantId || !p?.at || !s.spare) return;
+    await run(`move-${s.id}`, { action: 'move', itemId: s.id, from: s.spare.storeId, to: p.at, qty: n }, () => { setNote(`Moved ${n} of ${s.name} from ${s.spare!.name} to ${forName}.`); void load(); }, '/api/inventory/stores');
   };
   const copy = async (key: string, text: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied((c) => (c === key ? null : c)), 2500); } catch { setErr('Couldn’t copy. Select the order and copy it yourself.'); }
@@ -123,15 +147,18 @@ export default function OrderingPage() {
       </div>
       {parOpen === s.id && (
         <div className="mt-2 rounded-2xl p-3" style={{ background: SOFT }}>
-          <label htmlFor={`par-${s.id}`} className="block text-[13.5px] font-medium">Keep a set number on hand{s.container ? ` (${s.container})` : ''}</label>
+          <label htmlFor={`par-${s.id}`} className="block text-[13.5px] font-medium">Keep a set number {forName ? `at ${forName}` : 'on hand'}{s.container ? ` (${s.container})` : ''}</label>
           <span className="block text-[12.5px]" style={{ color: MUTED }}>It’s ordered back up to that, instead of from what’s used.</span>
           <span className="mt-2 flex gap-2">
             <input id={`par-${s.id}`} inputMode="decimal" value={parTyped} onChange={(e) => setParTyped(e.target.value)} placeholder="2" className={FIELD} style={{ borderColor: LINE }} />
-            <button type="button" disabled={busy === `par-${s.id}` || !parTyped.trim()} onClick={() => void run(`par-${s.id}`, { action: 'par', itemId: s.id, par: Number(parTyped) }, () => { setParOpen(null); void load(); })} className={BTN} style={{ background: INK, color: '#fff' }}>Save</button>
+            <button type="button" disabled={busy === `par-${s.id}` || !parTyped.trim()} onClick={() => void run(`par-${s.id}`, { action: 'par', itemId: s.id, par: Number(parTyped), ...(p?.at ? { at: p.at } : {}) }, () => { setParOpen(null); void load(); })} className={BTN} style={{ background: INK, color: '#fff' }}>Save</button>
           </span>
-          {s.par !== null && <button type="button" onClick={() => void run(`par-${s.id}`, { action: 'par', itemId: s.id, par: null }, () => { setParOpen(null); void load(); })} className={`mt-1 min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`}>Go by what’s used instead</button>}
+          {s.par !== null && <button type="button" onClick={() => void run(`par-${s.id}`, { action: 'par', itemId: s.id, par: null, ...(p?.at ? { at: p.at } : {}) }, () => { setParOpen(null); void load(); })} className={`mt-1 min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`}>Go by what’s used instead</button>}
         </div>
       )}
+      {(s as StoreSuggestion).spare && q(s) > 0 && (() => { const sp2 = (s as StoreSuggestion).spare!; const n = Math.min(sp2.qty, q(s)); return (
+        <button type="button" disabled={busy === `move-${s.id}`} onClick={() => void moveIn(s as StoreSuggestion, n)} className={`${BTN} mt-1.5 w-full sm:w-auto`} style={{ border: `1px solid ${LINE}`, background: '#fff' }}>
+          {busy === `move-${s.id}` ? 'Moving…' : `Move ${n} from ${sp2.name}`}</button>); })()}
     </li>
   );
 
@@ -140,8 +167,8 @@ export default function OrderingPage() {
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[28px] font-semibold tracking-tight">Ordering</h1>
-            <p className="text-[15px]" style={{ color: MUTED }}>What to order from each supplier, from what you use and what’s on the shelf.</p>
+            <h1 className="text-[28px] font-semibold tracking-tight">{forName ? `Ordering for ${forName}` : 'Ordering'}</h1>
+            <p className="text-[15px]" style={{ color: MUTED }}>{forName ? `What ${forName} needs from each supplier, from what it uses and what’s on its own shelf.` : 'What to order from each supplier, from what you use and what’s on the shelf.'}</p>
           </div>
           {p && (
             <label className="flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>Order enough for
@@ -151,6 +178,16 @@ export default function OrderingPage() {
             </label>
           )}
         </header>
+        {stores.length > 1 && (
+          <div>
+            <p id="order-for" className="mb-1.5 text-[13px] font-semibold" style={{ color: MUTED }}>Order for</p>
+            <div role="radiogroup" aria-labelledby="order-for" className="flex flex-wrap gap-2">
+              {[{ id: '', name: 'Every store' }, ...stores].map((x) => { const on = (forAt || '') === x.id; return (
+                <button key={x.id || 'every'} type="button" role="radio" aria-checked={on} onClick={() => pickFor(x.id)} className={`min-h-[44px] rounded-xl px-4 text-[15px] font-semibold ${RING}`}
+                  style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{x.name}</button>); })}
+            </div>
+          </div>
+        )}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
         {note && <p role="status" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: GREEN_TINT, color: GREEN }}>{note}</p>}
         {moved.length > 0 && (
@@ -172,12 +209,12 @@ export default function OrderingPage() {
             <div className="space-y-4">
               <section aria-labelledby="way-title" className="space-y-3">
                 <h2 id="way-title" className="text-[15px] font-semibold" style={{ color: MUTED }}>On its way</h2>
-                {p.orders.length > 0 && stores.length > 1 && <div className="rounded-3xl bg-[#fff] px-5 py-4"><CameTo stores={stores} at={at} onPick={setAt} id="order-came-to" /></div>}
+                {p.orders.some((o) => !storeOf(o)) && stores.length > 1 && <div className="rounded-3xl bg-[#fff] px-5 py-4"><CameTo stores={stores} at={at} onPick={setAt} id="order-came-to" label={p.orders.some((o) => storeOf(o)) ? 'Orders for every store came to' : 'Came to'} /></div>}
                 {p.orders.length === 0 ? <p className="rounded-3xl bg-[#fff] px-5 py-4 text-[14px]" style={{ color: MUTED }}>Nothing ordered right now. When you order, it shows here until it comes in.</p>
                   : p.orders.map((o) => { const open = editing === o.id; const left = stillToCome(o); const total = orderTotal(left.map((l) => ({ qty: l.remaining, cost: l.costPerUnit }))); return (
                     <article key={o.id} className="rounded-3xl bg-[#fff] px-5 py-4">
                       <p className="text-[15px] font-semibold">{o.supplier}</p>
-                      <p className="text-[13.5px]" style={{ color: MUTED }}>Order #{o.number}, {dayWords(o.orderDate)}{o.orderedBy ? ` by ${o.orderedBy}` : ''}. {left.length} {left.length === 1 ? 'item' : 'items'}{o.status === 'Partially Received' ? ' still to come' : ''}, {money(total)}.</p>
+                      <p className="text-[13.5px]" style={{ color: MUTED }}>Order #{o.number}{o.storeName ? ` for ${o.storeName}` : ''}, {dayWords(o.orderDate)}{o.orderedBy ? ` by ${o.orderedBy}` : ''}. {left.length} {left.length === 1 ? 'item' : 'items'}{o.status === 'Partially Received' ? ' still to come' : ''}, {money(total)}.</p>
                       {!open && <p className="mt-1.5 text-[13.5px]" style={{ color: MUTED }}>{left.map((l) => lineWords(l, l.remaining)).join(', ')}.</p>}
                       {open && (
                         <ul className="mt-2">
@@ -194,11 +231,13 @@ export default function OrderingPage() {
                       )}
                       <div className="mt-3 flex flex-wrap gap-2">
                         {open
-                          ? <button type="button" disabled={busy === `recv-${o.id}` || needStore} onClick={() => void receive(o, true)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Receive these'}</button>
-                          : <button type="button" disabled={busy === `recv-${o.id}` || needStore} onClick={() => void receive(o, false)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Received'}</button>}
+                          ? <button type="button" disabled={busy === `recv-${o.id}` || (stores.length > 1 && !cameFor(o))} onClick={() => void receive(o, true)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Receive these'}</button>
+                          : <button type="button" disabled={busy === `recv-${o.id}` || (stores.length > 1 && !cameFor(o))} onClick={() => void receive(o, false)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Received'}</button>}
                         <button type="button" onClick={() => { setEditing(open ? null : o.id); setGot({}); }} className={`${BTN} flex-1`} style={{ border: `1px solid ${LINE}` }}>{open ? 'Back' : 'Edit first'}</button>
                       </div>
-                      {!open && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>One tap puts it all on {atName ? `${atName}’s shelf` : 'the shelf'} at these costs.</p>}
+                      {!open && (() => { const to = stores.find((x) => x.id === cameFor(o))?.name || ''; return <p className="mt-2 text-[13px]" style={{ color: MUTED }}>One tap puts it all on {to ? `${to}’s shelf` : 'the shelf'} at these costs.</p>; })()}
+                      {!open && storeOf(o) && cameOther[o.id] === undefined && <button type="button" onClick={() => setCameOther((m) => ({ ...m, [o.id]: storeOf(o) }))} className={`min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`}>It came to another store</button>}
+                      {storeOf(o) && cameOther[o.id] !== undefined && <div className="mt-2"><CameTo stores={stores} at={cameOther[o.id]} onPick={(id) => setCameOther((m) => ({ ...m, [o.id]: id }))} id={`came-${o.id}`} /></div>}
                       {open && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Fewer than ordered: the rest stays on its way. A cost typed here is what you pay from now on.</p>}
                       {open && <button type="button" disabled={busy === `cancel-${o.id}`} onClick={() => void run(`cancel-${o.id}`, { action: 'cancel', orderId: o.id }, () => { setEditing(null); void load(); })} className={`mt-1 min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{o.status === 'Partially Received' ? 'The rest isn’t coming: close this order' : 'It’s not coming: cancel this order'}</button>}
                     </article>); })}
@@ -217,7 +256,7 @@ export default function OrderingPage() {
                     <p className="text-[13.5px]" style={{ color: MUTED }}>{toOrder.length ? `Enough for ${p.coverDays} days, from the last ${p.lookback >= 14 ? 'two weeks' : `${p.lookback} ${p.lookback === 1 ? 'day' : 'days'}`}.` : 'Nothing to order right now.'}{lines.some((s) => s.typical && q(s) > 0) ? ' Some prices are typical, not what you pay.' : ''}</p>
                     <ul className="mt-2">{toOrder.map((s) => row(s, sp))}{more[sp.key] && rest.map((s) => row(s, sp))}</ul>
                     {rest.length > 0 && <button type="button" onClick={() => setMore((m) => ({ ...m, [sp.key]: !m[sp.key] }))} aria-expanded={!!more[sp.key]} className={`min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`}>{more[sp.key] ? 'Show less' : `${rest.length} more ${rest.length === 1 ? 'has' : 'have'} enough`}</button>}
-                    <button type="button" disabled={!any || busy === `order-${sp.key}`} onClick={() => void order(sp)} className={`${BTN} mt-2 w-full`} style={{ background: INK, color: '#fff' }}>{busy === `order-${sp.key}` ? 'Ordering…' : 'Order these'}</button>
+                    <button type="button" disabled={!any || busy === `order-${sp.key}`} onClick={() => void order(sp)} className={`${BTN} mt-2 w-full`} style={{ background: INK, color: '#fff' }}>{busy === `order-${sp.key}` ? 'Ordering…' : forName ? `Order for ${forName}` : 'Order these'}</button>
                     {done && (
                       <div className="mt-3 rounded-2xl p-3" style={{ background: SOFT }}>
                         <p className="text-[14px] font-semibold">Ordered from {done.supplier}</p>
@@ -248,6 +287,18 @@ export default function OrderingPage() {
                       </li>))}
                   </ul>
                   {none.lines.length > 8 && <button type="button" onClick={() => setMore((m) => ({ ...m, __none: !m.__none }))} className={`min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`}>{more.__none ? 'Show less' : `${none.lines.length - 8} more`}</button>}
+                </section>
+              )}
+              {forName && (p.notHere || []).length > 0 && (
+                <section aria-labelledby="not-here-title" className="rounded-3xl bg-[#fff] px-5 py-4">
+                  <h2 id="not-here-title" className="text-[15px] font-semibold">Not counted at {forName} yet</h2>
+                  <p className="text-[13.5px]" style={{ color: MUTED }}>{p.notHere!.slice(0, 3).map((x) => x.name).join(', ')}{p.notHere!.length > 3 ? ` and ${p.notHere!.length - 3} more` : ''}. Count {p.notHere!.length === 1 ? 'it' : 'them'} at {forName} (on {p.notHere!.length === 1 ? 'its' : 'each'} page under Inventory) to order {p.notHere!.length === 1 ? 'it' : 'them'} for {forName} alone, or order for every store.</p>
+                </section>
+              )}
+              {forName && p.shared && (
+                <section className="rounded-3xl bg-[#fff] px-5 py-4">
+                  <h2 className="text-[15px] font-semibold">Sales without a store</h2>
+                  <p className="text-[13.5px]" style={{ color: MUTED }}>Some of the last two weeks’ sales aren’t tied to a store (from before each store was kept apart, say). They’re shared evenly between the stores that have each item.</p>
                 </section>
               )}
               {p.uncounted.length > 0 && (

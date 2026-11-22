@@ -46,7 +46,7 @@ export function onHandOf(x: any): number {
 export const containerOf = (x: any) => String(x?.container || '').replace(/\s+/g, ' ').trim().slice(0, 60);
 
 /** A movement on the stock history (lib/stock-ledger). */
-export type Movement = { productId: string; type: string; change: number; date: string; unit?: string };
+export type Movement = { productId: string; type: string; change: number; date: string; unit?: string; storeId?: string };
 /** What went of each thing a day, in what its history measures: sold, used and thrown away over the stretch since
  *  `since` (`days` long), less what came back (a voided order, a return). Received and counted don't count. `perFor`:
  *  how much one container holds, for a sale recorded in whole units of something measured by the dose. */
@@ -87,10 +87,12 @@ export type Suggestion = {
 
 /** What to order of one thing. `perDay` and `onOrder` in what its history measures; `cover`: days the order should
  *  last. A set amount to keep (parLevel, in containers) is ordered back up to; otherwise enough for the days it takes
- *  to come (leadTimeDays) and `cover` days more, less what's here and on its way. */
-export function suggestFor(id: string, x: any, perDay: number, onOrder: number, cover: number): Suggestion {
+ *  to come (leadTimeDays) and `cover` days more, less what's here and on its way. For one store (lib/ordering-store):
+ *  `at.onHand` and `at.par` are that store's own, and the reasons say "here". */
+export function suggestFor(id: string, x: any, perDay: number, onOrder: number, cover: number, at?: { onHand: number; par: number | null }): Suggestion {
   const per = perOf(x) || 1; const unit = ledgerUnit(x);
-  const onHand = onHandOf(x); const par = num(x?.parLevel) > 0 ? num(x.parLevel) : null;
+  const onHand = at ? Math.max(0, at.onHand) : onHandOf(x); const par = at ? (at.par !== null && at.par > 0 ? at.par : null) : num(x?.parLevel) > 0 ? num(x.parLevel) : null;
+  const here = at ? ' here' : '';
   const lead = Math.max(0, Math.min(60, Math.round(num(x?.leadTimeDays)))); const moq = Math.max(0, Math.round(num(x?.moq)));
   const have = onHand + Math.max(0, onOrder);
   const need = par !== null ? par * per - have : perDay * (lead + cover) - have;
@@ -100,9 +102,9 @@ export function suggestFor(id: string, x: any, perDay: number, onOrder: number, 
   const dose = x?.costingMethod === 'uses' || x?.costingMethod === 'size';
   const left = (n: number) => (dose ? amountWords(n, unit) : `${Math.round(n * 10) / 10}`);
   const why = [
-    par !== null ? `You keep ${par} on hand` : perDay > 0 ? `About ${left(perDay)} a day` : 'Nothing used in the last two weeks',
+    par !== null ? `You keep ${par}${here || ' on hand'}` : perDay > 0 ? `About ${left(perDay)} a day${here}` : `Nothing used${here} in the last two weeks`,
     `${left(onHand)} left`,
-    onOrder > 0 ? `${left(onOrder)} on its way` : '',
+    onOrder > 0 ? `${left(onOrder)} on its way${here}` : '',
     suggest === 0 && daysLeft !== null && par === null ? `enough for ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'}` : '',
   ].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + '.';
   return { id, name: String(x?.name || 'Item'), supplier: cleanSupplier(x?.supplier), container: containerOf(x), unit, onHand: r2(onHand), perDay: r2(perDay), onOrder: r2(onOrder),
@@ -127,7 +129,9 @@ export function planBySupplier(items: Suggestion[]): SupplierPlan[] {
  *  and each line's container too. */
 export type OrderItem = { productId: string; productName: string; quantity: number; costPerUnit: number; receivedQuantity?: number; container?: string; typical?: boolean };
 export type SupplyOrder = { id: string; supplier: string; orderDate: string; status: 'Draft' | 'Placed' | 'Shipped' | 'Partially Received' | 'Received' | 'Cancelled'; items: OrderItem[];
-  number?: string; orderedBy?: string; source?: string; notes?: string; receivedAt?: string | null; receivedBy?: string | null };
+  number?: string; orderedBy?: string; source?: string; notes?: string; receivedAt?: string | null; receivedBy?: string | null;
+  /** Ordered for one store (lib/ordering-store): where it's going, and where it's put away unless it came to another. */
+  storeId?: string; storeName?: string };
 /** Still to come: placed, on its way, or partly in. */
 export const OPEN_STATUSES = ['Placed', 'Shipped', 'Partially Received'] as const;
 export const isOpen = (o: Pick<SupplyOrder, 'status'>) => (OPEN_STATUSES as readonly string[]).includes(String(o?.status));
@@ -140,9 +144,9 @@ export const orderNumber = (id: string) => String(id || '').slice(-6).toUpperCas
 /** One line of an order in words: "3 × Avocados (case of 24)". */
 export const lineWords = (i: Pick<OrderItem, 'productName' | 'container'>, qty: number) => `${qty} × ${i.productName}${i.container ? ` (${i.container})` : ''}`;
 /** An order to copy into a text or an email, the way the business already orders. */
-export function orderText(business: string, o: Pick<SupplyOrder, 'items' | 'id' | 'number'>, dayWords: string): string {
+export function orderText(business: string, o: Pick<SupplyOrder, 'items' | 'id' | 'number' | 'storeName'>, dayWords: string): string {
   const n = o.number || orderNumber(o.id);
-  return [`${business || 'Our'} order ${n ? `#${n} ` : ''}for ${dayWords}:`, ...o.items.filter((i) => num(i.quantity) > 0).map((i) => lineWords(i, Math.round(num(i.quantity))))].join('\n');
+  return [`${business || 'Our'} order ${n ? `#${n} ` : ''}for ${dayWords}${o.storeName ? `, to ${o.storeName}` : ''}:`, ...o.items.filter((i) => num(i.quantity) > 0).map((i) => lineWords(i, Math.round(num(i.quantity))))].join('\n');
 }
 
 /** What a delivery's lines come to, one per product (an order with the same product on two lines is put away once).
