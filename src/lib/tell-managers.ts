@@ -19,10 +19,11 @@ export async function managerIds(db: any, tenantId: string, tenant: any, roles: 
 /** Writes the notice for each of them. Returns how many (-1 when the database didn't take them). Never throws: a
  *  notice must never undo what it's about. */
 export async function tellManagers(db: any, tenantId: string, tenant: any, n: { type: string; message: string; link: string; priority?: 'high' | 'normal'; extra?: Record<string, unknown> },
-  o: { ownersOnly?: boolean; except?: (string | null | undefined)[] } = {}): Promise<number> {
+  o: { ownersOnly?: boolean; except?: (string | null | undefined)[]; to?: string[] } = {}): Promise<number> {
   try {
-    // (Only the owner and admins, for what they keep an eye on; never the person it's about.)
-    const ids = (await managerIds(db, tenantId, tenant, o.ownersOnly ? ['owner', 'admin'] : undefined)).filter((id) => !(o.except || []).includes(id)); if (!ids.length) return 0;
+    // (Only the owner and admins, for what they keep an eye on; never the person it's about. `to`: these people
+    // instead, as the caller chose them: the shift's leads, for a car waiting too long.)
+    const ids = (o.to ? Array.from(new Set(o.to.filter((id) => ID.test(String(id))))) : await managerIds(db, tenantId, tenant, o.ownersOnly ? ['owner', 'admin'] : undefined)).filter((id) => !(o.except || []).includes(id)); if (!ids.length) return 0;
     const now = new Date().toISOString(); const b = db.batch();
     for (const userId of ids) {
       const r = db.collection(`tenants/${tenantId}/notifications`).doc();

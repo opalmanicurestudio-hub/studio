@@ -2,7 +2,8 @@
 // src/components/portal/FloorLinks.tsx — THE FLOOR, FROM THE TEAM APP (design canvas "The floor's phones"). At a food
 // business, someone signed in with their PIN opens My tables, Clear tables and the host stand from here: the same
 // pages as the app, as themselves, on any phone (components/shared/PortalScope keeps them to these). Their job's own
-// page comes first (lib/jobs). Curbside, while the business offers it (lib/modules curbsideOn).
+// page comes first (lib/jobs). Curbside, while the business offers it (lib/modules curbsideOn). Drive-thru live for the
+// drive-thru's team, shift leads and managers.
 import * as React from 'react';
 import { jobDef } from '@/lib/jobs';
 
@@ -14,6 +15,7 @@ const PAGES = [
   { href: '/bar-tabs', label: 'Bar tabs', line: 'Tabs at the bar, and the cards held on them', bar: true },
   { href: '/counter', label: 'Counter', line: 'Orders and payments at the counter, and calling names out', counter: true },
   { href: '/curbside', label: 'Curbside', line: 'Who’s parked outside, and taking their orders out', curb: true },
+  { href: '/drive-live', label: 'Drive-thru live', line: 'Every car in the lane, and how long each has waited', drive: true },
 ];
 
 export function FloorLinks({ job, curbside }: { job?: string | null; curbside?: boolean }) {
@@ -23,7 +25,9 @@ export function FloorLinks({ job, curbside }: { job?: string | null; curbside?: 
   const first = jobDef(job)?.id === 'bartender' ? '/bar-tabs' : home;
   // The counter for whoever works it (and a shift lead or a manager).
   const counter = ['counter', 'shift_lead', 'manager'].includes(String(jobDef(job)?.id || ''));
-  const pages = PAGES.filter((p) => (!(p as any).bar || bar) && (!(p as any).counter || counter) && (!(p as any).curb || !!curbside)).sort((a, b) => (a.href === first ? -1 : b.href === first ? 1 : 0));
+  // Drive-thru live for whoever works the drive-thru (and a shift lead or a manager).
+  const drive = ['drive_thru', 'shift_lead', 'manager'].includes(String(jobDef(job)?.id || ''));
+  const pages = PAGES.filter((p) => (!(p as any).bar || bar) && (!(p as any).counter || counter) && (!(p as any).curb || !!curbside) && (!(p as any).drive || drive)).sort((a, b) => (a.href === first ? -1 : b.href === first ? 1 : 0));
   return (
     <section aria-labelledby="floor-links" className="space-y-2">
       <h2 id="floor-links" className="px-1 text-[13px] font-semibold" style={{ color: MUTED }}>The floor</h2>

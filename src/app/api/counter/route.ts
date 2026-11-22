@@ -157,6 +157,7 @@ import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey,
 import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { forgetLive } from '@/lib/drive-live-server';
 import { handOverInTx } from '@/lib/counter-handover';
+import { checkLongWaits } from '@/lib/speed-server';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
@@ -361,6 +362,8 @@ export async function POST(req: NextRequest) {
           // The text the guest asked for when it's ready (lib/ready-text): the last four digits, and when it went.
           text: readyTextView(o) ? { ...readyTextView(o)!, sentAt: o.readyText?.sentAt || null } : null };
       }
+      // A car waiting past the business's limit: the shift lead hears, once (lib/speed-server).
+      if (channel === 'drive-thru') await checkLongWaits(db, tenantId, tenant, live, now.getTime(), new Map(live.map((c: any) => [String(c.id), (orders[String(c.orderId || '')]?.waitingOn || []).map((w: any) => `${num(w.quantity) > 1 ? `${num(w.quantity)} ` : ''}${w.name}`)])));
       const target = targetsOf(tenant)[channel];
       const statsKey = `${tenantId}|${channel}|${here || ''}`;
       let cached = statsCache.get(statsKey);

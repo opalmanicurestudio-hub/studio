@@ -99,6 +99,9 @@ export async function liveNow(db: any, tenantId: string, tenant: any, here: stri
     atSpeaker: (pulled as { lane: 1 | 2; since: string }[][]).flat(), exitAsk,
   };
   cache.set(key, { at: nowMs, v }); if (cache.size > 500) cache.delete(cache.keys().next().value as string);
+  // A car waiting past the business's limit: the shift lead hears, once (lib/speed-server).
+  const { checkLongWaits } = await import('@/lib/speed-server');
+  await checkLongWaits(db, tenantId, tenant, drive, nowMs, new Map(cars.map((c) => [c.id, c.waitingOn])));
   return v;
 }
 

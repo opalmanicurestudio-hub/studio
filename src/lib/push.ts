@@ -23,6 +23,7 @@ function titleFor(type: string | undefined, business: string): string {
     case 'sms_escalation_unassigned': return 'Unassigned client text';
     case 'membership_payment_failed': return 'Membership payment failed';
     case 'charge_failed': return 'A charge didn’t go through';
+    case 'drive_wait': return 'A car is waiting too long';
     default: return business || 'New notification';
   }
 }
@@ -37,7 +38,7 @@ const PORTAL_TO_APP: Record<string, string> = { today: '/dashboard', schedule: '
 const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent',
   orders_cutoff: 'orders', orders_missed: 'orders', orders_big_day: 'orders', orders_fast: 'orders' };
 export const MANAGER_ROLES_PUSH = ['owner', 'admin', 'manager'];
-const FLOOR_LINKS = ['/tables', '/clear', '/host', '/curbside'];
+const FLOOR_LINKS = ['/tables', '/clear', '/host', '/curbside', '/drive-live'];
 
 export function pushLink(base: string, tenantId: string, link?: string, opts: { role?: string; type?: string } = {}): string {
   const b = String(base || '').replace(/\/+$/, '');

@@ -9,6 +9,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTenant } from '@/context/TenantContext';
 import { clock, greetTone, laneShape, lengthFor, liveTotals, placeLane, secondsSince, stuckWords, timesOf, toneOf, TONE_WORDS, type LiveCar, type LiveNow, type Tone } from '@/lib/drive-live';
 import { formatTime } from '@/lib/tenant-time';
+import { hourWords, longWords, whenWords, LONG_WAITS, PARTS, SPEED_CHS, SPEED_RANGES, type Part, type SpeedCh, type SpeedRange, type SpeedReport } from '@/lib/speed';
+import { SENSOR_POINTS, type SensorPoint } from '@/lib/lane-entry';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', DEEP_GREEN = '#1f7a4d', DEEP_AMBER = '#b45309', AMBER = 'var(--warn-ink)', GREEN = 'var(--ok-ink)';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -21,9 +23,29 @@ const toneStyle = (t: Tone): React.CSSProperties => t === 'over' ? { background:
   : t === 'near' ? { background: '#fff', color: AMBER, border: `2px solid ${AMBER}` } : { background: DEEP_GREEN, color: '#fff', border: `2px solid ${DEEP_GREEN}` };
 const STAGE_WORDS: Record<LiveCar['stage'], string> = { speaker: 'ordering', pay: 'on the way to pay', pickup: 'at the pickup window', forward: 'parked' };
 
+type Tab = 'live' | 'speed';
 export default function DriveLivePage() {
   const { selectedTenant } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
+  const [tab, setTab] = useState<Tab>(() => { try { return new URLSearchParams(window.location.search).get('tab') === 'speed' ? 'speed' : 'live'; } catch { return 'live'; } });
+  const pick = (t: Tab) => { setTab(t); try { const u = new URL(window.location.href); if (t === 'live') u.searchParams.delete('tab'); else u.searchParams.set('tab', t); window.history.replaceState(null, '', u.toString()); } catch { /* the tab still changes */ } };
+  return (
+    <div className="mx-auto w-full max-w-[1180px] space-y-5 px-4 pb-16 pt-6 sm:px-6" style={{ color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+      <div>
+        <h1 className="text-[26px] font-semibold tracking-tight">Drive-thru live</h1>
+      </div>
+      <div role="tablist" aria-label="Drive-thru live" className="flex flex-wrap gap-2">
+        {([['live', 'The lane now'], ['speed', 'Speed of service']] as [Tab, string][]).map(([id, label]) => (
+          <button key={id} type="button" role="tab" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} onClick={() => pick(id)} className={`min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold ${RING}`}
+            style={tab === id ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{label}</button>))}
+      </div>
+      {tenantId && tab === 'live' && <div id="panel-live" role="tabpanel" aria-labelledby="tab-live" className="space-y-5"><LiveTab tenantId={tenantId} /></div>}
+      {tenantId && tab === 'speed' && <div id="panel-speed" role="tabpanel" aria-labelledby="tab-speed"><SpeedTab tenantId={tenantId} /></div>}
+    </div>
+  );
+}
+
+function LiveTab({ tenantId }: { tenantId: string }) {
   const [live, setLive] = useState<LiveNow | null>(null);
   const [err, setErr] = useState('');
   const [skew, setSkew] = useState(0); const [lastOk, setLastOk] = useState(0);
@@ -56,13 +78,10 @@ export default function DriveLivePage() {
   const car = live && open ? live.cars.find((c) => c.id === open) || null : null;
 
   return (
-    <div className="mx-auto w-full max-w-[1180px] space-y-5 px-4 pb-16 pt-6 sm:px-6" style={{ color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-      <div>
-        <h1 className="text-[26px] font-semibold tracking-tight">Drive-thru live</h1>
-        <p className="mt-1 max-w-[720px] text-[15px]" style={{ color: MUTED }}>
-          Every car, where it is, as it moves. Times run from when a car pulled up{live ? `, against your ${clock(live.target)} target` : ''}{live?.location?.name ? `, at ${live.location.name}` : ''}.
-        </p>
-      </div>
+    <>
+      <p className="max-w-[720px] text-[15px]" style={{ color: MUTED }}>
+        Every car, where it is, as it moves. Times run from when a car pulled up{live ? `, against your ${clock(live.target)} target` : ''}{live?.location?.name ? `, at ${live.location.name}` : ''}.
+      </p>
       {err && !live && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
       {!live && !err && <p className="text-[15px]" style={{ color: MUTED }}>Loading the lane…</p>}
       {live && totals && (
@@ -93,7 +112,7 @@ export default function DriveLivePage() {
         </>
       )}
       {car && live && <CarSheet car={car} live={live} now={now} onClose={closeSheet} />}
-    </div>
+    </>
   );
 }
 
@@ -339,4 +358,200 @@ function CarSheet({ car, live, now, onClose }: { car: LiveCar; live: LiveNow; no
       </div>
     </div>
   );
+}
+
+// ── SPEED OF SERVICE (design board "Speed of service, and what slows it"; api/drive-live 'speed'; lib/speed) ──────────
+type SpeedData = { report: SpeedReport; timeZone: string; alert: { sec: number; canChange: boolean }; sensors: { point: SensorPoint; lane: 1 | 2; on: boolean; lastAt: string | null }[]; lanes: 1 | 2 };
+/** Where the time goes, in order: one hue, lighter to darker as the car moves along (and a step lighter in black). */
+const PART_FILL: Record<Part, string> = { greet: 'var(--part-1)', ordering: 'var(--part-2)', toWindow: 'var(--part-3)', atWindow: 'var(--part-4)' };
+const PART_STYLE = `.cf-speed{--part-1:#c3d0f0;--part-2:#8aa2df;--part-3:#4e6fc6;--part-4:#233a78;--heat:61 90 153}
+html.dark .cf-speed{--part-1:#d6defa;--part-2:#a9bcef;--part-3:#7b97e0;--part-4:#4e6fc6;--heat:123 151 224}`;
+const WD_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const hourLabel = (h: number) => `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`;
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+function SpeedTab({ tenantId }: { tenantId: string }) {
+  const [ch, setCh] = useState<SpeedCh>('drive'); const [range, setRange] = useState<SpeedRange>('7');
+  const [data, setData] = useState<SpeedData | null>(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/drive-live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'speed', ch, range, ...hereAsked() }) });
+      const d = await r.json().catch(() => ({ ok: false }));
+      if (d.ok) { setData(d); setErr(''); } else setErr(d.error || 'That didn’t load. Try again.');
+    } catch { setErr('No connection. Try again.'); }
+    setBusy(false);
+  }, [tenantId, ch, range]);
+  useEffect(() => { void load(); }, [load]);
+  const saveAlert = async (sec: number) => {
+    if (!data) return; const was = data.alert.sec; setData({ ...data, alert: { ...data.alert, sec } }); setSaving(true);
+    try {
+      const r = await fetch('/api/drive-live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'alert', sec }) });
+      const d = await r.json().catch(() => ({ ok: false }));
+      if (!d.ok) { setData((x) => (x ? { ...x, alert: { ...x.alert, sec: was } } : x)); setErr(d.error || 'That didn’t save.'); }
+    } catch { setData((x) => (x ? { ...x, alert: { ...x.alert, sec: was } } : x)); setErr('No connection. That didn’t save.'); }
+    setSaving(false);
+  };
+  const chip = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: SOFT, color: INK });
+  const rep = data?.report; const def = SPEED_CHS.find((x) => x.id === ch)!;
+  const noun = ch === 'drive' ? ['car', 'cars'] : ['guest', 'guests'];
+  return (
+    <div className="cf-speed space-y-4">
+      <style>{PART_STYLE}</style>
+      <p className="max-w-[760px] text-[15px]" style={{ color: MUTED }}>How fast, when it’s busiest, where the time goes, and everyone who waited too long. Each wait runs {def.from}.</p>
+      {err && <p role="alert" className="text-[14.5px]" style={{ color: AMBER }}>{err}</p>}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)]">
+        <section aria-labelledby="sp-fast" className="space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
+          <h2 id="sp-fast" className="text-[13px] font-semibold" style={{ color: MUTED }}>How fast</h2>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Which guests">
+            {SPEED_CHS.map((c) => <button key={c.id} type="button" aria-pressed={ch === c.id} onClick={() => setCh(c.id)} className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={chip(ch === c.id)}>{c.label}</button>)}
+          </div>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Which days">
+            {SPEED_RANGES.map((r) => <button key={r.id} type="button" aria-pressed={range === r.id} onClick={() => setRange(r.id)} className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={chip(range === r.id)}>{r.label}</button>)}
+          </div>
+          {!rep && <p className="text-[14.5px]" style={{ color: MUTED }}>{busy ? 'Adding it up…' : ''}</p>}
+          {rep && (
+            <>
+              <div className="grid grid-cols-2 gap-2" aria-busy={busy}>
+                <Stat value={rep.average === null ? '0:00' : clock(rep.average)} label={`average, target ${clock(rep.target)}`} tone={rep.average === null ? 'ok' : toneOf(rep.average, rep.target)} />
+                <Tile value={rep.under === null ? 'None yet' : pct(rep.under)} label="under the target" color={rep.under === null ? MUTED : rep.under >= 0.8 ? GREEN : AMBER} />
+                <Stat value={String(rep.n)} label={rep.n === 1 ? noun[0] : noun[1]} />
+                <Stat value={rep.longest ? clock(rep.longest.sec) : '0:00'} label="longest wait" tone={rep.longest && rep.longest.sec > rep.target ? 'over' : 'ok'} />
+              </div>
+              {rep.parts && <TimeGoes parts={rep.parts} />}
+              {!rep.n && <p className="text-[14px]" style={{ color: MUTED }}>Nobody handed over {range === 'today' ? 'today' : 'in these days'} yet.</p>}
+            </>
+          )}
+        </section>
+
+        <section aria-labelledby="sp-busy" className="min-w-0 space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
+          <h2 id="sp-busy" className="text-[13px] font-semibold" style={{ color: MUTED }}>When it’s busiest</h2>
+          {rep && <Heat rep={rep} noun={noun} />}
+          {rep?.busiest && (
+            <dl className="space-y-1.5 text-[14.5px]">
+              <div className="flex flex-wrap justify-between gap-x-3"><dt style={{ color: MUTED }}>Busiest</dt><dd className="font-semibold">{whenWords(rep.busiest.wd, rep.busiest.hour, rep.days)}, {rep.busiest.wd === null ? '' : 'about '}{Math.round(rep.busiest.perDay)} {Math.round(rep.busiest.perDay) === 1 ? noun[0] : noun[1]}</dd></div>
+              {rep.slowest && <div className="flex flex-wrap justify-between gap-x-3"><dt style={{ color: MUTED }}>Slowest</dt><dd className="font-semibold">{whenWords(rep.slowest.wd, rep.slowest.hour, rep.days)}: {clock(rep.slowest.avg)} average</dd></div>}
+            </dl>
+          )}
+          {rep?.slowest?.part && <p className="text-[14px]" style={{ color: MUTED }}>Slowest part then: {PARTS.find((p) => p.id === rep.slowest!.part)!.words}.</p>}
+        </section>
+
+        <div className="space-y-4">
+          <section aria-labelledby="sp-long" className="space-y-2 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
+            <h2 id="sp-long" className="text-[13px] font-semibold" style={{ color: MUTED }}>Waited too long</h2>
+            {rep && !rep.long.length && <p className="text-[14.5px]" style={{ color: MUTED }}>Nobody waited past {clock(rep.target)} {range === 'today' ? 'today' : 'in these days'}.</p>}
+            {rep && rep.long.length > 0 && (
+              <ul className="divide-y" style={{ borderColor: LINE }}>
+                {rep.long.map((w, i) => (
+                  <li key={`${w.number}${w.at}${i}`} className="flex items-start justify-between gap-3 py-2.5" style={{ borderColor: LINE }}>
+                    <span className="min-w-0"><span className="block text-[14.5px]"><b className="font-semibold">{w.number}</b>{w.name ? ` ${w.name}` : ''}, {dayWords(w.at, data!.timeZone)}</span>
+                      {longWords(w) && <span className="block text-[13.5px]" style={{ color: MUTED }}>{longWords(w)}</span>}</span>
+                    <span className="shrink-0 text-[15px] font-semibold tabular-nums" style={{ color: AMBER }}>{clock(w.sec)}</span>
+                  </li>))}
+              </ul>
+            )}
+          </section>
+          {data && (
+            <section aria-labelledby="sp-sens" className="space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
+              <h2 id="sp-sens" className="text-[13px] font-semibold" style={{ color: MUTED }}>Sensors, and long waits</h2>
+              <ul className="space-y-2">
+                {data.sensors.map((x) => { const d = SENSOR_POINTS.find((p) => p.id === x.point)!; return (
+                  <li key={`${x.point}${x.lane}`} className="flex min-h-[32px] items-center justify-between gap-3 text-[14.5px]">
+                    <span>{d.label}{data.lanes === 2 && d.perLane ? `, lane ${x.lane}` : ''}</span>
+                    {x.on ? <span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: 'var(--ok-soft)', color: GREEN }}>{x.lastAt ? `Working, ${agoWords(x.lastAt)}` : 'Set up, no car yet'}</span>
+                      : <a href="/menu" className={`inline-flex min-h-[44px] items-center text-[14px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>Set it up</a>}
+                  </li>); })}
+              </ul>
+              <div role="group" aria-labelledby="sp-wait" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span id="sp-wait" className="text-[14.5px]">A car waits longer than</span>
+                  <span className="flex gap-1.5">
+                    {LONG_WAITS.map((o) => { const on = data.alert.sec === o.sec; return (
+                      <button key={o.sec} type="button" aria-pressed={on} disabled={!data.alert.canChange || saving} onClick={() => !on && void saveAlert(o.sec)} className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold disabled:cursor-default ${RING}`} style={chip(on)}>{o.label}</button>); })}
+                  </span>
+                </div>
+                <p className="text-[13.5px]" style={{ color: MUTED }}>{data.alert.sec ? 'The shift lead’s phone buzzes once for that car, with where it’s stuck.' : 'Nobody is buzzed. Drive-thru live still shows every car’s time.'}{data.alert.canChange ? '' : ' A manager changes this.'}</p>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Tile({ value, label, color }: { value: string; label: string; color: string }) {
+  return (
+    <div className="rounded-2xl border px-4 py-3" style={{ background: '#fff', borderColor: LINE }}>
+      <div className="text-[22px] font-semibold tabular-nums" style={{ color }}>{value}</div>
+      <div className="text-[13px]" style={{ color: MUTED }}>{label}</div>
+    </div>
+  );
+}
+
+/** Where the drive-thru's time goes: one bar, each part in turn, with its average beneath. */
+function TimeGoes({ parts }: { parts: Record<Part, number | null> }) {
+  const shown = PARTS.filter((p) => (parts[p.id] || 0) > 0);
+  const total = shown.reduce((s, p) => s + (parts[p.id] || 0), 0);
+  if (!total) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-[13px] font-semibold" style={{ color: MUTED }}>Where the time goes</h3>
+      <div className="flex h-5 w-full gap-[2px] overflow-hidden rounded-md" role="img" aria-label={`Where the time goes, on average: ${shown.map((p) => `${p.label} ${clock(parts[p.id] || 0)}`).join(', ')}`}>
+        {shown.map((p) => <span key={p.id} className="h-full" style={{ width: `${((parts[p.id] || 0) / total) * 100}%`, background: PART_FILL[p.id] }} title={`${p.label}: ${clock(parts[p.id] || 0)}`} />)}
+      </div>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]" style={{ color: MUTED }}>
+        {shown.map((p) => <li key={p.id} className="inline-flex items-center gap-1.5"><span aria-hidden className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: PART_FILL[p.id] }} />{p.label} <b className="font-semibold tabular-nums" style={{ color: INK }}>{clock(parts[p.id] || 0)}</b></li>)}
+      </ul>
+    </div>
+  );
+}
+
+/** When it's busiest: a row for each weekday (today: just today), a column for each hour, darker for more guests. A
+ *  table, so a screen reader reads it as one. */
+function Heat({ rep, noun }: { rep: SpeedReport; noun: string[] }) {
+  const hours = Array.from({ length: rep.hours[1] - rep.hours[0] + 1 }, (_, i) => rep.hours[0] + i);
+  const days = (rep.range === 'today' ? Object.keys(rep.days).map(Number) : [1, 2, 3, 4, 5, 6, 0]).filter((d) => rep.range !== 'today' || rep.days[d]);
+  const per = (wd: number, h: number) => { const c = rep.heat[`${wd}-${h}`]; return c ? c.n / Math.max(1, rep.days[wd] || 1) : 0; };
+  const most = Math.max(1, ...days.flatMap((d) => hours.map((h) => per(d, h))));
+  const step = (x: number) => (x <= 0 ? 0 : Math.min(6, Math.max(1, Math.ceil((x / most) * 6))));
+  const ALPHA = [0, 0.14, 0.28, 0.44, 0.6, 0.78, 1];
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto">
+        <table className="w-full border-separate" style={{ borderSpacing: 2 }}>
+          <caption className="sr-only">{noun[1]} by weekday and hour</caption>
+          <thead><tr><th scope="col" className="sr-only">Day</th>{hours.map((h) => <th key={h} scope="col" className="min-w-[20px] text-center text-[11px] font-medium" style={{ color: MUTED }}>{hourLabel(h)}</th>)}</tr></thead>
+          <tbody>
+            {days.map((d) => (
+              <tr key={d}>
+                <th scope="row" className="pr-1 text-left text-[12px] font-medium" style={{ color: MUTED }}>{WD_SHORT[d]}</th>
+                {hours.map((h) => { const x = per(d, h); const c = rep.heat[`${d}-${h}`]; const s = step(x); return (
+                  <td key={h} className="h-[22px] min-w-[20px] rounded-[4px]" style={{ background: s ? `rgb(var(--heat) / ${ALPHA[s]})` : SOFT }}
+                    title={c ? `${WD_SHORT[d]} ${hourWords(h)}: ${Math.round(x * 10) / 10} ${noun[1]}${rep.range === 'today' ? '' : ' a day'}, ${clock(c.avg)} average` : `${WD_SHORT[d]} ${hourWords(h)}: none`}>
+                    <span className="sr-only">{c ? `${Math.round(x)} ${noun[1]}, ${clock(c.avg)} average` : 'none'}</span>
+                  </td>); })}
+              </tr>))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center justify-between text-[12px]" style={{ color: MUTED }} aria-hidden>
+        <span>Fewer {noun[1]}</span>
+        <span className="flex gap-[3px]">{ALPHA.slice(1).map((a) => <span key={a} className="inline-block h-2.5 w-4 rounded-[3px]" style={{ background: `rgb(var(--heat) / ${a})` }} />)}</span>
+        <span>More {noun[1]}</span>
+      </div>
+    </div>
+  );
+}
+
+function agoWords(iso: string): string {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} hr ago` : `${Math.round(s / 86400)} days ago`;
+}
+function dayWords(iso: string, tz: string): string {
+  const f = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const day = f(new Date(iso)); const today = f(new Date()); const yest = f(new Date(Date.now() - 86400000));
+  const when = day === today ? 'today' : day === yest ? 'yesterday' : new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(iso));
+  return `${when} ${formatTime(iso, tz)}`;
 }
