@@ -11,6 +11,7 @@ import { clock, greetTone, laneShape, lengthFor, liveTotals, placeLane, secondsS
 import { formatTime } from '@/lib/tenant-time';
 import { hourWords, longWords, whenWords, LONG_WAITS, PARTS, SPEED_CHS, SPEED_RANGES, type Part, type SpeedCh, type SpeedRange, type SpeedReport } from '@/lib/speed';
 import { SENSOR_POINTS, type SensorPoint } from '@/lib/lane-entry';
+import { GOAL_CHOICES, PER_HOUR_CHOICES, nth, type Board, type Goals } from '@/lib/scoreboard';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', DEEP_GREEN = '#1f7a4d', DEEP_AMBER = '#b45309', AMBER = 'var(--warn-ink)', GREEN = 'var(--ok-ink)';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -47,6 +48,7 @@ export default function DriveLivePage() {
 
 function LiveTab({ tenantId }: { tenantId: string }) {
   const [live, setLive] = useState<LiveNow | null>(null);
+  const [board, setBoard] = useState<Board | null>(null);
   const [err, setErr] = useState('');
   const [skew, setSkew] = useState(0); const [lastOk, setLastOk] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -58,7 +60,7 @@ function LiveTab({ tenantId }: { tenantId: string }) {
     try {
       const r = await fetch('/api/drive-live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'now', ...hereAsked() }) });
       const d = await r.json().catch(() => ({ ok: false }));
-      if (d.ok && d.live) { setLive(d.live); setErr(''); setLastOk(Date.now()); const s = Date.parse(d.live.now); if (Number.isFinite(s)) setSkew(s - Date.now()); }
+      if (d.ok && d.live) { setLive(d.live); if (d.board) setBoard(d.board); setErr(''); setLastOk(Date.now()); const s = Date.parse(d.live.now); if (Number.isFinite(s)) setSkew(s - Date.now()); }
       else setErr(d.error || 'The lane didn’t load. Trying again.');
     } catch { setErr('No connection. Trying again.'); }
   }, [tenantId]);
@@ -86,11 +88,19 @@ function LiveTab({ tenantId }: { tenantId: string }) {
       {!live && !err && <p className="text-[15px]" style={{ color: MUTED }}>Loading the lane…</p>}
       {live && totals && (
         <>
-          <section aria-label="The lane now" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat value={String(totals.inLane)} label={totals.inLane === 1 ? 'car in the lane' : 'cars in the lane'} />
-            <Stat value={live.sensor ? String(totals.waiting) : 'No entry sensor'} label={live.sensor ? 'waiting to order' : 'to count cars before the speaker'} quiet={!live.sensor} />
-            <Stat value={totals.longest ? clock(totals.longest.sec) : '0:00'} label="longest wait now" tone={totals.longest ? toneOf(totals.longest.sec, live.target) : 'ok'} />
-            <Stat value={String(totals.over)} label={`over ${clock(live.target)}`} tone={totals.over ? 'over' : 'ok'} />
+          {board ? <Scoreboard board={board} now={now} timeZone={live.timeZone} /> : null}
+          <section aria-label="The lane now" className={board ? 'flex flex-wrap gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-4'}>
+            {board ? (<>
+              <NowChip value={String(totals.inLane)} label={totals.inLane === 1 ? 'car in the lane' : 'cars in the lane'} />
+              {live.sensor && <NowChip value={String(totals.waiting)} label="waiting to order" />}
+              <NowChip value={totals.longest ? clock(totals.longest.sec) : '0:00'} label="longest wait now" tone={totals.longest ? toneOf(totals.longest.sec, live.target) : 'ok'} />
+              <NowChip value={String(totals.over)} label={`over ${clock(live.target)}`} tone={totals.over ? 'over' : 'ok'} />
+            </>) : (<>
+              <Stat value={String(totals.inLane)} label={totals.inLane === 1 ? 'car in the lane' : 'cars in the lane'} />
+              <Stat value={live.sensor ? String(totals.waiting) : 'No entry sensor'} label={live.sensor ? 'waiting to order' : 'to count cars before the speaker'} quiet={!live.sensor} />
+              <Stat value={totals.longest ? clock(totals.longest.sec) : '0:00'} label="longest wait now" tone={totals.longest ? toneOf(totals.longest.sec, live.target) : 'ok'} />
+              <Stat value={String(totals.over)} label={`over ${clock(live.target)}`} tone={totals.over ? 'over' : 'ok'} />
+            </>)}
           </section>
           {(live.rush || stale || err) && (
             <p role="status" className="rounded-xl px-4 py-3 text-[14.5px] font-medium" style={{ background: 'var(--warn-soft)', color: AMBER }}>
@@ -123,6 +133,59 @@ function Stat({ value, label, tone, quiet }: { value: string; label: string; ton
       <div className={`${quiet ? 'text-[15px]' : 'text-[22px]'} font-semibold tabular-nums`} style={{ color: quiet ? MUTED : color }}>{value}</div>
       <div className="text-[13px]" style={{ color: MUTED }}>{label}</div>
     </div>
+  );
+}
+
+/** A number about the lane right now, small, under the scoreboard. */
+function NowChip({ value, label, tone }: { value: string; label: string; tone?: Tone }) {
+  return (
+    <span className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full px-3 text-[13.5px]" style={{ background: SOFT }}>
+      <b className="font-semibold tabular-nums" style={{ color: tone === 'over' || tone === 'near' ? AMBER : INK }}>{value}</b><span style={{ color: MUTED }}>{label}</span>
+    </span>
+  );
+}
+
+/** THE SCOREBOARD (design board "The hour at a glance, on the live view", layout A; lib/scoreboard): the daypart and the
+ *  clock, this location's ranking, then the hour: cars handed over (last hour, best, pace, goal), each part's average
+ *  against its goal, and drive-offs today. */
+function Scoreboard({ board, now, timeZone }: { board: Board; now: number; timeZone: string }) {
+  const g = board.goals; const n = board.hour.n; const towards = board.hour.pace ?? n;
+  const carsColor = g.perHour === null ? INK : towards >= g.perHour ? GREEN : AMBER;
+  const when = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(new Date(now));
+  const day = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(now));
+  const part = (label: string, sec: number | null, goal: number) => (
+    <div className="rounded-2xl border px-4 py-3" style={{ background: '#fff', borderColor: LINE }}>
+      <div className="text-[22px] font-semibold tabular-nums" style={{ color: sec === null ? MUTED : toneOf(sec, goal) === 'ok' ? GREEN : AMBER }}>{sec === null ? 'None yet' : clock(sec)}</div>
+      <div className="text-[13px]" style={{ color: MUTED }}>{label}, goal {clock(goal)}</div>
+    </div>);
+  return (
+    <section aria-labelledby="board-hour" className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="board-hour" className="text-[14px]" style={{ color: MUTED }}>{board.daypart ? <b className="font-semibold" style={{ color: INK }}>{board.daypart}, </b> : null}<span className="tabular-nums">{when}</span>, {day}</h2>
+        {board.rank && <span className="inline-flex min-h-[32px] items-center rounded-full px-3 text-[13px] font-semibold" style={{ background: SOFT }}>{nth(board.rank.place)} of {board.rank.of} locations today</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="col-span-2 rounded-2xl border px-4 py-3 sm:col-span-1" style={{ background: '#fff', borderColor: LINE }}>
+          <div className="text-[22px] font-semibold tabular-nums" style={{ color: carsColor }}>{n}</div>
+          <div className="text-[13px]" style={{ color: MUTED }}>{n === 1 ? 'car' : 'cars'} this hour</div>
+          <div className="mt-1 flex flex-wrap gap-x-3 text-[12.5px]" style={{ color: MUTED }}>
+            <span>Prev <b className="font-semibold tabular-nums" style={{ color: INK }}>{board.hour.prev}</b></span>
+            {board.hour.best !== null && <span>Best <b className="font-semibold tabular-nums" style={{ color: INK }}>{board.hour.best}</b></span>}
+            {board.hour.pace !== null && <span>Pace <b className="font-semibold tabular-nums" style={{ color: INK }}>{board.hour.pace}</b></span>}
+            {g.perHour !== null && <span>Goal <b className="font-semibold tabular-nums" style={{ color: INK }}>{g.perHour}</b></span>}
+          </div>
+        </div>
+        {part('lane total', board.avg.total, g.total)}
+        {part('menu', board.avg.menu, g.menu)}
+        {part('pay', board.avg.pay, g.pay)}
+        {part('service', board.avg.service, g.service)}
+        <div className="rounded-2xl border px-4 py-3" style={{ background: '#fff', borderColor: LINE }}>
+          <div className="text-[22px] font-semibold tabular-nums" style={{ color: INK }}>{board.driveOffs}</div>
+          <div className="text-[13px]" style={{ color: MUTED }}>{board.driveOffs === 1 ? 'drive-off today' : 'drive-offs today'}</div>
+        </div>
+      </div>
+      <p className="text-[12.5px]" style={{ color: MUTED }}>This hour’s averages. Menu, pay and service count the cars that had each; lane total counts every car served. A car left open over an hour isn’t counted in them.</p>
+    </section>
   );
 }
 
@@ -361,7 +424,7 @@ function CarSheet({ car, live, now, onClose }: { car: LiveCar; live: LiveNow; no
 }
 
 // ── SPEED OF SERVICE (design board "Speed of service, and what slows it"; api/drive-live 'speed'; lib/speed) ──────────
-type SpeedData = { report: SpeedReport; timeZone: string; alert: { sec: number; canChange: boolean }; sensors: { point: SensorPoint; lane: 1 | 2; on: boolean; lastAt: string | null }[]; lanes: 1 | 2 };
+type SpeedData = { report: SpeedReport; timeZone: string; alert: { sec: number; canChange: boolean }; sensors: { point: SensorPoint; lane: 1 | 2; on: boolean; lastAt: string | null }[]; lanes: 1 | 2; goals?: Goals };
 /** Where the time goes, in order: one hue, lighter to darker as the car moves along (and a step lighter in black). */
 const PART_FILL: Record<Part, string> = { greet: 'var(--part-1)', ordering: 'var(--part-2)', toWindow: 'var(--part-3)', atWindow: 'var(--part-4)' };
 const PART_STYLE = `.cf-speed{--part-1:#c3d0f0;--part-2:#8aa2df;--part-3:#4e6fc6;--part-4:#233a78;--heat:61 90 153}
@@ -402,6 +465,7 @@ function SpeedTab({ tenantId }: { tenantId: string }) {
       <p className="max-w-[760px] text-[15px]" style={{ color: MUTED }}>How fast, when it’s busiest, where the time goes, and everyone who waited too long. Each wait runs {def.from}.</p>
       {err && <p role="alert" className="text-[14.5px]" style={{ color: AMBER }}>{err}</p>}
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
         <section aria-labelledby="sp-fast" className="space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
           <h2 id="sp-fast" className="text-[13px] font-semibold" style={{ color: MUTED }}>How fast</h2>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Which guests">
@@ -424,6 +488,8 @@ function SpeedTab({ tenantId }: { tenantId: string }) {
             </>
           )}
         </section>
+        {data?.goals && <GoalsCard tenantId={tenantId} goals={data.goals} canChange={data.alert.canChange} onSaved={(goals) => setData((x) => (x ? { ...x, goals } : x))} />}
+        </div>
 
         <section aria-labelledby="sp-busy" className="min-w-0 space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
           <h2 id="sp-busy" className="text-[13px] font-semibold" style={{ color: MUTED }}>When it’s busiest</h2>
@@ -478,6 +544,45 @@ function SpeedTab({ tenantId }: { tenantId: string }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The scoreboard's goals (lib/scoreboard): menu, pay and service times, and cars an hour; the lane total is the
+ *  drive-thru target, set on the Menu page. A manager changes them. */
+function GoalsCard({ tenantId, goals, canChange, onSaved }: { tenantId: string; goals: Goals; canChange: boolean; onSaved: (g: Goals) => void }) {
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const save = async (patch: Record<string, number | null>) => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/drive-live', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'goals', ...patch }) });
+      const d = await r.json().catch(() => ({ ok: false }));
+      if (d.ok && d.goals) onSaved(d.goals); else setErr(d.error || 'That didn’t save.');
+    } catch { setErr('No connection. That didn’t save.'); }
+    setBusy(false);
+  };
+  const row = (k: 'menu' | 'pay' | 'service', label: string, hint: string) => (
+    <label key={k} className="flex items-center justify-between gap-3 text-[14.5px]">
+      <span><span className="block">{label}</span><span className="block text-[12.5px]" style={{ color: MUTED }}>{hint}</span></span>
+      <select value={goals[k]} disabled={!canChange || busy} onChange={(e) => void save({ [k]: Number(e.target.value) })} className={`min-h-[44px] rounded-xl px-3 text-[14.5px] font-semibold ${RING}`} style={{ background: SOFT, color: INK }}>
+        {GOAL_CHOICES[k].map((v) => <option key={v} value={v}>{clock(v)}</option>)}
+      </select>
+    </label>);
+  return (
+    <section aria-labelledby="sp-goals" className="space-y-3 rounded-3xl border p-4" style={{ background: '#fff', borderColor: LINE }}>
+      <h2 id="sp-goals" className="text-[13px] font-semibold" style={{ color: MUTED }}>Goals for the scoreboard</h2>
+      {row('menu', 'Menu', 'Pulling up to the order sent')}
+      {row('pay', 'Pay', 'The order sent to paid')}
+      {row('service', 'Service', 'Paid to handed over')}
+      <label className="flex items-center justify-between gap-3 text-[14.5px]">
+        <span><span className="block">Cars an hour</span><span className="block text-[12.5px]" style={{ color: MUTED }}>Handed over</span></span>
+        <select value={goals.perHour ?? ''} disabled={!canChange || busy} onChange={(e) => void save({ perHour: e.target.value ? Number(e.target.value) : null })} className={`min-h-[44px] rounded-xl px-3 text-[14.5px] font-semibold ${RING}`} style={{ background: SOFT, color: INK }}>
+          <option value="">No goal</option>
+          {Array.from(new Set([...PER_HOUR_CHOICES, ...(goals.perHour ? [goals.perHour] : [])])).sort((a, b) => a - b).map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </label>
+      <p className="text-[13.5px]" style={{ color: MUTED }}>Lane total is your drive-thru target, {clock(goals.total)}, set on the Menu page.{canChange ? '' : ' A manager changes these.'}</p>
+      {err && <p role="alert" className="text-[13.5px]" style={{ color: AMBER }}>{err}</p>}
+    </section>
   );
 }
 

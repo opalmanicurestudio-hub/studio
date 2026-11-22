@@ -56,7 +56,7 @@ const req = (body: any) => ({ json: async () => body, headers: { get: () => null
   const rec = (sec: number, hour: number, parts: number[] = [-1, 40, 60, sec - 100], name = 'Lee') => ({ ch: 'drive' as const, sec, hour, startMs: base, parts: { greet: parts[0], ordering: parts[1], toWindow: parts[2], atWindow: parts[3] }, number: `B${sec}`, orderId: null, name });
   const d1 = S.dayOf('2026-11-21', 6, [rec(180, 12), rec(200, 12), rec(300, 12), rec(150, 8), rec(400, 8)], (ms) => new Date(ms).toISOString());
   const d2 = S.dayOf('2026-11-20', 5, [rec(190, 12), rec(170, 9), rec(500, 9, [-1, 60, 300, 140])], (ms) => new Date(ms).toISOString());
-  check('a day kept small: six numbers a guest, the longest waits with their names', d1.ch.drive.r.length === 30 && d1.ch.drive.long[0].sec === 400 && d1.ch.drive.long[0].name === 'Lee' && d1.ch.counter.r.length === 0);
+  check('a day kept small: seven numbers a guest, the longest waits with their names', d1.ch.drive.r.length === 35 && d1.ch.drive.long[0].sec === 400 && d1.ch.drive.long[0].name === 'Lee' && d1.ch.counter.r.length === 0);
   const rp = S.speedReport([d1, d2], 'drive', '7', 210);
   check('average, how many under the target, how many, the longest', rp.n === 8 && rp.average === Math.round((180 + 200 + 300 + 150 + 400 + 190 + 170 + 500) / 8) && rp.under === 5 / 8 && rp.longest?.sec === 500, rp);
   check('where the time goes: each part’s average, for the guests that had it', rp.parts?.ordering === Math.round((40 * 7 + 60) / 8) && rp.parts?.greet === null && rp.parts?.toWindow === Math.round((60 * 7 + 300) / 8));
@@ -86,19 +86,19 @@ const req = (body: any) => ({ json: async () => body, headers: { get: () => null
   await put('y7', { number: 'B15', arrivedAt: new Date(Date.parse(at(y, 0)) - 120000).toISOString(), goneAt: at(y, 0, 200) });
   const sd = await SS.speedDay(db, 't1', await get(T), null, y, 'UTC');
   check('a day: the drive-thru’s and the counter’s cars handed over, and the pickups ordered ahead; never a car that left',
-    sd.ch.drive.r.length / 6 === 4 && sd.ch.counter.r.length / 6 === 1 && sd.ch.ahead.r.length / 6 === 1 && sd.ch.drive.long[0].number === 'B11' && sd.ch.drive.long[0].orderId === 'oy2', sd.ch.drive.long);
-  const rows = (c: any) => Array.from({ length: c.r.length / 6 }, (_, i) => c.r.slice(i * 6, i * 6 + 6));
+    sd.ch.drive.r.length / 7 === 4 && sd.ch.counter.r.length / 7 === 1 && sd.ch.ahead.r.length / 7 === 1 && sd.ch.drive.long[0].number === 'B11' && sd.ch.drive.long[0].orderId === 'oy2', sd.ch.drive.long);
+  const rows = (c: any) => Array.from({ length: c.r.length / 7 }, (_, i) => c.r.slice(i * 7, i * 7 + 7));
   check('…a car that got here before midnight and was served after: in that day, in no hour (never the day before’s late hour)', rows(sd.ch.drive).some((x: number[]) => x[0] === 320 && x[1] === -1), rows(sd.ch.drive));
   const keptDoc: any = await get(`${T}/private/speed_all_${y}`);
   check('…kept once the day is well over (so a month is thirty small reads), without guests’ names', !!keptDoc && keptDoc.v === S.SPEED_DAY_VERSION && keptDoc.ch.drive.long.every((w: any) => w.name === null) && !JSON.stringify(keptDoc).includes('Lee'));
   const elm = await SS.speedDay(db, 't1', await get(T), 'elm', y, 'UTC');
-  check('…at one location: its own cars, and those from before there were locations', elm.ch.drive.r.length / 6 === 4 && !!(await get(`${T}/private/speed_elm_${y}`)));
+  check('…at one location: its own cars, and those from before there were locations', elm.ch.drive.r.length / 7 === 4 && !!(await get(`${T}/private/speed_elm_${y}`)));
   await put('t1c', { number: 'B20', arrivedAt: new Date(realNow - 400000).toISOString(), goneAt: new Date(realNow - 100000).toISOString() });
   const sdt = await SS.speedDay(db, 't1', await get(T), null, day0, 'UTC');
   check('today: read as it happens, never kept', sdt.ch.drive.r.length >= 6 && !(await get(`${T}/private/speed_all_${day0}`)));
   await put('y6', { number: 'B14', arrivedAt: at(y, 14), goneAt: at(y, 14, 100) });
   const again = await SS.speedDay(db, 't1', await get(T), null, y, 'UTC');
-  check('…a kept day is read back as kept', again.ch.drive.r.length / 6 === 4);
+  check('…a kept day is read back as kept', again.ch.drive.r.length / 7 === 4);
   const rep7 = await SS.speedFor(db, 't1', await get(T), null, 'drive', '7', 'UTC');
   check('the report over seven days: yesterday’s and today’s, the business’s own target; the names of those who waited longest looked up as shown',
     rep7.target === 210 && rep7.n === 5 && rep7.long.find((w) => w.number === 'B11')?.name === 'Lee', rep7.long);

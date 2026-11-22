@@ -7,13 +7,17 @@
 //        for the drive-thru, the counter, curbside or pickups ahead, over today, 7 days or 30; when a car waiting too long
 //        buzzes the shift lead; and which sensors along the lane are set up
 //   alert { tenantId, sec } → the long wait alert: 240, 300, or 0 for off (a manager)
-import { NextRequest, NextResponse } from 'next/server';
+//   goals { tenantId, menu?, pay?, service?, perHour? } → the scoreboard's goals (lib/scoreboard; a manager)
+import { NextRequest, NextResponse, after } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { liveNow } from '@/lib/drive-live-server';
 import { bizLocationsOf, hereOf, zoneOf } from '@/lib/here-server';
 import { speedFor } from '@/lib/speed-server';
 import { longWaitOf, LONG_WAITS, SPEED_CHS, SPEED_RANGES, type SpeedCh, type SpeedRange } from '@/lib/speed';
+import { boardNow, forgetBoard } from '@/lib/scoreboard-server';
+import { cleanGoals, goalsOf } from '@/lib/scoreboard';
+import { targetsOf } from '@/lib/counter-orders';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -24,7 +28,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || 'now');
-    if (!['now', 'speed', 'alert'].includes(action)) return bad('Unknown action.');
+    if (!['now', 'speed', 'alert', 'goals'].includes(action)) return bad('Unknown action.');
     const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
     // (Renters run their own business here, not the drive-thru.)
     if (g.actor?.isRenter) return bad('This is for the business’s team.', 403);
@@ -41,6 +45,15 @@ export async function POST(req: NextRequest) {
       await db.doc(`tenants/${tenantId}`).set({ driveThru: { longWaitSec: sec } }, { merge: true });
       return NextResponse.json({ ok: true, alert: { sec } });
     }
+    if (action === 'goals') {
+      // (A manager sets the scoreboard's goals; the lane total is the drive-thru target, set on the Menu page.)
+      if (!isManager(g.actor)) return bad('Only a manager changes the goals.', 403);
+      const c = cleanGoals(b); if ('error' in c) return bad(c.error);
+      if (Object.keys(c).length) await db.doc(`tenants/${tenantId}`).set({ driveThru: { goals: c } }, { merge: true });
+      forgetBoard(tenantId);
+      const fresh: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      return NextResponse.json({ ok: true, goals: goalsOf(fresh, targetsOf(fresh)['drive-thru']) });
+    }
     if (action === 'speed') {
       const ch = (SPEED_CHS.some((x) => x.id === b.ch) ? b.ch : 'drive') as SpeedCh;
       const range = (SPEED_RANGES.some((x) => x.id === b.range) ? b.range : '7') as SpeedRange;
@@ -53,12 +66,17 @@ export async function POST(req: NextRequest) {
       const [entry, points] = await Promise.all([sensorsView(db, tenantId, tenant, pl), pointsView(db, tenantId, lanesOf(tenant) === 2, pl)]);
       const mine = (x: any) => places.length < 2 || !here || x.locationId === here;
       const sensors = [...entry.filter((x: any) => mine(x) && (x.lane === 1 || lanesOf(tenant) === 2)).map((x: any) => ({ point: 'entry', lane: x.lane, on: x.on, lastAt: x.lastAt })), ...points.filter(mine).map((x: any) => ({ point: x.point, lane: x.lane, on: x.on, lastAt: x.lastAt }))];
-      return NextResponse.json({ ok: true, report, timeZone: tz, alert: { sec: longWaitOf(tenant), canChange: isManager(g.actor) }, sensors, lanes: lanesOf(tenant) });
+      return NextResponse.json({ ok: true, report, timeZone: tz, alert: { sec: longWaitOf(tenant), canChange: isManager(g.actor) }, sensors, lanes: lanesOf(tenant), goals: goalsOf(tenant, targetsOf(tenant)['drive-thru']) });
     }
     // (A location in another time zone: its own clock, for when orders placed ahead are due.)
-    const live = await liveNow(db, tenantId, tenant, here, { locationName: place?.name || null, timeZone: zoneOf(tenant, place) });
+    const tzHere = zoneOf(tenant, place);
+    const [live, board] = await Promise.all([
+      liveNow(db, tenantId, tenant, here, { locationName: place?.name || null, timeZone: tzHere }),
+      // The scoreboard over the lane (lib/scoreboard): never holds the lane up if it can't be read.
+      boardNow(db, tenantId, tenant, here, tzHere, { several: places.length > 1, later: typeof after === 'function' ? (work) => after(work) : undefined }).catch((e: any) => { console.error('[drive-live] board', e?.message); return null; }),
+    ]);
     // (The clock as it answers, not as it was read: the page times every car from it.)
-    return NextResponse.json({ ok: true, live: { ...live, now: new Date().toISOString() }, places: places.length > 1 ? places.map((l) => ({ id: l.id, name: l.name })) : [] });
+    return NextResponse.json({ ok: true, live: { ...live, now: new Date().toISOString() }, board, places: places.length > 1 ? places.map((l) => ({ id: l.id, name: l.name })) : [] });
   } catch (e: any) {
     console.error('[drive-live]', e?.message);
     return bad('The lane didn’t load. Trying again.', 500);

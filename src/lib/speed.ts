@@ -34,13 +34,14 @@ export const PARTS: { id: Part; label: string; words: string }[] = [
 /** One guest served. `hour`: the hour (0 to 23, in the business's time) they got there, -1 when that was the day
  *  before the one they were served; `parts`: the drive-thru's, -1
  *  for a part it didn't have. */
-export type SpeedRec = { ch: SpeedCh; sec: number; hour: number; startMs: number; parts: Record<Part, number>; number: string; orderId: string | null; name?: string | null };
+export type SpeedRec = { ch: SpeedCh; sec: number; hour: number; endHour?: number; startMs: number; parts: Record<Part, number>; number: string; orderId: string | null; name?: string | null };
 /** A guest who waited a long time, as the list shows them. */
 export type LongWait = { ch: SpeedCh; number: string; name: string | null; at: string; sec: number; parts: Record<Part, number>; orderId?: string | null };
-/** A day, kept small: per kind, each guest as six numbers (seconds, hour, then the four parts), and the longest waits. */
+/** A day, kept small: per kind, each guest as seven numbers (STRIDE), and the longest waits. */
 export type SpeedDay = { v: number; day: string; wd: number; ch: Record<SpeedCh, { r: number[]; long: LongWait[] }> };
-export const SPEED_DAY_VERSION = 1;
-const STRIDE = 6;
+export const SPEED_DAY_VERSION = 2;
+/** Seven numbers a guest: seconds, the hour they got here, the hour they were handed over, then the four parts. */
+export const STRIDE = 7;
 const noParts = (): Record<Part, number> => ({ greet: -1, ordering: -1, toWindow: -1, atWindow: -1 });
 const ok = (n: number) => Number.isFinite(n) && n >= 0;
 
@@ -57,7 +58,7 @@ export function carRec(c: any, hourOf: (ms: number) => number): SpeedRec | null 
     const x = timesOf({ stage: 'pickup', since: String(c.arrivedAt), stageAt: c.stageAt || {}, inLine: false, ahead: c.ahead === true, greetedAt: c.greetedAt || null }, end);
     for (const p of ['greet', 'ordering', 'toWindow', 'atWindow'] as Part[]) { const v = x[p]; if (v !== null && ok(v)) parts[p] = Math.min(v, sec); }
   }
-  return { ch: counterSide ? 'counter' : 'drive', sec, hour: hourOf(start), startMs: start, parts, number: String(c.number || '').slice(0, 12), orderId: typeof c.orderId === 'string' ? c.orderId : null };
+  return { ch: counterSide ? 'counter' : 'drive', sec, hour: hourOf(start), endHour: hourOf(end), startMs: start, parts, number: String(c.number || '').slice(0, 12), orderId: typeof c.orderId === 'string' ? c.orderId : null };
 }
 /** A guest who ordered ahead and came for it (inside, or at the drive-thru), or a café curbside order, once handed over:
  *  from when they said they're here. */
@@ -66,20 +67,20 @@ export function aheadRec(o: any, hourOf: (ms: number) => number): SpeedRec | nul
   const way = String(o.ahead?.way || 'inside'); if (way === 'delivery') return null;
   const start = Date.parse(String(o.ahead?.hereAt || '')); const end = Date.parse(String((way === 'curbside' ? o.ahead?.curb?.handedAt : null) || o.doneAt || ''));
   const sec = Math.round((end - start) / 1000); if (!ok(sec) || sec > 3 * 3600) return null;
-  return { ch: way === 'curbside' ? 'curb' : 'ahead', sec, hour: hourOf(start), startMs: start, parts: noParts(), number: String(o.number || '').slice(0, 12), orderId: typeof o.id === 'string' ? o.id : null, name: o.guestName || null };
+  return { ch: way === 'curbside' ? 'curb' : 'ahead', sec, hour: hourOf(start), endHour: hourOf(end), startMs: start, parts: noParts(), number: String(o.number || '').slice(0, 12), orderId: typeof o.id === 'string' ? o.id : null, name: o.guestName || null };
 }
 /** A shop order collected at the curb, once handed over: from when they said they're here. */
 export function shopCurbRec(o: any, hourOf: (ms: number) => number): SpeedRec | null {
   if (!o || String(o.method || '') !== 'curbside' || o.stage !== 'completed') return null;
   const start = Date.parse(String(o.curbside?.arrivedAt || '')), end = Date.parse(String(o.completedAt || ''));
   const sec = Math.round((end - start) / 1000); if (!ok(sec) || sec > 3 * 3600) return null;
-  return { ch: 'curb', sec, hour: hourOf(start), startMs: start, parts: noParts(), number: o.orderNumber ? `#${String(o.orderNumber).slice(0, 10)}` : 'Shop order', orderId: null, name: o.customerName ? String(o.customerName).split(/\s+/)[0] : null };
+  return { ch: 'curb', sec, hour: hourOf(start), endHour: hourOf(end), startMs: start, parts: noParts(), number: o.orderNumber ? `#${String(o.orderNumber).slice(0, 10)}` : 'Shop order', orderId: null, name: o.customerName ? String(o.customerName).split(/\s+/)[0] : null };
 }
 
 /** A day's records, kept small (the ten longest waits of each kind with their names). */
 export function dayOf(day: string, wd: number, recs: SpeedRec[], iso: (ms: number) => string): SpeedDay {
   const ch = Object.fromEntries(SPEED_CHS.map((c) => [c.id, { r: [] as number[], long: [] as LongWait[] }])) as SpeedDay['ch'];
-  for (const x of recs) ch[x.ch].r.push(x.sec, x.hour, x.parts.greet, x.parts.ordering, x.parts.toWindow, x.parts.atWindow);
+  for (const x of recs) ch[x.ch].r.push(x.sec, x.hour, x.endHour ?? x.hour, x.parts.greet, x.parts.ordering, x.parts.toWindow, x.parts.atWindow);
   for (const c of SPEED_CHS) ch[c.id].long = recs.filter((x) => x.ch === c.id).sort((a, b) => b.sec - a.sec).slice(0, 10)
     .map((x) => ({ ch: x.ch, number: x.number, name: x.name || null, at: iso(x.startMs), sec: x.sec, parts: x.parts, orderId: x.orderId || null }));
   return { v: SPEED_DAY_VERSION, day, wd, ch };
@@ -109,7 +110,7 @@ export function speedReport(days: SpeedDay[], chId: SpeedCh, range: SpeedRange, 
     for (let i = 0; i + STRIDE <= c.r.length; i += STRIDE) {
       const sec = c.r[i], hour = c.r[i + 1]; n++; sum += sec; if (sec <= target) under++;
       // (One who got here the day before is in the totals, in no hour.)
-      const ps = (['greet', 'ordering', 'toWindow', 'atWindow'] as Part[]).map((p, j) => [p, c.r[i + 2 + j]] as [Part, number]).filter(([, v]) => v >= 0);
+      const ps = (['greet', 'ordering', 'toWindow', 'atWindow'] as Part[]).map((p, j) => [p, c.r[i + 3 + j]] as [Part, number]).filter(([, v]) => v >= 0);
       for (const [p, v] of ps) { partSum[p][0] += v; partSum[p][1]++; }
       if (hour < 0) continue;
       const k = `${d.wd}-${hour}`; const cell = cells.get(k) || { n: 0, sum: 0, parts: { greet: [0, 0], ordering: [0, 0], toWindow: [0, 0], atWindow: [0, 0] } };

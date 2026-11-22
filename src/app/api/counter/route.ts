@@ -158,6 +158,7 @@ import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
 import { forgetLive } from '@/lib/drive-live-server';
 import { handOverInTx } from '@/lib/counter-handover';
 import { checkLongWaits } from '@/lib/speed-server';
+import { forgetBoard } from '@/lib/scoreboard-server';
 import { earlyModeOf } from '@/lib/lane-entry';
 import { foodDeliveryOf } from '@/lib/food-delivery';
 import { deliveriesToday, deliveryOut, deliveryEnd, foodDrivers } from '@/lib/food-delivery-server';
@@ -200,7 +201,7 @@ const statsCache = new Map<string, { at: number; stats: any }>();
 // (Kept a business and a line of guests: the drive-thru's and the counter's.)
 // (Each channel's, at each location: lib/here-server.)
 // (A car moved: the day's times and Drive-thru live are read afresh on this server.)
-const forgetStats = (tenantId: string) => { for (const k of Array.from(statsCache.keys())) if (k.startsWith(`${tenantId}|`)) statsCache.delete(k); forgetLive(tenantId); };
+const forgetStats = (tenantId: string) => { for (const k of Array.from(statsCache.keys())) if (k.startsWith(`${tenantId}|`)) statsCache.delete(k); forgetLive(tenantId); forgetBoard(tenantId); };
 
 // The ready board, per business, for a few seconds (api 'readyBoard'): however many TVs show it.
 const readyCache = new Map<string, { at: number; body: any }>();
