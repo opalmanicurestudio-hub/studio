@@ -295,6 +295,14 @@ export default function CounterPage() {
       return false;
     });
   };
+  // The guest screen facing the guest (app/drive-thru/[tenantId]/guest): the order this counter is on, as it changes.
+  // (Said again every minute while an order is open, so one left open drops off the guest's screen.)
+  useEffect(() => {
+    if (!tenantId) return; const id = order?.id || null;
+    void post({ action: 'show', orderId: id }).catch(() => null);
+    if (!id) return; const i = setInterval(() => void post({ action: 'show', orderId: id }).catch(() => null), 60000);
+    return () => clearInterval(i);
+  }, [order?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !choiceFor && !discountPin && !partPin, { layer: 'background' });
   const tap = (m: Item) => { if (!order) { setNotice({ text: 'Tap Next guest first.', tone: 'warn' }); return; } setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   const takeOffer = (m: Item) => { if (m.choices.length) { setChoiceOffer(true); setChoiceFor(m); } else add(m, {}, 1, 'item'); };
@@ -550,6 +558,7 @@ export default function CounterPage() {
           {tenantId && <span className="flex flex-wrap gap-x-4">
             <a href={`/drive-thru/${tenantId}/ready`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open the ready board</a>
             <a href={`/drive-thru/${tenantId}/kiosk`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open a kiosk</a>
+            <a href={`/drive-thru/${tenantId}/guest`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open the guest screen</a>
             <button type="button" onClick={() => setRefundOpen(true)} className={`inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Refund an order</button>
           </span>}
         </div>

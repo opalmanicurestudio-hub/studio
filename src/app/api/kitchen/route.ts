@@ -281,7 +281,10 @@ export async function POST(req: NextRequest) {
       // With more than one location (lib/here-server): the one it's set up for, so it shows only that location's orders.
       const placeAt = await hereOf(db, tenantId, b.locationId);
       if (!placeAt && await severalLocations(db, tenantId)) return bad('Pick where this tablet is.');
-      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString(), ...(placeAt ? { locationId: placeAt } : {}) });
+      // (The guest screen at the counter, app/drive-thru/[tenantId]/guest: a showing key that also shows the counter's
+      // order and takes the tip the guest picks there, and nothing more. api/counter 'guest'.)
+      const guestScreen = kind === 'drive-thru-board' && b.guest === true;
+      await db.doc(`kitchenScreens/${hash(key)}`).set({ tenantId, name, kind, ...(guestScreen ? { guest: true } : {}), createdAt: new Date().toISOString(), createdBy: g.actor?.name || g.actor?.uid || 'manager', lastSeenAt: new Date().toISOString(), ...(placeAt ? { locationId: placeAt } : {}) });
       // The first kitchen screen takes over the lounge's orders, unless the business already chose the desk. A floor
       // tablet doesn't: nobody would be making them.
       const tRef = db.doc(`tenants/${tenantId}`); const t0: any = (await tRef.get()).data() || {};

@@ -144,7 +144,7 @@ import { driverLoad } from '@/lib/driver-load-server';
 import { nightBounds, tonight } from '@/lib/night-close-server';
 import { printersCached } from '@/lib/printing-server';
 import { receiptAfterOf } from '@/lib/printing';
-import { tipsOf, tipsHere, discountsOf, tendersOf, dueCentsOf, codeEnd, sharesPaidOf } from '@/lib/counter-money';
+import { tipsOf, tipsHere, tipChoices, discountsOf, tendersOf, dueCentsOf, codeEnd, sharesPaidOf } from '@/lib/counter-money';
 import { setTip, setDiscount, addTender, removeTender } from '@/lib/counter-money-server';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
@@ -153,6 +153,7 @@ import { takePart, undoPart, setSplit } from '@/lib/counter-split-server';
 import { previewRefund, refundCounterOrder, cleanAsk } from '@/lib/counter-refund-server';
 import { refundLeftOf, cantRefund, unitsLeftOf } from '@/lib/counter-refund';
 import { scanToOrder, codeOnItem } from '@/lib/counter-scan-server';
+import { cardBusy as cardBusyOf } from '@/lib/counter-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -197,7 +198,7 @@ export async function POST(req: NextRequest) {
     }
     // Only a lane screen takes orders and payments here; a screen guests can see (the order board by the speaker, the
     // screen at the window) has a key that only shows. A kitchen or floor screen's key does nothing here.
-    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window' || action === 'menuBoard' || action === 'readyBoard')))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
+    if (screen.ref && !(screen.kind === 'drive-thru' || (screen.kind === 'drive-thru-board' && (action === 'board' || action === 'window' || action === 'menuBoard' || action === 'readyBoard' || ((action === 'guest' || action === 'guestTip') && (screen as any).guest === true))))) return bad('This screen isn’t set up for the drive-thru. A manager can set it up here.', 401);
     // The counter's own screen (app/(app)/counter, a team member signed in) takes its orders the same way, as counter
     // orders ("C14"), with its own line of guests (lib/counter-server createCar channel).
     const channel: Channel = screen.kind === 'counter' ? 'counter' : 'drive-thru';
@@ -205,7 +206,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -950,6 +951,62 @@ export async function POST(req: NextRequest) {
     }
 
     // Today's paid orders on this side (the counter's, or the drive-thru's), to find one to refund (lib/counter-refund).
+    // THE GUEST SCREEN AT THE COUNTER (app/drive-thru/[tenantId]/guest; design board "Register tools", part 4): the
+    // counter's screen says which order it's on (one per location), and the screen facing the guest shows that order as
+    // it's rung, the total, the tip (the business's three, or none: picked there), and a code for the receipt once paid.
+    const guestRef = db.doc(`${T}/counterGuest/${here && ID.test(String(here)) ? String(here) : 'main'}`);
+    if (action === 'show') {
+      if (channel !== 'counter') return bad('Only the counter shows its order on the guest screen.', 409);
+      const oid = ID.test(String(b.orderId || '')) ? String(b.orderId) : null;
+      await guestRef.set({ orderId: oid, at: nowIso, by: who.name, receiptUrl: null }, { merge: true });
+      return ok({ staffOk });
+    }
+    if (action === 'guest' || action === 'guestTip') {
+      const g: any = (await guestRef.get()).data() || {};
+      const oid = ID.test(String(g.orderId || '')) ? String(g.orderId) : null;
+      const oRef = oid ? db.doc(`${T}/counterOrders/${oid}`) : null;
+      const o: any = oRef ? (await oRef.get()).data() : null;
+      const nowMs = now.getTime(); const ageOf = (iso: unknown) => nowMs - (Date.parse(String(iso || '')) || 0);
+      const live = !!o && o.channel === 'counter' && !['cancelled', 'voided'].includes(String(o.status)) && !o.staffMeal;
+      // (While the counter's screen is on it: it says so every minute, so an order left open drops off within three.)
+      const mode: 'ringing' | 'pay' | 'thanks' | null = !live ? null : o.paidAt ? (ageOf(o.paidAt) < 90000 ? 'thanks' : null) : ageOf(g.at) < 3 * 60000 ? (o.status === 'building' ? 'ringing' : 'pay') : null;
+      // The tip, asked on this screen: the business's three, worked out on what the order comes to before any tip; once
+      // picked (or none), not asked again.
+      const ts = tipsOf(tenant);
+      const tipBase = o ? Math.round(num(o.total) * 100) - Math.max(0, Math.round(num(o.tipCents))) : 0;
+      const askTip = mode === 'pay' && tipsHere(ts, 'counter') && !o.tipChosenAt && Math.max(0, Math.round(num(o.tipCents))) === 0 && !o.app?.code && o.status === 'sent' && !cardBusyOf(o) && !(o.phone?.id && o.phone.state === 'open') && !(Array.isArray(o.tenders) && o.tenders.length);
+      const choices = askTip ? tipChoices(tipBase, ts.pcts) : [];
+      if (action === 'guestTip') {
+        if (!askTip || String(b.orderId || '') !== oid) return bad('The tip is picked at the counter now.', 409);
+        const cents = Math.round(Number(b.cents));
+        if (!(cents === 0 || choices.some((c) => c.cents === cents))) return bad('Pick one of the tips shown.', 400);
+        const r: any = await setTip(db, tenantId, oid!, cents, { id: null, name: 'The guest' }, { guestOnce: true });
+        if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null }, { status: r.status });
+        return ok({ tipCents: r.tipCents, total: r.total });
+      }
+      // The receipt's private link, made once for the order and kept with the screen's state.
+      let receiptUrl: string | null = mode === 'thanks' ? (g.receiptUrl && g.receiptFor === oid ? String(g.receiptUrl) : null) : null;
+      if (mode === 'thanks' && !receiptUrl) {
+        const { receiptAct } = await import('@/lib/receipt-actions-server');
+        const x = await receiptAct(db, tenantId, `co_${oid}`, 'link', {}, { name: 'Guest screen', guest: true }, req.nextUrl.origin).catch(() => null);
+        receiptUrl = x?.body?.ok ? String(x.body.url) : null;
+        if (receiptUrl) await guestRef.set({ receiptUrl, receiptFor: oid }, { merge: true });
+      }
+      const money = (v: unknown) => Math.round(num(v) * 100) / 100;
+      return ok({
+        business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Welcome' },
+        show: mode ? { mode, number: String(o.number || ''), name: cleanName(o.guestName) || null, orderId: oid,
+          lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: money(num(l.unitPrice) * num(l.quantity)) })),
+          reward: o.reward ? { name: String(o.reward.name || 'Reward'), off: num(o.reward.cents) / 100 } : null,
+          markdown: o.markdown && num(o.markdown.cents) > 0 ? { name: String(o.markdown.label || 'Discount').slice(0, 40), off: num(o.markdown.cents) / 100 } : null,
+          tax: money(o.tax), tip: Math.max(0, num(o.tipCents)) / 100, total: money(o.total),
+          tips: askTip ? choices : null,
+          card: mode === 'pay' && o.card && ['on_reader', 'starting', 'capturing'].includes(String(o.card.state)) ? 'on_reader' : null,
+          change: mode === 'thanks' && o.payMethod === 'cash' && num(o.changeGiven) > 0 ? num(o.changeGiven) : null,
+          earned: mode === 'thanks' && num(o.points?.earned) > 0 ? { points: num(o.points.earned), unit: loyaltyOf(tenant).earn?.mode === 'punch' ? 'punches' : 'points' } : null,
+          receiptUrl } : null,
+      });
+    }
     if (action === 'paidToday') {
       const since = startOfDay(todayIn(tz, now), tz).toISOString();
       // (Both sides' orders come back together: read enough of the day's to find this side's, then the newest 80.)

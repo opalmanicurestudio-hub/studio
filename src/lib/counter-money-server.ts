@@ -43,7 +43,7 @@ export function moneyWith(tenant: any, o: any, markdownCents: number) {
 }
 
 /** The guest's tip (whole cents; 0 takes it off). The total is the order's before any tip, plus this one. */
-export async function setTip(db: any, tenantId: string, orderId: string, cents: unknown, who: { id: string | null; name: string }) {
+export async function setTip(db: any, tenantId: string, orderId: string, cents: unknown, who: { id: string | null; name: string }, opts: { guestOnce?: boolean } = {}) {
   if (!ID.test(orderId)) return fail('Which order?', 400);
   const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
   return db.runTransaction(async (tx: any) => {
@@ -51,8 +51,10 @@ export async function setTip(db: any, tenantId: string, orderId: string, cents: 
     if (o.ahead?.way === 'delivery') return fail('A delivery’s tip is the driver’s, chosen when it was ordered.', 409, 'delivery');
     const base = Math.round(Number(o.total || 0) * 100) - tipCentsOf(o);
     const tip = cleanTip(cents, base); if (tip === null) return fail('How much is the tip?', 400);
+    // (Picked by the guest on their screen, app/drive-thru/[tenantId]/guest: once, and never over a tip already on it.)
+    if (opts.guestOnce && (o.tipChosenAt || tipCentsOf(o) > 0)) return fail('The tip is picked at the counter now.', 409, 'chosen');
     const total = r2((base + tip) / 100);
-    tx.set(ref, { tipCents: tip, total, tipBy: tip ? { id: who.id || null, name: who.name } : null, tipAt: tip ? nowIso() : null, updatedAt: nowIso() }, { merge: true });
+    tx.set(ref, { tipCents: tip, total, tipBy: tip ? { id: who.id || null, name: who.name } : null, tipAt: tip ? nowIso() : null, updatedAt: nowIso(), ...(opts.guestOnce ? { tipChosenAt: nowIso(), tipChosenBy: 'guest' } : {}) }, { merge: true });
     return { ok: true as const, tipCents: tip, total, number: String(o.number || '') };
   });
 }

@@ -13,16 +13,16 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AM
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const btn = `min-h-[44px] px-4 rounded-xl text-[15px] font-semibold disabled:opacity-50 transition-colors ${RING}`;
 
-export function ScreenSetup({ tenantId, stopped, onPaired, board = false, window: atWindow = false, menu = false, ready = false, kiosk = false }: { tenantId: string; stopped: string; onPaired: (key: string) => void; board?: boolean; window?: boolean; menu?: boolean; ready?: boolean; kiosk?: boolean }) {
+export function ScreenSetup({ tenantId, stopped, onPaired, board = false, window: atWindow = false, menu = false, ready = false, kiosk = false, guest = false }: { tenantId: string; stopped: string; onPaired: (key: string) => void; guest?: boolean; board?: boolean; window?: boolean; menu?: boolean; ready?: boolean; kiosk?: boolean }) {
   const { user, isUserLoading } = useFirebase() as any;
   // With more than one location, which one it's at (components/drive-thru/PlacePick).
   const places = usePlaces(tenantId, !!user);
-  const shows = board || atWindow || menu || ready;
-  const [name, setName] = useState(kiosk ? 'Kiosk' : ready ? 'Ready board' : menu ? 'Menu board' : atWindow ? 'Window screen' : board ? 'Order board' : 'Drive-thru window'); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const shows = board || atWindow || menu || ready || guest;
+  const [name, setName] = useState(kiosk ? 'Kiosk' : guest ? 'Guest screen' : ready ? 'Ready board' : menu ? 'Menu board' : atWindow ? 'Window screen' : board ? 'Order board' : 'Drive-thru window'); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const pair = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pair', tenantId, name, kind: kiosk ? 'kiosk' : shows ? 'drive-thru-board' : 'drive-thru', ...(places.at ? { locationId: places.at } : {}) }) });
+      const r = await fetch('/api/kitchen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pair', tenantId, name, kind: kiosk ? 'kiosk' : shows ? 'drive-thru-board' : 'drive-thru', ...(guest ? { guest: true } : {}), ...(places.at ? { locationId: places.at } : {}) }) });
       const d = await r.json().catch(() => ({}));
       if (d.ok && d.key) onPaired(String(d.key)); else setErr(d.error || 'That didn’t go through. Try again.');
     } catch { setErr('No connection. Try again.'); }
@@ -34,9 +34,11 @@ export function ScreenSetup({ tenantId, stopped, onPaired, board = false, window
       <div className="w-full max-w-md space-y-4 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}>
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: INK, color: '#fff' }}><Car className="h-6 w-6" aria-hidden /></div>
         <div>
-          <h1 className="text-[24px] font-semibold tracking-tight">{kiosk ? 'Set up a kiosk' : ready ? 'Set up the ready board' : menu ? 'Set up the menu board' : atWindow ? 'Set up the window screen' : board ? 'Set up the order board' : 'Set up the drive-thru screen'}</h1>
+          <h1 className="text-[24px] font-semibold tracking-tight">{kiosk ? 'Set up a kiosk' : guest ? 'Set up the guest screen' : ready ? 'Set up the ready board' : menu ? 'Set up the menu board' : atWindow ? 'Set up the window screen' : board ? 'Set up the order board' : 'Set up the drive-thru screen'}</h1>
           <p className="mt-1.5 text-[15px] leading-relaxed" style={{ color: MUTED }}>{kiosk
             ? 'A manager sets this tablet up once, then picks the card reader beside it. Guests order and pay here, and get a number. It only takes its own orders, on its own reader.'
+            : guest
+            ? 'A manager sets this screen up once. It faces the guest at the counter: their order as it’s rung, the total, a tip if you take them, and a code for their receipt. Nothing else.'
             : ready
             ? 'A manager sets this screen up once. It shows which orders are being made and which are ready to collect, by number and first name. Nothing else.'
             : menu

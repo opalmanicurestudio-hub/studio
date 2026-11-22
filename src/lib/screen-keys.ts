@@ -16,7 +16,7 @@ const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export type ScreenKind = 'kitchen' | 'floor' | 'drive-thru' | 'drive-thru-board' | 'host' | 'kiosk';
 /** `readerId`: a kiosk's card reader, picked by a manager (api/kiosk 'setReader'); `kioskOrder`: the order it's being paid for now. */
 /** `locationId`: the location it's set up for, with more than one (lib/here-server); none shows every location's. */
-export type Screen = { ref: any; name: string; kind: ScreenKind; passes: Record<string, { id: string; name: string; exp: number }>; readerId?: string | null; kioskOrder?: string | null; locationId?: string | null };
+export type Screen = { ref: any; name: string; kind: ScreenKind; passes: Record<string, { id: string; name: string; exp: number }>; readerId?: string | null; kioskOrder?: string | null; locationId?: string | null; guest?: boolean };
 
 /** The screen this key belongs to (for this business only), or null. Seen-at is kept, at most every few minutes. */
 export async function screenOf(db: any, tenantId: string, key: unknown): Promise<Screen | null> {
@@ -28,6 +28,7 @@ export async function screenOf(db: any, tenantId: string, key: unknown): Promise
   if (!s.lastSeenAt || Date.now() - Date.parse(s.lastSeenAt) > 5 * 60000) await ref.set({ lastSeenAt: new Date().toISOString() }, { merge: true }).catch(() => {});
   const kind: ScreenKind = ['floor', 'drive-thru', 'drive-thru-board', 'host', 'kiosk'].includes(s.kind) ? s.kind : 'kitchen';
   return { ref, name: String(s.name || 'Kitchen'), kind, passes: (s.passes && typeof s.passes === 'object' ? s.passes : {}) as Screen['passes'], locationId: ID.test(String(s.locationId || '')) ? String(s.locationId) : null,
+    ...(kind === 'drive-thru-board' && s.guest === true ? { guest: true } : {}),
     ...(kind === 'kiosk' ? { readerId: /^tmr_[A-Za-z0-9]{4,60}$/.test(String(s.readerId || '')) ? String(s.readerId) : null, kioskOrder: ID.test(String(s.kioskOrder || '')) ? String(s.kioskOrder) : null } : {}) };
 }
 
