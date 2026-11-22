@@ -24,6 +24,7 @@ import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { heldCovered, heldLine, heldShortfall } from '@/lib/held-stock';
 import { hereOf } from '@/lib/here-server';
+import { stockAtOf } from '@/lib/store-stock';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { popupToday } from '@/lib/popup';
@@ -1154,6 +1155,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // The same product can be on two lines (a comped one from a table's tab beside the rest): its stock, lots and pop-up
   // count move once per line, each from where the line before left them.
   const invRead = new Map<string, any>(); const lotsNow = new Map<string, any[]>(); const stockNow = new Map<string, number>();
+  // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
+  // Kept on the receipt, so each location's night counts its own sales (lib/night-close-server); a product sold here comes
+  // off that store's own number, when it's counted there (lib/store-stock).
+  // (The desk's only while it's still one of the business's locations, with more than one: lib/here-server hereOf.)
+  const saleLocation: string | null = (await hereOf(db, tenantId, b.locationId)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
+  const storeTaken: { id: string; at: string; qty: number }[] = [];
   for (const it of items) {
     const value = it.price * it.quantity;
     const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
@@ -1188,7 +1195,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
             status: 'pending', createdAt: now, tenantId, stockMoved: true, saleId: checkoutSessionId, madeAt: a.station, partOf: kRef.id, partFor: String(inv.name || it.name).slice(0, 80), partFrom: stationOfItem(inv, stationsOf(tenant)), partsUsed: true, ...((it as any).choicesText ? { choicesText: (it as any).choicesText } : {}),
             ...(al && al.allergies.length ? { allergies: al.allergies, contains: al.contains } : {}) }), { merge: true }); });
       } else if (inv?.type === 'refreshment' && toMake > 0 && recipeOf(inv, String(it.id)).length) madeHere.push({ id: String(it.id), qty: toMake, name: String(it.name || 'Item'), choices: (it as any).choices || null });
-      batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
+      // (Off this store's own number too, when it's counted there; never below none: lib/store-stock.)
+      const atShelf = saleLocation ? stockAtOf(inv)[saleLocation] : undefined;
+      const storePatch = atShelf !== undefined && atShelf > 0 ? { stockAt: { [saleLocation as string]: FieldValue.increment(-Math.min(atShelf, it.quantity)) } } : {};
+      // (Kept on the receipt, so a void puts back what came off the store: api/checkout/void.)
+      if (atShelf !== undefined && atShelf > 0) storeTaken.push({ id: String(it.id), at: saleLocation as string, qty: Math.min(atShelf, it.quantity) });
+      if (atShelf !== undefined && inv) inv.stockAt = { ...stockAtOf(inv), [saleLocation as string]: Math.max(0, atShelf - it.quantity) };
+      batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch, ...storePatch }, { merge: true });
       if (popupSale?.ids.has(String(it.id))) batch.set(popupSale.ref, { soldAtTable: { [String(it.id)]: FieldValue.increment(it.quantity) }, updatedAt: now }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
       batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: (() => { const k = String(it.id); const left = Math.max(0, (stockNow.has(k) ? stockNow.get(k)! : num(it.stock)) - it.quantity); stockNow.set(k, left); return left; })(), refKind: 'checkout', refId: checkoutSessionId }));
@@ -1369,15 +1382,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Every card payment on it — the sale's own, or each card share of a split — so a payment is never used for a second
   // sale, kept apart as extra, or refunded as extra once it's on this receipt (lib/reader-sale onAnyReceipt).
   const paymentIntentIds = [...new Set([pay.stripePaymentIntentId, ...(split || []).map((x: any) => x?.stripePaymentIntentId)].filter(Boolean).map(String))];
-  // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
-  // Kept on the receipt, so each location's night counts its own sales (lib/night-close-server).
-  // (The desk's only while it's still one of the business's locations, with more than one: lib/here-server hereOf.)
-  const saleLocation: string | null = (await hereOf(db, tenantId, b.locationId)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
   batch.create(receiptRef, clean({ id: receiptRef.id, ...(saleLocation ? { locationId: saleLocation } : {}), pendingId: pendingRef ? pendingRef.id : null, ...(askedId && (!pendingRef || pendingRef.id !== askedId) ? { askedPendingId: askedId } : {}), ...(paymentIntentIds.length ? { paymentIntentIds } : {}), ...(splitOver > 0 ? { overpaid: splitOver } : {}), detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
-    reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
+    reversal: { ...(storeTaken.length ? { storeTaken } : {}), ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity, ...(Array.isArray((x as any).choices) && (x as any).choices.length ? { choices: (x as any).choices.slice(0, 20).map((c: any) => ({ groupId: String(c?.groupId || ''), optionId: String(c?.optionId || '') })) } : {}) })),
       // Counted at a pop-up table (lib/popup): a void puts these back into what the table has left.
       // Comps from a table's tab this sale spent (api/tab): a void gives them back, so the reopened table can pay again.

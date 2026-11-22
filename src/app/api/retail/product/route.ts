@@ -5,6 +5,7 @@ import {
   isStorefrontVisible, listingPriceCents, type SellableItem,
 } from '@/lib/retail-orders';
 import { choiceFor, listingBuyable, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
+import { atStoresOf } from '@/lib/store-stock';
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
 import { publicDigital } from '@/lib/digital-product';
@@ -97,6 +98,9 @@ export async function GET(req: NextRequest) {
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
   const available = listingStock(item, byId);
+  // (The shop's stores, with more than one: what each has of one counted at a store. lib/store-stock)
+  const { shopStoresOf } = await import('@/lib/shop-stores-server');
+  const shopStores = (await shopStoresOf(db, tenantId).catch(() => ({ stores: [] as any[] }))).stores.map((s: any) => ({ id: s.id, name: s.name }));
   // Pre-order runs close at the end of their day on the shop's clock, not the server's.
   const shopZone = tenantTimeZone(tenant);
   const pre = preorderState(item as any, shopZone);
@@ -173,6 +177,8 @@ export async function GET(req: NextRequest) {
         || available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
       lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),
+      // With more than one store, one counted at a store: what each can sell (lib/store-stock).
+      ...(!vids.length && item.digital !== true && item.preorder !== true && item.allowBackorder !== true && shopStores.length ? { atStores: atStoresOf(item, shopStores, available, MAX_SHOWN_QTY) } : {}),
     },
   });
 }

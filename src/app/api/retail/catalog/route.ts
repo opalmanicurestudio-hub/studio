@@ -88,7 +88,10 @@ export async function GET(req: NextRequest) {
   const all = invSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as SellableItem));
   const byId = new Map<string, any>(all.map((i: any) => [String(i.id), i]));
   const listings = listingsOf(all);
-  const products = catalogProducts(all, byId, listings, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone });
+  // (The shop's stores, with more than one: what each has of a product counted at a store. lib/store-stock)
+  const { shopStoresOf } = await import('@/lib/shop-stores-server');
+  const shopStores = (await shopStoresOf(db, tenantId).catch(() => ({ stores: [] as any[] }))).stores.map((s: any) => ({ id: s.id, name: s.name }));
+  const products = catalogProducts(all, byId, listings, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, stores: shopStores });
 
   // Bundles, kits, boxes, looks and bought-together picks (lib/retail-offers). Only offers whose products are all on
   // sale online right now are sent. Wholesale prices don't take bundle savings, so a wholesale buyer is sent none.

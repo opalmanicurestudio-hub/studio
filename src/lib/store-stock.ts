@@ -72,3 +72,50 @@ export function sellableAt(item: any, stores: Store[], at: string | null, free: 
   const mine = v.stores.find((s) => s.id === at)?.count;
   return mine === null || mine === undefined ? 0 : Math.max(0, Math.min(mine, free));
 }
+
+/** Each location's units held for paid online orders (picked up there, or going out from there), as kept. */
+export function heldAtOf(item: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  const x = item?.heldAt;
+  if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) if (ID.test(k) && Number.isFinite(Number(v))) out[k] = whole(v);
+  return out;
+}
+
+/** A sale or a hold at a store, as the fields to write with the rest of the item's change (dotted paths, in a step that
+ *  read the item): only for an item counted at that store (one never counted there gets no number from a sale), never
+ *  below zero. `stock`: units on its shelf (negative: taken); `held`: units held for paid online orders there. */
+export function storeMove(item: any, at: unknown, m: { stock?: number; held?: number }): Record<string, number> {
+  const id = String(at || ''); if (!ID.test(id)) return {};
+  const at0 = stockAtOf(item); if (!(id in at0)) return {};
+  const out: Record<string, number> = {};
+  if (m.stock) out[`stockAt.${id}`] = Math.max(0, at0[id] + Math.round(m.stock));
+  if (m.held) out[`heldAt.${id}`] = Math.max(0, (heldAtOf(item)[id] ?? 0) + Math.round(m.held));
+  return out;
+}
+
+/** What a store can sell online now: its own number less what's held there, never more than the business can (`free`). */
+export function onlineAt(item: any, stores: Store[], at: string | null, free: number): number {
+  if (!at) return free;
+  const v = storeView(item, stores); if (!v.tracked) return free;
+  const mine = v.stores.find((s) => s.id === at)?.count;
+  if (mine === null || mine === undefined) return 0;
+  // (What's held there is never more than the business holds: a hold let go without its store can't keep it down.)
+  const held = Math.min(heldAtOf(item)[at] ?? 0, Math.max(0, Math.floor(Number(item?.stockReserved) || 0)));
+  return Math.max(0, Math.min(mine - held, free));
+}
+
+/** For the shop: what each store can sell online now (shown no higher than `cap`), for an item counted at a store; null
+ *  for one that isn't (every store sells it from the business's stock, as before). */
+/** `counted`: false for a store it hasn't been counted at yet (not offered there until it is). */
+export type AtStore = { id: string; name: string; qty: number; counted: boolean };
+export function atStoresOf(item: any, stores: Store[], free: number, cap: number): AtStore[] | null {
+  if (!stores.length) return null;
+  const v = storeView(item, stores); if (!v.tracked) return null;
+  return stores.map((s) => ({ id: s.id, name: s.name, qty: Math.min(cap, onlineAt(item, stores, s.id, free)), counted: v.stores.find((x) => x.id === s.id)?.count !== null }));
+}
+
+/** What the product page says about the store picked (and where else it is). */
+export function storeLine(at: AtStore[] | null | undefined, picked: string): { here: AtStore | null; elsewhere: AtStore[] } | null {
+  if (!at || !at.length) return null;
+  return { here: at.find((s) => s.id === picked) || null, elsewhere: at.filter((s) => s.id !== picked && s.qty > 0) };
+}

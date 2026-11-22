@@ -1,4 +1,5 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
+import { storeMove } from '@/lib/store-stock';
 import { taxFreeMoved } from '@/lib/wholesale-tax';
 import { canChoose, feeBack, keptCents, keptFromCard, retryPayOpen } from '@/lib/delivery-retry';
 import { cancelRetryPay, refundRetryPayment, retryPaidMarks } from '@/lib/delivery-retry-server';
@@ -230,6 +231,9 @@ async function handle(req: NextRequest) {
         // late order cancelled while being packed releases it too (a backorder still waiting for stock holds none).
         const releases = new Map<string, number>();
         for (const g of going) for (const [pid, q] of heldUnits(g)) releases.set(pid, (releases.get(pid) || 0) + q);
+        // (And at each one's store, when it's counted there: lib/store-stock.)
+        const atStore = new Map<string, Map<string, number>>();
+        for (const g of going) if (g.locationId) for (const [pid, q] of heldUnits(g)) { const m = atStore.get(pid) || new Map<string, number>(); m.set(String(g.locationId), (m.get(String(g.locationId)) || 0) + q); atStore.set(pid, m); }
         const itemReads: { ref: any; qty: number; snap: any }[] = [];
         for (const [pid, qty] of releases) {
           const ref = db.collection(`tenants/${tenantId}/inventory`).doc(pid);
@@ -239,7 +243,8 @@ async function handle(req: NextRequest) {
         for (const { ref, qty, snap: itemSnap } of itemReads) {
           if (!itemSnap.exists) continue;
           const item = itemSnap.data() as any;
-          txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty) });
+          const storeHeld = Array.from(atStore.get(String(ref.id))?.entries() || []).reduce((acc: Record<string, number>, [loc, q]) => ({ ...acc, ...storeMove(item, loc, { held: -q }) }), {});
+          txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty), ...storeHeld });
         }
 
         // Whatever stage it was cancelled from, the card gets back what it paid (never more: credit and gift cards

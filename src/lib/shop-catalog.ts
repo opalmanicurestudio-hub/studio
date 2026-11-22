@@ -2,6 +2,7 @@
 // product list (prices, variants, stock shown, pre-orders, made to order), used by the shop's catalog, its product feed
 // for Google and its guide for assistants, so all three always agree. Never exposes cost, batches, suppliers or exact
 // large stock counts.
+import { atStoresOf, type Store } from '@/lib/store-stock';
 import { filesOf } from './digital-product';
 import { listingPriceCents, preorderState, type SellableItem } from '@/lib/retail-orders';
 import { listedInShop, listingBuyable, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
@@ -28,7 +29,7 @@ export function publicRow(item: any): any {
   return out;
 }
 
-export function catalogProducts(all: SellableItem[], byId: Map<string, any>, listings: any, o: { wholesale: boolean; discountPct: number; zone: string }): any[] {
+export function catalogProducts(all: SellableItem[], byId: Map<string, any>, listings: any, o: { wholesale: boolean; discountPct: number; zone: string; stores?: Store[] }): any[] {
   return all
     .filter((item: SellableItem) => listedInShop(item, listings))
     .flatMap((item: SellableItem) => {
@@ -84,6 +85,9 @@ export function catalogProducts(all: SellableItem[], byId: Map<string, any>, lis
         // Made to order: business days to ship, which the ship-by date at checkout counts from.
         leadDays: item.digital === true ? null : leadOf(item.leadDays),
         digital: item.digital === true,
+        // With more than one store, one counted at a store: what each can sell (lib/store-stock), so the page says whether
+        // it's in stock at the store picked, and where else it is.
+        ...(!hasVariants && item.digital !== true && item.preorder !== true && item.allowBackorder !== true && o.stores?.length ? { atStores: atStoresOf(item, o.stores, available, MAX_SHOWN_QTY) } : {}),
         }];
       } catch (e: any) {
         console.error('[retail-catalog] skipped malformed item', item?.id, e?.message);

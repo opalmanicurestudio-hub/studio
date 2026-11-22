@@ -12,6 +12,7 @@
 //     charged and the sales tax, whatever paid for it.
 // Nothing is written half: if the step can't finish, none of it happened, and the next try (Stripe's retry, the
 // five-minute check) does all of it. Only one try can win: an order that isn't 'placed' any more is left alone.
+import { heldAtOf, storeMove } from '@/lib/store-stock';
 import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
 import { buildEntry } from '@/lib/stock-ledger';
 import { giftSpendPlan } from '@/lib/gift-cards';
@@ -110,7 +111,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
         tx.update(itemRefs[i], { preorderSold: sold + q }); run.set(pid, (run.get(pid) || 0) + q); return;
       }
       const cur = (Number(item.stockReserved) || 0) + (held.get(pid) || 0);
-      tx.update(itemRefs[i], { stockReserved: cur + q }); held.set(pid, (held.get(pid) || 0) + q);
+      // (Held at the store it's picked up from or goes out from too, when it's counted there: lib/store-stock.)
+      const atHeld = (heldAtOf(item)[String(o.locationId || '')] ?? 0) + (held.get(pid) || 0);
+      tx.update(itemRefs[i], { stockReserved: cur + q, ...storeMove({ ...item, heldAt: { ...heldAtOf(item), [String(o.locationId || '')]: atHeld } }, o.locationId, { held: q }) }); held.set(pid, (held.get(pid) || 0) + q);
       // Both halves of a hold are on record (this one, and its release at fulfilment), so a leak can be found.
       tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({
         productId: pid, type: 'reserved', field: 'stockReserved', delta: q, unit: item.unit || 'units',

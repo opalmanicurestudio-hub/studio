@@ -126,11 +126,16 @@ export async function POST(req: NextRequest) {
     // Stock back on the shelf: one write per item (two lines of the same item add up), into its batches.
     const byItem = new Map<string, number>();
     for (const p of products) if (p?.id) byItem.set(String(p.id), (byItem.get(String(p.id)) || 0) + num(p.quantity));
+    // (Back on the store's own number too, what the sale took from it, while that store is still counted: lib/store-stock.)
+    const tookAt = new Map<string, Map<string, number>>();
+    for (const x of Array.isArray(R.storeTaken) ? R.storeTaken : []) if (x?.id && x?.at && num(x.qty) > 0) { const m = tookAt.get(String(x.id)) || new Map<string, number>(); m.set(String(x.at), (m.get(String(x.at)) || 0) + num(x.qty)); tookAt.set(String(x.id), m); }
     for (const [id, qty] of byItem) {
       const invRef = db.doc(`${T}/inventory/${id}`); let inv: any = null; let b2: any = null;
       try { inv = await invRef.get(); b2 = inv.exists ? returnToBatches((inv.data() as any)?.batches, qty) : null; } catch { /* the total still moves */ }
-      if (inv?.exists && b2) batch.update(invRef, { totalStock: FieldValue.increment(qty), batches: JSON.parse(JSON.stringify(b2)) }, { lastUpdateTime: inv.updateTime });
-      else batch.set(invRef, { totalStock: FieldValue.increment(qty) }, { merge: true });
+      const kept = inv?.exists ? ((inv.data() as any)?.stockAt || {}) : {};
+      const back = Array.from(tookAt.get(id)?.entries() || []).filter(([at]) => kept && typeof kept === 'object' && at in kept);
+      if (inv?.exists && b2) batch.update(invRef, { totalStock: FieldValue.increment(qty), batches: JSON.parse(JSON.stringify(b2)), ...Object.fromEntries(back.map(([at, q]) => [`stockAt.${at}`, FieldValue.increment(q)])) }, { lastUpdateTime: inv.updateTime });
+      else batch.set(invRef, { totalStock: FieldValue.increment(qty), ...(back.length ? { stockAt: Object.fromEntries(back.map(([at, q]) => [at, FieldValue.increment(q)])) } : {}) }, { merge: true });
     }
     // A package session given back: its sessions are worked out from the client's record as read.
     if (R.redeemed?.clientId && R.redeemed.type === 'package') {

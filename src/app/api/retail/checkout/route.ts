@@ -339,6 +339,9 @@ async function handleCheckout(req: NextRequest) {
   const lines: OrderLine[] = [];
   let groundOnly = false;   // any item that can't fly makes the parcel ground only (lib/ground-only)
   const neededByItem = new Map<string, number>();   // two lines can draw on the same shelf item
+  // (What each shelf item needs from the store it's picked up at or goes out from, checked once that store is known:
+  // lib/store-stock onlineAt.)
+  const storeNeeds = new Map<string, { item: any; needed: number; what: string; productId: string }>();
   const neededByRun = new Map<string, number>();    // …and on the same pre-order run
   for (let i = 0; i < productIds.length; i++) {
     const snap = itemSnaps[i];
@@ -396,6 +399,7 @@ async function handleCheckout(req: NextRequest) {
         return NextResponse.json({ error: !pre.open && pre.reason === 'closed' ? `Pre-orders for ${what} have closed.` : pre.remaining ? `Only ${pre.remaining} pre-order ${pre.remaining === 1 ? 'place is' : 'places are'} left for ${what}.` : `Pre-orders for ${what} are full.`, productId: listing.id }, { status: 409 });
       }
     }
+    if (item.digital !== true && item.preorder !== true && item.allowBackorder !== true) storeNeeds.set(item.id, { item, needed, productId: listing.id, what: `${item.name}${sale.variantId && sale.variantChoice ? ` in ${sale.variantChoice.label}` : ''}` });
     if (item.digital !== true && item.preorder !== true && onlineSellable(item) < needed && item.allowBackorder !== true) {
       return NextResponse.json(
         { error: `Only ${Math.max(0, onlineSellable(item))} of ${item.name}${sale.variantId && sale.variantChoice ? ` in ${sale.variantChoice.label}` : ''} left`, productId: listing.id },
@@ -873,6 +877,22 @@ async function handleCheckout(req: NextRequest) {
   const preorderAck = preorderLines.length > 0
     ? preorderAckSnapshot({ items: preorderItems, promiseAt, agreedAt: now, timeZone: shopZone })
     : null;
+
+  // A store counted for what's ordered (lib/store-stock): a pickup only takes what that store has, and a delivery what the
+  // store it goes out from has.
+  if (fromStore && storeNeeds.size) {
+    // (The shop's stores, as its pages show them: lib/shop-stores-server.)
+    const { onlineAt } = await import('@/lib/store-stock');
+    const counted = shops.stores.map((s: any) => ({ id: s.id, name: s.name }));
+    for (const n of storeNeeds.values()) {
+      const can = onlineAt(n.item, counted, fromStore.id, Math.max(0, onlineSellable(n.item)));
+      if (can < n.needed) {
+        const where = String(fromStore.name || 'that store');
+        const uncounted = !(n.item?.stockAt && typeof n.item.stockAt === 'object' && fromStore.id in n.item.stockAt);
+        return NextResponse.json({ error: can > 0 ? `Only ${can} of ${n.what} at ${where}. Change how many, or pick another store.` : uncounted ? (method === 'delivery' ? `${n.what} isn’t available at ${where}, where this delivery goes out from. Pick it up from another store instead.` : `${n.what} isn’t available at ${where} right now. Pick another store, or have it delivered.`) : method === 'delivery' ? `${n.what} isn’t at ${where}, where this delivery goes out from. Pick it up from another store instead.` : `${n.what} is out of stock at ${where}. Pick another store, or have it delivered.`, productId: n.productId, store: true }, { status: 409 });
+      }
+    }
+  }
 
   const order = {
     id: orderId,

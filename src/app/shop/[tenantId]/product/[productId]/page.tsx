@@ -6,6 +6,7 @@ import { Loader, Package } from 'lucide-react';
 import Link from 'next/link';
 import { ShopHeader, useShopSite } from '@/components/shop/ShopChrome';
 import { ProductView } from '@/components/shop/product/ProductLayouts';
+import { StoreStockLine } from '@/components/shop/StoreStockLine';
 import { useParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -382,7 +383,8 @@ export default function ProductPage() {
         selections={selections}
         onSelect={(g, c) => { setSelections({ ...selections, [g]: c }); setQty(wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1); }}
         showVideo={cfg.showVideo !== false}
-        promise={prosNote && promise ? <div className="space-y-3">{prosNote}{promise}</div> : prosNote || promise}
+        promise={(() => { const at = !line?.variantChoice && canBuy && !sold.digital ? <StoreStockLine tenantId={tenantId} at={(product as any).atStores} /> : null; const parts = [at, prosNote, promise].filter(Boolean);
+          return parts.length > 1 ? <div className="space-y-3">{parts.map((x, i) => <React.Fragment key={i}>{x}</React.Fragment>)}</div> : parts[0] || null; })()}
         restock={restock}
         together={together}
         trust={trust}

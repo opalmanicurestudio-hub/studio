@@ -1,6 +1,7 @@
 // src/lib/retail-swap-server.ts — SWAPS ON THE SERVER. Offering a replacement, applying it, refunding instead, and
 // the customer's answer (from their order page or a YES/NO text) all run here in transactions, so the stock, the order
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
+import { storeMove } from '@/lib/store-stock';
 import { isClaimStale, shrinkStock } from './retail-orders';
 import { choiceFor, variantIdsOf, variantPriceCents } from './variants';
 import { discountedCents } from './retail-wholesale';
@@ -98,11 +99,11 @@ export async function applySwap(db: any, t: string, orderId: string, lineId: str
       if (subSnap.exists) {
         const it = subSnap.data() as any; const free = (Number(it.totalStock) || 0) - (Number(it.stockReserved) || 0);
         if (free < r.qty) return { ok: false, message: `Only ${Math.max(0, free)} of ${sub.name} left. Pick something else.` };
-        tx.update(subRef, { stockReserved: (Number(it.stockReserved) || 0) + r.qty });
+        tx.update(subRef, { stockReserved: (Number(it.stockReserved) || 0) + r.qty, ...storeMove(it, o.locationId, { held: r.qty }) });
       }
       if (origSnap.exists) {
         const it = origSnap.data() as any;
-        tx.update(origRef, { ...shrinkStock(it, r.qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - r.qty) });
+        tx.update(origRef, { ...shrinkStock(it, r.qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - r.qty), ...storeMove(it, o.locationId, { stock: -r.qty, held: -r.qty }) });
         tx.set(db.collection(`tenants/${t}/stockCorrections`).doc(), correction(String(line.productId), -r.qty, `Not on the shelf, swapped (Order #${o.orderNumber})`, orderId, actor));
       }
       tx.update(ref, { lines: JSON.parse(JSON.stringify(r.lines)), pendingRefundCents: (Number(o.pendingRefundCents) || 0) + r.refundCents, swapOffer: null, swapPendingPhone: null });
@@ -130,7 +131,7 @@ export async function refundInstead(db: any, t: string, orderId: string, lineId:
       const lines = [...o.lines]; lines[idx] = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: why };
       if (iSnap.exists) {
         const it = iSnap.data() as any;
-        tx.update(iRef, { ...shrinkStock(it, qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - qty) });
+        tx.update(iRef, { ...shrinkStock(it, qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - qty), ...storeMove(it, o.locationId, { stock: -qty, held: -qty }) });
         tx.set(db.collection(`tenants/${t}/stockCorrections`).doc(), correction(String(line.productId), -qty, `Not on the shelf (Order #${o.orderNumber})`, orderId, actor));
       }
       tx.update(ref, { lines: JSON.parse(JSON.stringify(lines)), pendingRefundCents: (Number(o.pendingRefundCents) || 0) + cents, swapOffer: null, swapPendingPhone: null });

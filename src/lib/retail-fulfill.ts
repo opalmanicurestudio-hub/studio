@@ -1,4 +1,5 @@
 import { shrinkStock } from './retail-orders';
+import { storeMove } from './store-stock';
 import { deliveryFrom, followUpDelivery } from './delivery-plan';
 import { failReason, proofNeeded, type FailCode } from './delivery-run';
 import { taxShareCents } from './restocking';
@@ -607,6 +608,8 @@ export async function resolveShortLine(
         txn.update(iRef, {
           ...shrinkStock(item, qtyShorted),
           stockReserved: Math.max(0, (item.stockReserved || 0) - qtyShorted),
+          // (Not on its store's shelf either, and no longer held there: lib/store-stock.)
+          ...storeMove(item, (order as any).locationId, { stock: -qtyShorted, held: -qtyShorted }),
         });
         txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
           correction(target.productId, item.unit || 'units', -qtyShorted,
@@ -942,6 +945,8 @@ function convertSaleInTxn(
       batches: JSON.parse(JSON.stringify(batches)),
       totalStock: newTotal,
       stockReserved: Math.max(0, (item.stockReserved || 0) - heldQty),
+      // (Off the shelf of the store it was picked up from or went out from, when it's counted there: lib/store-stock.)
+      ...storeMove(item, (order as any).locationId, { stock: -qty, held: -heldQty }),
     });
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
       correction(line.productId, item.unit || 'units', -qty,
@@ -1475,6 +1480,7 @@ export async function reopenShortedLine(
         txn.update(iRef, {
           totalStock: (Number(item.totalStock) || 0) + qty,
           stockReserved: (Number(item.stockReserved) || 0) + qty,
+          ...storeMove(item, (order as any).locationId, { stock: qty, held: qty }),
         });
         txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
           correction(line.productId, item.unit || 'units', qty,
@@ -1592,7 +1598,7 @@ export async function cancelOrder(
       for (const { ref, qty, snap: itemSnap } of itemSnaps) {
         if (!itemSnap.exists()) continue;
         const item = itemSnap.data() as any;
-        txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty) });
+        txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty), ...storeMove(item, (order as any).locationId, { held: -qty }) });
         txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
           productId: String(ref.id),
           type: 'released',
@@ -1830,7 +1836,7 @@ export async function releaseBackorder(
       for (const { q, ref, snap } of reads) {
         if (!snap.exists()) continue;
         const it = snap.data() as any;
-        txn.update(ref, { stockReserved: (Number(it.stockReserved) || 0) + q });
+        txn.update(ref, { stockReserved: (Number(it.stockReserved) || 0) + q, ...storeMove(it, (child as any).locationId, { held: q }) });
       }
       // Due times count from here, not from the original payment (lib/retail-orders workStartedAt).
       txn.update(oRef, { holdUntilRestock: false, releasedAt: new Date().toISOString() });

@@ -37,6 +37,7 @@ export function StoreStockPanel({ tenantId, itemId, onChanged }: { tenantId: str
         </div>))}
       <div className="flex items-baseline justify-between gap-4 border-t py-2.5 text-[15px]" style={{ borderColor: C.line, ...muted }}><span>Not at a store yet</span><span className="tabular-nums">{v.unplaced}</span></div>
       {!v.tracked && <p className="m-0 mt-1 text-[14px]" style={muted}>Count it at each store to keep each one’s own number. Until then, the shop sells it from every store as now.</p>}
+      {v.tracked && v.stores.some((s) => s.count === null) && <p className="m-0 mt-1 text-[14px]" style={muted}>Until it’s counted at every store, the shop doesn’t offer it for pickup or delivery from the ones not counted yet.</p>}
       {v.short > 0 && <p className="m-0 mt-2 rounded-xl px-3 py-2 text-[14px]" style={{ background: C.warnSoft, color: C.warn }}>{v.short} sold or used without a store since the last count, so the stores add up to more than the total. Count again to place them.</p>}
       {allCounted && v.unplaced > 0 && (
         <p className="m-0 mt-2 text-[14px]" style={muted}>Every store is counted.{' '}
