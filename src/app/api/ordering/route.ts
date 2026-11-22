@@ -7,11 +7,13 @@
 //            to come, and the suppliers the business already uses.
 //   order    { tenantId, supplier, lines: [{ itemId, qty }] } → an order placed (each line's name, container and cost as
 //            they are now); the business sends it its own way (the page copies it).
-//   receive  { tenantId, orderId, lines?: [{ itemId, qty, cost? }] } → it came in: each line on the shelf as a batch at
+//   receive  { tenantId, orderId, lines?: [{ itemId, qty, cost? }], at? } → it came in: each line on the shelf as a batch at
 //            its cost, on the stock history, and the order marked received (or partly, with the rest still to come), all
 //            at once. Without `lines`, everything still to come as ordered. A cost typed here is what the business pays
 //            from now on. The answer's `moved`: anything that came in at 5% more or less than the delivery before, with
 //            the dishes it pushed over the aim (lib/price-creep); the managers are told about those (once a delivery).
+//            `at`, with more than one location (required then): the store it came to (the plan's `stores`); what's
+//            counted there goes on that store's shelf too (lib/store-stock).
 //   cancel   { tenantId, orderId } → not coming after all: an order with nothing in yet is cancelled; one partly in is
 //            closed with what came.
 //   supplier { tenantId, itemId, supplier } → who the business buys that from.
@@ -26,6 +28,8 @@ import { buildEntry } from '@/lib/stock-ledger';
 import { checkDeliveries } from '@/lib/price-creep-server';
 import { moveWords } from '@/lib/price-creep';
 import { ledgerUnit } from '@/lib/food-cost';
+import { storesOf } from '@/lib/store-stock-server';
+import { receivedTo, storeMoveNested } from '@/lib/store-stock';
 import { cleanReceived, cleanSupplier, containerOf, COVER_MAX, COVER_MIN, coverDaysOf, deliveryDiff, isOpen, LOOKBACK_DAYS, notCounted, OPEN_STATUSES, orderable, orderNumber, orderTotal, perOf, planBySupplier, remainingOf, spanDays, spreadReceived, suggestFor, usedPerDay, type OrderItem, type SupplyOrder } from '@/lib/ordering';
 
 export const dynamic = 'force-dynamic';
@@ -96,6 +100,12 @@ export async function POST(req: NextRequest) {
     if (action === 'receive' || action === 'cancel') {
       const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
       const oRef = db.doc(`${T}/orders/${orderId}`);
+      // The store it came to, with more than one location.
+      // (Read now, so a location added a moment ago counts. With several, a delivery always says which store.)
+      const stores = action === 'receive' ? await storesOf(db, tenantId, true) : [];
+      const store = stores.find((x) => x.id === String(b.at || '')) || null;
+      if (stores.length && !b.at) return bad('Pick the store it came to. Reload the page if you don’t see your stores.', 409);
+      if (stores.length && !store) return bad('That store isn’t one of your locations now. Pick the store it came to again.');
       const money = (amount: number, type: 'expense' | 'reversal', description: string, supplier: string) =>
         ({ description, clientOrVendor: supplier, type, context: 'Business', category: 'Supplies', amount: Math.round(amount * 100) / 100, paymentMethod: 'On Account', hasReceipt: false, relatedOrderId: orderId, date: now });
       const r: any = await db.runTransaction(async (tx: any) => {
@@ -122,12 +132,15 @@ export async function POST(req: NextRequest) {
         const refs = got.map((l) => db.doc(`${T}/inventory/${l.productId}`));
         const snaps = await Promise.all(refs.map((x) => tx.get(x)));
         const received: { itemId: string; qty: number; cost: number }[] = []; const missing: string[] = []; let units = 0;
+        // Counted at other stores but not at this one yet: on the total, waiting in "Not at a store yet".
+        const unplaced: string[] = [];
         got.forEach((l, i) => {
           const x: any = snaps[i].exists ? snaps[i].data() : null;
           if (!(l.qty > 0)) return;
           if (!x) { missing.push(items.find((it) => it.productId === l.productId)?.productName || 'An item'); return; }
           received.push({ itemId: l.productId, qty: l.qty, cost: l.cost });
           const per = perOf(x) || 1; const name = String(x.name || 'Item');
+          if (store && receivedTo(x, stores, store.id) === 'unplaced') unplaced.push(name);
           // (Put away at a typical price, before the business said what it pays: kept, but never a price to compare with.)
           const batch = { id: `order-${orderId}-${i}-${Date.now().toString(36)}`, stock: l.qty, costPerUnit: l.cost, receivedDate: now, note: `Order #${number} from ${supplier}`, ...(x.typicalCost === true && !l.typed ? { typical: true } : {}) };
           tx.set(refs[i], {
@@ -138,11 +151,14 @@ export async function POST(req: NextRequest) {
             // A delivery starts the count of something not counted yet; a cost typed in is what the business pays.
             ...(x.countStock === false ? { countStock: true } : {}),
             ...(l.typed && x.typicalCost === true ? { typicalCost: false } : {}),
+            // On the shelf of the store it came to, for one counted there (a delivery never starts a store's count).
+            ...(store ? storeMoveNested(x, store.id, { stock: l.qty }) : {}),
             lastReceivedAt: now, updatedAt: now,
           }, { merge: true });
           // On the history in what it measures (a gallon of milk is 3,785 ml), so a count compares like with like.
           tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'received', delta: l.qty * per, unit: ledgerUnit(x),
-            reason: `Received: ${l.qty} × ${name}, order #${number} from ${supplier}`.slice(0, 200), actorId, actorName: by, ref: { kind: 'po', id: orderId },
+            reason: `Received: ${l.qty} × ${name}, order #${number} from ${supplier}${store ? `, at ${store.name}` : ''}`.slice(0, 200), actorId, actorName: by, ref: { kind: 'po', id: orderId },
+            ...(store ? { storeId: store.id } : {}),
             ...(per === 1 ? { balanceAfter: Math.max(0, num(x.totalStock)) + l.qty } : {}) }));
           units += l.qty;
         });
@@ -154,10 +170,10 @@ export async function POST(req: NextRequest) {
         // sets the books right.
         const diff = deliveryDiff(got.filter((l) => received.some((x) => x.itemId === l.productId)));
         if (Math.abs(diff) >= 0.01) tx.set(db.collection(`${T}/transactions`).doc(), money(Math.abs(diff), diff > 0 ? 'expense' : 'reversal', `Order #${number} from ${supplier} cost ${diff > 0 ? 'more' : 'less'} than ordered`, supplier));
-        return { status: done ? 'Received' : 'Partially Received', received, units, supplier, number, missing };
+        return { status: done ? 'Received' : 'Partially Received', received, units, supplier, number, missing, ...(store ? { storeName: store.name, unplaced } : {}) };
       });
       if (!r.already) await logAuditAdmin(db, tenantId, { action: action === 'receive' ? 'inventory.receive' : 'inventory.order_cancel', targetType: 'order', targetId: orderId,
-        summary: action === 'receive' ? `${by} received order #${r.number} from ${r.supplier}: ${r.units} ${r.units === 1 ? 'container' : 'containers'}.` : `${by} closed order #${r.number} from ${r.supplier}${r.given ? `; $${Number(r.given).toFixed(2)} given back` : ''}.`, actor: { type: 'user', id: actorId, name: by } } as any).catch(() => {});
+        summary: action === 'receive' ? `${by} received order #${r.number} from ${r.supplier}${r.storeName ? ` at ${r.storeName}` : ''}: ${r.units} ${r.units === 1 ? 'container' : 'containers'}.` : `${by} closed order #${r.number} from ${r.supplier}${r.given ? `; $${Number(r.given).toFixed(2)} given back` : ''}.`, actor: { type: 'user', id: actorId, name: by } } as any).catch(() => {});
       // What came in at another price than last time, and what that did to the menu (never holds up the delivery).
       let moved: any[] = [];
       if (!r.already && action === 'receive' && Array.isArray(r.received) && r.received.length) {
@@ -206,7 +222,9 @@ export async function POST(req: NextRequest) {
     const plan = planBySupplier(items);
     // The suppliers it already uses, once each however each item spells it.
     const suppliers = plan.filter((x) => x.key !== '').map((x) => x.name).sort((a, z) => a.localeCompare(z)).slice(0, 200);
-    return ok({ coverDays: cover, lookback: Math.round(days), plan, uncounted: uncounted.sort((a, z) => a.name.localeCompare(z.name)), orders, suppliers, business: String(tenant.name || tenant.businessName || '') });
+    // With more than one location, the stores a delivery can come to.
+    const stores = await storesOf(db, tenantId);
+    return ok({ coverDays: cover, lookback: Math.round(days), plan, uncounted: uncounted.sort((a, z) => a.name.localeCompare(z.name)), orders, suppliers, business: String(tenant.name || tenant.businessName || ''), stores });
   } catch (e: any) {
     if (e instanceof Stop) return bad(e.msg, e.status);
     console.error('[ordering]', e);

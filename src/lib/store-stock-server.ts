@@ -10,9 +10,9 @@ import { afterCount, afterMove, storeView, type Store, type StoreStockView } fro
 type Who = { id: string; name: string };
 export type StoreStockReply = ({ ok: true } & StoreStockView) | { ok: false; error: string; status?: number };
 
-/** The business's stores, with more than one location (none with one). */
-export async function storesOf(db: any, tenantId: string): Promise<Store[]> {
-  const locs = await bizLocationsOf(db, tenantId);
+/** The business's stores, with more than one location (none with one). `fresh`: read now, not the minute-old copy. */
+export async function storesOf(db: any, tenantId: string, fresh = false): Promise<Store[]> {
+  const locs = await bizLocationsOf(db, tenantId, Date.now(), fresh);
   return locs.length > 1 ? locs.map((l) => ({ id: l.id, name: l.name })) : [];
 }
 

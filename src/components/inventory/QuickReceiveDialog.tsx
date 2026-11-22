@@ -9,6 +9,9 @@ import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { releaseCoverableBackorders } from '@/lib/fulfil-client';
 import { checkPrices } from '@/lib/price-check-client';
 import { applyStockDelta } from '@/lib/stock-ledger';
+import { storeMove } from '@/lib/store-stock';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
+import { useInventory } from '@/context/InventoryContext';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -25,7 +28,9 @@ import { cn } from '@/lib/utils';
 // ("Scan instead") and only mounts while that mode is on, so typing and
 // browsing never share the screen with a live camera (the source of the
 // search-while-scanning crash). Confirm still writes costed FIFO batches +
-// ledger entries per line.
+// ledger entries per line. With more than one location, it asks which store it
+// came to (components/inventory/ReceiveAtStore): what's counted there goes on
+// that store's shelf too (lib/store-stock).
 
 interface QuickLine {
   productId: string;
@@ -50,6 +55,10 @@ export function QuickReceiveDialog({
   const [term, setTerm] = useState('');
   const [scanMode, setScanMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { locations } = useInventory();
+  const stores = useMemo(() => storesFrom(locations as any[]), [locations]);
+  const [at, setAt] = useCameTo(stores);
+  const storeName = stores.find((s) => s.id === at)?.name || '';
 
   const items = useMemo(
     () => (inventory || [])
@@ -104,6 +113,7 @@ export function QuickReceiveDialog({
 
   const confirm = async () => {
     if (!firestore || !tenantId || lines.length === 0 || saving) return;
+    if (stores.length && !at) return;
     setSaving(true);
     const actorName = user?.displayName || user?.email || 'Staff';
     const now = new Date().toISOString();
@@ -129,12 +139,15 @@ export function QuickReceiveDialog({
             // A delivery starts the count of a starter ingredient, and a cost typed in is the business's own.
             ...(item.countStock === false ? { countStock: true } : {}),
             ...(item.typicalCost === true && l.unitCost.trim() !== '' ? { typicalCost: false } : {}),
+            // On the shelf of the store it came to, for one counted there (lib/store-stock).
+            ...storeMove(item, at, { stock: l.qty }),
           })));
           applyStockDelta(firestore as Firestore, tenantId, {
             productId: l.productId,
             type: 'received',
             delta: l.qty,
-            reason: 'Quick receive',
+            reason: storeName ? `Quick receive at ${storeName}` : 'Quick receive',
+            ...(storeName ? { storeId: at } : {}),
             unit: item.unit || 'units',
             actorId: user?.uid || 'staff',
             actorName,
@@ -151,7 +164,7 @@ export function QuickReceiveDialog({
     if (failures.length > 0) {
       toast({ variant: 'destructive', title: 'Some lines failed', description: failures.join(', ') });
     } else {
-      toast({ title: 'Stock received', description: `${units} unit(s) across ${lines.length} item(s) \u2014 costed batches created.` });
+      toast({ title: storeName ? `Stock received at ${storeName}` : 'Stock received', description: `${units} unit(s) across ${lines.length} item(s) \u2014 costed batches created.` });
       // Came in at another price than last time: the managers hear about any dish it pushed over the aim.
       checkPrices(tenantId, lines.map((l) => l.productId));
       try {
@@ -188,6 +201,11 @@ export function QuickReceiveDialog({
           {lines.length > 0 && (
             <div className="space-y-2 rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-3">
               <p className="text-[8px] font-black uppercase tracking-widest text-primary">Receiving now</p>
+              {stores.length > 1 && (
+                <div className="space-y-2 rounded-2xl bg-white p-3">
+                  <CameTo stores={stores} at={at} onPick={setAt} id="quick-came-to" />
+                  <NotOnShelf items={lines.map((l) => items.find((i: any) => i.id === l.productId)).filter(Boolean)} stores={stores} at={at} />
+                </div>)}
               {lines.map((l, idx) => (
                 <div key={l.productId} className="rounded-2xl border-2 bg-white p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
@@ -216,9 +234,9 @@ export function QuickReceiveDialog({
                   </div>
                 </div>
               ))}
-              <Button disabled={saving} onClick={confirm}
-                className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
-                {saving ? <Loader className="h-4 w-4 animate-spin" /> : `Add ${lines.reduce((a, l) => a + l.qty, 0)} unit(s) to stock`}
+              <Button disabled={saving || (stores.length > 0 && !at)} onClick={confirm}
+                className="w-full h-12 rounded-2xl text-[15px] font-semibold normal-case tracking-normal shadow-lg shadow-primary/20">
+                {saving ? <Loader className="h-4 w-4 animate-spin" /> : storeName ? `Add ${lines.reduce((a, l) => a + l.qty, 0)} to ${storeName}` : `Add ${lines.reduce((a, l) => a + l.qty, 0)} unit(s) to stock`}
               </Button>
             </div>
           )}

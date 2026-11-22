@@ -38,7 +38,7 @@ export function catalogProducts(all: SellableItem[], byId: Map<string, any>, lis
       try {
         const available = listingStock(item, byId);
         // Each variant with the price it sells for and whether it can be bought; the listing shows its lowest price.
-        const optionGroups = shopOptionGroups(item, byId, { wholesale: o.wholesale, discountPct: o.discountPct, zone: o.zone, maxShown: MAX_SHOWN_QTY });
+        const optionGroups = shopOptionGroups(item, byId, { wholesale: o.wholesale, discountPct: o.discountPct, zone: o.zone, maxShown: MAX_SHOWN_QTY, stores: o.stores });
         const vg: any = optionGroups.find((g: any) => g.variants);
         // The lowest price of what can be bought (else of its variants still in Inventory): a variant that's gone never
         // makes it "From $0.00".

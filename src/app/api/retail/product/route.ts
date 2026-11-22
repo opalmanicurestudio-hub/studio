@@ -157,7 +157,7 @@ export async function GET(req: NextRequest) {
       documents,
       imageUrls: pub.images.slice(0, 10),
       // Each variant with the price it sells for and whether it can be bought (the other choices with what they add).
-      optionGroups: shopOptionGroups(item, byId, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, maxShown: MAX_SHOWN_QTY }),
+      optionGroups: shopOptionGroups(item, byId, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, maxShown: MAX_SHOWN_QTY, stores: shopStores }),
       videoUrl: pub.videoUrl,
       priceCents: listingPriceCents(item, 'retail'),
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,

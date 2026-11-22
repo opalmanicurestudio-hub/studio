@@ -14,6 +14,7 @@
 //   • Only a retail product is a listing: an equipment item's choices sell nothing.
 // Choices saved before these rules (a choice in the variants group that picks no product sells the listing itself)
 // still sell as they did.
+import { atStoresOf, type Store } from './store-stock';
 import { isStorefrontVisible, listingPriceCents, onlineSellable, preorderState, type OptionChoice, type OptionGroup, type PriceTier } from './retail-orders';
 import { discountedCents } from './retail-wholesale';
 
@@ -268,7 +269,7 @@ export function leadDaysOf(v: any): { min: number; max: number } | null {
  *  server; the other choices say what they add. A choice outside the variants group that picks a product (saved before
  *  variants went in one group) isn't offered: it can't be sold as it is. A variant no longer in Inventory, archived, or
  *  sold under another listing, shows as sold out. */
-export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { wholesale?: boolean; discountPct?: number; zone?: string | null; maxShown?: number } = {}) {
+export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { wholesale?: boolean; discountPct?: number; zone?: string | null; maxShown?: number; stores?: Store[] } = {}) {
   const vg = variantGroup(listing); const max = o.maxShown ?? 99;
   return groupsOf(listing).map((g) => {
     if (g !== vg) return { id: g.id, name: g.name, choices: g.choices.filter((c) => !(vg && pickedBy(listing, c))).map((c) => ({ id: c.id, label: c.label, deltaCents: Math.round(Number(c.deltaCents) || 0), ...(swatchOf(c.swatch) ? { swatch: swatchOf(c.swatch) } : {}) })) };
@@ -287,6 +288,8 @@ export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { whol
           ...(swatchOf(c.swatch) ? { swatch: swatchOf(c.swatch) } : {}),
           ...st, live: ok,
           lowStock: ok && n > 0 && n <= (Number(v.lowStockThreshold) || 0),
+          // With more than one store, a variant counted at a store: what each can sell (lib/store-stock).
+          ...(vid && ok && o.stores?.length && v.digital !== true && v.preorder !== true && v.allowBackorder !== true ? { atStores: atStoresOf(v, o.stores, n, max) } : {}),
         };
       }),
     };

@@ -383,7 +383,7 @@ export default function ProductPage() {
         selections={selections}
         onSelect={(g, c) => { setSelections({ ...selections, [g]: c }); setQty(wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1); }}
         showVideo={cfg.showVideo !== false}
-        promise={(() => { const at = !line?.variantChoice && canBuy && !sold.digital ? <StoreStockLine tenantId={tenantId} at={(product as any).atStores} /> : null; const parts = [at, prosNote, promise].filter(Boolean);
+        promise={(() => { const at = canBuy && !sold.digital ? <StoreStockLine tenantId={tenantId} at={line?.variantChoice ? (line.variantChoice as any).atStores : (product as any).atStores} /> : null; const parts = [at, prosNote, promise].filter(Boolean);
           return parts.length > 1 ? <div className="space-y-3">{parts.map((x, i) => <React.Fragment key={i}>{x}</React.Fragment>)}</div> : parts[0] || null; })()}
         restock={restock}
         together={together}

@@ -5,19 +5,21 @@
 // it buys each thing from, put in right here. An order is copied into a text or an email the way the business already
 // orders; when it comes in, one tap puts it all on the shelf at its costs, or "Edit first" for what came in different.
 // Anything that came in at another price than last time says so right after, with the dishes it pushed over the aim
-// (lib/price-creep), and links to Food cost to set them right.
+// (lib/price-creep), and links to Food cost to set them right. With more than one location, a delivery asks which store
+// it came to (components/inventory/ReceiveAtStore), and goes on that store's shelf for anything counted there.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { moduleEnabled } from '@/lib/modules';
+import { CameTo, useCameTo } from '@/components/inventory/ReceiveAtStore';
 import { lineWords, orderText, orderTotal, remainingOf, type SupplyOrder, type Suggestion, type SupplierPlan } from '@/lib/ordering';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `min-h-[44px] rounded-xl px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
 const FIELD = 'min-h-[44px] w-full rounded-xl border bg-[#fff] px-3 text-[16px] outline-none focus:border-[#16171a]';
-type Plan = { coverDays: number; lookback: number; plan: SupplierPlan[]; uncounted: { id: string; name: string }[]; orders: SupplyOrder[]; suppliers: string[]; business: string };
+type Plan = { coverDays: number; lookback: number; plan: SupplierPlan[]; uncounted: { id: string; name: string }[]; orders: SupplyOrder[]; suppliers: string[]; business: string; stores?: { id: string; name: string }[] };
 
 /** What's still to come of an order, one row per product (the same product on two lines is one row). */
 const stillToCome = (o: SupplyOrder) => {
@@ -57,6 +59,10 @@ export default function OrderingPage() {
   const [who, setWho] = useState<Record<string, string>>({});
   const [parOpen, setParOpen] = useState<string | null>(null); const [parTyped, setParTyped] = useState('');
   const [note, setNote] = useState('');
+  const stores = useMemo(() => p?.stores || [], [p]);
+  const [at, setAt] = useCameTo(stores);
+  const atName = stores.find((x) => x.id === at)?.name || '';
+  const needStore = stores.length > 1 && !at;
   type Moved = { id: string; name: string; up: boolean; words: string; dishes: { name: string; share: number | null; was: number | null; fix: number | null }[]; options: { item: string; option: string; cost: number; charges: number }[] };
   const [moved, setMoved] = useState<Moved[]>([]);
 
@@ -82,9 +88,12 @@ export default function OrderingPage() {
     const lines = edited ? stillToCome(o).map((l) => { const g = got[l.productId]; return { itemId: l.productId, qty: g ? g.qty : l.remaining, ...(g && g.cost.trim() !== '' ? { cost: Number(g.cost.replace(/[$,\s]/g, '')) } : {}) }; }) : undefined;
     // What this screen showed as still to come, so an order put away meanwhile from another screen isn't put away twice.
     const expect: Record<string, number> = {}; for (const l of o.items) expect[l.productId] = (expect[l.productId] || 0) + remainingOf(l);
-    await run(`recv-${o.id}`, { action: 'receive', orderId: o.id, expect, ...(lines ? { lines } : {}) }, async (d) => {
+    if (needStore) { setErr('Pick the store it came to.'); return; }
+    await run(`recv-${o.id}`, { action: 'receive', orderId: o.id, expect, ...(lines ? { lines } : {}), ...(stores.length > 1 ? { at } : {}) }, async (d) => {
+      const shelf = d.storeName ? `on ${d.storeName}’s shelf` : 'on the shelf';
+      const waits: string[] = Array.isArray(d.unplaced) ? d.unplaced : [];
       setEditing(null); setGot({}); setMoved(Array.isArray(d.moved) ? d.moved : []);
-      setNote(d.already ? `Order #${o.number} was already put away.` : `${d.status === 'Partially Received' ? `What came of order #${o.number} is on the shelf. The rest is still to come.` : `Order #${o.number} from ${o.supplier} is on the shelf.`}${d.missing?.length ? ` ${d.missing.join(', ')} ${d.missing.length === 1 ? 'isn’t' : 'aren’t'} in Inventory any more, so ${d.missing.length === 1 ? 'it wasn’t' : 'they weren’t'} put away.` : ''}`);
+      setNote(d.already ? `Order #${o.number} was already put away.` : `${d.status === 'Partially Received' ? `What came of order #${o.number} is ${shelf}. The rest is still to come.` : `Order #${o.number} from ${o.supplier} is ${shelf}.`}${waits.length ? ` ${waits.slice(0, 3).join(', ')}${waits.length > 3 ? ` and ${waits.length - 3} more` : ''} ${waits.length === 1 ? 'isn’t' : 'aren’t'} counted at ${d.storeName} yet, so ${waits.length === 1 ? 'it waits' : 'they wait'} in “Not at a store yet” on Inventory.` : ''}${d.missing?.length ? ` ${d.missing.join(', ')} ${d.missing.length === 1 ? 'isn’t' : 'aren’t'} in Inventory any more, so ${d.missing.length === 1 ? 'it wasn’t' : 'they weren’t'} put away.` : ''}`);
       // A delivery can let a shop order that was waiting for it go out (lib/retail-fulfill), as a quick receive does.
       if (!d.already && moduleEnabled(selectedTenant, 'retail')) {
         try { const { releaseCoverableBackorders } = await import('@/lib/fulfil-client'); await releaseCoverableBackorders(null, tenantId!, (d.received || []).map((x: any) => ({ productId: x.itemId, qty: x.qty })), { id: 'ordering', name: 'Ordering' } as any); } catch { /* the order's own Release still covers it */ }
@@ -163,6 +172,7 @@ export default function OrderingPage() {
             <div className="space-y-4">
               <section aria-labelledby="way-title" className="space-y-3">
                 <h2 id="way-title" className="text-[15px] font-semibold" style={{ color: MUTED }}>On its way</h2>
+                {p.orders.length > 0 && stores.length > 1 && <div className="rounded-3xl bg-[#fff] px-5 py-4"><CameTo stores={stores} at={at} onPick={setAt} id="order-came-to" /></div>}
                 {p.orders.length === 0 ? <p className="rounded-3xl bg-[#fff] px-5 py-4 text-[14px]" style={{ color: MUTED }}>Nothing ordered right now. When you order, it shows here until it comes in.</p>
                   : p.orders.map((o) => { const open = editing === o.id; const left = stillToCome(o); const total = orderTotal(left.map((l) => ({ qty: l.remaining, cost: l.costPerUnit }))); return (
                     <article key={o.id} className="rounded-3xl bg-[#fff] px-5 py-4">
@@ -184,11 +194,11 @@ export default function OrderingPage() {
                       )}
                       <div className="mt-3 flex flex-wrap gap-2">
                         {open
-                          ? <button type="button" disabled={busy === `recv-${o.id}`} onClick={() => void receive(o, true)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Receive these'}</button>
-                          : <button type="button" disabled={busy === `recv-${o.id}`} onClick={() => void receive(o, false)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Received'}</button>}
+                          ? <button type="button" disabled={busy === `recv-${o.id}` || needStore} onClick={() => void receive(o, true)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Receive these'}</button>
+                          : <button type="button" disabled={busy === `recv-${o.id}` || needStore} onClick={() => void receive(o, false)} className={`${BTN} flex-1`} style={{ background: INK, color: '#fff' }}>{busy === `recv-${o.id}` ? 'Putting it away…' : 'Received'}</button>}
                         <button type="button" onClick={() => { setEditing(open ? null : o.id); setGot({}); }} className={`${BTN} flex-1`} style={{ border: `1px solid ${LINE}` }}>{open ? 'Back' : 'Edit first'}</button>
                       </div>
-                      {!open && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>One tap puts it all on the shelf at these costs.</p>}
+                      {!open && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>One tap puts it all on {atName ? `${atName}’s shelf` : 'the shelf'} at these costs.</p>}
                       {open && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Fewer than ordered: the rest stays on its way. A cost typed here is what you pay from now on.</p>}
                       {open && <button type="button" disabled={busy === `cancel-${o.id}`} onClick={() => void run(`cancel-${o.id}`, { action: 'cancel', orderId: o.id }, () => { setEditing(null); void load(); })} className={`mt-1 min-h-[44px] text-[13.5px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{o.status === 'Partially Received' ? 'The rest isn’t coming: close this order' : 'It’s not coming: cancel this order'}</button>}
                     </article>); })}

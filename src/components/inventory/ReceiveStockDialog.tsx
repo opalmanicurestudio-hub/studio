@@ -9,6 +9,8 @@
 // A line starts at what was ordered (a delivery that came complete is just confirmed); scanning a line counts it from
 // zero, and a count typed in is kept. Once scanning starts, a line nobody counted says so, and nothing is added to stock
 // until a count that doesn't match the order has been looked at.
+// With more than one location, it asks which store it came to (components/inventory/ReceiveAtStore): the page adds what
+// came to that store's shelf for anything counted there (lib/store-stock).
 import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -23,6 +25,7 @@ import { askWhich, codeBook, lookupCode, notHereWords, pickFor } from '@/lib/cod
 import { codeForm, codeKindLabel } from '@/lib/code-form';
 import { UnknownCodePanel } from '@/components/inventory/UnknownCodePanel';
 import { Btn, C, muted } from '@/components/orders/ui';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
 import { format } from 'date-fns';
 
 export type ReceivedItem = {
@@ -40,7 +43,8 @@ interface ReceiveStockDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   order: Order | null;
-  onConfirm: (receivedItems: ReceivedItem[]) => void;
+  /** `at`: the store it came to, with more than one location. */
+  onConfirm: (receivedItems: ReceivedItem[], at?: string) => void;
   inventory?: InventoryItem[];
 }
 
@@ -60,6 +64,8 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({ open, on
   const items: any[] = (inventory && inventory.length ? inventory : ctx?.inventory) || [];
   const book = React.useMemo(() => codeBook(items, { equipment: true }), [items]);
   const byId = React.useMemo(() => new Map(items.map((i: any) => [String(i.id), i])), [items]);
+  const stores = React.useMemo(() => storesFrom(ctx?.locations), [ctx?.locations]);
+  const [at, setAt] = useCameTo(stores);
   const [receivedItems, setReceived] = useState<ReceivedItem[]>([]);
   const [counted, setCountedState] = useState<Set<string>>(new Set());
   // The latest counts, for scans that arrive faster than the screen redraws (a scanner reads one after another).
@@ -187,9 +193,11 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({ open, on
   const uncounted = scanning ? receivedItems.filter((ri) => !counted.has(ri.productId)) : [];
   const offLines = receivedItems.filter((ri) => counted.has(ri.productId) || !scanning).filter((ri) => ri.quantityReceived + ri.quantityDamaged !== ri.quantityOrdered);
   const countedLines = receivedItems.filter((ri) => counted.has(ri.productId)).length;
+  const needStore = stores.length > 1 && !at;
   const confirm = () => {
+    if (needStore) return;
     if (!review && (offLines.length || uncounted.length)) { setReview(true); return; }
-    onConfirm(receivedItems);
+    onConfirm(receivedItems, at || undefined);
     onOpenChange(false);
   };
   const zeroUncounted = () => {
@@ -246,6 +254,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({ open, on
           </div>
           <Btn kind={camera ? 'primary' : 'soft'} className="h-11 shrink-0 px-4 text-[14px]" onClick={() => setCamera((c) => !c)} aria-pressed={camera}>{camera ? 'Hide camera' : 'Scan'}</Btn>
         </div>
+        {stores.length > 1 && <div className="mt-3"><CameTo stores={stores} at={at} onPick={setAt} id="po-came-to" /></div>}
         {camera && <div className="mt-3 overflow-hidden rounded-[20px]"><ScanGate cameraFirst onScan={onReceiveScan} label="Reads barcodes and QR codes. A case’s code counts the case." /></div>}
         {!camera && !ask && !note && <p className="m-0 mt-2 text-[13px]" style={muted}>Scan each unit as you unbox, with the camera or a USB or Bluetooth scanner, or type the counts below.</p>}
         {note && <p role="status" className="m-0 mt-3 text-[14px]" style={note.ok ? { color: C.ink } : { color: C.warn, fontWeight: 600 }}>{note.text}</p>}
@@ -288,6 +297,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({ open, on
       </div>
 
       <div className="shrink-0 border-t px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3" style={{ borderColor: C.line }}>
+        <NotOnShelf className="mb-3" items={receivedItems.filter((ri) => ri.quantityReceived > 0).map((ri) => byId.get(ri.productId)).filter(Boolean)} stores={stores} at={at} />
         {review && (offLines.length > 0 || uncounted.length > 0) && (
           <div className="mb-3 rounded-[14px] px-3.5 py-3" style={{ background: C.warnSoft }}>
             <p className="m-0 text-[14px] font-semibold" style={{ color: C.warn }}>The count doesn’t match the order</p>
@@ -300,7 +310,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({ open, on
           </div>)}
         <div className="flex gap-2">
           <Btn kind="soft" className="h-12 shrink-0 text-[15px]" onClick={() => onOpenChange(false)}>Cancel</Btn>
-          <Btn kind="primary" className="h-12 flex-1 text-[15px]" onClick={confirm}>{review && (offLines.length || uncounted.length) ? 'Add to stock anyway' : 'Add to stock'}</Btn>
+          <Btn kind="primary" className="h-12 flex-1 text-[15px]" onClick={confirm} disabled={needStore}>{review && (offLines.length || uncounted.length) ? 'Add to stock anyway' : 'Add to stock'}</Btn>
         </div>
       </div>
     </div>);

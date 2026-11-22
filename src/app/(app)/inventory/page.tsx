@@ -122,6 +122,8 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { storesFrom } from '@/components/inventory/ReceiveAtStore';
+import { stockAtOf } from '@/lib/store-stock';
 import { releaseCoverableBackorders } from '@/lib/fulfil-client';
 import { checkPrices } from '@/lib/price-check-client';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -362,7 +364,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     )
 }
 
-const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
+const OrdersTab = ({ inventory, locations }: { inventory: InventoryItem[]; locations?: any[] }) => {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -520,8 +522,10 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         window.open(finalUrl, '_blank', 'noopener,noreferrer');
     };
 
-    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
+    const handleReceiveStock = (receivedItems: ReceivedItem[], at?: string) => {
       if (!firestore || !orderToReceive || !tenantId) return;
+      // With more than one location, the store it came to (components/inventory/ReceiveAtStore).
+      const store = at ? storesFrom(locations).find((x) => x.id === at) || null : null;
 
       const batch = writeBatch(firestore);
 
@@ -544,9 +548,12 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
 
               // Added to what's on the shelf (never worked out again from the batches: a count, or a sale that moved the
               // total only, would be lost).
+              // On the shelf of the store it came to, for one counted there (lib/store-stock: a delivery never starts a
+              // store's count; one counted at other stores waits in "Not at a store yet").
               batch.update(productRef, {
                 ...JSON.parse(JSON.stringify({ batches: updatedBatches, costPerUnit: item.costPerUnit })),
                 totalStock: increment(item.quantityReceived),
+                ...(store && store.id in stockAtOf(existingProduct) ? { [`stockAt.${store.id}`]: increment(item.quantityReceived) } : {}),
               });
 
               const stockCorrection: Omit<StockCorrection, 'id'> = {
@@ -554,7 +561,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 date: new Date().toISOString(),
                 change: item.quantityReceived,
                 unit: existingProduct.unit || 'units',
-                reason: `Shipment from ${orderToReceive.supplier}`,
+                reason: `Shipment from ${orderToReceive.supplier}${store ? `, received at ${store.name}` : ''}`,
+                ...(store ? { storeId: store.id } : {}),
               };
               const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
               batch.set(scRef, stockCorrection);
@@ -1523,7 +1531,7 @@ export default function InventoryPage() {
             />
           )
         )}
-        {activeView === 'orders' && <OrdersTab inventory={inventory || []} />}
+        {activeView === 'orders' && <OrdersTab inventory={inventory || []} locations={locations || []} />}
         {activeView === 'kits' && tenantId && <div className="mx-auto w-full max-w-2xl"><KitsManager tenantId={tenantId} services={(services as any) || []} inventory={(inventory as any) || []} manager={['owner', 'admin', 'manager'].includes(String((useTenantRole as any) || ''))} /></div>}
         {activeView === 'locations' && (
           <Locations

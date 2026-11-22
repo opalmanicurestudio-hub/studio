@@ -53,6 +53,8 @@ export interface StockMovement {
   /** The item's value AFTER this movement, when the caller knows it. Lets a
    *  reader spot drift without replaying the whole history. */
   balanceAfter?: number;
+  /** With more than one location: the store it happened at (lib/store-stock). */
+  storeId?: string;
 }
 
 /** The document written to tenants/{tid}/stockCorrections. */
@@ -72,6 +74,7 @@ export function buildEntry(m: StockMovement): Record<string, unknown> {
     field: m.field || 'totalStock',
     ...(m.ref ? { refKind: m.ref.kind, refId: m.ref.id } : {}),
     ...(typeof m.balanceAfter === 'number' ? { balanceAfter: Math.round(m.balanceAfter) } : {}),
+    ...(m.storeId ? { storeId: m.storeId } : {}),
   };
 }
 

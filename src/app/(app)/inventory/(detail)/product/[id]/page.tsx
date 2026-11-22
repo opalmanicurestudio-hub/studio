@@ -33,6 +33,8 @@ import { UseTestSheet, canTestUses, startUseTest } from '@/components/products/U
 import { productFeatures } from '@/lib/product-features';
 import { YieldPanel } from '@/components/products/YieldPanel';
 import { StoreStockPanel } from '@/components/products/StoreStockPanel';
+import { storesFrom } from '@/components/inventory/ReceiveAtStore';
+import { storeView } from '@/lib/store-stock';
 import { businessLocations } from '@/lib/business-locations';
 import { recipeOf } from '@/lib/menu-stock';
 import { hasYield, perEachOf } from '@/lib/kitchen-units';
@@ -81,6 +83,9 @@ export default function ProductDetailPage() {
     const { inventory, locations, services, staff, isLoading: isInventoryLoading } = useInventory();
     // With more than one location, what each store has (components/products/StoreStockPanel).
     const severalStores = businessLocations(locations as any[]).length > 1;
+    const storeList = React.useMemo(() => storesFrom(locations as any[]), [locations]);
+    /** With more than one location, a variant's number at each store (each variant is counted on its own page). */
+    const atEachStore = (v: any) => { const w = storeView(v, storeList); return w.tracked ? w.stores.map((x) => (x.count === null ? `${x.name} not counted yet` : `${x.name} ${x.count}`)).join(', ') : 'Not counted at a store yet'; };
     // Who a service-use entry was for: recent visits from the shared window, and just those visits' clients.
     const { appointments } = useAppointmentWindow();
     const usedForIds = useMemo(() => (appointments || []).map((a: any) => a.clientId).filter(Boolean), [appointments]);
@@ -622,10 +627,11 @@ export default function ProductDetailPage() {
                                     <span className="tabular-nums">{!features.sell ? '' : vp > 0 ? money(vp / 100) : '—'}{features.sell && vp > 0 && !own ? <span className="text-[13px]" style={muted}> listing’s</span> : null}</span>
                                     <span className="tabular-nums" style={muted}>{features.online ? <><span className="md:hidden">wholesale </span>{wp > 0 && wp !== vp ? money(wp / 100) : '—'}</> : null}</span>
                                     <span className="col-span-2 flex justify-end md:col-span-1"><Btn kind="soft" onClick={() => setCountTarget(v)}>Count it</Btn></span>
+                                    {severalStores && storeList.length > 1 && <span className="col-span-2 text-[13.5px] md:col-span-6" style={muted}>{atEachStore(v)}</span>}
                                 </div>
                             );
                         })}
-                        <p className="m-0 border-t px-5 py-3 text-[14px]" style={{ ...muted, borderColor: C.line }}>Add or rename variants in Codes and labels. Open one to change its own price or where it’s kept.</p>
+                        <p className="m-0 border-t px-5 py-3 text-[14px]" style={{ ...muted, borderColor: C.line }}>Add or rename variants in Codes and labels. Open one to change its own price or where it’s kept{severalStores ? ', or to count it at each store' : ''}.</p>
                     </section>
                 )}
 

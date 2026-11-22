@@ -93,6 +93,23 @@ export function storeMove(item: any, at: unknown, m: { stock?: number; held?: nu
   return out;
 }
 
+/** The same, for a write that merges maps (a set with merge): `{ stockAt: { [at]: n } }` rather than a dotted path. */
+export function storeMoveNested(item: any, at: unknown, m: { stock?: number; held?: number }): Record<string, Record<string, number>> {
+  const flat = storeMove(item, at, m); const out: Record<string, Record<string, number>> = {};
+  for (const [k, v] of Object.entries(flat)) { const [f, id] = k.split('.'); (out[f] ||= {})[id] = v; }
+  return out;
+}
+
+/** Where a delivery received at store `at` goes: its shelf there (counted there), "Not at a store yet" (counted at other
+ *  stores but not this one yet: the total goes up, the stores don't), or `everywhere` (not counted at any store: every
+ *  store sells from the total, as before). */
+export function receivedTo(item: any, stores: Store[], at: string | null | undefined): 'shelf' | 'unplaced' | 'everywhere' {
+  if (!at || !stores.length) return 'everywhere';
+  const v = storeView(item, stores); if (!v.tracked) return 'everywhere';
+  const mine = v.stores.find((s) => s.id === at);
+  return mine && mine.count !== null ? 'shelf' : 'unplaced';
+}
+
 /** What a store can sell online now: its own number less what's held there, never more than the business can (`free`). */
 export function onlineAt(item: any, stores: Store[], at: string | null, free: number): number {
   if (!at) return free;

@@ -991,6 +991,8 @@ export type StockCorrection = {
   change: number;
   unit: string;
   reason: string;
+  /** With more than one location: the store it happened at (lib/store-stock). */
+  storeId?: string;
 };
 
 export type MembershipPerk = {

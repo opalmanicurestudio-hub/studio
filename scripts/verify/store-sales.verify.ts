@@ -78,7 +78,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const ln = S.storeLine(oil?.atStores, 'harbor');
   check('the product page: out of stock at the store picked, in stock at the other', ln?.here?.qty === 0 && ln?.elsewhere.map((x) => x.name).join() === 'Main St' && S.storeLine(null, 'harbor') === null);
   const line = src('src/components/shop/StoreStockLine.tsx'); const pp = src('src/app/shop/[tenantId]/product/[productId]/page.tsx');
-  check('…said under the button, with Change store and Pick up there', line.includes('`In stock at ${line.here.name}`') && line.includes('`Out of stock at ${line.here.name}`') && line.includes('>Pick up there<') && line.includes('>Change store<') && pp.includes('<StoreStockLine tenantId={tenantId} at={(product as any).atStores} />'));
+  check('…said under the button, with Change store and Pick up there', line.includes('`In stock at ${line.here.name}`') && line.includes('`Out of stock at ${line.here.name}`') && line.includes('>Pick up there<') && line.includes('>Change store<') && pp.includes('<StoreStockLine tenantId={tenantId} at={line?.variantChoice ? (line.variantChoice as any).atStores : (product as any).atStores} />'));
   const co = src('src/app/api/retail/checkout/route.ts');
   check('checkout: a pickup only takes what that store has, a delivery what the store it goes out from has', co.includes('const can = onlineAt(n.item, counted, fromStore.id, Math.max(0, onlineSellable(n.item)));') && co.includes('is out of stock at ${where}. Pick another store, or have it delivered.')
     && co.indexOf('if (fromStore && storeNeeds.size)') < co.indexOf('  const order = {\n    id: orderId,'));
