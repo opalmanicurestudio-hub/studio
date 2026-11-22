@@ -202,6 +202,8 @@ export async function POST(req: NextRequest) {
     // Counter and drive-thru orders voided after the kitchen made them (lib/counter-server keeps what was made).
     db.collection(`${T}/counterOrders`).where('voidedAt', '>=', start).where('voidedAt', '<', end).limit(2000).get().catch(() => ({ docs: [] as any[] })),
   ]);
+  // …and what was made and then taken off an order before it was paid (lib/counter-takeoff-server), kept apart.
+  const takenOffOrders: any = await db.collection(`${T}/counterOrders`).where('wastedAt', '>=', start).where('wastedAt', '<', end).limit(2000).get().catch(() => ({ docs: [] as any[] }));
   // What went out with food and drink (set once: lib/plate-extras), as taken off stock in the stretch. Without the index
   // for that (marked and dated together), every marked one, kept to the stretch here.
   const extraSnap: any = await db.collection(`${T}/stockCorrections`).where('extra', '==', true).where('date', '>=', start).where('date', '<', end).limit(5000).get()
@@ -274,7 +276,8 @@ export async function POST(req: NextRequest) {
     .slice(0, 12);
 
   const adjustments = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => (a.kind === 'void_item' || a.kind === 'remake') && a.used === true);
-  const voided = voidedOrders.docs.flatMap((d: any) => Object.entries((d.data() || {}).wastedItems || {}).map(([itemId, qty]) => ({ itemId, qty: num(qty) })));
+  const voided = [...voidedOrders.docs.flatMap((d: any) => Object.entries((d.data() || {}).wastedItems || {}).map(([itemId, qty]) => ({ itemId, qty: num(qty) }))),
+    ...takenOffOrders.docs.flatMap((d: any) => Object.entries((d.data() || {}).takenOffWaste || {}).map(([itemId, qty]) => ({ itemId, qty: num(qty) })))];
   const waste = wasteOf(adjustments, tossed.docs.map((d: any) => d.data() || {}).map((x: any) => ({ itemId: String(x.itemId || ''), qty: num(x.tossedQty) })), costs, voided);
 
   // What the counts in the stretch found. An ingredient counted at what the record said, with nothing written down for it

@@ -36,6 +36,7 @@ import type { Discount } from '@/lib/counter-money';
 import { RefundFind } from '@/components/pos/CounterRefund';
 import { CodeOnSheet } from '@/components/pos/CounterScan';
 import { OneOffSheet } from '@/components/pos/CounterOneOff';
+import { TakeOffSheet } from '@/components/pos/CounterTakeOff';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
@@ -203,6 +204,8 @@ export default function CounterPage() {
   const [codeFor, setCodeFor] = useState<string | null>(null);
   // Something not on the menu (components/pos/CounterOneOff).
   const [oneOffOpen, setOneOffOpen] = useState(false);
+  // Something taken off an order the kitchen has, before it's paid (components/pos/CounterTakeOff).
+  const [takeOffFor, setTakeOffFor] = useState<string | null>(null);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -243,6 +246,8 @@ export default function CounterPage() {
   const shown = sections.includes(section) ? section : sections[0] || '';
   const reader = readers.find((x) => x.id === readerId) || (readers.length === 1 ? readers[0] : null);
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
+  // (With the kitchen and not paid yet, nothing set aside on it, more than one line: one can come off.)
+  const canTakeOff = !!order && order.status === 'sent' && !order.paidAt && !order.staffMeal && !order.app && !(order.tenders || []).length && !order.split && !cardOn && (order.lines.length > 1 || (order.lines[0]?.quantity || 0) > 1);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setPartC(null); setGiftUpTo(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -481,6 +486,7 @@ export default function CounterPage() {
                       : <LineNote note={l.note} name={l.name} busy={!!busy} editable={order.status === 'building'} onSave={(n) => void saveNote(l, n)} />}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     {order.status === 'building' && <button type="button" aria-label={`One fewer ${l.name}`} onClick={() => setQty(l, l.quantity - 1)} disabled={!!busy} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>−</button>}
+                    {canTakeOff && (order.lines.length > 1 || l.quantity > 1) && <button type="button" onClick={() => setTakeOffFor(l.lineId)} disabled={!!busy} aria-label={`Take ${l.name} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}
                     <span className="w-6 text-center tabular-nums">{l.quantity}</span>
                     {order.status === 'building' && <button type="button" aria-label={`One more ${l.name}`} onClick={() => setQty(l, l.quantity + 1)} disabled={!!busy || l.quantity >= 20} className={`h-11 w-11 rounded-full text-[18px] ${RING}`} style={quiet}>+</button>}
                     <span className="w-16 text-right tabular-nums">{usd(l.unitPrice * l.quantity)}</span>
@@ -622,6 +628,8 @@ export default function CounterPage() {
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
     {codeFor && order && <CodeOnSheet code={codeFor} orderId={order.id} menu={menu} call={post} onClose={() => setCodeFor(null)} onDone={(text) => { setCodeFor(null); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
+    {takeOffFor && order && (() => { const l = order.lines.find((x) => x.lineId === takeOffFor); return l ? <TakeOffSheet orderId={order.id} number={order.number} line={l} max={order.lines.length > 1 ? l.quantity : l.quantity - 1} call={post}
+      onClose={() => setTakeOffFor(null)} onDone={(text, d) => { setTakeOffFor(null); if (d.order && lane) setLane((x) => (x ? { ...x, orders: { ...x.orders, [d.order.id]: { ...(x.orders[d.order.id] || {}), ...d.order } } } : x)); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} /> : null; })()}
     {oneOffOpen && order && <OneOffSheet max={lane?.oneOffMax || 0} onClose={() => setOneOffOpen(false)} add={addOneOff} />}
     {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}

@@ -121,7 +121,9 @@ export async function textIfReady(db: any, tenantId: string, orderIds: string[],
       const live = tickets.filter((t: any) => !LIVE_GONE.includes(String(t.status)));
       // Handed over before it was ever marked ready (or nothing to make): nothing to tell them, and the number goes.
       if (!delivery && live.length && live.every((t: any) => HANDED.includes(String(t.status)))) { await ref.set({ readyText: { to: null, pendingSince: null } }, { merge: true }); continue; }
-      if (!delivery && !readyToText(pre, tickets)) continue;
+      // (Nothing left for the kitchen, only what was rung in that isn't on the menu, once the rest came off: ready now.)
+      const nothingToMake = pre.kitchenNone === true && pre.status === 'sent' && !live.length;
+      if (!delivery && !readyToText(pre, tickets) && !nothingToMake) continue;
       const claim = await db.runTransaction(async (tx: any) => {
         const or: any = (await tx.get(ref)).data();
         if (!or?.readyText?.to || or.readyText.sentAt) return null;
