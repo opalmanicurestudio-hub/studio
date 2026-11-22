@@ -142,7 +142,8 @@ export async function POST(req: NextRequest) {
         const laneCars = laneSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
         const others = inLineNow(laneCars.filter(atDriveThru), Date.now(), carId);
         // (Cars waiting to order before the speaker count too, from the lane entry sensor: lib/lane-entry-server.)
-        const waiting = (await lineNow(db, tenantId, tenant, { cars: laneCars }).catch(() => null))?.waiting || 0;
+        // (The car's own location's lanes, with more than one.)
+        const waiting = (await lineNow(db, tenantId, tenant, { cars: laneCars, at: String((claim as any).car?.locationId || '') || here }).catch(() => null))?.waiting || 0;
         busy = others + 1 + waiting >= RUSH_CARS;
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),

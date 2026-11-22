@@ -429,7 +429,8 @@ export async function POST(req: NextRequest) {
       const earlyMode = earlyModeOf(tenant);
       const early: (EarlyOrder & { lines: (EarlyOrder['lines'][number] & { madeAt?: string })[] })[] = [];
       if (!eventId && earlyMode !== 'off' && (tenant.driveThru || tickets.some((t) => t.channel === 'drive-thru'))) {
-        const line = await lineNow(db, tenantId, tenant, { withOrders: true }).catch(() => null);
+        // (This screen's location's lanes, with more than one: its own rush.)
+        const line = await lineNow(db, tenantId, tenant, { withOrders: true, at: here }).catch(() => null);
         if (line && showEarly(earlyMode, line.rush)) early.push(...line.ordering.filter((x: any) => atHere(x, here)).map((x) => ({ ...x, lines: x.lines.map((l) => ({ ...l })) })));
       }
       // The items they use: a picture and what each is made of (for the label), nothing about cost.

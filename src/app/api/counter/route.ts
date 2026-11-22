@@ -218,8 +218,8 @@ export async function POST(req: NextRequest) {
       // (Each button carries the number guests order by, as on the menu board: lib/menu-numbers.)
       const laneNums = menuNumbers(menu);
       // The line before the speaker, from the lane entry sensor (lib/lane-entry-server), counting toward a rush.
-      // (Its own location's cars, with more than one; the entry sensor's count is the business's.)
-      const line = channel === 'drive-thru' ? await lineNow(db, tenantId, tenant, { cars: carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => atHere(c, here)), nowMs: now.getTime() }).catch(() => null) : null;
+      // (Its own location's cars and its own lanes' sensors, with more than one.)
+      const line = channel === 'drive-thru' ? await lineNow(db, tenantId, tenant, { cars: carSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => atHere(c, here)), nowMs: now.getTime(), at: here }).catch(() => null) : null;
       // (With each car's order placed ahead going with it, if it has one.)
       const orderIds = Array.from(new Set(live.flatMap((c: any) => [String(c.orderId || ''), String(c.aheadId || '')]).filter((x: string) => ID.test(x))));
       const [orderSnaps, ticketSnaps] = await Promise.all([
@@ -714,7 +714,8 @@ export async function POST(req: NextRequest) {
     if (action === 'lineClear') {
       // "Line's clear" (lib/lane-entry-server): nobody waiting to order before the speaker, in a lane or all of them.
       if (channel !== 'drive-thru') return bad('The counter has no lane.', 409);
-      await lineClear(db, tenantId, lanesOf(tenant) === 2 ? cleanLane(b.lane) : null, now.getTime());
+      // (This location's lanes, with more than one.)
+      await lineClear(db, tenantId, lanesOf(tenant) === 2 ? cleanLane(b.lane) : null, now.getTime(), here);
       return ok({ done: true, staffOk });
     }
     if (action === 'merged') {
