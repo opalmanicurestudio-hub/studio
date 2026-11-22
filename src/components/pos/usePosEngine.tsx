@@ -30,6 +30,7 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { viaWords, dollars, methodOfVia } from '@/lib/pay-via';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { businessLocations } from '@/lib/business-locations';
 import { type Appointment, type Service, type Client, type WalkIn, getServicePrice } from '@/lib/data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
@@ -249,6 +250,7 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 export function usePosEngine() {
   const isMobile = useIsMobile();
   const { inventory, services, walkIns, staff, memberships, packages, resources, discounts, isLoading: ctxLoading } = useInventory();
+  const allLocations: any[] = (useInventory() as any).locations || [];
   const { activeTill: openTill, openTills: tillSessions } = useOpenTill();   // only the open till
   // The shared working window (hooks/use-appointments): today's visits, the queue and upcoming conflicts, not all history.
   const { appointments: appointmentsFromInventory, isLoading: apptLoading } = useAppointmentWindow();
@@ -1649,7 +1651,8 @@ export function usePosEngine() {
     if (notYetArrived) { setPendingCheckInItem(hit); }
     else { setSelectedAppointment(hit); setIsDetailsOpen(true); }
   }, [scanResult, appointmentsFromInventory, toast]);
-  const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
+  // (At the desk's location, with more than one: each location's night counts its own drawers, lib/night-close-server.)
+  const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const places = businessLocations(allLocations); const deskLoc = places.length > 1 ? (() => { try { const v = localStorage.getItem('cf.desk.location') || ''; return places.some((p: any) => p.id === v) ? v : null; } catch { return null; } })() : null; const newSession: any = { ...(deskLoc ? { locationId: deskLoc } : {}), ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
   const handleCloseTill = (data: any) => {
     if (!firestore || !tenantId || !activeTill) return;
     const variance = Number((safeNumber(data.discrepancy)).toFixed(2));

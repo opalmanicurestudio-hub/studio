@@ -3,7 +3,9 @@
 // freezer readings (the kitchen screen has its own items too); a reading outside its limit asks what was done. The
 // drawer is counted at the front desk; this shows whether it's done. A manager sees the night's report build as the
 // night goes, and closes it: the report is kept, the night's tip shares approved when tips are shared by the day, and
-// the report emailed. Earlier nights can be opened from the night picker (lib/night-close, api/close).
+// the report emailed. Earlier nights can be opened from the night picker (lib/night-close, api/close). With more than
+// one location, each closes on its own (its checklist, its drawers, its report), picked at the top, starting on the one
+// picked in the app; Whole business is everything, with the tips shared out.
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
@@ -12,7 +14,8 @@ import { limitWords, tempOk, weekdayOf, type CheckMark, type CloseItem, type Clo
 import { NightReportView } from '@/components/close/NightReportView';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed', RED = '#b42318';
-type State = { day: string; today: string; closed: boolean; closedAt: string | null; closedBy: string | null; emailedTo: string[]; tipsApproved: boolean; tipsNote: string | null; left: number; settings: CloseSettings; checks: Record<string, CheckMark>; openTills: number; can: { ok: boolean; why: string | null }; manager: boolean; report: NightReport | null };
+type Place = { id: string; name: string };
+type State = { at: string | null; place: string | null; places: Place[]; day: string; today: string; closed: boolean; closedAt: string | null; closedBy: string | null; emailedTo: string[]; tipsApproved: boolean; tipsNote: string | null; left: number; settings: CloseSettings; checks: Record<string, CheckMark>; openTills: number; can: { ok: boolean; why: string | null }; manager: boolean; report: NightReport | null };
 const timeOf = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '');
 const dateWords = (day: string) => { const d = new Date(`${day}T12:00:00Z`); return `${weekdayOf(day)}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`; };
 
@@ -26,25 +29,27 @@ export default function ClosePage() {
   const { selectedTenant } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
   const [day, setDay] = useState<string>('');
+  // (The location picked in the app to start with; the server says which it used.)
+  const [at, setAt] = useState<string>(() => { try { return localStorage.getItem('selectedLocationId') || ''; } catch { return ''; } });
   const [s, setS] = useState<State | null>(null);
   const [err, setErr] = useState(''); const [note, setNote] = useState(''); const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // The whole report (with the night's tip shares) when the page opens or is refreshed; the checklist every half minute.
-  const load = useCallback(async (full = false) => { if (!tenantId) return; const d = await post({ tenantId, action: 'state', ...(day ? { day } : {}), ...(full ? { tips: true } : { lite: true }) });
-    if (d.ok) { setS((cur) => ({ ...d, report: full || !cur ? d.report : cur.report })); setErr(''); } else setErr(d.error || 'That didn’t load.'); }, [tenantId, day]);
+  const load = useCallback(async (full = false) => { if (!tenantId) return; const d = await post({ tenantId, action: 'state', at, ...(day ? { day } : {}), ...(full ? { tips: true } : { lite: true }) });
+    if (d.ok) { setS((cur) => ({ ...d, report: full || !cur || cur.at !== d.at ? d.report : cur.report })); setErr(''); } else setErr(d.error || 'That didn’t load.'); }, [tenantId, day, at]);
   useEffect(() => { void load(true); const t = setInterval(() => void load(false), 30000); return () => clearInterval(t); }, [load]);
 
   const mark = async (item: CloseItem, input: { done?: boolean; value?: number; note?: string }) => {
     if (!tenantId || !s) return null; setErr('');
-    const d = await post({ tenantId, action: 'check', day: s.day, itemId: item.id, ...input });
+    const d = await post({ tenantId, action: 'check', at: s.at, day: s.day, itemId: item.id, ...input });
     if (!d.ok) { setErr(d.error || 'That didn’t save.'); return false; }
     setS({ ...s, checks: d.mark ? { ...s.checks, [item.id]: d.mark } : Object.fromEntries(Object.entries(s.checks).filter(([k]) => k !== item.id)) }); void load(false); return true;
   };
   const close = async () => { if (!tenantId || !s) return; setConfirming(false); setBusy(true); setErr(''); setNote('');
-    const d = await post({ tenantId, action: 'close', day: s.day }); setBusy(false);
+    const d = await post({ tenantId, action: 'close', at: s.at, day: s.day }); setBusy(false);
     if (!d.ok) { setErr(d.error || 'The night didn’t close.'); return; }
     setNote(`${d.emailedTo?.length ? `Closed. The report went to ${d.emailedTo.join(', ')}.` : d.wanted ? 'Closed. The report email didn’t go out; try Send again.' : 'Closed. Add someone to send the report to in closing settings.'}${d.tipsNote ? ` ${d.tipsNote}` : ''}`); void load(true); };
-  const resend = async () => { if (!tenantId || !s) return; setBusy(true); setErr(''); const d = await post({ tenantId, action: 'send', day: s.day }); setBusy(false); if (d.ok) setNote(`Sent to ${d.emailedTo.join(', ')}.`); else setErr(d.error || 'That didn’t send.'); };
+  const resend = async () => { if (!tenantId || !s) return; setBusy(true); setErr(''); const d = await post({ tenantId, action: 'send', at: s.at, day: s.day }); setBusy(false); if (d.ok) setNote(`Sent to ${d.emailedTo.join(', ')}.`); else setErr(d.error || 'That didn’t send.'); };
 
   const items = s?.settings.items || [];
   const left = items.filter((i) => !s?.checks[i.id]?.done).length + (s?.openTills || 0);
@@ -53,7 +58,7 @@ export default function ClosePage() {
       <div className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[28px] font-semibold tracking-tight">Close the night</h1>
+            <h1 className="text-[28px] font-semibold tracking-tight">Close the night{s?.place ? `, ${s.place}` : ''}</h1>
             <p className="text-[15px]" style={{ color: MUTED }}>{s ? `${dateWords(s.day)}. ${s.closed ? `Closed by ${s.closedBy} at ${timeOf(s.closedAt)}.` : s.day === s.today ? 'Still open.' : 'Not closed.'}` : 'Loading…'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -64,13 +69,21 @@ export default function ClosePage() {
             {s?.manager && s.closed && <button type="button" disabled={busy} onClick={resend} className="min-h-[48px] rounded-2xl px-6 text-[15px] font-semibold disabled:opacity-40 text-[#fff]" style={{ background: INK }}>Send again</button>}
           </div>
         </header>
+        {s && s.places.length > 1 && <div className="space-y-2">
+          <div role="group" aria-label="Which night to close" className="flex flex-wrap gap-2">
+            {[...s.places, { id: '', name: 'Whole business' }].map((p) => { const on = (s.at || '') === p.id; return (
+              <button key={p.id || 'all'} type="button" aria-pressed={on} onClick={() => { if (!on) { setNote(''); setErr(''); setConfirming(false); setAt(p.id); } }}
+                className="min-h-[44px] rounded-xl px-4 text-[14px] font-semibold" style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{p.name}</button>); })}
+          </div>
+          <p className="text-[13px]" style={{ color: MUTED }}>{s.at ? 'Each location closes on its own: its own checklist, drawers and report. Sales from before there were locations show under the whole business.' : 'Everything, at every location, with each person’s tips shared out. Each location can close on its own too.'}</p>
+        </div>}
         {err && <p className="text-[14px] font-semibold" style={{ color: RED }} role="alert">{err}</p>}
         {note && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: GREEN_TINT }} role="status">{note}</p>}
         {s && !s.closed && !s.can.ok && s.manager && <p className="text-[14px]" style={{ color: MUTED }}>{s.can.why}</p>}
         {confirming && s && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" style={{ background: 'rgba(22,23,26,0.45)' }} role="dialog" aria-modal="true" aria-labelledby="confirm-title">
             <div className="w-full max-w-md rounded-t-3xl sm:rounded-3xl bg-[#fff] p-6 space-y-4">
-              <h2 id="confirm-title" className="text-[20px] font-semibold">Close {weekdayOf(s.day)} night?</h2>
+              <h2 id="confirm-title" className="text-[20px] font-semibold">Close {weekdayOf(s.day)} night{s.place ? ` at ${s.place}` : ''}?</h2>
               <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>The report is kept as it is now and sent. Sales after this won’t be on it, and the checklist locks.{s.left ? ` ${s.left} ${s.left === 1 ? 'item is' : 'items are'} not done and will show that way.` : ''}</p>
               <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setConfirming(false)} className="min-h-[48px] rounded-2xl px-5 text-[15px] font-semibold" style={{ border: `1px solid ${LINE}` }}>Not yet</button>

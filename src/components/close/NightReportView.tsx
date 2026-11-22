@@ -37,6 +37,7 @@ export function NightReportView({ r }: { r: NightReport }) {
           <div key={k} className="rounded-3xl bg-[#fff] p-4"><p className="text-[26px] font-semibold tracking-tight tabular-nums">{v}</p><p className="text-[13px]" style={{ color: MUTED }}>{k}</p></div>
         ))}
       </div>
+      {r.unplaced && <p className="text-[13.5px]" style={{ color: MUTED }}>{r.unplaced.count === 1 ? 'One sale' : `${r.unplaced.count} sales`} tonight, {$(r.unplaced.total)}, {r.unplaced.count === 1 ? 'wasn’t' : 'weren’t'} at a location (fees paid online, or from before there were locations), so {r.unplaced.count === 1 ? 'it’s' : 'they’re'} on the whole business’s report.</p>}
       {r.sales.byHour.length > 0 && (
         <Card title="Sales by hour">
           <div className="flex items-end gap-2 h-36 pt-4" role="img" aria-label={`Sales by hour: ${r.sales.byHour.map((h) => `${h.hour} ${$(h.amount)}`).join(', ')}`}>
@@ -70,8 +71,8 @@ export function NightReportView({ r }: { r: NightReport }) {
           {(r.sales.refunds || 0) > 0 && <Row k="Refunded on tonight’s sales" v={$(r.sales.refunds)} />}
           <Row k="Sales, after discounts and refunds" v={$(r.sales.total)} />
         </Card>
-        <Card title="Tips" right={$(r.tips.total)} sub={r.tips.mode === 'direct' ? 'Each person keeps their own' : r.tips.mode === 'pool' ? 'Pooled, as your tip sharing is set' : 'Shared out, as your tip sharing is set'}>
-          {r.tips.rows.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>No tips recorded to anyone tonight.</p> : r.tips.rows.map((t) => (
+        <Card title="Tips" right={$(r.tips.total)} sub={r.place && r.tips.mode !== 'direct' ? 'Shared out on the whole business’s report' : r.tips.mode === 'direct' ? 'Each person keeps their own' : r.tips.mode === 'pool' ? 'Pooled, as your tip sharing is set' : 'Shared out, as your tip sharing is set'}>
+          {r.place ? <p className="text-[14px]" style={{ color: MUTED }}>Each person’s tips are on the whole business’s report, with every location’s.</p> : r.tips.rows.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>No tips recorded to anyone tonight.</p> : r.tips.rows.map((t) => (
             <div key={t.name} className="flex justify-between gap-3 text-[14px] leading-snug"><span>{t.name}{t.shared ? <span style={{ color: MUTED }}>{t.shared > 0 ? `, got ${$(t.shared)}` : `, shared ${$(-t.shared)}`}</span> : null}</span><span className="tabular-nums font-semibold">{$(t.takesHome)}</span></div>
           ))}
         </Card>

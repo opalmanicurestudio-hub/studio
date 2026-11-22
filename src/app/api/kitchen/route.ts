@@ -516,18 +516,21 @@ export async function POST(req: NextRequest) {
     }
     // Closing the night (lib/night-close): the kitchen's and the bar's items on tonight's checklist, ticked or read here.
     if (action === 'closing' || action === 'closingCheck') {
-      const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');
-      const T = `tenants/${tenantId}`; const day = tonight(tenant);
+      const { closeSettingsOf } = await import('@/lib/night-close'); const { closeId, tonight, recordCheck } = await import('@/lib/night-close-server');
+      // (With more than one location: this screen's location's own checklist, on its own clock.)
+      const closeAt = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null });
+      const closeTenant = await zonedHere(db, tenantId, tenant, closeAt);
+      const T = `tenants/${tenantId}`; const day = tonight(closeTenant);
       if (action === 'closingCheck') {
         // On their own phone, each checks their own part: the kitchen side all of the back's, the dish pit its own, the
         // barback the bar's, anyone else what's for anyone.
         const areas: ('kitchen' | 'bar' | 'dish' | 'anyone')[] = !teamMember || kitchenSide ? ['kitchen', 'bar', 'dish', 'anyone'] : teamJob === 'dishwasher' ? ['dish', 'anyone'] : teamJob === 'barback' ? ['bar', 'anyone'] : ['anyone'];
         const item = closeSettingsOf(tenant).items.find((i) => i.id === String(b.itemId || ''));
         if (teamMember && item && item.area !== 'front' && !areas.includes(item.area as any)) return bad(`That one is checked by the ${item.area === 'dish' ? 'dish pit' : item.area === 'bar' ? 'bar' : 'kitchen'}.`, 403);
-        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, areas);
+        const r = await recordCheck(db, T, closeTenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, staff?.name || screen.name, areas, closeAt);
         return r.ok ? ok({ mark: r.mark }) : bad(r.error, r.status || 400);
       }
-      const cur: any = (await db.doc(`${T}/nightCloses/${day}`).get()).data() || {};
+      const cur: any = (await db.doc(`${T}/nightCloses/${closeId(day, closeAt)}`).get()).data() || {};
       return ok({ day, closed: cur.status === 'closed', items: closeSettingsOf(tenant).items.filter((i) => i.area !== 'front'), checks: cur.checks || {} });
     }
     if (action === 'soldout') {

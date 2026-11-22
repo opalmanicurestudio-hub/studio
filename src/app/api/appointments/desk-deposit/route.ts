@@ -158,7 +158,11 @@ export async function POST(req: NextRequest) {
     const balPaid = desk && bal > 0 && b.withBalance !== false ? await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: method, via: 'front desk', actorName: auth.actor.name }) : false;
     // Cash goes in the drawer: the open till expects it (the deposit, and a balance paid with it), so it balances at close.
     const toTill = desk && method === 'Cash' ? async () => {
-      const till = (await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(1).get()).docs[0];
+      // (With more than one location, the drawer open at the visit's location, else one kept for no location; never another
+      // location's.)
+      const open = (await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(20).get()).docs;
+      const stamped = open.some((d: any) => !!(d.data() || {}).locationId);
+      const till = !stamped ? open[0] : open.find((d: any) => ap.locationId && (d.data() || {}).locationId === ap.locationId) || open.find((d: any) => !(d.data() || {}).locationId);
       const inCash = cents + (balPaid ? bal : 0);
       if (till && inCash > 0) await till.ref.set({ expectedCash: FieldValue.increment(inCash / 100),
         cashAdjustments: FieldValue.arrayUnion({ amount: inCash / 100, reason: `Deposit paid in cash (${ap.clientName || 'client'})`, at: nowIso, by: auth.actor.name || 'Front desk', appointmentId }) }, { merge: true });

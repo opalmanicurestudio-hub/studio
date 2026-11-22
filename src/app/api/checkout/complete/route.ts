@@ -23,6 +23,7 @@ import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { heldCovered, heldLine, heldShortfall } from '@/lib/held-stock';
+import { hereOf } from '@/lib/here-server';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { popupToday } from '@/lib/popup';
@@ -1368,7 +1369,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // Every card payment on it — the sale's own, or each card share of a split — so a payment is never used for a second
   // sale, kept apart as extra, or refunded as extra once it's on this receipt (lib/reader-sale onAnyReceipt).
   const paymentIntentIds = [...new Set([pay.stripePaymentIntentId, ...(split || []).map((x: any) => x?.stripePaymentIntentId)].filter(Boolean).map(String))];
-  batch.create(receiptRef, clean({ id: receiptRef.id, pendingId: pendingRef ? pendingRef.id : null, ...(askedId && (!pendingRef || pendingRef.id !== askedId) ? { askedPendingId: askedId } : {}), ...(paymentIntentIds.length ? { paymentIntentIds } : {}), ...(splitOver > 0 ? { overpaid: splitOver } : {}), detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
+  // Kept on the receipt, so each location's night counts its own sales (lib/night-close-server).
+  // (The desk's only while it's still one of the business's locations, with more than one: lib/here-server hereOf.)
+  const saleLocation: string | null = (await hereOf(db, tenantId, b.locationId)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
+  batch.create(receiptRef, clean({ id: receiptRef.id, ...(saleLocation ? { locationId: saleLocation } : {}), pendingId: pendingRef ? pendingRef.id : null, ...(askedId && (!pendingRef || pendingRef.id !== askedId) ? { askedPendingId: askedId } : {}), ...(paymentIntentIds.length ? { paymentIntentIds } : {}), ...(splitOver > 0 ? { overpaid: splitOver } : {}), detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
@@ -1405,8 +1410,6 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const cid = (w.data() as any).campaignId; if (cid) batch.set(db.doc(`${T}/campaigns/${cid}`), { offersRedeemed: FieldValue.increment(1), offerRevenueCents: FieldValue.increment(Math.round(calc.total * 100)) }, { merge: true }); }
     for (const v of visits) if (v.appointment.pendingDiscountCode) batch.set(db.doc(`${T}/appointments/${v.appointment.id}`), { pendingDiscountCode: FieldValue.delete(), discountCodeUsed: String(d.code) }, { merge: true });
   }
-  // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
-  const saleLocation: string | null = (typeof b.locationId === 'string' && b.locationId.slice(0, 80)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
   // The loyalty reward's points come off now, checked against the ledger itself; put back if the checkout doesn't save.
   let loyaltyRedeemed = false;
   if (loyaltyRw && loyaltyRwCents > 0 && clientId) { const { redeemForSale } = await import('@/lib/loyalty-server');

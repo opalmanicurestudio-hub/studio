@@ -143,13 +143,17 @@ export async function POST(req: NextRequest) {
     if (action === 'broke') return ok(await recordBreak(db, T, tenant, b, by));
     if (action === 'closing' || action === 'closingCheck') {
       const area = b.area === 'bar' ? 'bar' : 'dish';
-      const { closeSettingsOf } = await import('@/lib/night-close'); const { tonight, recordCheck } = await import('@/lib/night-close-server');
-      const day = tonight(tenant);
+      const { closeSettingsOf } = await import('@/lib/night-close'); const { closeId, tonight, recordCheck } = await import('@/lib/night-close-server');
+      // (With more than one location: this screen's location's own checklist, on its own clock.)
+      const { hereFor, zonedHere } = await import('@/lib/here-server');
+      const closeAt = await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: member?.id || null });
+      const closeTenant = await zonedHere(db, tenantId, tenant, closeAt);
+      const day = tonight(closeTenant);
       if (action === 'closingCheck') {
-        const r = await recordCheck(db, T, tenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, by, [area, 'anyone']);
+        const r = await recordCheck(db, T, closeTenant, day, String(b.itemId || ''), { done: b.done, value: b.value, note: b.note }, by, [area, 'anyone'], closeAt);
         return r.ok ? ok({ mark: r.mark }) : bad(r.error, r.status || 400);
       }
-      const cur: any = (await db.doc(`${T}/nightCloses/${day}`).get()).data() || {};
+      const cur: any = (await db.doc(`${T}/nightCloses/${closeId(day, closeAt)}`).get()).data() || {};
       return ok({ day, closed: cur.status === 'closed', items: closeSettingsOf(tenant).items.filter((i) => i.area === area || i.area === 'anyone'), checks: cur.checks || {} });
     }
     return bad('Unknown action.');

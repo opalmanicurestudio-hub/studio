@@ -24,8 +24,8 @@ export type NightRow = { day: string; closed: boolean; closedBy: string | null; 
 /** The month's sales as they came in (the front desk's receipts and the counter's paid orders), read once: which days
  *  had any (only those are worked out night by night), and what of it was food and drink (lib/records tipCheck's base:
  *  a counter order is all menu; at the desk, the lines that were menu items). */
-export async function monthSales(db: any, tenantId: string, tenant: any, days: string[]): Promise<{ busy: Set<string>; foodDrink: number; partial: boolean }> {
-  const T = `tenants/${tenantId}`; const b = monthBounds(tenant, days); const busy = new Set<string>(); if (!b) return { busy, foodDrink: 0, partial: false };
+export async function monthSales(db: any, tenantId: string, tenant: any, days: string[]): Promise<{ busy: Set<string>; busyAt: Map<string, Set<string>>; foodDrink: number; partial: boolean }> {
+  const T = `tenants/${tenantId}`; const b = monthBounds(tenant, days); const busy = new Set<string>(); if (!b) return { busy, busyAt: new Map(), foodDrink: 0, partial: false };
   const [rc, co, inv] = await Promise.all([
     db.collection(`${T}/receipts`).where('date', '>=', b.start).where('date', '<', b.end).limit(20000).get().catch(() => ({ docs: [] as any[] })),
     db.collection(`${T}/counterOrders`).where('paidAt', '>=', b.start).where('paidAt', '<', b.end).limit(20000).get().catch(() => ({ docs: [] as any[] })),
@@ -33,10 +33,13 @@ export async function monthSales(db: any, tenantId: string, tenant: any, days: s
   ]);
   const menu = new Set<string>(inv.docs.filter((d: any) => isMenuItem(d.data() || {}) || (d.data() || {}).type === 'refreshment').map((d: any) => d.id));
   const bounds = days.map((d) => ({ d, ...nightBounds(tenant, d) }));
+  // (Which locations sold each night, with more than one: a night is closed once each of them has closed it.)
+  const busyAt = new Map<string, Set<string>>();
+  const at = (day: string, loc: unknown) => { if (typeof loc === 'string' && loc) { const x = busyAt.get(day) || new Set<string>(); x.add(loc); busyAt.set(day, x); } };
   const dayOf = (iso: string) => bounds.find((x) => iso >= x.start && iso < x.end)?.d || null;
   let fd = 0;
   for (const d of rc.docs) {
-    const r: any = d.data() || {}; if (r.voided) continue; const day = dayOf(String(r.date || '')); if (day) busy.add(day);
+    const r: any = d.data() || {}; if (r.voided) continue; const day = dayOf(String(r.date || '')); if (day) { busy.add(day); at(day, r.locationId); }
     const ids: any[] = Array.isArray(r.reversal?.products) ? r.reversal.products : [];
     const lines: any[] = (Array.isArray(r.detail?.lines) ? r.detail.lines : []).filter((l: any) => l?.kind === 'product'); const taken = new Set<number>();
     let f = 0;
@@ -50,18 +53,19 @@ export async function monthSales(db: any, tenantId: string, tenant: any, days: s
   }
   for (const d of co.docs) {
     const o: any = d.data() || {}; if (!o.paidAt || o.staffMeal || o.refundedAt || ['refunded', 'cancelled', 'canceled', 'voided'].includes(String(o.status || ''))) continue;
-    const day = dayOf(String(o.paidAt)); if (day) busy.add(day); fd += num(o.subtotal ?? (num(o.total) - num(o.tax)));
+    const day = dayOf(String(o.paidAt)); if (day) { busy.add(day); at(day, o.locationId); } fd += num(o.subtotal ?? (num(o.total) - num(o.tax)));
   }
   // A month with more sales than are read at once says so, rather than totals that look complete.
-  return { busy, foodDrink: r2(fd), partial: rc.docs.length >= 20000 || co.docs.length >= 20000 };
+  return { busy, busyAt, foodDrink: r2(fd), partial: rc.docs.length >= 20000 || co.docs.length >= 20000 };
 }
 
 /** The month's nights: each day's close as kept; a day with sales that wasn't closed, worked out now (and kept for six
  *  hours, so opening the page again doesn't work the month out again); a day with no sales, nothing. */
-export async function monthNights(db: any, tenantId: string, tenant: any, month: string, busy?: Set<string>): Promise<NightRow[]> {
+export async function monthNights(db: any, tenantId: string, tenant: any, month: string, busy?: Set<string>, busyAt?: Map<string, Set<string>>): Promise<NightRow[]> {
   const T = `tenants/${tenantId}`; const today = tonight(tenant); const days = monthDays(month, today); if (!days.length) return [];
   // (A month too big to read at once: every day is worked out, so none is missed.)
-  const sold: Set<string> = busy || await monthSales(db, tenantId, tenant, days).then((m) => (m.partial ? new Set(days) : m.busy));
+  let soldAt: Map<string, Set<string>> | undefined = busyAt;
+  const sold: Set<string> = busy || await monthSales(db, tenantId, tenant, days).then((m) => { soldAt = m.busyAt; return m.partial ? new Set(days) : m.busy; });
   const kept: any[] = await db.getAll(...days.map((d) => db.doc(`${T}/nightCloses/${d}`)));
   const rows: NightRow[] = new Array(days.length);
   const rowOf = (day: string, rep: any, c: any): NightRow => {
@@ -89,6 +93,20 @@ export async function monthNights(db: any, tenantId: string, tenant: any, month:
       rows[i] = rowOf(days[i], r?.report || null, c);
       if (r && days[i] < today) await db.doc(`${T}/recordsNights/${days[i]}`).set({ row: rows[i], at: new Date().toISOString() }).catch(() => undefined);
     }));
+  }
+  // With more than one location, each can close on its own (lib/night-close-server closeId): a night counts as closed
+  // when every location that sold that night, or started its checklist, closed it, by whoever closed them, though the
+  // whole business's wasn't.
+  const { bizLocationsOf } = await import('@/lib/here-server');
+  const locs = await bizLocationsOf(db, tenantId).catch(() => [] as any[]);
+  if (locs.length > 1 && rows.some((r) => r && !r.closed)) {
+    const s = await db.collection(`${T}/nightCloses`).where('day', '>=', days[0]).where('day', '<=', days[days.length - 1]).limit(3000).get().catch(() => ({ docs: [] as any[] }));
+    const byDay = new Map<string, { need: Set<string>; done: Set<string>; by: string[] }>();
+    const of = (day: string) => { const x = byDay.get(day) || { need: new Set<string>(), done: new Set<string>(), by: [] as string[] }; byDay.set(day, x); return x; };
+    for (const d of s.docs) { const c: any = d.data() || {}; if (!c.locationId || !locs.some((l: any) => l.id === c.locationId)) continue; const x = of(String(c.day)); x.need.add(String(c.locationId));
+      if (c.status === 'closed') { x.done.add(String(c.locationId)); if (c.closedBy && !x.by.includes(String(c.closedBy))) x.by.push(String(c.closedBy)); } }
+    for (const [day, ids] of soldAt || new Map<string, Set<string>>()) for (const id of ids) if (locs.some((l: any) => l.id === id)) of(day).need.add(id);
+    rows.forEach((r, i) => { const x = r && !r.closed ? byDay.get(days[i]) : null; if (x && x.done.size && Array.from(x.need).every((id) => x.done.has(id))) rows[i] = { ...r, closed: true, closedBy: words(x.by.join(', '), 60) || null }; });
   }
   return rows;
 }
@@ -237,7 +255,7 @@ export async function monthRecords(db: any, tenantId: string, tenant: any, month
   const T = `tenants/${tenantId}`; const today = tonight(tenant); const days = monthDays(month, today); const b = monthBounds(tenant, days);
   const ms = await monthSales(db, tenantId, tenant, days);
   const [nights, tips, purchases, adjustments, inv, keptSnap] = await Promise.all([
-    monthNights(db, tenantId, tenant, month, ms.partial ? new Set(days) : ms.busy),
+    monthNights(db, tenantId, tenant, month, ms.partial ? new Set(days) : ms.busy, ms.busyAt),
     b ? monthTips(db, tenantId, tenant, month, b.start, b.end) : Promise.resolve({ people: [], chargedCents: 0, cashCents: 0, declaredCashCents: 0, mode: 'direct' }),
     b ? monthPurchases(db, tenantId, b.start, b.end) : Promise.resolve({ list: [], bySupplier: [], total: 0 }),
     days.length ? monthAdjustments(db, tenantId, days[0], days[days.length - 1]) : Promise.resolve([]),

@@ -2,7 +2,10 @@
 // and writes the close. The night is the business's day (lib/hosting-sessions: a 1am sale belongs to the night before),
 // from its cutover hour to the next day's, in its time zone.
 // - tenants/{t}/nightCloses/{day}: the checklist marks as they're made, then the close (who, when, the report kept as
-//   it stood, who it was emailed to).
+//   it stood, who it was emailed to). With more than one location, each closes on its own as well:
+//   nightCloses/{day}_{locationId} (`locationId` on it), its night on its own clock, its own checklist, and its report
+//   from its own sales, orders, tables and drawers (each keeps where it was). The whole business's night is still there,
+//   with everything, sales from before there were locations too; tips are shared out on it.
 // - Sales come from the front desk's receipts and the counter's paid orders; comps, voids and remakes from their records
 //   (api/tab, kept with the approvals); guests from the tables seated; drawers from the till; tips as the business shares
 //   them (lib/tip-share), for the same day the Money page uses, so approving here and there is the one approval.
@@ -24,12 +27,16 @@ export function nightBounds(tenant: any, day: string) {
   return { start: wallToUtc(day, h, 0, tz).toISOString(), end: wallToUtc(addDays(day, 1), h, 0, tz).toISOString(), timeZone: tz };
 }
 
-/** The drawers that were open during the night (opened before it ended, and not closed before it began). */
-export async function nightTills(db: any, T: string, b: { start: string; end: string }): Promise<(Till & { id: string })[]> {
+/** A night's close: the whole business's, or one location's (`at`). */
+export const closeId = (day: string, at?: string | null) => (at ? `${day}_${at}` : day);
+
+/** The drawers that were open during the night (opened before it ended, and not closed before it began). `at`: one
+ *  location's only. */
+export async function nightTills(db: any, T: string, b: { start: string; end: string }, at: string | null = null): Promise<(Till & { id: string })[]> {
   const since = new Date(Date.parse(b.start) - 36 * 3600000).toISOString();
   const s = await db.collection(`${T}/tillSessions`).where('openedAt', '>=', since).limit(200).get().catch(() => ({ docs: [] as any[] }));
   return s.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-    .filter((t: any) => String(t.openedAt || '') < b.end && (t.status === 'open' || String(t.closedAt || '') >= b.start))
+    .filter((t: any) => String(t.openedAt || '') < b.end && (t.status === 'open' || String(t.closedAt || '') >= b.start) && (!at || String(t.locationId || '') === at))
     .map((t: any) => ({ id: t.id, openedBy: String(t.openedBy || 'Drawer'), openingFloat: num(t.openingFloat), expectedCash: num(t.expectedCash), actualCash: t.status === 'closed' && t.actualCash !== undefined ? num(t.actualCash) : null, status: t.status === 'open' ? 'open' : 'closed' }));
 }
 
@@ -83,29 +90,33 @@ export function deliveryNight(orders: any[]): DeliveryNight {
   };
 }
 
-/** Everything the report reads for a night, and the report. */
-export async function buildNightReport(db: any, tenantId: string, tenant: any, day: string, checks: Record<string, CheckMark | undefined>, opts: { tips?: boolean } = {}): Promise<{ report: NightReport; tills: (Till & { id: string })[] }> {
-  const T = `tenants/${tenantId}`; const b = nightBounds(tenant, day);
+/** Everything the report reads for a night, and the report. `at` (with more than one location): that location's night
+ *  only, from what was stamped there (the tenant given on its clock: lib/here-server zonedFor); `place`, its name. */
+export async function buildNightReport(db: any, tenantId: string, tenant: any, day: string, checks: Record<string, CheckMark | undefined>, opts: { tips?: boolean; at?: string | null; place?: string | null } = {}): Promise<{ report: NightReport; tills: (Till & { id: string })[] }> {
+  const T = `tenants/${tenantId}`; const b = nightBounds(tenant, day); const at = opts.at || null;
+  const mine = (x: any) => !at || String(x?.locationId || '') === at;
   const [rc, co, ap, tb, tills, tips, usual] = await Promise.all([
     db.collection(`${T}/receipts`).where('date', '>=', b.start).where('date', '<', b.end).limit(3000).get().catch(() => ({ docs: [] as any[] })),
     // Counted when paid (a quick-service order's own day is the calendar day it was started).
     db.collection(`${T}/counterOrders`).where('paidAt', '>=', b.start).where('paidAt', '<', b.end).limit(3000).get().catch(() => ({ docs: [] as any[] })),
-    db.collection(`${T}/approvals`).where('day', '==', day).limit(3000).get().catch(() => ({ docs: [] as any[] })),
+    // (One location's night, on its own clock: by when each was used, since its day is the business's.)
+    (at ? db.collection(`${T}/approvals`).where('usedAt', '>=', b.start).where('usedAt', '<', b.end) : db.collection(`${T}/approvals`).where('day', '==', day)).limit(3000).get().catch(() => ({ docs: [] as any[] })),
     db.collection(`${T}/appointments`).where('startTime', '>=', b.start).where('startTime', '<', b.end).limit(3000).get().catch(() => ({ docs: [] as any[] })),
-    nightTills(db, T, b),
-    opts.tips ? nightTips(db, tenantId, tenant, day) : Promise.resolve({ mode: String(tenant?.tipSharing?.mode || 'direct'), rows: [] as TipRow[] }),
-    // A usual night like this one: the same weekday's closes over the last four weeks.
-    Promise.all([7, 14, 21, 28].map((n) => db.doc(`${T}/nightCloses/${addDays(day, -n)}`).get().then((s: any) => s.data()?.report?.comps?.total).catch(() => undefined))),
+    nightTills(db, T, b, at),
+    // (One location's night: tips are shared out on the whole business's.)
+    opts.tips && !at ? nightTips(db, tenantId, tenant, day) : Promise.resolve({ mode: String(tenant?.tipSharing?.mode || 'direct'), rows: [] as TipRow[] }),
+    // A usual night like this one: the same weekday's closes over the last four weeks (at this location, for one).
+    Promise.all([7, 14, 21, 28].map((n) => db.doc(`${T}/nightCloses/${closeId(addDays(day, -n), at)}`).get().then((s: any) => s.data()?.report?.comps?.total).catch(() => undefined))),
   ]);
   const sales: Sale[] = [
     // A receipt's sales: its items less discounts (before tax and tips); refunds on it come off; total is what was taken.
-    ...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided).map((r: any) => ({ at: String(r.date), net: Math.max(0, num(r.subtotal) - num(r.discount)), refunded: (Array.isArray(r.refunds) ? r.refunds : []).reduce((s: number, x: any) => s + num(x?.cents), 0) / 100,
+    ...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && mine(r)).map((r: any) => ({ at: String(r.date), net: Math.max(0, num(r.subtotal) - num(r.discount)), refunded: (Array.isArray(r.refunds) ? r.refunds : []).reduce((s: number, x: any) => s + num(x?.cents), 0) / 100,
       total: num(r.total), tip: num(r.tip), tax: num(r.tax), method: String(r.paymentMethod || 'other'),
       payments: Array.isArray(r.payments) ? r.payments.map((p: any) => ({ method: String(p.method || 'other'), amount: num(p.amount), tip: num(p.tip) })) : null })),
     // (A staff meal is settled with no money, lib/counter-server staffMeal: never a sale.)
     // (An app's order at the app's price, with any sales tax the business pays: lib/app-orders. A delivery's driver tip
     // is its tip; its fee is in what was taken, never food sales.)
-    ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || '')))
+    ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => mine(o) && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || '')))
       .map((o: any) => { const am = o.app?.code && o.payMethod === 'app' ? appBooksOn(o) : null;
         // A delivery's tip is a tip once it's delivered (until then, the report lists it as waiting); what went back to
         // the card after it couldn't be delivered (the tip, the fee) is off what was taken.
@@ -115,12 +126,26 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
         return { at: String(o.paidAt), net: am ? am.appCents / 100 : num(o.subtotal ?? (num(o.total) - num(o.tax))), total: am ? (am.appCents + am.taxCents) / 100 : Math.round((num(o.total) - back) * 100) / 100,
           tip: num(o.tip) + dtip, tax: am ? am.taxCents / 100 : num(o.tax), method: String(o.payMethod || 'other'), payments: null }; }),
   ];
-  const deliveries = deliveryNight(co.docs.map((d: any) => d.data() || {}));
+  const deliveries = deliveryNight(co.docs.map((d: any) => d.data() || {}).filter(mine));
+  // (A comp, void or remake is where its table was: lib/table-tab keeps the visit with it. A table seated before the
+  // night began is read on its own.)
+  const visitAt = new Map<string, string>(tb.docs.map((d: any) => [d.id, String((d.data() || {}).locationId || '')]));
+  if (at) {
+    const missing = Array.from(new Set(ap.docs.map((d: any) => String((d.data() || {}).visitId || '')).filter((v: string) => /^[A-Za-z0-9_-]{1,160}$/.test(v) && !visitAt.has(v)))) as string[];
+    for (let i = 0; i < missing.length; i += 100) {
+      const snaps: any[] = await db.getAll(...missing.slice(i, i + 100).map((v) => db.doc(`${T}/appointments/${v}`))).catch(() => []);
+      snaps.forEach((s: any, k: number) => visitAt.set(missing[i + k], String(s?.data?.()?.locationId || '')));
+    }
+  }
   const adjustments: Adjustment[] = ap.docs.map((d: any) => d.data() || {}).filter((a: any) => ['comp', 'void_item', 'remake'].includes(a.kind) && a.used === true)
+    .filter((a: any) => !at || (String(a.locationId || '') || visitAt.get(String(a.visitId || '')) || '') === at)
     .map((a: any) => ({ kind: a.kind, amount: num(a.amount), reason: String(a.reason || 'No reason'), askedBy: String(a.askedBy || a.requestedBy || 'Someone'), approverName: String(a.approverName || ''), started: a.started === true, wasteCost: a.wasteCost === null || a.wasteCost === undefined ? null : num(a.wasteCost), itemName: String(a.itemName || 'Item') }));
-  const tables = tb.docs.map((d: any) => d.data() || {}).filter((a: any) => a.isTable === true).map((a: any) => ({ covers: Math.max(1, num(a.partySize) || 1) }));
+  const tables = tb.docs.map((d: any) => d.data() || {}).filter((a: any) => a.isTable === true && mine(a)).map((a: any) => ({ covers: Math.max(1, num(a.partySize) || 1) }));
   const prev = (usual as any[]).filter((v) => typeof v === 'number');
-  const report = nightReport({ day, timeZone: b.timeZone, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
+  // (One location's: what was sold tonight at no location, on the whole business's report only, so the two add up.)
+  const unplaced = at ? [...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && !r.locationId).map((r: any) => Math.max(0, num(r.subtotal) - num(r.discount))),
+    ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => !o.locationId && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || ''))).map((o: any) => num(o.subtotal ?? (num(o.total) - num(o.tax))))] : [];
+  const report = nightReport({ day, timeZone: b.timeZone, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
   return { report, tills };
 }
 
@@ -142,12 +167,12 @@ export async function emailNightReport(db: any, tenantId: string, tenant: any, r
   if (!to.length) return [];
   const { brandFromTenant, brandedEmail } = await import('@/lib/email-shell');
   const { sendNotification } = await import('@/lib/notify');
-  const brand = brandFromTenant(tenant); const text = reportText(brand.shopName, rep);
+  const brand = brandFromTenant(tenant); const text = reportText(brand.shopName, rep); const place = (rep as any).place ? `, ${(rep as any).place}` : '';
   const html = brandedEmail(brand, text.split('\n\n').map((p) => `<p style="font-size:14px;color:#334155;line-height:1.6;margin:0 0 12px">${esc(p).replace(/\n/g, '<br>')}</p>`).join(''),
-    { preheader: `Sales $${rep.sales.total.toFixed(2)}, comps $${rep.comps.total.toFixed(2)}, voids $${rep.voids.total.toFixed(2)}.`, title: `${weekdayOf(rep.day)} night`, tag: rep.day });
+    { preheader: `Sales $${rep.sales.total.toFixed(2)}, comps $${rep.comps.total.toFixed(2)}, voids $${rep.voids.total.toFixed(2)}.`, title: `${weekdayOf(rep.day)} night${place}`, tag: rep.day });
   const sent: string[] = [];
   for (const addr of to) {
-    const r: any = await sendNotification(db, { tenantId, channel: 'email', to: addr, subject: `${brand.shopName}: ${weekdayOf(rep.day)} night, $${rep.sales.total.toFixed(2)}`, html, text, recipientType: 'staff', recipientName: addr } as any).catch(() => null);
+    const r: any = await sendNotification(db, { tenantId, channel: 'email', to: addr, subject: `${brand.shopName}${place}: ${weekdayOf(rep.day)} night, $${rep.sales.total.toFixed(2)}`, html, text, recipientType: 'staff', recipientName: addr } as any).catch(() => null);
     if (r?.ok) sent.push(addr);
   }
   return sent;
@@ -155,18 +180,19 @@ export async function emailNightReport(db: any, tenantId: string, tenant: any, r
 
 /** Tick an item on tonight's checklist, or log a reading (or take a tick back with done: false). Refused once the night
  *  is closed. Shared by /close and the kitchen screen's Closing sheet. */
-export async function recordCheck(db: any, T: string, tenant: any, day: string, itemId: string, input: { done?: unknown; value?: unknown; note?: unknown }, by: string, areas?: CloseArea[]): Promise<{ ok: true; mark: CheckMark | null } | { ok: false; error: string; status?: number }> {
+export async function recordCheck(db: any, T: string, tenant: any, day: string, itemId: string, input: { done?: unknown; value?: unknown; note?: unknown }, by: string, areas?: CloseArea[], at: string | null = null): Promise<{ ok: true; mark: CheckMark | null } | { ok: false; error: string; status?: number }> {
   const { checkMark } = await import('@/lib/night-close');
   const item = closeSettingsOf(tenant).items.find((i) => i.id === itemId);
   if (!item) return { ok: false, error: 'That isn’t on the checklist any more.', status: 404 };
   if (areas && !areas.includes(item.area)) return { ok: false, error: 'That one is done from the front.', status: 403 };
-  const ref = db.doc(`${T}/nightCloses/${day}`);
+  // (One location's own checklist, with more than one: `at`.)
+  const ref = db.doc(`${T}/nightCloses/${closeId(day, at)}`); const where = at ? { locationId: at } : {};
   const cur: any = (await ref.get()).data() || {};
   if (cur.status === 'closed') return { ok: false, error: 'The night is already closed.', status: 409 };
   const now = new Date().toISOString();
-  if (input.done === false) { const { FieldValue } = await import('firebase-admin/firestore'); await ref.set({ day, checks: { [itemId]: FieldValue.delete() }, updatedAt: now }, { merge: true }); return { ok: true, mark: null }; }
+  if (input.done === false) { const { FieldValue } = await import('firebase-admin/firestore'); await ref.set({ day, ...where, checks: { [itemId]: FieldValue.delete() }, updatedAt: now }, { merge: true }); return { ok: true, mark: null }; }
   const m = checkMark(item, input); if (!m.ok) return { ok: false, error: m.error };
   const mark: CheckMark = { ...m.mark, by: String(by || 'Someone').slice(0, 60), at: now };
-  await ref.set({ day, checks: { [itemId]: mark }, updatedAt: now }, { merge: true });
+  await ref.set({ day, ...where, checks: { [itemId]: mark }, updatedAt: now }, { merge: true });
   return { ok: true, mark };
 }

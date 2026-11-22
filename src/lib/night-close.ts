@@ -130,7 +130,13 @@ export type DeliveryNight = { delivered: number; refunded: number; pickedUp: num
   later?: { orders: number; cents: number } };
 
 export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; tables: { covers: number }[]; adjustments: Adjustment[]; tills: Till[]; tips: { mode: string; rows: TipRow[] };
-  items: CloseItem[]; checks: Record<string, CheckMark | undefined>; usualComps?: number | null; deliveries?: DeliveryNight | null }) {
+  items: CloseItem[]; checks: Record<string, CheckMark | undefined>; usualComps?: number | null; deliveries?: DeliveryNight | null;
+  /** One location's night, with more than one (lib/night-close-server): its name. Tips are shared across the business, so
+   *  they're shared out on the whole business's report. */
+  place?: string | null;
+  /** One location's night: sales that night at no location (fees paid online, sales from before there were locations),
+   *  on the whole business's report only. */
+  unplaced?: { count: number; total: number } | null }) {
   const sales = x.sales;
   const refunds = r2(sales.reduce((s, v) => s + (Number(v.refunded) || 0), 0));
   const total = r2(sales.reduce((s, v) => s + v.net, 0) - refunds);
@@ -150,7 +156,7 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
   const checklist = x.items.map((i) => { const m = x.checks[i.id]; return { id: i.id, label: i.label, kind: i.kind, done: !!m?.done, value: m?.value ?? null, out: !!m?.out, note: m?.note || null, by: m?.by || null, at: m?.at || null, limit: i.kind === 'temp' ? limitWords(i) : null }; });
   const cash = x.tills.map((t) => ({ ...t, overShort: t.actualCash === null ? null : r2(t.actualCash - t.expectedCash) }));
   return {
-    day: x.day,
+    day: x.day, place: x.place || null, unplaced: x.place && x.unplaced && x.unplaced.count > 0 ? x.unplaced : null,
     sales: { total, taken, refunds, tips, tax, count: sales.length, byHour, byMethod: sumBy(pays, (p) => p.method, (p) => p.amount).map((g) => ({ method: g.label, amount: g.amount })) },
     guests: { tables: x.tables.length, covers, perGuest: covers > 0 ? r2(total / covers) : null },
     comps: { total: compTotal, count: comps.length, usual: x.usualComps ?? null, byReason: sumBy(comps, (a) => a.reason, (a) => a.amount), byPerson: sumBy(comps, (a) => a.askedBy, (a) => a.amount) },
@@ -177,9 +183,10 @@ export const weekdayOf = (day: string) => { const d = new Date(`${day}T12:00:00Z
 export function reportText(name: string, rep: NightReport): string {
   const $ = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
   const L: string[] = [];
-  L.push(`${name}, ${weekdayOf(rep.day)} ${rep.day}`);
+  L.push(`${name}${rep.place ? `, ${rep.place}` : ''}, ${weekdayOf(rep.day)} ${rep.day}`);
   L.push('');
   L.push(`Sales ${$(rep.sales.total)} from ${rep.sales.count} ${rep.sales.count === 1 ? 'sale' : 'sales'}, after discounts${rep.sales.refunds ? ` and ${$(rep.sales.refunds)} refunded` : ''}. Taken ${$(rep.sales.taken)} with tax ${$(rep.sales.tax)} and tips ${$(rep.sales.tips)}.`);
+  if (rep.unplaced) L.push(`${rep.unplaced.count === 1 ? 'One sale' : `${rep.unplaced.count} sales`} tonight, ${$(rep.unplaced.total)}, ${rep.unplaced.count === 1 ? 'wasn’t' : 'weren’t'} at a location, so ${rep.unplaced.count === 1 ? 'it’s' : 'they’re'} on the whole business’s report.`);
   if (rep.guests.covers) L.push(`${rep.guests.covers} guests at ${rep.guests.tables} tables${rep.guests.perGuest !== null ? `, ${$(rep.guests.perGuest)} a guest` : ''}.`);
   if (rep.sales.byMethod.length) L.push(`Paid by ${rep.sales.byMethod.map((m) => `${m.method.toLowerCase()} ${$(m.amount)}`).join(', ')}.`);
   L.push('');

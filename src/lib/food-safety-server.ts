@@ -153,23 +153,30 @@ export function safetyCsv(logs: LogView[], tz: string): string {
 
 /** The month for the binder: every log, and the closing temperatures and dish machine readings, with what was out. */
 export async function monthSafety(db: any, tenantId: string, tenant: any, month: string) {
-  const T = `tenants/${tenantId}`; const now = Date.now(); const tz = tenantTimeZone(tenant); const days = monthDays(month, tonight(tenant));
+  // (Up to tomorrow: a location on a clock ahead of the business's can already be on it.)
+  const T = `tenants/${tenantId}`; const now = Date.now(); const tz = tenantTimeZone(tenant); const days = monthDays(month, addDaysISO(tonight(tenant), 1));
   type Out = { day: string; label: string; tempF: number; note: string | null };
   if (!days.length) return { logs: [] as LogView[], closing: { nights: 0, readings: 0, out: [] as Out[] }, machine: { readings: 0, out: 0 } };
-  const [ls, closes, mc] = await Promise.all([
+  // (The whole business's closes, and each location's own with more than one: lib/night-close-server closeId.)
+  const { bizLocationsOf } = await import('@/lib/here-server');
+  const [ls, closes, mc, locs] = await Promise.all([
     db.collection(`${T}/safetyLogs`).where('day', '>=', days[0]).where('day', '<=', days[days.length - 1]).limit(5000).get().catch(() => ({ docs: [] as any[] })),
-    db.getAll(...days.map((d) => db.doc(`${T}/nightCloses/${d}`))),
+    db.collection(`${T}/nightCloses`).where('day', '>=', days[0]).where('day', '<=', days[days.length - 1]).limit(3000).get().then((s: any) => s.docs).catch(() => db.getAll(...days.map((d) => db.doc(`${T}/nightCloses/${d}`)))),
     db.collection(`${T}/machineChecks`).where('day', '>=', days[0]).where('day', '<=', days[days.length - 1]).limit(3000).get().catch(() => ({ docs: [] as any[] })),
+    bizLocationsOf(db, tenantId).catch(() => [] as any[]),
   ]);
+  const placeOf = new Map<string, string>((locs as any[]).map((l: any) => [l.id, l.name]));
   const logs = ls.docs.map((d: any) => logView(d.id, d.data() || {}, now, tz)).sort((a: LogView, b: LogView) => a.at.localeCompare(b.at));
-  let nights = 0, readings = 0; const out: Out[] = []; const labelOf = new Map(closeSettingsOf(tenant).items.map((i) => [i.id, i.label]));
-  closes.forEach((s: any, i: number) => {
-    const c: any = s?.exists ? s.data() || {} : null; if (!c?.checks) return; let any = false;
-    for (const [id, m] of Object.entries<any>(c.checks)) { if (typeof m?.value !== 'number') continue; any = true; readings++; if (m.out) out.push({ day: days[i], label: labelOf.get(id) || 'A fridge or freezer', tempF: m.value, note: words(m.note, 80) || null }); }
-    if (any) nights++;
+  let readings = 0; const out: Out[] = []; const labelOf = new Map(closeSettingsOf(tenant).items.map((i) => [i.id, i.label])); const nightsWith = new Set<string>();
+  closes.forEach((s: any) => {
+    const c: any = s?.exists ? s.data() || {} : null; if (!c?.checks || !days.includes(String(c.day || ''))) return; let any = false;
+    const where = c.locationId ? placeOf.get(String(c.locationId)) || 'A location' : null; const day = String(c.day);
+    for (const [id, m] of Object.entries<any>(c.checks)) { if (typeof m?.value !== 'number') continue; any = true; readings++; if (m.out) out.push({ day, label: `${where ? `${where}: ` : ''}${labelOf.get(id) || 'A fridge or freezer'}`, tempF: m.value, note: words(m.note, 80) || null }); }
+    if (any) nightsWith.add(day);
   });
+  out.sort((a, b) => a.day.localeCompare(b.day));
   const machine = mc.docs.map((d: any) => d.data() || {});
-  return { logs, closing: { nights, readings, out }, machine: { readings: machine.length, out: machine.filter((m: any) => m.ok === false).length } };
+  return { logs, closing: { nights: nightsWith.size, readings, out }, machine: { readings: machine.length, out: machine.filter((m: any) => m.ok === false).length } };
 }
 
 // CERTIFICATES AND PERMITS
