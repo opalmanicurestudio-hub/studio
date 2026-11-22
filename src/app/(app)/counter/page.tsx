@@ -31,6 +31,8 @@ import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
+import { TipAsk, DiscountPick, type CustomDiscount } from '@/components/pos/CounterMoney';
+import type { Discount } from '@/lib/counter-money';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -86,6 +88,8 @@ type Line = { lineId: string; itemId: string; name: string; quantity: number; un
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
   kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null;
+  /** Its tip (in its total) and discount (lib/counter-money). */
+  tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null;
   /** Rewards on it (lib/counter-points): the phone's last 4 or their code (`verified`: it can spend), what it earned once
    *  paid; a reward used, and the items' own total beside it. */
   points?: { phone: string | null; earned: number; verified?: boolean } | null; reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
@@ -104,6 +108,8 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
   receipt?: ReceiptSetup;
+  /** Tips (when this screen asks for them) and the business's discounts (lib/counter-money). */
+  money?: { tips: { pcts: number[] } | null; discounts: Discount[] };
   /** Today's hot food deliveries by the business's own drivers (lib/food-delivery-server), when delivery is on. */
   deliveries?: DeliveryRow[]; drivers?: FoodDriver[]; driverNow?: DriverNow | null; slow?: Slow | null;
   /** Sold out here, to mark on each delivery app, or back on there (lib/app-orders appSoldOutTodo). */
@@ -178,6 +184,8 @@ export default function CounterPage() {
   const [textTo, setTextTo] = useState('');
   const [readers, setReaders] = useState<Reader[]>([]); const [readerId, setReaderId] = useState('');
   // The receipt for the sale just paid (or one asked for again from Waiting: `later`), until it's done.
+  // A tip or a discount being picked for the order being paid; another amount off waiting on a manager's PIN.
+  const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
@@ -219,7 +227,7 @@ export default function CounterPage() {
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
@@ -294,9 +302,21 @@ export default function CounterPage() {
     if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
     staffDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
   };
-  const paidWords = (d: any, how: string) => (how === 'cash' ? (d.change > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') : 'Paid by card.');
+  const paidWords = (d: any, how: string) => (how === 'cash' ? (d.keptChange ? `Paid in cash. They kept ${usd((Number(d.tipCents) || 0) / 100)} as a tip.` : d.change > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') : 'Paid by card.');
   const titleOf = (o: Order) => `${o.number}${o.guestName ? `, ${o.guestName}` : ''}`;
-  const pay = (method: 'cash' | 'card', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}) }, (d) => {
+  // A tip and a discount (components/pos/CounterMoney; lib/counter-money): on the sent order, before it's paid.
+  const tipIt = (cents: number) => order && act('tip', { action: 'tip', orderId: order.id, cents }, (d) => { setMoneyOpen(null);
+    setNotice({ text: d.tipCents ? `${order.number}: a ${usd(d.tipCents / 100)} tip. The total is ${usd(d.total)}.` : `${order.number}: no tip.`, tone: 'good' }); });
+  const offDone = (d: any) => { setMoneyOpen(null); setDiscountPin(null); setNotice({ text: d.off ? `${order?.number}: the discount was taken off.` : `${order?.number}: ${usd((Number(d.cents) || 0) / 100)} off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}. The total is ${usd(d.total)}.`, tone: 'good' }); };
+  const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
+  const customOff = (c: CustomDiscount) => order && act('discount', { action: 'discount', orderId: order.id, custom: c }, offDone, (d) => { if (!d.needsManager) return false; setDiscountPin(c); return true; });
+  const discountPinCheck = async (pin: string) => {
+    if (!order || !discountPin) return { ok: false as const, error: 'Pick the order again.' };
+    const d = await post({ action: 'discount', orderId: order.id, custom: discountPin, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    offDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: String(d.approvedBy || ''), pass: '' } };
+  };
+  const pay = (method: 'cash' | 'card', tendered?: number, keepChange?: boolean) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}), ...(keepChange ? { keepChange: true } : {}) }, (d) => {
     setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' });
     if (!d.paidOtherwise) setSlip({ orderId: order.id, title: titleOf(order), cash: (d.payMethod || method) === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
   });
@@ -392,10 +412,12 @@ export default function CounterPage() {
               {memberErr && order.points?.verified && member?.orderId !== order.id && <p className="flex flex-wrap items-center gap-2 text-[13.5px]" style={{ color: 'var(--warn-ink)' }} role="status">Their rewards didn’t load.
                 <button type="button" onClick={() => setMemberTry((n) => n + 1)} className={`min-h-[44px] rounded-lg px-1 font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Try again</button></p>}</div>}
             <div className="space-y-1 border-t pt-3 text-[14px]" style={{ borderColor: LINE }}>
-              {order.reward && <>
+              {(order.reward || order.markdown) && <>
                 <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order.itemsTotal || 0)}</span></div>
-                <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div></>}
+                {order.reward && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div>}
+                {order.markdown && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">{order.markdown.reason || order.markdown.label}{order.markdown.okBy ? `, okayed by ${order.markdown.okBy}` : ''}</span><span className="shrink-0 tabular-nums">-{usd(order.markdown.cents / 100)}</span></div>}</>}
               <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{order.app ? (order.app.money && order.app.money.appPaysTax === false ? `Yours to pay, ${usd(order.app.money.taxCents / 100)}` : 'The app collects it') : usd(order.tax)}</span></div>
+              {!order.app && (order.tipCents || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>Tip{order.keptChange ? ', kept the change' : ''}</span><span className="tabular-nums">{usd((order.tipCents || 0) / 100)}</span></div>}
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.app ? order.subtotal : order.total)}</span></div>
               {order.app?.money && order.app.money.markupPct > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>On {order.app.label} (+{order.app.money.markupPct}%)</span><span className="tabular-nums">{usd(order.app.money.appCents / 100)}</span></div>}
             </div>
@@ -419,11 +441,18 @@ export default function CounterPage() {
                   <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={order.total.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
                 <div className="flex flex-wrap gap-2">{quick.map((q) => <button key={q} type="button" onClick={() => setCash(q.toFixed(2))} className={`${btn} px-3 text-[14px]`} style={{ background: SOFT, color: INK }}>{q === order.total ? 'Exact' : usd(q)}</button>)}</div>
                 {cash !== '' && Number.isFinite(tendered) && tendered >= order.total && <p className="text-[15px] font-semibold" style={{ color: GREEN }}>Change: {usd(tendered - order.total)}</p>}
+                {lane?.money?.tips && cash !== '' && Number.isFinite(tendered) && tendered > order.total && tendered - order.total <= Math.min(order.total, 500) && <button type="button" disabled={!!busy} onClick={() => pay('cash', tendered, true)} className={`${btn} w-full`} style={quiet}>Keep the change as a tip</button>}
                 <div className="flex gap-2"><button type="button" onClick={() => setCash(null)} className={`${btn} flex-1`} style={quiet}>Back</button>
                   <button type="button" disabled={!!busy || (cash !== '' && !(tendered >= order.total))} onClick={() => pay('cash', cash === '' ? order.total : tendered)} className={`${btn} flex-[2]`} style={dark}>Take cash</button></div>
               </div>
+              : moneyOpen === 'tip' && lane?.money?.tips ? <TipAsk baseCents={Math.round(order.total * 100) - (order.tipCents || 0)} tipCents={order.tipCents || 0} pcts={lane.money.tips.pcts} busy={!!busy} onPick={(c) => void tipIt(c)} onClose={() => setMoneyOpen(null)} />
+              : moneyOpen === 'discount' ? <DiscountPick list={lane?.money?.discounts || []} current={order.markdown?.id || null} busy={!!busy} onPick={(id) => void discountIt(id)} onCustom={(c) => void customOff(c)} onClose={() => setMoneyOpen(null)} />
               : <div className="space-y-2">
                 {order.card?.failed && <p className="text-[13.5px]" style={{ color: AMBER }}>{order.card.failed}</p>}
+                {!order.app && <div className={`grid gap-2 ${lane?.money?.tips ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {lane?.money?.tips && <button type="button" onClick={() => setMoneyOpen('tip')} disabled={!!busy} className={`${btn} text-[14px]`} style={quiet}>{order.tipCents ? `Tip ${usd(order.tipCents / 100)}` : 'Tip'}</button>}
+                  <button type="button" onClick={() => setMoneyOpen('discount')} disabled={!!busy} className={`${btn} text-[14px]`} style={quiet}>{order.markdown ? `Discount ${usd(order.markdown.cents / 100)}` : 'Discount'}</button>
+                </div>}
                 <button type="button" onClick={() => setCash('')} disabled={!!busy} className={`${btn} min-h-[52px] w-full text-[16px]`} style={dark}>Cash</button>
                 {readers.length > 1 && <select aria-label="Card reader" value={reader?.id || ''} onChange={(e) => { setReaderId(e.target.value); try { localStorage.setItem(READER_KEY, e.target.value); } catch { /* private window */ } }} className={`min-h-[44px] w-full rounded-xl border px-3 text-[14.5px] ${RING}`} style={{ background: '#fff', borderColor: LINE, color: INK }}><option value="">Pick a card reader</option>{readers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
                 {readers.length > 0 && <button type="button" onClick={toReader} disabled={!reader || !!busy} className={`${btn} w-full`} style={quiet}>Card reader{reader && readers.length > 1 ? `: ${reader.label}` : ''}</button>}
@@ -488,6 +517,7 @@ export default function CounterPage() {
     {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
+    {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
       onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

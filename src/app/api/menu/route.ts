@@ -31,7 +31,7 @@
 //   times   { tenantId, dayparts: [{ id, name, from, to }], happyHour: { on, days, from, to } } → managers: menus by time
 //             of day and happy hour (lib/menu-time); save also takes dayparts (ids), happyPrice, combo and comboParts,
 //             and upgrades { size, items }: what's offered at the end, once it's added (lib/menu-upgrades).
-//   laneSettings { tenantId, spots | pickupOnly | readyTexts } → managers: how many numbered pull-forward spots the drive-thru
+//   laneSettings { tenantId, spots | pickupOnly | readyTexts | tips | discounts } → managers: how many numbered pull-forward spots the drive-thru
 //             has (1 to 8), whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker), or
 //             whether guests can ask for a text when their order is ready (lib/ready-text)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
@@ -92,6 +92,7 @@ import { prepOf, isPrep } from '@/lib/prep-recipes';
 import { linesCost, partUnitCost } from '@/lib/food-cost';
 import { unitLabel } from '@/lib/product-cost';
 import { voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
+import { tipsOf, discountsOf, cleanDiscount, DISCOUNTS_MAX } from '@/lib/counter-money';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -199,7 +200,7 @@ export async function POST(req: NextRequest) {
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
-      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
+      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) }, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
@@ -411,6 +412,23 @@ export async function POST(req: NextRequest) {
       if (typeof b.readyTexts === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ readyTexts: { off: !b.readyTexts } }, { merge: true });
         return ok({ lane: { readyTexts: b.readyTexts } });
+      }
+      // Tips at the counter (lib/counter-money): on or off, the three percents, and the drive-thru too.
+      if (b.tips && typeof b.tips === 'object') {
+        const pcts = Array.isArray(b.tips.pcts) ? b.tips.pcts.map((x: unknown) => Math.round(Number(x))) : null;
+        if (pcts && (pcts.length !== 3 || pcts.some((x: number) => !(x >= 1 && x <= 50)))) return bad('Three percents, each from 1 to 50.');
+        const tips = tipsOf({ counterTips: { on: b.tips.on === true, pcts: pcts || tipsOf(td).pcts, where: b.tips.where === 'both' ? 'both' : 'counter' } });
+        await db.doc(`tenants/${tenantId}`).set({ counterTips: { ...tips, updatedAt: new Date().toISOString() } }, { merge: true });
+        return ok({ lane: { tips } });
+      }
+      // The business's discounts at the counter (lib/counter-money): the whole list, as kept.
+      if (Array.isArray(b.discounts)) {
+        if (b.discounts.length > DISCOUNTS_MAX) return bad(`${DISCOUNTS_MAX} discounts at most.`);
+        const list = b.discounts.map(cleanDiscount);
+        if (list.some((x: unknown) => !x)) return bad('Each discount needs a name, and a percent from 1 to 100 or an amount off up to $500.');
+        const ids = new Set<string>(); const kept = (list as any[]).map((x) => { let id = x.id; for (let n = 2; ids.has(id); n++) id = `${x.id}-${n}`; ids.add(id); return { ...x, id }; });
+        await db.doc(`tenants/${tenantId}`).set({ counterDiscounts: kept }, { merge: true });
+        return ok({ lane: { discounts: discountsOf({ counterDiscounts: kept }) } });
       }
       // The lane entry sensor (lib/lane-entry-server): a new link for a lane (shown once; the old one stops), turned off,
       // or how each is doing (when it last counted a car).

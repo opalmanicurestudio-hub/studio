@@ -12,12 +12,13 @@
 import { loyaltyOf, balanceOf, rewardsFor, rewardCents, type Reward } from '@/lib/loyalty';
 import { earnForSale, balanceFor, refreshMember } from '@/lib/loyalty-server';
 import { memberByCode } from '@/lib/rewards-code';
-import { totalsOf } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
 import { clientByPhone } from '@/lib/conversation';
 import { searchFields } from '@/lib/client-search';
 import { createHash } from 'crypto';
 import { cleanName, cardBusy } from '@/lib/counter-server';
+import { moneyWith } from '@/lib/counter-money-server';
+import { markdownCentsOf } from '@/lib/counter-money';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const nowIso = () => new Date().toISOString();
@@ -188,13 +189,15 @@ export async function useReward(db: any, tenantId: string, tenant: any, orderId:
     const ledger = o.clientId ? (await tx.get(db.collection(`${T}/loyaltyLedger`).where('clientId', '==', String(o.clientId)))).docs.map((d: any) => d.data()) : [];
     if (o.paidAt) return fail('It’s paid already.', 409, 'paid');
     if (o.status !== 'sent') return fail(o.status === 'building' ? 'Send the order first, then use a reward on it.' : 'That order can’t take a reward now.', 409, 'not_sent');
+    if (o.channel === 'kiosk') return fail('A kiosk order is paid at the kiosk.', 409, 'kiosk');
     if (cardBusy(o)) return fail('The card reader is asking for this order’s payment. Stop it first.', 409, 'card_busy');
     if (o.phone?.id && o.phone.state === 'open') return fail('A scan-to-pay code is open for this order. Close it first.', 409, 'phone_open');
     if (!o.clientId || o.points?.verified !== true) return fail('A reward is used with their rewards code.', 409, 'needs_code');
-    const lines = Array.isArray(o.lines) ? o.lines : [];
     if (!want) {
       if (held && held.held === true) tx.delete(redeemRef);
-      tx.set(ref, { reward: null, ...totalsOf(tenant, lines), discount: 0, itemsTotal: null }, { merge: true });
+      // (A discount on it stays, and comes out again beside no reward; its tip stays as it was: lib/counter-money.)
+      const o2 = { ...o, reward: null }; const md = markdownCentsOf(o2);
+      tx.set(ref, { reward: null, ...moneyWith(tenant, o2, md), ...(o.markdown ? { markdown: { ...o.markdown, cents: md } } : {}) }, { merge: true });
       return { ok: true, off: true };
     }
     const balance = balanceOf(ledger) + (held && held.held === true ? -num(held.points) : 0);
@@ -203,7 +206,9 @@ export async function useReward(db: any, tenantId: string, tenant: any, orderId:
     if (!cents) return fail(want.kind === 'free_item' ? `${want.name}: that item isn’t on this order.` : `${want.name} can’t be used on this order.`, 409, 'nothing');
     tx.set(redeemRef, { clientId: String(o.clientId), type: 'redeem', points: -want.points, at: nowIso(), by, saleId: `counter_${orderId}`, rewardId: want.id, rewardName: want.name, cents, costCents: want.costCents ?? cents,
       version: S.version, why: `Used: ${want.name}`, held: true });
-    tx.set(ref, { reward: { id: want.id, name: want.name, points: want.points, cents }, ...totalsOf(tenant, lines, cents / 100) }, { merge: true });
+    const reward = { id: want.id, name: want.name, points: want.points, cents };
+    const o2 = { ...o, reward }; const md = markdownCentsOf(o2);
+    tx.set(ref, { reward, ...moneyWith(tenant, o2, md), ...(o.markdown ? { markdown: { ...o.markdown, cents: md } } : {}) }, { merge: true });
     return { ok: true };
   });
   if (r.ok === false) return r;

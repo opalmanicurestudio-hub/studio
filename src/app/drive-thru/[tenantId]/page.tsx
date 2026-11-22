@@ -33,6 +33,8 @@ import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
+import { TipAsk, DiscountPick, type CustomDiscount } from '@/components/pos/CounterMoney';
+import type { Discount } from '@/lib/counter-money';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -43,7 +45,9 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item'; note?: string | null };
-type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null; points?: { phone: string | null; earned: number; verified?: boolean } | null;
+type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null;
+  /** Its tip (in its total) and discount (lib/counter-money). */
+  tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null; points?: { phone: string | null; earned: number; verified?: boolean } | null;
   // A reward used on it (lib/counter-points useReward): what it took off, and the items' own total.
   reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
@@ -74,7 +78,9 @@ type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders
   // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane.
   merge?: { next: string; other: string } | null; now: string; ahead?: Ahead[]; aheadOn?: boolean; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
-  receipt?: ReceiptSetup };
+  receipt?: ReceiptSetup;
+  /** Tips (when the business takes them at the drive-thru too) and its discounts (lib/counter-money). */
+  money?: { tips: { pcts: number[] } | null; discounts: Discount[] } };
 // Where this screen is (set on the screen itself, kept on the device): it opens on whichever car is at that spot.
 type Role = 'all' | 'speaker' | 'line' | 'pay' | 'pickup' | 'runner';
 const ROLES: [Role, string, string][] = [['all', 'Every car', 'Pick any car in the lane'], ['speaker', 'Taking orders', 'The newest car at the speaker'], ['line', 'In line', 'Walking the line with this phone: order and pay before the speaker'], ['pay', 'Pay window', 'The car at the pay window'], ['pickup', 'Pickup window', 'The car picking up'], ['runner', 'Runner', 'Only the cars parked in a spot']];
@@ -288,6 +294,8 @@ export default function DriveThru() {
   const [spotOpen, setSpotOpen] = useState(false);
   const [handAnyway, setHandAnyway] = useState(0);
   const [cardCheck, setCardCheck] = useState(false);
+  // A tip or a discount being picked for the car paying; another amount off waiting on a manager's PIN.
+  const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
@@ -441,7 +449,7 @@ export default function DriveThru() {
       const cur = cars.find((c) => c.id === picked);
       const there = (c?: CarRow) => !!c && (role === 'line' ? inLineNow(c) : c.stage === want);
       // Never while someone is in the middle of something on this car (cash, a spot, a void, a choice, a check).
-      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || !!phoneFor || handAnyway > 0 || !!choiceFor || voidPin !== null) && Date.now() - midwayAt.current < 60000;
+      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || !!phoneFor || handAnyway > 0 || !!choiceFor || voidPin !== null || moneyOpen !== null || discountPin !== null) && Date.now() - midwayAt.current < 60000;
       const byHand = !!cur && (midway || Date.now() - manualAt.current < 30000);
       if (!byHand && next && !there(cur)) { setPicked(next.id); return; }
       if ((role === 'runner' || role === 'line') && !next && !byHand) { setPicked(null); return; }
@@ -451,8 +459,8 @@ export default function DriveThru() {
     const next = role === 'runner' || role === 'line' ? shownCars[0] : cars.find((c) => c.stage === 'speaker' && !c.inLine) || cars.find((c) => c.stage === 'pay' && !c.inLine) || (role === 'speaker' ? null : cars[0]);
     setPicked(next ? next.id : null);
   }, [lane, role]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, phoneFor, handAnyway, choiceFor, voidPin]);
-  useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); }, [picked, car?.stage]);
+  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, phoneFor, handAnyway, choiceFor, voidPin, moneyOpen, discountPin]);
+  useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); setMoneyOpen(null); }, [picked, car?.stage]);
   // The Screen menu closes on Escape or a tap anywhere else.
   useEffect(() => {
     if (!menuOpen) return;
@@ -530,11 +538,17 @@ export default function DriveThru() {
   // the first answer was lost: never a guess here.
   // Walking the line, cash goes into the person's own pouch (counted as theirs for the day).
   const pouchCash = role === 'line';
-  const paid = (method: 'card' | 'cash', tendered?: number) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}), ...(method === 'cash' && pouchCash ? { pouch: true } : {}) }, (d) => {
+  // A tip and a discount (components/pos/CounterMoney; lib/counter-money): on the sent order, before it's paid.
+  const tipIt = (cents: number) => order && act('tip', { action: 'tip', orderId: order.id, cents }, (d) => { setMoneyOpen(null);
+    setNotice({ text: d.tipCents ? `Order ${order.number}: a ${usd(d.tipCents / 100)} tip. The total is ${usd(d.total)}.` : `Order ${order.number}: no tip.`, tone: 'good' }); });
+  const offDone = (d: any) => { setMoneyOpen(null); setDiscountPin(null); setNotice({ text: d.off ? `Order ${order?.number}: the discount was taken off.` : `Order ${order?.number}: ${usd((Number(d.cents) || 0) / 100)} off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}. The total is ${usd(d.total)}.`, tone: 'good' }); };
+  const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
+  const customOff = (c: CustomDiscount, pass?: string) => order && act('discount', { action: 'discount', orderId: order.id, custom: c, ...(pass ? { staffPass: pass } : {}) }, offDone, undefined, (d) => { if (d.needsManager) setDiscountPin(c); });
+  const paid = (method: 'card' | 'cash', tendered?: number, keepChange?: boolean) => order && act('paid', { action: 'paid', orderId: order.id, method, ...(tendered !== undefined ? { tendered } : {}), ...(keepChange ? { keepChange: true } : {}), ...(method === 'cash' && pouchCash ? { pouch: true } : {}) }, (d) => {
     const how = d.payMethod || method;
     if (!d.paidOtherwise) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: how === 'cash' && !d.inPouch, change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
     const next = car?.inLine ? ' Ask them to pull up to the pickup window.' : '';
-    setNotice({ text: (d.already ? 'It was paid already. ' : '') + (how === 'cash' ? (d.change > 0 ? `Paid in cash${d.inPouch ? ', into your pouch' : ''}. Give ${usd(d.change)} change.` : `Paid in cash${d.inPouch ? ', into your pouch' : ''}, no change.`) + (d.inDrawer === false && !d.inPouch ? ' No drawer is open, so it’s kept with the order for the count.' : '') : 'Paid by card.') + next, tone: 'good' });
+    setNotice({ text: (d.already ? 'It was paid already. ' : '') + (how === 'cash' ? (d.keptChange ? `Paid in cash. They kept ${usd((Number(d.tipCents) || 0) / 100)} as a tip.` : d.change > 0 ? `Paid in cash${d.inPouch ? ', into your pouch' : ''}. Give ${usd(d.change)} change.` : `Paid in cash${d.inPouch ? ', into your pouch' : ''}, no change.`) + (d.inDrawer === false && !d.inPouch ? ' No drawer is open, so it’s kept with the order for the count.' : '') : 'Paid by card.') + next, tone: 'good' });
     if (d.inPouch) void loadPouch();
   }, undefined, (d) => { if (d.needsStaff) setPinOpen(true); });
   // The card reader at this screen: the one picked here, or the business's only one (lib/counter-card). The total goes to
@@ -711,9 +725,11 @@ export default function DriveThru() {
           <RewardsRow order={order} member={member} codes={!!lane?.rewardsCodes} busy={!!busy} onAdd={() => setPointsOpen(true)} onUse={(id) => void applyReward(id)} />
         </div>)}
       <div className="space-y-1 border-t px-4 py-3 text-[14.5px]" style={{ borderColor: LINE }}>
-        <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order?.reward ? order.itemsTotal || 0 : order?.subtotal || 0)}</span></div>
+        <div className="flex justify-between" style={{ color: MUTED }}><span>Subtotal</span><span className="tabular-nums">{usd(order?.reward || order?.markdown ? order.itemsTotal || 0 : order?.subtotal || 0)}</span></div>
         {order?.reward && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">Reward: {order.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(order.reward.cents / 100)}</span></div>}
+        {order?.markdown && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">{order.markdown.reason || order.markdown.label}{order.markdown.okBy ? `, okayed by ${order.markdown.okBy}` : ''}</span><span className="shrink-0 tabular-nums">-{usd(order.markdown.cents / 100)}</span></div>}
         {(order?.tax || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>{taxWords(order?.taxLabel || '')}</span><span className="tabular-nums">{usd(order!.tax)}</span></div>}
+        {(order?.tipCents || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>Tip{order?.keptChange ? ', kept the change' : ''}</span><span className="tabular-nums">{usd((order?.tipCents || 0) / 100)}</span></div>}
         <div className="flex items-baseline justify-between pt-1" style={{ color: INK }}><span className="text-[16px] font-semibold">Total</span><span className="text-[24px] font-semibold tabular-nums">{usd(order?.total || 0)}</span></div>
       </div>
       {editable && (order?.lines.length || 0) > 0 && <p className="mx-4 mb-3 rounded-xl px-3 py-2.5 text-[14px] leading-snug" style={{ background: SOFT, color: INK }}><span className="font-semibold">Read it back: </span>{readBack(order!.lines)} That’s {usd(order!.total)}.</p>}
@@ -1031,6 +1047,10 @@ export default function DriveThru() {
                               <button type="button" onClick={() => setCardCheck(false)} className={btn} style={quiet}>Back</button>
                             </div>
                           </div>
+                        ) : moneyOpen === 'tip' && lane?.money?.tips ? (
+                          <TipAsk baseCents={Math.round(order.total * 100) - (order.tipCents || 0)} tipCents={order.tipCents || 0} pcts={lane.money.tips.pcts} busy={!!busy} onPick={(c) => void tipIt(c)} onClose={() => setMoneyOpen(null)} />
+                        ) : moneyOpen === 'discount' ? (
+                          <DiscountPick list={lane?.money?.discounts || []} current={order.markdown?.id || null} busy={!!busy} onPick={(id) => void discountIt(id)} onCustom={(c) => void customOff(c)} onClose={() => setMoneyOpen(null)} />
                         ) : cash === null ? (
                           <div className="grid gap-3 sm:grid-cols-2">
                             {order.card?.state === 'declined' && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium sm:col-span-2" style={{ background: AMBER_TINT, color: AMBER }}>{order.card.failed || 'The card didn’t go through.'} Try the card again, or take it another way.</p>}
@@ -1040,6 +1060,8 @@ export default function DriveThru() {
                             <div className="flex flex-wrap gap-x-5 sm:col-span-2">
                               <button type="button" onClick={showPhone} disabled={busy === 'phoneLink'} className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}><QrCode className="h-4 w-4" aria-hidden />{busy === 'phoneLink' ? 'Making the code…' : 'Scan to pay on their phone'}</button>
                               {reader && <button type="button" onClick={() => setCardCheck(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Card on another machine</button>}
+                              {lane?.money?.tips && <button type="button" onClick={() => setMoneyOpen('tip')} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{order.tipCents ? `Tip ${usd(order.tipCents / 100)}` : 'Tip'}</button>}
+                              <button type="button" onClick={() => setMoneyOpen('discount')} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{order.markdown ? `Discount ${usd(order.markdown.cents / 100)}` : 'Discount'}</button>
                               <button type="button" onClick={() => setVoidOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>They drove off, or won’t pay</button>
                             </div>
                           </div>
@@ -1052,6 +1074,7 @@ export default function DriveThru() {
                             {typeof cash === 'number' && (
                               <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: GREEN_TINT, color: GREEN }}><span className="text-[16px] font-semibold">Change</span><span className="text-[30px] font-semibold tabular-nums">{usd(cash - order.total)}</span></div>
                             )}
+                            {lane?.money?.tips && typeof cash === 'number' && cash > order.total && cash - order.total <= Math.min(order.total, 500) && <button type="button" disabled={busy === 'paid'} onClick={() => paid('cash', cash, true)} className={`${btn} min-h-[56px] w-full text-[16px]`} style={quiet}>Keep the change as a tip</button>}
                             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                               <button type="button" disabled={typeof cash !== 'number' || busy === 'paid'} onClick={() => typeof cash === 'number' && paid('cash', cash)} className={`${btn} min-h-[56px] text-[16px]`} style={{ background: GREEN, color: '#fff' }}>{typeof cash === 'number' ? (cash > order.total ? `Paid, give ${usd(cash - order.total)} change` : 'Paid, no change') : 'Pick what they handed over'}</button>
                               <button type="button" onClick={() => setCash(null)} className={btn} style={quiet}>Back</button>
@@ -1109,6 +1132,7 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
       {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
         onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

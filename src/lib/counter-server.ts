@@ -23,6 +23,7 @@ import { stockAtOf, storeFollowNested, storeMoveNested } from '@/lib/store-stock
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
+import { TIP_MAX_CENTS } from '@/lib/counter-money';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const KEY = /^[A-Za-z0-9_-]{8,64}$/;
@@ -618,8 +619,10 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
   return res;
 }
 
-export type PayHow = { method: 'card' | 'cash' | 'app'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string };
-export type PayDone = { ok: true; already?: boolean; drawer?: boolean; pouch?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null };
+export type PayHow = { method: 'card' | 'cash' | 'app'; tendered?: number | null; by: string; byId?: string | null; card?: { id: string; cents: number } | null; pouch?: boolean; day?: string;
+  /** Cash, and the guest kept the change: what was handed over is the total, the change the tip (lib/counter-money). */
+  keepChange?: boolean };
+export type PayDone = { ok: true; already?: boolean; drawer?: boolean; pouch?: boolean; change?: number | null; payMethod: string; paidOtherwise?: boolean; cardId?: string | null; keptChange?: boolean; tipCents?: number };
 
 /** Paid at the window: the sale and its tax in the books, cash into the one open drawer (with what was handed over and
  *  the change), and the car moves on to pick up — all in one step. Asking again changes nothing and says how it was
@@ -657,9 +660,14 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     if (!viaReader && cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409, code: 'card_busy' };
     // A pouch is only for cash taken in line, from a car that was taken there.
     if (how.pouch && method === 'cash' && !(car?.inLine === true || car?.wasInLine === true)) return { error: 'Cash goes in a pouch only for a car taken in line. Take it at the window.', status: 409 };
-    const total = num(o.total), subtotal = num(o.subtotal), tax = num(o.tax);
+    let total = num(o.total); const subtotal = num(o.subtotal), tax = num(o.tax);
     if (viaReader && Math.round(how.card!.cents) !== Math.round(total * 100)) return { error: 'That card payment isn’t for this order’s total.', status: 409 };
     if (tendered !== null && tendered < total) return { error: `That’s less than the total ($${total.toFixed(2)}).`, status: 400 };
+    // Kept the change: it's a tip, so the total is what was handed over (never a delivery's or an app's order).
+    const keptC = method === 'cash' && how.keepChange === true && tendered !== null && o.ahead?.way !== 'delivery' && !o.app?.code ? Math.max(0, Math.round(tendered * 100) - Math.round(total * 100)) : 0;
+    // (Never more than the order itself, or the most a tip can be: a mistyped amount isn't booked as someone's tip.)
+    if (keptC > Math.min(TIP_MAX_CENTS, Math.round(total * 100))) return { error: 'That’s a lot to keep as a tip. Check what they handed over.', status: 400, code: 'tip_too_big' };
+    if (keptC) total = Math.round(tendered! * 100) / 100;
     // Paid through a delivery app (lib/app-orders): only an app's order, and only once it's sent.
     if (method === 'app' && !o.app?.code) return { error: 'Only a delivery app’s order is paid on the app.', status: 409 };
     if (method !== 'app' && o.app?.code) return { error: `${appName(o.app)} is paid on the app. Hand it to the courier.`, status: 409 };
@@ -692,8 +700,11 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     if (feeTax > 0) { const ftRef = db.doc(`${T}/transactions/counter_${orderId}_delivery_tax`); tx.set(ftRef, { id: ftRef.id, ...common, description: `${o.taxLabel || 'Sales tax'} on delivery, order ${o.number}`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: feeTax, hasReceipt: false }); }
     // Its driver's tip (lib/food-delivery): a tip, never sales, kept with no one on it until it's delivered, when it's put
     // under the driver's name (lib/food-delivery-server). Refunded with the order, it goes back to the card from here.
-    const tipC = Math.max(0, Math.round(num(o.tipCents)));
-    if (tipC > 0) { const tipRef = db.doc(`${T}/transactions/ftip_${orderId}`); tx.set(tipRef, { id: tipRef.id, ...common, description: `Driver tip, order ${o.number} (the driver’s once it’s delivered)`, category: 'Tips', taxBucket: 'gratuity', amount: tipC / 100, staffId: null, hasReceipt: false }); }
+    const tipC = Math.max(0, Math.round(num(o.tipCents))) + keptC;
+    if (tipC > 0 && o.ahead?.way === 'delivery') { const tipRef = db.doc(`${T}/transactions/ftip_${orderId}`); tx.set(tipRef, { id: tipRef.id, ...common, description: `Driver tip, order ${o.number} (the driver’s once it’s delivered)`, category: 'Tips', taxBucket: 'gratuity', amount: tipC / 100, staffId: null, hasReceipt: false }); }
+    // A tip at the counter or the window (lib/counter-money): the one who took the payment's, shared from there by the
+    // business's tip policy (lib/tip-share). With no name on the screen, it's kept with no one on it, for the owner.
+    else if (tipC > 0) { const tipRef = db.doc(`${T}/transactions/ctip_${orderId}`); tx.set(tipRef, { id: tipRef.id, ...common, description: `Tip, ${CHANNEL_NAME[o.channel as Channel] || 'Counter'} ${o.number}${keptC ? ' (kept the change)' : ''}`, category: 'Tips', taxBucket: 'gratuity', amount: tipC / 100, staffId: how.byId || null, hasReceipt: false }); }
     // Cash goes into the one drawer that's open (two open, or none: it's kept on the order, for the drawer count); taken
     // in line, it goes into that person's own pouch, counted as theirs for the day.
     const pouch = method === 'cash' && how.pouch === true;
@@ -708,6 +719,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       // (Counted on the day it was taken, the business's day, whenever the car arrived.)
       ...(pouch ? { cashInPouch: true, pouchOpen: true, cashWith: how.by, cashWithId: how.byId || null, cashDay: how.day || o.day || null } : method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
       ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
+      ...(keptC ? { tipCents: tipC, total, keptChange: true, tipBy: { id: how.byId || null, name: how.by }, tipAt: nowIso } : {}),
       ...(viaReader ? { cardPaymentId: how.card!.id } : {}),
       ...(cardIsThis ? { card: { ...(o.card || {}), state: 'paid', paidAt: nowIso, failed: null }, cardOpen: false } : {}),
       ...(leftCard ? { card: { ...(o.card || {}), state: 'stopping' }, cardOpen: true } : {}) }, { merge: true });
@@ -726,7 +738,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       tx.set(carRef, { id: carRef.id, number: o.number, channel: 'kiosk', stage: 'pickup', arrivedAt: nowIso, stageAt: { pickup: nowIso }, orderId, takenBy: String(o.createdBy || 'Kiosk'), day: o.day || null, ...(o.locationId ? { locationId: String(o.locationId) } : {}) }, { merge: true });
       tx.set(orderRef, { carId: carRef.id }, { merge: true });
     }
-    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard };
+    return { ok: true, drawer: !!drawer, pouch, change, payMethod: method, cardId: leftCard, keptChange: keptC > 0, tipCents: tipC };
   });
   // Points for a guest who gave their number (lib/counter-points): once it's paid, once.
   if (res?.ok && !res.already) { try { const P = await import('@/lib/counter-points'); await P.earnForOrder(db, tenantId, null, orderId); } catch (e: any) { console.error('[counter] points not earned', orderId, e?.message); } }

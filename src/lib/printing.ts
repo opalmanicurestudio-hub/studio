@@ -264,7 +264,7 @@ export function receiptDoc(r: any, o: { business: string; address?: string | nul
   const offs = Array.isArray(r?.discounts) && r.discounts.length ? r.discounts : n(r?.discount) > 0 ? [{ label: 'Discount', amount: n(r.discount) }] : [];
   for (const d of offs) blocks.push({ k: 'money', left: String(d?.label || 'Discount'), right: money(-n(d?.amount)) });
   if (n(r?.tax) > 0) blocks.push({ k: 'money', left: String(r?.taxLabel || 'Tax'), right: money(n(r.tax)) });
-  if (n(r?.tip) > 0) blocks.push({ k: 'money', left: 'Tip', right: money(n(r.tip)) });
+  if (n(r?.tip) > 0) blocks.push({ k: 'money', left: r?.keptChange ? 'Tip, kept the change' : 'Tip', right: money(n(r.tip)) });
   blocks.push({ k: 'money', left: 'Total', right: money(n(r?.total)), bold: true });
   if (String(r?.paymentMethod) === 'cash') {
     if (r?.amountTendered != null && n(r.amountTendered) > 0) blocks.push({ k: 'money', left: 'Cash', right: money(n(r.amountTendered)) }, { k: 'money', left: 'Change', right: money(n(r.change)) });

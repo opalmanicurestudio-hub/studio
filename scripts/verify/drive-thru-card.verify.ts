@@ -318,7 +318,7 @@ const req = (body: any) => ({ json: async () => body, text: async () => JSON.str
   wn = await W('one');
   const keys = Object.keys(wn.body.show || {}).sort().join(',');
   check('at a single window: the car there, by first name, its items with pictures, total, and nothing about anyone else', wn.body.show?.mode === 'pay' && wn.body.show.name === 'Sam' && wn.body.show.lines.length === 1 && wn.body.show.total === 8.25
-    && keys === 'alsoAhead,card,cardMessage,change,earned,kitchen,lines,mode,name,nextWindow,number,paid,payMethod,payUrl,reward,spot,subtotal,tax,total', { show: wn.body.show, keys });
+    && keys === 'alsoAhead,card,cardMessage,change,earned,kitchen,lines,markdown,mode,name,nextWindow,number,paid,payMethod,payUrl,reward,spot,subtotal,tax,tip,total', { show: wn.body.show, keys });
   await db.doc(`${T}/tillSessions/d1`).set({ status: 'open' }, { merge: true });
   await P({ action: 'paid', orderId: cw.orderId, method: 'cash', tendered: 20 });
   wn = await W('one');

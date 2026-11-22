@@ -44,7 +44,16 @@ export function counterReceipt(o: any, orderId: string): any {
     toGo: o?.toGo === true, date: String(o?.paidAt || ''), clientName: clip(o?.guestName, 40) || null,
     cashierName: clip(typeof o?.paidBy === 'string' ? o.paidBy : o?.paidBy?.name, 40) || null,
     paymentMethod: method, subtotal: items, tax, taxLabel: clip(o?.taxLabel, 40) || 'Sales tax', tip, total,
-    discount, discounts: discount > 0 ? [{ label: o?.reward ? 'Reward' : 'Discount', amount: discount }] : [],
+    // (A reward and the business's discount each by name: lib/counter-points, lib/counter-money.)
+    discount, discounts: (() => {
+      const out: { label: string; amount: number }[] = [];
+      const rw = o?.reward ? r2(Math.max(0, num(o.reward.cents)) / 100) : 0; const md = o?.markdown ? r2(Math.max(0, num(o.markdown.cents)) / 100) : 0;
+      if (rw > 0) out.push({ label: 'Reward', amount: rw });
+      if (md > 0) out.push({ label: clip(o.markdown.label, 40) || 'Discount', amount: md });
+      if (!out.length && discount > 0) out.push({ label: o?.reward ? 'Reward' : 'Discount', amount: discount });
+      return out;
+    })(),
+    keptChange: o?.keptChange === true,
     amountTendered: method === 'cash' && o?.cashTendered != null ? r2(num(o.cashTendered)) : null,
     change: method === 'cash' && o?.changeGiven != null ? r2(num(o.changeGiven)) : null,
     detail: {

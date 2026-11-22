@@ -100,7 +100,9 @@ export function canClose(s: CloseSettings, checks: Record<string, CheckMark | un
 // ── The report ───────────────────────────────────────────────────────────────────────────────────────────────────────
 /** One sale: what was sold (net: before tax and tips, after discounts), what was refunded on it, and what was taken (total,
  *  tax and tips in, as paid). */
-export type Sale = { at: string; net: number; refunded?: number; total: number; tip: number; tax: number; method: string; payments?: { method: string; amount: number; tip?: number }[] | null };
+export type Sale = { at: string; net: number; refunded?: number; total: number; tip: number; tax: number; method: string; payments?: { method: string; amount: number; tip?: number }[] | null;
+  /** Taken off it before tax, by name: a counter order's discount and reward (lib/counter-money), and who okayed one. */
+  offs?: { label: string; amount: number; okBy?: string | null }[] };
 export type Adjustment = { kind: 'comp' | 'void_item' | 'remake'; amount: number; reason: string; askedBy: string; approverName: string; started?: boolean; wasteCost?: number | null; itemName: string };
 export type Till = { openedBy: string; openingFloat: number; expectedCash: number; actualCash: number | null; status: 'open' | 'closed' };
 export type TipRow = { name: string; role: string; earned: number; shared: number; takesHome: number };
@@ -159,6 +161,9 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
     day: x.day, place: x.place || null, unplaced: x.place && x.unplaced && x.unplaced.count > 0 ? x.unplaced : null,
     sales: { total, taken, refunds, tips, tax, count: sales.length, byHour, byMethod: sumBy(pays, (p) => p.method, (p) => p.amount).map((g) => ({ method: g.label, amount: g.amount })) },
     guests: { tables: x.tables.length, covers, perGuest: covers > 0 ? r2(total / covers) : null },
+    // Discounts and rewards taken off the counter's sales, by name, and the ones a manager okayed (lib/counter-money).
+    discounts: (() => { const offs = sales.flatMap((v) => v.offs || []); return { total: r2(offs.reduce((t, o) => t + o.amount, 0)), count: offs.length, byLabel: sumBy(offs, (o) => o.label, (o) => o.amount),
+      okayed: sumBy(offs.filter((o) => o.okBy), (o) => String(o.okBy), (o) => o.amount) }; })(),
     comps: { total: compTotal, count: comps.length, usual: x.usualComps ?? null, byReason: sumBy(comps, (a) => a.reason, (a) => a.amount), byPerson: sumBy(comps, (a) => a.askedBy, (a) => a.amount) },
     voids: { total: r2(voids.reduce((s, a) => s + a.amount, 0)), count: voids.length, before: { count: before.length, amount: r2(before.reduce((s, a) => s + a.amount, 0)) }, after: { count: after.length, amount: r2(after.reduce((s, a) => s + a.amount, 0)) },
       byReason: sumBy(voids, (a) => a.reason, (a) => a.amount) },
@@ -191,6 +196,7 @@ export function reportText(name: string, rep: NightReport): string {
   if (rep.sales.byMethod.length) L.push(`Paid by ${rep.sales.byMethod.map((m) => `${m.method.toLowerCase()} ${$(m.amount)}`).join(', ')}.`);
   L.push('');
   L.push(`Comps ${$(rep.comps.total)} (${rep.comps.count}). ${rep.comps.byReason.map((r) => `${r.label}: ${$(r.amount)}`).join('; ')}`.trim());
+  if (rep.discounts?.count) L.push(`Discounts ${$(rep.discounts.total)} (${rep.discounts.count}): ${rep.discounts.byLabel.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.${rep.discounts.okayed.length ? ` Okayed by ${rep.discounts.okayed.map((r) => `${r.label} ${$(r.amount)}`).join('; ')}.` : ''}`);
   L.push(`Voids ${$(rep.voids.total)} (${rep.voids.count}): ${rep.voids.before.count} before the kitchen started, ${rep.voids.after.count} after.`);
   if (rep.remakes.count) L.push(`Made again: ${rep.remakes.count}.`);
   L.push(`Waste, cost to make: ${$(rep.waste)}.`);

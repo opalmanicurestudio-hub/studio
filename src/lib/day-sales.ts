@@ -16,8 +16,8 @@ const methodOf = (m: any): SaleMethod => { const x = String(m || '').toLowerCase
 // An online order's lines carry its Stripe Checkout session (cs_…); a desk checkout's own id never starts that way.
 const deskCheckout = (t: any) => !!t.checkoutSessionId && !String(t.checkoutSessionId).startsWith('cs_');
 // A sale at the counter, the drive-thru, the kiosk or ordered ahead (lib/counter-server payOrder): its lines (the items,
-// the tax, delivery, a driver's tip) are one sale, matched to its receipt (lib/counter-receipt, `co_<order>`).
-const counterOrderOf = (t: any) => (t.orderId && /^(counter_|ftip_)/.test(String(t.id || '')) ? String(t.orderId) : null);
+// the tax, delivery, a tip) are one sale, matched to its receipt (lib/counter-receipt, `co_<order>`).
+const counterOrderOf = (t: any) => (t.orderId && /^(counter_|ftip_|ctip_)/.test(String(t.id || '')) ? String(t.orderId) : null);
 function sourceOf(lines: any[]): SaleSource {
   if (lines.some((t) => counterOrderOf(t))) return 'counter';
   if (lines.some((t) => t.retailOrderId)) return 'order';

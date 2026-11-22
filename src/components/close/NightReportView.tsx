@@ -57,6 +57,10 @@ export function NightReportView({ r }: { r: NightReport }) {
           {r.comps.byPerson.length > 0 && <><Sep />{r.comps.byPerson.map((x) => <Row key={x.label} k={x.label} v={$(x.amount)} />)}</>}
           {!r.comps.count && <p className="text-[14px]" style={{ color: MUTED }}>None tonight.</p>}
         </Card>
+        {(r.discounts?.count || 0) > 0 && <Card title="Discounts" right={$(r.discounts.total)} sub={`${r.discounts.count} at the counter, by name`}>
+          {r.discounts.byLabel.map((x) => <Row key={x.label} k={`${x.label}, ${x.count}`} v={$(x.amount)} />)}
+          {r.discounts.okayed.length > 0 && <><Sep />{r.discounts.okayed.map((x) => <Row key={x.label} k={`Okayed by ${x.label}`} v={$(x.amount)} />)}</>}
+        </Card>}
         <Card title="Voids" right={$(r.voids.total)} sub="Every one has a reason and a name">
           <Row k={`Before the kitchen started, ${r.voids.before.count}`} v={$(r.voids.before.amount)} />
           <Row k={`After it started, ${r.voids.after.count}`} v={$(r.voids.after.amount)} />

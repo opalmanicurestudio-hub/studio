@@ -26,7 +26,9 @@ type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name:
   // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
   alsoAhead?: string | null;
   // A reward used on it (what it took off the items' own total); once paid, the points it earned (never their balance).
-  reward?: { name: string; off: number; itemsTotal: number } | null; earned?: { points: number; unit: string } | null };
+  reward?: { name: string; off: number; itemsTotal: number } | null; earned?: { points: number; unit: string } | null;
+  /** Its discount and tip (lib/counter-money). */
+  markdown?: { name: string; off: number; itemsTotal: number } | null; tip?: number };
 type View = { business: { name: string }; show: Show | null; wallets?: boolean };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const keyName = (t: string) => `cf.drivethru.window.${t}`;
@@ -207,9 +209,11 @@ function OrderLines({ s }: { s: Show }) {
         ))}
       </ul>
       <div className="mt-[2vh] space-y-[0.6vh] pt-[1.5vh] text-[clamp(16px,2vw,30px)]" style={{ borderTop: `1px solid ${RULE}`, color: SUB }}>
-        <p className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{usd(s.reward ? s.reward.itemsTotal : s.subtotal)}</span></p>
+        <p className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{usd(s.reward ? s.reward.itemsTotal : s.markdown ? s.markdown.itemsTotal : s.subtotal)}</span></p>
         {s.reward && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">Reward: {s.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(s.reward.off)}</span></p>}
+        {s.markdown && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">{s.markdown.name}</span><span className="shrink-0 tabular-nums">-{usd(s.markdown.off)}</span></p>}
         {s.tax > 0 && <p className="flex justify-between"><span>Tax</span><span className="tabular-nums">{usd(s.tax)}</span></p>}
+        {(s.tip || 0) > 0 && <p className="flex justify-between"><span>Tip</span><span className="tabular-nums">{usd(s.tip || 0)}</span></p>}
       </div>
     </div>
   );
