@@ -4,11 +4,13 @@
 //   count { tenantId, itemId, at, counted }        → a count at a store
 //   move  { tenantId, itemId, from, to, qty }      → between stores (or from or to "none": Not at a store yet)
 //   clear { tenantId, itemId }                     → every store counted: what's left "Not at a store yet" comes off
+//   point { tenantId, itemId, at, point|null }     → that store's own number to order more at (a manager's; design
+//                                                    board "Running low at each store", lib/store-low-server)
 // Anyone on the business's own team; booth renters run their own business and can't change the shop's stock.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
-import { clearUnplaced, countAtStore, moveStock, storeStockView } from '@/lib/store-stock-server';
+import { clearUnplaced, countAtStore, moveStock, setStorePoint, storeStockView } from '@/lib/store-stock-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -22,7 +24,9 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const who = { id: String(g.actor.uid), name: String(g.actor.name || 'A team member').slice(0, 60) };
   try {
     const action = String(b.action || 'view');
-    const r = action === 'count' ? await countAtStore(db, tenantId, itemId, b.at, b.counted, who)
+    if (action === 'point') { const m = await requireRole(req, tenantId, 'manager'); if (m.deny) return m.deny; }
+    const r = action === 'point' ? await setStorePoint(db, tenantId, itemId, b.at, b.point, who)
+      : action === 'count' ? await countAtStore(db, tenantId, itemId, b.at, b.counted, who)
       : action === 'move' ? await moveStock(db, tenantId, itemId, b.from, b.to, b.qty, who)
       : action === 'clear' ? await clearUnplaced(db, tenantId, itemId, who)
       : await storeStockView(db, tenantId, itemId);

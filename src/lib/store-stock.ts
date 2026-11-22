@@ -14,7 +14,8 @@ const ID = /^[A-Za-z0-9_-]{1,120}$/;
 const whole = (v: unknown) => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n >= 0 ? Math.min(n, 1_000_000) : 0; };
 
 export type Store = { id: string; name: string };
-export type StoreRowView = { id: string; name: string; count: number | null };
+/** `point`: the store's own number to order more at (lib/store-low); `low`: counted there and at or under it. */
+export type StoreRowView = { id: string; name: string; count: number | null; point: number | null; low: boolean };
 export type StoreStockView = { total: number; stores: StoreRowView[]; unplaced: number; short: number; tracked: boolean };
 
 /** Each location's own number, as kept (only well-formed ids and whole numbers). */
@@ -25,11 +26,27 @@ export function stockAtOf(item: any): Record<string, number> {
   return out;
 }
 
+// RUNNING LOW AT EACH STORE (design board "Running low at each store"; lib/store-low-server tells the managers there).
+/** Each store's own number to order more at (`reorderAt`; only well-formed ids and whole numbers). */
+export function reorderAtOf(item: any): Record<string, number> {
+  const out: Record<string, number> = {};
+  const x = item?.reorderAt;
+  if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) if (ID.test(k) && v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0) out[k] = whole(v);
+  return out;
+}
+/** A store's number to order more at: its own, or none. */
+export const pointAt = (item: any, at: string): number | null => { const p = reorderAtOf(item); return at in p ? p[at] : null; };
+/** The stores counted at or under their own number. */
+export function lowStores(item: any, stores: Store[]): { id: string; name: string; count: number; point: number }[] {
+  const at = stockAtOf(item); const pts = reorderAtOf(item);
+  return stores.filter((s) => s.id in at && s.id in pts && at[s.id] <= pts[s.id]).map((s) => ({ id: s.id, name: s.name, count: at[s.id], point: pts[s.id] }));
+}
+
 /** What each of the business's stores has (only its current ones: a closed store's units are "Not at a store yet"). */
 export function storeView(item: any, stores: Store[]): StoreStockView {
   const total = whole(item?.totalStock);
-  const at = stockAtOf(item);
-  const rows = stores.map((s) => ({ id: s.id, name: s.name, count: s.id in at ? at[s.id] : null }));
+  const at = stockAtOf(item); const pts = reorderAtOf(item);
+  const rows = stores.map((s) => { const count = s.id in at ? at[s.id] : null; const point = s.id in pts ? pts[s.id] : null; return { id: s.id, name: s.name, count, point, low: count !== null && point !== null && count <= point }; });
   const counted = rows.reduce((n, r) => n + (r.count ?? 0), 0);
   return { total, stores: rows, unplaced: Math.max(0, total - counted), short: Math.max(0, counted - total), tracked: rows.some((r) => r.count !== null) };
 }

@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/order-alerts",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/store-low",
+      "schedule": "35 * * * *"
     }
   ]
 }

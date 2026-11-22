@@ -5,7 +5,7 @@ import { bizLocationsOf } from '@/lib/here-server';
 import { buildEntry } from '@/lib/stock-ledger';
 import { applyCount } from '@/lib/stock-count';
 import { variantIdsOf } from '@/lib/variants';
-import { afterCount, afterMove, storeView, type Store, type StoreStockView } from '@/lib/store-stock';
+import { afterCount, afterMove, storeView, reorderAtOf, type Store, type StoreStockView } from '@/lib/store-stock';
 
 type Who = { id: string; name: string };
 export type StoreStockReply = ({ ok: true } & StoreStockView) | { ok: false; error: string; status?: number };
@@ -90,5 +90,24 @@ export async function clearUnplaced(db: any, tenantId: string, itemId: string, w
     const counted = applyCount(item, total);
     return { patch: { totalStock: counted.totalStock, ...(counted.batches ? { batches: counted.batches } : {}) },
       entry: buildEntry({ productId: itemId, type: 'counted', delta: -v.unplaced, reason: `Not found at any store: ${v.unplaced} taken off`, actorId: who.id, actorName: who.name, balanceAfter: total }) };
+  });
+}
+
+/** A store's own number to order more at (lib/store-stock reorderAtOf; a manager's: the route checks), or none (null).
+ *  `reorderAtOn` marks an item that has one, for the check that tells the managers (lib/store-low-server). */
+export async function setStorePoint(db: any, tenantId: string, itemId: string, at: unknown, point: unknown, who: Who): Promise<StoreStockReply> {
+  const stores = await storesOf(db, tenantId); if (!stores.length) return fail('Each store gets its own number once there’s more than one location.', 409);
+  const store = stores.find((s) => s.id === String(at || '')); if (!store) return fail('Pick one of your stores.');
+  const n = point === null || point === undefined || point === '' ? null : Math.floor(Number(point));
+  if (n !== null && (!Number.isFinite(n) || n < 0 || n > 100000)) return fail('Order more at how many? 0 to 100,000.');
+  const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
+  return db.runTransaction(async (tx: any) => {
+    const item: any = (await tx.get(ref)).data(); if (!item) return fail('That item isn’t there any more.', 404);
+    if (String(item.type) === 'equipment') return fail('Equipment isn’t ordered here.');
+    const pts = { ...reorderAtOf(item) }; if (n === null) delete pts[store.id]; else pts[store.id] = n;
+    const sent = { ...(item.lowSentAt && typeof item.lowSentAt === 'object' ? item.lowSentAt : {}) }; delete sent[store.id];
+    // (Each whole map replaced, so a store taken off is gone.)
+    tx.update(ref, { reorderAt: pts, reorderAtOn: Object.keys(pts).length > 0, lowSentAt: sent, updatedAt: new Date().toISOString(), updatedBy: who.name });
+    return { ok: true as const, ...storeView({ ...item, reorderAt: pts }, stores) };
   });
 }

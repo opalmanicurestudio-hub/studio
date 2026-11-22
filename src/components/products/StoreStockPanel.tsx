@@ -2,7 +2,8 @@
 // src/components/products/StoreStockPanel.tsx — AT EACH STORE, on a product's page (design board "Stock at each store, and
 // tonight's counts at each location"; lib/store-stock, api/inventory/stores). Only with more than one location: what each
 // store has, the total, and what isn't at a store yet; a count at a store, a move between stores, and, once every store
-// is counted, what wasn't found taken off the total.
+// is counted, what wasn't found taken off the total. Each store's own number to order more at, and which are low now
+// (design board "Running low at each store": its managers are told, lib/store-low-server).
 import * as React from 'react';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { StoreStockView } from '@/lib/store-stock';
@@ -21,7 +22,7 @@ const boxStyle: React.CSSProperties = { border: `1px solid ${C.line}`, backgroun
 
 export function StoreStockPanel({ tenantId, itemId, onChanged }: { tenantId: string; itemId: string; onChanged?: () => void }) {
   const [v, setV] = React.useState<View | null>(null); const [err, setErr] = React.useState('');
-  const [open, setOpen] = React.useState<'count' | 'move' | null>(null); const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState<'count' | 'move' | 'point' | null>(null); const [busy, setBusy] = React.useState(false);
   React.useEffect(() => { let on = true; void call({ tenantId, itemId, action: 'view' }).then((d) => { if (!on) return; if (d.ok) setV(d); else setErr(d.error || ''); }); return () => { on = false; }; }, [tenantId, itemId]);
   const done = (d: any) => { if (d.ok) { setV(d); setOpen(null); onChanged?.(); return null; } return String(d.error || 'That didn’t save. Try again.'); };
   const clear = async () => { setBusy(true); setErr(''); const d = await call({ tenantId, itemId, action: 'clear' }); setBusy(false); const e = done(d); if (e) setErr(e); };
@@ -33,7 +34,8 @@ export function StoreStockPanel({ tenantId, itemId, onChanged }: { tenantId: str
       <div className="flex items-baseline justify-between gap-4 py-2.5 text-[15px]"><span>Total</span><span className="font-semibold tabular-nums">{v.total}</span></div>
       {v.stores.map((s) => (
         <div key={s.id} className="flex items-baseline justify-between gap-4 border-t py-2.5 text-[15px]" style={{ borderColor: C.line }}>
-          <span>{s.name}</span><span className="tabular-nums" style={s.count === null ? muted : undefined}>{s.count === null ? 'Not counted yet' : s.count}</span>
+          <span className="flex items-center gap-2">{s.name}{s.low && <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>Low</span>}</span>
+          <span className="text-right"><span className="tabular-nums" style={s.count === null ? muted : undefined}>{s.count === null ? 'Not counted yet' : s.count}</span>{s.point !== null && <span className="text-[13.5px]" style={muted}>, order more at {s.point}</span>}</span>
         </div>))}
       <div className="flex items-baseline justify-between gap-4 border-t py-2.5 text-[15px]" style={{ borderColor: C.line, ...muted }}><span>Not at a store yet</span><span className="tabular-nums">{v.unplaced}</span></div>
       {!v.tracked && <p className="m-0 mt-1 text-[14px]" style={muted}>Count it at each store to keep each one’s own number. Until then, the shop sells it from every store as now.</p>}
@@ -47,7 +49,9 @@ export function StoreStockPanel({ tenantId, itemId, onChanged }: { tenantId: str
         <Btn className="flex-1" onClick={() => { setErr(''); setOpen('count'); }}>Count at a store</Btn>
         <Btn className="flex-1" onClick={() => { setErr(''); setOpen('move'); }}>Move</Btn>
       </div>
+      <Btn className="mt-2 w-full" onClick={() => { setErr(''); setOpen('point'); }}>Order more at…</Btn>
       {open === 'count' && <CountAt v={v} onClose={() => setOpen(null)} save={async (at, n) => done(await call({ tenantId, itemId, action: 'count', at, counted: n }))} />}
+      {open === 'point' && <PointSheet v={v} onClose={() => setOpen(null)} save={async (at, n) => done(await call({ tenantId, itemId, action: 'point', at, point: n }))} />}
       {open === 'move' && <MoveSheet v={v} onClose={() => setOpen(null)} save={async (from, to, qty) => done(await call({ tenantId, itemId, action: 'move', from, to, qty }))} />}
     </section>
   );
@@ -97,6 +101,32 @@ function MoveSheet({ v, onClose, save }: { v: View; onClose: () => void; save: (
         <p className="m-0 text-[14px]" style={muted}>The total stays the same. It’s kept in the stock history with your name.</p>
         {err && <p role="alert" className="m-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>{err}</p>}
         <Btn kind="primary" type="submit" className="w-full text-[17px]" disabled={!Number.isFinite(qty) || !qty || busy || from === to}>{busy ? 'Saving…' : Number.isFinite(qty) && qty ? `Move ${qty}` : 'Move'}</Btn>
+      </form>
+    </Sheet>
+  );
+}
+
+/** Each store's own number to order more at (a manager's), or none. */
+function PointSheet({ v, onClose, save }: { v: View; onClose: () => void; save: (at: string, n: number | null) => Promise<string | null> }) {
+  const [at, setAt] = React.useState(v.stores[0]?.id || ''); const [n, setN] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const s = v.stores.find((x) => x.id === at);
+  React.useEffect(() => { const p = v.stores.find((x) => x.id === at)?.point; setN(p === null || p === undefined ? '' : String(p)); }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = async (clear = false) => { if (busy) return; setBusy(true); setErr(''); const e = await save(at, clear || n === '' ? null : Math.floor(Number(n))); setBusy(false); if (e) setErr(e); };
+  return (
+    <Sheet title="Order more at" onClose={onClose}>
+      <form className="mt-2 flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); void go(); }}>
+        <div role="group" aria-label="Which store" className="flex flex-wrap gap-2">
+          {v.stores.map((x) => <button key={x.id} type="button" aria-pressed={x.id === at} onClick={() => setAt(x.id)} className="min-h-[44px] rounded-xl px-4 text-[15px] font-semibold"
+            style={x.id === at ? { background: C.ink, color: C.paper } : { background: C.paper, color: C.ink, border: `1px solid ${C.line}` }}>{x.name}</button>)}
+        </div>
+        <div>
+          <label htmlFor="store-point" className="mb-1.5 block text-[13px] font-semibold" style={muted}>When {s?.name || 'this store'} has this many or fewer</label>
+          <input id="store-point" inputMode="numeric" autoFocus value={n} onChange={(e) => setN(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="None" className="h-14 w-full rounded-xl px-4 text-[24px] tabular-nums outline-none" style={boxStyle} />
+        </div>
+        <p className="m-0 text-[14px]" style={muted}>The managers who work at {s?.name || 'this store'} are told once when it gets there, with what the other stores have.</p>
+        {err && <p role="alert" className="m-0 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>{err}</p>}
+        <Btn kind="primary" type="submit" className="w-full text-[17px]" disabled={busy}>{busy ? 'Saving…' : n === '' ? 'Save: no number here' : `Save: order more at ${n}`}</Btn>
+        {s?.point !== null && s?.point !== undefined && <Btn className="w-full" disabled={busy} onClick={() => void go(true)}>Take {s.name}’s number off</Btn>}
       </form>
     </Sheet>
   );
