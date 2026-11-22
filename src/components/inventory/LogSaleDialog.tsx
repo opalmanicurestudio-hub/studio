@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
+import { useInventory } from '@/context/InventoryContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -43,7 +45,8 @@ interface LogSaleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem | null;
-  onConfirm: (productId: string, quantity: number, paymentMethod: string) => { success: boolean, message: string };
+  /** `at`: the store it was sold at, with more than one location (components/inventory/ReceiveAtStore). */
+  onConfirm: (productId: string, quantity: number, paymentMethod: string, at?: string) => { success: boolean, message: string } | Promise<{ success: boolean, message: string }>;
 }
 
 export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
@@ -57,8 +60,12 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
     resolver: zodResolver(saleSchema),
     defaultValues: { quantity: 1, paymentMethod: 'Card' },
   });
-  const { control, handleSubmit, watch, reset, formState: { errors } } = methods;
+  const { control, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = methods;
   const { toast } = useToast();
+  const { locations } = useInventory();
+  const stores = React.useMemo(() => storesFrom(locations as any[]), [locations]);
+  const [at, setAt] = useCameTo(stores);
+  const needStore = stores.length > 0 && !at;
 
   const quantity = watch('quantity');
   const maxQuantity = product?.totalStock || 0;
@@ -70,9 +77,10 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
     }
   }, [open, reset]);
 
-  const handleFormSubmit = (data: SaleFormData) => {
-    if (quantityError || !product) return;
-    const result = onConfirm(product.id, data.quantity, data.paymentMethod);
+  // (Waited for: at a store, it's saved in one step that needs the connection.)
+  const handleFormSubmit = async (data: SaleFormData) => {
+    if (quantityError || !product || needStore) return;
+    const result = await onConfirm(product.id, data.quantity, data.paymentMethod, at || undefined);
     
     if (result.success) {
         toast({ title: 'Sale Logged', description: result.message });
@@ -90,6 +98,11 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
     <FormProvider {...methods}>
         <form id="log-sale-strategic-form" onSubmit={handleSubmit(handleFormSubmit)}>
             <div className="grid gap-10 py-4">
+                {stores.length > 1 && (
+                    <div className="space-y-2 rounded-2xl bg-white p-3">
+                        <CameTo stores={stores} at={at} onPick={setAt} id="sale-at" label="Sold at" hint="Pick the store it was sold at." />
+                        <NotOnShelf way="out" items={[product]} stores={stores} at={at} />
+                    </div>)}
                 <div className="space-y-3">
                     <Label htmlFor="quantity-sale" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Volume to Liquidate</Label>
                     <div className="relative">
@@ -151,7 +164,7 @@ export const LogSaleDialog: React.FC<LogSaleDialogProps> = ({
 
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
-            <Button type="submit" form="log-sale-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={!!quantityError}>Acknowledge Sale</Button>
+            <Button type="submit" form="log-sale-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={isSubmitting || !!quantityError || needStore}>Acknowledge Sale</Button>
             <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Abort Terminal</Button>
           </div>
         </DialogFooter>

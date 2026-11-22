@@ -84,7 +84,8 @@ export const cancelOrder = (_fs: any, tenantId: string, orderId: string, _actor:
 export async function setWaveStatus(_fs: any, tenantId: string, waveId: string, status: 'picking' | 'packing' | 'done' | 'cancelled', _actor?: Actor): Promise<void> {
   const r = await step(tenantId, 'waveStatus', { waveId, status }); if (!r.ok) throw new Error(r.message);
 }
-export const receiveReturnLine = (_fs: any, tenantId: string, ret: { id: string }, lineId: string, disposition: ReturnDisposition, _actor: Actor) => step<Ans & { allReceived?: boolean }>(tenantId, 'receiveReturnLine', { returnId: ret.id, lineId, disposition });
+/** `at`: with more than one location, the store it's checked in at (lib/store-stock). */
+export const receiveReturnLine = (_fs: any, tenantId: string, ret: { id: string }, lineId: string, disposition: ReturnDisposition, _actor: Actor, at?: string) => step<Ans & { allReceived?: boolean }>(tenantId, 'receiveReturnLine', { returnId: ret.id, lineId, disposition, ...(at ? { at } : {}) });
 /** A return opened at the desk (worked out and saved on the server, lib/retail-returns). */
 export const openReturn = (_fs: any, tenantId: string, order: { id: string }, selections: { lineId: string; qty: number; reason: string }[], resolution: string, notes: string, _actor: Actor) => step<Ans & { returnId?: string }>(tenantId, 'openReturn', { orderId: order.id, selections, resolution, notes });
 /** Asking the customer for more about a report; they're told from the server. */

@@ -15,10 +15,10 @@ export async function countStock(tenantId: string, productId: string, counted: n
   }
 }
 
-/** Log a use by hand (lib/log-use): the same stock step as checkout. */
-export async function logUseOf(tenantId: string, productId: string, quantity: number, reason: string): Promise<{ ok: true; moved: number; shortfall: number; unit: string } | { ok: false; error: string }> {
+/** Log a use by hand (lib/log-use): the same stock step as checkout. `at`: the store it was used at, with more than one. */
+export async function logUseOf(tenantId: string, productId: string, quantity: number, reason: string, at?: string): Promise<{ ok: true; moved: number; shortfall: number; unit: string } | { ok: false; error: string }> {
   try {
-    const r = await fetch('/api/inventory/use', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, productId, quantity, reason }) });
+    const r = await fetch('/api/inventory/use', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, productId, quantity, reason, ...(at ? { at } : {}) }) });
     const j: any = await r.json().catch(() => ({}));
     if (r.ok && j.ok) return { ok: true, moved: Number(j.moved) || 0, shortfall: Number(j.shortfall) || 0, unit: String(j.unit || '') };
     return { ok: false, error: String(j.error || 'That didn’t save. Try again.') };

@@ -2,6 +2,8 @@
 'use client';
 
 import { logUseOf } from '@/lib/count-client';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
+import { useInventory } from '@/context/InventoryContext';
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -80,6 +82,10 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
     }
   });
   const { toast } = useToast();
+  // With more than one location, where it was used (components/inventory/ReceiveAtStore; lib/log-use).
+  const { locations } = useInventory();
+  const stores = React.useMemo(() => storesFrom(locations as any[]), [locations]);
+  const [at, setAt] = useCameTo(stores);
 
   const selectedProductId = watch('productId');
   const selectedProduct = allProducts.find(p => p.id === selectedProductId);
@@ -96,12 +102,14 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
 
   const handleFormSubmit = async (data: UseFormData) => {
     if (!firestore || !tenantId || !selectedProduct) return;
+    if (stores.length && !at) { toast({ variant: 'destructive', title: 'Not logged', description: 'Pick the store it was used at.' }); return; }
 
     // Taken off on the server, the same way checkout does it (lib/log-use): the open container first, a new one only
     // when it runs out, and recorded on the stock history with who logged it.
-    const r = await logUseOf(tenantId, selectedProduct.id, Number(data.quantity), data.reason || 'Logged by hand');
+    const r = await logUseOf(tenantId, selectedProduct.id, Number(data.quantity), data.reason || 'Logged by hand', at || undefined);
     if (!r.ok) { toast({ variant: 'destructive', title: 'Not logged', description: r.error }); return; }
-    toast({ title: 'Logged', description: `${data.quantity} ${r.unit} of ${selectedProduct.name} taken off stock${r.shortfall ? `, ${r.shortfall} more than the record showed` : ''}.` });
+    const where = stores.find((x) => x.id === at)?.name;
+    toast({ title: 'Logged', description: `${data.quantity} ${r.unit} of ${selectedProduct.name} taken off stock${where ? ` at ${where}` : ''}${r.shortfall ? `, ${r.shortfall} more than the record showed` : ''}.` });
     onOpenChange(false);
   };
 
@@ -135,6 +143,11 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
                 )}
             />
         )}
+        {stores.length > 1 && (
+            <div className="space-y-2 rounded-2xl bg-white p-3 text-left">
+                <CameTo stores={stores} at={at} onPick={setAt} id="use-at" label="Used at" hint="Pick the store it was used at." />
+                <NotOnShelf way="out" items={selectedProduct ? [selectedProduct] : []} stores={stores} at={at} />
+            </div>)}
         <Controller
             name="quantity"
             control={control}
@@ -188,7 +201,7 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
 
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
-            <Button type="submit" form="log-use-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">Log Consumption</Button>
+            <Button type="submit" form="log-use-strategic-form" disabled={stores.length > 0 && !at} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">Log Consumption</Button>
             <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Cancel Protocol</Button>
           </div>
         </DialogFooter>

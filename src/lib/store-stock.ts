@@ -93,6 +93,13 @@ export function storeMove(item: any, at: unknown, m: { stock?: number; held?: nu
   return out;
 }
 
+/** A change worked out as the item's new total (lib/usage moveStock's patch): the store's number moves by the same
+ *  amount, for an item counted there. */
+export function storeFollow(item: any, at: unknown, nextTotal: unknown): Record<string, number> {
+  const next = Number(nextTotal); if (!Number.isFinite(next)) return {};
+  return storeMove(item, at, { stock: Math.round(next) - whole(item?.totalStock) });
+}
+
 /** The same, for a write that merges maps (a set with merge): `{ stockAt: { [at]: n } }` rather than a dotted path. */
 export function storeMoveNested(item: any, at: unknown, m: { stock?: number; held?: number }): Record<string, Record<string, number>> {
   const flat = storeMove(item, at, m); const out: Record<string, Record<string, number>> = {};

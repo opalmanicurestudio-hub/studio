@@ -417,7 +417,16 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         // would be sold again).
         if (!['restock', 'open_box', 'quarantine', 'damaged', 'dispose', 'write_off'].includes(b.disposition)) return NextResponse.json({ ok: false, message: 'Say what condition it came back in.' }, { status: 400 });
         const lm = need1(lineId, 'item'); if (lm) return lm;
-        out = await R.receiveReturnLine(db, tenantId, ret, lineId, b.disposition, actor); break;
+        // With more than one location, the store it's checked in at (required for one going back on the shelf or held
+        // to check; read now, so a location added a moment ago counts): lib/store-stock.
+        const { storesOf } = await import('@/lib/store-stock-server');
+        const stores = await storesOf(db, tenantId, true);
+        const store = stores.find((x) => x.id === String(b.at || '')) || null;
+        // (Opened goes back on the shelf too when that's the shop's policy for opened items.)
+        const openedBack = b.disposition === 'open_box' && stores.length > 0 && !b.at && String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.retailSettings?.policies?.openedReturns || '') === 'restock';
+        if (stores.length && !b.at && (b.disposition === 'restock' || b.disposition === 'quarantine' || openedBack)) return NextResponse.json({ ok: false, message: 'Pick the store it’s checked in at. Reload the page if you don’t see your stores.' }, { status: 409 });
+        if (stores.length && b.at && !store) return NextResponse.json({ ok: false, message: 'That store isn’t one of your locations now. Pick the store it’s checked in at again.' }, { status: 400 });
+        out = await R.receiveReturnLine(db, tenantId, ret, lineId, b.disposition, actor, store); break;
       }
       case 'trimReturn': {
         // Only part of a return came back: what did, counted by the screen, and whether the rest is still coming

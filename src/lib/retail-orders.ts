@@ -1784,6 +1784,9 @@ export interface ReturnLine {
   /** What each held unit turned out to be, some at a time; holdDecided once none are left to decide. */
   holdDecisions?: { outcome: 'restock' | 'open_box' | 'damaged' | 'dispose'; qty: number; at: string; by: string }[];
   holdDecided?: { outcome: 'restock' | 'open_box' | 'damaged' | 'dispose' | 'mixed'; at: string; by: string };
+  /** With more than one location, the store it was checked in at (a held item goes back on that shelf: lib/store-stock). */
+  atStore?: string;
+  atStoreName?: string;
 }
 
 export interface RetailReturn {

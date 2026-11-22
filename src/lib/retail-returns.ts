@@ -12,6 +12,7 @@ import { followUpDelivery } from './delivery-plan';
 
 import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
+import { storeMove } from '@/lib/store-stock';
 
 import {
   buildEvent, isReturnReceivable, parseOrderQr, returnRefundCents, trimmedReturnCents,
@@ -178,10 +179,14 @@ export const holdsOpenOf = (lines: any[]): number => (lines || []).filter((l: an
 
 /** What a returned item's condition does, inside the caller's transaction once every read is done: back on the shelf
  *  (a new batch at the item's cost now, and a stock correction), or written off at cost (a Spoilage expense and its loss
- *  record, together). Gives what went back on the shelf, so a backorder waiting for it can go. */
+ *  record, together). Gives what went back on the shelf, so a backorder waiting for it can go.
+ *  `store`: with more than one location, where it was checked in: back on that store's shelf too, for an item counted
+ *  there (lib/store-stock). The total goes up by what came back (never worked out again from the batches, which a count
+ *  or a sale that moved the total only would leave behind). */
 function applyCondition(fs: Firestore, txn: any, tenantId: string, a: {
   ret: { id: string; orderId: string; orderNumber: number }; lineId: string; qty: number; name: string; origLine: any; iRef: any; iSnap: any;
   restock: boolean; writeOff: boolean; disposition: string; openedBack?: boolean; held?: boolean; actor: Actor; now: string; lossId?: string;
+  store?: { id: string; name?: string } | null;
 }): { productId: string; qty: number } | null {
   const { ret, lineId, qty, name, origLine, iRef, iSnap, actor, now, disposition } = a;
   let back: { productId: string; qty: number } | null = null;
@@ -193,13 +198,14 @@ function applyCondition(fs: Firestore, txn: any, tenantId: string, a: {
     }];
     txn.update(iRef, {
       batches: JSON.parse(JSON.stringify(batches)),
-      totalStock: batches.reduce((x: number, b: any) => x + (b.stock || 0), 0),
+      totalStock: Math.max(0, Math.floor(Number(item.totalStock) || 0)) + qty,
+      ...(a.store ? storeMove(item, a.store.id, { stock: qty }) : {}),
     });
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
       productId: origLine!.productId, date: now, change: qty,
       unit: item.unit || 'units',
-      reason: a.held ? `Held return checked and put back on the shelf (Order #${ret.orderNumber})` : a.openedBack ? `Opened return put back on the shelf (Order #${ret.orderNumber})` : `Return restocked (Order #${ret.orderNumber})`,
-      orderId: ret.orderId, returnId: ret.id,
+      reason: `${a.held ? 'Held return checked and put back on the shelf' : a.openedBack ? 'Opened return put back on the shelf' : 'Return restocked'}${a.store?.name ? ` at ${a.store.name}` : ''} (Order #${ret.orderNumber})`,
+      orderId: ret.orderId, returnId: ret.id, ...(a.store ? { storeId: a.store.id } : {}),
       actorId: actor.id, actorName: actor.name, source: 'retail_engine',
     });
     back = { productId: String(origLine!.productId), qty: Number(qty) || 0 };
@@ -260,7 +266,7 @@ function applyCondition(fs: Firestore, txn: any, tenantId: string, a: {
  */
 export async function receiveReturnLine(
   fs: Firestore, tenantId: string, ret: ReturnDoc, lineId: string,
-  disposition: ReturnDisposition, actor: Actor
+  disposition: ReturnDisposition, actor: Actor, store?: { id: string; name: string } | null
 ): Promise<{ ok: boolean; allReceived?: boolean; message: string }> {
   let back: { productId: string; qty: number } | null = null;
   try {
@@ -292,11 +298,13 @@ export async function receiveReturnLine(
       const writeOff = ['write_off', 'damaged', 'dispose'].includes(disposition) || (disposition === 'open_box' && !openedBack);
 
       const now = new Date().toISOString();
-      back = applyCondition(fs, txn, tenantId, { ret: { id: ret.id, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: line.qty, name: line.name, origLine, iRef, iSnap, restock, writeOff, disposition, openedBack, actor, now });
+      back = applyCondition(fs, txn, tenantId, { ret: { id: ret.id, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: line.qty, name: line.name, origLine, iRef, iSnap, restock, writeOff, disposition, openedBack, actor, now, store });
 
-      // Held to check: kept out of stock, and it waits in Problems until someone decides (decideHold).
+      // Held to check: kept out of stock, and it waits in Problems until someone decides (decideHold). With more than
+      // one location, the store it was checked in at is kept on a line that went back on the shelf or is held (a held
+      // item goes back on that shelf).
       const updatedLines = fresh.lines.map((l) =>
-        l.lineId === lineId ? { ...l, disposition, dispositionScannedAt: now, ...(disposition === 'quarantine' ? { heldAt: now } : {}) } : l
+        l.lineId === lineId ? { ...l, disposition, dispositionScannedAt: now, ...(disposition === 'quarantine' ? { heldAt: now } : {}), ...(store && (restock || disposition === 'quarantine') ? { atStore: store.id, atStoreName: store.name } : {}) } : l
       );
       const allReceived = updatedLines.every((l) => !!l.disposition);
       txn.update(rRef, { lines: JSON.parse(JSON.stringify(updatedLines)), status: 'received', holdsOpen: holdsOpenOf(updatedLines) });
@@ -477,7 +485,9 @@ export async function decideHold(
       const decisions = [...(Array.isArray(line.holdDecisions) ? line.holdDecisions : []), { outcome, qty: n, at: now, by: actor.name }];
       // Each write-off of the same item keeps its own loss record.
       const lossId = decisions.length > 1 ? `ret-${returnId}-${lineId}-h${decisions.length}` : undefined;
-      back = applyCondition(fs, txn, tenantId, { ret: { id: returnId, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: n, name: line.name, origLine, iRef, iSnap, restock, writeOff: !restock, disposition: outcome, openedBack, held: true, actor, now, lossId });
+      back = applyCondition(fs, txn, tenantId, { ret: { id: returnId, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: n, name: line.name, origLine, iRef, iSnap, restock, writeOff: !restock, disposition: outcome, openedBack, held: true, actor, now, lossId,
+        // Back on the shelf where it was checked in and held (receiveReturnLine).
+        store: line.atStore ? { id: String(line.atStore), name: String(line.atStoreName || '') } : null });
       const done = n === left;
       const outcomes = [...new Set(decisions.map((d: any) => d.outcome))];
       const lines = fresh.lines.map((l: any) => (l.lineId !== lineId ? l : { ...l, holdDecisions: decisions, ...(done ? { holdDecided: { outcome: outcomes.length === 1 ? outcome : 'mixed', at: now, by: actor.name } } : {}) }));

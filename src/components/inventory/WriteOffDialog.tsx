@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,8 @@ import { format } from 'date-fns';
 import { PackageX, Sparkles, AlertTriangle, DollarSign, Loader, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
+import { useInventory } from '@/context/InventoryContext';
 
 const writeOffSchema = z.object({
   batchId: z.string().min(1, 'You must select a batch.'),
@@ -54,7 +57,8 @@ interface WriteOffDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onConfirm: (productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string) => void;
+  /** `at`: the store it was at, with more than one location (components/inventory/ReceiveAtStore). */
+  onConfirm: (productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string, at?: string) => void | Promise<unknown>;
 }
 
 export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
@@ -68,7 +72,12 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
     resolver: zodResolver(writeOffSchema),
   });
 
-  const { control, handleSubmit, watch, reset, formState: { errors } } = methods;
+  const { control, handleSubmit, watch, reset, formState: { errors, isSubmitting } } = methods;
+  const { locations } = useInventory();
+  const stores = React.useMemo(() => storesFrom(locations as any[]), [locations]);
+  const [at, setAt] = useCameTo(stores);
+  const needStore = stores.length > 0 && !at;
+  const { toast } = useToast();
 
   const selectedBatchId = watch('batchId');
   const selectedBatch = product.batches.find(b => b.id === selectedBatchId);
@@ -88,9 +97,12 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
   const maxQuantity = selectedBatch?.stock || 0;
   const quantityError = quantity > maxQuantity ? `Exceeds available stock (${maxQuantity})` : undefined;
 
-  const handleFormSubmit = (data: WriteOffFormData) => {
-    if (quantityError) return;
-    onConfirm(product.id, data.batchId, data.quantity, data.reason, data.notes, data.imageUrl);
+  // (Waited for: at a store, it's saved in one step that needs the connection.)
+  const handleFormSubmit = async (data: WriteOffFormData) => {
+    if (quantityError || needStore) return;
+    const r: any = await onConfirm(product.id, data.batchId, data.quantity, data.reason, data.notes, data.imageUrl, at || undefined);
+    // Not done: said why, and the dialog stays open.
+    if (r && r.success === false) { toast({ variant: 'destructive', title: 'Not written off', description: String(r.message || 'That didn’t save. Try again.') }); return; }
     onOpenChange(false);
   };
 
@@ -98,6 +110,11 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
     <FormProvider {...methods}>
         <form id="log-loss-strategic-form" onSubmit={handleSubmit(handleFormSubmit)}>
             <div className="grid gap-8 py-4">
+                {stores.length > 1 && (
+                    <div className="space-y-2 rounded-2xl bg-white p-3">
+                        <CameTo stores={stores} at={at} onPick={setAt} id="loss-at" label="Where was it?" hint="Pick the store it was at." />
+                        <NotOnShelf way="out" items={[product]} stores={stores} at={at} />
+                    </div>)}
                 <div className="space-y-3">
                     <Label htmlFor="batch-select" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Asset Batch</Label>
                     <Controller
@@ -200,7 +217,7 @@ export const WriteOffDialog: React.FC<WriteOffDialogProps> = ({
 
         <DialogFooter className="p-8 pt-4 border-t bg-background flex-shrink-0">
           <div className="flex flex-col gap-3 w-full">
-            <Button type="submit" form="log-loss-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={!!quantityError || !selectedBatchId || !watch('reason')}>Authorize Write-off</Button>
+            <Button type="submit" form="log-loss-strategic-form" className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all" disabled={isSubmitting || needStore || !!quantityError || !selectedBatchId || !watch('reason')}>Authorize Write-off</Button>
             <Button variant="ghost" type="button" onClick={() => onOpenChange(false)} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-muted-foreground">Cancel Protocol</Button>
           </div>
         </DialogFooter>

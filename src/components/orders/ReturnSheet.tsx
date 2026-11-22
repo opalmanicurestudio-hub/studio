@@ -6,8 +6,11 @@
 // card. Used from Problems and straight after Start a return at the counter (StartReturnSheet).
 // Only part of it came back: count what did, say whether the rest is still coming, and check in just that (the server
 // cuts the return down, lib/retail-returns trimReturn). Something to look at properly later is held to check: kept out
-// of stock, and it waits in Problems until someone decides.
+// of stock, and it waits in Problems until someone decides. With more than one location, it asks which store it's
+// checked in at (components/inventory/ReceiveAtStore): what goes back on the shelf goes on that store's, and what's held
+// to check goes back there once it's decided (lib/retail-returns).
 import * as React from 'react';
+import { CameTo, NotOnShelf, storesFrom, useCameTo } from '@/components/inventory/ReceiveAtStore';
 import { doc, getDoc, type Firestore } from 'firebase/firestore';
 import { receiveReturnLine, resolveReturn, trimReturn } from '@/lib/fulfil-client';
 import { restockingFee, returnIsShopFault } from '@/lib/restocking';
@@ -45,6 +48,15 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
   const allGraded = here.length > 0 && here.every((l: any) => !!l.disposition || !!cond[l.lineId]);
   const ready = part ? here.length > 0 && allGraded && (!short || !!rest) : allIn && allGraded;
   const inv: any = useInventory();
+  // Where it's checked in, for anything going back on the shelf or held to check (with more than one location).
+  const stores = React.useMemo(() => storesFrom(inv?.locations), [inv?.locations]);
+  const [at, setAt] = useCameTo(stores);
+  const atName = stores.find((x) => x.id === at)?.name || '';
+  const shelfish = (c?: Cond) => c === 'restock' || c === 'quarantine' || (c === 'open_box' && rs?.policies?.openedReturns === 'restock');
+  const askStore = stores.length > 1 && here.some((l: any) => !l.disposition && shelfish(cond[l.lineId]));
+  const needStore = askStore && !at;
+  const backItems = here.filter((l: any) => !l.disposition && cond[l.lineId] && cond[l.lineId] !== 'quarantine' && shelfish(cond[l.lineId]))
+    .map((l: any) => { const o = (order?.lines || []).find((x: any) => x.lineId === l.lineId); return o ? (inv?.inventory || []).find((i: any) => i.id === lineProductId(o)) : null; }).filter(Boolean);
   const scan = (v: string) => {
     const t = String(v || '').trim(); if (!t) return;
     const pairs = (ret.lines || []).map((rl: any) => ({ rl, orig: (order?.lines || []).find((x: any) => x.lineId === rl.lineId) })).filter((x: any) => x.orig);
@@ -98,6 +110,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
       if (part && !here.length) { setErr('Mark what came back first.'); return; }
       if (!allGraded) { setErr('Say what condition each item is in.'); return; }
       if (short && !rest) { setErr('Say whether the rest is still coming.'); return; }
+      if (needStore) { setErr('Pick the store it’s checked in at.'); return; }
       // Only part came back: the return is cut down to it first, on the server (asked again with the same counts,
       // nothing more changes).
       let restLine = '';
@@ -114,7 +127,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
         if (l.disposition) continue;
         // Never checked in without its condition (the server refuses it too).
         if (!cond[l.lineId]) { setErr(`Say what condition ${l.name} is in.`); feel(false); return; }
-        const r = await receiveReturnLine(fs, tenantId, saved, l.lineId, cond[l.lineId] as any, actor);
+        const r = await receiveReturnLine(fs, tenantId, saved, l.lineId, cond[l.lineId] as any, actor, stores.length > 1 && at ? at : undefined);
         if (!r.ok) { setErr(r.message); feel(false); return; }
       }
       const snap = await getDoc(doc(fs, `tenants/${tenantId}/retailReturns`, ret.id));
@@ -172,10 +185,15 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
                   {CONDS.map((c) => <button key={c.id} type="button" aria-pressed={cond[l.lineId] === c.id} onClick={() => setCond((x) => ({ ...x, [l.lineId]: c.id }))}
                     className="cf-press h-11 rounded-full px-3.5 text-[14px] font-semibold" style={cond[l.lineId] === c.id ? { background: C.ink, color: C.paper } : { background: C.soft, color: C.ink }}>{c.label}</button>)}
                 </div>
-                <p className="m-0 mt-1.5 text-[13px]" style={muted}>{!cond[l.lineId] ? 'What condition is it in?' : cond[l.lineId] === 'restock' ? 'Goes back into stock.' : cond[l.lineId] === 'open_box' ? (rs?.policies?.openedReturns === 'restock' ? 'Goes back into stock (your policy for opened items).' : 'Written off at cost (your policy for opened items).') : cond[l.lineId] === 'dispose' ? 'Thrown away and written off at cost (for anything that can’t be sold again).' : cond[l.lineId] === 'quarantine' ? 'Kept out of stock until someone checks it. It waits in Problems.' : 'Written off at cost.'}</p></div>)}
+                <p className="m-0 mt-1.5 text-[13px]" style={muted}>{!cond[l.lineId] ? 'What condition is it in?' : cond[l.lineId] === 'restock' ? (atName ? `Goes back on ${atName}’s shelf.` : 'Goes back into stock.') : cond[l.lineId] === 'open_box' ? (rs?.policies?.openedReturns === 'restock' ? `Goes back ${atName ? `on ${atName}’s shelf` : 'into stock'} (your policy for opened items).` : 'Written off at cost (your policy for opened items).') : cond[l.lineId] === 'dispose' ? 'Thrown away and written off at cost (for anything that can’t be sold again).' : cond[l.lineId] === 'quarantine' ? `Kept out of stock${atName ? ` at ${atName}` : ''} until someone checks it. It waits in Problems.` : 'Written off at cost.'}</p></div>)}
           </div>);
         })}
       </div>
+      {askStore && (
+        <div className="mt-3 space-y-2">
+          <CameTo stores={stores} at={at} onPick={setAt} id="return-at" label="Checked in at" hint="Pick the store it’s checked in at." />
+          <NotOnShelf items={backItems} stores={stores} at={at} />
+        </div>)}
       {!part && !allIn && <button type="button" onClick={() => { setPart(true); setErr(''); }} className="cf-press mt-2 h-11 text-[15px] font-semibold underline underline-offset-4" style={{ color: C.ink }}>Only part of it came back</button>}
       {part && (
         <div className="mt-3">
@@ -203,7 +221,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
       {!ready && <p className="m-0 mt-3 text-[13px]" style={muted}>{part
         ? (!here.length ? 'Count what came back.' : !allGraded ? 'Say what condition each item is in.' : 'Say whether the rest is still coming.')
         : `${!allIn ? 'Scan or mark each item once it’s in your hands' : 'Say what condition each item is in'}${!allIn && !allGraded ? ', and say what condition it’s in' : ''}.`}</p>}
-      <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy || !order || !ready} onClick={() => void go()}>
+      <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy || !order || !ready || needStore} onClick={() => void go()}>
         {busy ? 'Checking in…' : `Check in${isRefund && canRefund && (!part || allGraded) ? ` and refund ${money(net)}` : short ? ' what came back' : ''}`}
       </Btn>
       {isRefund && !canRefund && <p className="m-0 mt-2 text-center text-[13px]" style={muted}>A manager sends the refund once it’s checked in.</p>}

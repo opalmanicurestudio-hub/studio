@@ -101,7 +101,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, increment, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, increment, runTransaction, setDoc, writeBatch } from 'firebase/firestore';
 
 import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
 import { addProduct, saveProduct } from '@/lib/codes-client';
@@ -123,7 +123,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { storesFrom } from '@/components/inventory/ReceiveAtStore';
-import { stockAtOf } from '@/lib/store-stock';
+import { stockAtOf, storeMove } from '@/lib/store-stock';
 import { releaseCoverableBackorders } from '@/lib/fulfil-client';
 import { checkPrices } from '@/lib/price-check-client';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -772,6 +772,21 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
 );
 
 
+/** Less there now than the screen showed: the step stops and says so (nothing saved). */
+class ShortNow extends Error {}
+
+/** A write-off from one batch, worked out from the batches as they are now (never below none). */
+function writeOffBatches(batches: any, batchId: string, qty: number): any[] {
+  return (Array.isArray(batches) ? batches : []).map((b: any) => (b?.id === batchId ? { ...b, stock: Math.max(0, (Number(b.stock) || 0) - qty) } : b));
+}
+/** A sale taken from the oldest batches first, worked out from the batches as they are now. */
+function fifoBatches(batches: any, qty: number): any[] {
+  const out = (Array.isArray(batches) ? batches : []).map((b: any) => ({ ...b })).sort((a: any, b: any) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+  let left = qty;
+  for (const b of out) { if (left <= 0) break; const d = Math.min(Math.max(0, Number(b.stock) || 0), left); b.stock = (Number(b.stock) || 0) - d; left -= d; }
+  return out;
+}
+
 export default function InventoryPage() {
   const { 
     inventory, 
@@ -1078,8 +1093,36 @@ export default function InventoryPage() {
     setIsWriteOffOpen(true);
   };
 
-  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
+  // With more than one location, where it was (components/inventory/ReceiveAtStore): it comes off that store's own number
+  // too, for an item counted there, in a step that reads the item (lib/store-stock storeMove, never below none). The
+  // batches and the total are worked out from the item as it is now, in the same step (a sale or a delivery since this
+  // screen loaded isn't lost). Waited for: true when saved; a message when it can't be done as asked (`build` throws a
+  // ShortNow: less there now than this screen showed); false when it couldn't be saved this way (a step like this needs
+  // a connection). The history entry has one id either way, so a second try never adds a second entry.
+  const takeAtStore = useCallback(async (productRef: any, build: (fresh: any) => { patch: any; balanceAfter: number }, entry: any, entryRef: any, store: { id: string; name: string }, qty: number): Promise<true | false | string> => {
+    if (!firestore || !tenantId) return false;
+    try {
+      await runTransaction(firestore, async (tx) => {
+        const snap = await tx.get(productRef); const fresh: any = snap.data() || {};
+        const b = build(fresh);
+        tx.update(productRef, { ...b.patch, ...storeMove(fresh, store.id, { stock: -qty }) });
+        tx.set(entryRef, JSON.parse(JSON.stringify({ ...entry, balanceAfter: b.balanceAfter, reason: `${entry.reason} at ${store.name}`.slice(0, 240), storeId: store.id })));
+      });
+      return true;
+    } catch (e) { return e instanceof ShortNow ? e.message : false; }
+  }, [firestore, tenantId]);
+  // Couldn't be saved that way: saved the usual way, which waits for the connection, without the store's own number (the
+  // total still moves; the store shows the difference until it's counted again).
+  const takenWithoutStore = useCallback((productRef: any, patch: any, entry: any, entryRef: any, store: { id: string; name: string }, name: string) => {
+    if (!firestore || !tenantId) return;
+    updateDocumentNonBlocking(productRef, patch);
+    void setDoc(entryRef, JSON.parse(JSON.stringify({ ...entry, reason: `${entry.reason} at ${store.name}`.slice(0, 240), storeId: store.id }))).catch(() => undefined);
+    toast({ title: 'Saved without the store’s own number', description: `It couldn’t be saved together with ${store.name}’s number just now. Count ${name} at ${store.name} when you can to set it right.` });
+  }, [firestore, tenantId, toast]);
+
+  const handleWriteOffConfirm = useCallback(async (productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string, at?: string): Promise<{ success: boolean, message: string }> => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+    const store = at ? storesFrom(locations).find((x) => x.id === at) || null : null;
 
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
@@ -1112,8 +1155,6 @@ export default function InventoryPage() {
         updatedData.partialContainerSize = 0;
     }
 
-    updateDocumentNonBlocking(productRef, updatedData);
-    
     const stockCorrection = buildEntry({
       productId,
       type: 'spoiled',
@@ -1122,7 +1163,20 @@ export default function InventoryPage() {
       reason: `Write-off: ${reasonText}${notes ? ` — ${notes}` : ''}`,
       balanceAfter: newTotalStock,
     });
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+    if (store) {
+      const entryRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+      const saved = await takeAtStore(productRef, (fresh) => {
+        const now = (Array.isArray(fresh.batches) ? fresh.batches : []).find((b: any) => b?.id === batchId);
+        if (!now || (Number(now.stock) || 0) < quantity) throw new ShortNow(`That batch has ${Math.max(0, Number(now?.stock) || 0)} left now. Write off that many or fewer.`);
+        const total = Math.max(0, Math.floor(Number(fresh.totalStock) || 0) - quantity);
+        return { patch: { batches: JSON.parse(JSON.stringify(writeOffBatches(fresh.batches, batchId, quantity))), totalStock: total, ...(total === 0 ? { partialContainerUses: 0, partialContainerSize: 0 } : {}) }, balanceAfter: total };
+      }, stockCorrection, entryRef, store, quantity);
+      if (typeof saved === 'string') return { success: false, message: saved };
+      if (!saved) takenWithoutStore(productRef, updatedData, stockCorrection, entryRef, store, product.name);
+    } else {
+      updateDocumentNonBlocking(productRef, updatedData);
+      addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+    }
 
     /* The ledger line gets an explicit ref so the exception can link to it —
      * one economic loss, one Spoilage line, provably paired. */
@@ -1174,11 +1228,13 @@ export default function InventoryPage() {
     });
 
     return { success: true, message: "Write-off successful." };
-  }, [inventory, firestore, tenantId, toast]);
+  }, [inventory, firestore, tenantId, toast, locations, takeAtStore, takenWithoutStore]);
   
 
-  const handleLogSaleConfirm = (productId: string, quantity: number, paymentMethod: string): { success: boolean; message: string; } => {
+  const handleLogSaleConfirm = async (productId: string, quantity: number, paymentMethod: string, at?: string): Promise<{ success: boolean; message: string; }> => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+    // With more than one location, the store it was sold at (it comes off that store's own number too).
+    const store = at ? storesFrom(locations).find((x) => x.id === at) || null : null;
 
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
@@ -1202,11 +1258,7 @@ export default function InventoryPage() {
     // Taken off what's on the shelf, as a write-off is (never worked out again from the batches).
     const newTotalStock = Math.max(0, (Number(product.totalStock) || 0) - quantity);
 
-    updateDocumentNonBlocking(productRef, { 
-      totalStock: increment(-quantity),
-      batches: sortedBatches,
-    });
-    
+    const salePatch = { totalStock: increment(-quantity), batches: sortedBatches };
     const stockCorrection = buildEntry({
       productId,
       type: 'sold',
@@ -1215,7 +1267,20 @@ export default function InventoryPage() {
       reason: 'Manual Retail Sale',
       balanceAfter: newTotalStock,
     });
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+    if (store) {
+      const entryRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+      const saved = await takeAtStore(productRef, (fresh) => {
+        const have = Math.max(0, Math.floor(Number(fresh.totalStock) || 0));
+        if (have < quantity) throw new ShortNow(`Only ${have} left now.${have ? ` Log ${have} or fewer.` : ''}`);
+        const total = have - quantity;
+        return { patch: { batches: JSON.parse(JSON.stringify(fifoBatches(fresh.batches, quantity))), totalStock: total }, balanceAfter: total };
+      }, stockCorrection, entryRef, store, quantity);
+      if (typeof saved === 'string') return { success: false, message: saved };
+      if (!saved) takenWithoutStore(productRef, salePatch, stockCorrection, entryRef, store, product.name);
+    } else {
+      updateDocumentNonBlocking(productRef, salePatch);
+      addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+    }
 
     const saleAmount = (product.msrp || product.costPerUnit || 0) * quantity;
     const transaction: Omit<Transaction, 'id' | 'date'> = {
@@ -1232,7 +1297,7 @@ export default function InventoryPage() {
 
     toast({
         title: "Sale Logged",
-        description: `${quantity} unit(s) of ${product.name} sold for $${saleAmount.toFixed(2)}.`,
+        description: `${quantity} unit(s) of ${product.name} sold${store ? ` at ${store.name}` : ''} for $${saleAmount.toFixed(2)}.`,
     });
 
     return { success: true, message: "Sale logged successfully." };

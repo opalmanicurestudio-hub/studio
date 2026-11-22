@@ -43,9 +43,12 @@ function HoldCard({ p, tenantId, rs, onToast }: { p: Problem; tenantId: string; 
   const [n, setN] = React.useState(left);
   React.useEffect(() => { setN((x) => Math.min(Math.max(1, x), left)); }, [left]);
   const openedBack = rs?.policies?.openedReturns === 'restock';
+  // With more than one location, it goes back on the shelf of the store it was checked in at (lib/retail-returns).
+  const heldAt = String(l.atStoreName || '').slice(0, 80);
+  const backTo = heldAt ? `Goes back on ${heldAt}’s shelf, where it was checked in` : 'Goes back into stock';
   const FOUND: { id: Found; label: string; note: string }[] = [
-    { id: 'restock', label: 'Fine, as new', note: 'Goes back into stock.' },
-    { id: 'open_box', label: 'Opened', note: openedBack ? 'Goes back into stock (your policy for opened items).' : 'Written off at cost (your policy for opened items).' },
+    { id: 'restock', label: 'Fine, as new', note: `${backTo}.` },
+    { id: 'open_box', label: 'Opened', note: openedBack ? `${backTo} (your policy for opened items).` : 'Written off at cost (your policy for opened items).' },
     { id: 'damaged', label: 'Damaged', note: 'Written off at cost.' },
     { id: 'dispose', label: 'Throw away', note: 'Thrown away and written off at cost (for anything that can’t be sold again).' },
   ];
