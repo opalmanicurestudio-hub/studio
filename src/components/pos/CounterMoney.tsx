@@ -2,10 +2,11 @@
 // src/components/pos/CounterMoney.tsx — A TIP AND A DISCOUNT ON THE ORDER BEING PAID (design board "Money at the counter";
 // lib/counter-money). TipAsk is turned to the guest: the business's three percents of what the order comes to, another
 // amount, or no tip. DiscountPick: the business's own list, which anyone can use, or another amount, which a manager okays
-// (the screen asks for their PIN when the person working isn't one). White surfaces are set inline, so the app's black
-// look (lib/app-theme) takes them over.
+// (the screen asks for their PIN when the person working isn't one). GiftAsk: a gift card or store credit. SplitAsk: the
+// bill split evenly or by amount, one part at a time. White surfaces are set inline, so the app's black look
+// (lib/app-theme) takes them over.
 import { useState } from 'react';
-import { discountWords, tipChoices, type Discount } from '@/lib/counter-money';
+import { discountWords, nextShare, tipChoices, SPLIT_WAYS_MAX, type Discount } from '@/lib/counter-money';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -96,6 +97,50 @@ export function GiftAsk({ dueCents, member, needsCode, busy, onGift, onCredit, o
       {member ? <button type="button" disabled={busy} onClick={onCredit} className={`${btn} w-full`} style={quiet}>Use their store credit</button>
         : needsCode ? <p className="text-[12.5px]" style={{ color: MUTED }}>Their store credit is used with the rewards code on their rewards page. Add it to the order first.</p> : null}
       <button type="button" onClick={onClose} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Done</button>
+    </div>
+  );
+}
+
+export type PartHow = 'cash' | 'reader' | 'machine' | 'gift';
+
+/** The bill split evenly some number of ways (`ways`, kept on the order; `shares`: how many have paid theirs), or by an
+ *  amount typed, one part at a time: cash, the card reader, another card machine, or a gift card. The last part pays
+ *  the order. `reader`: the card reader's name, when this screen has one. */
+export function SplitAsk({ dueCents, ways, shares, reader, busy, onWays, onPay, onStop }: { dueCents: number; ways: number; shares: number; reader: string | null; busy: boolean;
+  onWays: (n: number) => void; onPay: (how: PartHow, cents: number) => void; onStop: () => void }) {
+  const [mode, setMode] = useState<'even' | 'amount'>('even'); const [typed, setTyped] = useState('');
+  const even = nextShare(dueCents, ways, shares);
+  const t = Math.round(Number(typed) * 100); const okTyped = typed !== '' && Number.isFinite(t) && t >= 1 && t <= dueCents;
+  const part = mode === 'even' ? even : okTyped ? t : 0;
+  const last = part >= dueCents;
+  const minWays = Math.min(SPLIT_WAYS_MAX, Math.max(2, shares + 1));
+  const seg = (on: boolean) => (on ? dark : quiet);
+  const step = `flex h-[44px] w-[44px] items-center justify-center rounded-xl text-[20px] font-semibold disabled:opacity-40 ${RING}`;
+  return (
+    <div className="space-y-3 rounded-2xl p-3" style={{ background: SOFT }} role="group" aria-label="Split the bill">
+      <div className="flex items-baseline justify-between gap-2"><p className="text-[17px] font-semibold">Split the bill</p><span className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(dueCents)} left</span></div>
+      <div role="radiogroup" aria-label="How to split it" className="grid grid-cols-2 gap-2">
+        {([['even', 'Evenly'], ['amount', 'By amount']] as const).map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)} className={btn} style={seg(mode === k)}>{label}</button>)}
+      </div>
+      {mode === 'even' ? <div className="flex items-center justify-between gap-2 rounded-xl px-2" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+        <button type="button" aria-label="One way fewer" disabled={busy || ways <= minWays} onClick={() => onWays(ways - 1)} className={step} style={{ color: INK }}>−</button>
+        <span className="text-[15px] font-semibold tabular-nums" aria-live="polite">{ways} ways</span>
+        <button type="button" aria-label="One way more" disabled={busy || ways >= SPLIT_WAYS_MAX} onClick={() => onWays(ways + 1)} className={step} style={{ color: INK }}>+</button>
+      </div>
+      : <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Amount for this part
+        <input autoFocus inputMode="decimal" value={typed} onChange={(e) => setTyped(e.target.value.replace(/[^\d.]/g, '').slice(0, 7))} placeholder={(even / 100).toFixed(2)} className={field} style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[14px]" style={{ color: MUTED }}>{mode === 'even' ? `Share ${Math.min(ways, shares + 1)} of ${ways}` : last ? 'The rest' : 'This part'}</span>
+        <span className="text-[22px] font-semibold tabular-nums">{part ? usd(part) : '$0.00'}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" disabled={busy || !part} onClick={() => onPay('cash', part)} className={btn} style={dark}>Cash</button>
+        {reader ? <button type="button" disabled={busy || !part || part < 50} onClick={() => onPay('reader', part)} className={btn} style={dark}>Card reader</button> : null}
+        <button type="button" disabled={busy || !part} onClick={() => onPay('machine', part)} className={btn} style={quiet}>Card machine</button>
+        <button type="button" disabled={busy || !part} onClick={() => onPay('gift', part)} className={btn} style={quiet}>Gift card</button>
+      </div>
+      <p className="text-[12.5px]" style={{ color: MUTED }}>It goes to the kitchen as one order and counts as paid when the parts add up.</p>
+      <button type="button" disabled={busy} onClick={onStop} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>{shares ? 'Take the rest in one' : 'Don’t split it'}</button>
     </div>
   );
 }

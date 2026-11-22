@@ -33,7 +33,7 @@ import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
-import { TipAsk, DiscountPick, GiftAsk, type CustomDiscount } from '@/components/pos/CounterMoney';
+import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
@@ -49,7 +49,9 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
   /** Its tip (in its total) and discount (lib/counter-money). */
   tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null;
   /** Gift cards and store credit set aside on it, and what's left for cash or card (lib/counter-money). */
-  tenders?: { kind: 'gift' | 'credit'; giftCardId?: string; code?: string; cents: number }[]; due?: number; points?: { phone: string | null; earned: number; verified?: boolean } | null;
+  tenders?: { kind: 'gift' | 'credit' | 'cash' | 'card'; giftCardId?: string; code?: string; cents: number; partId?: string; machine?: boolean; part?: boolean }[]; due?: number;
+  /** A split bill (lib/counter-split-server): how many ways, and how many have paid their share. */
+  split?: { ways: number; shares: number } | null; points?: { phone: string | null; earned: number; verified?: boolean } | null;
   // A reward used on it (lib/counter-points useReward): what it took off, and the items' own total.
   reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
   sentAt: string | null; dueAt: string | null; kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; readyCount: number; ticketCount: number;
@@ -298,6 +300,8 @@ export default function DriveThru() {
   const [cardCheck, setCardCheck] = useState(false);
   // A tip or a discount being picked for the car paying; another amount off waiting on a manager's PIN.
   const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | 'gift' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
+  // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
+  const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
@@ -451,7 +455,7 @@ export default function DriveThru() {
       const cur = cars.find((c) => c.id === picked);
       const there = (c?: CarRow) => !!c && (role === 'line' ? inLineNow(c) : c.stage === want);
       // Never while someone is in the middle of something on this car (cash, a spot, a void, a choice, a check).
-      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || !!phoneFor || handAnyway > 0 || !!choiceFor || voidPin !== null || moneyOpen !== null || discountPin !== null) && Date.now() - midwayAt.current < 60000;
+      const midway = (cash !== null || spotOpen || voidOpen || cardCheck || !!phoneFor || handAnyway > 0 || !!choiceFor || voidPin !== null || moneyOpen !== null || discountPin !== null || partPin !== null || partC !== null) && Date.now() - midwayAt.current < 60000;
       const byHand = !!cur && (midway || Date.now() - manualAt.current < 30000);
       if (!byHand && next && !there(cur)) { setPicked(next.id); return; }
       if ((role === 'runner' || role === 'line') && !next && !byHand) { setPicked(null); return; }
@@ -461,8 +465,8 @@ export default function DriveThru() {
     const next = role === 'runner' || role === 'line' ? shownCars[0] : cars.find((c) => c.stage === 'speaker' && !c.inLine) || cars.find((c) => c.stage === 'pay' && !c.inLine) || (role === 'speaker' ? null : cars[0]);
     setPicked(next ? next.id : null);
   }, [lane, role]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, phoneFor, handAnyway, choiceFor, voidPin, moneyOpen, discountPin]);
-  useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); setMoneyOpen(null); }, [picked, car?.stage]);
+  useEffect(() => { midwayAt.current = Date.now(); }, [cash, spotOpen, voidOpen, cardCheck, phoneFor, handAnyway, choiceFor, voidPin, moneyOpen, discountPin, partPin, partC]);
+  useEffect(() => { setCash(null); setSpotOpen(false); setHandAnyway(0); setCardCheck(false); setVoidOpen(false); setMoneyOpen(null); setPartC(null); setGiftUpTo(null); }, [picked, car?.stage]);
   // The Screen menu closes on Escape or a tap anywhere else.
   useEffect(() => {
     if (!menuOpen) return;
@@ -546,7 +550,7 @@ export default function DriveThru() {
   const offDone = (d: any) => { setMoneyOpen(null); setDiscountPin(null); setNotice({ text: d.off ? `Order ${order?.number}: the discount was taken off.` : `Order ${order?.number}: ${usd((Number(d.cents) || 0) / 100)} off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}. The total is ${usd(d.total)}.`, tone: 'good' }); };
   // A gift card or their store credit, set aside for what's left (lib/counter-money-server addTender); or taken off.
   const tenderDone = (d: any, words: string) => { setMoneyOpen(null); setNotice({ text: `Order ${order?.number}: ${words}${d.due > 0 ? ` ${usd(d.due)} left to pay.` : ' Nothing left to pay: finish with it.'}`, tone: 'good' }); };
-  const giftIt = (code: string) => order && act('tender', { action: 'tender', orderId: order.id, do: 'gift', code }, (d) => tenderDone(d, `gift card ${d.code || ''} covers ${usd((Number(d.cents) || 0) / 100)}.`));
+  const giftIt = (code: string) => order && act('tender', { action: 'tender', orderId: order.id, do: 'gift', code, ...(giftUpTo !== null ? { upTo: giftUpTo } : {}) }, (d) => { setGiftUpTo(null); tenderDone(d, `gift card ${d.code || ''} covers ${usd((Number(d.cents) || 0) / 100)}.`); });
   const creditIt = () => order && act('tender', { action: 'tender', orderId: order.id, do: 'credit' }, (d) => tenderDone(d, `store credit covers ${usd((Number(d.cents) || 0) / 100)}.`));
   const untender = (t: { kind: string; giftCardId?: string }) => order && act('tender', { action: 'tender', orderId: order.id, do: 'remove', ...(t.kind === 'credit' ? { credit: true } : { giftCardId: t.giftCardId }) }, (d) => setNotice({ text: `Order ${order.number}: taken off. ${usd(d.due)} to pay.`, tone: 'good' }));
   const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
@@ -565,7 +569,28 @@ export default function DriveThru() {
     : d.wrongAmount ? 'That card payment didn’t match the order’s total, so it was let go. Send it again.'
     : d.notKept || (d.already && d.payMethod && d.payMethod !== 'card') ? `It was paid already${d.payMethod === 'cash' ? ' in cash' : ''}, so the card isn’t charged.` : 'Paid by card.');
   const cardSlip = (d: any) => { if (order && d.state === 'paid' && !d.voided && !d.wrongAmount && !d.notKept && !(d.already && d.payMethod && d.payMethod !== 'card')) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: false, change: null, auto: !d.already }); };
-  const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id }, (d) => { if (d.state === 'paid') { setNotice({ text: paidWords(d), tone: 'good' }); cardSlip(d); } });
+  const toReader = (cents?: number) => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id, ...(cents !== undefined ? { cents } : {}) }, (d) => { if (d.state === 'paid') { setNotice({ text: paidWords(d), tone: 'good' }); cardSlip(d); } });
+  // A split bill (components/pos/CounterMoney SplitAsk; lib/counter-split-server): how many ways, and one part at a time.
+  // The last part pays the order.
+  const splitWays = (ways: number | null) => order && act('split', { action: 'split', orderId: order.id, ways });
+  const partDone = (d: any, how: string) => {
+    setCash(null); setPartC(null);
+    if (d.paid) { if (order) setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: how === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
+      setNotice({ text: how === 'cash' ? (Number(d.change) > 0 ? `Paid in cash. Give ${usd(d.change)} change.` : 'Paid in cash, no change.') : 'Paid by card.', tone: 'good' }); return; }
+    setNotice({ text: `Order ${order?.number}: ${usd((Number(d.cents) || 0) / 100)} paid ${how === 'cash' ? `in cash${Number(d.change) > 0 ? `. Give ${usd(d.change)} change` : ''}` : 'on the card machine'}. ${usd(d.due)} left.`, tone: 'good' });
+  };
+  const cashPart = (handed: number) => order && partC !== null && act('part', { action: 'part', orderId: order.id, method: 'cash', cents: partC, tendered: handed }, (d) => partDone(d, 'cash'));
+  const payPart = (how: PartHow, cents: number) => {
+    if (!order) return;
+    if (how === 'cash') { setPartC(cents); setCash('open'); return; }
+    if (how === 'gift') { setGiftUpTo(cents); setMoneyOpen('gift'); return; }
+    if (how === 'reader') { void toReader(cents); return; }
+    void act('part', { action: 'part', orderId: order.id, method: 'card', cents }, (d) => partDone(d, 'card'));
+  };
+  const partBack = (t: { partId?: string; cents: number; kind: string }, pass?: string) => order && t.partId && act('partUndo', { action: 'partUndo', orderId: order.id, partId: t.partId, ...(pass ? { staffPass: pass } : {}) }, (d) => {
+    setPartPin(null);
+    setNotice({ text: `Order ${order.number}: ${d.kind === 'cash' ? `${usd((Number(d.cents) || 0) / 100)} back to them in cash${d.fromDrawer ? ', out of the drawer' : ''}` : d.machine ? `give ${usd((Number(d.cents) || 0) / 100)} back on that card machine` : `${usd((Number(d.cents) || 0) / 100)} back to their card`}. ${usd(d.due)} to pay.`, tone: 'good' });
+  }, undefined, (d) => { if (d.needsManager) setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); });
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => {
     setNotice(d.state === 'paid' ? { text: d.justWent ? 'The card went through just before it was stopped, so it’s paid.' : paidWords(d), tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
     cardSlip(d);
@@ -627,6 +652,7 @@ export default function DriveThru() {
         const { d } = await post({ action: 'cardCheck', orderId: id });
         if (!live) return;
         if (d.ok && (d.state === 'paid' || d.voided || d.wrongAmount)) { setNotice({ text: paidWords(d), tone: d.wrongAmount ? 'warn' : 'good' }); cardSlip(d); load(); }
+        else if (d.ok && d.state === 'part') { setNotice({ text: `Order ${order?.number}: ${usd((Number(d.partCents) || 0) / 100)} paid by card. ${usd(Number(d.due) || 0)} left.`, tone: 'good' }); load(); }
         else if (d.ok && d.state !== 'on_reader') load();
       } catch { /* asked again */ } finally { asking = false; }
     };
@@ -688,7 +714,9 @@ export default function DriveThru() {
   // Cash: the exact amount, and the notes a guest is likely to hand over.
   // (What's left to pay by cash or card: all of it, or what a gift card or store credit doesn't cover.)
   const dueNow = order ? (typeof order.due === 'number' ? order.due : order.total) : 0; const covered = !!order?.tenders?.length && dueNow <= 0;
-  const tenders = order ? Array.from(new Set([dueNow, Math.ceil(dueNow), Math.ceil(dueNow / 5) * 5, Math.ceil(dueNow / 10) * 10, 20, 50, 100].filter((x) => x >= dueNow).map((x) => Math.round(x * 100) / 100))).slice(0, 6) : [];
+  // (Cash for one part of a split bill, or for what's left.)
+  const cashFor = partC !== null ? partC / 100 : dueNow;
+  const tenders = order ? Array.from(new Set([cashFor, Math.ceil(cashFor), Math.ceil(cashFor / 5) * 5, Math.ceil(cashFor / 10) * 10, 20, 50, 100].filter((x) => x >= cashFor).map((x) => Math.round(x * 100) / 100))).slice(0, 6) : [];
 
   const ticket = (editable: boolean) => (
     <section aria-label={`Order ${order?.number || ''}`} className="flex min-h-0 flex-col rounded-2xl bg-[#fff]" style={{ border: `1px solid ${LINE}` }}>
@@ -739,10 +767,12 @@ export default function DriveThru() {
         {order?.markdown && <div className="flex justify-between gap-3" style={{ color: GREEN }}><span className="min-w-0 truncate">{order.markdown.reason || order.markdown.label}{order.markdown.okBy ? `, okayed by ${order.markdown.okBy}` : ''}</span><span className="shrink-0 tabular-nums">-{usd(order.markdown.cents / 100)}</span></div>}
         {(order?.tax || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>{taxWords(order?.taxLabel || '')}</span><span className="tabular-nums">{usd(order!.tax)}</span></div>}
         {(order?.tipCents || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>Tip{order?.keptChange ? ', kept the change' : ''}</span><span className="tabular-nums">{usd((order?.tipCents || 0) / 100)}</span></div>}
-        {(order?.tenders || []).map((t) => <div key={t.kind === 'gift' ? t.giftCardId : 'credit'} className="flex items-center justify-between gap-2" style={{ color: GREEN }}>
-          <span className="min-w-0 truncate">{t.kind === 'gift' ? `Gift card ${t.code || ''}` : 'Store credit'}</span>
+        {(order?.tenders || []).map((t) => { const paidPart = t.kind === 'cash' || t.kind === 'card'; const words = t.kind === 'gift' ? `Gift card ${t.code || ''}` : t.kind === 'credit' ? 'Store credit' : t.kind === 'cash' ? 'Paid in cash' : t.machine ? 'Paid on a card machine' : 'Paid by card';
+          return <div key={t.partId || (t.kind === 'gift' ? t.giftCardId : 'credit')} className="flex items-center justify-between gap-2" style={{ color: GREEN }}>
+          <span className="min-w-0 truncate">{words}</span>
           <span className="flex shrink-0 items-center gap-1"><span className="tabular-nums">-{usd(t.cents / 100)}</span>
-            {!order?.paidAt && <button type="button" onClick={() => void untender(t)} disabled={!!busy} aria-label={`Take ${t.kind === 'gift' ? `gift card ${t.code || ''}` : 'store credit'} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}</span></div>)}
+            {!order?.paidAt && (paidPart ? <button type="button" onClick={() => void partBack(t)} disabled={!!busy || cardOn} aria-label={`Give back ${usd(t.cents / 100)} ${t.kind === 'cash' ? 'in cash' : 'to the card'}`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Give back</button>
+              : <button type="button" onClick={() => void untender(t)} disabled={!!busy} aria-label={`Take ${t.kind === 'gift' ? `gift card ${t.code || ''}` : 'store credit'} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>)}</span></div>; })}
         <div className="flex items-baseline justify-between pt-1" style={{ color: INK }}><span className="text-[16px] font-semibold">Total</span><span className="text-[24px] font-semibold tabular-nums">{usd(order?.total || 0)}</span></div>
       </div>
       {editable && (order?.lines.length || 0) > 0 && <p className="mx-4 mb-3 rounded-xl px-3 py-2.5 text-[14px] leading-snug" style={{ background: SOFT, color: INK }}><span className="font-semibold">Read it back: </span>{readBack(order!.lines)} That’s {usd(order!.total)}.</p>}
@@ -1063,12 +1093,18 @@ export default function DriveThru() {
                         ) : moneyOpen === 'tip' && lane?.money?.tips ? (
                           <TipAsk baseCents={Math.round(order.total * 100) - (order.tipCents || 0)} tipCents={order.tipCents || 0} pcts={lane.money.tips.pcts} busy={!!busy} onPick={(c) => void tipIt(c)} onClose={() => setMoneyOpen(null)} />
                         ) : moneyOpen === 'gift' ? (
-                          <GiftAsk dueCents={Math.round(dueNow * 100)} member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified} busy={!!busy} onGift={(c) => void giftIt(c)} onCredit={() => void creditIt()} onClose={() => setMoneyOpen(null)} />
+                          <GiftAsk dueCents={giftUpTo ?? Math.round(dueNow * 100)} member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified} busy={!!busy} onGift={(c) => void giftIt(c)} onCredit={() => void creditIt()} onClose={() => { setMoneyOpen(null); setGiftUpTo(null); }} />
                         ) : covered ? (
                           <button type="button" disabled={busy === 'paid'} onClick={() => void act('paid', { action: 'paid', orderId: order.id, method: 'tender' }, (d) => { setNotice({ text: `Order ${order.number}: paid with ${order.tenders!.every((t) => t.kind === 'gift') ? 'the gift card' : order.tenders!.every((t) => t.kind === 'credit') ? 'store credit' : 'the gift card and store credit'}.`, tone: 'good' }); setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: false, change: null, auto: !d.already }); })}
                             className={`${btn} min-h-[72px] w-full text-[18px]`} style={{ background: GREEN, color: '#fff' }}>Finish: it’s all covered</button>
                         ) : moneyOpen === 'discount' ? (
                           <DiscountPick list={lane?.money?.discounts || []} current={order.markdown?.id || null} busy={!!busy} onPick={(id) => void discountIt(id)} onCustom={(c) => void customOff(c)} onClose={() => setMoneyOpen(null)} />
+                        ) : order.split && cash === null && !pouchCash ? (
+                          <div className="space-y-3">
+                            {order.card?.state === 'declined' && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{order.card.failed || 'The card didn’t go through.'} Try the card again, or take it another way.</p>}
+                            <SplitAsk dueCents={Math.round(dueNow * 100)} ways={order.split.ways} shares={order.split.shares} reader={reader ? reader.label : null} busy={!!busy}
+                              onWays={(n) => void splitWays(n)} onPay={payPart} onStop={() => void splitWays(null)} />
+                          </div>
                         ) : cash === null ? (
                           <div className="grid gap-3 sm:grid-cols-2">
                             {order.card?.state === 'declined' && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium sm:col-span-2" style={{ background: AMBER_TINT, color: AMBER }}>{order.card.failed || 'The card didn’t go through.'} Try the card again, or take it another way.</p>}
@@ -1081,22 +1117,23 @@ export default function DriveThru() {
                               {lane?.money?.tips && <button type="button" onClick={() => setMoneyOpen('tip')} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{order.tipCents ? `Tip ${usd(order.tipCents / 100)}` : 'Tip'}</button>}
                               <button type="button" onClick={() => setMoneyOpen('discount')} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{order.markdown ? `Discount ${usd(order.markdown.cents / 100)}` : 'Discount'}</button>
                               <button type="button" onClick={() => setMoneyOpen('gift')} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Gift card</button>
+                              {!pouchCash && <button type="button" onClick={() => void splitWays(2)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Split the bill</button>}
                               <button type="button" onClick={() => setVoidOpen(true)} className={`min-h-[44px] rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>They drove off, or won’t pay</button>
                             </div>
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            <p className="text-[15px] font-semibold">What did they hand over?</p>
+                            <p className="text-[15px] font-semibold">{partC !== null ? `What did they hand over for this part (${usd(cashFor)})?` : 'What did they hand over?'}</p>
                             <div className="grid grid-cols-3 gap-2">
-                              {tenders.map((t) => <button key={t} type="button" aria-pressed={cash === t} onClick={() => setCash(t)} className={`${btn} min-h-[56px] text-[17px] tabular-nums`} style={cash === t ? { background: INK, color: '#fff' } : quiet}>{t === dueNow ? 'Exact' : usd(t)}</button>)}
+                              {tenders.map((t) => <button key={t} type="button" aria-pressed={cash === t} onClick={() => setCash(t)} className={`${btn} min-h-[56px] text-[17px] tabular-nums`} style={cash === t ? { background: INK, color: '#fff' } : quiet}>{t === cashFor ? 'Exact' : usd(t)}</button>)}
                             </div>
                             {typeof cash === 'number' && (
-                              <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: GREEN_TINT, color: GREEN }}><span className="text-[16px] font-semibold">Change</span><span className="text-[30px] font-semibold tabular-nums">{usd(cash - dueNow)}</span></div>
+                              <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: GREEN_TINT, color: GREEN }}><span className="text-[16px] font-semibold">Change</span><span className="text-[30px] font-semibold tabular-nums">{usd(cash - cashFor)}</span></div>
                             )}
-                            {lane?.money?.tips && typeof cash === 'number' && cash > dueNow && cash - dueNow <= Math.min(order.total, 500) && <button type="button" disabled={busy === 'paid'} onClick={() => paid('cash', cash, true)} className={`${btn} min-h-[56px] w-full text-[16px]`} style={quiet}>Keep the change as a tip</button>}
+                            {lane?.money?.tips && partC === null && typeof cash === 'number' && cash > dueNow && cash - dueNow <= Math.min(order.total, 500) && <button type="button" disabled={busy === 'paid'} onClick={() => paid('cash', cash, true)} className={`${btn} min-h-[56px] w-full text-[16px]`} style={quiet}>Keep the change as a tip</button>}
                             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                              <button type="button" disabled={typeof cash !== 'number' || busy === 'paid'} onClick={() => typeof cash === 'number' && paid('cash', cash)} className={`${btn} min-h-[56px] text-[16px]`} style={{ background: GREEN, color: '#fff' }}>{typeof cash === 'number' ? (cash > dueNow ? `Paid, give ${usd(cash - dueNow)} change` : 'Paid, no change') : 'Pick what they handed over'}</button>
-                              <button type="button" onClick={() => setCash(null)} className={btn} style={quiet}>Back</button>
+                              <button type="button" disabled={typeof cash !== 'number' || busy === 'paid'} onClick={() => typeof cash === 'number' && (partC !== null ? cashPart(cash) : paid('cash', cash))} className={`${btn} min-h-[56px] text-[16px]`} style={{ background: GREEN, color: '#fff' }}>{typeof cash === 'number' ? (cash > cashFor ? `Paid, give ${usd(cash - cashFor)} change` : 'Paid, no change') : 'Pick what they handed over'}</button>
+                              <button type="button" onClick={() => { setCash(null); setPartC(null); }} className={btn} style={quiet}>Back</button>
                             </div>
                           </div>
                         )}
@@ -1151,6 +1188,7 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
       {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}
       {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}

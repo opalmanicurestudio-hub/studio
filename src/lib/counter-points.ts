@@ -18,7 +18,7 @@ import { searchFields } from '@/lib/client-search';
 import { createHash } from 'crypto';
 import { cleanName, cardBusy } from '@/lib/counter-server';
 import { moneyWith } from '@/lib/counter-money-server';
-import { markdownCentsOf } from '@/lib/counter-money';
+import { markdownCentsOf, paidPartsOf } from '@/lib/counter-money';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const nowIso = () => new Date().toISOString();
@@ -192,6 +192,8 @@ export async function useReward(db: any, tenantId: string, tenant: any, orderId:
     if (o.channel === 'kiosk') return fail('A kiosk order is paid at the kiosk.', 409, 'kiosk');
     if (cardBusy(o)) return fail('The card reader is asking for this order’s payment. Stop it first.', 409, 'card_busy');
     if (o.phone?.id && o.phone.state === 'open') return fail('A scan-to-pay code is open for this order. Close it first.', 409, 'phone_open');
+    // (A split bill with a part paid: its total stays as it is, so the parts still add up. lib/counter-split-server.)
+    if (paidPartsOf(o).length) return fail('Part of it is paid, so its total stays as it is. Give the parts back first to use a reward.', 409, 'parts');
     if (!o.clientId || o.points?.verified !== true) return fail('A reward is used with their rewards code.', 409, 'needs_code');
     if (!want) {
       if (held && held.held === true) tx.delete(redeemRef);

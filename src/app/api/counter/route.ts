@@ -144,11 +144,12 @@ import { driverLoad } from '@/lib/driver-load-server';
 import { nightBounds, tonight } from '@/lib/night-close-server';
 import { printersCached } from '@/lib/printing-server';
 import { receiptAfterOf } from '@/lib/printing';
-import { tipsOf, tipsHere, discountsOf, tendersOf, dueCentsOf, codeEnd } from '@/lib/counter-money';
+import { tipsOf, tipsHere, discountsOf, tendersOf, dueCentsOf, codeEnd, sharesPaidOf } from '@/lib/counter-money';
 import { setTip, setDiscount, addTender, removeTender } from '@/lib/counter-money-server';
 import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { takePart, undoPart, setSplit } from '@/lib/counter-split-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -201,7 +202,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -215,7 +216,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -236,7 +237,7 @@ export async function POST(req: NextRequest) {
       const oid = String(b.orderId || ''); const what = String(b.do || '');
       if (!['gift', 'credit', 'remove'].includes(what)) return bad('Gift card or store credit?');
       const r: any = what === 'remove' ? await removeTender(db, tenantId, oid, { giftCardId: b.giftCardId, credit: b.credit === true })
-        : await addTender(db, tenantId, oid, { kind: what as 'gift' | 'credit', code: b.code }, who);
+        : await addTender(db, tenantId, oid, { kind: what as 'gift' | 'credit', code: b.code, upTo: b.upTo }, who);
       return r.ok ? ok({ due: (Number(r.due) || 0) / 100, cents: r.tender?.cents ?? 0, code: r.tender?.kind === 'gift' ? codeEnd(r.tender.code) : null, staffOk })
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
@@ -299,7 +300,10 @@ export async function POST(req: NextRequest) {
           // Its tip and discount (lib/counter-money): the tip in its total; the discount's name, how much, and who okayed one.
           tipCents: Math.max(0, Math.round(Number(o.tipCents) || 0)), keptChange: o.keptChange === true,
           // Gift cards and store credit set aside on it, and what's left for cash or card (lib/counter-money).
-          tenders: tendersOf(o).map((t) => (t.kind === 'gift' ? { kind: 'gift', giftCardId: t.giftCardId, code: codeEnd(t.code), cents: t.cents } : { kind: 'credit', cents: t.cents })),
+          tenders: tendersOf(o).map((t) => (t.kind === 'gift' ? { kind: 'gift', giftCardId: t.giftCardId, code: codeEnd(t.code), cents: t.cents, part: t.part === true } : t.kind === 'credit' ? { kind: 'credit', cents: t.cents, part: t.part === true }
+            : { kind: t.kind, partId: t.partId, cents: t.cents, machine: t.kind === 'card' && !t.id })),
+          // A split bill (lib/counter-split-server): how many ways, and how many have paid their share.
+          split: o.split?.ways ? { ways: Math.round(Number(o.split.ways)) || 2, shares: sharesPaidOf(o) } : null,
           due: dueCentsOf(o) / 100, creditShort: Math.max(0, Math.round(Number(o.creditShort) || 0)),
           markdown: o.markdown ? { id: String(o.markdown.id || ''), label: String(o.markdown.label || 'Discount'), words: String(o.markdown.words || ''), cents: Math.max(0, Math.round(Number(o.markdown.cents) || 0)), okBy: o.markdown.okBy || null, reason: o.markdown.reason || null } : null,
           // A delivery app's order (lib/app-orders): which app, its code, its spot on the shelf, and when the courier is due.
@@ -307,7 +311,7 @@ export async function POST(req: NextRequest) {
             // (What it comes to with the app: its price, and any sales tax the business pays. lib/app-orders)
             ...(o.app.money ? { money: { markupPct: Number(o.app.money.markupPct) || 0, appCents: Number(o.app.money.appCents) || 0, taxCents: Number(o.app.money.taxCents) || 0, appPaysTax: o.app.money.appPaysTax !== false } } : {}) } : null,
           // The card reader's payment for it, if one was started (lib/counter-card): how it's going, and the reader's words.
-          card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null } : null,
+          card: o.card && typeof o.card === 'object' && o.card.state ? { state: String(o.card.state), failed: o.card.failed || null, readerId: o.card.readerId || null, at: o.card.at || null, cents: Math.round(Number(o.card.cents) || 0) || null } : null,
           kitchen: o.status === 'building' ? 'not sent' : mine.length && !waitingOn.length ? 'ready' : 'making', waitingOn,
           readyCount: mine.filter((t: any) => t.status === 'ready' || t.status === 'delivered').length, ticketCount: mine.length,
           // The text the guest asked for when it's ready (lib/ready-text): the last four digits, and when it went.
@@ -954,6 +958,39 @@ export async function POST(req: NextRequest) {
       } catch { /* the line's order stays a guess; paying goes on */ }
     };
     const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
+    // A split bill (lib/counter-split-server): how many ways; one part in cash or on another card machine (the card
+    // reader's part is 'card' with its cents); a part given back (a manager's).
+    if (action === 'split') {
+      const r: any = await setSplit(db, tenantId, orderId, b.ways);
+      return r.ok ? ok({ ways: r.ways, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    if (action === 'part') {
+      const method = b.method === 'cash' ? 'cash' : b.method === 'card' ? 'card' : null;
+      if (!method) return bad('Cash or card?');
+      await settleMerge();
+      const r: any = await takePart(db, tenantId, orderId, { method, cents: b.cents, tendered: b.tendered, by });
+      // All of what's left: it pays the order, as the last part.
+      if (r.ok && r.whole) {
+        const p: any = await payOrder(db, tenantId, orderId, { method, tendered: method === 'cash' ? b.tendered : undefined, by, byId: staff?.id || null, day: todayIn(tz, now) });
+        if (!p.ok) return NextResponse.json({ ok: false, error: p.error, code: p.code || null, staffOk }, { status: p.status });
+        if (p.cardId) await stopCard(db, tenantId, tenant, orderId, by).catch(() => null);
+        if (!p.already) { await stopPhone(db, tenantId, tenant, orderId).catch(() => null); forgetStats(tenantId); }
+        return ok({ paid: true, already: !!p.already, change: p.change ?? null, payMethod: p.payMethod || null, inDrawer: p.drawer ?? null, staffOk });
+      }
+      return r.ok ? ok({ paid: false, partId: r.partId, cents: r.cents, change: r.change, due: r.due, inDrawer: !!r.inDrawer, staffOk })
+        : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    if (action === 'partUndo') {
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'Giving a part back takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await undoPart(db, tenantId, tenant, orderId, b.partId, { id: m.approver.id, name: m.approver.name });
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+      if (!r.already) await logAuditAdmin(db, tenantId, { action: 'counter.partBack', targetType: 'order', targetId: orderId,
+        summary: `${m.approver.name} gave back a $${(r.cents / 100).toFixed(2)} ${r.kind === 'cash' ? 'cash' : 'card'} part of a split bill${m.approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
+        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      return ok({ due: r.due, cents: r.cents, kind: r.kind || null, machine: !!r.machine, fromDrawer: !!r.fromDrawer, already: !!r.already, staffOk });
+    }
 
     if (action === 'add' || action === 'sizeUp' || action === 'remove' || action === 'qty' || action === 'note') {
       const r: any = await editOrder(db, tenantId, tenant, orderId, action === 'add' ? { action, itemId: String(b.itemId || ''), quantity: b.quantity, choices: b.choices, tapKey: b.tapKey, offer: b.offer, note: b.note }
@@ -985,10 +1022,10 @@ export async function POST(req: NextRequest) {
 
     if (action === 'card' || action === 'cardCheck' || action === 'cardStop') {
       if (action === 'card') await settleMerge();
-      const r: any = action === 'card' ? await startCard(db, tenantId, tenant, orderId, String(b.readerId || ''), by)
+      const r: any = action === 'card' ? await startCard(db, tenantId, tenant, orderId, String(b.readerId || ''), by, { cents: b.cents })
         : action === 'cardCheck' ? await checkCard(db, tenantId, tenant, orderId, by) : await stopCard(db, tenantId, tenant, orderId, by);
       if (r.ok && r.state === 'paid' && !r.already) forgetStats(tenantId);
-      return r.ok ? ok({ state: r.state, message: r.message || null, already: !!r.already, payMethod: r.payMethod || null, justWent: !!r.justWent, notKept: !!r.notKept, voided: !!r.voided, wrongAmount: !!r.wrongAmount, staffOk })
+      return r.ok ? ok({ state: r.state, message: r.message || null, already: !!r.already, payMethod: r.payMethod || null, justWent: !!r.justWent, notKept: !!r.notKept, voided: !!r.voided, wrongAmount: !!r.wrongAmount, partCents: r.partCents ?? null, due: r.due ?? null, staffOk })
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }
 

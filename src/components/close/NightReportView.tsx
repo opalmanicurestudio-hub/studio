@@ -96,6 +96,10 @@ export function NightReportView({ r }: { r: NightReport }) {
             {(D.later?.orders || 0) > 0 && <Card title="Orders for another day" sub="In tonight’s sales, made on their own day">
               <Row k={`${D.later!.orders} paid tonight`} v={c(D.later!.cents)} />
             </Card>}
+            {(D.held?.orders || 0) > 0 && <Card title="Split bills still open" sub={`${D.held!.numbers.join(', ')}. In sales once the last share is paid.`}>
+              <Row k="Shares paid in cash, in the drawer" v={c(D.held!.cashCents)} />
+              <Row k="Shares paid by card" v={c(D.held!.cardCents)} />
+            </Card>}
           </>); })()}
         <Card title="Drawers">
           {r.drawers.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>No drawer was opened tonight.</p> : r.drawers.map((d, i) => (

@@ -20,7 +20,7 @@ import { createHash } from 'crypto';
 import { accountOf, captureReaderPayment, readerStripe, recordReaderFee, releaseReaderPayment } from '@/lib/reader-sale';
 import { refundAmount } from '@/lib/stripe-refund';
 import { payOrder } from '@/lib/counter-server';
-import { dueCentsOf } from '@/lib/counter-money';
+import { dueCentsOf, tendersOf, partBackOpen, PART_BACK_WORDS } from '@/lib/counter-money';
 import { tendersStillCover, removeTender } from '@/lib/counter-money-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -36,8 +36,8 @@ const isMissing = (e: any) => e?.code === 'resource_missing' || e?.raw?.code ===
 const payKey = (tenantId: string, orderId: string, attempt: number) => `counter-card-${createHash('sha256').update(`${tenantId}/${orderId}`).digest('hex').slice(0, 40)}-${attempt}`;
 
 export type ReaderRow = { id: string; label: string; online: boolean; test: boolean };
-export type CardState = 'none' | 'starting' | 'on_reader' | 'declined' | 'paid' | 'stopped';
-export type CardAnswer = { ok: true; state: CardState; message?: string | null; already?: boolean; payMethod?: string | null; justWent?: boolean; notKept?: boolean; voided?: boolean; wrongAmount?: boolean }
+export type CardState = 'none' | 'starting' | 'on_reader' | 'declined' | 'paid' | 'stopped' | 'part';
+export type CardAnswer = { ok: true; state: CardState; message?: string | null; partCents?: number; due?: number; already?: boolean; payMethod?: string | null; justWent?: boolean; notKept?: boolean; voided?: boolean; wrongAmount?: boolean }
   | { ok: false; error: string; status: number; code?: string };
 
 const fail = (error: string, status: number, code?: string): CardAnswer => ({ ok: false, error, status, ...(code ? { code } : {}) });
@@ -154,14 +154,19 @@ async function settle(db: any, stripe: any, acct: string, tenantId: string, orde
   const claim: any = await db.runTransaction(async (tx: any) => {
     const o: any = (await tx.get(ref)).data(); if (!o) return { gone: true };
     if (o.paidAt && o.cardPaymentId === pi.id) return { paid: true, payMethod: o.payMethod };
+    // A split bill's part, taken already (asked again): once.
+    if (tendersOf(o).some((t) => t.kind === 'card' && t.id === pi.id)) return { partDone: true, due: dueCentsOf(o) };
     if (o.paidAt || o.status === 'voided' || o.status === 'cancelled') return { notKept: true, number: o.number };
-    // (What's left after any gift card or store credit on it: lib/counter-money.)
-    if (dueCentsOf(o) !== cents) return { notKept: true, number: o.number };
+    // (What's left after any gift card or store credit on it: lib/counter-money. A split bill's part: that part, while
+    // it's still less than what's left: lib/counter-split-server.)
+    const part = o.card?.id === pi.id && o.card?.part === true;
+    if (part ? !(cents === Math.round(Number(o.card.cents) || 0) && cents < dueCentsOf(o)) : dueCentsOf(o) !== cents) return { notKept: true, number: o.number };
     tx.set(ref, { card: { ...(o.card || {}), id: pi.id, state: 'capturing', updatedAt: nowIso() }, cardOpen: true }, { merge: true });
-    return { number: o.number };
+    return { number: o.number, part };
   });
   if (claim.gone) return fail('That order is gone.', 404);
   if (claim.paid) return { ok: true, state: 'paid', already: true, payMethod: claim.payMethod || 'card' };
+  if (claim.partDone) return { ok: true, state: 'part', already: true, partCents: cents, due: claim.due / 100 };
   if (claim.notKept) return giveBack(db, stripe, acct, tenantId, orderId, pi, claim.number);
   const mine: Guard = { id: pi.id, from: ['capturing'], fromCapturing: true };
   let taken = pi;
@@ -175,6 +180,14 @@ async function settle(db: any, stripe: any, acct: string, tenantId: string, orde
     }
     taken = c.pi;
     void recordReaderFee(db, stripe, acct, tenantId, pi.id).catch(() => {});
+  }
+  // One part of a split bill: on the order, and the reader is free for the next.
+  if (claim.part) {
+    const { takePart } = await import('@/lib/counter-split-server');
+    const p: any = await takePart(db, tenantId, orderId, { method: 'card', cents, by, card: { id: pi.id } });
+    if (!p.ok || p.whole) { await giveBack(db, stripe, acct, tenantId, orderId, taken, claim.number); return fail(`${p.error || 'The order changed.'} Their card payment goes back to them. Take the part again.`, 409); }
+    await putCard(db, ref, mine, { state: 'part' }, false);
+    return { ok: true, state: 'part', already: !!p.already, partCents: cents, due: p.due };
   }
   const r: any = await payOrder(db, tenantId, orderId, { method: 'card', by, card: { id: pi.id, cents } });
   if (r.paidOtherwise) return giveBack(db, stripe, acct, tenantId, orderId, taken, claim.number);
@@ -231,8 +244,11 @@ async function undoSend(db: any, stripe: any, acct: string, tenantId: string, or
 
 /** Send the order's total to the reader at this screen. Asking again for the same order uses the same payment (sent to
  *  the reader again if it isn't asking for it now); one the reader already approved pays for the order instead. */
-export async function startCard(db: any, tenantId: string, tenant: any, orderId: string, readerId: string, by: string, o: { stripe?: any } = {}): Promise<CardAnswer> {
+export async function startCard(db: any, tenantId: string, tenant: any, orderId: string, readerId: string, by: string, o: { stripe?: any; cents?: unknown } = {}): Promise<CardAnswer> {
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
+  // (One part of a split bill: that much, less than what's left. lib/counter-split-server.)
+  const partWant = o.cents === undefined || o.cents === null || o.cents === '' ? null : Math.round(Number(o.cents));
+  if (partWant !== null && !Number.isFinite(partWant)) return fail('How much is this part?', 400);
   if (!acct || !stripe) return fail('Card payments aren’t set up for this business yet.', 409, 'no_payments');
   if (!ID.test(orderId)) return fail('Which order?', 400);
   if (!READER.test(String(readerId || ''))) return fail('Pick the card reader for this screen first, under Screen.', 400, 'no_reader');
@@ -243,7 +259,12 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
       if (or.paidAt) return { paid: true, payMethod: or.payMethod || null };
       if (or.status !== 'sent' && or.status !== 'done') return { error: or.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
       // (What's left after any gift card or store credit on it: lib/counter-money.)
-      const amount = dueCentsOf(or);
+      if (partBackOpen(or)) return { error: PART_BACK_WORDS, status: 409, code: 'part_back' };
+      const left = dueCentsOf(or);
+      if (partWant !== null && partWant > left) return { error: `That’s more than what’s left ($${(left / 100).toFixed(2)}).`, status: 409, code: 'over' };
+      const amount = partWant !== null ? partWant : left; const part = amount < left;
+      // (A share on the reader while the guest has a scan-to-pay code open for all of it: that code is closed first.)
+      if (part && or.phone?.id && or.phone.state === 'open') return { error: 'A scan-to-pay code is open for this order. Close it first.', status: 409, code: 'phone_open' };
       // (Its gift cards and store credit still cover their part, before the guest is asked for the rest.)
       const tenderBad = await tendersStillCover(tx, db, tenantId, or, orderId); if (tenderBad) return { error: tenderBad, status: 409, code: 'tender' };
       if (amount < 50) return { error: 'Card payments start at $0.50. Take this one in cash.', status: 409, code: 'too_small' };
@@ -252,12 +273,12 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
       if (c?.state === 'capturing') return { capturing: true };
       if (c?.state === 'starting' && !c.id && Date.now() - (Date.parse(String(c.at || '')) || 0) < 60000) return { error: 'The card reader is being started on another screen.', status: 409, code: 'starting' };
       // The same payment, sent again: starting once more, so cash waits while it goes to the reader.
-      if (c?.id && !['stopped', 'stopping', 'paid'].includes(String(c.state))) {
-        tx.set(ref, { card: { ...c, state: c.state === 'on_reader' ? 'on_reader' : 'starting', readerId, at: nowIso(), by, failed: null, updatedAt: nowIso() }, cardOpen: true }, { merge: true });
+      if (c?.id && !['stopped', 'stopping', 'paid', 'part'].includes(String(c.state))) {
+        tx.set(ref, { card: { ...c, state: c.state === 'on_reader' ? 'on_reader' : 'starting', readerId, at: nowIso(), by, failed: null, updatedAt: nowIso(), cents: amount, part }, cardOpen: true }, { merge: true });
         return { reuse: String(c.id), attempt, amount, number: or.number };
       }
-      tx.set(ref, { card: { state: 'starting', attempt: attempt + 1, readerId, at: nowIso(), by, cents: amount, id: null, failed: null, updatedAt: nowIso() }, cardOpen: true }, { merge: true });
-      return { attempt: attempt + 1, amount, number: or.number, channel: or.channel };
+      tx.set(ref, { card: { state: 'starting', attempt: attempt + 1, readerId, at: nowIso(), by, cents: amount, part, id: null, failed: null, updatedAt: nowIso() }, cardOpen: true }, { merge: true });
+      return { attempt: attempt + 1, amount, part, number: or.number, channel: or.channel };
     });
     if (claim.error) return fail(claim.error, claim.status, claim.code);
     if (claim.paid) return { ok: true, state: 'paid', already: true, payMethod: claim.payMethod };
@@ -284,7 +305,7 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
       try {
         pi = await stripe.paymentIntents.create({
           amount: claim.amount, currency: 'usd', payment_method_types: ['card_present'], capture_method: 'manual',
-          description: `${claim.channel === 'kiosk' ? 'Kiosk' : claim.channel === 'counter' ? 'Counter' : 'Drive-thru'} order ${claim.number}`,
+          description: `${claim.channel === 'kiosk' ? 'Kiosk' : claim.channel === 'counter' ? 'Counter' : 'Drive-thru'} order ${claim.number}${claim.part ? ', part' : ''}`,
           metadata: { tenantId, source: 'drive_thru', kind: 'counter', orderId, attempt: String(claim.attempt) },
         }, { stripeAccount: acct, idempotencyKey: payKey(tenantId, orderId, claim.attempt) });
       } catch {
@@ -331,6 +352,8 @@ export async function checkCard(db: any, tenantId: string, tenant: any, orderId:
   const c: any = or.card || null;
   if (!c?.id) return { ok: true, state: c?.state === 'starting' ? 'starting' : 'none' };
   if (c.state === 'stopped') return { ok: true, state: 'stopped' };
+  // (A split bill's part, taken: the reader is free for the next.)
+  if (c.state === 'part') return { ok: true, state: 'part', partCents: Math.round(Number(c.cents) || 0), due: dueCentsOf(or) / 100 };
   if (!acct || !stripe) return fail('Card payments aren’t set up for this business yet.', 409, 'no_payments');
   const g = await getPi(stripe, acct, c.id);
   if (g.err === 'unknown') return { ok: true, state: c.state === 'declined' ? 'declined' : 'on_reader', message: c.failed || null };
@@ -377,7 +400,8 @@ export async function stopCard(db: any, tenantId: string, tenant: any, orderId: 
   if (or.paidAt && (!c?.id || or.cardPaymentId === c.id)) return { ok: true, state: 'paid', already: true, payMethod: or.payMethod || null };
   // Still being started (no payment yet): stopped now, and the screen starting it lets its payment go when it finds that.
   if (!c?.id) { if (c) await putCard(db, ref, { id: null, attempt: Math.floor(Number(c.attempt) || 0) }, { state: 'stopped' }, false); return { ok: true, state: 'stopped' }; }
-  if (c.state === 'stopped') return { ok: true, state: or.paidAt ? 'paid' : 'stopped', already: true, payMethod: or.payMethod || null };
+  // (A split bill's part, taken: nothing on the reader to stop.)
+  if (c.state === 'stopped' || c.state === 'part') return { ok: true, state: or.paidAt ? 'paid' : 'stopped', already: true, payMethod: or.payMethod || null };
   if (!acct || !stripe) return fail('Card payments aren’t set up for this business yet.', 409, 'no_payments');
   await readerLetGo(stripe, acct, c.readerId || null, c.id);
   const g = await getPi(stripe, acct, c.id);
@@ -413,7 +437,7 @@ export async function sweepCounterCards(db: any, tenantId: string, tenant: any, 
     // is left to give back.
     const settled = () => db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(d.ref)).data() || {};
-      if (!['paid', 'stopped'].includes(String(cur.card?.state || 'stopped'))) return;
+      if (!['paid', 'stopped', 'part'].includes(String(cur.card?.state || 'stopped'))) return;
       if (cur.phone?.id && !['paid', 'stopped'].includes(String(cur.phone.state || ''))) return;
       if (cur.ahead?.state === 'awaiting_pay') return;
       if (Object.values<any>(cur.cardBack || {}).some((b) => b?.refunded === false)) return;
@@ -447,7 +471,7 @@ export async function sweepCounterCards(db: any, tenantId: string, tenant: any, 
     out.checked++;
     const by = 'Card reader';
     if (!c.id) { await putCard(db, d.ref, { id: null, attempt: Math.floor(Number(c.attempt) || 0) }, { state: 'stopped' }, false); await settled(); continue; }
-    if (c.state === 'paid' || c.state === 'stopped') { await settled(); continue; }
+    if (c.state === 'paid' || c.state === 'stopped' || c.state === 'part') { await settled(); continue; }
     const g = await getPi(stripe, acct, c.id);
     if (g.err === 'unknown') continue;
     const pi = g.pi;

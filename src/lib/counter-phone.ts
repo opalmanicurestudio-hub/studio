@@ -15,7 +15,7 @@ import { payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
 import { photoOf } from '@/lib/counter-orders';
 import { ensureWalletDomainsSoon, walletsOn } from '@/lib/wallet-domains';
-import { dueCentsOf } from '@/lib/counter-money';
+import { dueCentsOf, partBackOpen, PART_BACK_WORDS } from '@/lib/counter-money';
 import { tendersStillCover, removeTender } from '@/lib/counter-money-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -62,6 +62,7 @@ export async function phoneLink(db: any, tenantId: string, tenant: any, orderId:
     if (o.paidAt) return fail('That order is paid already.', 409, 'paid');
     if (o.status !== 'sent' && o.status !== 'done') return fail(o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', 409);
     if (dueCentsOf(o) < 50) return fail('Card payments start at $0.50. Take this one in cash.', 409, 'too_small');
+    if (partBackOpen(o)) return fail(PART_BACK_WORDS, 409, 'part_back');
     const tenderBad = await tendersStillCover(tx, db, tenantId, o, orderId); if (tenderBad) return fail(tenderBad, 409, 'tender');
     tx.set(ref, { phone: { ...(o.phone || {}), shownAt: nowIso(), shownBy: by } }, { merge: true });
     return { ok: true };
@@ -99,6 +100,8 @@ export async function phoneView(db: any, tenantId: string, orderId: string, sig:
       if (!p.id && p.state === 'starting' && Date.now() - (Date.parse(String(p.at || '')) || 0) < 4000) return { wait: true };
       // (Its gift cards and store credit still cover their part, before the guest is asked for the rest.)
       if (await tendersStillCover(tx, db, tenantId, x, orderId)) return { tender: true };
+      // (A part of it being given back at the window: a moment.)
+      if (partBackOpen(x)) return { wait: true };
       const attempt = Math.max(0, Math.floor(num(p.attempt))) + 1;
       tx.set(ref, { phone: { ...p, attempt, id: null, cents, state: 'starting', at: nowIso() } }, { merge: true });
       return { attempt };

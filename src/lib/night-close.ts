@@ -129,7 +129,10 @@ export type NightReport = ReturnType<typeof nightReport>;
 export type DeliveryNight = { delivered: number; refunded: number; pickedUp: number; notSettled: number; going: number; feeCents: number;
   tips: { name: string; cents: number }[]; tipsWaitingCents: number; apps: { label: string; orders: number; grossCents: number; feeCents: number }[];
   /** Orders for another day paid tonight (lib/ahead-days): in tonight's sales, made on their own day. */
-  later?: { orders: number; cents: number } };
+  later?: { orders: number; cents: number };
+  /** Split bills still open at close (lib/counter-split-server): shares paid in cash (in the drawer) and by card, booked
+   *  as sales once the last share is paid. */
+  held?: { orders: number; cashCents: number; cardCents: number; numbers: string[] } };
 
 export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; tables: { covers: number }[]; adjustments: Adjustment[]; tills: Till[]; tips: { mode: string; rows: TipRow[] };
   items: CloseItem[]; checks: Record<string, CheckMark | undefined>; usualComps?: number | null; deliveries?: DeliveryNight | null;
@@ -172,7 +175,7 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
     tips: { total: tips, mode: x.tips.mode, rows: x.tips.rows },
     drawers: cash,
     // (None tonight: left out, so a night with no deliveries reads as before.)
-    deliveries: x.deliveries && (x.deliveries.delivered + x.deliveries.refunded + x.deliveries.pickedUp + x.deliveries.notSettled + x.deliveries.going > 0 || x.deliveries.apps.length || (x.deliveries.later?.orders || 0) > 0) ? x.deliveries : null,
+    deliveries: x.deliveries && (x.deliveries.delivered + x.deliveries.refunded + x.deliveries.pickedUp + x.deliveries.notSettled + x.deliveries.going > 0 || x.deliveries.apps.length || (x.deliveries.later?.orders || 0) > 0 || (x.deliveries.held?.orders || 0) > 0) ? x.deliveries : null,
     checklist,
     flags: [
       ...checklist.filter((c) => c.out).map((c) => `${c.label} read ${c.value}°F, ${c.limit}. ${c.note || ''}`.trim()),
@@ -213,6 +216,7 @@ export function reportText(name: string, rep: NightReport): string {
     if (D.tipsWaitingCents) L.push(`  Tips on deliveries not made yet: ${c(D.tipsWaitingCents)}`);
     for (const a of D.apps) L.push(`${a.label}: ${a.orders} ${a.orders === 1 ? 'order' : 'orders'}, ${c(a.grossCents)}${a.feeCents ? `, its share ${c(a.feeCents)}` : ''}. Paid out by the app.`);
     if (D.later?.orders) L.push(`For another day: ${D.later.orders} ${D.later.orders === 1 ? 'order' : 'orders'} paid tonight, ${c(D.later.cents)}. Made on ${D.later.orders === 1 ? 'its' : 'their'} own day.`);
+    if (D.held?.orders) L.push(`Split bills still open: ${D.held.numbers.join(', ')}. Shares paid so far: ${c(D.held.cashCents)} in cash (in the drawer), ${c(D.held.cardCents)} by card. In sales once the last share is paid.`);
   }
   if (rep.flags.length) { L.push(''); L.push('Worth a look'); for (const f of rep.flags) L.push(`  ${f}`); }
   return L.join('\n');

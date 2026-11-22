@@ -151,7 +151,7 @@ const card = (id: string, code: string, cents: number, x: any = {}) => db.doc(`$
 
   console.log('the reader, scan to pay, the receipt and the night');
   const cc = src('src/lib/counter-card.ts'), cp = src('src/lib/counter-phone.ts');
-  check('the card reader and scan to pay ask only what’s left', cc.includes('const amount = dueCentsOf(or);') && cc.includes('if (dueCentsOf(o) !== cents) return { notKept: true, number: o.number };') && cp.includes('const cents = dueCentsOf(or);') && cp.includes("total: or.paidAt ? num(or.total) : dueCentsOf(or) / 100"));
+  check('the card reader and scan to pay ask only what’s left', cc.includes('const left = dueCentsOf(or);') && cc.includes('const amount = partWant !== null ? partWant : left;') && cc.includes(': dueCentsOf(o) !== cents) return { notKept: true, number: o.number };') && cp.includes('const cents = dueCentsOf(or);') && cp.includes("total: or.paidAt ? num(or.total) : dueCentsOf(or) / 100"));
   const CR = await import('../../src/lib/counter-receipt'); const PR = await import('../../src/lib/printing');
   const rc = CR.counterReceipt(o2, 'o2'); const words = PR.receiptDoc(rc, { business: 'x', tz: null }).blocks.map((b: any) => `${b.left || ''} ${b.right || ''}`).join('\n');
   check('the receipt: each part, then the cash handed over', rc.detail.payments.length === 2 && rc.detail.payments[0].label === 'Gift card ••5555' && /Gift card ••5555 \$5\.00/.test(words) && /Cash handed over \$20\.00/.test(words), words);
@@ -165,7 +165,7 @@ const card = (id: string, code: string, cents: number, x: any = {}) => db.doc(`$
   console.log('the screens');
   const page = src('src/app/(app)/counter/page.tsx'), dt = src('src/app/drive-thru/[tenantId]/page.tsx'), cm = src('src/components/pos/CounterMoney.tsx');
   check('the counter: Gift card, each one on the order with Take off, Left to pay, and Finish when it’s all covered', page.includes("onClick={() => setMoneyOpen('gift')}") && page.includes('>Take off</button>') && page.includes('<span>Left to pay</span>') && page.includes("method: 'tender' }") && page.includes('Finish: it’s all covered'));
-  check('…cash and the reader on what’s left', page.includes("disabled={!!busy || (cash !== '' && !(tendered >= due))} onClick={() => pay('cash', cash === '' ? due : tendered)}") && page.includes('On the card reader: {usd(due)}'));
+  check('…cash and the reader on what’s left', page.includes("disabled={!!busy || (cash !== '' && !(tendered >= cashFor))} onClick={() => (partC !== null ? cashPart(cash === '' ? cashFor : tendered) : pay('cash', cash === '' ? due : tendered))}") && page.includes('const cashFor = partC !== null ? partC / 100 : due;') && page.includes('On the card reader: {usd(order.card?.cents ? order.card.cents / 100 : due)}'));
   check('the drive-thru: the same', dt.includes("onClick={() => setMoneyOpen('gift')}") && dt.includes('Finish: it’s all covered') && dt.includes("{reader ? `Card sends ${usd(dueNow)} to ${reader.label}"));
   check('the panel: the code, scanned or typed; their store credit when they’re a member by their code', cm.includes('>Use the gift card</button>') && cm.includes('{member ? <button') && cm.includes('>Use their store credit</button>') && cm.includes('used with the rewards code on their rewards page')
     && page.includes('member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified}') && dt.includes('member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified}'));

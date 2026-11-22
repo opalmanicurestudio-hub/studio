@@ -13,6 +13,7 @@ import { tenantTimeZone, wallToUtc } from '@/lib/tenant-time';
 import { businessDayFor, DEFAULT_DAY_CUTOVER_HOUR } from '@/lib/hosting-sessions';
 import { cleanReportTo, closeSettingsOf, nightReport, reportText, weekdayOf, type Adjustment, type CheckMark, type CloseArea, type DeliveryNight, type NightReport, type Sale, type Till, type TipRow } from '@/lib/night-close';
 import { appBooksOn } from '@/lib/app-orders';
+import { paidPartsOf } from '@/lib/counter-money';
 
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -132,6 +133,14 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
             ...(o.markdown && num(o.markdown.cents) > 0 ? [{ label: o.markdown.custom ? 'Other amounts' : String(o.markdown.label || 'Discount').slice(0, 40), amount: num(o.markdown.cents) / 100, okBy: o.markdown.okBy || null }] : [])] }; }),
   ];
   const deliveries = deliveryNight(co.docs.map((d: any) => d.data() || {}).filter(mine));
+  // Split bills still open (lib/counter-split-server): shares paid, the order not yet. The cash is in the drawer already.
+  const heldDocs = ((await db.collection(`${T}/counterOrders`).where('partsOpen', '==', true).limit(200).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
+    .map((d: any) => d.data() || {}).filter((o: any) => mine(o) && !o.paidAt && o.status !== 'voided');
+  if (heldDocs.length) {
+    const parts = heldDocs.flatMap((o: any) => paidPartsOf(o));
+    deliveries.held = { orders: heldDocs.length, cashCents: parts.filter((p) => p.kind === 'cash').reduce((n, p) => n + p.cents, 0), cardCents: parts.filter((p) => p.kind === 'card').reduce((n, p) => n + p.cents, 0),
+      numbers: heldDocs.map((o: any) => String(o.number || '')).filter(Boolean).slice(0, 12) };
+  }
   // (A comp, void or remake is where its table was: lib/table-tab keeps the visit with it. A table seated before the
   // night began is read on its own.)
   const visitAt = new Map<string, string>(tb.docs.map((d: any) => [d.id, String((d.data() || {}).locationId || '')]));

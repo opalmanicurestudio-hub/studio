@@ -84,12 +84,38 @@ export const tipCentsOf = (o: any) => Math.max(0, Math.round(num(o?.tipCents)));
 // GIFT CARDS AND STORE CREDIT ON AN ORDER (design board "Money at the counter", part 2; lib/counter-money-server
 // addTender): set aside before the rest is paid, and taken when it's paid (lib/counter-server payOrder). A gift card's
 // amount is held on the card meanwhile (lib/gift-cards), so two registers can't spend the same money.
-export type Tender = { kind: 'gift'; giftCardId: string; code: string; cents: number; promo?: boolean } | { kind: 'credit'; clientId: string; cents: number };
-/** The gift cards and store credit set aside on it. */
+// SPLIT BILLS (design board "Money at the counter", part 3; lib/counter-split-server): a part paid in cash or by card
+// before the rest is taken now, so it's on the order with the gift cards and store credit (`part`: one guest's share).
+// It goes to the kitchen as one order and counts as paid when the parts add up (lib/counter-server payOrder).
+export type Tender = ({ kind: 'gift'; giftCardId: string; code: string; cents: number; promo?: boolean } | { kind: 'credit'; clientId: string; cents: number }
+  | { kind: 'cash'; partId: string; cents: number; tendered: number; at: string; by: string; tillId: string | null }
+  | { kind: 'card'; partId: string; cents: number; id: string | null; at: string; by: string }) & { part?: boolean };
+/** The gift cards, store credit and paid parts on it. */
 export function tendersOf(o: any): Tender[] {
-  return (Array.isArray(o?.tenders) ? o.tenders : []).filter((t: any) => (t?.kind === 'gift' && t.giftCardId) || (t?.kind === 'credit' && t.clientId))
+  return (Array.isArray(o?.tenders) ? o.tenders : []).filter((t: any) => (t?.kind === 'gift' && t.giftCardId) || (t?.kind === 'credit' && t.clientId) || ((t?.kind === 'cash' || t?.kind === 'card') && t.partId))
     .map((t: any) => ({ ...t, cents: Math.max(0, Math.round(num(t.cents))) }));
 }
+/** A part taken already (cash in the drawer, or a card charged), never set aside. */
+export const isPaidPart = (t: Pick<Tender, 'kind'>) => t.kind === 'cash' || t.kind === 'card';
+/** Its parts taken already. */
+export const paidPartsOf = (o: any) => tendersOf(o).filter(isPaidPart);
+/** A card part being given back right now (its refund asked of the card company): nothing pays the order meanwhile, so
+ *  it's never paid with a part that's then refunded. Two minutes at most while it's asked (a step that stopped halfway
+ *  is let go); once it's refunded, until the part is off the order (giving it back again finishes it). */
+export const partBackOpen = (o: any, now = Date.now()) => !!o?.partBack?.at && (o.partBack.refunded === true || now - (Date.parse(String(o.partBack.at)) || 0) < 120000);
+export const PART_BACK_WORDS = 'A part is being given back to their card. Try again in a moment.';
+/** How many guests have paid their share (a paid part, or a gift card or store credit used for one). */
+export const sharesPaidOf = (o: any) => tendersOf(o).filter((t) => isPaidPart(t) || t.part === true).length;
+/** Up to this many ways, and this many parts on an order. */
+export const SPLIT_WAYS_MAX = 10;
+export const PARTS_MAX = 12;
+/** The next share of `dueCents` split `ways` ways with `paid` shares paid: the last one is whatever's left. */
+export function nextShare(dueCents: number, ways: number, paid: number): number {
+  const due = Math.max(0, Math.round(dueCents)); const left = Math.max(1, Math.round(ways) - Math.max(0, Math.round(paid)));
+  return left <= 1 ? due : Math.round(due / left);
+}
+/** How a tender reads on a screen or a slip. */
+export const tenderWords = (t: Tender) => (t.kind === 'gift' ? `Gift card ${codeEnd(t.code)}` : t.kind === 'credit' ? 'Store credit' : t.kind === 'cash' ? 'Cash' : 'Card');
 /** What they cover now, in cents (never more than the order). */
 export const tenderCentsOf = (o: any) => Math.min(tendersOf(o).reduce((s, t) => s + t.cents, 0), Math.max(0, Math.round(num(o?.total) * 100)));
 /** What's left to pay by cash or card, in cents. */

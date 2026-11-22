@@ -31,7 +31,7 @@ import type { AllergenKey } from '@/lib/allergens';
 import { AllergySheet, LineNote, allergyBody, allergyFrom, type AllergyValue } from '@/components/menu/OrderAllergy';
 import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
-import { TipAsk, DiscountPick, GiftAsk, type CustomDiscount } from '@/components/pos/CounterMoney';
+import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
@@ -86,12 +86,14 @@ const ON_READER = ['starting', 'on_reader', 'capturing'];
 type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean };
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item'; note?: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
-  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null } | null;
+  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null; cents?: number | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null;
   /** Its tip (in its total) and discount (lib/counter-money). */
   tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null;
   /** Gift cards and store credit set aside on it, and what's left for cash or card (lib/counter-money). */
-  tenders?: { kind: 'gift' | 'credit'; giftCardId?: string; code?: string; cents: number }[]; due?: number;
+  tenders?: { kind: 'gift' | 'credit' | 'cash' | 'card'; giftCardId?: string; code?: string; cents: number; partId?: string; machine?: boolean; part?: boolean }[]; due?: number;
+  /** A split bill (lib/counter-split-server): how many ways, and how many have paid their share. */
+  split?: { ways: number; shares: number } | null;
   /** Rewards on it (lib/counter-points): the phone's last 4 or their code (`verified`: it can spend), what it earned once
    *  paid; a reward used, and the items' own total beside it. */
   points?: { phone: string | null; earned: number; verified?: boolean } | null; reward?: { name: string; cents: number } | null; itemsTotal?: number | null;
@@ -188,6 +190,8 @@ export default function CounterPage() {
   // The receipt for the sale just paid (or one asked for again from Waiting: `later`), until it's done.
   // A tip or a discount being picked for the order being paid; another amount off waiting on a manager's PIN.
   const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | 'gift' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
+  // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
+  const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
@@ -229,7 +233,7 @@ export default function CounterPage() {
   const cardOn = !!order?.card && ON_READER.includes(order.card.state);
   // The guest on screen was paid for or dropped: the next one still ordering takes its place.
   useEffect(() => { if (lane && !guest) setPicked(ordering[ordering.length - 1]?.id || null); }, [lane]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCash(null); setStaffFor(null); setToGo(false); setTextTo(''); setMoneyOpen(null); setPartC(null); setGiftUpTo(null); setJust(null); if (order && nameFor.current !== order.id) { nameFor.current = order.id; setName(order.guestName || ''); } }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (label: string, body: any, after?: (d: any) => void, onFail?: (d: any) => boolean) => {
     acted.current++; setBusy(label);
@@ -312,7 +316,7 @@ export default function CounterPage() {
   const offDone = (d: any) => { setMoneyOpen(null); setDiscountPin(null); setNotice({ text: d.off ? `${order?.number}: the discount was taken off.` : `${order?.number}: ${usd((Number(d.cents) || 0) / 100)} off${d.approvedBy ? `, okayed by ${d.approvedBy}` : ''}. The total is ${usd(d.total)}.`, tone: 'good' }); };
   // A gift card or their store credit, set aside for what's left (lib/counter-money-server addTender); or taken off.
   const tenderDone = (d: any, words: string) => { setMoneyOpen(null); setNotice({ text: `${order?.number}: ${words}${d.due > 0 ? ` ${usd(d.due)} left to pay.` : ' Nothing left to pay: finish with it.'}`, tone: 'good' }); };
-  const giftIt = (code: string) => order && act('tender', { action: 'tender', orderId: order.id, do: 'gift', code }, (d) => tenderDone(d, `gift card ${d.code || ''} covers ${usd((Number(d.cents) || 0) / 100)}.`));
+  const giftIt = (code: string) => order && act('tender', { action: 'tender', orderId: order.id, do: 'gift', code, ...(giftUpTo !== null ? { upTo: giftUpTo } : {}) }, (d) => { setGiftUpTo(null); tenderDone(d, `gift card ${d.code || ''} covers ${usd((Number(d.cents) || 0) / 100)}.`); });
   const creditIt = () => order && act('tender', { action: 'tender', orderId: order.id, do: 'credit' }, (d) => tenderDone(d, `store credit covers ${usd((Number(d.cents) || 0) / 100)}.`));
   const untender = (t: { kind: string; giftCardId?: string }) => order && act('tender', { action: 'tender', orderId: order.id, do: 'remove', ...(t.kind === 'credit' ? { credit: true } : { giftCardId: t.giftCardId }) }, (d) => setNotice({ text: `${order.number}: taken off. ${usd(d.due)} to pay.`, tone: 'good' }));
   const discountIt = (id: string | null) => order && act('discount', { action: 'discount', orderId: order.id, discountId: id }, offDone);
@@ -327,7 +331,31 @@ export default function CounterPage() {
     setNotice({ text: `${order.number}: ${paidWords(d, d.payMethod || method)}`, tone: 'good' });
     if (!d.paidOtherwise) setSlip({ orderId: order.id, title: titleOf(order), cash: (d.payMethod || method) === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
   });
-  const toReader = () => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id });
+  const toReader = (cents?: number) => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id, ...(cents !== undefined ? { cents } : {}) });
+  // A split bill (components/pos/CounterMoney SplitAsk; lib/counter-split-server): how many ways, and one part at a time.
+  // The last part pays the order.
+  const splitWays = (ways: number | null) => order && act('split', { action: 'split', orderId: order.id, ways });
+  const partDone = (d: any, how: string) => {
+    setCash(null); setPartC(null);
+    if (d.paid) { setNotice({ text: `${order?.number}: ${paidWords(d, d.payMethod || how)}`, tone: 'good' }); if (order) setSlip({ orderId: order.id, title: titleOf(order), cash: how === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already }); return; }
+    setNotice({ text: `${order?.number}: ${usd((Number(d.cents) || 0) / 100)} paid ${how === 'cash' ? `in cash${Number(d.change) > 0 ? `. Give ${usd(d.change)} change` : ''}` : 'on the card machine'}. ${usd(d.due)} left.`, tone: 'good' });
+  };
+  const cashPart = (tenderedNow: number) => order && partC !== null && act('part', { action: 'part', orderId: order.id, method: 'cash', cents: partC, tendered: tenderedNow }, (d) => partDone(d, 'cash'));
+  const payPart = (how: PartHow, cents: number) => {
+    if (!order) return;
+    if (how === 'cash') { setPartC(cents); setCash(''); return; }
+    if (how === 'gift') { setGiftUpTo(cents); setMoneyOpen('gift'); return; }
+    if (how === 'reader') { void toReader(cents); return; }
+    void act('part', { action: 'part', orderId: order.id, method: 'card', cents }, (d) => partDone(d, 'card'));
+  };
+  const partBackDone = (d: any) => { setPartPin(null); setNotice({ text: `${order?.number}: ${d.kind === 'cash' ? `${usd((Number(d.cents) || 0) / 100)} back to them in cash${d.fromDrawer ? ', out of the drawer' : ''}` : d.machine ? `give ${usd((Number(d.cents) || 0) / 100)} back on that card machine` : `${usd((Number(d.cents) || 0) / 100)} back to their card`}. ${usd(d.due)} to pay.`, tone: 'good' }); };
+  const partBack = (t: { partId?: string; cents: number; kind: string }) => order && t.partId && act('partUndo', { action: 'partUndo', orderId: order.id, partId: t.partId }, partBackDone, (d) => { if (!d.needsManager) return false; setPartPin({ partId: t.partId!, cents: t.cents, kind: t.kind }); return true; });
+  const partPinCheck = async (pin: string) => {
+    if (!order || !partPin) return { ok: false as const, error: 'Pick the order again.' };
+    const d = await post({ action: 'partUndo', orderId: order.id, partId: partPin.partId, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    partBackDone(d); acted.current++; void load(); return { ok: true as const, staff: { id: '', name: '', pass: '' } };
+  };
   const stopReader = () => order && act('cardStop', { action: 'cardStop', orderId: order.id }, (d) => { setNotice(d.state === 'paid' ? { text: 'The card went through, so it’s paid.', tone: 'good' } : { text: 'Stopped. Take it another way.', tone: 'good' });
     if (d.state === 'paid') setSlip({ orderId: order.id, title: titleOf(order), cash: false, change: null }); });
   const cancel = () => { if (!order) return; setJust(null); void act('cancel', { action: 'cancel', orderId: order.id }, () => setNotice({ text: `${order.number} was dropped.`, tone: 'good' })); };
@@ -336,14 +364,16 @@ export default function CounterPage() {
   useEffect(() => {
     const id = order?.id; if (!cardOn || !id) return;
     let live = true;
-    const i = setInterval(async () => { const d = await post({ action: 'cardCheck', orderId: id }).catch(() => null); if (!live || !d?.ok) return; if (d.state === 'paid') { setNotice({ text: `${order?.number}: paid by card.`, tone: 'good' }); if (order) setSlip({ orderId: id, title: titleOf(order), cash: false, change: null }); } if (d.state !== 'on_reader') void load(); }, 2000);
+    const i = setInterval(async () => { const d = await post({ action: 'cardCheck', orderId: id }).catch(() => null); if (!live || !d?.ok) return; if (d.state === 'paid') { setNotice({ text: `${order?.number}: paid by card.`, tone: 'good' }); if (order) setSlip({ orderId: id, title: titleOf(order), cash: false, change: null }); } if (d.state === 'part') setNotice({ text: `${order?.number}: ${usd((Number(d.partCents) || 0) / 100)} paid by card. ${usd(Number(d.due) || 0)} left.`, tone: 'good' }); if (d.state !== 'on_reader') void load(); }, 2000);
     return () => { live = false; clearInterval(i); };
   }, [cardOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!tenantId) return null;
   // (What's left to pay by cash or card: all of it, or what a gift card or store credit doesn't cover.)
   const due = order ? (typeof order.due === 'number' ? order.due : order.total) : 0; const covered = !!order?.tenders?.length && due <= 0;
-  const tendered = Number(cash); const quick = order ? Array.from(new Set([due, Math.ceil(due / 5) * 5, Math.ceil(due / 10) * 10, 20, 50].filter((x) => x >= due))).slice(0, 4) : [];
+  // (Cash for one part of a split bill, or for what's left.)
+  const cashFor = partC !== null ? partC / 100 : due;
+  const tendered = Number(cash); const quick = order ? Array.from(new Set([cashFor, Math.ceil(cashFor / 5) * 5, Math.ceil(cashFor / 10) * 10, 20, 50].filter((x) => x >= cashFor))).slice(0, 4) : [];
   return (<>
     <main className="mx-auto max-w-[1280px] space-y-4 px-4 py-5 sm:px-6" style={{ color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -428,10 +458,12 @@ export default function CounterPage() {
               <div className="flex justify-between" style={{ color: MUTED }}><span>Tax</span><span className="tabular-nums">{order.app ? (order.app.money && order.app.money.appPaysTax === false ? `Yours to pay, ${usd(order.app.money.taxCents / 100)}` : 'The app collects it') : usd(order.tax)}</span></div>
               {!order.app && (order.tipCents || 0) > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>Tip{order.keptChange ? ', kept the change' : ''}</span><span className="tabular-nums">{usd((order.tipCents || 0) / 100)}</span></div>}
               <div className="flex justify-between text-[16px] font-semibold"><span>Total</span><span className="tabular-nums">{usd(order.app ? order.subtotal : order.total)}</span></div>
-              {(order.tenders || []).map((t) => <div key={t.kind === 'gift' ? t.giftCardId : 'credit'} className="flex items-center justify-between gap-2" style={{ color: GREEN }}>
-                <span className="min-w-0 truncate">{t.kind === 'gift' ? `Gift card ${t.code || ''}` : 'Store credit'}</span>
+              {(order.tenders || []).map((t) => { const paidPart = t.kind === 'cash' || t.kind === 'card'; const words = t.kind === 'gift' ? `Gift card ${t.code || ''}` : t.kind === 'credit' ? 'Store credit' : t.kind === 'cash' ? 'Paid in cash' : t.machine ? 'Paid on a card machine' : 'Paid by card';
+                return <div key={t.partId || (t.kind === 'gift' ? t.giftCardId : 'credit')} className="flex items-center justify-between gap-2" style={{ color: GREEN }}>
+                <span className="min-w-0 truncate">{words}</span>
                 <span className="flex shrink-0 items-center gap-1"><span className="tabular-nums">-{usd(t.cents / 100)}</span>
-                  {!order.paidAt && <button type="button" onClick={() => void untender(t)} disabled={!!busy} aria-label={`Take ${t.kind === 'gift' ? `gift card ${t.code || ''}` : 'store credit'} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>}</span></div>)}
+                  {!order.paidAt && (paidPart ? <button type="button" onClick={() => void partBack(t)} disabled={!!busy || cardOn} aria-label={`Give back ${usd(t.cents / 100)} ${t.kind === 'cash' ? 'in cash' : 'to the card'}`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Give back</button>
+                    : <button type="button" onClick={() => void untender(t)} disabled={!!busy} aria-label={`Take ${t.kind === 'gift' ? `gift card ${t.code || ''}` : 'store credit'} off`} className={`min-h-[44px] rounded-lg px-2 text-[13px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Take off</button>)}</span></div>; })}
               {(order.tenders || []).length > 0 && <div className="flex justify-between text-[16px] font-semibold"><span>Left to pay</span><span className="tabular-nums">{usd(due)}</span></div>}
               {order.app?.money && order.app.money.markupPct > 0 && <div className="flex justify-between" style={{ color: MUTED }}><span>On {order.app.label} (+{order.app.money.markupPct}%)</span><span className="tabular-nums">{usd(order.app.money.appCents / 100)}</span></div>}
             </div>
@@ -442,7 +474,7 @@ export default function CounterPage() {
                 {[{ v: false, label: 'For here' }, { v: true, label: 'To go' }].map((x) => <button key={x.label} type="button" role="radio" aria-checked={toGo === x.v} onClick={() => setToGo(x.v)} className={`min-h-[44px] rounded-lg text-[14.5px] font-semibold ${RING}`} style={toGo === x.v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(22,23,26,0.08)' } : { color: MUTED }}>{x.label}</button>)}
               </div>}
               <button type="button" disabled={!order.lines.length || !!busy} onClick={() => { saveName(); void sendIt(); }} className={`${btn} min-h-[52px] text-[16px]`} style={dark}>Send and take payment</button></>
-              : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(due)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p><button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
+              : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(order.card?.cents ? order.card.cents / 100 : due)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p><button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
               : staffFor !== null ? <div className="space-y-2">
                 <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Who it’s for
                   <input autoFocus value={staffFor} onChange={(e) => setStaffFor(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter') void staffMeal(); }} placeholder="First name" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
@@ -451,31 +483,36 @@ export default function CounterPage() {
                   <button type="button" disabled={!!busy || !staffFor.trim()} onClick={() => void staffMeal()} className={`${btn} flex-[2]`} style={dark}>Ring in as a staff meal</button></div>
               </div>
               : cash !== null ? <div className="space-y-2">
-                <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Cash handed over
-                  <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={due.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
-                <div className="flex flex-wrap gap-2">{quick.map((q) => <button key={q} type="button" onClick={() => setCash(q.toFixed(2))} className={`${btn} px-3 text-[14px]`} style={{ background: SOFT, color: INK }}>{q === due ? 'Exact' : usd(q)}</button>)}</div>
-                {cash !== '' && Number.isFinite(tendered) && tendered >= due && <p className="text-[15px] font-semibold" style={{ color: GREEN }}>Change: {usd(tendered - due)}</p>}
-                {lane?.money?.tips && cash !== '' && Number.isFinite(tendered) && tendered > due && tendered - due <= Math.min(order.total, 500) && <button type="button" disabled={!!busy} onClick={() => pay('cash', tendered, true)} className={`${btn} w-full`} style={quiet}>Keep the change as a tip</button>}
-                <div className="flex gap-2"><button type="button" onClick={() => setCash(null)} className={`${btn} flex-1`} style={quiet}>Back</button>
-                  <button type="button" disabled={!!busy || (cash !== '' && !(tendered >= due))} onClick={() => pay('cash', cash === '' ? due : tendered)} className={`${btn} flex-[2]`} style={dark}>Take cash</button></div>
+                <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>{partC !== null ? `Cash handed over for this part, ${usd(cashFor)}` : 'Cash handed over'}
+                  <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, '').slice(0, 8))} placeholder={cashFor.toFixed(2)} className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal tabular-nums outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>
+                <div className="flex flex-wrap gap-2">{quick.map((q) => <button key={q} type="button" onClick={() => setCash(q.toFixed(2))} className={`${btn} px-3 text-[14px]`} style={{ background: SOFT, color: INK }}>{q === cashFor ? 'Exact' : usd(q)}</button>)}</div>
+                {cash !== '' && Number.isFinite(tendered) && tendered >= cashFor && <p className="text-[15px] font-semibold" style={{ color: GREEN }}>Change: {usd(tendered - cashFor)}</p>}
+                {lane?.money?.tips && partC === null && cash !== '' && Number.isFinite(tendered) && tendered > due && tendered - due <= Math.min(order.total, 500) && <button type="button" disabled={!!busy} onClick={() => pay('cash', tendered, true)} className={`${btn} w-full`} style={quiet}>Keep the change as a tip</button>}
+                <div className="flex gap-2"><button type="button" onClick={() => { setCash(null); setPartC(null); }} className={`${btn} flex-1`} style={quiet}>Back</button>
+                  <button type="button" disabled={!!busy || (cash !== '' && !(tendered >= cashFor))} onClick={() => (partC !== null ? cashPart(cash === '' ? cashFor : tendered) : pay('cash', cash === '' ? due : tendered))} className={`${btn} flex-[2]`} style={dark}>Take cash</button></div>
               </div>
               : moneyOpen === 'tip' && lane?.money?.tips ? <TipAsk baseCents={Math.round(order.total * 100) - (order.tipCents || 0)} tipCents={order.tipCents || 0} pcts={lane.money.tips.pcts} busy={!!busy} onPick={(c) => void tipIt(c)} onClose={() => setMoneyOpen(null)} />
-              : moneyOpen === 'gift' ? <GiftAsk dueCents={Math.round(due * 100)} member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified} busy={!!busy} onGift={(c) => void giftIt(c)} onCredit={() => void creditIt()} onClose={() => setMoneyOpen(null)} />
+              : moneyOpen === 'gift' ? <GiftAsk dueCents={giftUpTo ?? Math.round(due * 100)} member={!!order.points?.verified} needsCode={!!order.points && !order.points.verified} busy={!!busy} onGift={(c) => void giftIt(c)} onCredit={() => void creditIt()} onClose={() => { setMoneyOpen(null); setGiftUpTo(null); }} />
               : covered ? <div className="space-y-2">
                 <button type="button" disabled={!!busy} onClick={() => void act('paid', { action: 'paid', orderId: order.id, method: 'tender' }, (d) => { setNotice({ text: `${order.number}: paid with ${order.tenders!.every((t) => t.kind === 'gift') ? 'the gift card' : order.tenders!.every((t) => t.kind === 'credit') ? 'store credit' : 'the gift card and store credit'}.`, tone: 'good' }); setSlip({ orderId: order.id, title: titleOf(order), cash: false, change: null, auto: !d.already }); })} className={`${btn} min-h-[52px] w-full text-[16px]`} style={dark}>Finish: it’s all covered</button>
                 <button type="button" onClick={() => setMoneyOpen('gift')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Gift card or store credit</button>
               </div>
               : moneyOpen === 'discount' ? <DiscountPick list={lane?.money?.discounts || []} current={order.markdown?.id || null} busy={!!busy} onPick={(id) => void discountIt(id)} onCustom={(c) => void customOff(c)} onClose={() => setMoneyOpen(null)} />
+              : order.split && !order.app ? <div className="space-y-2">
+                {order.card?.failed && <p className="text-[13.5px]" style={{ color: AMBER }}>{order.card.failed}</p>}
+                <SplitAsk dueCents={Math.round(due * 100)} ways={order.split.ways} shares={order.split.shares} reader={reader ? reader.label : null} busy={!!busy}
+                  onWays={(n) => void splitWays(n)} onPay={payPart} onStop={() => void splitWays(null)} /></div>
               : <div className="space-y-2">
                 {order.card?.failed && <p className="text-[13.5px]" style={{ color: AMBER }}>{order.card.failed}</p>}
-                {!order.app && <div className={`grid gap-2 ${lane?.money?.tips ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                {!order.app && <div className={`grid gap-2 ${lane?.money?.tips ? 'grid-cols-2' : 'grid-cols-3'}`}>
                   {lane?.money?.tips && <button type="button" onClick={() => setMoneyOpen('tip')} disabled={!!busy} className={`${btn} px-2 text-[14px]`} style={quiet}>{order.tipCents ? `Tip ${usd(order.tipCents / 100)}` : 'Tip'}</button>}
                   <button type="button" onClick={() => setMoneyOpen('discount')} disabled={!!busy} className={`${btn} px-2 text-[14px]`} style={quiet}>{order.markdown ? `Discount ${usd(order.markdown.cents / 100)}` : 'Discount'}</button>
                   <button type="button" onClick={() => setMoneyOpen('gift')} disabled={!!busy} className={`${btn} px-2 text-[14px]`} style={quiet}>Gift card</button>
+                  <button type="button" onClick={() => void splitWays(2)} disabled={!!busy} className={`${btn} px-2 text-[14px]`} style={quiet}>Split</button>
                 </div>}
                 <button type="button" onClick={() => setCash('')} disabled={!!busy} className={`${btn} min-h-[52px] w-full text-[16px]`} style={dark}>Cash</button>
                 {readers.length > 1 && <select aria-label="Card reader" value={reader?.id || ''} onChange={(e) => { setReaderId(e.target.value); try { localStorage.setItem(READER_KEY, e.target.value); } catch { /* private window */ } }} className={`min-h-[44px] w-full rounded-xl border px-3 text-[14.5px] ${RING}`} style={{ background: '#fff', borderColor: LINE, color: INK }}><option value="">Pick a card reader</option>{readers.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>}
-                {readers.length > 0 && <button type="button" onClick={toReader} disabled={!reader || !!busy} className={`${btn} w-full`} style={quiet}>Card reader{reader && readers.length > 1 ? `: ${reader.label}` : ''}</button>}
+                {readers.length > 0 && <button type="button" onClick={() => void toReader()} disabled={!reader || !!busy} className={`${btn} w-full`} style={quiet}>Card reader{reader && readers.length > 1 ? `: ${reader.label}` : ''}</button>}
                 <button type="button" onClick={() => pay('card')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Paid on another card machine</button>
                 <button type="button" onClick={() => setStaffFor('')} disabled={!!busy} className={`${btn} w-full text-[14px]`} style={{ color: MUTED }}>Staff meal</button>
               </div>}
@@ -538,6 +575,7 @@ export default function CounterPage() {
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
+    {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}
       onCode={(code) => new Promise<string | null>((res) => { void act('rewardsCode', { action: 'rewardsCode', orderId: order.id, code }, (d) => {

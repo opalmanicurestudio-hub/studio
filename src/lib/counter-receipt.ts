@@ -58,9 +58,10 @@ export function counterReceipt(o: any, orderId: string): any {
     change: method === 'cash' && o?.changeGiven != null ? r2(num(o.changeGiven)) : null,
     detail: {
       lines, fees: fee > 0 ? [{ label: 'Delivery', amount: fee }] : [],
-      // (With a gift card or store credit, each part as it was paid: lib/counter-money.)
+      // (With a gift card or store credit, or a split bill's shares, each part as it was paid: lib/counter-money.)
       payments: Array.isArray(o?.payments) && o.payments.length
-        ? o.payments.map((p: any) => ({ method: String(p.method || 'card'), amount: r2(num(p.amount)), ...(p.method === 'gift_card' ? { label: `Gift card ${clip(p.code, 12)}`.trim() } : p.method === 'store_credit' ? { label: 'Store credit' } : {}) }))
+        ? o.payments.map((p: any) => ({ method: String(p.method || 'card'), amount: r2(num(p.amount)), ...(p.method === 'gift_card' ? { label: `Gift card ${clip(p.code, 12)}`.trim() } : p.method === 'store_credit' ? { label: 'Store credit' }
+          : p.part === true ? { label: p.method === 'cash' ? 'Cash, a share' : 'Card, a share' } : {}) }))
         : [{ method, amount: r2(total - tip), tip }],
     },
     refunds: refundCents > 0 ? [{ cents: refundCents, reason: o?.ahead?.delivery?.state === 'refunded' ? 'Delivery refunded' : clip(o?.voidReason, 80) || null }] : [],

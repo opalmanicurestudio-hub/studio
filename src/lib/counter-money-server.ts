@@ -8,7 +8,7 @@
 //   rest is paid by cash or card, and both are taken when it's paid (lib/counter-server payOrder).
 import { totalsOf } from '@/lib/counter-orders';
 import { cardBusy } from '@/lib/counter-server';
-import { cleanTip, discountsOf, discountCents, discountWords, itemsCentsOf, rewardCentsOf, tipCentsOf, tendersOf, dueCentsOf, codeEnd, type Discount, type Tender } from '@/lib/counter-money';
+import { cleanTip, discountsOf, discountCents, discountWords, itemsCentsOf, rewardCentsOf, tipCentsOf, tendersOf, dueCentsOf, codeEnd, isPaidPart, paidPartsOf, type Discount, type Tender } from '@/lib/counter-money';
 import { findByCode, giftSpendPlan, holdGiftCard, releaseHold } from '@/lib/gift-cards';
 import { creditBalance } from '@/lib/store-credit';
 
@@ -29,6 +29,8 @@ function notNow(o: any, what: 'tip' | 'discount' | 'tender'): Fail | null {
   if (o.channel === 'kiosk') return fail('A kiosk order is paid at the kiosk.', 409, 'kiosk');
   if (cardBusy(o)) return fail('The card reader is asking for this order’s payment. Stop it first.', 409, 'card_busy');
   if (o.phone?.id && o.phone.state === 'open') return fail('A scan-to-pay code is open for this order. Close it first.', 409, 'phone_open');
+  // (A split bill with a part paid: its total stays as it is, so the parts still add up. lib/counter-split-server.)
+  if (what !== 'tender' && paidPartsOf(o).length) return fail(`Part of it is paid, so its total stays as it is. Give the parts back first to change the ${what}.`, 409, 'parts');
   return null;
 }
 
@@ -96,8 +98,12 @@ export const holdIdOf = (orderId: string) => `counter_${orderId}`;
 
 /** A gift card (by the code on it) or the guest's store credit (an order with a rewards member on it), set aside for
  *  what's left to pay: all of it, or what the card or the credit has. */
-export async function addTender(db: any, tenantId: string, orderId: string, ask: { kind: 'gift' | 'credit'; code?: unknown }, who: { id: string | null; name: string }) {
+export async function addTender(db: any, tenantId: string, orderId: string, ask: { kind: 'gift' | 'credit'; code?: unknown; upTo?: unknown }, who: { id: string | null; name: string }) {
   if (!ID.test(orderId)) return fail('Which order?', 400);
+  // (One guest's share of a split bill: no more than it, lib/counter-split-server.)
+  const upTo = ask.upTo === undefined || ask.upTo === null || ask.upTo === '' ? null : Math.round(Number(ask.upTo));
+  if (upTo !== null && (!Number.isFinite(upTo) || upTo < 1)) return fail('How much is this part?', 400);
+  const cap = (n: number) => (upTo === null ? n : Math.min(n, upTo));
   const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/counterOrders/${orderId}`);
   const o0: any = (await ref.get()).data(); const no0 = notNow(o0, 'tender'); if (no0) return no0;
   if (dueCentsOf(o0) <= 0) return fail('Nothing is left to pay on it.', 409, 'nothing');
@@ -107,7 +113,7 @@ export async function addTender(db: any, tenantId: string, orderId: string, ask:
     const g: any = await findByCode(db, tenantId, code);
     if (!g) return fail('That gift card code wasn’t found. Check it and try again.', 404, 'not_found');
     if (tendersOf(o0).some((t) => t.kind === 'gift' && t.giftCardId === g.id)) return fail('That gift card is on this order already.', 409, 'twice');
-    const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: holdIdOf(orderId), cents: dueCentsOf(o0) });
+    const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: holdIdOf(orderId), cents: cap(dueCentsOf(o0)) });
     if (!h.ok) return fail(h.error || 'That gift card can’t be used.', 409, 'gift');
     if (!h.cents) { await releaseHold(db, tenantId, g.id, holdIdOf(orderId)); return fail('There’s nothing left on that gift card.', 409, 'empty'); }
     gift = { id: g.id, code: String(g.code || code), promo: g.promo === true, cents: h.cents };
@@ -120,12 +126,12 @@ export async function addTender(db: any, tenantId: string, orderId: string, ask:
     const due = dueCentsOf(o); if (due <= 0) return fail('Nothing is left to pay on it.', 409, 'nothing');
     const list = tendersOf(o);
     let t: Tender;
-    if (gift) t = { kind: 'gift', giftCardId: gift.id, code: gift.code, cents: Math.min(gift.cents, due), ...(gift.promo ? { promo: true } : {}) };
+    if (gift) t = { kind: 'gift', giftCardId: gift.id, code: gift.code, cents: cap(Math.min(gift.cents, due)), ...(gift.promo ? { promo: true } : {}), ...(upTo !== null ? { part: true } : {}) };
     else {
       if (!o.clientId || o.points?.verified !== true) return fail('Store credit is used with their rewards code.', 409, 'needs_code');
       if (list.some((x) => x.kind === 'credit')) return fail('Their store credit is on this order already.', 409, 'twice');
       const have = Math.round(creditBalance(client) * 100); if (have <= 0) return fail('They have no store credit to use.', 409, 'empty');
-      t = { kind: 'credit', clientId: String(o.clientId), cents: Math.min(have, due) };
+      t = { kind: 'credit', clientId: String(o.clientId), cents: cap(Math.min(have, due)), ...(upTo !== null ? { part: true } : {}) };
     }
     tx.set(ref, { tenders: [...list, t], updatedAt: nowIso(), tenderBy: { id: who.id || null, name: who.name } }, { merge: true });
     return { ok: true as const, tender: t, due: due - t.cents, number: String(o.number || '') };
@@ -158,13 +164,14 @@ export async function removeTender(db: any, tenantId: string, orderId: string, w
  *  words to show when one doesn't; null when they do. */
 export async function tendersStillCover(tx: any, db: any, tenantId: string, o: any, orderId: string): Promise<string | null> {
   let room = Math.round(Number(o?.total || 0) * 100);
-  for (const t of tendersOf(o)) {
-    const need = Math.min(t.cents, room); room -= need; if (need <= 0) continue;
+  const all = tendersOf(o);
+  for (const t of [...all.filter(isPaidPart), ...all.filter((x) => !isPaidPart(x))]) {
+    const need = Math.min(t.cents, room); room -= need; if (need <= 0 || isPaidPart(t)) continue;
     if (t.kind === 'gift') {
       const cur: any = (await tx.get(db.doc(`tenants/${tenantId}/giftCards/${t.giftCardId}`))).data();
       // (The same test the sale makes as it's paid: cancelled, expired, or not enough left besides this order's hold.)
       if (!giftSpendPlan(cur, null, { cents: need, holdId: holdIdOf(orderId), by: '' }).ok) return `Gift card ${codeEnd(t.code)} doesn’t cover its part any more. Take it off, then take the payment.`;
-    } else {
+    } else if (t.kind === 'credit') {
       if (t.clientId !== o?.clientId || o?.points?.verified !== true) return 'Store credit is used with their rewards code. Take it off, or add their code again.';
       const c: any = (await tx.get(db.doc(`tenants/${tenantId}/clients/${t.clientId}`))).data() || {};
       if (Math.round(creditBalance(c) * 100) < need) return 'Their store credit changed. Take it off and set it aside again.';

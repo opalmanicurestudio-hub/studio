@@ -24,7 +24,7 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
 import { TIP_MAX_CENTS } from '@/lib/counter-money';
-import { tendersOf, codeEnd } from '@/lib/counter-money';
+import { tendersOf, codeEnd, isPaidPart, paidPartsOf, partBackOpen, PART_BACK_WORDS } from '@/lib/counter-money';
 import { giftSpendPlan, releaseHold, syncClientGift } from '@/lib/gift-cards';
 import { creditPlan, creditLine } from '@/lib/store-credit';
 
@@ -471,6 +471,9 @@ export async function staffMeal(db: any, tenantId: string, orderId: string, forN
     if (o.status !== 'sent' && o.status !== 'done') return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
     if (cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409 };
     if (o.reward) return { error: 'A reward is on this order. Take it off first.', status: 409 };
+    // (A split bill with a part paid, or a gift card or store credit on it: given back or taken off first.)
+    if (paidPartsOf(o).length) return { error: 'Part of it is paid. Give those parts back first.', status: 409, code: 'parts' };
+    if (tendersOf(o).length) return { error: 'A gift card or store credit is on this order. Take it off first.', status: 409, code: 'tender' };
     const car: any = o.carId ? (await tx.get(db.doc(`${T}/driveThruCars/${o.carId}`))).data() : null;
     tx.set(orderRef, { paidAt: nowIso, payMethod: 'staff', staffMeal: { for: name, by: who.name, byId: who.id || null, at: nowIso, ...(approver ? { approvedBy: approver.name, approvedById: approver.id || null } : {}) }, updatedAt: nowIso }, { merge: true });
     // Settled: it waits to be handed over, like a paid order.
@@ -492,6 +495,8 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     if (o.status === 'voided' || o.status === 'cancelled') return { ok: true, already: true, returned: 0, wasted: 0 };
     if (o.paidAt) return { error: 'That order is paid. Refund it at the desk instead.', status: 409 };
     if (cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409 };
+    // Part of it paid (a split bill: lib/counter-split-server): those parts are given back first, each by itself.
+    if (paidPartsOf(o).length) return { error: 'Part of it is paid. Give those parts back first, then void it.', status: 409, code: 'parts' };
     if (o.status === 'building') return { error: 'That order hasn’t gone to the kitchen. Use “The car left without ordering”.', status: 409 };
     // Only an order the kitchen got (and took stock for) is voided: nothing else ever puts stock back.
     if (o.status !== 'sent') return { error: 'That order can’t be voided now.', status: 409 };
@@ -654,7 +659,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // The drawer that's open now, read in the same step (a drawer closed mid-sale never takes the cash).
     const till = method === 'cash' ? (await tx.get(db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(2))).docs : [];
     // Gift cards set aside on it (lib/counter-money-server addTender), read in the same step: each is taken as it's paid.
-    const tenders = o.paidAt ? [] : tendersOf(o);
+    // (Parts paid already, in cash or by card (lib/counter-split-server), count first: they're money taken.)
+    const tenders0 = o.paidAt ? [] : tendersOf(o); const tenders = [...tenders0.filter(isPaidPart), ...tenders0.filter((t) => !isPaidPart(t))];
     const giftReads: { giftCardId: string; ref: any; cur: any }[] = [];
     for (const t of tenders) if (t.kind === 'gift') { const ref = db.doc(`${T}/giftCards/${t.giftCardId}`); giftReads.push({ giftCardId: t.giftCardId, ref, cur: (await tx.get(ref)).data() || null }); }
     // Store credit set aside on it, read in the same step too: taken with the sale, or the payment stops (lib/store-credit).
@@ -671,6 +677,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       return { error: o.status === 'voided' ? 'That order was voided.' : 'Send the order to the kitchen first.', status: 409 };
     }
     if (!viaReader && cardBusy(o)) return { error: CARD_BUSY_WORDS, status: 409, code: 'card_busy' };
+    // (A split bill's card part being given back: lib/counter-split-server undoPart.)
+    if (partBackOpen(o)) return { error: PART_BACK_WORDS, status: 409, code: 'part_back' };
     // A pouch is only for cash taken in line, from a car that was taken there.
     if (how.pouch && method === 'cash' && !(car?.inLine === true || car?.wasInLine === true)) return { error: 'Cash goes in a pouch only for a car taken in line. Take it at the window.', status: 409 };
     let total = num(o.total); const subtotal = num(o.subtotal), tax = num(o.tax);
@@ -714,7 +722,9 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // stays as it was. Read here, before anything is written.)
     for (let i = 0; viaApp && i < 3; i++) { const wk: any = (await tx.get(db.doc(`${T}/private/${appWeekId(appKey, week)}`))).data(); if (!wk?.adjustedAt) break; week = payoutWeek(new Date(Date.parse(`${week}T12:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10)); }
     const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: payWord, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
-      ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}), ...(viaApp ? { appName: String(o.app.label || ''), appOrderCode: String(o.app.code || '') } : {}) };
+      ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}),
+      // (A split bill's card-reader parts, each its own payment: lib/counter-split-server.)
+      ...(used.some((t) => t.kind === 'card' && t.id) ? { partPaymentIntentIds: used.filter((t) => t.kind === 'card' && t.id).map((t: any) => String(t.id)) } : {}), ...(viaApp ? { appName: String(o.app.label || ''), appOrderCode: String(o.app.code || '') } : {}) };
     tx.set(saleRef, { id: saleRef.id, ...common, description: viaApp ? `${appName(o.app)} (paid out by the app, less its fees)` : `${CHANNEL_NAME[o.channel as Channel]} order ${o.number}`, category: 'Retail', amount: am ? am.appCents / 100 : subtotal,
       ...(am ? { appKey, appWeek: week, appMenuCents: am.menuCents, appFeeCents: am.feeCents, appTaxCents: am.taxCents, appPayoutCents: am.payoutCents } : {}) });
     if (am) {
@@ -760,10 +770,10 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // A reader payment started for it and not the one paying (declined, left, or the guest paid on their phone instead):
     // called off by the caller, so it can't go through later.
     const cardIsThis = viaReader && String(o.card?.id || '') === how.card!.id;
-    const leftCard = o.card?.id && !cardIsThis && o.card.state !== 'stopped' && o.card.state !== 'paid' ? String(o.card.id) : null;
-    tx.set(orderRef, { paidAt: nowIso, payMethod: method === 'tender' ? payWord : method, paidBy: how.by, tillId: drawer ? drawer.id : null,
+    const leftCard = o.card?.id && !cardIsThis && o.card.state !== 'stopped' && o.card.state !== 'paid' && o.card.state !== 'part' ? String(o.card.id) : null;
+    tx.set(orderRef, { paidAt: nowIso, payMethod: method === 'tender' ? payWord : method, paidBy: how.by, partsOpen: false, tillId: drawer ? drawer.id : null,
       // (With gift cards or store credit: each part, and what each covered.)
-      ...(used.length ? { tenders: used, payments: [...used.map((t) => ({ method: t.kind === 'gift' ? 'gift_card' : 'store_credit', amount: t.cents / 100, ...(t.kind === 'gift' ? { code: codeEnd(t.code) } : {}) })), ...(rest > 0 ? [{ method, amount: rest / 100 }] : [])] } : {}),
+      ...(used.length ? { tenders: used, payments: [...used.map((t) => ({ method: t.kind === 'gift' ? 'gift_card' : t.kind === 'credit' ? 'store_credit' : t.kind, amount: t.cents / 100, ...(t.kind === 'gift' ? { code: codeEnd(t.code) } : {}), ...(isPaidPart(t) ? { part: true } : {}) })), ...(rest > 0 ? [{ method, amount: rest / 100 }] : [])] } : {}),
       // (Counted on the day it was taken, the business's day, whenever the car arrived.)
       ...(pouch ? { cashInPouch: true, pouchOpen: true, cashWith: how.by, cashWithId: how.byId || null, cashDay: how.day || o.day || null } : method === 'cash' && !drawer ? { cashNotInDrawer: true } : {}),
       ...(tendered !== null ? { cashTendered: tendered, changeGiven: change } : {}),
