@@ -33,6 +33,7 @@ import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
+import { RefundFind } from '@/components/pos/CounterRefund';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
 function AppSend({ apps, busy, empty, onSend }: { apps: { code: string; label: string }[]; busy: boolean; empty: boolean; onSend: (v: { app: string; code: string; courierIn: number }) => void }) {
@@ -191,6 +192,8 @@ export default function CounterPage() {
   // A tip or a discount being picked for the order being paid; another amount off waiting on a manager's PIN.
   const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | 'gift' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
   // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
+  // Refunding a paid order (components/pos/CounterRefund): today's paid orders, then the one picked.
+  const [refundOpen, setRefundOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   const [slip, setSlip] = useState<{ orderId: string; title: string; cash: boolean; change: number | null; later?: boolean; auto?: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -532,6 +535,7 @@ export default function CounterPage() {
           {tenantId && <span className="flex flex-wrap gap-x-4">
             <a href={`/drive-thru/${tenantId}/ready`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open the ready board</a>
             <a href={`/drive-thru/${tenantId}/kiosk`} target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4" style={{ color: INK }}>Open a kiosk</a>
+            <button type="button" onClick={() => setRefundOpen(true)} className={`inline-flex min-h-[44px] items-center rounded-lg text-[14px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Refund an order</button>
           </span>}
         </div>
         {waiting.length === 0 ? <p className="text-[14px]" style={{ color: MUTED }}>Paid orders wait here until they’re handed over, kiosk orders too.</p>
@@ -575,6 +579,7 @@ export default function CounterPage() {
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title="A manager’s PIN" line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so a manager okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title="A manager’s PIN" line={deliveryPin.line} />}
     {discountPin && <PinPad check={discountPinCheck} onDone={() => setDiscountPin(null)} onClose={() => setDiscountPin(null)} title="A manager’s PIN" line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
+    {refundOpen && <RefundFind call={post} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); acted.current++; void load(); }} />}
     {partPin && <PinPad check={partPinCheck} onDone={() => setPartPin(null)} onClose={() => setPartPin(null)} title="A manager’s PIN" line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
     {staffPin && staffFor !== null && <PinPad check={staffPinCheck} onDone={() => setStaffPin(false)} onClose={() => setStaffPin(false)} title="A manager’s PIN" line={`It rings in the staff meal for ${staffFor.trim() || 'them'}. It doesn’t change who’s signed in here.`} />}
     {pointsOpen && order && <PointsSheet name={order.guestName || ''} busy={busy === 'points' || busy === 'rewardsCode'} codes={!!lane?.rewardsCodes} onClose={() => setPointsOpen(false)}

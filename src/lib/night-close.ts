@@ -132,7 +132,9 @@ export type DeliveryNight = { delivered: number; refunded: number; pickedUp: num
   later?: { orders: number; cents: number };
   /** Split bills still open at close (lib/counter-split-server): shares paid in cash (in the drawer) and by card, booked
    *  as sales once the last share is paid. */
-  held?: { orders: number; cashCents: number; cardCents: number; numbers: string[] } };
+  held?: { orders: number; cashCents: number; cardCents: number; numbers: string[] };
+  /** Money given back tonight on paid counter orders (lib/counter-refund-server): each with why and who okayed it. */
+  refunds?: { count: number; cents: number; rows: { number: string; cents: number; reason: string; approvedBy: string }[] } };
 
 export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; tables: { covers: number }[]; adjustments: Adjustment[]; tills: Till[]; tips: { mode: string; rows: TipRow[] };
   items: CloseItem[]; checks: Record<string, CheckMark | undefined>; usualComps?: number | null; deliveries?: DeliveryNight | null;
@@ -141,9 +143,12 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
   place?: string | null;
   /** One location's night: sales that night at no location (fees paid online, sales from before there were locations),
    *  on the whole business's report only. */
-  unplaced?: { count: number; total: number } | null }) {
+  unplaced?: { count: number; total: number } | null;
+  /** Given back tonight on counter orders, whenever they were paid (lib/counter-refund-server): off tonight's sales,
+   *  before tax and tips. */
+  counterRefunds?: number }) {
   const sales = x.sales;
-  const refunds = r2(sales.reduce((s, v) => s + (Number(v.refunded) || 0), 0));
+  const refunds = r2(sales.reduce((s, v) => s + (Number(v.refunded) || 0), 0) + Math.max(0, Number(x.counterRefunds) || 0));
   const total = r2(sales.reduce((s, v) => s + v.net, 0) - refunds);
   const taken = r2(sales.reduce((s, v) => s + v.total, 0));
   const tips = r2(sales.reduce((s, v) => s + v.tip, 0));
@@ -175,7 +180,7 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
     tips: { total: tips, mode: x.tips.mode, rows: x.tips.rows },
     drawers: cash,
     // (None tonight: left out, so a night with no deliveries reads as before.)
-    deliveries: x.deliveries && (x.deliveries.delivered + x.deliveries.refunded + x.deliveries.pickedUp + x.deliveries.notSettled + x.deliveries.going > 0 || x.deliveries.apps.length || (x.deliveries.later?.orders || 0) > 0 || (x.deliveries.held?.orders || 0) > 0) ? x.deliveries : null,
+    deliveries: x.deliveries && (x.deliveries.delivered + x.deliveries.refunded + x.deliveries.pickedUp + x.deliveries.notSettled + x.deliveries.going > 0 || x.deliveries.apps.length || (x.deliveries.later?.orders || 0) > 0 || (x.deliveries.held?.orders || 0) > 0 || (x.deliveries.refunds?.count || 0) > 0) ? x.deliveries : null,
     checklist,
     flags: [
       ...checklist.filter((c) => c.out).map((c) => `${c.label} read ${c.value}°F, ${c.limit}. ${c.note || ''}`.trim()),
@@ -216,6 +221,7 @@ export function reportText(name: string, rep: NightReport): string {
     if (D.tipsWaitingCents) L.push(`  Tips on deliveries not made yet: ${c(D.tipsWaitingCents)}`);
     for (const a of D.apps) L.push(`${a.label}: ${a.orders} ${a.orders === 1 ? 'order' : 'orders'}, ${c(a.grossCents)}${a.feeCents ? `, its share ${c(a.feeCents)}` : ''}. Paid out by the app.`);
     if (D.later?.orders) L.push(`For another day: ${D.later.orders} ${D.later.orders === 1 ? 'order' : 'orders'} paid tonight, ${c(D.later.cents)}. Made on ${D.later.orders === 1 ? 'its' : 'their'} own day.`);
+    if (D.refunds?.count) { L.push(`Refunds at the counter: ${D.refunds.count}, ${c(D.refunds.cents)}.`); for (const f of D.refunds.rows) L.push(`  ${f.number}: ${c(f.cents)}, ${f.reason}, okayed by ${f.approvedBy}`); }
     if (D.held?.orders) L.push(`Split bills still open: ${D.held.numbers.join(', ')}. Shares paid so far: ${c(D.held.cashCents)} in cash (in the drawer), ${c(D.held.cardCents)} by card. In sales once the last share is paid.`);
   }
   if (rep.flags.length) { L.push(''); L.push('Worth a look'); for (const f of rep.flags) L.push(`  ${f}`); }

@@ -150,6 +150,8 @@ import { ticketFrom, needsAllergyNote } from '@/lib/kitchen';
 import { staffIdForLogin } from '@/lib/owner-staff';
 import { startOfDay, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { takePart, undoPart, setSplit } from '@/lib/counter-split-server';
+import { previewRefund, refundCounterOrder, cleanAsk } from '@/lib/counter-refund-server';
+import { refundLeftOf, cantRefund, unitsLeftOf } from '@/lib/counter-refund';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'move', 'cancel', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -202,7 +204,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'board', 'window', 'menuBoard', 'readyBoard', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -216,7 +218,7 @@ export async function POST(req: NextRequest) {
     const tz = tenantTimeZone(tenant);
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -946,6 +948,17 @@ export async function POST(req: NextRequest) {
       return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
     }
 
+    // Today's paid orders on this side (the counter's, or the drive-thru's), to find one to refund (lib/counter-refund).
+    if (action === 'paidToday') {
+      const since = startOfDay(todayIn(tz, now), tz).toISOString();
+      // (Both sides' orders come back together: read enough of the day's to find this side's, then the newest 80.)
+      const snap = await db.collection(`${T}/counterOrders`).where('paidAt', '>=', since).orderBy('paidAt', 'desc').limit(600).get();
+      const rows = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((o: any) => counterSide(o.channel) === (channel === 'counter') && !o.staffMeal && o.status !== 'voided' && o.status !== 'scheduled').slice(0, 80)
+        .map((o: any) => ({ id: o.id, number: String(o.number || ''), guestName: o.guestName || null, total: Number(o.total) || 0, paidAt: o.paidAt, refundCents: Math.max(0, Math.round(Number(o.refundCents) || 0)),
+          left: refundLeftOf(o), why: cantRefund(o), lines: (Array.isArray(o.lines) ? o.lines : []).map((l: any) => ({ lineId: l.lineId, name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, choicesText: l.choicesText || null, left: unitsLeftOf(o, l.lineId) })),
+          tipCents: Math.max(0, Math.round(Number(o.tipCents) || 0) - Math.round(Number(o.refundTipCents) || 0)) }));
+      return ok({ orders: rows, staffOk });
+    }
     const orderId = String(b.orderId || ''); if (!ID.test(orderId)) return bad('Which order?');
     // With two lanes that merge (lib/drive-lanes): a car that starts paying at the window, or pays there, merged first,
     // whatever was taken to be ahead of it, so the windows and the kitchen follow it. (Nothing with one lane.)
@@ -979,6 +992,24 @@ export async function POST(req: NextRequest) {
       }
       return r.ok ? ok({ paid: false, partId: r.partId, cents: r.cents, change: r.change, due: r.due, inDrawer: !!r.inDrawer, staffOk })
         : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    // Money back on a paid order (lib/counter-refund-server; design board "Register tools"): what it would give back and
+    // where, then the refund itself, a manager's.
+    if (action === 'refundPreview') {
+      const r: any = await previewRefund(db, tenantId, orderId, cleanAsk(b));
+      return r.ok ? ok({ plan: r.plan || null, back: r.back || [], resuming: r.resuming || null, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
+    }
+    if (action === 'refund') {
+      const m = await managerFor(db, tenantId, staff, b.pin);
+      if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A refund takes a manager. Their PIN, or ask one to.', staffOk }, { status: 403 });
+      const r: any = await refundCounterOrder(db, tenantId, tenant, orderId, cleanAsk(b), { id: m.approver.id, name: m.approver.name }, who.name, b.resume === true);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, code: r.code || null, unfinished: r.unfinished || null, staffOk }, { status: r.status });
+      forgetStats(tenantId);
+      await logAuditAdmin(db, tenantId, { action: 'counter.refund', targetType: 'order', targetId: orderId,
+        summary: `${m.approver.name} ${r.resumed ? `finished the $${(r.cents / 100).toFixed(2)} refund on ${r.number} that ${r.startedBy || 'another manager'} okayed` : `okayed a $${(r.cents / 100).toFixed(2)} refund on ${r.number}`}${m.approver.id !== who.id ? ` at ${who.name}’s ${channel === 'counter' ? 'counter' : 'window'}` : ''}.`,
+        actor: { type: 'user', id: String(m.approver.id || 'counter'), name: m.approver.name } } as any).catch(() => null);
+      return ok({ cents: r.cents, back: r.back, machineCents: r.machineCents, cashCents: r.cashCents, full: r.full, resumed: !!r.resumed, approvedBy: m.approver.name, staffOk });
     }
     if (action === 'partUndo') {
       const m = await managerFor(db, tenantId, staff, b.pin);

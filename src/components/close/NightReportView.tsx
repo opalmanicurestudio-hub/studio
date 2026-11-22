@@ -96,6 +96,10 @@ export function NightReportView({ r }: { r: NightReport }) {
             {(D.later?.orders || 0) > 0 && <Card title="Orders for another day" sub="In tonight’s sales, made on their own day">
               <Row k={`${D.later!.orders} paid tonight`} v={c(D.later!.cents)} />
             </Card>}
+            {(D.refunds?.count || 0) > 0 && <Card title="Refunds at the counter" sub="Given back tonight, whenever it was paid">
+              {D.refunds!.rows.map((f, i) => <Row key={`${f.number}-${i}`} k={`${f.number}, ${f.reason}, okayed by ${f.approvedBy}`} v={c(f.cents)} />)}
+              <Sep /><Row k="All of it" v={c(D.refunds!.cents)} />
+            </Card>}
             {(D.held?.orders || 0) > 0 && <Card title="Split bills still open" sub={`${D.held!.numbers.join(', ')}. In sales once the last share is paid.`}>
               <Row k="Shares paid in cash, in the drawer" v={c(D.held!.cashCents)} />
               <Row k="Shares paid by card" v={c(D.held!.cardCents)} />

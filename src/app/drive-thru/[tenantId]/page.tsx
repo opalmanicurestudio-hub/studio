@@ -35,6 +35,7 @@ import type { MenuItem } from '@/lib/menu-server';
 import { ReceiptAsk, type ReceiptCall, type ReceiptSetup } from '@/components/pos/ReceiptAsk';
 import { TipAsk, DiscountPick, GiftAsk, SplitAsk, type CustomDiscount, type PartHow } from '@/components/pos/CounterMoney';
 import type { Discount } from '@/lib/counter-money';
+import { RefundFind } from '@/components/pos/CounterRefund';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -301,6 +302,8 @@ export default function DriveThru() {
   // A tip or a discount being picked for the car paying; another amount off waiting on a manager's PIN.
   const [moneyOpen, setMoneyOpen] = useState<'tip' | 'discount' | 'gift' | null>(null); const [discountPin, setDiscountPin] = useState<CustomDiscount | null>(null);
   // A split bill's part being paid in cash, or by gift card (cents); a part being given back, waiting on a manager's PIN.
+  // Refunding a paid order (components/pos/CounterRefund): today's paid orders on this side, then the one picked.
+  const [refundOpen, setRefundOpen] = useState(false);
   const [partC, setPartC] = useState<number | null>(null); const [giftUpTo, setGiftUpTo] = useState<number | null>(null); const [partPin, setPartPin] = useState<{ partId: string; cents: number; kind: string } | null>(null);
   // The receipt for the car just paid (or one asked for again at the pickup window: `later`), until it's done. Cash walked
   // down the line goes into a pouch, not the drawer, so it never opens the drawer.
@@ -596,6 +599,8 @@ export default function DriveThru() {
     cardSlip(d);
   });
   // A receipt, asked through this screen's own key (api/counter 'receipt').
+  // (The refund panel asks this screen's own api/counter.)
+  const refundCall = useCallback(async (body: any) => (await post(body)).d, [post]);
   const receiptVia = (orderId: string): ReceiptCall => async ({ action, ...rest }) => (await post({ ...rest, action: 'receipt', orderId, do: action })).d;
   const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
   // Scan to pay: a code for this order only; the guest pays on their own phone and it's marked paid by itself.
@@ -809,6 +814,8 @@ export default function DriveThru() {
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>For a TV by the counter: counter, kiosk and ordered-ahead orders being made and ready to collect, by number and first name.</p>
                   <a href={`/drive-thru/${tenantId}/kiosk`} target="_blank" rel="noopener" className={`flex min-h-[44px] items-center rounded-xl px-3 text-[14px] font-medium ${RING}`} style={{ color: INK }}>Open a kiosk</a>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>A tablet with a card reader where guests order and pay themselves. Paid orders wait at the counter.</p>
+                  <button type="button" onClick={() => { setMenuOpen(false); setRefundOpen(true); }} className={`flex min-h-[44px] w-full items-center rounded-xl px-3 text-left text-[14px] font-medium ${RING}`} style={{ color: INK }}>Refund an order</button>
+                  <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>Money back on an order paid today, the way it was paid. A manager okays it.</p>
                   <div className="my-1 border-t pt-2" style={{ borderColor: LINE }} role="group" aria-labelledby="screen-spot">
                     <p id="screen-spot" className="px-3 pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>This screen is at</p>
                     {(pickupOnly ? ROLES.filter(([k]) => PICKUP_ROLES.includes(k)) : ROLES).flatMap(([k, label, hint]): [Role, 1 | 2 | null, string, string][] => (k === 'speaker' && twoLanes
@@ -1188,6 +1195,7 @@ export default function DriveThru() {
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined); setChoiceFor(null); }} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
+      {refundOpen && <RefundFind call={refundCall} onClose={() => setRefundOpen(false)} onDone={(text) => { setRefundOpen(false); setNotice({ text, tone: 'good' }); load(); }} />}
       {partPin && <PinPad check={checkPin} onDone={(st) => { const t = partPin; setPartPin(null); void partBack(t, st.pass); }} onClose={() => setPartPin(null)} line={`Giving back ${usd(partPin.cents / 100)} ${partPin.kind === 'cash' ? 'in cash, out of the drawer' : 'to their card'} takes a manager. It doesn’t change who’s signed in here.`} />}
       {discountPin && <PinPad check={checkPin} onDone={(s) => { const c = discountPin; setDiscountPin(null); void customOff(c, s.pass); }} onClose={() => setDiscountPin(null)} line={`Another amount off takes a manager: ${discountPin.kind === 'pct' ? `${discountPin.value}%` : usd(discountPin.value / 100)} for “${discountPin.reason}”. It doesn’t change who’s signed in here.`} />}
       {voidPin !== null && <PinPad check={checkPin} onDone={(s) => { const reason = voidPin; setVoidPin(null); void doVoid(reason, s.pass); }} onClose={() => setVoidPin(null)} line="A manager’s PIN is needed to void an order. It doesn’t change who’s working here." />}

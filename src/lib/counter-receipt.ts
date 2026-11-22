@@ -34,7 +34,9 @@ export function counterReceipt(o: any, orderId: string): any {
   const total = r2(num(o?.total));
   // Refunded after it was paid (ordering ahead cancelled, a delivery that couldn't be made: lib/ahead-days-server,
   // lib/food-delivery-settle-server): all of it, or part (a delivery's fee kept).
-  const refundCents = o?.refundedAt ? Math.max(0, Math.round(num(o?.refundedCents))) : 0;
+  const refundCents = o?.refundedAt ? Math.max(0, Math.round(num(o?.refundedCents))) : Math.max(0, Math.round(num(o?.refundCents)));
+  // (Money given back at the counter after it was paid, each with why: lib/counter-refund-server.)
+  const counterRefunds: { cents: number; reason: string | null }[] = !o?.refundedAt && Array.isArray(o?.refunds) ? o.refunds.map((f: any) => ({ cents: Math.max(0, Math.round(num(f?.cents))), reason: clip(f?.reason, 80) || null })).filter((f: any) => f.cents > 0) : [];
   const voided = o?.status === 'voided' || (refundCents > 0 && refundCents >= Math.round(total * 100));
   const method = METHOD[String(o?.payMethod || '')] || 'card';
   const channel = String(o?.channel || 'counter');
@@ -64,8 +66,8 @@ export function counterReceipt(o: any, orderId: string): any {
           : p.part === true ? { label: p.method === 'cash' ? 'Cash, a share' : 'Card, a share' } : {}) }))
         : [{ method, amount: r2(total - tip), tip }],
     },
-    refunds: refundCents > 0 ? [{ cents: refundCents, reason: o?.ahead?.delivery?.state === 'refunded' ? 'Delivery refunded' : clip(o?.voidReason, 80) || null }] : [],
-    voided, voidedAt: voided ? String(o?.voidedAt || o?.refundedAt || '') || null : null, voidReason: voided ? clip(o?.voidReason, 120) || (refundCents ? 'Refunded' : null) : null,
+    refunds: counterRefunds.length ? counterRefunds : refundCents > 0 ? [{ cents: refundCents, reason: o?.ahead?.delivery?.state === 'refunded' ? 'Delivery refunded' : clip(o?.voidReason, 80) || null }] : [],
+    voided, voidedAt: voided ? String(o?.voidedAt || o?.refundedAt || o?.lastRefundAt || '') || null : null, voidReason: voided ? clip(o?.voidReason, 120) || (refundCents ? 'Refunded' : null) : null,
     voidRefunded: voided && refundCents > 0, locationId: o?.locationId || null,
     // (Cash walked down the line into a person's pouch: never the drawer's.)
     inPouch: o?.cashInPouch === true,
@@ -76,7 +78,7 @@ export function counterReceipt(o: any, orderId: string): any {
 export function counterSaleRow(o: any, orderId: string): any {
   const r = counterReceipt(o, orderId);
   // (Part of it refunded: what was kept.)
-  const kept = r.voided ? r.total : r2(r.total - (r.refunds[0]?.cents || 0) / 100);
+  const kept = r.voided ? r.total : r2(r.total - r.refunds.reduce((n: number, f: any) => n + (Number(f.cents) || 0), 0) / 100);
   const split = r.detail.payments.length > 1 || r.detail.payments.some((p: any) => p.method === 'gift_card' || p.method === 'store_credit');
   return { id: r.id, source: 'counter', orderNumber: r.orderNumber, channelName: r.channelName, date: r.date, total: kept, tip: r.tip, clientName: r.clientName, clientId: null, paidBy: null,
     paymentMethod: split ? 'split' : r.paymentMethod, payments: split ? r.detail.payments.map((p: any) => ({ method: p.method, amount: p.amount, tip: 0, payerName: null })) : null, voided: r.voided, voidReason: r.voidReason };

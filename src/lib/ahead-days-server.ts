@@ -112,6 +112,8 @@ export async function cancelLater(db: any, tenantId: string, tenant: any, orderI
     // Asked again (an answer lost, a second tap): as it was.
     if (L.canceledAt) return { already: true, cents: Math.round(num(L.backCents)), number };
     if (!o.paidAt) return fail('That order isn’t paid.', 409);
+    // (Money given back on it at the counter already, lib/counter-refund-server: never all of it again on top.)
+    if (Number(o.refundCents) > 0) return fail('Some of it was refunded at the counter already, so it can’t be canceled here. A manager refunds the rest at the counter.', 409);
     if (o.status !== 'scheduled') return fail(o.status === 'voided' ? 'That order was closed.' : 'It’s with the kitchen already, so it can’t be canceled here.', 409);
     const c = L.cancel || null;
     if (c?.at && nowMs - (Date.parse(String(c.at)) || 0) < BUSY_MS) return fail('That’s being done now. Give it a moment.', 409);
