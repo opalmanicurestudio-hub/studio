@@ -40,6 +40,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { closedReplyFor } from '@/lib/tenant-open-server';
 import { buildEntry } from '@/lib/stock-ledger';
+import { stockAtOf, storeMoveNested, storeStepNested } from '@/lib/store-stock';
 import { FieldValue } from 'firebase-admin/firestore';
 import { choiceGroups, itemSoldOut, orderable, priceChoices } from '@/lib/menu-choices';
 import { offeredOnMenu, stockOf, recipeOf } from '@/lib/menu-stock';
@@ -424,10 +425,14 @@ export async function POST(req: NextRequest) {
         if (stageOf(r) !== 'new') return { status: 409, error: 'Already being prepared. Please ask your provider.' };
         const itemId = str(r.itemId, 120);
         const giveBack = r.stockMoved === true && !r.stockReturned && /^[A-Za-z0-9_-]{1,120}$/.test(itemId);
+        // (Back on the location's own number too, no more than came off it there when it was ordered: lib/store-stock.
+        // Read before anything is written.)
+        const atG = r.storeTaken && typeof r.storeTaken === 'object' ? String(r.storeTaken.at || '') || null : null;
+        const itG = giveBack && atG ? await tx.get(db.doc(`tenants/${tenantId}/inventory/${itemId}`)) : null;
         tx.set(ref, { status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest', ...(giveBack ? { stockReturned: true } : {}) }, { merge: true });
         if (giveBack) {
           const back = Math.max(1, Math.floor(num(r.quantity) || 1));
-          tx.set(db.doc(`tenants/${tenantId}/inventory/${itemId}`), { totalStock: FieldValue.increment(back) }, { merge: true });
+          tx.set(db.doc(`tenants/${tenantId}/inventory/${itemId}`), { totalStock: FieldValue.increment(back), ...(atG && itG ? storeMoveNested((itG as any).data(), atG, { stock: Math.min(back, Math.max(0, Math.floor(num(r.storeTaken.qty)))) }) : {}) }, { merge: true });
           tx.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
             productId: itemId,
             type: 'returned',
@@ -739,10 +744,14 @@ export async function POST(req: NextRequest) {
     // its own to take now. Orders waiting in the kitchen don't hold ingredients back: the last of the milk can be ordered
     // twice, and the second is still handed over, the count stopping at none.)
     let stockMoved = false;
+    // (Off the visit's own location's number too, with more than one location, and what came off it kept on the order,
+    // so a recall gives back no more than that, to the same place: lib/store-stock.)
+    const at = String(apt?.locationId || '') || null;
+    const atHad = at ? stockAtOf(item)[at] : undefined; const atTook = atHad !== undefined ? Math.min(atHad, qty) : 0;
     if (!byRecipe) try {
       const itemRef = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
       const batch = db.batch();
-      batch.set(itemRef, { totalStock: FieldValue.increment(-qty) }, { merge: true });
+      batch.set(itemRef, { totalStock: FieldValue.increment(-qty), ...storeStepNested(item, at, -qty, (n) => FieldValue.increment(n)) }, { merge: true });
       batch.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
         productId: itemId,
         type: 'used',
@@ -753,6 +762,7 @@ export async function POST(req: NextRequest) {
         actorName: 'Guest lounge',
         ref: { kind: 'appointment', id: appointmentId },
         balanceAfter: Math.max(0, Math.floor(num(item.totalStock)) - qty),
+        ...(at ? { storeId: at } : {}),
       }));
       await batch.commit(); stockMoved = true;
     } catch (e: any) {
@@ -762,6 +772,7 @@ export async function POST(req: NextRequest) {
     const ref = db.collection(`tenants/${tenantId}/refreshmentRequests`).doc();
     await ref.set({
       id: ref.id,
+      ...(stockMoved && at && atTook > 0 ? { storeTaken: { at, qty: atTook } } : {}),
       tenantId,
       appointmentId,
       clientId: clientId || null,

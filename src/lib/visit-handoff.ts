@@ -4,6 +4,7 @@
 // hand-off recorded, the check-in screen's copy follows, the formula and any amenities come off stock (with a stock
 // correction for each), and everyone who worked on the visit is free again.
 import { moveStock } from '@/lib/usage';
+import { storeStep } from '@/lib/store-stock';
 import { unitLabel } from '@/lib/product-cost';
 import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -33,9 +34,11 @@ export async function finishVisit(db: any, tenantId: string, actor: RequestActor
   const inv = new Map<string, any>((await Promise.all(ids.map((id) => db.doc(`${T}/inventory/${id}`).get()))).filter((s: any) => s.exists).map((s: any) => [s.id, s.data() || {}]));
   const correction = (productId: string, change: number, unit: string, reason: string) => {
     const r = db.collection(`${T}/stockCorrections`).doc();
-    batch.set(r, { id: r.id, productId, date: now, change, unit, reason, appointmentId: aptId, by: actor.staffId });
+    batch.set(r, { id: r.id, productId, date: now, change, unit, reason, appointmentId: aptId, by: actor.staffId, ...(at ? { storeId: at } : {}) });
   };
   const used: any[] = [];
+  // With more than one location, what's used comes off the visit's own location's number too (lib/store-stock).
+  const at = String(apt.locationId || '') || null;
   // One movement per product: the same product listed twice is added up first (two moves from one reading would leave
   // the shelf with only the second).
   const byProduct = new Map<string, any>();
@@ -48,17 +51,17 @@ export async function finishVisit(db: any, tenantId: string, actor: RequestActor
     const ref = db.doc(`${T}/inventory/${item.id}`); const unit = unitLabel(p) === 'each' ? (p.unit || 'units') : unitLabel(p);
     const r = moveStock(p, q);
     if (r.notCounted) { used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: 0, notCounted: r.notCounted }); continue; }
-    if (p.costingMethod === 'uses' || p.costingMethod === 'size') batch.update(ref, r.patch); else batch.update(ref, { totalStock: FieldValue.increment(-q) });
+    if (p.costingMethod === 'uses' || p.costingMethod === 'size') batch.update(ref, r.patch); else batch.update(ref, { totalStock: FieldValue.increment(-q), ...storeStep(p, at, -q, (n) => FieldValue.increment(n)) });
     const e = db.collection(`${T}/stockCorrections`).doc();
-    batch.set(e, { id: e.id, ...buildEntry({ productId: String(item.id), type: 'used', delta: -q, unit, reason: `Used in service: ${label}${r.shortfall ? ` (short by ${r.shortfall} ${unit})` : ''}`, actorId: String(actor.staffId || 'staff'), actorName: String(actor.name || 'Staff'), ref: { kind: 'appointment', id: aptId } } as any), appointmentId: aptId });
+    batch.set(e, { id: e.id, ...buildEntry({ productId: String(item.id), type: 'used', delta: -q, unit, reason: `Used in service: ${label}${r.shortfall ? ` (short by ${r.shortfall} ${unit})` : ''}`, actorId: String(actor.staffId || 'staff'), actorName: String(actor.name || 'Staff'), ref: { kind: 'appointment', id: aptId } } as any), appointmentId: aptId, ...(at ? { storeId: at } : {}) });
     used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: r.moved, ...(r.shortfall ? { shortfall: r.shortfall } : {}) });
   }
   // What the provider recorded is what the visit used: checkout's own usage step (lib/usage recordVisitUsage) then sees
   // this visit as already recorded and doesn't take the recipe off stock a second time.
-  if (used.length) batch.set(db.doc(`${T}/usage/${aptId}`), { visitId: aptId, clientName: apt.clientName || null, staffId: apt.staffId || null, lines: used, recordedAt: now, updatedAt: now, shortfalls: used.filter((l) => l.shortfall).length, source: 'review' });
+  if (used.length) batch.set(db.doc(`${T}/usage/${aptId}`), { ...(at ? { at } : {}), visitId: aptId, clientName: apt.clientName || null, staffId: apt.staffId || null, lines: used, recordedAt: now, updatedAt: now, shortfalls: used.filter((l) => l.shortfall).length, source: 'review' });
   for (const a of amenities) {
     const p = inv.get(String(a?.id)); if (!p) continue;
-    batch.update(db.doc(`${T}/inventory/${a.id}`), { totalStock: FieldValue.increment(-1) });
+    batch.update(db.doc(`${T}/inventory/${a.id}`), { totalStock: FieldValue.increment(-1), ...storeStep(p, at, -1, (n) => FieldValue.increment(n)) });
     correction(a.id, -1, p.unit || 'unit', `Manual Amenity: ${a.name || p.name || 'item'} during Review for ${b.clientName || apt.clientName || 'client'}`);
   }
   const note = typeof cs.reviewNotes === 'string' ? cs.reviewNotes.trim() : '';

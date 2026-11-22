@@ -107,6 +107,28 @@ export function storeMoveNested(item: any, at: unknown, m: { stock?: number; hel
   return out;
 }
 
+/** storeFollow, for a write that merges maps (a set with merge). */
+export function storeFollowNested(item: any, at: unknown, nextTotal: unknown): Record<string, Record<string, number>> {
+  const next = Number(nextTotal); if (!Number.isFinite(next)) return {};
+  return storeMoveNested(item, at, { stock: Math.round(next) - whole(item?.totalStock) });
+}
+
+/** A change to a store's number as an increment (a dotted field, for an update), for a write that doesn't read the item
+ *  in the same step (a batch): only for an item counted there (as read), and never more off than it had then. */
+export function storeStep(item: any, at: unknown, stock: number, inc: (n: number) => unknown): Record<string, unknown> {
+  const id = String(at || ''); if (!ID.test(id)) return {};
+  const have = stockAtOf(item)[id]; if (have === undefined) return {};
+  const n = stock < 0 ? -Math.min(have, Math.round(-stock)) : Math.round(stock);
+  return n ? { [`stockAt.${id}`]: inc(n) } : {};
+}
+
+/** storeStep, for a write that merges maps (a set with merge). */
+export function storeStepNested(item: any, at: unknown, stock: number, inc: (n: number) => unknown): Record<string, Record<string, unknown>> {
+  const flat = storeStep(item, at, stock, inc); const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(flat)) { const [f, id] = k.split('.'); (out[f] ||= {})[id] = v; }
+  return out;
+}
+
 /** Where a delivery received at store `at` goes: its shelf there (counted there), "Not at a store yet" (counted at other
  *  stores but not this one yet: the total goes up, the stores don't), or `everywhere` (not counted at any store: every
  *  store sells from the total, as before). */

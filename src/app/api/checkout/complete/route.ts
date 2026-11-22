@@ -1472,7 +1472,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       await db.runTransaction(async (tx: any) => {
         // As each was chosen (oat milk, an extra shot: lib/choice-recipe).
         const parts = mergeParts((await Promise.all(madeHere.map((m) => readRecipeParts(tx, db, T, m.id, m.qty, undefined, m.choices)))).flat());
-        takeParts(tx, db, T, parts, { type: 'used', reason: `Sold at the front desk: ${madeHere.map((m) => `${m.name} ×${m.qty}`).join(', ')}`.slice(0, 200), actorId: String(auth.actor.uid || 'staff'), actorName: String(auth.actor.name || 'Front desk'), ref: { kind: 'order', id: receiptRef.id } });
+        takeParts(tx, db, T, parts, { type: 'used', reason: `Sold at the front desk: ${madeHere.map((m) => `${m.name} ×${m.qty}`).join(', ')}`.slice(0, 200), actorId: String(auth.actor.uid || 'staff'), actorName: String(auth.actor.name || 'Front desk'), ref: { kind: 'order', id: receiptRef.id }, at: saleLocation || null });
       });
     } catch (e: any) {
       // The sale stands (it can't be saved again for this): the team is told, and it's kept with the business's history,

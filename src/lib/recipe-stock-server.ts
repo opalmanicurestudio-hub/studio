@@ -14,6 +14,7 @@ import { picksOf, type Picks } from '@/lib/menu-choices';
 import { moveStock } from '@/lib/usage';
 import { buildEntry } from '@/lib/stock-ledger';
 import { ledgerUnit } from '@/lib/food-cost';
+import { storeFollowNested } from '@/lib/store-stock';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 /** `extra`: how much of `qty` is what goes out with it, set once (a box to go, lib/plate-extras), recorded apart. */
@@ -59,17 +60,18 @@ export function mergeParts(parts: PartTake[]): PartTake[] {
 }
 
 /** Takes what was read off stock and records each on the history (`used`, or `spoiled` for waste). A part with no size
- *  or uses set is left as it is (lib/usage moveStock). Returns how many moved. */
-export function takeParts(tx: any, db: any, T: string, parts: PartTake[], o: { type: 'used' | 'spoiled'; reason: string; actorId: string; actorName: string; ref: { kind: 'order' | 'formula'; id: string } }): number {
+ *  or uses set is left as it is (lib/usage moveStock). Returns how many moved. `at`: with more than one location, where
+ *  it was made: off that location's own number too, for a part counted there (lib/store-stock). */
+export function takeParts(tx: any, db: any, T: string, parts: PartTake[], o: { type: 'used' | 'spoiled'; reason: string; actorId: string; actorName: string; ref: { kind: 'order' | 'formula'; id: string }; at?: string | null }): number {
   let n = 0;
   for (const p of parts) {
     const m = moveStock(p.data, p.qty); if (m.notCounted) continue;
-    tx.set(p.ref, m.patch, { merge: true });
+    tx.set(p.ref, { ...m.patch, ...(o.at ? storeFollowNested(p.data, o.at, m.patch.totalStock) : {}) }, { merge: true });
     // What goes out with it (a box, a lid) on a line of its own, marked, so a report can tell it from the recipe.
     // (Only what was there is counted as going out with it: run out of boxes, and the boxes not given aren't costed.)
     const own = Math.round((p.qty - (p.extra || 0)) * 1000) / 1000; const extra = p.extra ? Math.max(0, Math.round((p.extra - m.shortfall) * 1000) / 1000) : 0;
-    if (own > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: p.ref.id, type: o.type, delta: -own, unit: ledgerUnit(p.data), reason: o.reason.slice(0, 200), actorId: o.actorId, actorName: o.actorName, ref: o.ref }));
-    if (extra > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: p.ref.id, type: o.type, delta: -extra, unit: ledgerUnit(p.data), reason: `${o.reason.slice(0, 160)}: what goes out with it`, actorId: o.actorId, actorName: o.actorName, ref: o.ref }), extra: true });
+    if (own > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: p.ref.id, type: o.type, delta: -own, unit: ledgerUnit(p.data), reason: o.reason.slice(0, 200), actorId: o.actorId, actorName: o.actorName, ref: o.ref, ...(o.at ? { storeId: o.at } : {}) }));
+    if (extra > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: p.ref.id, type: o.type, delta: -extra, unit: ledgerUnit(p.data), reason: `${o.reason.slice(0, 160)}: what goes out with it`, actorId: o.actorId, actorName: o.actorName, ref: o.ref, ...(o.at ? { storeId: o.at } : {}) }), extra: true });
     n++;
   }
   return n;

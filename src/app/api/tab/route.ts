@@ -394,7 +394,7 @@ export async function POST(req: NextRequest) {
         if (kRef && k) {
           if (stops) tx.set(kRef, { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
           else tx.set(kRef, { voided: true, voidReason: reason }, { merge: true });
-          if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Voided after the kitchen started: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
+          if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Voided after the kitchen started: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } , at: String(k?.locationId || cur?.locationId || '') || null});
         }
         pRefs.forEach((r: any, i: number) => { const pk = pks[i]; if (!pk) return; const ps = String(pk.status || '');
           tx.set(r, !kitchenStarted(ps) || (stop && ps !== 'delivered') ? { status: 'cancelled', cancelledAt: now, voided: true, voidReason: reason } : { voided: true, voidReason: reason }, { merge: true }); });
@@ -441,7 +441,7 @@ export async function POST(req: NextRequest) {
         tx.set(newRef, { ...keep, allergies: al.allergies, contains: al.contains, id: newId, status: 'pending', createdAt: now, requestedAt: now, firedAt: now, remakeOf: line.kdsId, remakeReason: reason, note: [`Remake: ${reason}`, k.note].filter(Boolean).join('. ').slice(0, 200) });
         if (String(k.status) !== 'delivered') tx.set(oldRef, { status: 'cancelled', cancelledAt: now, remadeAs: newId, ...(wasted ? { partsUsed: true } : {}) }, { merge: true });
         else tx.set(oldRef, { remadeAs: newId }, { merge: true });
-        if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Made again: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } });
+        if (wasted) takeParts(tx, db, T, wasted, { type: 'spoiled', reason: `Made again: ${String(line.name || 'item').slice(0, 60)} at ${String(v.tableName || 'a table').slice(0, 40)}`, actorId: me.id, actorName: me.name, ref: { kind: 'order', id: String(line.kdsId) } , at: String(k?.locationId || cur?.locationId || '') || null});
         const newParts: string[] = [];
         oldParts.forEach((pid: string, i: number) => { const pk = pks[i]; if (!pk) return; const nid = partTicketId(newId, i); newParts.push(nid);
           const pkeep = Object.fromEntries(Object.entries(pk).filter(([f]) => !['claimedBy', 'claimedAt', 'readyAt', 'deliveredAt', 'carriedBy', 'carriedAt', 'bringingOutBy', 'bringingOutAt', 'cancelledAt', 'voided', 'voidReason', 'remadeAs', 'allergyNotedAt', 'allergyNotedBy'].includes(f)));

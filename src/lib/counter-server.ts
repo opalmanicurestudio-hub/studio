@@ -19,6 +19,7 @@ import { madeWith } from '@/lib/choice-recipe';
 import { extrasOf, itemExtras, modeOf, orderExtras } from '@/lib/plate-extras';
 import { buildEntry } from '@/lib/stock-ledger';
 import { moveStock } from '@/lib/usage';
+import { stockAtOf, storeFollowNested, storeMoveNested } from '@/lib/store-stock';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { alsoAtOf, partName, partTicketId, type AlsoAt } from '@/lib/two-stations';
 import { stationOfItem, stationsOf } from '@/lib/table-service';
@@ -398,8 +399,12 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       if (extrasTaken[pid]) { extrasTaken[pid] = r3(extrasTaken[pid] * r); if (!(extrasTaken[pid] > 0)) delete extrasTaken[pid]; }
     };
     // Taken: each stock item once (lib/usage moveStock for an ingredient, as the lounge does), with a line in the stock
-    // ledger for what was sold and what was used.
+    // ledger for what was sold and what was used. With more than one location, off the order's own location's number
+    // too, for one counted there (lib/store-stock).
     const used: { id: string; qty: number }[] = []; const itemsTaken: string[] = [];
+    // What came off the location's own number, item by item (a void gives back no more than that: lib/store-stock).
+    const storeTaken: Record<string, number> = {};
+    const tookAt = (id: string, d: any, sp: Record<string, Record<string, number>>) => { const was = soldAt ? stockAtOf(d)[soldAt] : undefined; const now = soldAt ? sp.stockAt?.[soldAt] : undefined; if (was !== undefined && now !== undefined && was > now) storeTaken[id] = was - now; return sp; };
     for (const [id, d] of docs) {
       const own = ownNeed.get(id) || 0; const part = countable(id) ? partNeed.get(id) || 0 : 0; const extra = countable(id) ? extraNeed.get(id) || 0 : 0;
       if (!own && !part && !extra) continue;
@@ -407,19 +412,19 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       // What went out with it is only what was there (the recipe's share was checked above; a box that's run out isn't):
       // kept as taken, so a void never puts back more than came off.
       let extraMoved = extra;
-      if (part || extra) { const mv = moveStock(after, Math.round((part + extra) * 1000) / 1000); tx.set(d.ref, mv.patch, { merge: true }); if (extra && mv.shortfall > 0) extraMoved = Math.max(0, Math.round((extra - mv.shortfall) * 1000) / 1000); }
-      else tx.set(d.ref, { totalStock: FieldValue.increment(-own) }, { merge: true });
+      if (part || extra) { const mv = moveStock(after, Math.round((part + extra) * 1000) / 1000); tx.set(d.ref, { ...mv.patch, ...tookAt(id, d.data, storeFollowNested(d.data, soldAt, mv.patch.totalStock)) }, { merge: true }); if (extra && mv.shortfall > 0) extraMoved = Math.max(0, Math.round((extra - mv.shortfall) * 1000) / 1000); }
+      else tx.set(d.ref, { totalStock: FieldValue.increment(-own), ...tookAt(id, d.data, storeMoveNested(d.data, soldAt, { stock: -own })) }, { merge: true });
       if (extraMoved < extra) shrinkExtra(id, extra > 0 ? extraMoved / extra : 0);
       if (own) {
         itemsTaken.push(id);
-        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'sold', delta: -own, unit: String(d.data.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, balanceAfter: num(d.data.totalStock) - own }));
+        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'sold', delta: -own, unit: String(d.data.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(soldAt ? { storeId: soldAt } : {}), balanceAfter: num(d.data.totalStock) - own }));
       }
       if (part) {
         used.push({ id, qty: part });
-        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'used', delta: -part, unit: String(d.data.unit || 'units'), reason: `${why}: ${partFor.get(id)}`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
+        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'used', delta: -part, unit: String(d.data.unit || 'units'), reason: `${why}: ${partFor.get(id)}`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(soldAt ? { storeId: soldAt } : {}) }));
       }
       // What went out with it (set once: a box, a lid, a bag), on a line of its own, marked so a report can tell it apart.
-      if (extraMoved > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'used', delta: -extraMoved, unit: String(d.data.unit || 'units'), reason: `${why}: what goes out with it`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }), extra: true });
+      if (extraMoved > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'used', delta: -extraMoved, unit: String(d.data.unit || 'units'), reason: `${why}: what goes out with it`, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(soldAt ? { storeId: soldAt } : {}) }), extra: true });
     }
     // What each line took, as taken (an ingredient that couldn't be counted took nothing).
     const stockTaken: Record<string, { own: number; parts: Record<string, number>; items?: Record<string, number>; extras?: Record<string, number>; byPart?: Record<string, Partial<PartTake>> }> = {};
@@ -427,7 +432,7 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
     const some = (x: Record<string, number>) => (Object.keys(counted(x)).length ? { extras: counted(x) } : {});
     for (const [lineId, t] of Object.entries(lineTake)) stockTaken[lineId] = { own: t.own, parts: counted(t.parts), ...(Object.keys(t.items).length ? { items: t.items } : {}), ...some(t.extras),
       ...(Object.keys(t.byPart).length ? { byPart: Object.fromEntries(Object.entries(t.byPart).map(([n, x]) => [n, { item: x.item, items: x.items, parts: counted(x.parts), ...some(x.extras) }])) } : {}) };
-    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken, toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
+    tx.set(orderRef, { status: 'sent', sentAt: nowIso, sentBy: who.name, dueAt: due, partsUsed: used, itemsTaken, stockTaken, ...(soldAt && Object.keys(storeTaken).length ? { storeTaken: { at: soldAt, items: storeTaken } } : {}), toGo: mode === 'togo', ...(Object.keys(extrasTaken).length ? { extrasTaken: counted(extrasTaken) } : {}) }, { merge: true });
     // The day's count of each item sent to the kitchen (the menu board's Popular tags): one small document a day, on the
     // business's day it was sent. What's sold, not net sales: a void or refund later doesn't take it off.
     // (A kiosk's order is counted once it's paid: payOrder.)
@@ -515,7 +520,13 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
     // (Only while the kitchen hasn't started on any of it, when asked: a delivery app's order cancelled without a manager.)
     if (opts.nothingMade && wasted > 0) return { error: 'The kitchen started on it, so a manager okays this.', status: 403, code: 'made' };
     const why = `Voided ${CHANNEL_NAME[o.channel as Channel] || ''} order ${o.number}: ${reason}`.replace(/\s+/g, ' ');
-    const log = (id: string, d: any, delta: number) => tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'returned', delta, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
+    // (Back on the location's own number too, with more than one location, no more than came off it there, item by item;
+    // an order sent before that was kept gives nothing back to a location: lib/store-stock.)
+    const at = o.storeTaken && typeof o.storeTaken === 'object' ? String(o.storeTaken.at || '') || null : null;
+    const storeLeft: Record<string, number> = at ? Object.fromEntries(Object.entries<any>(o.storeTaken.items || {}).map(([k, v]) => [k, Math.max(0, Math.floor(num(v)))])) : {};
+    // What goes back to the location for an item: up to what's left of what came off it, and no more than the total gets.
+    const backAt = (id: string, d: any, qty: number) => { const n = Math.min(Math.max(0, Math.round(qty)), storeLeft[id] || 0); if (!at || n <= 0) return {}; storeLeft[id] -= n; return storeMoveNested(d, at, { stock: n }); };
+    const log = (id: string, d: any, delta: number) => tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: id, type: 'returned', delta, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(at ? { storeId: at } : {}) }));
     if (o.stockTaken && typeof o.stockTaken === 'object') {
       // Exactly what each line that goes back took at sending (its own count, or its ingredients), each stock item put
       // back once.
@@ -551,13 +562,13 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
         const ref = db.doc(`${T}/inventory/${id}`);
         // (An ingredient that can't be counted any more is left as it is, and nothing is logged for it.)
         const m = p1 ? moveStock({ ...d, totalStock: num(d.totalStock) + o1 }, -p1) : null; const partBack = !!m && !m.notCounted;
-        if (partBack) tx.set(ref, m!.patch, { merge: true });
-        else if (o1) tx.set(ref, { totalStock: FieldValue.increment(o1) }, { merge: true });
+        if (partBack) tx.set(ref, { ...m!.patch, ...backAt(id, d, num(m!.patch.totalStock) - num(d.totalStock)) }, { merge: true });
+        else if (o1) tx.set(ref, { totalStock: FieldValue.increment(o1), ...backAt(id, d, o1) }, { merge: true });
         if (o1) log(id, d, o1);
         // What went out with it comes back on a line of its own, marked as it was taken (lib/food-cost counts it off).
         const e1 = partBack ? Math.min(p1, extra.get(id) || 0) : 0;
         if (partBack && p1 - e1 > 1e-9) log(id, d, Math.round((p1 - e1) * 1000) / 1000);
-        if (e1 > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'returned', delta: e1, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }), extra: true });
+        if (e1 > 0) tx.set(db.collection(`${T}/stockCorrections`).doc(), { ...buildEntry({ productId: id, type: 'returned', delta: e1, unit: String(d.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(at ? { storeId: at } : {}) }), extra: true });
       });
     } else {
       // An order sent before each line's take was kept: as it was worked out then.
@@ -580,13 +591,13 @@ export async function voidOrder(db: any, tenantId: string, orderId: string, reas
       }
       for (const [k, it] of items.entries()) {
         if (!it || (taken && !taken.includes(itemIds[k]))) continue;
-        tx.set(db.doc(`${T}/inventory/${itemIds[k]}`), { totalStock: FieldValue.increment(back[itemIds[k]]) }, { merge: true });
-        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: itemIds[k], type: 'returned', delta: back[itemIds[k]], unit: String(it.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
+        tx.set(db.doc(`${T}/inventory/${itemIds[k]}`), { totalStock: FieldValue.increment(back[itemIds[k]]), ...backAt(itemIds[k], it, back[itemIds[k]]) }, { merge: true });
+        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: itemIds[k], type: 'returned', delta: back[itemIds[k]], unit: String(it.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(at ? { storeId: at } : {}) }));
       }
       for (const p of partBack) {
         const m = moveStock(p.data, -p.qty); if (m.notCounted) continue;
-        tx.set(p.ref, m.patch, { merge: true });
-        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: p.ref.id, type: 'returned', delta: p.qty, unit: String(p.data.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId } }));
+        tx.set(p.ref, { ...m.patch, ...backAt(p.ref.id, p.data, num(m.patch.totalStock) - num(p.data.totalStock)) }, { merge: true });
+        tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: p.ref.id, type: 'returned', delta: p.qty, unit: String(p.data.unit || 'units'), reason: why, actorId: who.id || 'lane', actorName: who.name, ref: { kind: 'order', id: orderId }, ...(at ? { storeId: at } : {}) }));
       }
     }
     for (const d of tix) { const t: any = d.data() || {}; if (t.status !== 'delivered' && t.status !== 'cancelled') tx.set(d.ref, { status: 'cancelled', cancelledAt: nowIso, cancelledBy: { name: who.name, via: 'lane' }, voided: true }, { merge: true }); }

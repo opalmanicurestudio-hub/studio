@@ -11,6 +11,7 @@
 // Records: tenants/{t}/usage/{visitId} and tenants/{t}/openContainers; every movement in the stock ledger.
 import { deductMainStock } from '@/lib/replenishment-system';
 import { buildEntry } from '@/lib/stock-ledger';
+import { storeFollowNested } from '@/lib/store-stock';
 import { disposablesUsed } from '@/lib/blueprint';
 import { costGap, perContainer, unitCost } from '@/lib/product-cost';
 
@@ -71,15 +72,17 @@ export async function recordVisitUsage(db: any, tenantId: string, visit: any, li
   if (!lines.length) return { ok: true, skipped: 'nothing to use' };
   return db.runTransaction(async (tx: any) => {
     if ((await tx.get(ref)).exists) return { ok: true, skipped: 'already recorded' };   // once per visit
+    // With more than one location, off the visit's own location's number too, and kept for a later change (lib/store-stock).
+    const at = String(visit?.locationId || '') || null;
     const snaps = await Promise.all(lines.map((l) => tx.get(db.doc(`${T}/inventory/${l.productId}`))));
     const out: UsageLine[] = [];
     snaps.forEach((s: any, i: number) => { const l = lines[i]; if (!s.exists) { out.push({ ...l, deducted: 0, shortfall: l.expected }); return; }
       const it = s.data(); const r = moveStock(it, l.expected);
       if (r.notCounted) { out.push({ ...l, deducted: 0, notCounted: r.notCounted }); return; }
-      tx.set(s.ref, r.patch, { merge: true });
-      tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -l.expected, unit: l.unit, reason: `Used in service — ${visit.clientName || 'client'}${r.shortfall ? ` (short by ${r.shortfall} ${l.unit})` : ''}`, actorId: actor.id || 'system', actorName: actor.name || 'Checkout', ref: { kind: 'appointment', id: visit.id } } as any));
+      tx.set(s.ref, { ...r.patch, ...(at ? storeFollowNested(it, at, r.patch.totalStock) : {}) }, { merge: true });
+      tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -l.expected, unit: l.unit, ...(at ? { storeId: at } : {}), reason: `Used in service — ${visit.clientName || 'client'}${r.shortfall ? ` (short by ${r.shortfall} ${l.unit})` : ''}`, actorId: actor.id || 'system', actorName: actor.name || 'Checkout', ref: { kind: 'appointment', id: visit.id } } as any));
       out.push({ ...l, deducted: r.moved, ...(r.shortfall ? { shortfall: r.shortfall } : {}) }); });
-    tx.set(ref, { visitId: visit.id, clientName: visit.clientName || null, staffId: visit.staffId || null, lines: out, recordedAt: now, updatedAt: now, shortfalls: out.filter((l) => l.shortfall).length });
+    tx.set(ref, { visitId: visit.id, clientName: visit.clientName || null, staffId: visit.staffId || null, lines: out, recordedAt: now, updatedAt: now, shortfalls: out.filter((l) => l.shortfall).length, ...(at ? { at } : {}) });
     return { ok: true, lines: out };
   });
 }
@@ -93,8 +96,8 @@ export async function adjustVisitUsage(db: any, tenantId: string, visitId: strin
     for (const l of lines) { if (actual[l.productId] === undefined) continue; const want = Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000); const was = l.notCounted ? n(l.deducted) : n(l.actual ?? l.expected); if (want !== was) changes.push({ l, diff: want - was }); }
     const snaps = await Promise.all(changes.map((c) => tx.get(db.doc(`${T}/inventory/${c.l.productId}`))));
     const movedIds = new Set<string>();
-    snaps.forEach((s: any, i: number) => { const { l, diff } = changes[i]; if (!s.exists) return; const r = moveStock(s.data(), diff); if (r.notCounted) return; tx.set(s.ref, r.patch, { merge: true }); movedIds.add(l.productId);
-      tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -diff, unit: l.unit, reason: `Actual usage ${diff > 0 ? 'more' : 'less'} than expected — ${u.clientName || 'client'}`, actorId: actor.id || 'staff', actorName: actor.name || 'Staff', ref: { kind: 'appointment', id: visitId } } as any)); });
+    snaps.forEach((s: any, i: number) => { const { l, diff } = changes[i]; if (!s.exists) return; const r = moveStock(s.data(), diff); if (r.notCounted) return; tx.set(s.ref, { ...r.patch, ...(u.at ? storeFollowNested(s.data(), u.at, r.patch.totalStock) : {}) }, { merge: true }); movedIds.add(l.productId);
+      tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -diff, unit: l.unit, ...(u.at ? { storeId: String(u.at) } : {}), reason: `Actual usage ${diff > 0 ? 'more' : 'less'} than expected — ${u.clientName || 'client'}`, actorId: actor.id || 'staff', actorName: actor.name || 'Staff', ref: { kind: 'appointment', id: visitId } } as any)); });
     const next = lines.map((l) => { if (actual[l.productId] === undefined) return l;
       const a = Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000);
       // Once stock really moves for a line that couldn't be counted before, it's counted from here on.

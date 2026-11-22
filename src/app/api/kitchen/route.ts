@@ -69,6 +69,7 @@ import { moveStock } from '@/lib/usage';
 import { needsOf, recipeOf } from '@/lib/menu-stock';
 import { buildEntry } from '@/lib/stock-ledger';
 import { mergeParts, partTakes, readRecipeParts, takeParts, type PartTake } from '@/lib/recipe-stock-server';
+import { storeFollowNested, storeMoveNested } from '@/lib/store-stock';
 import { extrasOf, guestExtras, itemExtras, orderExtras } from '@/lib/plate-extras';
 import { paceNow } from '@/lib/kitchen-pace-server';
 import { ticketFrom, canStep, collectAtHandover, loungeMaker, needsAllergyNote, ACTIVE_STATUSES, type KitchenCol, type KitchenStep } from '@/lib/kitchen';
@@ -110,6 +111,15 @@ async function tableAllergyCheck(tx: any, db: any, T: string, t: any): Promise<R
 }
 const CHANGED = 'An allergy for this seat just changed. Read the ticket again, then tap Allergy noted.';
 
+/** Where a ticket is made, with more than one location: its own location, or its table's or visit's. Read inside the
+ *  caller's transaction, before it writes. What it uses comes off that location's own number too (lib/store-stock). */
+async function ticketPlace(tx: any, db: any, T: string, r: any): Promise<string | null> {
+  if (ID.test(String(r?.locationId || ''))) return String(r.locationId);
+  const v0 = String(r?.visitId || r?.appointmentId || ''); if (!ID.test(v0)) return null;
+  const v: any = (await tx.get(db.doc(`${T}/appointments/${v0}`))).data();
+  return v && ID.test(String(v.locationId || '')) ? String(v.locationId) : null;
+}
+
 /** One ticket moved along, in one step and once. */
 async function act(db: any, tenantId: string, screen: { name: string }, col: KitchenCol, id: string, step: KitchenStep, staff: { id: string | null; name: string } | null) {
   const T = `tenants/${tenantId}`;
@@ -117,6 +127,8 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
   const now = new Date().toISOString();
   const by = staff?.name ? { staffId: staff.id || null, name: staff.name, via: screen.name } : { staffId: null, name: screen.name, via: screen.name };
   const actorId = by.staffId || 'kitchen';
+  // (Where a ticket is made only matters with more than one location: the table isn't read otherwise.)
+  const several = await severalLocations(db, tenantId);
   return db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { error: 'That ticket is gone.', status: 404 };
@@ -177,6 +189,7 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
         tableTake = partTakes(new Map(), needsOf(lines, got), got, refs, ids, 1); visitRef = vRef;
       }
     }
+    const place = several && (makes || stopsStarted || (lounge && step === 'deliver')) ? await ticketPlace(tx, db, T, r) : null;
     const patch: any = step === 'claim' ? { status: 'in_progress', claimedBy: by, claimedAt: now }
       : step === 'release' ? { status: 'pending', claimedBy: null, claimedAt: null }
       : step === 'ready' ? { status: 'ready', readyAt: now, ...(r.claimedBy ? {} : { claimedBy: by }) }
@@ -187,26 +200,28 @@ async function act(db: any, tenantId: string, screen: { name: string }, col: Kit
       : step === 'deliver' ? { status: 'delivered', deliveredAt: now, deliveredBy: by }
       : { status: 'cancelled', cancelledAt: now, cancelledBy: by };
     if (stopsStarted) {
-      takeParts(tx, db, T, made, { type: 'spoiled', reason: `Stopped after it was started: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
+      takeParts(tx, db, T, made, { type: 'spoiled', reason: `Stopped after it was started: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id }, at: place });
       patch.partsUsed = true;
     }
     if (makes) {
       if (visitRef) tx.set(visitRef, { extrasTakenAt: now }, { merge: true });
-      takeParts(tx, db, T, mergeParts([...made, ...tableTake]), { type: 'used', reason: `Made: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : r.guestName ? ` for ${String(r.guestName).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id } });
+      takeParts(tx, db, T, mergeParts([...made, ...tableTake]), { type: 'used', reason: `Made: ${String(r.menuItemName || r.itemName || 'item')} ×${qty}${r.tableNumber ? ` for ${String(r.tableNumber).slice(0, 40)}` : r.guestName ? ` for ${String(r.guestName).slice(0, 40)}` : ''}`, actorId, actorName: by.name, ref: { kind: 'order', id }, at: place });
       patch.partsUsed = true;
     }
     if (lounge && step === 'deliver' && parts.length) {
       // The same stock step as checkout (lib/usage moveStock): a product with no uses or size set is left alone.
       for (const p of parts) {
         const m = moveStock(p.data, p.qty); if (m.notCounted) continue;
-        tx.set(p.ref, m.patch, { merge: true });
+        tx.set(p.ref, { ...m.patch, ...(place ? storeFollowNested(p.data, place, m.patch.totalStock) : {}) }, { merge: true });
         tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: p.ref.id, type: 'used', delta: -p.qty, unit: String(p.data.unit || 'units'),
-          reason: `Kitchen: ${String(r.itemName || 'item')} ×${qty} for ${String(r.clientName || 'a guest')}`, actorId, actorName: by.name, ref: { kind: 'order', id } }));
+          reason: `Kitchen: ${String(r.itemName || 'item')} ×${qty} for ${String(r.clientName || 'a guest')}`, actorId, actorName: by.name, ref: { kind: 'order', id }, ...(place ? { storeId: place } : {}) }));
       }
       patch.partsUsed = true; if (tookItem) patch.stockMoved = true;
     }
     if (lounge && step === 'cancel' && r.stockMoved === true && !r.stockReturned && item) {
-      tx.set(db.doc(`${T}/inventory/${itemId}`), { totalStock: FieldValue.increment(qty) }, { merge: true });
+      // (Back on the location's own number, no more than came off it there when it was ordered: api/guest-lounge.)
+      const st: any = r.storeTaken && typeof r.storeTaken === 'object' ? r.storeTaken : null;
+      tx.set(db.doc(`${T}/inventory/${itemId}`), { totalStock: FieldValue.increment(qty), ...(st?.at ? storeMoveNested(item, String(st.at), { stock: Math.min(qty, Math.max(0, Math.floor(num(st.qty)))) }) : {}) }, { merge: true });
       tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: itemId, type: 'returned', delta: qty, reason: `Kitchen cancelled: ${String(r.itemName || 'item')} for ${String(r.clientName || 'a guest')}`, actorId, actorName: by.name, ref: { kind: 'order', id } }));
       patch.stockReturned = true;
     }
@@ -561,6 +576,7 @@ export async function POST(req: NextRequest) {
         const col = String(b.col || '') as KitchenCol; const id = String(b.id || ''); const binId = String(b.binId || '');
         if (!COLS.includes(col) || !ID.test(id) || !ID.test(binId)) return bad('Which ticket, and which batch?');
         const tRef = db.doc(`${T}/${col}/${id}`); const bRef = db.doc(`${T}/holdingBins/${binId}`);
+        const severalHere = await severalLocations(db, tenantId);
         const r: any = await db.runTransaction(async (tx: any) => {
           const t: any = (await tx.get(tRef)).data(); const bin: any = (await tx.get(bRef)).data();
           if (!t) return { error: 'That ticket is gone.', status: 404 };
@@ -577,10 +593,11 @@ export async function POST(req: NextRequest) {
           // counter order took its own when it was sent; a lounge order takes its own as it's delivered).
           const takes = col === 'kdsTickets' && !t.channel && t.partsUsed !== true;
           const made = takes ? await readRecipeParts(tx, db, T, bin.itemId, qty) : [];
+          const place = takes && severalHere ? await ticketPlace(tx, db, T, t) : null;
           const left = num(bin.quantity) - qty;
           tx.set(bRef, { quantity: left, ...(left === 0 ? { status: 'used', usedUpAt: nowIso } : {}) }, { merge: true });
           tx.set(tRef, { status: 'ready', readyAt: nowIso, fromHold: binId, ...(takes ? { partsUsed: true } : {}), ...(t.claimedBy ? {} : { claimedBy: { staffId: staff?.id || null, name: who, via: screen.name } }) }, { merge: true });
-          if (takes) takeParts(tx, db, T, made, { type: 'used', reason: `Made: ${String(t.menuItemName || bin.name || 'item').slice(0, 60)} ×${qty}, from a held batch`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id } });
+          if (takes) takeParts(tx, db, T, made, { type: 'used', reason: `Made: ${String(t.menuItemName || bin.name || 'item').slice(0, 60)} ×${qty}, from a held batch`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id }, at: place });
           return { ok: true, left };
         });
         if (r.error) return NextResponse.json({ ok: false, error: r.error, staffOk }, { status: r.status || 400 });
@@ -589,6 +606,8 @@ export async function POST(req: NextRequest) {
       }
       const binId = String(b.binId || ''); if (!ID.test(binId)) return bad('Which batch?');
       const bRef = db.doc(`${T}/holdingBins/${binId}`);
+      // (A batch thrown out comes off the kitchen's own location, with more than one: lib/store-stock.)
+      const binAt = action === 'holdToss' ? await hereFor(db, tenantId, { screen, asked: b.locationId, memberId: teamMember?.id || null }) : null;
       const r: any = await db.runTransaction(async (tx: any) => {
         const bin: any = (await tx.get(bRef)).data();
         if (!bin || bin.status !== 'held') return { already: true };
@@ -597,7 +616,7 @@ export async function POST(req: NextRequest) {
           // batch is kept for the day's waste (lib/food-cost).
           const tossed = await readRecipeParts(tx, db, T, String(bin.itemId || ''), num(bin.quantity));
           tx.set(bRef, { status: 'tossed', tossedAt: nowIso, tossedQty: num(bin.quantity), tossedBy: who, quantity: 0 }, { merge: true });
-          takeParts(tx, db, T, tossed, { type: 'spoiled', reason: `Thrown out: ${num(bin.quantity)} of ${String(bin.name || 'a batch').slice(0, 60)}, past its holding time`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id: binId } });
+          takeParts(tx, db, T, tossed, { type: 'spoiled', reason: `Thrown out: ${num(bin.quantity)} of ${String(bin.name || 'a batch').slice(0, 60)}, past its holding time`, actorId: staff?.id || 'kitchen', actorName: who, ref: { kind: 'order', id: binId }, at: binAt });
           return { ok: true, left: 0 };
         }
         const qty = Math.floor(num(b.quantity));
