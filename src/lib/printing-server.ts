@@ -23,7 +23,7 @@ import { stationsOf, tableLabel } from '@/lib/table-service';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { allergyLines, allergyUpdateDoc, checkDoc, cleanPrinter, initialOf, printsWords, ticketDoc, voidDoc, type PrintDoc, type PrinterSettings } from '@/lib/printing';
 import { makeItemCode } from '@/lib/order-qr';
-import { MAX_STICKERS, MAX_UNITS, stickerDoc, stickerKey, stickerName, stickerOf, stickersOf, type Sticker } from '@/lib/item-stickers';
+import { MAX_STICKERS, MAX_UNITS, stickerDoc, stickerKey, stickerName, stickerOf, stickersOf, type Sticker, stickersFor } from '@/lib/item-stickers';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class PrintStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
@@ -200,7 +200,7 @@ export function stickerTickets(raws: any[], p: Printer, stations: string[], now:
   const since = Math.max(now - PRINT_BACK_MS, Date.parse(p.addedAt) || 0);
   const by = new Map<string, any[]>();
   for (const r of raws) {
-    if (r.sticker || r.status !== 'pending' || !r.channel || !ID.test(String(r.orderId || '')) || !mine(stationOf(r, stations))) continue;
+    if (r.sticker || r.stickerSkip?.[p.id] || r.status !== 'pending' || !r.channel || !ID.test(String(r.orderId || '')) || !mine(stationOf(r, stations))) continue;
     if (r.holdUntil && Date.parse(r.holdUntil) > now) continue;
     const at = Date.parse(r.firedAt || r.createdAt || r.requestedAt || '');
     if (!Number.isFinite(at) || at < since) continue;
@@ -219,9 +219,13 @@ async function makeStickerJobs(db: any, T: string, loadTenant: () => Promise<any
     const ok = await db.runTransaction(async (tx: any) => {
       const [or, ...snaps] = await Promise.all([tx.get(orderRef), ...refs.map((r) => tx.get(r))]);
       const order: any = or.data();
-      const live = snaps.map((s: any, i: number) => ({ ref: refs[i], d: s.exists ? { id: g[i].id, ...(s.data() || {}) } : null })).filter((x) => x.d && x.d.status === 'pending' && !x.d.sticker);
+      const live = snaps.map((s: any, i: number) => ({ ref: refs[i], d: s.exists ? { id: g[i].id, ...(s.data() || {}) } : null })).filter((x) => x.d && x.d.status === 'pending' && !x.d.sticker && !x.d.stickerSkip?.[p.id]);
       if (!order || order.status !== 'sent' || !live.length) return false;
       const at = nowIso(); const had = stickersOf(order);
+      // A printer kept to the orders where a mistake costs most (a delivery app's, two or more bags, an allergy): any
+      // other order's tickets are passed by, once, by this printer only (another printing stickers on every order for
+      // the same station still can), and its items go as before.
+      if (!stickersFor(order, p.stickersOn)) { for (const x of live) tx.set(x.ref, { stickerSkip: { [p.id]: at } }, { merge: true }); return false; }
       const fresh: { s: Sticker; view: any; u: number; of: number }[] = [];
       for (const x of live) { const view = ticketFrom(x.d, 'kdsTickets'); const of = Math.min(MAX_UNITS, view.quantity); for (let u = 1; u <= of; u++) fresh.push({ s: { k: stickerKey(x.d.id, u), name: stickerName(view), v: 1, c: coded }, view, u, of }); }
       const keys = new Set(fresh.map((f) => f.s.k));

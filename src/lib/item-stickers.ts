@@ -15,7 +15,9 @@
 //   tenants/{t}/counterOrders/{id}.stickers = { list: [{ k: "<ticketId>.<unit>", name, v, c }], scanned: [k…] }
 //   (c: the sticker carries a code); each ticket stickered keeps sticker = { printer, at }.
 import type { PrintDoc, Block } from '@/lib/printing';
-import { bagCheckOn } from '@/lib/food-bags';
+import type { StickerOn } from '@/lib/sticker-on';
+import { bagCheckOn, defaultBags } from '@/lib/food-bags';
+import { orderAllergyOf } from '@/lib/order-allergy';
 import { modeOf } from '@/lib/plate-extras';
 
 export type Sticker = { k: string; name: string; v: number; c: boolean };
@@ -40,6 +42,17 @@ export function stickersOf(order: any): ItemStickers | null {
   }
   const scanned = Array.from(new Set<string>((Array.isArray(s.scanned) ? s.scanned : []).map(String).filter((k: string) => seen.has(k))));
   return list.length ? { list, scanned } : null;
+}
+
+/** Does this order get stickers from a printer kept to `on` (null: every order)? A delivery app's, the business's own
+ *  drivers', one that fills two or more bags, or one with an allergy. */
+export function stickersFor(order: any, on: StickerOn[] | null | undefined): boolean {
+  if (!on || !on.length) return true;
+  const a = orderAllergyOf(order);
+  return (on.includes('apps') && !!order?.app?.code)
+    || (on.includes('drivers') && order?.channel === 'ahead' && order?.ahead?.way === 'delivery')
+    || (on.includes('bags') && defaultBags(order) >= 2)
+    || (on.includes('allergy') && !!a && ((a.keys || []).length > 0 || !!a.other));
 }
 
 /** The order goes out with the guest (to go: the drive-thru, ordered ahead, a delivery app, or to go at the counter or

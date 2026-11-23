@@ -75,7 +75,7 @@ export async function printStickerAgain(db: any, tenantId: string, orderId: stri
     if (!cur) return fail('That order isn’t here.', 404);
     if (cur.status !== 'sent') return fail(cur.status === 'done' ? 'That order was already handed over.' : 'That order isn’t with the kitchen.', 409);
     const s = stickersOf(cur); const i = s ? s.list.findIndex((x) => x.k === k) : -1;
-    if (!s || i < 0) return fail('That item was taken off the order.', 409);
+    if (!s || i < 0) return fail(raw.status === 'cancelled' || raw.status === 'voided' ? 'That item was taken off the order.' : 'That item has no sticker on this order.', 409);
     const coded = printsCodes(printer);
     const list = s.list.map((x, j) => (j === i ? { ...x, v: x.v + 1, c: coded } : x));
     tx.set(ref, { stickers: { list, scanned: s.scanned.filter((x) => x !== k), reprinted: { [k.replace('.', '_')]: { by: String(by || '').slice(0, 60), at: new Date().toISOString() } } } }, { merge: true });

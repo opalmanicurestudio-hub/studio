@@ -22,13 +22,19 @@
 // with marks (Star text).
 import { allergyFlags } from '@/lib/kitchen';
 import { tableLabel } from '@/lib/table-service';
+import { STICKER_ON, STICKER_ON_WORDS, type StickerOn } from '@/lib/sticker-on';
 
 export type PrinterKind = 'star' | 'epson';
 export type PrinterSettings = { name: string; kind: PrinterKind; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean;
   /** Prints the bag labels of food orders (lib/food-bags): an Epson's carry each bag's code to scan; a Star's, words only. */
   labels: boolean;
   /** Prints a sticker for each item made at its stations, as the order comes in (lib/item-stickers): the bar's cups. */
-  stickers: boolean };
+  stickers: boolean;
+  /** Its stickers on every order (null), or only on the orders where a mistake costs most (lib/item-stickers
+   *  stickersFor; design board "A sticker on each item", C): a delivery app's, the business's own drivers', one of two
+   *  or more bags, one with an allergy. */
+  stickersOn: StickerOn[] | null };
+export type { StickerOn };
 export const COLS: Record<PrinterKind, number> = { star: 48, epson: 42 };
 export const MAX_PRINTERS = 12;
 
@@ -42,7 +48,14 @@ export function cleanPrinter(raw: any): PrinterSettings {
     stations: Array.from(new Set((Array.isArray(raw?.stations) ? raw.stations : []).map((s: unknown) => clip(s, 24)).filter(Boolean))).slice(0, 12) as string[],
     tickets: raw?.tickets !== false, checks: raw?.checks === true, buzz: raw?.buzz !== false,
     receipts: raw?.receipts === true, drawer: raw?.drawer === true, labels: raw?.labels === true, stickers: raw?.stickers === true,
+    stickersOn: stickersOnOf(raw),
   };
+}
+/** The orders kept to, as set: each one known, once, in order; none picked is every order. */
+function stickersOnOf(raw: any): StickerOn[] | null {
+  if (raw?.stickers !== true || !Array.isArray(raw?.stickersOn)) return null;
+  const on = STICKER_ON.filter((x) => raw.stickersOn.includes(x));
+  return on.length ? on : null;
 }
 
 export type Block =
@@ -265,7 +278,8 @@ export function testDoc(o: { business: string; printer: string; what: string; at
 export function printsWords(p: PrinterSettings): string {
   const and = (w: string[]) => (w.length <= 1 ? (w[0] || '') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`);
   const tix = p.tickets ? (p.stations.length ? `${and(p.stations)} tickets` : 'every station’s tickets') : '';
-  const stk = p.stickers ? (p.stations.length ? `${and(p.stations)} item stickers` : 'item stickers') : '';
+  const onW = (x: StickerOn) => STICKER_ON_WORDS.find((w) => w.id === x)?.words || x;
+  const stk = p.stickers ? `${p.stations.length ? `${and(p.stations)} item stickers` : 'item stickers'}${p.stickersOn?.length ? ` (on ${and(p.stickersOn.map(onW))})` : ''}` : '';
   return [tix, stk, p.checks ? 'checks' : '', p.receipts ? 'receipts' : '', p.labels ? 'bag labels' : ''].filter(Boolean).join(', and ').replace(/, and (?=[^,]*, and )/g, ', ') || 'nothing yet';
 }
 

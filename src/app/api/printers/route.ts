@@ -4,7 +4,8 @@
 //   save   { tenantId, id?, name, kind, cols, stations, tickets, checks, buzz, receipts, drawer, labels } → add one or
 //          change it (a manager). `receipts`: it prints guests' receipts; `drawer`: a cash drawer is plugged into it;
 //          `labels`: it prints food orders' bag labels (lib/food-bags); `stickers`: a sticker for each item made at its
-//          stations, as the order comes in (lib/item-stickers).
+//          stations, as the order comes in (lib/item-stickers), on every order, or `stickersOn` only some ('apps',
+//          'drivers', 'bags', 'allergy': where a mistake costs most).
 //   after  { tenantId, after: 'ask' | 'print' | 'none' } → after a sale at the counter or the drive-thru: ask about a
 //          receipt, print one, or don't print (text and email are always offered) (a manager).
 //   remove { tenantId, id } → taken away; its address stops working within a minute (a manager).
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'list') {
     const list = await printersOf(db, T); const now = Date.now();
-    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer, labels: p.labels, stickers: p.stickers, pictures: p.pictures === true,
+    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer, labels: p.labels, stickers: p.stickers, stickersOn: p.stickersOn, pictures: p.pictures === true,
       prints: printsWords(p), ...printerState(p, now, tz), ...(manager ? { url: printerUrl(origin, tenantId, p) } : {}) })) });
   }
   if (action === 'after') {

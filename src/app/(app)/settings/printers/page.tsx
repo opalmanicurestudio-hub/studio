@@ -4,13 +4,14 @@
 // all of them, and guest checks), whether it's answering, and the address to put in the printer's own settings. Star
 // printers on CloudPRNT and Epson printers on Server Direct Print ask for work by themselves, so nothing has to be open
 // for a ticket to print. A manager adds and changes them; anyone can see how they're doing.
+import { STICKER_ON_WORDS, type StickerOn } from '@/lib/sticker-on';
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { SettingsPage, Section, Row, Toggle, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 
-type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; stickers?: boolean; pictures?: boolean; prints: string; ok: boolean; words: string; url?: string };
-type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean; stickers: boolean };
+type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; stickers?: boolean; stickersOn?: StickerOn[] | null; pictures?: boolean; prints: string; ok: boolean; words: string; url?: string };
+type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean; stickers: boolean; stickersOn: StickerOn[] | null };
 type After = 'ask' | 'print' | 'none';
 const COLS = { star: [48, 32], epson: [42, 30] } as const;
 const GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -38,8 +39,8 @@ function overlapOf(list: P[]): string[] {
   }
   return out.slice(0, 3);
 }
-const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false, labels: false, stickers: false });
-const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer, labels: !!p.labels, stickers: !!p.stickers });
+const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false, labels: false, stickers: false, stickersOn: null });
+const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer, labels: !!p.labels, stickers: !!p.stickers, stickersOn: p.stickersOn?.length ? p.stickersOn : null });
 
 function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: [T, string][]; label: string }) {
   return (
@@ -73,7 +74,7 @@ export default function PrintersSettings() {
   };
   const save = async () => {
     if (!edit) return;
-    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer, labels: edit.labels, stickers: edit.stickers },
+    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer, labels: edit.labels, stickers: edit.stickers, stickersOn: edit.stickers && edit.stickersOn?.length ? edit.stickersOn : null },
       edit.id ? 'Saved.' : 'Added. Put its address in the printer’s own settings, then print a test.');
     if (d) setEdit(null);
   };
@@ -108,6 +109,14 @@ export default function PrintersSettings() {
           <Row label="Prints item stickers" help={edit.kind === 'epson' ? 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code scanned before a to-go order is handed over. For drinks, put a sticky label printer at the bar and pick the bar' : 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code to scan. A Star printer prints the code once it has printed its first slip in the app’s look (most on CloudPRNT do, and Print a test starts it); until then, these aren’t scanned at handover'} inline>
             <Toggle checked={edit.stickers} onChange={(v) => E({ stickers: v })} label="Prints item stickers" />
           </Row>
+          {edit.stickers && <Row label="Stickers on which orders" help={edit.stickersOn ? 'Only these, where a wrong or missing item costs most. Everyday orders keep the bag scan, so the rush isn’t slowed' : 'Every order, as it comes in'}>
+            <div className="space-y-2">
+              <Seg label="Stickers on which orders" value={edit.stickersOn ? 'some' : 'all'} onChange={(v) => E({ stickersOn: v === 'some' ? (edit.stickersOn || ['apps', 'drivers', 'bags', 'allergy']) : null })} options={[['all', 'Every order'], ['some', 'Only where it counts']]} />
+              {edit.stickersOn && <div role="group" aria-label="Only on these orders" className="flex flex-wrap gap-2">{STICKER_ON_WORDS.map((o) => { const on = edit.stickersOn!.includes(o.id); return (
+                <button key={o.id} type="button" aria-pressed={on} onClick={() => { const next = on ? edit.stickersOn!.filter((x) => x !== o.id) : [...edit.stickersOn!, o.id]; if (next.length) E({ stickersOn: next }); }} className="min-h-[44px] rounded-full border px-4 text-[14px] font-semibold"
+                  style={on ? { background: 'var(--ink)', color: 'var(--card)', borderColor: 'var(--ink)' } : { borderColor: 'var(--line)' }}>{o.label}</button>); })}</div>}
+            </div>
+          </Row>}
           <Row label="Prints checks" help="“Print the check” on a server’s tab prints here. With pay at the table on, the check carries the table’s pay link" inline>
             <Toggle checked={edit.checks} onChange={(v) => E({ checks: v })} label="Prints checks" />
           </Row>

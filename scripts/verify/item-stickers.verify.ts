@@ -160,6 +160,37 @@ const qrOf = (j: any) => j.doc.blocks.find((b: any) => b.k === 'qr')?.data || nu
   r = await curbApi(req({ tenantId: 't1', action: 'bagScan', orderId: 'cb1', code: Q.makeItemCode('t1', 'cb1', 'tkx.1', 1) }));
   check('…scanned there the same way', r.body.ok && r.body.itemsLeft?.length === 0, r.body);
 
+  console.log('only where it counts');
+  check('a printer kept to some orders: known ones only, once, in order; none picked is every order; said in its words', JSON.stringify(P.cleanPrinter({ stickers: true, stickersOn: ['allergy', 'apps', 'x', 'apps'] }).stickersOn) === '["apps","allergy"]' && P.cleanPrinter({ stickers: true, stickersOn: [] }).stickersOn === null
+    && P.cleanPrinter({ stickers: false, stickersOn: ['apps'] }).stickersOn === null && P.cleanPrinter({ stickers: true }).stickersOn === null && P.printsWords(P.cleanPrinter({ stations: ['Kitchen'], stickers: true, tickets: false, stickersOn: ['apps', 'allergy'] })) === 'Kitchen item stickers (on delivery apps and an allergy)');
+  check('which orders: a delivery app’s, our drivers’, two or more bags, an allergy', S.stickersFor({ app: { code: 'X1' } }, ['apps']) && !S.stickersFor({ channel: 'drive-thru' }, ['apps']) && S.stickersFor({ channel: 'ahead', ahead: { way: 'delivery' } }, ['drivers']) && !S.stickersFor({ channel: 'ahead', ahead: { way: 'curbside' } }, ['drivers'])
+    && S.stickersFor({ lines: [{ quantity: 7 }] }, ['bags']) && !S.stickersFor({ lines: [{ quantity: 3 }] }, ['bags']) && S.stickersFor({ allergy: { keys: ['peanuts'] } }, ['allergy']) && !S.stickersFor({}, ['allergy']) && S.stickersFor({}, null) && !S.stickersFor({ app: { code: 'X1' } }, ['allergy']));
+  r = await printersApi(req({ tenantId: 't1', action: 'save', name: 'Grill stickers', kind: 'epson', stations: ['Kitchen'], stickers: true, tickets: false, stickersOn: ['allergy'] }));
+  const grill = r.body.id; await db.doc(`${T}/printers/${grill}`).set({ addedAt: new Date(Date.now() - 60000).toISOString() }, { merge: true }); PS.forgetPrinter(T, grill);
+  r = await printersApi(req({ tenantId: 't1', action: 'list' }));
+  const gl = r.body.printers.find((p: any) => p.id === grill);
+  check('…saved and listed with its orders', gl?.stickersOn?.join() === 'allergy' && /Kitchen item stickers \(on an allergy\)/.test(gl.prints), gl);
+  const askGrill = async () => { PS.forgetPending(T); const p = await PS.printerOf(db, T, grill, { fresh: true }); return PS.nextJob(db, T, tenantNow, p!); };
+  actor = { uid: 's1', name: 'Kai Park', role: 'staff', isManager: false, caps: [] };
+  const c5 = await carWith('stk-5'); await askGrill();
+  const t5: any = (await all(`${T}/kdsTickets`)).find((t: any) => t.orderId === c5.orderId && t.menuItemId === 'biscuit');
+  check('an everyday order: no kitchen sticker, its ticket passed by once, by that printer only', (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c5.orderId && j.printerId === grill).length === 0 && !!t5?.stickerSkip?.[grill] && !t5.sticker, { sticker: t5?.sticker, skip: t5?.stickerSkip });
+  const c6 = await carWith('stk-6');
+  await db.doc(`${T}/counterOrders/${c6.orderId}`).set({ allergy: { keys: ['peanuts'], other: null, severe: true } }, { merge: true });
+  await askGrill();
+  const g6 = (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c6.orderId && j.printerId === grill);
+  const o6: any = await get(`${T}/counterOrders/${c6.orderId}`);
+  check('an order with an allergy: the kitchen’s sticker prints with its code, kept on the order to scan', g6.length === 1 && !!qrOf(g6[0]) && o6.stickers?.list?.some((x: any) => /Egg biscuit/.test(x.name) && x.c === true), { jobs: g6.length, st: o6.stickers });
+  actor = { uid: 'm9', name: 'Ana Ruiz', role: 'manager', isManager: true, caps: [] };
+  r = await printersApi(req({ tenantId: 't1', action: 'save', name: 'Kitchen stickers', kind: 'epson', stations: ['Kitchen'], stickers: true, tickets: false }));
+  const kit = r.body.id; await db.doc(`${T}/printers/${kit}`).set({ addedAt: new Date(Date.now() - 60000).toISOString() }, { merge: true }); PS.forgetPrinter(T, kit);
+  actor = { uid: 's1', name: 'Kai Park', role: 'staff', isManager: false, caps: [] };
+  PS.forgetPending(T); await PS.nextJob(db, T, tenantNow, (await PS.printerOf(db, T, kit, { fresh: true }))!);
+  check('…another printer printing stickers on every order for the same station still prints that one', (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c5.orderId && j.printerId === kit).length === 1
+    && (await get(`${T}/kdsTickets/${t5.id}`)).sticker?.printer === kit && (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c6.orderId && j.printerId === kit).length === 0);
+  const pp = src('src/app/(app)/settings/printers/page.tsx');
+  check('Settings, Printers: every order, or only where it counts, with the orders to pick', /options=\{\[\['all', 'Every order'\], \['some', 'Only where it counts'\]\]\}/.test(pp) && /STICKER_ON_WORDS\.map/.test(pp) && /from '@\/lib\/sticker-on'/.test(pp) && !/from '@\/lib\/item-stickers'/.test(pp) && /stickersOn: edit\.stickers && edit\.stickersOn\?\.length \? edit\.stickersOn : null/.test(pp));
+
   console.log('taken off, and the screens');
   const take = src('src/lib/counter-takeoff-server.ts');
   check('an item taken off takes its stickers with it (or keeps the first ones for fewer)', /stickersAfter\(o, tix\.map/.test(take) && /stickers: \{ list: stk\.list, scanned: stk\.scanned \}/.test(take));
