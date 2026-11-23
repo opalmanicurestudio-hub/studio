@@ -1,16 +1,23 @@
 // src/app/api/printer/star/[tenantId]/[printerId]/[key]/route.ts — A STAR PRINTER ON CLOUDPRNT (lib/printing-server).
 // The printer is given this address once (Printers settings) and from then on asks every few seconds:
-//   POST   → "anything for me?" with what it says about itself; told { jobReady, mediaTypes, jobToken }.
-//   GET    → the slip, as plain text at its width (cut after, the buzzer for a new ticket).
+//   POST   → "anything for me?" with what it says about itself; told { jobReady, mediaTypes, jobToken }: a picture
+//            (PNG) first, plain text if the printer can't take one (only text for a slip that couldn't be drawn, or
+//            one with only the cash drawer to open).
+//   GET    → the slip: drawn as a picture in the app's look at its width (lib/print-picture), or as plain text when
+//            it asks for that (cut after, the buzzer for a new ticket). A printer that asks for a picture is kept as
+//            one that prints them, so its labels and stickers carry codes to scan from then on.
 //   DELETE → done: code "200 OK" printed, anything else didn't (tried again a few times). Some set-ups confirm with a
 //            GET carrying `delete` instead.
 // No sign-in: the address itself, with its secret key, is the printer's pass. A wrong one is told nothing.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { renderText } from '@/lib/printing';
-import { dec, fromOf, heard, jobDone, jobOf, inMemory, keyOk, missed, nextJob, printerOf, tooManyMisses } from '@/lib/printing-server';
+import { dec, forgetPrinter, fromOf, heard, jobDone, jobOf, inMemory, keyOk, missed, nextJob, noPictureFor, printerOf, tooManyMisses } from '@/lib/printing-server';
+import { dotsFor, slipPicture } from '@/lib/print-picture';
 
 export const dynamic = 'force-dynamic';
+// (The picture is drawn with Node's own modules.)
+export const runtime = 'nodejs';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Ctx = { params: Promise<{ tenantId: string; printerId: string; key: string }> };
 const none = () => new NextResponse(null, { status: 404 });
@@ -33,23 +40,33 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   // Busy printing, or something's wrong with it: nothing new until it's ready.
   if (b.printingInProgress === true || !/^2/.test(dec(String(b.statusCode || '200'))) || /^220/.test(dec(String(b.statusCode || '')))) return NextResponse.json({ jobReady: false });
   const j = await nextJob(a.db, a.T, async () => (await a.db.doc(a.T).get()).data() || {}, a.p).catch((e) => { console.error('[printer star] next', e); return null; });
-  return NextResponse.json(j ? { jobReady: true, mediaTypes: ['text/plain'], jobToken: j.id } : { jobReady: false });
+  const textOnly = !!j && (j.noPicture || !j.doc?.blocks?.length);
+  return NextResponse.json(j ? { jobReady: true, mediaTypes: textOnly ? ['text/plain'] : ['image/png', 'text/plain'], jobToken: j.id } : { jobReady: false });
 }
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   const a = await auth(req, ctx); if (!a) return none();
   const q = req.nextUrl.searchParams; const token = q.get('token');
   if (q.has('delete')) { await jobDone(a.db, a.T, a.p, token, /^(2|OK)/i.test(dec(q.get('code') || '')), q.get('code') || ''); return new NextResponse(null, { status: 200 }); }
-  const type = q.get('type');
-  if (type && !/^text\/plain/i.test(type)) return new NextResponse(null, { status: 415 });
+  const type = q.get('type'); const asPicture = !!type && /^image\/png/i.test(type);
+  if (type && !asPicture && !/^text\/plain/i.test(type)) return new NextResponse(null, { status: 415 });
   const j = await jobOf(a.db, a.T, a.p, token); if (!j) return none();
-  const headers: Record<string, string> = { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' };
+  let png: Buffer | null = null;
+  if (asPicture && j.doc?.blocks?.length && !j.noPicture) {
+    png = (await slipPicture(j.doc, dotsFor(a.p.cols), j.id).catch((e) => { console.error('[printer star] picture', e?.message || e); return null; }))?.png || null;
+    // (Not drawn: kept on the slip, so it's offered as text on its next ask; this ask prints nothing, and it's tried
+    // again.)
+    if (!png) { await noPictureFor(a.db, a.T, j.id).catch(() => null); return new NextResponse(null, { status: 500 }); }
+    // It prints pictures: kept, so what's printed on it from now on carries codes to scan.
+    if (!a.p.pictures) { await a.db.doc(`${a.T}/printers/${a.p.id}`).set({ pictures: true }, { merge: true }).catch(() => null); forgetPrinter(a.T, a.p.id); }
+  }
+  const headers: Record<string, string> = { 'Content-Type': png ? 'image/png' : 'text/plain', 'Cache-Control': 'no-store' };
   // (Nothing to print, only the cash drawer to open: no cut, and only a few blank lines feed.)
   if (j.doc?.blocks?.length) headers['X-Star-Cut'] = 'partial; feed=true';
   if (j.doc?.buzz && a.p.buzz) headers['X-Star-Buzzerstartpattern'] = '1';
   // A cash sale's drawer, plugged into this printer (lib/printing receiptDoc, drawerDoc).
   if (j.doc?.drawer && a.p.drawer) headers['X-Star-Cashdrawer'] = 'start';
-  return new NextResponse(renderText(j.doc, a.p.cols), { status: 200, headers });
+  return new NextResponse(png ? new Uint8Array(png) : renderText(j.doc, a.p.cols), { status: 200, headers });
 }
 
 export async function DELETE(req: NextRequest, ctx: Ctx) {

@@ -59,7 +59,7 @@ const order = (x: any = {}) => ({ number: 'C14', channel: 'counter', status: 'se
   console.log('the slip');
   const doc = P.receiptDoc(r, { business: 'Linden Coffee', address: '12 Harbor Rd, Portland', tz: 'America/Los_Angeles', url: 'https://app.example/r/t1/co_o1?k=x' });
   const words = doc.blocks.map((b: any) => [b.left, b.right, b.text, b.data].filter(Boolean).join(' ')).join('\n');
-  check('the business, the order number and for here', doc.blocks[0].k === 'text' && (doc.blocks[0] as any).text === 'Linden Coffee' && doc.blocks.some((b: any) => b.k === 'head' && b.left === 'C14' && b.right === 'For here'));
+  check('the business, the order number and for here', doc.blocks[0].k === 'brand' && (doc.blocks[0] as any).name === 'Linden Coffee' && doc.blocks.some((b: any) => b.k === 'head' && b.left === 'C14' && b.right === 'For here'));
   check('…each line with its choices under it, the reward taken off, the tax and the total', /1  Oat latte \$6\.25/.test(words) && /Large, extra shot/.test(words) && /2  Almond croissant \$9\.00/.test(words)
     && /Reward -\$3\.00/.test(words) && /Sales tax \$1\.37/.test(words) && /Total \$16\.62/.test(words), words);
   check('…the cash and the change, then the link to it online', /Cash \$20\.00/.test(words) && /Change \$3\.38/.test(words) && doc.blocks.some((b: any) => b.k === 'qr') && /Your receipt online/.test(words) && !doc.drawer);
@@ -70,7 +70,7 @@ const order = (x: any = {}) => ({ number: 'C14', channel: 'counter', status: 'se
   check('…just the drawer: nothing printed', P.renderEpos(P.drawerDoc(), 42) === '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><pulse drawer="drawer_1" time="pulse_100"/></epos-print>');
   const star = src('src/app/api/printer/star/[tenantId]/[printerId]/[key]/route.ts'); const epson = src('src/app/api/printer/epson/[tenantId]/[printerId]/[key]/route.ts');
   check('Star: the drawer opens with the job (only a printer set to), and a drawer alone isn’t cut', /X-Star-Cashdrawer/.test(star) && star.includes("if (j.doc?.drawer && a.p.drawer) headers['X-Star-Cashdrawer'] = 'start';") && star.includes("if (j.doc?.blocks?.length) headers['X-Star-Cut']"));
-  check('Epson: only a printer set to open the drawer sends it', epson.includes('renderEpos(p.drawer ? job.doc : { ...job.doc, drawer: false }, p.cols)'));
+  check('Epson: only a printer set to open the drawer sends it', epson.includes('const doc = p.drawer ? job.doc : { ...job.doc, drawer: false };') && epson.includes('pic ? eposPicture(pic, doc) : renderEpos(doc, p.cols)'));
   check('a printer prints receipts and opens the drawer only when set to', (() => { const a = P.cleanPrinter({}); const b = P.cleanPrinter({ receipts: true, drawer: true }); return !a.receipts && !a.drawer && b.receipts && b.drawer; })());
   check('after a sale: ask, unless set to print one or not to', P.receiptAfterOf({}) === 'ask' && P.receiptAfterOf({ receiptSettings: { after: 'print' } }) === 'print' && P.receiptAfterOf({ receiptSettings: { after: 'none' } }) === 'none' && P.receiptAfterOf({ receiptSettings: { after: 'x' } }) === 'ask');
 

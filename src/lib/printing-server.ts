@@ -21,7 +21,7 @@ import { allergySig } from '@/lib/allergens';
 import { ticketFrom } from '@/lib/kitchen';
 import { stationsOf, tableLabel } from '@/lib/table-service';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { allergyLines, allergyUpdateDoc, checkDoc, cleanPrinter, printsWords, ticketDoc, voidDoc, type PrintDoc, type PrinterSettings } from '@/lib/printing';
+import { allergyLines, allergyUpdateDoc, checkDoc, cleanPrinter, initialOf, printsWords, ticketDoc, voidDoc, type PrintDoc, type PrinterSettings } from '@/lib/printing';
 import { makeItemCode } from '@/lib/order-qr';
 import { MAX_STICKERS, MAX_UNITS, stickerDoc, stickerKey, stickerName, stickerOf, stickersOf, type Sticker } from '@/lib/item-stickers';
 
@@ -35,8 +35,11 @@ export const PRINT_BACK_MS = 2 * 3600000;
 /** A slip sent that the printer hasn't said is done is offered again after this; given up after a few tries. */
 const RESEND_MS = 60000, TRIES = 4;
 
-export type Printer = PrinterSettings & { id: string; key: string; addedAt: string; lastSeenAt: string | null; statusCode: string | null; lastError: string | null; lastErrorAt: string | null; gaveUpAt: string | null };
-export const printerFrom = (id: string, d: any): Printer => ({ ...cleanPrinter(d), id, key: String(d?.key || ''), addedAt: String(d?.addedAt || ''), lastSeenAt: d?.lastSeenAt || null,
+export type Printer = PrinterSettings & { id: string; key: string; addedAt: string; lastSeenAt: string | null; statusCode: string | null; lastError: string | null; lastErrorAt: string | null; gaveUpAt: string | null;
+  /** It prints pictures (lib/print-picture): an Epson always; a Star once it has asked for one. */ pictures?: boolean };
+/** It prints a code to scan: as a picture, or an Epson's own (a Star printing words only can't). */
+export const printsCodes = (p: { kind: string; pictures?: boolean } | null | undefined) => !!p && (p.kind === 'epson' || p.pictures === true);
+export const printerFrom = (id: string, d: any): Printer => ({ ...cleanPrinter(d), id, pictures: d?.kind === 'epson' || d?.pictures === true, key: String(d?.key || ''), addedAt: String(d?.addedAt || ''), lastSeenAt: d?.lastSeenAt || null,
   statusCode: d?.statusCode ? String(d.statusCode).slice(0, 80) : null, lastError: d?.lastError ? String(d.lastError).slice(0, 160) : null, lastErrorAt: d?.lastErrorAt || null, gaveUpAt: d?.gaveUpAt || null });
 
 const cache = new Map<string, { at: number; v: Printer }>();
@@ -209,7 +212,7 @@ async function makeStickerJobs(db: any, T: string, loadTenant: () => Promise<any
   const raws = await pendingTickets(db, T); if (!raws.length) return 0;
   const tenant = await tenantFor(T, loadTenant);
   const groups = Array.from(stickerTickets(raws, p, stationsOf(tenant), now).entries()).slice(0, 5);
-  const tenantId = T.split('/')[1]; const coded = p.kind === 'epson';
+  const tenantId = T.split('/')[1]; const coded = printsCodes(p);
   let made = 0;
   for (const [orderId, g] of groups) {
     const refs = g.map((r) => db.doc(`${T}/kdsTickets/${r.id}`)); const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
@@ -229,7 +232,7 @@ async function makeStickerJobs(db: any, T: string, loadTenant: () => Promise<any
       tx.set(orderRef, { stickers: { list, scanned: (had?.scanned || []).filter((k) => !keys.has(k)) } }, { merge: true });
       // (Two of the same item numbered: "1 of 2".)
       fresh.forEach((f) => {
-        const doc = stickerDoc(stickerOf(order, f.view, allergyLines([f.view]), f.u, f.of, f.s.c ? makeItemCode(tenantId, orderId, f.s.k, 1) : null));
+        const doc = stickerDoc(stickerOf(order, f.view, allergyLines([f.view]), f.u, f.of, f.s.c ? makeItemCode(tenantId, orderId, f.s.k, 1) : null, initialOf(tenant.name || tenant.businessName)));
         tx.set(db.collection(`${T}/printJobs`).doc(), { printerId: p.id, kind: 'sticker', doc, status: 'queued', open: true, tries: 0, createdAt: at, orderId, stickerKey: f.s.k });
       });
       for (const x of live) tx.set(x.ref, { sticker: { printer: p.id, at } }, { merge: true });
@@ -272,7 +275,7 @@ const STALE_MS = 20 * 60000;
 const RETRY_MS = 20000, PAUSE_MS = 60000;
 /** What this printer prints next, made ready to send (null: nothing): new kitchen tickets are made into slips every
  *  time it asks (one slow slip never holds them up), then the oldest slip waiting goes. */
-export async function nextJob(db: any, T: string, loadTenant: () => Promise<any>, p: Printer): Promise<{ id: string } | null> {
+export async function nextJob(db: any, T: string, loadTenant: () => Promise<any>, p: Printer): Promise<SentJob | null> {
   const now = Date.now();
   if (p.tickets && !(now - (Date.parse(p.gaveUpAt || '') || 0) < PAUSE_MS)) await makeTicketJobs(db, T, loadTenant, p, now).catch((e) => console.warn('[printing] tickets', e?.message || e));
   if (p.stickers && !(now - (Date.parse(p.gaveUpAt || '') || 0) < PAUSE_MS)) await makeStickerJobs(db, T, loadTenant, p, now).catch((e) => console.warn('[printing] stickers', e?.message || e));
@@ -280,22 +283,28 @@ export async function nextJob(db: any, T: string, loadTenant: () => Promise<any>
   for (const j of jobs) {
     const ref = db.doc(`${T}/printJobs/${j.id}`);
     // One sent a moment ago is still on its way (the printer asks again before it has said it's done).
-    if (j.status === 'sent' && now - (Date.parse(j.sentAt || '') || 0) < RESEND_MS) return { id: j.id };
+    if (j.status === 'sent' && now - (Date.parse(j.sentAt || '') || 0) < RESEND_MS) return sentJob(j);
     if (['check', 'test'].includes(String(j.kind)) && now - (Date.parse(j.createdAt || '') || now) > STALE_MS) { await ref.set({ status: 'failed', open: false, failedAt: nowIso(), code: 'Too old to print' }, { merge: true }); continue; }
     if ((Number(j.tries) || 0) >= TRIES) { await giveUp(db, T, p, j, String(j.code || 'No answer')); continue; }
     if (j.status === 'queued' && now < (Date.parse(j.retryAt || '') || 0)) continue;
     await ref.set({ status: 'sent', sentAt: nowIso(), tries: (Number(j.tries) || 0) + 1 }, { merge: true });
-    return { id: j.id };
+    return sentJob(j);
   }
   return null;
 }
 
 /** A slip's paper: by its id, or the one this printer was last sent. */
-export async function jobOf(db: any, T: string, p: Printer, jobId: string | null): Promise<{ id: string; doc: PrintDoc } | null> {
-  if (jobId && ID.test(jobId)) { const d = (await db.doc(`${T}/printJobs/${jobId}`).get()).data(); return d && d.printerId === p.id && d.open ? { id: jobId, doc: d.doc } : null; }
+export async function jobOf(db: any, T: string, p: Printer, jobId: string | null): Promise<SentJob | null> {
+  if (jobId && ID.test(jobId)) { const d = (await db.doc(`${T}/printJobs/${jobId}`).get()).data(); return d && d.printerId === p.id && d.open ? sentJob({ ...d, id: jobId }) : null; }
   const sent = (await openJobs(db, T, p.id)).filter((j) => j.status === 'sent').sort((a, b) => String(b.sentAt || '').localeCompare(String(a.sentAt || '')))[0];
-  return sent ? { id: sent.id, doc: sent.doc } : null;
+  return sent ? sentJob(sent) : null;
 }
+/** A slip as sent: its id, its paper, and whether it couldn't be drawn as a picture (kept on the slip, so whichever
+ *  server the printer asks next offers it as text). */
+export type SentJob = { id: string; doc: PrintDoc; noPicture: boolean };
+const sentJob = (j: any): SentJob => ({ id: String(j.id), doc: j.doc, noPicture: j.noPicture === true });
+/** A slip that couldn't be drawn as a picture: offered as text from now on. */
+export const noPictureFor = (db: any, T: string, jobId: string) => db.doc(`${T}/printJobs/${jobId}`).set({ noPicture: true }, { merge: true });
 
 /** What the printer said when it was done: printed, or not (tried again a few times, then given up and said so). */
 export async function jobDone(db: any, T: string, p: Printer, jobId: string | null, ok: boolean, code: string): Promise<void> {

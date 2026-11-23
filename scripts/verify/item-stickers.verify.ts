@@ -53,7 +53,7 @@ const qrOf = (j: any) => j.doc.blocks.find((b: any) => b.k === 'qr')?.data || nu
   check('an item taken off takes its stickers; one for fewer keeps the first ones (and what was scanned of them)', after.list.map((x) => x.k).join() === 't1.1' && after.scanned.length === 0);
   const lab = S.stickerOf({ number: 'D14', guestName: 'Lucia Ortiz' }, { item: 'Oat latte', choiceList: ['Large', 'Extra shot'], note: 'Extra hot' }, ['Allergy: tree nuts, severe'], 1, 2, 'clarityflow://item/o1.t1.1.1.0123456789abcdef');
   const d = S.stickerDoc(lab);
-  check('a sticker: the number and first name, the item, its choices and note, the allergy set off, “1 of 2”, the code', d.blocks[0].k === 'head' && (d.blocks[0] as any).left === 'D14' && (d.blocks[0] as any).right === 'Lucia' && d.blocks.some((b: any) => b.k === 'text' && b.bold && b.text === 'Oat latte')
+  check('a sticker: the number and first name, the item, its choices and note, the allergy set off, “1 of 2”, the code', d.blocks[0].k === 'head' && (d.blocks[0] as any).left === 'D14' && (d.blocks[1] as any).text === 'Lucia' && d.blocks.some((b: any) => b.k === 'text' && b.bold && b.text === 'Oat latte')
     && d.blocks.some((b: any) => b.text === 'Large, Extra shot') && d.blocks.some((b: any) => b.text === 'Note: Extra hot') && d.blocks.some((b: any) => b.k === 'alert' && /tree nuts/.test(b.text)) && d.blocks.some((b: any) => b.text === '1 of 2') && d.blocks.some((b: any) => b.k === 'qr'));
   check('…words only without a code', !S.stickerDoc({ ...lab, code: null }).blocks.some((b: any) => b.k === 'qr'));
   const code = Q.makeItemCode('t1', 'o1', 'tk1.2', 3);
@@ -99,7 +99,7 @@ const qrOf = (j: any) => j.doc.blocks.find((b: any) => b.k === 'qr')?.data || nu
   let jobs = (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c1.orderId);
   let o1: any = await get(`${T}/counterOrders/${c1.orderId}`);
   check('the bar’s printer: a sticker for each latte (two), none for the biscuit, each with its own code', jobs.length === 2 && jobs.every((j: any) => j.printerId === bar && !!qrOf(j)) && qrOf(jobs[0]) !== qrOf(jobs[1]) && o1.stickers?.list?.length === 2 && o1.stickers.list.every((x: any) => x.c === true && x.v === 1 && /Oat latte/.test(x.name)), { jobs: jobs.length, st: o1.stickers });
-  check('…two of the same item numbered, with the guest’s first name (one alone isn’t)', jobs.map((j: any) => j.doc.blocks.find((b: any) => /of 2$/.test(String(b.text || '')))?.text).sort().join() === '1 of 2,2 of 2' && jobs.every((j: any) => j.doc.blocks[0].right === 'Lucia')
+  check('…two of the same item numbered, with the guest’s first name (one alone isn’t)', jobs.map((j: any) => j.doc.blocks.find((b: any) => /of 2$/.test(String(b.text || '')))?.text).sort().join() === '1 of 2,2 of 2' && jobs.every((j: any) => j.doc.blocks[1].text === 'Lucia' && j.doc.blocks[0].mark === 'J' && j.doc.qrBeside === true)
     && !S.stickerDoc({ ...lab, n: 1, of: 1 }).blocks.some((b: any) => /of 1$/.test(String(b.text || ''))));
   await ask();
   check('…once only (the tickets are marked as stickered)', (await all(`${T}/printJobs`)).filter((j: any) => j.kind === 'sticker' && j.orderId === c1.orderId).length === 2 && (await all(`${T}/kdsTickets`)).filter((t: any) => t.orderId === c1.orderId && t.menuItemId === 'latte').every((t: any) => t.sticker?.printer === bar));

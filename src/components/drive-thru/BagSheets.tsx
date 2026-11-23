@@ -14,6 +14,7 @@ import QRCode from 'qrcode';
 import { Check } from 'lucide-react';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
+import { initialOf } from '@/lib/printing';
 import { bagName, MAX_FOOD_BAGS, SKIP_REASONS, type BagLabel } from '@/lib/food-bags';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -193,13 +194,16 @@ export function BagLabelsSheet({ number, start, printer, onPrint, onClose }: {
 export async function printLabelsHere(labels: BagLabel[]): Promise<boolean> {
   if (typeof document === 'undefined' || !labels.length) return false;
   const qr = await Promise.all(labels.map((l) => (l.code ? QRCode.toDataURL(l.code, { margin: 0, width: 220, errorCorrectionLevel: 'M' }).catch(() => '') : Promise.resolve(''))));
+  // (In the app's look, as a printer's picture is: lib/print-picture. Black and white only.)
+  const tile = (c: string) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:#000;color:#fff;font-weight:800;font-size:12px">${esc(c)}</span>`;
   const one = (l: BagLabel, i: number) => `<section style="page-break-after:always;break-after:page;padding:6px 4px 10px">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-size:30px;font-weight:700;line-height:1">${esc(l.number || 'Order')}</div><div style="font-size:12px;margin-top:2px">${esc(l.way)}</div>
-${l.name ? `<div style="font-size:18px;font-weight:700;margin-top:4px">${esc(l.name)}</div>` : ''}<div style="font-size:13px;margin-top:2px">${esc(bagName(l.n, l.of))}</div></div>
-${qr[i] ? `<img src="${qr[i]}" alt="" style="width:26mm;height:26mm;image-rendering:pixelated">` : ''}</div>
-<hr style="border:none;border-top:1px dashed #000;margin:6px 0">
-${l.items.map((it) => `<div style="font-size:14px;font-weight:700">${it.qty}&nbsp;&nbsp;${esc(it.name)}</div>${it.sub.map((s) => `<div style="padding-left:16px;font-size:12px">${esc(s)}</div>`).join('')}`).join('')}
-${l.allergy ? `<div style="background:#000;color:#fff;font-weight:700;padding:3px 5px;margin-top:6px;font-size:13px">${esc(l.allergy)}</div>` : ''}</section>`;
+${l.business ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${initialOf(l.business) ? tile(initialOf(l.business)) : ''}<b style="font-size:13px">${esc(l.business)}</b></div>` : ''}
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div><div style="font-size:34px;font-weight:800;letter-spacing:-0.02em;line-height:1">${esc(l.number || 'Order')}</div>
+${l.name ? `<div style="font-size:17px;font-weight:700;margin-top:4px">${esc(l.name)}</div>` : ''}<div style="font-size:12px;font-weight:500;margin-top:2px">${esc(l.way)}, ${esc(bagName(l.n, l.of).toLowerCase())}</div></div>
+${qr[i] ? `<img src="${qr[i]}" alt="" style="width:24mm;height:24mm;image-rendering:pixelated">` : ''}</div>
+<div style="border-top:1.5px solid #000;margin:8px 0"></div>
+${l.items.map((it) => `<div style="display:flex;gap:10px;font-size:15px;font-weight:700;margin-top:3px"><span style="font-weight:800;min-width:14px">${it.qty}</span><span>${esc(it.name)}${it.sub.map((s) => `<span style="display:block;font-weight:500;font-size:12px">${esc(s)}</span>`).join('')}</span></div>`).join('')}
+${l.allergy ? `<div style="background:#000;color:#fff;font-weight:700;padding:5px 9px;margin-top:8px;border-radius:8px;font-size:13px">${esc(l.allergy)}</div>` : ''}</section>`;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Bag labels</title><link href="${PRINT_FONT_HREF}" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:${PRINT_FONT_STACK};width:72mm;color:#000;background:#fff;line-height:1.35}@media print{@page{margin:0;size:80mm auto}body{width:80mm}}</style></head><body>${labels.map(one).join('')}</body></html>`;
   const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
   document.body.appendChild(f);

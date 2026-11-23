@@ -9,7 +9,7 @@ import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { SettingsPage, Section, Row, Toggle, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 
-type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; stickers?: boolean; prints: string; ok: boolean; words: string; url?: string };
+type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; stickers?: boolean; pictures?: boolean; prints: string; ok: boolean; words: string; url?: string };
 type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean; stickers: boolean };
 type After = 'ask' | 'print' | 'none';
 const COLS = { star: [48, 32], epson: [42, 30] } as const;
@@ -105,7 +105,7 @@ export default function PrintersSettings() {
                 style={on ? { background: 'var(--ink)', color: 'var(--card)', borderColor: 'var(--ink)' } : { borderColor: 'var(--line)' }}>{s}</button>); })}</div>
           </Row>}
           {edit.tickets && edit.kind === 'star' && <Row label="Beep for a new ticket" help="For a printer with a buzzer" inline><Toggle checked={edit.buzz} onChange={(v) => E({ buzz: v })} label="Beep for a new ticket" /></Row>}
-          <Row label="Prints item stickers" help={edit.kind === 'epson' ? 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code scanned before a to-go order is handed over. For drinks, put a sticky label printer at the bar and pick the bar' : 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name and the item with its choices. A Star printer on CloudPRNT prints no code to scan, so these items aren’t scanned at handover'} inline>
+          <Row label="Prints item stickers" help={edit.kind === 'epson' ? 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code scanned before a to-go order is handed over. For drinks, put a sticky label printer at the bar and pick the bar' : 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code to scan. A Star printer prints the code once it has printed its first slip in the app’s look (most on CloudPRNT do, and Print a test starts it); until then, these aren’t scanned at handover'} inline>
             <Toggle checked={edit.stickers} onChange={(v) => E({ stickers: v })} label="Prints item stickers" />
           </Row>
           <Row label="Prints checks" help="“Print the check” on a server’s tab prints here. With pay at the table on, the check carries the table’s pay link" inline>
@@ -114,7 +114,7 @@ export default function PrintersSettings() {
           <Row label="Prints receipts" help="Guests’ receipts from the counter, the drive-thru and Today’s sales, when one’s asked for (or every time, as set below)" inline>
             <Toggle checked={edit.receipts} onChange={(v) => E({ receipts: v })} label="Prints receipts" />
           </Row>
-          <Row label="Prints bag labels" help={edit.kind === 'epson' ? 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. Best on a sticky label printer with no backing paper' : 'A label for each bag of a food order, as it’s ready: the number, the name and the items. A Star printer on CloudPRNT prints no code to scan, so orders labeled here aren’t scanned at handover'} inline>
+          <Row label="Prints bag labels" help={edit.kind === 'epson' ? 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. Best on a sticky label printer with no backing paper' : 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. A Star printer prints the code once it has printed its first slip in the app’s look (most on CloudPRNT do, and Print a test starts it); until then, these aren’t scanned at handover'} inline>
             <Toggle checked={edit.labels} onChange={(v) => E({ labels: v })} label="Prints bag labels" />
           </Row>
           <Row label="Opens the cash drawer" help="A cash drawer plugged into this printer opens for a cash sale, with or without a receipt" inline>
@@ -148,7 +148,7 @@ export default function PrintersSettings() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <p className="text-[15.5px] font-semibold">{p.name}</p>
-                <p className="text-[13.5px] cf-muted">{p.kind === 'star' ? 'Star' : 'Epson'}. Prints {p.prints}</p>
+                <p className="text-[13.5px] cf-muted">{p.kind === 'star' ? 'Star' : 'Epson'}. Prints {p.prints}{p.kind === 'star' && !p.pictures ? ', in plain type until it prints its first slip in the app’s look. Print a test to start it' : ''}</p>
                 <p className="mt-1 flex items-center gap-2 text-[13.5px] font-semibold" style={{ color: p.ok ? GREEN : AMBER }}><span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ background: p.ok ? GREEN : AMBER }} />{p.words}</p>
               </div>
               {manager && <button type="button" onClick={() => { setEdit(editOf(p)); setMsg(''); }} className="min-h-[44px] rounded-full border px-4 text-[14px] font-semibold" style={{ borderColor: 'var(--line)' }}>Change</button>}

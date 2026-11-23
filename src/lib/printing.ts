@@ -4,6 +4,10 @@
 //   - Epson printers on Server Direct Print: ePOS-Print XML (renderEpos), with big headings, the allergy line printed
 //     white on black, and a QR code for paying at the table;
 //   - a tablet's own print dialog (renderHtml), for a business without a networked printer.
+//   In the app's look (design board "Stickers, labels, receipts and tickets in the app's look", A: quiet and bold): a
+//   printer that prints pictures is sent each slip drawn in the app's typeface (lib/print-picture): the business's
+//   initial in a black tile, the number big and heavy, thin rules, the allergy in a black band, black and white only.
+//   Epson printers always; a Star printer on CloudPRNT when it asks for one (most do). Otherwise these letters.
 // What's printed:
 //   - kitchen tickets, by themselves, at the station that makes them (one slip a table's course or an order);
 //   - "Taken off" when something already printed is taken off a table's tab;
@@ -42,14 +46,21 @@ export function cleanPrinter(raw: any): PrinterSettings {
 }
 
 export type Block =
-  | { k: 'head'; left: string; right?: string }
+  /** The business, at the top of what a guest takes home: its initial in a black tile, and its name. */
+  | { k: 'brand'; name: string }
+  /** `mark`: the business's initial in a black tile before the number (a sticker). */
+  | { k: 'head'; left: string; right?: string; mark?: string }
   | { k: 'text'; text: string; bold?: boolean; center?: boolean }
   | { k: 'item'; qty: number; name: string; sub?: string[] }
   | { k: 'money'; left: string; right: string; bold?: boolean }
   | { k: 'alert'; text: string }
   | { k: 'rule' }
   | { k: 'qr'; data: string };
-export type PrintDoc = { blocks: Block[]; buzz?: boolean; drawer?: boolean };
+export type PrintDoc = { blocks: Block[]; buzz?: boolean; drawer?: boolean;
+  /** Drawn as a picture: the code beside the top of the slip (a label or sticker), not under it. */
+  qrBeside?: boolean };
+/** A business's initial, for its tile. */
+export const initialOf = (name: unknown) => (String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().match(/[A-Za-z0-9]/)?.[0] || '').toUpperCase();
 
 /** Plain letters for a printer's own font: curly quotes straight, accents off, and "?" for a letter it can't print
  *  (never just left out, so a line can't look emptier than what was typed). */
@@ -88,6 +99,7 @@ export function renderText(doc: PrintDoc, cols: number): string {
   const out: string[] = [];
   for (const b of doc.blocks) {
     if (b.k === 'rule') out.push('-'.repeat(cols));
+    else if (b.k === 'brand') out.push(...centered(ascii(b.name), cols));
     else if (b.k === 'head') out.push(...(b.right ? pair(ascii(b.left), ascii(b.right), cols) : wrap(ascii(b.left), cols)));
     else if (b.k === 'text') out.push(...(b.center ? centered(ascii(b.text), cols) : wrap(ascii(b.text), cols)));
     else if (b.k === 'item') { out.push(...wrap(`${b.qty}  ${ascii(b.name)}`, cols, '   ')); for (const x of b.sub || []) out.push(...wrap(ascii(x), cols - 3).map((l) => `   ${l}`)); }
@@ -109,6 +121,7 @@ export function renderEpos(doc: PrintDoc, cols: number): string {
   const out: string[] = [pulse, '<text lang="en" smooth="true"/>'];
   for (const b of doc.blocks) {
     if (b.k === 'rule') out.push(t('-'.repeat(cols)));
+    else if (b.k === 'brand') out.push('<text align="center"/>', t(ascii(b.name), { em: true }), plain);
     else if (b.k === 'head') { out.push(t(ascii(b.left), { dw: true, dh: true, em: true }), plain); if (b.right) out.push(t(ascii(b.right))); }
     else if (b.k === 'text') { out.push(b.center ? '<text align="center"/>' : '', t(ascii(b.text), b.bold ? { em: true } : {}), plain); }
     else if (b.k === 'item') { out.push(t(`${b.qty}  ${ascii(b.name)}`, { dh: true, em: true }), plain); for (const s of b.sub || []) out.push(t(`   ${ascii(s)}`)); }
@@ -120,17 +133,27 @@ export function renderEpos(doc: PrintDoc, cols: number): string {
   return `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${out.filter(Boolean).join('')}</epos-print>`;
 }
 
+/** ePOS-Print XML for a slip drawn as a picture (lib/print-picture): the cash drawer first (as for its letters), its
+ *  rows of black and white dots, one bit a dot, then the cut. */
+export function eposPicture(pic: { width: number; height: number; bits: string }, doc: PrintDoc): string {
+  const pulse = doc.drawer ? '<pulse drawer="drawer_1" time="pulse_100"/>' : '';
+  return `<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${pulse}<text align="center"/><image width="${pic.width}" height="${pic.height}" color="color_1" mode="mono">${pic.bits}</image><feed line="3"/><cut type="feed"/></epos-print>`;
+}
+
 const h = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** A page for a tablet's own print dialog (a receipt printer set up on the tablet). */
 export function renderHtml(doc: PrintDoc, o: { font: string; fontHref: string; mm?: number }): string {
   const mm = o.mm || 80;
   const body = doc.blocks.map((b) => {
-    if (b.k === 'rule') return '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
-    if (b.k === 'head') return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><b style="font-size:20px">${h(b.left)}</b>${b.right ? `<span>${h(b.right)}</span>` : ''}</div>`;
-    if (b.k === 'text') return `<div style="${b.center ? 'text-align:center;' : ''}${b.bold ? 'font-weight:700;' : ''}">${h(b.text)}</div>`;
-    if (b.k === 'item') return `<div style="font-size:15px;font-weight:700">${b.qty}&nbsp;&nbsp;${h(b.name)}</div>${(b.sub || []).map((s) => `<div style="padding-left:18px">${h(s)}</div>`).join('')}`;
-    if (b.k === 'money') return `<div style="display:flex;justify-content:space-between;${b.bold ? 'font-weight:700;font-size:14px;' : ''}"><span>${h(b.left)}</span><span>${h(b.right)}</span></div>`;
-    if (b.k === 'alert') return `<div style="background:#000;color:#fff;font-weight:700;padding:2px 4px;margin:2px 0">${h(b.text)}</div>`;
+    // (The same quiet, bold look as a printer's picture: lib/print-picture.)
+    const tile = (c: string, px: number) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:${px}px;height:${px}px;border-radius:${Math.round(px / 4)}px;background:#000;color:#fff;font-weight:800;font-size:${Math.round(px * 0.55)}px;flex-shrink:0">${h(c)}</span>`;
+    if (b.k === 'rule') return '<hr style="border:none;border-top:1.5px solid #000;margin:8px 0;">';
+    if (b.k === 'brand') return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">${initialOf(b.name) ? tile(initialOf(b.name), 22) : ''}<b style="font-size:14px">${h(b.name)}</b></div>`;
+    if (b.k === 'head') return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">${b.mark ? tile(b.mark, 26) : ''}<b style="font-size:30px;font-weight:800;letter-spacing:-0.02em;line-height:1.05;flex:1">${h(b.left)}</b>${b.right ? `<span style="font-weight:700;font-size:13px">${h(b.right)}</span>` : ''}</div>`;
+    if (b.k === 'text') return `<div style="${b.center ? 'text-align:center;' : ''}${b.bold ? 'font-weight:700;font-size:14px;' : 'font-weight:500;'}">${h(b.text)}</div>`;
+    if (b.k === 'item') return `<div style="display:flex;gap:10px;font-size:15px;font-weight:700;margin-top:3px"><span style="font-weight:800;min-width:14px">${b.qty}</span><span>${h(b.name)}${(b.sub || []).map((s) => `<span style="display:block;font-weight:500;font-size:12px">${h(s)}</span>`).join('')}</span></div>`;
+    if (b.k === 'money') return `<div style="display:flex;justify-content:space-between;${b.bold ? 'font-weight:800;font-size:17px;margin-top:4px;' : 'font-weight:500;'}"><span>${h(b.left)}</span><span>${h(b.right)}</span></div>`;
+    if (b.k === 'alert') return `<div style="background:#000;color:#fff;font-weight:700;padding:5px 9px;margin:4px 0;border-radius:8px">${h(b.text)}</div>`;
     return `<div style="text-align:center;word-break:break-all;font-size:10px">${h(b.data)}</div>`;
   }).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print</title><link href="${o.fontHref}" rel="stylesheet"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:${o.font};font-size:12px;line-height:1.45;font-variant-numeric:tabular-nums;width:${mm - 8}mm;padding:4px 6px;background:#fff;color:#000;}@media print{@page{margin:0;size:${mm}mm auto;}body{width:${mm}mm;}}</style></head><body>${body}<div style="height:16px"></div></body></html>`;
@@ -219,8 +242,8 @@ export function checkDoc(c: { business: string; table: string; name: string; siz
   payUrl: string | null; at: string; tz: string | null }): PrintDoc {
   const groups = new Map<string, { qty: number; name: string; each: number; comped: boolean }>();
   for (const l of c.lines) { const k = `${l.name}|${l.price}|${l.comped}`; const g = groups.get(k); if (g) g.qty += 1; else groups.set(k, { qty: 1, name: l.name, each: l.price, comped: l.comped }); }
-  const blocks: Block[] = [{ k: 'text', text: c.business, center: true, bold: true }, { k: 'text', text: `${c.table}. ${c.name}, ${c.size}`, center: true },
-    { k: 'text', text: `${dayIn(c.at, c.tz)}, ${clockIn(c.at, c.tz)}`, center: true }, { k: 'rule' }];
+  const blocks: Block[] = [{ k: 'brand', name: c.business }, { k: 'text', text: `${c.table}. ${c.name}, ${c.size}` },
+    { k: 'text', text: `${dayIn(c.at, c.tz)}, ${clockIn(c.at, c.tz)}` }, { k: 'rule' }];
   for (const g of groups.values()) blocks.push({ k: 'money', left: `${g.qty}  ${g.name}`, right: g.comped ? 'On the house' : money(g.each * g.qty) });
   blocks.push({ k: 'rule' }, { k: 'money', left: 'Subtotal', right: money(c.subtotal) });
   if (c.discount > 0) blocks.push({ k: 'money', left: 'Discount', right: money(-c.discount) });
@@ -251,8 +274,8 @@ export function printsWords(p: PrinterSettings): string {
  *  `drawer`: open the cash drawer with it. */
 export function receiptDoc(r: any, o: { business: string; address?: string | null; tz: string | null; url?: string | null; drawer?: boolean }): PrintDoc {
   const D = r?.detail || {}; const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
-  const blocks: Block[] = [{ k: 'text', text: o.business, center: true, bold: true }];
-  if (o.address) blocks.push({ k: 'text', text: o.address, center: true });
+  const blocks: Block[] = [{ k: 'brand', name: o.business }];
+  if (o.address) blocks.push({ k: 'text', text: o.address });
   blocks.push({ k: 'rule' });
   const where = r?.source === 'counter' ? [r.channel === 'drive-thru' ? 'Drive-thru' : r.toGo ? 'To go' : r.channel === 'counter' ? 'For here' : String(r.channelName || '')].filter(Boolean)[0] : '';
   if (r?.orderNumber) blocks.push({ k: 'head', left: String(r.orderNumber), right: where || undefined });

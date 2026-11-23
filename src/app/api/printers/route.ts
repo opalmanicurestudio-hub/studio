@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'list') {
     const list = await printersOf(db, T); const now = Date.now();
-    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer, labels: p.labels, stickers: p.stickers,
+    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer, labels: p.labels, stickers: p.stickers, pictures: p.pictures === true,
       prints: printsWords(p), ...printerState(p, now, tz), ...(manager ? { url: printerUrl(origin, tenantId, p) } : {}) })) });
   }
   if (action === 'after') {

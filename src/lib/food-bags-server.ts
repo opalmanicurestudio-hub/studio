@@ -12,7 +12,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkBagCode, makeBagCode } from '@/lib/order-qr';
 import { parseBagCode } from '@/lib/bag-tag';
-import { printersCached, queueJob, type Printer } from '@/lib/printing-server';
+import { printersCached, printsCodes, queueJob, type Printer } from '@/lib/printing-server';
 import { bagsLeft, bagsOf, clampBags, defaultBags, labelDoc, labelOf, type BagLabel } from '@/lib/food-bags';
 import { stickersLeft, stickersToScan, stickersWords } from '@/lib/item-stickers';
 import { isStickerCode, scanSticker } from '@/lib/item-stickers-server';
@@ -39,7 +39,7 @@ export async function printLabels(db: any, tenantId: string, orderId: string, o:
   const printer = o.here ? null : await labelPrinter(db, T);
   if (!o.here && !printer) return fail('No printer prints bag labels yet. Print them here, or turn on Prints bag labels for a printer in Settings, Printers.', 409);
   // (A label printed on a Star printer on CloudPRNT is words only: it can't be scanned, so the order goes as before.)
-  const coded = !!o.here || printer?.kind === 'epson';
+  const coded = !!o.here || printsCodes(printer);
   const ref = db.doc(`${T}/counterOrders/${orderId}`);
   const r: any = await db.runTransaction(async (tx: any) => {
     const or: any = (await tx.get(ref)).data();
@@ -54,7 +54,8 @@ export async function printLabels(db: any, tenantId: string, orderId: string, o:
   });
   if (r.ok === false) return r;
   if (r.already) return { ok: true, already: true, count: bagsOf(r.or)!.count, coded: bagsOf(r.or)!.coded, printer: null, labels: [] };
-  const labels = Array.from({ length: r.count }, (_, i) => labelOf(r.or, i + 1, r.count, coded ? makeBagCode(tenantId, orderId, i + 1) : null));
+  const biz: any = (await db.doc(T).get()).data() || {};
+  const labels = Array.from({ length: r.count }, (_, i) => labelOf(r.or, i + 1, r.count, coded ? makeBagCode(tenantId, orderId, i + 1) : null, String(biz.name || biz.businessName || '') || null));
   if (printer) for (const l of labels) await queueJob(db, T, printer.id, 'label', labelDoc(l), { orderId });
   return { ok: true, count: r.count, coded, printer: printer?.name || null, labels: o.here ? labels : [] };
 }

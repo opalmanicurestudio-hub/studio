@@ -77,10 +77,11 @@ export function stickersAfter(order: any, tickets: { id: string; quantity: numbe
 }
 
 /** What one sticker says ("1 of 2": two of the same item, numbered; one alone, not). */
-export type StickerLabel = { number: string; name: string | null; item: string; sub: string[]; allergy: string[]; n: number; of: number; code: string | null };
+export type StickerLabel = { number: string; name: string | null; item: string; sub: string[]; allergy: string[]; n: number; of: number; code: string | null;
+  /** The business's initial, in a black tile before the number. */ mark?: string | null };
 /** One item's sticker, from its kitchen ticket as the kitchen reads it (lib/kitchen ticketFrom). */
-export function stickerOf(order: any, t: { item: string; choiceList: string[]; note: string | null }, allergy: string[], n: number, of: number, code: string | null): StickerLabel {
-  return {
+export function stickerOf(order: any, t: { item: string; choiceList: string[]; note: string | null }, allergy: string[], n: number, of: number, code: string | null, mark: string | null = null): StickerLabel {
+  return { mark: mark ? String(mark).slice(0, 1) : null,
     number: clip(order?.number, 12), name: clip(order?.guestName, 60).split(' ')[0]?.slice(0, 30) || null,
     item: clip(t.item, 60) || 'Item', sub: [t.choiceList.length ? clip(t.choiceList.join(', '), 120) : '', t.note ? `Note: ${clip(t.note, 140)}` : ''].filter(Boolean),
     allergy: allergy.slice(0, 3), n, of, code,
@@ -91,12 +92,15 @@ export const stickerName = (t: { item: string; choiceList: string[] }) => clip(t
 
 /** One sticker, for a printer (lib/printing): one slip, cut after it. */
 export function stickerDoc(l: StickerLabel): PrintDoc {
-  const blocks: Block[] = [{ k: 'head', left: l.number || 'Order', right: l.name || undefined }, { k: 'text', text: l.item, bold: true }];
+  const blocks: Block[] = [{ k: 'head', left: l.number || 'Order', ...(l.mark ? { mark: l.mark } : {}) }];
+  if (l.name) blocks.push({ k: 'text', text: l.name, bold: true });
+  blocks.push({ k: 'text', text: l.item, bold: true });
   for (const s of l.sub) blocks.push({ k: 'text', text: s });
-  for (const a of l.allergy) blocks.push({ k: 'alert', text: a });
   if (l.of > 1) blocks.push({ k: 'text', text: `${l.n} of ${l.of}` });
+  for (const a of l.allergy) blocks.push({ k: 'alert', text: a });
   if (l.code) blocks.push({ k: 'qr', data: l.code });
-  return { blocks, buzz: false };
+  // (Drawn as a picture, the code sits beside it.)
+  return { blocks, buzz: false, qrBeside: true };
 }
 
 /** A sticker's code, read without checking it (the server checks): which order and item it says it's for. */

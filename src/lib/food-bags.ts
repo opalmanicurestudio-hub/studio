@@ -78,12 +78,14 @@ export function wayWords(order: any): string {
   return 'Counter';
 }
 
-export type BagLabel = { number: string; name: string | null; way: string; n: number; of: number; items: { qty: number; name: string; sub: string[] }[]; allergy: string | null; code: string | null };
+export type BagLabel = { number: string; name: string | null; way: string; n: number; of: number; items: { qty: number; name: string; sub: string[] }[]; allergy: string | null; code: string | null;
+  /** The business's name, at the top (its initial in a black tile, when drawn in the app's look: lib/print-picture). */
+  business?: string | null };
 
 /** What one bag's label says. `code`: the bag's signed code (none for a printer that can't print one). */
-export function labelOf(order: any, n: number, of: number, code: string | null): BagLabel {
+export function labelOf(order: any, n: number, of: number, code: string | null, business: string | null = null): BagLabel {
   const a = allergyWords(orderAllergyOf(order));
-  return {
+  return { business: business ? String(business).slice(0, 60) : null,
     number: String(order?.number || '').slice(0, 12), name: String(order?.guestName || '').trim().split(/\s+/)[0]?.slice(0, 30) || null, way: wayWords(order), n, of,
     items: bagLines(order).slice(0, 30).map((l: any) => ({ qty: Math.max(1, n0(l.quantity) || 1), name: String(l.name || 'Item').slice(0, 60),
       sub: [l.choicesText ? String(l.choicesText).slice(0, 120) : null, l.note ? `Note: ${String(l.note).slice(0, 140)}` : null].filter(Boolean) as string[] })),
@@ -93,11 +95,13 @@ export function labelOf(order: any, n: number, of: number, code: string | null):
 
 /** One bag's label, for a printer (lib/printing): one slip, cut after it. */
 export function labelDoc(l: BagLabel): PrintDoc {
-  const blocks: Block[] = [{ k: 'head', left: l.number || 'Order', right: l.way }];
+  const blocks: Block[] = l.business ? [{ k: 'brand', name: l.business }] : [];
+  blocks.push({ k: 'head', left: l.number || 'Order' });
   if (l.name) blocks.push({ k: 'text', text: l.name, bold: true });
-  blocks.push({ k: 'text', text: bagName(l.n, l.of) }, { k: 'rule' });
+  blocks.push({ k: 'text', text: `${l.way}, ${bagName(l.n, l.of).toLowerCase()}` }, { k: 'rule' });
   for (const it of l.items) blocks.push({ k: 'item', qty: it.qty, name: it.name, sub: it.sub });
   if (l.allergy) blocks.push({ k: 'alert', text: l.allergy });
   if (l.code) blocks.push({ k: 'qr', data: l.code });
-  return { blocks, buzz: false };
+  // (Drawn as a picture, the code sits beside the number and name.)
+  return { blocks, buzz: false, qrBeside: true };
 }

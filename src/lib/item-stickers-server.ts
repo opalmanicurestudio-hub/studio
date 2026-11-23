@@ -11,8 +11,8 @@ import { checkItemCode, makeItemCode } from '@/lib/order-qr';
 import { parseItemCode, stickerDoc, stickerOf, stickersLeft, stickersOf, ticketOfKey } from '@/lib/item-stickers';
 import { bagsLeft } from '@/lib/food-bags';
 import { ticketFrom } from '@/lib/kitchen';
-import { allergyLines } from '@/lib/printing';
-import { printersCached, queueJob } from '@/lib/printing-server';
+import { allergyLines, initialOf } from '@/lib/printing';
+import { printersCached, printsCodes, queueJob } from '@/lib/printing-server';
 import { stationsOf } from '@/lib/table-service';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -75,7 +75,7 @@ export async function printStickerAgain(db: any, tenantId: string, orderId: stri
     if (cur.status !== 'sent') return fail(cur.status === 'done' ? 'That order was already handed over.' : 'That order isn’t with the kitchen.', 409);
     const s = stickersOf(cur); const i = s ? s.list.findIndex((x) => x.k === k) : -1;
     if (!s || i < 0) return fail('That item was taken off the order.', 409);
-    const coded = printer.kind === 'epson';
+    const coded = printsCodes(printer);
     const list = s.list.map((x, j) => (j === i ? { ...x, v: x.v + 1, c: coded } : x));
     tx.set(ref, { stickers: { list, scanned: s.scanned.filter((x) => x !== k), reprinted: { [k.replace('.', '_')]: { by: String(by || '').slice(0, 60), at: new Date().toISOString() } } } }, { merge: true });
     return { ok: true, one: list[i], cur };
@@ -84,7 +84,7 @@ export async function printStickerAgain(db: any, tenantId: string, orderId: stri
   const view = ticketFrom({ ...raw, id: ticketId }, 'kdsTickets');
   const code = r.one.c ? makeItemCode(tenantId, orderId, k, r.one.v) : null;
   // (Numbered as it was: its unit of the item's quantity.)
-  await queueJob(db, T, printer.id, 'sticker', stickerDoc(stickerOf(r.cur, view, allergyLines([view]), Number(k.slice(k.lastIndexOf('.') + 1)), view.quantity, code)), { orderId, stickerKey: k });
+  await queueJob(db, T, printer.id, 'sticker', stickerDoc(stickerOf(r.cur, view, allergyLines([view]), Number(k.slice(k.lastIndexOf('.') + 1)), view.quantity, code, initialOf((tn.data() || {}).name || (tn.data() || {}).businessName))), { orderId, stickerKey: k });
   return { ok: true, name: r.one.name, printer: printer.name };
 }
 

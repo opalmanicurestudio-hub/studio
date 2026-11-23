@@ -49,7 +49,7 @@ const nowS = () => new Date().toISOString();
   check('a label: the number, how it’s going out, the first name only, the bag, every item with its choices and notes, the allergy and the code', l.number === 'D15' && l.way === 'Drive-thru' && l.name === 'Maria' && l.n === 2 && l.of === 3
     && l.items.length === 1 && l.items[0].qty === 2 && l.items[0].sub.join('|') === 'No cheese|Note: Extra crispy' && /^Allergy: Peanuts/.test(String(l.allergy)) && /severe/.test(String(l.allergy)) && !!l.code, l);
   const doc = F.labelDoc(l);
-  check('…printed: the code as a QR block, the allergy set off; with no code, none', doc.blocks.some((b: any) => b.k === 'qr' && b.data === l.code) && doc.blocks.some((b: any) => b.k === 'alert') && doc.blocks.some((b: any) => b.k === 'text' && b.text === 'Bag 2 of 3')
+  check('…printed: the code as a QR block, the allergy set off; with no code, none', doc.blocks.some((b: any) => b.k === 'qr' && b.data === l.code) && doc.blocks.some((b: any) => b.k === 'alert') && doc.blocks.some((b: any) => b.k === 'text' && b.text === 'Drive-thru, bag 2 of 3')
     && !F.labelDoc({ ...l, code: null }).blocks.some((b: any) => b.k === 'qr'));
   check('how it’s going out, for each way', F.wayWords({ channel: 'counter' }) === 'Counter' && F.wayWords({ channel: 'kiosk' }) === 'Kiosk' && F.wayWords({ channel: 'ahead', ahead: { way: 'curbside' } }) === 'Curbside'
     && F.wayWords({ channel: 'ahead', ahead: { way: 'delivery' } }) === 'Delivery' && F.wayWords({ channel: 'counter', app: { label: 'DoorDash', code: '4F2A' } }) === 'DoorDash 4F2A');

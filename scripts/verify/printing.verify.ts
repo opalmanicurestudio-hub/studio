@@ -72,7 +72,7 @@ const iso = (t: number) => new Date(t).toISOString();
   check('a word longer than the paper is broken across lines, never cut short', long.split('\n').every((l) => l.length <= 32) && long.replace(/\n/g, '').includes('x'.repeat(70)), long);
   const odd = P.renderText({ blocks: [{ k: 'alert', text: 'Allergy, seat 1: 胡麻' }] }, 48);
   check('an allergy in letters the printer can’t print: marked, and pointed to the screen', /: \? \(see the screen\) <<$/m.test(odd) && /^>> /m.test(odd), odd);
-  check('…and as a page for a tablet’s own print dialog', /<b style="font-size:20px">Table 4<\/b>/.test(P.renderHtml(doc, { font: 'x', fontHref: 'y' })) && /@page\{margin:0;size:80mm auto;\}/.test(P.renderHtml(doc, { font: 'x', fontHref: 'y' })));
+  check('…and as a page for a tablet’s own print dialog', /<b style="font-size:30px;font-weight:800;letter-spacing:-0\.02em;line-height:1\.05;flex:1">Table 4<\/b>/.test(P.renderHtml(doc, { font: 'x', fontHref: 'y' })) && /@page\{margin:0;size:80mm auto;\}/.test(P.renderHtml(doc, { font: 'x', fontHref: 'y' })));
 
   console.log('which tickets');
   const PS = await import('../../src/lib/printing-server');
@@ -111,14 +111,23 @@ const iso = (t: number) => new Date(t).toISOString();
   await db.doc(`${T}/printers/${kpId}`).set({ addedAt: ago(30) }, { merge: true }); PS.forgetPrinter(T, kpId); void added;
   r = await Star.POST(preq({ json: { statusCode: '200%20OK', printerMAC: '00:11:62:aa:bb:cc', printingInProgress: false } }), ctx(kpId, kp.key));
   const job1 = r.body.jobToken;
-  check('it asks: a slip is ready, as plain text', r.body.jobReady === true && r.body.mediaTypes.join() === 'text/plain' && !!job1);
+  check('it asks: a slip is ready, as a picture or else plain text', r.body.jobReady === true && r.body.mediaTypes.join() === 'image/png,text/plain' && !!job1);
   const k1 = await get(`${T}/kdsTickets/k1`); const b1 = await get(`${T}/kdsTickets/b1`);
   check('…the tickets are marked printed by it, in the same save; the bar’s isn’t', k1.printed[kpId].job === job1 && !!(await get(`${T}/kdsTickets/k2`)).printed[kpId] && !b1.printed);
   check('…and what it said about itself is kept', (await get(`${T}/printers/${kpId}`)).statusCode === '200 OK' && !!(await get(`${T}/printers/${kpId}`)).lastSeenAt);
   r = await Star.GET(preq({ query: `mac=00%3A11&type=text%2Fplain&token=${job1}` }), ctx(kpId, kp.key));
   check('it fetches the slip: the table, the dishes, the allergy; cut after, a beep', r.status === 200 && /Table 4/.test(r.body) && /2  Ribeye/.test(r.body) && /tree nuts, severe/.test(r.body) && r.headers['X-Star-Cut'] === 'partial; feed=true' && r.headers['X-Star-Buzzerstartpattern'] === '1', r.body);
   r = await Star.GET(preq({ query: `type=image%2Fpng&token=${job1}` }), ctx(kpId, kp.key));
-  check('…only as text', r.status === 415);
+  const png = r.body instanceof Uint8Array ? Buffer.from(r.body) : null;
+  check('…or as a picture in the app’s look (a PNG at the printer’s width), and the printer is kept as one that prints pictures', r.status === 200 && r.headers['Content-Type'] === 'image/png' && !!png && png.subarray(1, 4).toString() === 'PNG' && png.readUInt32BE(16) === 576
+    && (await get(`${T}/printers/${kpId}`)).pictures === true && r.headers['X-Star-Cut'] === 'partial; feed=true', { status: r.status, type: r.headers['Content-Type'] });
+  r = await Star.GET(preq({ query: `type=application%2Fpdf&token=${job1}` }), ctx(kpId, kp.key));
+  check('…nothing else', r.status === 415);
+  await PS.noPictureFor(db, T, job1);
+  r = await Star.POST(preq({ json: { statusCode: '200%20OK' } }), ctx(kpId, kp.key));
+  const asText: any = await Star.GET(preq({ query: `type=image%2Fpng&token=${job1}` }), ctx(kpId, kp.key));
+  check('a slip that couldn’t be drawn is kept so on the slip (whichever server the printer asks next): offered as text only', r.body.jobToken === job1 && r.body.mediaTypes.join() === 'text/plain' && asText.headers['Content-Type'] === 'text/plain' && /Ribeye/.test(asText.body), r.body);
+  await db.doc(`${T}/printJobs/${job1}`).set({ noPicture: false }, { merge: true });
   r = await Star.POST(preq({ json: { statusCode: '200%20OK', jobToken: job1, printingInProgress: true } }), ctx(kpId, kp.key));
   check('busy printing: nothing new', r.body.jobReady === false);
   r = await Star.DELETE(preq({ query: `code=200%20OK&token=${job1}` }), ctx(kpId, kp.key));
@@ -126,6 +135,10 @@ const iso = (t: number) => new Date(t).toISOString();
   PS.forgetPending(T);
   r = await Star.POST(preq({ json: { statusCode: '200%20OK' } }), ctx(kpId, kp.key));
   check('…and the same tickets never print twice', r.body.jobReady === false);
+  const dj = await PS.queueJob(db, T, kpId, 'drawer', P.drawerDoc());
+  r = await Star.POST(preq({ json: { statusCode: '200%20OK' } }), ctx(kpId, kp.key));
+  check('only the cash drawer to open: offered as text only (there’s nothing to draw)', r.body.jobToken === dj && r.body.mediaTypes.join() === 'text/plain', r.body);
+  await Star.DELETE(preq({ query: `code=200%20OK&token=${dj}` }), ctx(kpId, kp.key)); PS.forgetPending(T);
 
   console.log('when it goes wrong');
   await db.doc(`${T}/kdsTickets/k2`).set({ allergies: [{ name: 'Tree nuts', severity: 'severe' }, { name: 'Sesame' }] }, { merge: true }); PS.forgetPending(T);
@@ -163,7 +176,8 @@ const iso = (t: number) => new Date(t).toISOString();
   await db.doc(`${T}/printers/${bpId}`).set({ addedAt: ago(30) }, { merge: true }); PS.forgetPrinter(T, bpId);
   r = await Ep.POST(preq({ text: 'ConnectionType=GetRequest&ID=' }), ctx(bpId, bp.key));
   const pj = (String(r.body).match(/<printjobid>([^<]+)<\/printjobid>/) || [])[1];
-  check('it asks: the bar’s ticket, as ePOS-Print XML', r.status === 200 && /^<\?xml version="1\.0" encoding="utf-8"\?><PrintRequestInfo Version="2\.00"><ePOSPrint><Parameter><devid>local_printer<\/devid>/.test(String(r.body)) && /Negroni/.test(String(r.body)) && !!pj
+  check('it asks: the bar’s ticket, as ePOS-Print XML, drawn as a picture in the app’s look', r.status === 200 && /^<\?xml version="1\.0" encoding="utf-8"\?><PrintRequestInfo Version="2\.00"><ePOSPrint><Parameter><devid>local_printer<\/devid>/.test(String(r.body)) && /<image width="\d+" height="\d+" color="color_1" mode="mono">[A-Za-z0-9+/=]+<\/image><feed line="3"\/><cut type="feed"\/>/.test(String(r.body))
+    && JSON.stringify((await get(`${T}/printJobs/${pj}`))?.doc).includes('Negroni') && !!pj
     && r.headers['Content-Type'] === 'text/xml; charset=utf-8', r.body);
   r = await Ep.POST(preq({ text: `ConnectionType=SetResponse&ID=&ResponseFile=${encodeURIComponent(`<PrintResponseInfo Version="2.00"><ePOSPrint><Parameter><devid>local_printer</devid><printjobid>${pj}</printjobid></Parameter><PrintResponse><response success="true" code="" status="251658262" battery="0"/></PrintResponse></ePOSPrint></PrintResponseInfo>`)}` }), ctx(bpId, bp.key));
   check('…it says it printed: done', r.status === 200 && (await get(`${T}/printJobs/${pj}`)).status === 'done');

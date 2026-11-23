@@ -1,15 +1,20 @@
 // src/app/api/printer/epson/[tenantId]/[printerId]/[key]/route.ts — AN EPSON PRINTER ON SERVER DIRECT PRINT
 // (lib/printing-server). The printer is given this address once (Printers settings) and from then on asks every few
 // seconds, as a form:
-//   ConnectionType=GetRequest  → nothing (an empty answer), or one slip as ePOS-Print XML in a PrintRequestInfo.
+//   ConnectionType=GetRequest  → nothing (an empty answer), or one slip as ePOS-Print XML in a PrintRequestInfo: drawn
+//                                as a picture in the app's look (lib/print-picture), or in the printer's own letters if
+//                                that can't be drawn.
 //   ConnectionType=SetResponse → how it went (ResponseFile): printed, or not (tried again a few times).
 // No sign-in: the address itself, with its secret key, is the printer's pass. A wrong one is told nothing.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { renderEpos } from '@/lib/printing';
+import { eposPicture, renderEpos } from '@/lib/printing';
+import { dotsFor, slipPicture } from '@/lib/print-picture';
 import { fromOf, heard, jobDone, jobOf, inMemory, keyOk, missed, nextJob, printerOf, tooManyMisses } from '@/lib/printing-server';
 
 export const dynamic = 'force-dynamic';
+// (The picture is drawn with Node's own modules.)
+export const runtime = 'nodejs';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Ctx = { params: Promise<{ tenantId: string; printerId: string; key: string }> };
 const empty = () => new NextResponse(null, { status: 200, headers: { 'Content-Length': '0' } });
@@ -39,6 +44,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const j = await nextJob(db, T, async () => (await db.doc(T).get()).data() || {}, p).catch((e) => { console.error('[printer epson] next', e); return null; });
   const job = j ? await jobOf(db, T, p, j.id) : null;
   if (!job) return empty();
-  const xml = `<?xml version="1.0" encoding="utf-8"?><PrintRequestInfo Version="2.00"><ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout><printjobid>${job.id}</printjobid></Parameter><PrintData>${renderEpos(p.drawer ? job.doc : { ...job.doc, drawer: false }, p.cols)}</PrintData></ePOSPrint></PrintRequestInfo>`;
+  const doc = p.drawer ? job.doc : { ...job.doc, drawer: false };
+  const pic = await slipPicture(doc, dotsFor(p.cols), job.id).catch((e) => { console.error('[printer epson] picture', e?.message || e); return null; });
+  const xml = `<?xml version="1.0" encoding="utf-8"?><PrintRequestInfo Version="2.00"><ePOSPrint><Parameter><devid>local_printer</devid><timeout>10000</timeout><printjobid>${job.id}</printjobid></Parameter><PrintData>${pic ? eposPicture(pic, doc) : renderEpos(doc, p.cols)}</PrintData></ePOSPrint></PrintRequestInfo>`;
   return new NextResponse(xml, { status: 200, headers: { 'Content-Type': 'text/xml; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
