@@ -41,6 +41,14 @@ export function defaultBags(order: any): number {
   return clampBags(Math.ceil(Math.max(1, items) / ITEMS_PER_BAG));
 }
 
+/** Why a manager let an order go without everything scanned (kept on the order, and on the record). */
+export const SKIP_REASONS = [{ id: 'wont_scan', label: 'A label or sticker won’t scan' }, { id: 'printer', label: 'The printer is down' }, { id: 'other', label: 'Something else' }] as const;
+export const skipReasonOf = (v: unknown): string => SKIP_REASONS.find((r) => r.id === v)?.label || 'Not said';
+/** One of the reasons (a skip without one is refused). */
+export const isSkipReason = (v: unknown) => SKIP_REASONS.some((r) => r.id === v);
+/** The reason in the middle of a sentence: "the printer is down". */
+export const reasonWords = (label: string) => `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+
 /** The business scans bags before they're handed over, unless it turned that off. */
 export const bagCheckOn = (tenant: any) => tenant?.bagCheck?.off !== true;
 

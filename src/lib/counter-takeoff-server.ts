@@ -17,6 +17,7 @@ import { markdownCentsOf, tendersOf, paidPartsOf } from '@/lib/counter-money';
 import { moneyWith } from '@/lib/counter-money-server';
 import { menuLinesOf } from '@/lib/counter-oneoff';
 import { CHANNEL_NAME, type Channel, type OrderLine } from '@/lib/counter-orders';
+import { stickersAfter, stickersOf } from '@/lib/item-stickers';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -129,7 +130,9 @@ export async function takeOffSent(db: any, tenantId: string, tenant: any, orderI
       for (const id of byPart.length ? byPart : [line.itemId]) if (ID.test(id)) takenOffWaste[id] = Math.round(((takenOffWaste[id] || 0) + units) * 1000) / 1000;
     }
     const off = { lineId, name: line.name, qty: q, made, by: who.name, ...(approver ? { approvedBy: approver.name } : {}), at: nowIso };
-    tx.set(ref, { lines: next, subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
+    // Its item stickers (lib/item-stickers): gone with it, or the first ones kept for what's left.
+    const stk = stickersOf(o) ? stickersAfter(o, tix.map((d: any) => { const t: any = d.data() || {}; return { id: String(d.id), quantity: whole ? 0 : Math.max(1, num(t.quantity) - q), cancelled: whole }; })) : null;
+    tx.set(ref, { lines: next, ...(stk ? { stickers: { list: stk.list, scanned: stk.scanned } } : {}), subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
       ...(o.markdown ? { markdown: { ...o.markdown, cents: mdCents } } : {}), stockTaken,
       ...(made ? { takenOffWaste, takenOffWastedQty: num(o.takenOffWastedQty) + q, wastedAt: nowIso } : { takenOffReturnedQty: num(o.takenOffReturnedQty) + returned }),
       // (What's left of what came off the location's own number: a void later gives back no more than that.)

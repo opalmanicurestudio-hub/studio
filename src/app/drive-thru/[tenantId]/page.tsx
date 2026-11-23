@@ -51,7 +51,7 @@ import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
-import { BagLabelsSheet, BagScanSheet, printLabelsHere, type BagWait } from '@/components/drive-thru/BagSheets';
+import { BagLabelsSheet, BagScanSheet, printLabelsHere, scanReplyOf, type BagWait } from '@/components/drive-thru/BagSheets';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -747,12 +747,14 @@ export default function DriveThru() {
   const bagScan = async (code: string) => {
     if (!bagHold) return { ok: false as const, error: 'Pick the car again.' };
     const { d } = await post({ action: 'bagScan', carId: bagHold.carId, code }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
-    return d.ok ? { ok: true as const, orderId: String(d.orderId), n: Number(d.n), left: Array.isArray(d.left) ? d.left : [] } : { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    return scanReplyOf(d);
   };
+  // One item's sticker printed again (a remake, a torn one): lib/item-stickers-server.
+  const stickerAgain = async (orderId: string, k: string) => { if (!bagHold) return { ok: false, error: 'Pick the car again.' }; const { d } = await post({ action: 'sticker', carId: bagHold.carId, orderId, k }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any })); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t print.' }; };
   const bagsDone = () => { if (!bagHold) return; const h = bagHold; setBagHold(null); void act('move-gone', { action: 'move', carId: h.carId, to: 'gone' }, () => setNotice({ text: `Car ${h.number} is on its way.`, tone: 'good' }), undefined, (d) => { if (d.code === 'bags' && Array.isArray(d.bags)) setBagHold({ ...h, waiting: d.bags }); if (d.code === 'allergy') setAllergyHold({ carId: h.carId, number: h.number }); }); };
-  const bagSkip = async (pin: string) => {
+  const bagSkip = async (pin: string, reason: string) => {
     if (!bagHold) return { ok: false, error: 'Pick the car again.' };
-    const { d } = await post({ action: 'move', carId: bagHold.carId, to: 'gone', bagOverride: true, pin }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    const { d } = await post({ action: 'move', carId: bagHold.carId, to: 'gone', bagOverride: true, pin, bagReason: reason }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
     if (!d.ok) return { ok: false, error: d.error || 'That didn’t go through. Try again.' };
     setNotice({ text: `Car ${bagHold.number} was handed over, okayed by a manager.`, tone: 'good' }); setBagHold(null); acted.current++; load(); return { ok: true };
   };
@@ -1264,7 +1266,7 @@ export default function DriveThru() {
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q, note) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined, note); setChoiceFor(null); }} />}
-      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over car ${bagHold.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} onClose={() => setBagHold(null)}
+      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over car ${bagHold.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} onClose={() => setBagHold(null)}
         print={(orderId) => { const o = lane?.orders[orderId]; setBagHold(null); setLabelsFor({ carId: bagHold.carId, orderId, number: o?.number || bagHold.number, start: o?.bags?.of || o?.bagsStart || 1 }); }} />}
       {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.start} printer={lane?.settings?.labelPrinter || null} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}

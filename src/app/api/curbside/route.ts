@@ -6,7 +6,9 @@
 //   out     { tenantId, orderId } → someone's taking it out (ready, and they're here): their page says so
 //   handed  { tenantId, orderId, bagPin? } → handed over: done (each bag's label scanned first, or a manager's PIN)
 //   bags    { tenantId, orderId, count?, here? } → its bag labels printed again, on this device or the bag-label printer
-//   bagScan { tenantId, orderId, code } → one bag's label scanned (lib/food-bags-server)
+//   bagScan { tenantId, orderId, code } → one bag's label, or one item's sticker, scanned (lib/food-bags-server)
+//   sticker { tenantId, orderId, k }     → one item's sticker printed again; the old one stops scanning
+//                                          (lib/item-stickers-server)
 // Renters, who run their own business here, don't see or move the business's orders.
 import { hereOf, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
@@ -15,6 +17,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { cafeCurbside, cafeHanded, cafeOut } from '@/lib/curbside-server';
 import { labelPrinter, printLabels, scanBag } from '@/lib/food-bags-server';
+import { printStickerAgain } from '@/lib/item-stickers-server';
+import { isSkipReason, reasonWords, skipReasonOf } from '@/lib/food-bags';
 import { managerFor } from '@/lib/manager-pin';
 import { logAuditAdmin } from '@/lib/audit';
 
@@ -45,25 +49,27 @@ export async function POST(req: NextRequest) {
   // (Each for a curbside order of this business only: lib/curbside-server checks it's one, and the bag's signed code its
   // order.)
   const isCurb = async () => { const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data(); return !!o && o.channel === 'ahead' && o.ahead?.way === 'curbside'; };
-  if (action === 'bags' || action === 'bagScan') {
+  if (action === 'bags' || action === 'bagScan' || action === 'sticker') {
     if (!(await isCurb())) return fail('This curbside order isn’t here.', 404);
+    if (action === 'sticker') { const s = await printStickerAgain(db, tenantId, orderId, String(b.k || ''), auth.actor.name); return s.ok ? NextResponse.json(s) : fail(s.error, s.status); }
     const r = action === 'bagScan' ? await scanBag(db, tenantId, auth.tenant, [orderId], b.code) : await printLabels(db, tenantId, orderId, { by: auth.actor.name, here: b.here === true, count: b.count });
     return r.ok ? NextResponse.json(r) : fail(r.error, r.status);
   }
   if (action === 'out' || action === 'handed') {
     // A bag that won't scan: a manager lets it go without (signed in as one, or their PIN), kept on the order.
-    let skip: { id: string; name: string } | null = null;
+    let skip: { id: string; name: string; reason: string } | null = null;
     if (action === 'handed' && b.bagOverride === true) {
+      if (!isSkipReason(b.bagReason)) return fail('Say why it’s going without everything scanned.');
       // (Signed in as a manager or the owner: that's them. Otherwise their PIN, with the usual lockout.)
       const m = (auth.actor.isManager || auth.actor.isTenantOwner) && !(auth.actor as any).screen ? { approver: { id: String(auth.actor.uid || ''), name: auth.actor.name } } as Awaited<ReturnType<typeof managerFor>>
         : await managerFor(db, tenantId, auth.actor.uid ? { id: String(auth.actor.uid), name: auth.actor.name } : null, b.pin);
       if (m.error) return NextResponse.json({ ok: false, needsManager: !!m.notManager, error: m.error }, { status: m.notManager ? 403 : m.status || 400 });
-      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager lets it go without every bag scanned. Their PIN, or ask one to.' }, { status: 403 });
-      skip = { id: m.approver.id, name: m.approver.name };
+      if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager lets it go without everything scanned. Their PIN, or ask one to.' }, { status: 403 });
+      skip = { id: m.approver.id, name: m.approver.name, reason: skipReasonOf(b.bagReason) };
     }
     const r: any = action === 'out' ? await cafeOut(db, tenantId, orderId, auth.actor) : await cafeHanded(db, tenantId, orderId, auth.actor, { tenant: auth.tenant, skip });
     // A manager let it go without every bag scanned: on the record, as at the counter.
-    if (r.ok && r.skippedBags && skip) await logAuditAdmin(db, tenantId, { action: 'curbside.bags_skipped', targetType: 'order', targetId: orderId, summary: `${skip.name} let a curbside order go without every bag scanned${skip.name !== auth.actor.name ? ` (at ${auth.actor.name}’s screen)` : ''}.`, actor: { type: 'user', id: skip.id || 'curbside', name: skip.name } } as any).catch(() => {});
+    if (r.ok && r.skippedBags && skip) await logAuditAdmin(db, tenantId, { action: 'curbside.bags_skipped', targetType: 'order', targetId: orderId, summary: `${skip.name} let a curbside order go without everything scanned${skip.name !== auth.actor.name ? ` (at ${auth.actor.name}’s screen)` : ''}: ${reasonWords(skip.reason)}.`, actor: { type: 'user', id: skip.id || 'curbside', name: skip.name } } as any).catch(() => {});
     return r.ok ? NextResponse.json({ ok: true, already: !!r.already }) : NextResponse.json({ ok: false, error: r.error, ...(r.code ? { code: r.code, bags: r.bags } : {}) }, { status: r.status });
   }
   return fail('Unknown action.');

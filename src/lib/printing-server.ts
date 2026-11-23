@@ -8,6 +8,9 @@
 //                         it printed, even one being made), then the oldest slip waiting goes. Each ticket is marked
 //                         as printed by that printer in the same save as its slip is made, so two asks at once can't
 //                         print it twice; a slip given up on clears those marks so its tickets print again.
+//                         A printer set to print item stickers makes them the same way: one sticker for each item
+//                         made at its stations, as the order comes in (lib/item-stickers), each ticket marked as
+//                         stickered in the same save.
 //   jobOf / jobDone     → the slip's paper, and what the printer said when it was done (tried again a few times).
 //   queueVoids          → something already printed was taken off: a "Taken off" slip at each printer that printed it.
 //   printCheck          → the guest check to the first check printer that's answering (or, with none, a page for the
@@ -18,7 +21,9 @@ import { allergySig } from '@/lib/allergens';
 import { ticketFrom } from '@/lib/kitchen';
 import { stationsOf, tableLabel } from '@/lib/table-service';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { allergyUpdateDoc, checkDoc, cleanPrinter, printsWords, ticketDoc, voidDoc, type PrintDoc, type PrinterSettings } from '@/lib/printing';
+import { allergyLines, allergyUpdateDoc, checkDoc, cleanPrinter, printsWords, ticketDoc, voidDoc, type PrintDoc, type PrinterSettings } from '@/lib/printing';
+import { makeItemCode } from '@/lib/order-qr';
+import { MAX_STICKERS, MAX_UNITS, stickerDoc, stickerKey, stickerName, stickerOf, stickersOf, type Sticker } from '@/lib/item-stickers';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 export class PrintStop extends Error { constructor(public msg: string, public status = 409) { super(msg); } }
@@ -104,7 +109,7 @@ async function openJobs(db: any, T: string, printerId: string): Promise<any[]> {
 }
 
 /** A slip for a printer. */
-export async function queueJob(db: any, T: string, printerId: string, kind: 'ticket' | 'check' | 'void' | 'allergy' | 'test' | 'receipt' | 'drawer' | 'label', doc: PrintDoc, extra: Record<string, unknown> = {}): Promise<string> {
+export async function queueJob(db: any, T: string, printerId: string, kind: 'ticket' | 'check' | 'void' | 'allergy' | 'test' | 'receipt' | 'drawer' | 'label' | 'sticker', doc: PrintDoc, extra: Record<string, unknown> = {}): Promise<string> {
   const ref = db.collection(`${T}/printJobs`).doc();
   await ref.set({ printerId, kind, doc, status: 'queued', open: true, tries: 0, createdAt: nowIso(), ...extra });
   return ref.id;
@@ -184,6 +189,58 @@ async function makeTicketJobs(db: any, T: string, loadTenant: () => Promise<any>
   return made;
 }
 
+/** Item stickers for this printer's stations (lib/item-stickers): a quick-service order's new tickets (not a table's),
+ *  one sticker for each item, kept on the order with the ticket marked as stickered in the same save, so two asks at
+ *  once can't print them twice. A Star on CloudPRNT prints words only, so its stickers carry no code to scan. */
+export function stickerTickets(raws: any[], p: Printer, stations: string[], now: number): Map<string, any[]> {
+  const mine = (st: string) => !p.stations.length || p.stations.some((x) => keyOf(x) === keyOf(st));
+  const since = Math.max(now - PRINT_BACK_MS, Date.parse(p.addedAt) || 0);
+  const by = new Map<string, any[]>();
+  for (const r of raws) {
+    if (r.sticker || r.status !== 'pending' || !r.channel || !ID.test(String(r.orderId || '')) || !mine(stationOf(r, stations))) continue;
+    if (r.holdUntil && Date.parse(r.holdUntil) > now) continue;
+    const at = Date.parse(r.firedAt || r.createdAt || r.requestedAt || '');
+    if (!Number.isFinite(at) || at < since) continue;
+    by.set(String(r.orderId), [...(by.get(String(r.orderId)) || []), r]);
+  }
+  return by;
+}
+async function makeStickerJobs(db: any, T: string, loadTenant: () => Promise<any>, p: Printer, now: number): Promise<number> {
+  const raws = await pendingTickets(db, T); if (!raws.length) return 0;
+  const tenant = await tenantFor(T, loadTenant);
+  const groups = Array.from(stickerTickets(raws, p, stationsOf(tenant), now).entries()).slice(0, 5);
+  const tenantId = T.split('/')[1]; const coded = p.kind === 'epson';
+  let made = 0;
+  for (const [orderId, g] of groups) {
+    const refs = g.map((r) => db.doc(`${T}/kdsTickets/${r.id}`)); const orderRef = db.doc(`${T}/counterOrders/${orderId}`);
+    const ok = await db.runTransaction(async (tx: any) => {
+      const [or, ...snaps] = await Promise.all([tx.get(orderRef), ...refs.map((r) => tx.get(r))]);
+      const order: any = or.data();
+      const live = snaps.map((s: any, i: number) => ({ ref: refs[i], d: s.exists ? { id: g[i].id, ...(s.data() || {}) } : null })).filter((x) => x.d && x.d.status === 'pending' && !x.d.sticker);
+      if (!order || order.status !== 'sent' || !live.length) return false;
+      const at = nowIso(); const had = stickersOf(order);
+      const fresh: { s: Sticker; view: any; u: number; of: number }[] = [];
+      for (const x of live) { const view = ticketFrom(x.d, 'kdsTickets'); const of = Math.min(MAX_UNITS, view.quantity); for (let u = 1; u <= of; u++) fresh.push({ s: { k: stickerKey(x.d.id, u), name: stickerName(view), v: 1, c: coded }, view, u, of }); }
+      const keys = new Set(fresh.map((f) => f.s.k));
+      // (No more than an order keeps: the rest print as words, never to be scanned.)
+      const kept = (had?.list || []).filter((x) => !keys.has(x.k)); const room = Math.max(0, MAX_STICKERS - kept.length);
+      fresh.forEach((f, i) => { if (i >= room) f.s.c = false; });
+      const list = [...kept, ...fresh.slice(0, room).map((f) => f.s)];
+      tx.set(orderRef, { stickers: { list, scanned: (had?.scanned || []).filter((k) => !keys.has(k)) } }, { merge: true });
+      // (Two of the same item numbered: "1 of 2".)
+      fresh.forEach((f) => {
+        const doc = stickerDoc(stickerOf(order, f.view, allergyLines([f.view]), f.u, f.of, f.s.c ? makeItemCode(tenantId, orderId, f.s.k, 1) : null));
+        tx.set(db.collection(`${T}/printJobs`).doc(), { printerId: p.id, kind: 'sticker', doc, status: 'queued', open: true, tries: 0, createdAt: at, orderId, stickerKey: f.s.k });
+      });
+      for (const x of live) tx.set(x.ref, { sticker: { printer: p.id, at } }, { merge: true });
+      return true;
+    });
+    if (ok) made += 1;
+  }
+  if (made) forgetPending(T);
+  return made;
+}
+
 /** A slip given up on: tickets still waiting lose their "printed" mark, so they print again on the next ask (a missing
  *  kitchen ticket is worse than one printed twice), and the business sees that one didn't print. */
 async function giveUp(db: any, T: string, p: Printer, j: any, code: string) {
@@ -218,6 +275,7 @@ const RETRY_MS = 20000, PAUSE_MS = 60000;
 export async function nextJob(db: any, T: string, loadTenant: () => Promise<any>, p: Printer): Promise<{ id: string } | null> {
   const now = Date.now();
   if (p.tickets && !(now - (Date.parse(p.gaveUpAt || '') || 0) < PAUSE_MS)) await makeTicketJobs(db, T, loadTenant, p, now).catch((e) => console.warn('[printing] tickets', e?.message || e));
+  if (p.stickers && !(now - (Date.parse(p.gaveUpAt || '') || 0) < PAUSE_MS)) await makeStickerJobs(db, T, loadTenant, p, now).catch((e) => console.warn('[printing] stickers', e?.message || e));
   const jobs = await openJobs(db, T, p.id);
   for (const j of jobs) {
     const ref = db.doc(`${T}/printJobs/${j.id}`);

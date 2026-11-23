@@ -28,7 +28,7 @@ import { OrderWorkspace, type WorkTab } from './workspace/OrderWorkspace';
 import { HandoverSheet } from './HandoverSheet';
 import { HereCard } from './PickupsScreen';
 import { useArrivalAlerts } from './use-arrival-alerts';
-import { BagLabelsSheet, BagScanSheet, printLabelsHere, type BagWait } from '@/components/drive-thru/BagSheets';
+import { BagLabelsSheet, BagScanSheet, printLabelsHere, scanReplyOf, type BagWait } from '@/components/drive-thru/BagSheets';
 import { atHere } from '@/lib/business-locations';
 
 /** With more than one location, the one picked in the app (lib/here-server). */
@@ -139,13 +139,14 @@ export function CurbsideScreen() {
   const [labelsFor, setLabelsFor] = React.useState<CafeCurb | null>(null);
   const bagScan = async (code: string) => {
     if (!bagHold) return { ok: false as const, error: 'Pick the order again.' };
-    const d = await curb({ action: 'bagScan', orderId: bagHold.c.id, code });
-    return d.ok ? { ok: true as const, orderId: String(d.orderId), n: Number(d.n), left: Array.isArray(d.left) ? d.left : [] } : { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+    return scanReplyOf(await curb({ action: 'bagScan', orderId: bagHold.c.id, code }));
   };
+  // One item's sticker printed again (a remake, a torn one): lib/item-stickers-server.
+  const stickerAgain = async (_orderId: string, k: string) => { if (!bagHold) return { ok: false, error: 'Pick the order again.' }; const d = await curb({ action: 'sticker', orderId: bagHold.c.id, k }); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t print.' }; };
   const bagsDone = () => { if (!bagHold) return; const c = bagHold.c; setBagHold(null); void cafeAct(c, 'handed'); };
-  const bagSkip = async (pin: string) => {
+  const bagSkip = async (pin: string, reason: string) => {
     if (!bagHold) return { ok: false, error: 'Pick the order again.' };
-    const d = await curb({ action: 'handed', orderId: bagHold.c.id, bagOverride: true, pin });
+    const d = await curb({ action: 'handed', orderId: bagHold.c.id, bagOverride: true, pin, bagReason: reason });
     if (!d.ok) return { ok: false, error: d.error || 'That didn’t go through. Try again.' };
     feel(true); setToast(`Handed over to ${firstName(bagHold.c.name) || 'them'}, okayed by a manager.`); setBagHold(null); void loadCafe(); return { ok: true };
   };
@@ -195,7 +196,7 @@ export function CurbsideScreen() {
       {open && <OrderWorkspace key={open.id} fs={fs} tenantId={tenantId} order={open} all={orders} actor={actor} rs={rs} photoFor={new Map()} shelfFor={new Map()}
         batch={null} inventory={inventory || []} perms={perms} canRefund={canRefund} isManager={isManager} canEditContact={canEditContact}
         shopZone={shopZone} layout="phone" requestTab={focus} startMessage={null} onClose={() => setOpenId(null)} onToast={setToast} onOpenOrder={(id) => setOpenId(id)} />}
-      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.c.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} onClose={() => setBagHold(null)} print={() => { const c = bagHold.c; setBagHold(null); setLabelsFor(c); }} />}
+      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.c.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} onClose={() => setBagHold(null)} print={() => { const c = bagHold.c; setBagHold(null); setLabelsFor(c); }} />}
       {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.bags?.of || labelsFor.bagsStart || 1} printer={labelPrinterName} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={40} />}

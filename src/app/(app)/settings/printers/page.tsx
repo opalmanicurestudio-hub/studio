@@ -9,8 +9,8 @@ import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { SettingsPage, Section, Row, Toggle, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 
-type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; prints: string; ok: boolean; words: string; url?: string };
-type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean };
+type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; stickers?: boolean; prints: string; ok: boolean; words: string; url?: string };
+type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean; stickers: boolean };
 type After = 'ask' | 'print' | 'none';
 const COLS = { star: [48, 32], epson: [42, 30] } as const;
 const GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -19,6 +19,13 @@ async function post(body: any) {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
   try { const r = await fetch('/api/printers', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }); return await r.json(); }
   catch { return { ok: false, error: 'No connection. Try again.' }; }
+}
+/** Stations whose tickets no printer prints, once printers are set to stations: each order's tickets go by the station
+ *  each item is made at, so a station left out prints nothing (its tickets are on the kitchen screen). */
+function uncoveredOf(list: P[], stations: string[]): string | null {
+  const t = list.filter((p) => p.tickets); if (!t.length || t.some((p) => !p.stations.length)) return null;
+  const left = stations.filter((s) => !t.some((p) => p.stations.some((x) => x.toLowerCase() === s.toLowerCase())));
+  return left.length ? `No printer prints ${left.slice(0, 3).join(', ')}${left.length > 3 ? ' and more' : ''} tickets. They show on the kitchen screen only. Pick ${left.length === 1 ? 'it' : 'them'} on a printer to print ${left.length === 1 ? 'it' : 'them'} too.` : null;
 }
 /** Two printers putting the same station's tickets on paper (it can be on purpose: one for the cooks, one to run). */
 function overlapOf(list: P[]): string[] {
@@ -31,8 +38,8 @@ function overlapOf(list: P[]): string[] {
   }
   return out.slice(0, 3);
 }
-const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false, labels: false });
-const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer, labels: !!p.labels });
+const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false, labels: false, stickers: false });
+const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer, labels: !!p.labels, stickers: !!p.stickers });
 
 function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: [T, string][]; label: string }) {
   return (
@@ -66,7 +73,7 @@ export default function PrintersSettings() {
   };
   const save = async () => {
     if (!edit) return;
-    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer, labels: edit.labels },
+    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer, labels: edit.labels, stickers: edit.stickers },
       edit.id ? 'Saved.' : 'Added. Put its address in the printer’s own settings, then print a test.');
     if (d) setEdit(null);
   };
@@ -92,12 +99,15 @@ export default function PrintersSettings() {
           <Row label="Prints new tickets by themselves" help="Each table’s course or order on one slip, as soon as it’s fired, with any allergy printed so it stands out" inline>
             <Toggle checked={edit.tickets} onChange={(v) => E({ tickets: v })} label="Prints new tickets by themselves" />
           </Row>
-          {edit.tickets && stations.length > 0 && <Row label="For which stations" help={edit.stations.length ? 'Only these stations’ tickets' : 'None picked: every station’s tickets'}>
+          {(edit.tickets || edit.stickers) && stations.length > 0 && <Row label="For which stations" help={edit.stations.length ? `Only these stations’ ${edit.tickets ? 'tickets' : 'stickers'}` : `None picked: every station’s ${edit.tickets ? 'tickets' : 'items'}`}>
             <div className="flex flex-wrap gap-2">{stations.map((s) => { const on = edit.stations.includes(s); return (
               <button key={s} type="button" aria-pressed={on} onClick={() => E({ stations: on ? edit.stations.filter((x) => x !== s) : [...edit.stations, s] })} className="min-h-[44px] rounded-full border px-4 text-[14px] font-semibold"
                 style={on ? { background: 'var(--ink)', color: 'var(--card)', borderColor: 'var(--ink)' } : { borderColor: 'var(--line)' }}>{s}</button>); })}</div>
           </Row>}
           {edit.tickets && edit.kind === 'star' && <Row label="Beep for a new ticket" help="For a printer with a buzzer" inline><Toggle checked={edit.buzz} onChange={(v) => E({ buzz: v })} label="Beep for a new ticket" /></Row>}
+          <Row label="Prints item stickers" help={edit.kind === 'epson' ? 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code scanned before a to-go order is handed over. For drinks, put a sticky label printer at the bar and pick the bar' : 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name and the item with its choices. A Star printer on CloudPRNT prints no code to scan, so these items aren’t scanned at handover'} inline>
+            <Toggle checked={edit.stickers} onChange={(v) => E({ stickers: v })} label="Prints item stickers" />
+          </Row>
           <Row label="Prints checks" help="“Print the check” on a server’s tab prints here. With pay at the table on, the check carries the table’s pay link" inline>
             <Toggle checked={edit.checks} onChange={(v) => E({ checks: v })} label="Prints checks" />
           </Row>
@@ -131,6 +141,7 @@ export default function PrintersSettings() {
 
       <Section title="Your printers" help={list.length ? undefined : 'None yet.'}>
         {overlapOf(list).map((o) => <div key={o} role="note" className="px-5 py-3 text-[14px] font-medium" style={{ color: AMBER }}>{o}</div>)}
+        {uncoveredOf(list, stations) && <div role="note" className="px-5 py-3 text-[14px] font-medium" style={{ color: AMBER }}>{uncoveredOf(list, stations)}</div>}
         {list.length === 0 && <div className="px-5 py-4 text-[14.5px] cf-muted">{manager ? 'Add a printer to have tickets print by themselves.' : 'A manager adds printers here.'}</div>}
         {list.map((p) => (
           <div key={p.id} className="space-y-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>

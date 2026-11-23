@@ -449,6 +449,8 @@ export async function sendOrder(db: any, tenantId: string, tenant: any, orderId:
       tx.set(tRef, { id: tRef.id, source: channel, channel, orderId, orderNumber: o.number, menuItemId: m.itemId, menuItemName: also ? partName(dish, also.part) : dish, quantity: l.quantity,
         choicesText: part ? l.name : l.choicesText || null, ...(!part && !also && Array.isArray(l.choices) && l.choices.length ? { choices: l.choices } : {}), ...(part ? { comboLineId: l.lineId } : {}),
         ...(also ? { madeAt: also.station, partOf: main, partFor: dish, partFrom: stationOfItem(it || {}, stations) } : alsoAtOf(it || {}, stations).length && it?.combo !== true ? { alsoAt: alsoAtOf(it, stations) } : {}),
+        // (Its station, kept on it, so a printer for that station alone prints its ticket or sticker: lib/printing-server.)
+        ...(!also ? { madeAt: stationOfItem(part || it || {}, stations) } : {}),
         guestName: who2, stationName: o.app?.code ? `${appName(o.app)}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}` : `${o.ahead?.way === 'delivery' ? 'Delivery' : CHANNEL_NAME[channel] || 'Order'} ${o.number}`, status: opts.unpaid ? 'unpaid' : 'pending', createdAt: nowIso, dueAt: due, makeSeconds: part ? makeSecondsOf(part) : Number(l.makeSeconds) || null,
         line: i + 1, lines: tickets.length, tenantId, stockMoved: true, ...(holdUntil ? { holdUntil, requestedAt: holdUntil } : {}),
         // (Made at the order's location, with more than one: that location's kitchen screen shows it. lib/here-server)

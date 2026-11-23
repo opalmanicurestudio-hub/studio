@@ -8,11 +8,14 @@
 //     time it's printed.
 //   - scanBag: one bag's label scanned before the order goes: checked against the order (its signed code, lib/order-qr),
 //     and kept on it. The handover itself (api/counter 'move', lib/curbside-server cafeHanded) checks what's left.
+//     An item's sticker scanned the same way goes to lib/item-stickers-server, and what's left counts its stickers too.
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkBagCode, makeBagCode } from '@/lib/order-qr';
 import { parseBagCode } from '@/lib/bag-tag';
 import { printersCached, queueJob, type Printer } from '@/lib/printing-server';
 import { bagsLeft, bagsOf, clampBags, defaultBags, labelDoc, labelOf, type BagLabel } from '@/lib/food-bags';
+import { stickersLeft, stickersToScan, stickersWords } from '@/lib/item-stickers';
+import { isStickerCode, scanSticker } from '@/lib/item-stickers-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Fail = { ok: false; error: string; status: number };
@@ -77,8 +80,10 @@ export async function labelsWhenReady(db: any, tenantId: string, ticketIds: stri
 
 /** One bag's label scanned for an order (or for any of `orderIds`, when a car carries an order placed ahead too). */
 export async function scanBag(db: any, tenantId: string, tenant: any, orderIds: string[], raw: unknown):
-  Promise<{ ok: true; orderId: string; n: number; of: number; left: number[]; already: boolean } | Fail> {
+  Promise<{ ok: true; orderId: string; n?: number; k?: string; name?: string; of?: number; left: number[]; itemsLeft: string[]; already: boolean } | Fail> {
   const T = `tenants/${tenantId}`; const code = String(raw ?? '').trim().slice(0, 300);
+  // (An item's sticker: lib/item-stickers-server.)
+  if (isStickerCode(code)) return scanSticker(db, tenantId, tenant, orderIds, code);
   const mine = orderIds.filter((x) => ID.test(x));
   const orderId = mine.find((id) => checkBagCode(tenantId, id, code) !== null);
   if (!orderId) {
@@ -88,7 +93,7 @@ export async function scanBag(db: any, tenantId: string, tenant: any, orderIds: 
       const other: any = (await db.doc(`${T}/counterOrders/${tag.orderId}`).get()).data();
       if (other) return fail(`Wrong bag. This one is ${String(other.number || 'another order')}${other.guestName ? ` for ${String(other.guestName).split(/\s+/)[0]}` : ''}.`, 409);
     }
-    return fail(tag ? 'That label is for another order.' : 'That isn’t a bag label. Scan the code on the bag’s label.', 409);
+    return fail(tag ? 'That label is for another order.' : 'That isn’t a bag label or an item sticker. Scan the code on it.', 409);
   }
   const n = checkBagCode(tenantId, orderId, code)!;
   const ref = db.doc(`${T}/counterOrders/${orderId}`);
@@ -102,17 +107,24 @@ export async function scanBag(db: any, tenantId: string, tenant: any, orderIds: 
     const already = b.scanned.includes(n);
     if (!already) tx.set(ref, { bags: { scanned: FieldValue.arrayUnion(n) } }, { merge: true });
     const after = { ...or, bags: { ...or.bags, scanned: [...b.scanned, n] } };
-    return { ok: true as const, orderId, n, of: b.count, left: bagsLeft(after, tenant), already };
+    return { ok: true as const, orderId, n, of: b.count, left: bagsLeft(after, tenant), itemsLeft: stickersLeft(or, tenant).map((x) => x.k), already };
   });
 }
 
+export type ScanWait = { orderId: string; number: string; of: number; left: number[]; items?: { k: string; name: string; done: boolean }[] };
 /** What's left to scan on these orders, for a handover refused until it's done (each order's number, its bags and those
- *  left); none when nothing is. */
-export function bagsWaiting(orders: { id: string; data: any }[], tenant: any): { orderId: string; number: string; of: number; left: number[] }[] {
-  return orders.filter((o) => o.data && o.data.status === 'sent').map((o) => ({ orderId: o.id, number: String(o.data.number || ''), of: bagsOf(o.data)?.count || 0, left: bagsLeft(o.data, tenant) })).filter((x) => x.left.length > 0);
+ *  left, and its item stickers, each ticked or not); none when nothing is. */
+export function bagsWaiting(orders: { id: string; data: any }[], tenant: any): ScanWait[] {
+  return orders.filter((o) => o.data && o.data.status === 'sent').map((o) => {
+    const items = stickersToScan(o.data, tenant);
+    return { orderId: o.id, number: String(o.data.number || ''), of: bagsOf(o.data)?.count || 0, left: bagsLeft(o.data, tenant), ...(items.length ? { items } : {}) };
+  }).filter((x) => x.left.length > 0 || (x.items || []).some((i) => !i.done));
 }
-/** "Scan bag 2 of D15 first." */
-export function waitingWords(w: { number: string; of: number; left: number[] }[]): string {
-  const one = (x: { number: string; of: number; left: number[] }) => (x.of > 1 ? `${x.left.length === x.of ? `all ${x.of} bags` : x.left.length === 1 ? `bag ${x.left[0]}` : `bags ${x.left.join(' and ')}`} of ${x.number}` : `the bag of ${x.number}`);
-  return `Scan ${w.map(one).join(', and ')} first.`;
+/** "Scan bag 2 of D15 first.", "For D15, scan bag 2 and the sticker on Large oat latte first." */
+export function waitingWords(w: ScanWait[]): string {
+  const bags = (x: ScanWait) => (x.of > 1 ? (x.left.length === x.of ? `all ${x.of} bags` : x.left.length === 1 ? `bag ${x.left[0]}` : `bags ${x.left.join(' and ')}`) : 'the bag');
+  const items = (x: ScanWait) => (x.items || []).filter((i) => !i.done);
+  if (w.every((x) => !items(x).length)) return `Scan ${w.map((x) => `${bags(x)} of ${x.number}`).join(', and ')} first.`;
+  return w.map((x) => `For ${x.number}, scan ${[x.left.length ? bags(x) : '', items(x).length ? stickersWords(items(x)) : ''].filter(Boolean).join(' and ')} first.`).join(' ');
 }
+

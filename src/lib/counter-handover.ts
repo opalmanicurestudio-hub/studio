@@ -5,11 +5,13 @@
 // weren't all scanned (the exit sensor saw it leave, or the business doesn't scan: lib/food-bags) says so, with who or
 // what let it go, so a scan check that was passed by is never silent.
 import { bagsOf } from '@/lib/food-bags';
+import { stickersUnscanned } from '@/lib/item-stickers';
 
-/** Bags with a code to scan, not all scanned and not let go by a manager: who or what handed it over anyway. */
+/** Bags (or item stickers, lib/item-stickers) with a code to scan, not all scanned and not let go by a manager: who or
+ *  what handed it over anyway. */
 function unscanned(o: any, by: string, at: string): Record<string, unknown> {
-  const b = bagsOf(o);
-  return b && b.coded && !b.skipped && b.scanned.length < b.count ? { bags: { unscanned: { by: String(by || '').slice(0, 60), at, left: b.count - b.scanned.length } } } : {};
+  const b = bagsOf(o); const bagsLeft = b && b.coded && !b.skipped ? Math.max(0, b.count - b.scanned.length) : 0; const items = stickersUnscanned(o);
+  return bagsLeft || items ? { bags: { unscanned: { by: String(by || '').slice(0, 60), at, left: bagsLeft, ...(items ? { items } : {}) } } } : {};
 }
 
 export function handOverInTx(tx: any, db: any, T: string, x: {

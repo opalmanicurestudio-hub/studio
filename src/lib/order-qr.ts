@@ -41,3 +41,24 @@ export function checkBagCode(tenantId: string, orderId: string, raw: string): nu
   const n = Number(m[2]); const want = bagSig(tenantId, orderId, n);
   return n >= 1 && timingSafeEqual(Buffer.from(m[3]), Buffer.from(want)) ? n : null;
 }
+
+// ─── ITEM STICKERS ─────────────────────────────────────────────────────────────
+// Each item of a food order made at a station that prints stickers has its own sticker (lib/item-stickers), with its
+// own code: "clarityflow://item/<orderId>.<ticketId>.<unit>.<version>.<sig>". The version goes up when a sticker is
+// printed again (a remake, a torn one), so the old one no longer scans. Signed here, for this business, order, item and
+// version, so a code can't be made up.
+const itemSig = (tenantId: string, orderId: string, k: string, v: number) =>
+  createHmac('sha256', qrSecret()).update(`item|${tenantId}|${orderId}|${k}|${v}`).digest('hex').slice(0, 16);
+const ITEM_CODE = /^clarityflow:\/\/item\/([A-Za-z0-9_-]{1,160})\.([A-Za-z0-9_-]{1,160}\.\d{1,2})\.(\d{1,3})\.([0-9a-f]{16})$/;
+
+export function makeItemCode(tenantId: string, orderId: string, k: string, v: number): string {
+  return `clarityflow://item/${orderId}.${k}.${v}.${itemSig(tenantId, orderId, k, v)}`;
+}
+
+/** The item and version this code is for, when it's an authentic sticker of this order; null otherwise. */
+export function checkItemCode(tenantId: string, orderId: string, raw: string): { k: string; v: number } | null {
+  const m = ITEM_CODE.exec(String(raw || '').trim());
+  if (!m || m[1] !== orderId) return null;
+  const v = Number(m[3]); const want = itemSig(tenantId, orderId, m[2], v);
+  return v >= 1 && timingSafeEqual(Buffer.from(m[4]), Buffer.from(want)) ? { k: m[2], v } : null;
+}

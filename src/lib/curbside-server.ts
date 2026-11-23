@@ -93,7 +93,7 @@ export async function cafeOut(db: any, tenantId: string, orderId: string, who: {
   }); } finally { changed(tenantId); }   // once it's saved: the next read sees it
 }
 
-export async function cafeHanded(db: any, tenantId: string, orderId: string, who: { name: string }, o: { tenant?: any; skip?: { name: string } | null } = {}): Promise<{ ok: true; already?: boolean; skippedBags?: boolean } | Fail> {
+export async function cafeHanded(db: any, tenantId: string, orderId: string, who: { name: string }, o: { tenant?: any; skip?: { name: string; reason?: string } | null } = {}): Promise<{ ok: true; already?: boolean; skippedBags?: boolean } | Fail> {
   const T = `tenants/${tenantId}`;
   try { return await db.runTransaction(async (tx: any) => {
     const { ref, or, err } = await curbOrder(tx, db, T, orderId); if (err) return err;
@@ -104,7 +104,7 @@ export async function cafeHanded(db: any, tenantId: string, orderId: string, who
     // Each bag's label scanned first, unless a manager lets it go without (kept on the order).
     const wait = o.tenant ? bagsWaiting([{ id: orderId, data: or }], o.tenant) : [];
     if (wait.length && !o.skip) return { ...fail(waitingWords(wait), 409), code: 'bags' as const, bags: wait };
-    if (wait.length && o.skip) tx.set(ref, { bags: { skipped: { by: o.skip.name, at } } }, { merge: true });
+    if (wait.length && o.skip) tx.set(ref, { bags: { skipped: { by: o.skip.name, at, reason: o.skip.reason || 'Not said' } } }, { merge: true });
     tx.set(ref, { status: 'done', doneAt: at, ahead: { curb: { handedAt: at, handedBy: first(who.name) || null } } }, { merge: true });
     for (const d of docs) { const t: any = d.data() || {}; if (LIVE(t) && t.status !== 'delivered') tx.set(d.ref, { status: 'delivered', deliveredAt: at, deliveredBy: { name: who.name, via: 'curbside' } }, { merge: true }); }
     return { ok: true, ...(wait.length && o.skip ? { skippedBags: true } : {}) };

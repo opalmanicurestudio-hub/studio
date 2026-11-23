@@ -151,6 +151,8 @@ import { logMoney } from '@/lib/activity-server';
 import type { ActivityWhere } from '@/lib/activity';
 import { managerFor } from '@/lib/manager-pin';
 import { bagsWaiting, labelPrinter, printLabels, scanBag, waitingWords } from '@/lib/food-bags-server';
+import { printStickerAgain, stickersView } from '@/lib/item-stickers-server';
+import { isSkipReason, reasonWords, skipReasonOf } from '@/lib/food-bags';
 import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
 import { readWindow, boardNumbers } from '@/lib/pickup-window';
 import { moduleEnabled } from '@/lib/modules';
@@ -216,7 +218,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'price', 'priceBack', 'noSale', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'bags', 'bagScan'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'price', 'priceBack', 'noSale', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'bags', 'bagScan', 'sticker'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -241,7 +243,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'noSale', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel', 'bags', 'bagScan'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'noSale', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel', 'bags', 'bagScan', 'sticker'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -270,7 +272,7 @@ export async function POST(req: NextRequest) {
     const signInFirst = () => NextResponse.json({ ok: false, needsStaff: true, error: 'Sign in first: tap Who’s working? and enter your PIN, so it’s on your name.', staffOk }, { status: 403 });
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel', 'bags', 'bagScan'].includes(action)) {
+    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel', 'bags', 'bagScan', 'sticker'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -366,7 +368,9 @@ export async function POST(req: NextRequest) {
           // The text the guest asked for when it's ready (lib/ready-text): the last four digits, and when it went.
           text: readyTextView(o) ? { ...readyTextView(o)!, sentAt: o.readyText?.sentAt || null } : null,
           // Its bag labels once printed (lib/food-bags): how many, and which are still to scan before it's handed over.
-          bags: bagsOf(o) ? { of: bagsOf(o)!.count, left: bagsLeft(o, tenant) } : null, bagsStart: defaultBags(o) };
+          bags: bagsOf(o) ? { of: bagsOf(o)!.count, left: bagsLeft(o, tenant) } : null, bagsStart: defaultBags(o),
+          // (Its item stickers with a code, and how many are still to scan: lib/item-stickers.)
+          stickers: stickersView(o, tenant) };
       }
       // A car waiting past the business's limit: the shift lead hears, once (lib/speed-server).
       if (channel === 'drive-thru') await checkLongWaits(db, tenantId, tenant, live, now.getTime(), new Map(live.map((c: any) => [String(c.id), (orders[String(c.orderId || '')]?.waitingOn || []).map((w: any) => `${num(w.quantity) > 1 ? `${num(w.quantity)} ` : ''}${w.name}`)])));
@@ -955,13 +959,15 @@ export async function POST(req: NextRequest) {
     // Bag labels (lib/food-bags-server; design board "Bag labels, and a check before it goes"): printed again from here,
     // on this tablet or the bag-label printer, with a number of bags; and each bag's label scanned before it's handed over
     // (an order placed ahead going with the car counts too).
-    if (action === 'bags' || action === 'bagScan') {
+    if (action === 'bags' || action === 'bagScan' || action === 'sticker') {
       const carId = String(b.carId || ''); if (!ID.test(carId)) return bad('Which order?');
       const car: any = (await db.doc(`${T}/driveThruCars/${carId}`).get()).data();
       if (!car || car.stage === 'gone') return bad('That order was already handed over.', 404);
       const ids = [car.orderId, car.aheadId].map((x: unknown) => String(x || '')).filter((x) => ID.test(x));
       if (action === 'bagScan') { const r = await scanBag(db, tenantId, tenant, ids, b.code); return r.ok ? ok({ ...r, staffOk }) : bad(r.error, r.status); }
       const oid = String(b.orderId || ''); if (!ids.includes(oid)) return bad('Which order?');
+      // One item's sticker printed again (a remake, a torn one): the old one stops scanning (lib/item-stickers-server).
+      if (action === 'sticker') { const r = await printStickerAgain(db, tenantId, oid, String(b.k || ''), by); return r.ok ? ok({ ...r, staffOk }) : bad(r.error, r.status); }
       const r = await printLabels(db, tenantId, oid, { by, here: b.here === true, count: b.count });
       return r.ok ? ok({ ...r, staffOk }) : bad(r.error, r.status);
     }
@@ -979,11 +985,12 @@ export async function POST(req: NextRequest) {
         allergyOk = m.approver;
       }
       // A bag that won't scan (a torn label): a manager lets the order go without it, kept on the order (lib/food-bags).
-      let bagOk: { id: string; name: string } | null = null;
+      let bagOk: { id: string; name: string } | null = null; const bagWhy = skipReasonOf(b.bagReason);
       if (to === 'gone' && b.bagOverride === true) {
+        if (!isSkipReason(b.bagReason)) return bad('Say why it’s going without everything scanned.');
         const m = allergyOk ? { approver: allergyOk } as Awaited<ReturnType<typeof managerFor>> : await managerFor(db, tenantId, staff, b.pin);
         if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
-        if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager lets it go without every bag scanned. Their PIN, or ask one to.', staffOk }, { status: 403 });
+        if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager lets it go without everything scanned. Their PIN, or ask one to.', staffOk }, { status: 403 });
         bagOk = m.approver;
       }
       const unnoted = (docs: any[]) => docs.some((d: any) => { const t: any = d.data() || {}; return !['delivered', 'cancelled'].includes(String(t.status)) && needsAllergyNote(ticketFrom({ ...t, id: d.id }, 'kdsTickets') as any); });
@@ -1025,9 +1032,9 @@ export async function POST(req: NextRequest) {
         const bagWait = to === 'gone' && !carriesOn ? bagsWaiting([{ id: String(car.orderId || ''), data: order }, { id: String(car.aheadId || ''), data: aheadOrder }], tenant) : [];
         if (bagWait.length && !bagOk) return { error: waitingWords(bagWait), status: 409, code: 'bags', bags: bagWait };
         for (const w of bagWait) {
-          tx.set(db.doc(`${T}/counterOrders/${w.orderId}`), { bags: { skipped: { by: bagOk!.name, at: nowIso } } }, { merge: true });
+          tx.set(db.doc(`${T}/counterOrders/${w.orderId}`), { bags: { skipped: { by: bagOk!.name, at: nowIso, reason: bagWhy } } }, { merge: true });
           // (As read here too, so the handover below sees them let go, not passed by.)
-          const d = w.orderId === String(car.orderId || '') ? order : aheadOrder; if (d) d.bags = { ...(d.bags || {}), skipped: { by: bagOk!.name, at: nowIso } };
+          const d = w.orderId === String(car.orderId || '') ? order : aheadOrder; if (d) d.bags = { ...(d.bags || {}), skipped: { by: bagOk!.name, at: nowIso, reason: bagWhy } };
         }
         const skippedBags = bagWait.length > 0;
         // A spot is one of the business's own numbered spots (Menu page), and free; or none at all.
@@ -1051,7 +1058,7 @@ export async function POST(req: NextRequest) {
       forgetStats(tenantId);   // again once it's done, so a read in between never keeps the old numbers
       // Handed over or gone: the voice assistant (if it's still on with this car) hangs up.
       if (!r.error && to === 'gone') await stopCarCall(db, tenantId, carId, 'car gone');
-      if (!r.error && !r.already && r.skippedBags && bagOk) await logAuditAdmin(db, tenantId, { action: 'counter.bags_skipped', targetType: 'car', targetId: carId, summary: `${bagOk.name} let an order go without every bag scanned${bagOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: bagOk.id, name: bagOk.name } } as any).catch(() => {});
+      if (!r.error && !r.already && r.skippedBags && bagOk) await logAuditAdmin(db, tenantId, { action: 'counter.bags_skipped', targetType: 'car', targetId: carId, summary: `${bagOk.name} let an order go without everything scanned${bagOk.id !== who.id ? ` (at ${by}’s screen)` : ''}: ${reasonWords(bagWhy)}.`, actor: { type: 'user', id: bagOk.id, name: bagOk.name } } as any).catch(() => {});
       if (!r.error && !r.already && allergyOk) await logAuditAdmin(db, tenantId, { action: 'counter.allergy_handover', targetType: 'car', targetId: carId, summary: `${allergyOk.name} handed over an order with an allergy the kitchen hadn’t noted${allergyOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: allergyOk.id, name: allergyOk.name } } as any).catch(() => {});
       return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, ...(r.bags ? { bags: r.bags } : {}), staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
     }
