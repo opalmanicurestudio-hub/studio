@@ -97,6 +97,8 @@ export default function MenuPage() {
   const [laneEntry, setLaneEntry] = useState<{ sensors: SensorRow[]; points: SensorRow[]; early: EarlyMode } | null>(null);
   // Guests can ask for a text when their order is ready (lib/ready-text); null: texting isn't set up here.
   const [readyTexts, setReadyTexts] = useState<boolean | null>(null);
+  // Scanning each bag's label before a food order is handed over (lib/food-bags).
+  const [bagCheck, setBagCheckState] = useState<boolean | null>(null);
   // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
   // applies only then.
   const [aheadThere, setAheadThere] = useState(true);
@@ -127,7 +129,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setBagCheckState(typeof d.lane?.bagCheck === 'boolean' ? d.lane.bagCheck : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -183,6 +185,11 @@ export default function MenuPage() {
     const was = readyTexts; setReadyTexts(v); setBusy('readyTexts'); setErr('');
     const d = await call({ action: 'laneSettings', readyTexts: v });
     setBusy(null); if (!d.ok) { setReadyTexts(was); setErr(d.error || 'That didn’t save.'); }
+  };
+  const setBagCheck = async (v: boolean) => {
+    const was = bagCheck; setBagCheckState(v); setBusy('bagCheck'); setErr('');
+    const d = await call({ action: 'laneSettings', bagCheck: v });
+    setBusy(null); if (!d.ok) { setBagCheckState(was); setErr(d.error || 'That didn’t save.'); }
   };
   const setTarget = async (channel: string, seconds: number) => {
     const was = targets; setTargets((t) => (t ? { ...t, [channel]: seconds } : t)); setBusy(`t-${channel}`); setErr('');
@@ -287,6 +294,17 @@ export default function MenuPage() {
                   <span className="flex flex-wrap gap-2">
                     {([[true, 'Offer it'], [false, 'Don’t offer it']] as [boolean, string][]).map(([v, label]) => { const on = readyTexts === v; return (
                       <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'readyTexts'} onClick={() => { if (!on && busy !== 'readyTexts') void setTexts(v); }} className={`${BTN} aria-disabled:opacity-50`}
+                        style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
+                  </span>
+                </div>
+              )}
+              {bagCheck !== null && (
+                <div role="group" aria-labelledby="bag-check" className="space-y-2 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span><span id="bag-check" className="block text-[15px] font-medium">Scan bags before they’re handed over</span>
+                    <span className="block text-[13px]" style={{ color: MUTED }}>{bagCheck ? 'Each bag’s label is scanned at the counter, the drive-thru window or curbside, so the right bags go to the right guest. Labels print on a printer set to Prints bag labels (Settings, Printers), or from the counter.' : 'Bag labels still print, and orders are handed over without scanning them.'}</span></span>
+                  <span className="flex flex-wrap gap-2">
+                    {([[true, 'Scan them'], [false, 'Don’t scan']] as [boolean, string][]).map(([v, label]) => { const on = bagCheck === v; return (
+                      <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'bagCheck'} onClick={() => { if (!on && busy !== 'bagCheck') void setBagCheck(v); }} className={`${BTN} aria-disabled:opacity-50`}
                         style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
                   </span>
                 </div>

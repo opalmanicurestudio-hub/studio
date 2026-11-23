@@ -49,6 +49,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { RegisterTiles } from '@/components/pos/RegisterTiles';
+import { BagLabelsSheet, BagScanSheet, printLabelsHere, type BagWait } from '@/components/drive-thru/BagSheets';
 import { priceOf, type TileSetup } from '@/lib/register-tiles';
 
 /** A delivery app's order, sent (lib/app-orders): which app, the code it shows, and when its courier gets here. */
@@ -121,7 +122,9 @@ type Order = { id: string; number: string; status: string; guestName?: string | 
     /** What it comes to with the app (lib/app-orders): its price, and the sales tax the business pays when the app doesn't. */
     money?: { markupPct: number; appCents: number; taxCents: number; appPaysTax: boolean } } | null;
   /** The guest's allergies (lib/order-allergy): on every kitchen ticket. */
-  allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null };
+  allergy?: { keys: AllergenKey[]; other: string | null; severe: boolean } | null;
+  /** Its bag labels once printed (lib/food-bags): how many, which are still to scan; and how many bags to start with. */
+  bags?: { of: number; left: number[] } | null; bagsStart?: number };
 type Guest = { id: string; number: string; stage: 'speaker' | 'pay' | 'pickup' | 'forward'; arrivedAt: string; orderId: string | null; calledAt?: string | null; calls?: number };
 type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: string; daypart: { name: string; until: string } | null; happyHour: { until: string } | null; askToGo?: boolean;
   /** Something not on the menu (lib/counter-oneoff): up to how much, 0 when it isn't offered. */
@@ -130,7 +133,7 @@ type Lane = { cars: Guest[]; orders: Record<string, Order>; menu: Item[]; now: s
   gift?: { amounts: number[]; open?: { orderId: string; number: string }[] };
   /** The location this counter is at, with more than one (lib/here-server). */
   location?: { id: string; name: string | null } | null;
-  settings?: { texts?: boolean }; pointsOn?: boolean; rewardsCodes?: boolean;
+  settings?: { texts?: boolean; labelPrinter?: string | null }; pointsOn?: boolean; rewardsCodes?: boolean;
   /** Receipts after a sale (components/pos/ReceiptAsk): the business's setting and its receipt printers. */
   receipt?: ReceiptSetup;
   /** Tips (when this screen asks for them) and the business's discounts (lib/counter-money). */
@@ -248,6 +251,10 @@ export default function CounterPage() {
   const [now, setNow] = useState(() => Date.now());
   const [toGo, setToGo] = useState(false); const [staffFor, setStaffFor] = useState<string | null>(null); const [staffPin, setStaffPin] = useState(false);
   const [deliveryPin, setDeliveryPin] = useState<{ body: any; line: string; done: (d: any) => void } | null>(null);
+  // Bag labels (lib/food-bags; components/drive-thru/BagSheets): a handover waiting on its bags to be scanned, and the
+  // labels being printed for an order.
+  const [bagHold, setBagHold] = useState<{ carId: string; label: string; waiting: BagWait[] } | null>(null);
+  const [labelsFor, setLabelsFor] = useState<{ carId: string; orderId: string; number: string; start: number } | null>(null);
   const [appOff, setAppOff] = useState<string | null>(null); const [appPin, setAppPin] = useState<Order | null>(null); const [appFix, setAppFix] = useState<string | null>(null); const [allergyOpen, setAllergyOpen] = useState(false); const [allergyHold, setAllergyHold] = useState<{ carId: string; label: string } | null>(null);
   const acted = useRef(0); const nameFor = useRef<string | null>(null);
   useKeepPage();
@@ -308,7 +315,31 @@ export default function CounterPage() {
   // The guest's allergies, and a note on a dish (lib/order-allergy): while the order is being taken.
   const saveAllergy = (v: AllergyValue) => order && act('allergy', { action: 'allergy', orderId: order.id, allergy: allergyBody(v) }, (d) => { setAllergyOpen(false); setNotice({ text: d.already ? `${order.number}: that allergy is on the order already.` : d.tickets ? `${order.number}: allergy added to what’s still being made. Tell the kitchen too.` : d.allergy ? `${order.number}: allergy noted for the kitchen.` : `${order.number}: no allergies.`, tone: 'good' }); });
   // Handed over with an allergy the kitchen hasn't noted: refused; a manager can hand it over with their PIN.
-  const holdFor = (carId: string, label: string) => (d: any) => { if (d.code !== 'allergy') return false; setAllergyHold({ carId, label }); setNotice({ text: d.error, tone: 'warn' }); return true; };
+  // …and one with bags whose labels aren't scanned yet: scanned first, or a manager lets it go without (lib/food-bags).
+  const holdFor = (carId: string, label: string) => (d: any) => {
+    if (d.code === 'bags' && Array.isArray(d.bags)) { setBagHold({ carId, label, waiting: d.bags }); return true; }
+    if (d.code !== 'allergy') return false; setAllergyHold({ carId, label }); setNotice({ text: d.error, tone: 'warn' }); return true;
+  };
+  const bagScan = async (code: string) => {
+    if (!bagHold) return { ok: false as const, error: 'Pick the order again.' };
+    const d = await post({ action: 'bagScan', carId: bagHold.carId, code }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    return d.ok ? { ok: true as const, orderId: String(d.orderId), n: Number(d.n), left: Array.isArray(d.left) ? d.left : [] } : { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+  };
+  const bagsDone = () => { if (!bagHold) return; const h = bagHold; setBagHold(null); void act(`gone-${h.carId}`, { action: 'move', carId: h.carId, to: 'gone' }, () => setNotice({ text: `${h.label} was handed over.`, tone: 'good' }), holdFor(h.carId, h.label)); };
+  const bagSkip = async (pin: string) => {
+    if (!bagHold) return { ok: false, error: 'Pick the order again.' };
+    const d = await post({ action: 'move', carId: bagHold.carId, to: 'gone', bagOverride: true, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return { ok: false, error: d.error || 'That didn’t go through. Try again.' };
+    setNotice({ text: `${bagHold.label} was handed over, okayed by a manager.`, tone: 'good' }); setBagHold(null); acted.current++; void load(); return { ok: true };
+  };
+  const printBags = async (count: number, where: 'here' | 'printer') => {
+    if (!labelsFor) return 'Pick the order again.';
+    const d = await post({ action: 'bags', carId: labelsFor.carId, orderId: labelsFor.orderId, count, here: where === 'here' }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+    if (!d.ok) return d.error || 'That didn’t print. Try again.';
+    if (where === 'here' && !(await printLabelsHere(d.labels || []))) return 'This device couldn’t open its print dialog.';
+    setNotice({ text: where === 'here' ? `${labelsFor.number}: ${d.count === 1 ? 'its label' : `${d.count} bag labels`} sent to this device’s printer.` : `${labelsFor.number}: ${d.count === 1 ? 'its label' : `${d.count} bag labels`} printing on ${d.printer}.`, tone: 'good' });
+    acted.current++; void load(); return null;
+  };
   const allergyPinCheck = async (pin: string) => {
     if (!allergyHold) return { ok: false as const, error: 'Pick the order again.' };
     const d = await post({ action: 'move', carId: allergyHold.carId, to: 'gone', allergyOverride: true, pin }).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
@@ -356,7 +387,7 @@ export default function CounterPage() {
     if (!id) return; const i = setInterval(() => void post({ action: 'show', orderId: id }).catch(() => null), 60000);
     return () => clearInterval(i);
   }, [order?.id, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !discountPin && !partPin, { layer: 'background' });
+  useWedgeScanner(scan, !!tenantId && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !discountPin && !partPin && !bagHold && !labelsFor, { layer: 'background' });
   const addOneOff = async (b: { name: string; price: number; taxed: boolean; tapKey: string }) => {
     if (!order || order.status !== 'building') return 'Tap Next guest first, then add it.';
     acted.current++;
@@ -688,11 +719,16 @@ export default function CounterPage() {
                   ? <div className="flex gap-2"><button type="button" onClick={() => handOver(g)} disabled={busy === `gone-${g.id}`} className={`${btn} flex-1 px-3`} style={dark}>Handed over</button><button type="button" onClick={() => call(g, o)} className={`${btn} px-3`} style={quiet}>Call again</button></div>
                   : <button type="button" onClick={() => call(g, o)} disabled={busy === `call-${g.id}`} className={`${btn} w-full`} style={dark}>Call {o?.guestName || g.number}</button>)}
                 {o && !o.app?.code && o.paidAt && !o.staffMeal && <button type="button" onClick={() => setSlip({ orderId: o.id, title: titleOf(o), cash: false, change: null, later: true })} className={`${btn} w-full text-[14px]`} style={quiet}>Receipt</button>}
+                {o && o.status === 'sent' && <button type="button" onClick={() => setLabelsFor({ carId: g.id, orderId: o.id, number: o.app?.code ? `${o.app.label} ${o.app.code}` : g.number, start: o.bags?.of || o.bagsStart || 1 })} className={`${btn} w-full text-[14px]`} style={quiet}>
+                  {o.bags ? (o.bags.left.length ? `Bag labels, ${o.bags.of - o.bags.left.length} of ${o.bags.of} scanned` : o.bags.of === 1 ? 'Bag label' : `Bag labels, ${o.bags.of}`) : 'Print bag labels'}</button>}
               </li>
             ); })}</ul>}
       </section>
     </main>
     {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || order.number} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
+    {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.label}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} onClose={() => setBagHold(null)}
+      print={(orderId) => { const g = lane?.cars.find((c) => c.id === bagHold.carId); const o = lane?.orders[orderId]; setBagHold(null); setLabelsFor({ carId: bagHold.carId, orderId, number: o?.number || g?.number || bagHold.label, start: o?.bags?.of || o?.bagsStart || 1 }); }} />}
+    {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.start} printer={lane?.settings?.labelPrinter || null} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
     {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
     {appPin?.app && <PinPad check={appPinCheck} onDone={() => setAppPin(null)} onClose={() => setAppPin(null)} title={pinTitle(pinOwner)} line={`The kitchen started on ${appPin.app.label} ${appPin.app.code}, so ${pinOwner ? 'the owner' : 'a manager'} okays taking it off. It doesn’t change who’s signed in here.`} />}
     {deliveryPin && <PinPad check={deliveryPinCheck} onDone={() => setDeliveryPin(null)} onClose={() => setDeliveryPin(null)} title={pinTitle(pinOwner)} line={deliveryPin.line} />}

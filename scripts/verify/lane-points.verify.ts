@@ -232,7 +232,7 @@ const rearm = (point: string) => db.doc(`tenants/t1/private/lanePoint_${point}_1
   const card = src('src/components/menu/LaneEntrySettings.tsx'), pg = src('src/app/(app)/drive-live/page.tsx'), mp = src('src/app/(app)/menu/page.tsx');
   check('the Menu page: the sensors further along the lane, each with its link (shown once), Check it and Turn off', /Sensors further along the lane/.test(card) && /points\.map/.test(card) && /point: x\.point \|\| 'entry'/.test(card) && /points=\{laneEntry\.points\}/.test(mp));
   check('Drive-thru live: a new car at the speaker counting up, and the exit’s question', /New car/.test(pg) && /greetTone\(sec\)/.test(pg) && /that nobody handed over\. Check the window/.test(pg) && /'Waiting to be greeted'/.test(pg));
-  check('handed over one way, by the window or the exit (lib/counter-handover)', /handOverInTx\(tx, db, T, \{ carRef, car, order, tix, aheadRef, aheadTix, by, nowIso \}\)/.test(src('src/app/api/counter/route.ts')) && /handOverInTx\(tx, db, T,/.test(src('src/lib/lane-entry-server.ts')));
+  check('handed over one way, by the window or the exit (lib/counter-handover)', /handOverInTx\(tx, db, T, \{ carRef, car, order, tix, aheadRef, aheadTix, by, nowIso(, aheadOrder)? \}\)/.test(src('src/app/api/counter/route.ts')) && /handOverInTx\(tx, db, T,/.test(src('src/lib/lane-entry-server.ts')));
   for (const f of ['src/lib/lane-entry.ts', 'src/lib/lane-entry-server.ts', 'src/lib/counter-handover.ts', 'src/components/menu/LaneEntrySettings.tsx']) {
     const s = src(f);
     check(`${f}: no shouting or heavy type, no " · ", no comments in markup`, !/\buppercase\b|font-black| · |\{\/\*/.test(s));

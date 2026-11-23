@@ -10,6 +10,7 @@
 //   - "Allergy update" when an allergy changes on a ticket already printed;
 //   - the guest check, when a server asks for it;
 //   - a receipt (design board "Receipts at the counter"): a sale's, for the guest, on a printer that prints receipts;
+//   - a bag label for each bag of a food order (lib/food-bags), on a printer set to print them;
 //   - a test page.
 // A printer with a cash drawer plugged into it opens the drawer for a cash sale (Epson: a pulse in the slip; Star: a
 // header), with or without a receipt.
@@ -19,7 +20,9 @@ import { allergyFlags } from '@/lib/kitchen';
 import { tableLabel } from '@/lib/table-service';
 
 export type PrinterKind = 'star' | 'epson';
-export type PrinterSettings = { name: string; kind: PrinterKind; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean };
+export type PrinterSettings = { name: string; kind: PrinterKind; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean;
+  /** Prints the bag labels of food orders (lib/food-bags): an Epson's carry each bag's code to scan; a Star's, words only. */
+  labels: boolean };
 export const COLS: Record<PrinterKind, number> = { star: 48, epson: 42 };
 export const MAX_PRINTERS = 12;
 
@@ -32,7 +35,7 @@ export function cleanPrinter(raw: any): PrinterSettings {
     cols: Number.isFinite(c) && c >= 24 && c <= 64 ? c : COLS[kind],
     stations: Array.from(new Set((Array.isArray(raw?.stations) ? raw.stations : []).map((s: unknown) => clip(s, 24)).filter(Boolean))).slice(0, 12) as string[],
     tickets: raw?.tickets !== false, checks: raw?.checks === true, buzz: raw?.buzz !== false,
-    receipts: raw?.receipts === true, drawer: raw?.drawer === true,
+    receipts: raw?.receipts === true, drawer: raw?.drawer === true, labels: raw?.labels === true,
   };
 }
 
@@ -237,7 +240,7 @@ export function testDoc(o: { business: string; printer: string; what: string; at
 export function printsWords(p: PrinterSettings): string {
   const and = (w: string[]) => (w.length <= 1 ? (w[0] || '') : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`);
   const tix = p.tickets ? (p.stations.length ? `${and(p.stations)} tickets` : 'every station’s tickets') : '';
-  return [tix, p.checks ? 'checks' : '', p.receipts ? 'receipts' : ''].filter(Boolean).join(', and ').replace(/, and (?=[^,]*, and )/g, ', ') || 'nothing yet';
+  return [tix, p.checks ? 'checks' : '', p.receipts ? 'receipts' : '', p.labels ? 'bag labels' : ''].filter(Boolean).join(', and ').replace(/, and (?=[^,]*, and )/g, ', ') || 'nothing yet';
 }
 
 /** A sale's receipt, from a receipt (the front desk's shape, or a counter order's: lib/counter-receipt): the business,

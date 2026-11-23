@@ -148,7 +148,9 @@ import { rulesOf, needFor, needWords, type RuleKey } from '@/lib/money-rules';
 import { okayFor } from '@/lib/money-rules-server';
 import { logMoney } from '@/lib/activity-server';
 import type { ActivityWhere } from '@/lib/activity';
-import { beginPinAttempt, endPinAttempt, findStaffByPin, validPin } from '@/lib/pin';
+import { managerFor } from '@/lib/manager-pin';
+import { bagsWaiting, labelPrinter, printLabels, scanBag, waitingWords } from '@/lib/food-bags-server';
+import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
 import { readWindow, boardNumbers } from '@/lib/pickup-window';
 import { moduleEnabled } from '@/lib/modules';
 import { linkOrigin } from '@/lib/app-origin';
@@ -194,7 +196,6 @@ const bad = (error: string, status = 400) => NextResponse.json({ ok: false, erro
 const STAGES = ['speaker', 'pay', 'pickup', 'forward', 'gone'] as const;
 type Stage = typeof STAGES[number];
 const LIVE: Stage[] = ['speaker', 'pay', 'pickup', 'forward'];
-const MANAGER_ROLES = ['owner', 'admin', 'manager'];
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
 // Today's lane numbers, worked out at most every 20 seconds a business (every tablet polls every 2), not on every read.
@@ -214,7 +215,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
-    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'price', 'priceBack', 'noSale', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday'].includes(action)) return bad('Unknown action.');
+    if (!['lane', 'board', 'window', 'car', 'add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'show', 'guest', 'guestTip', 'paid', 'move', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'drawer', 'drawerView', 'drawerUndo', 'giftCard', 'giftIssue', 'price', 'priceBack', 'noSale', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'looks', 'pouch', 'here', 'handIn', 'phoneLink', 'phoneCheck', 'aheadCar', 'aheadDone', 'menuBoard', 'readyBoard', 'points', 'rewardsCode', 'rewards', 'reward', 'call', 'staffMeal', 'readyText', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'deliverySlow', 'appSoldOut', 'appStart', 'appSend', 'appCode', 'appCancel', 'laterCancel', 'laterSend', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'bags', 'bagScan'].includes(action)) return bad('Unknown action.');
     const db = getAdminDb(); const T = `tenants/${tenantId}`;
 
     let screen: any = await screenOf(db, tenantId, b.key);
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
     let tenant: any = (await db.doc(T).get()).data() || {};
     if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: 'The lane screen is closed for now. The business owner can tell you more.' }, { status: 403 });
     // Handing over, taking payment for, or voiding an order already taken still works if the plan changes mid-service.
-    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'noSale', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
+    if (!['paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'paidToday', 'move', 'drawer', 'drawerView', 'drawerUndo', 'giftIssue', 'noSale', 'board', 'window', 'menuBoard', 'readyBoard', 'show', 'guest', 'guestTip', 'void', 'readers', 'card', 'cardCheck', 'cardStop', 'cardTest', 'pouch', 'handIn', 'here', 'phoneLink', 'phoneCheck', 'merged', 'lineClear', 'deliveryOut', 'deliveryDone', 'deliveryFailed', 'deliveryRefund', 'deliveryHanded', 'deliveryOwed', 'appSoldOut', 'appCode', 'appCancel', 'laterCancel', 'bags', 'bagScan'].includes(action)) { const locked = toolLocked(tenant, ['hospitality']); if (locked) return locked; }
     const staff = member || (b.staffPass ? await workingNow(db, tenantId, screen, b.staffPass) : null);
     const staffOk = b.staffPass && !member ? !!staff : undefined;
     const who = { id: staff?.id || null, name: staff?.name || screen.name };
@@ -268,7 +269,7 @@ export async function POST(req: NextRequest) {
     const signInFirst = () => NextResponse.json({ ok: false, needsStaff: true, error: 'Sign in first: tap Who’s working? and enter your PIN, so it’s on your name.', staffOk }, { status: 403 });
     // Each screen works its own line of guests only: a drive-thru screen never changes a counter order, and the counter
     // never a car (an order placed ahead and picked up at the drive-thru is the drive-thru's).
-    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel'].includes(action)) {
+    if (['add', 'oneOff', 'sizeUp', 'remove', 'qty', 'note', 'allergy', 'name', 'send', 'scan', 'codeOn', 'paid', 'receipt', 'tip', 'discount', 'tender', 'part', 'partUndo', 'split', 'refund', 'refundPreview', 'cancel', 'void', 'takeOff', 'comp', 'uncomp', 'giftCard', 'giftIssue', 'price', 'priceBack', 'card', 'cardCheck', 'cardStop', 'cardTest', 'phoneLink', 'phoneCheck', 'points', 'rewardsCode', 'rewards', 'reward', 'move', 'call', 'looks', 'here', 'staffMeal', 'readyText', 'merged', 'lineClear', 'appSend', 'appCode', 'appCancel', 'bags', 'bagScan'].includes(action)) {
       const cid = String(b.carId || ''), oid = String(b.orderId || '');
       // (Both, when both are given: each has to be this screen's.)
       const xs: any[] = (await Promise.all([ID.test(cid) ? db.doc(`${T}/driveThruCars/${cid}`).get() : null, ID.test(oid) ? db.doc(`${T}/counterOrders/${oid}`).get() : null])).map((s2: any) => s2?.data?.() || null);
@@ -362,7 +363,9 @@ export async function POST(req: NextRequest) {
           kitchen: o.status === 'building' ? 'not sent' : (mine.length || o.kitchenNone === true) && !waitingOn.length ? 'ready' : 'making', waitingOn,
           readyCount: mine.filter((t: any) => t.status === 'ready' || t.status === 'delivered').length, ticketCount: mine.length,
           // The text the guest asked for when it's ready (lib/ready-text): the last four digits, and when it went.
-          text: readyTextView(o) ? { ...readyTextView(o)!, sentAt: o.readyText?.sentAt || null } : null };
+          text: readyTextView(o) ? { ...readyTextView(o)!, sentAt: o.readyText?.sentAt || null } : null,
+          // Its bag labels once printed (lib/food-bags): how many, and which are still to scan before it's handed over.
+          bags: bagsOf(o) ? { of: bagsOf(o)!.count, left: bagsLeft(o, tenant) } : null, bagsStart: defaultBags(o) };
       }
       // A car waiting past the business's limit: the shift lead hears, once (lib/speed-server).
       if (channel === 'drive-thru') await checkLongWaits(db, tenantId, tenant, live, now.getTime(), new Map(live.map((c: any) => [String(c.id), (orders[String(c.orderId || '')]?.waitingOn || []).map((w: any) => `${num(w.quantity) > 1 ? `${num(w.quantity)} ` : ''}${w.name}`)])));
@@ -413,7 +416,9 @@ export async function POST(req: NextRequest) {
           calledAt: c.calledAt || null, calls: num(c.calls),
           // The voice assistant's call for this car, if it has one (api/counter/voice): its state and who took over.
           voice: c.voice?.callId ? { status: String(c.voice.status || ''), callId: String(c.voice.callId), takenOverBy: c.voice.takenOverBy || null } : null })),
-        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS, waiting: line?.waiting || 0, waitingByLane: line?.byLane || null, sensor: !!line?.sensor }, settings: { spots: spotsOf(tenant), pickupOnly: pickupOnlyOf(tenant), texts: readyTextsOn(tenant), lanes: channel === 'drive-thru' ? lanesOf(tenant) : 1, early: earlyModeOf(tenant) }, now: nowIso,
+        orders, stats: { ...cached.stats, inLane: live.length, inLineNow: inLineNow(live, now.getTime()), rushAt: RUSH_CARS, waiting: line?.waiting || 0, waitingByLane: line?.byLane || null, sensor: !!line?.sensor }, settings: { spots: spotsOf(tenant), pickupOnly: pickupOnlyOf(tenant), texts: readyTextsOn(tenant), lanes: channel === 'drive-thru' ? lanesOf(tenant) : 1, early: earlyModeOf(tenant),
+          // The printer that prints bag labels, if one does (lib/food-bags-server).
+          labelPrinter: (await labelPrinter(db, T).catch(() => null))?.name || null }, now: nowIso,
         // Which car merged first, when the window is asked (lib/drive-lanes): the front car of each lane, neither paying.
         merge: (() => { const paying = new Set<string>(live.filter((c: any) => { const cd = orders[String(c.orderId || '')]?.card; const st = String(cd?.state || ''); return st === 'on_reader' || st === 'capturing' || (st === 'starting' && now.getTime() - (Date.parse(String(cd?.at || '')) || 0) < 60000); }).map((c: any) => String(c.id)));
           const ask = mergeAsk(live, twoLanes, paying, now.getTime()); return ask ? { next: ask.next.id, other: ask.other.id } : null; })(),
@@ -932,6 +937,19 @@ export async function POST(req: NextRequest) {
       if (r.error) return bad(r.error, r.status);
       return ok({ ...r, staffOk });
     }
+    // Bag labels (lib/food-bags-server; design board "Bag labels, and a check before it goes"): printed again from here,
+    // on this tablet or the bag-label printer, with a number of bags; and each bag's label scanned before it's handed over
+    // (an order placed ahead going with the car counts too).
+    if (action === 'bags' || action === 'bagScan') {
+      const carId = String(b.carId || ''); if (!ID.test(carId)) return bad('Which order?');
+      const car: any = (await db.doc(`${T}/driveThruCars/${carId}`).get()).data();
+      if (!car || car.stage === 'gone') return bad('That order was already handed over.', 404);
+      const ids = [car.orderId, car.aheadId].map((x: unknown) => String(x || '')).filter((x) => ID.test(x));
+      if (action === 'bagScan') { const r = await scanBag(db, tenantId, tenant, ids, b.code); return r.ok ? ok({ ...r, staffOk }) : bad(r.error, r.status); }
+      const oid = String(b.orderId || ''); if (!ids.includes(oid)) return bad('Which order?');
+      const r = await printLabels(db, tenantId, oid, { by, here: b.here === true, count: b.count });
+      return r.ok ? ok({ ...r, staffOk }) : bad(r.error, r.status);
+    }
     if (action === 'move') {
       const carId = String(b.carId || ''); const to = String(b.to || '') as Stage;
       if (!ID.test(carId) || !STAGES.includes(to) || to === 'speaker') return bad('Where to?');
@@ -945,6 +963,14 @@ export async function POST(req: NextRequest) {
         if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager hands it over without the kitchen’s Allergy noted. Their PIN, or ask one to.', staffOk }, { status: 403 });
         allergyOk = m.approver;
       }
+      // A bag that won't scan (a torn label): a manager lets the order go without it, kept on the order (lib/food-bags).
+      let bagOk: { id: string; name: string } | null = null;
+      if (to === 'gone' && b.bagOverride === true) {
+        const m = allergyOk ? { approver: allergyOk } as Awaited<ReturnType<typeof managerFor>> : await managerFor(db, tenantId, staff, b.pin);
+        if (m.error) return m.notManager ? NextResponse.json({ ok: false, needsManager: true, error: m.error, staffOk }, { status: 403 }) : bad(m.error, m.status);
+        if (!m.approver) return NextResponse.json({ ok: false, needsManager: true, error: 'A manager lets it go without every bag scanned. Their PIN, or ask one to.', staffOk }, { status: 403 });
+        bagOk = m.approver;
+      }
       const unnoted = (docs: any[]) => docs.some((d: any) => { const t: any = d.data() || {}; return !['delivered', 'cancelled'].includes(String(t.status)) && needsAllergyNote(ticketFrom({ ...t, id: d.id }, 'kdsTickets') as any); });
       const allergyWait = (number: string) => ({ error: `${number || 'This order'} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over.`, status: 409, code: 'allergy' });
       // A delivery app's order handed to its courier (lib/app-orders): in the books first, as the app's sale (no tax
@@ -954,6 +980,9 @@ export async function POST(req: NextRequest) {
         const o0: any = c0 && ID.test(String(c0.orderId || '')) ? (await db.doc(`${T}/counterOrders/${c0.orderId}`).get()).data() : null;
         // (Checked before anything is booked; checked again as it's handed over.)
         if (!allergyOk && o0?.app?.code && unnoted((await db.collection(`${T}/kdsTickets`).where('orderId', '==', String(c0.orderId)).get()).docs)) return NextResponse.json({ ok: false, ...allergyWait(appName(o0.app)), staffOk }, { status: 409 });
+        // (Its bags too, before the app's sale is booked.)
+        const w0 = o0?.app?.code && !bagOk ? bagsWaiting([{ id: String(c0.orderId), data: o0 }], tenant) : [];
+        if (w0.length) return NextResponse.json({ ok: false, error: waitingWords(w0), code: 'bags', bags: w0, staffOk }, { status: 409 });
         if (o0?.app?.code && o0.status === 'sent' && !o0.paidAt) {
           const p: any = await payOrder(db, tenantId, String(c0.orderId), { method: 'app', by, byId: staff?.id || null, day: todayIn(tz, now) });
           if (!p.ok) return bad(p.error, p.status);
@@ -967,6 +996,7 @@ export async function POST(req: NextRequest) {
         // An order placed ahead going with the car: handed over with it.
         const aheadRef = ID.test(String(car.aheadId || '')) ? db.doc(`${T}/counterOrders/${car.aheadId}`) : null;
         const aheadTix = to === 'gone' && aheadRef ? (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', String(car.aheadId)))).docs : [];
+        const aheadOrder: any = to === 'gone' && aheadRef ? (await tx.get(aheadRef)).data() : null;
         const parked = to === 'forward' && b.spot !== undefined && b.spot !== null ? (await tx.get(db.collection(`${T}/driveThruCars`).where('stage', '==', 'forward').limit(30))).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter(atDriveThru) : [];
         if (car.stage === 'gone') return { already: true };
         // Only ever forward (a tap on an old screen never puts a car back, or spoils its times).
@@ -974,6 +1004,17 @@ export async function POST(req: NextRequest) {
         if (to === 'gone' && order && order.status !== 'building' && !order.paidAt) return { error: 'Take payment first. If they drove off, void the order.', status: 409 };
         if ((to === 'pickup' || to === 'forward') && order && !order.paidAt && !order.app?.code) return { error: 'Take payment first.', status: 409 };
         if (to === 'gone' && !allergyOk && unnoted([...(order && order.status !== 'building' ? tix : []), ...aheadTix])) return allergyWait(String(car.number || order?.number || ''));
+        // Each bag's label scanned first (lib/food-bags), unless a manager lets it go without: who, kept on the order.
+        // (Not a car let go with nothing sent from here, carrying on with an order placed ahead: that one's checked at pickup.)
+        const carriesOn = to === 'gone' && !!aheadRef && (!order || order.status === 'building');
+        const bagWait = to === 'gone' && !carriesOn ? bagsWaiting([{ id: String(car.orderId || ''), data: order }, { id: String(car.aheadId || ''), data: aheadOrder }], tenant) : [];
+        if (bagWait.length && !bagOk) return { error: waitingWords(bagWait), status: 409, code: 'bags', bags: bagWait };
+        for (const w of bagWait) {
+          tx.set(db.doc(`${T}/counterOrders/${w.orderId}`), { bags: { skipped: { by: bagOk!.name, at: nowIso } } }, { merge: true });
+          // (As read here too, so the handover below sees them let go, not passed by.)
+          const d = w.orderId === String(car.orderId || '') ? order : aheadOrder; if (d) d.bags = { ...(d.bags || {}), skipped: { by: bagOk!.name, at: nowIso } };
+        }
+        const skippedBags = bagWait.length > 0;
         // A spot is one of the business's own numbered spots (Menu page), and free; or none at all.
         const asked = to === 'forward' && b.spot !== undefined && b.spot !== null && String(b.spot) !== '' ? String(b.spot) : null;
         if (asked !== null && !(/^[1-8]$/.test(asked) && Number(asked) <= spotsOf(tenant))) return { error: 'That spot isn’t there anymore. Pick another.', status: 409 };
@@ -988,15 +1029,16 @@ export async function POST(req: NextRequest) {
           return { ok: true, carriedOn: true };
         }
         // Handed over: the car, its order and the kitchen's tickets, and an order placed ahead with it (lib/counter-handover).
-        if (to === 'gone') handOverInTx(tx, db, T, { carRef, car, order, tix, aheadRef, aheadTix, by, nowIso });
+        if (to === 'gone') handOverInTx(tx, db, T, { carRef, car, order, tix, aheadRef, aheadTix, by, nowIso, aheadOrder });
         else tx.set(carRef, { stage: to, stageAt: { ...(car.stageAt || {}), [to]: nowIso }, ...(spot !== undefined ? { spot } : {}) }, { merge: true });
-        return { ok: true };
+        return { ok: true, skippedBags };
       });
       forgetStats(tenantId);   // again once it's done, so a read in between never keeps the old numbers
       // Handed over or gone: the voice assistant (if it's still on with this car) hangs up.
       if (!r.error && to === 'gone') await stopCarCall(db, tenantId, carId, 'car gone');
+      if (!r.error && !r.already && r.skippedBags && bagOk) await logAuditAdmin(db, tenantId, { action: 'counter.bags_skipped', targetType: 'car', targetId: carId, summary: `${bagOk.name} let an order go without every bag scanned${bagOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: bagOk.id, name: bagOk.name } } as any).catch(() => {});
       if (!r.error && !r.already && allergyOk) await logAuditAdmin(db, tenantId, { action: 'counter.allergy_handover', targetType: 'car', targetId: carId, summary: `${allergyOk.name} handed over an order with an allergy the kitchen hadn’t noted${allergyOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: allergyOk.id, name: allergyOk.name } } as any).catch(() => {});
-      return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
+      return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, ...(r.bags ? { bags: r.bags } : {}), staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });
     }
 
     // Today's paid orders on this side (the counter's, or the drive-thru's), to find one to refund (lib/counter-refund).
@@ -1407,27 +1449,4 @@ export async function POST(req: NextRequest) {
     console.error('[counter] failed', e?.message || e);
     return bad('That didn’t go through. Try again.', 500);
   }
-}
-
-/** A manager okays it: one signed in or working here, or their PIN typed on this screen (checked with the same lockout
- *  as any PIN, lib/pin). No PIN typed and no manager here: approver null, for the step to ask. */
-async function managerFor(db: any, tenantId: string, staff: { id: string; name: string } | null, pinIn: unknown):
-  Promise<{ approver: { id: string; name: string } | null; error?: string; status?: number; notManager?: boolean }> {
-  if (staff && await isManager(db, tenantId, staff.id)) return { approver: staff };
-  if (pinIn === undefined || pinIn === null || pinIn === '') return { approver: null };
-  const pin = String(pinIn); if (!validPin(pin)) return { approver: null, error: 'Enter a 4-digit PIN.', status: 400 };
-  const ticket = await beginPinAttempt(db, tenantId); if (ticket === null) return { approver: null, error: 'Too many wrong PINs. Wait 15 minutes, or ask a manager.', status: 423 };
-  const hit = await findStaffByPin(db, tenantId, pin); await endPinAttempt(db, tenantId, ticket, !!hit);
-  if (!hit) return { approver: null, error: 'That PIN isn’t right.', status: 403 };
-  if (!(await isManager(db, tenantId, hit.id))) return { approver: null, error: 'That isn’t a manager’s PIN.', notManager: true };
-  return { approver: { id: hit.id, name: String(hit.name || 'A manager').slice(0, 60) } };
-}
-
-/** Someone a manager here (their own team record says so). */
-async function isManager(db: any, tenantId: string, staffId: string | null): Promise<boolean> {
-  if (!staffId || !ID.test(staffId)) return false;
-  const [st, t] = await Promise.all([db.doc(`tenants/${tenantId}/staff/${staffId}`).get(), db.doc(`tenants/${tenantId}`).get()]);
-  const s: any = st.data() || {}; const tn: any = t.data() || {};
-  if (s.isActive === false || s.archived === true || s.status === 'archived') return false;
-  return MANAGER_ROLES.includes(String(s.role || '')) || s.isManager === true || (tn.ownerId && tn.ownerId === staffId);
 }

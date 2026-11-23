@@ -1,8 +1,9 @@
 // src/app/api/printers/route.ts — THE BUSINESS'S PRINTERS (lib/printing-server; design canvas Printers).
 //   list   { tenantId } → each printer, what it prints and how it's doing; a manager also gets the address to put in
 //          the printer's own settings (it carries the printer's secret key), and the stations to choose from.
-//   save   { tenantId, id?, name, kind, cols, stations, tickets, checks, buzz, receipts, drawer } → add one or change it
-//          (a manager). `receipts`: it prints guests' receipts; `drawer`: a cash drawer is plugged into it.
+//   save   { tenantId, id?, name, kind, cols, stations, tickets, checks, buzz, receipts, drawer, labels } → add one or
+//          change it (a manager). `receipts`: it prints guests' receipts; `drawer`: a cash drawer is plugged into it;
+//          `labels`: it prints food orders' bag labels (lib/food-bags).
 //   after  { tenantId, after: 'ask' | 'print' | 'none' } → after a sale at the counter or the drive-thru: ask about a
 //          receipt, print one, or don't print (text and email are always offered) (a manager).
 //   remove { tenantId, id } → taken away; its address stops working within a minute (a manager).
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'list') {
     const list = await printersOf(db, T); const now = Date.now();
-    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer,
+    return ok({ manager, stations: stationsOf(tenant), receiptAfter: receiptAfterOf(tenant), printers: list.map((p) => ({ id: p.id, name: p.name, kind: p.kind, cols: p.cols, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: p.receipts, drawer: p.drawer, labels: p.labels,
       prints: printsWords(p), ...printerState(p, now, tz), ...(manager ? { url: printerUrl(origin, tenantId, p) } : {}) })) });
   }
   if (action === 'after') {
@@ -61,6 +62,8 @@ export async function POST(req: NextRequest) {
     if ((await printersOf(db, T)).length >= MAX_PRINTERS) return bad(`${MAX_PRINTERS} printers at most.`);
     const ref = db.collection(`${T}/printers`).doc();
     await ref.set({ ...s, key: newKey(), addedAt: new Date().toISOString(), addedBy: by, lastSeenAt: null, statusCode: null, lastError: null });
+    // (Known straight away to what reads the printers every half minute: a new bag-label printer prints the next order.)
+    forgetPrinter(T, ref.id);
     return ok({ id: ref.id });
   }
   if (!ID.test(id)) return bad('Which printer?');

@@ -51,6 +51,7 @@ import { priceWords } from '@/lib/counter-price';
 import { DrawerSheet } from '@/components/pos/DrawerMove';
 import { compWords } from '@/lib/counter-comp';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
+import { BagLabelsSheet, BagScanSheet, printLabelsHere, type BagWait } from '@/components/drive-thru/BagSheets';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -62,6 +63,8 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 type Stage = 'speaker' | 'pay' | 'pickup' | 'forward';
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; offer?: 'size' | 'item'; note?: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; taxLabel: string; total: number; paidAt: string | null; payMethod: string | null; paidVia?: string | null;
+  /** Its bag labels once printed (lib/food-bags): how many, which are still to scan; and how many bags to start with. */
+  bags?: { of: number; left: number[] } | null; bagsStart?: number;
   /** Its tip (in its total) and discount (lib/counter-money). */
   tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null;
   /** Gift cards and store credit set aside on it, and what's left for cash or card (lib/counter-money). */
@@ -93,7 +96,7 @@ type Ahead = { id: string; number: string; name: string | null; code: string; at
 // An item as the lane reads it: its price right now (happy hour) and, outside its menus by time of day, when it's back.
 type LaneItem = MenuItem & { number?: number | null; off?: string | null; priceNow?: number; happy?: boolean };
 /** What an item costs right now ("from" the cheapest choices), happy hour included (lib/menu-time). */
-type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off' }; menu: LaneItem[];
+type Lane = { business: { name: string }; screen: string; cars: CarRow[]; orders: Record<string, Order>; stats: Stats; settings?: { spots: number; pickupOnly?: boolean; lanes?: 1 | 2; early?: 'rush' | 'always' | 'off'; labelPrinter?: string | null }; menu: LaneItem[];
   /** What sells at this hour, most sold first (lib/register-tiles-server): the tiles' first tab. */
   most?: string[] | null;
   /** How the business arranges the tiles (lib/register-tiles TileSetup). */
@@ -313,6 +316,10 @@ export default function DriveThru() {
   const [section, setSection] = useState<string | null>(null);
   const [choiceFor, setChoiceFor] = useState<LaneItem | null>(null);
   const [allergyOpen, setAllergyOpen] = useState(false); const [allergyHold, setAllergyHold] = useState<{ carId: string; number: string } | null>(null);
+  // Bag labels (lib/food-bags; components/drive-thru/BagSheets): a handover waiting on its bags to be scanned, and the
+  // labels being printed for an order.
+  const [bagHold, setBagHold] = useState<{ carId: string; number: string; waiting: BagWait[] } | null>(null);
+  const [labelsFor, setLabelsFor] = useState<{ carId: string; orderId: string; number: string; start: number } | null>(null);
   // What was just added, for what to offer with it (components/menu/OfferAsk); `choiceOffer`: the choices sheet is open for something offered.
   const [just, setJust] = useState<JustAdded | null>(null); const [choiceOffer, setChoiceOffer] = useState(false);
   const [staff, setStaff] = useState<ScreenStaff | null>(null);
@@ -584,7 +591,7 @@ export default function DriveThru() {
       else if (d.code === 'unknown') { setCodeFor(String(d.scanned || code)); setCodeScale(d.scaleNo || null); }
     });
   };
-  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !partPin && !discountPin, { layer: 'background' });
+  useWedgeScanner(scan, !!key && !refundOpen && !codeFor && !oneOffOpen && !giftOpen && !priceFor && !weighFor && !drawerOpen && !choiceFor && !partPin && !discountPin && !bagHold && !labelsFor, { layer: 'background' });
   const tapItem = (m: LaneItem) => { setChoiceOffer(false); if (m.choices.length) setChoiceFor(m); else add(m); };
   // Pressed and held: its choices and a note, for any item (components/pos/RegisterTiles).
   const holdItem = (m: LaneItem) => { setChoiceOffer(false); setChoiceFor(m); };
@@ -735,7 +742,28 @@ export default function DriveThru() {
   }, [cardOn, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const move = (to: 'gone' | 'forward', spot?: string) => car && act(`move-${to}`, { action: 'move', carId: car.id, to, ...(spot ? { spot } : {}) }, () => {
     if (to === 'gone') setNotice({ text: `Car ${car.number} is on its way.`, tone: 'good' });
-  }, undefined, (d) => { if (d.code === 'allergy') setAllergyHold({ carId: car.id, number: car.number }); });
+  }, undefined, (d) => { if (d.code === 'allergy') setAllergyHold({ carId: car.id, number: car.number }); if (d.code === 'bags' && Array.isArray(d.bags)) setBagHold({ carId: car.id, number: car.number, waiting: d.bags }); });
+  // Each bag's label scanned before it's handed over (lib/food-bags), then handed over by itself; or a manager's PIN.
+  const bagScan = async (code: string) => {
+    if (!bagHold) return { ok: false as const, error: 'Pick the car again.' };
+    const { d } = await post({ action: 'bagScan', carId: bagHold.carId, code }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    return d.ok ? { ok: true as const, orderId: String(d.orderId), n: Number(d.n), left: Array.isArray(d.left) ? d.left : [] } : { ok: false as const, error: d.error || 'That didn’t go through. Try again.' };
+  };
+  const bagsDone = () => { if (!bagHold) return; const h = bagHold; setBagHold(null); void act('move-gone', { action: 'move', carId: h.carId, to: 'gone' }, () => setNotice({ text: `Car ${h.number} is on its way.`, tone: 'good' }), undefined, (d) => { if (d.code === 'bags' && Array.isArray(d.bags)) setBagHold({ ...h, waiting: d.bags }); if (d.code === 'allergy') setAllergyHold({ carId: h.carId, number: h.number }); }); };
+  const bagSkip = async (pin: string) => {
+    if (!bagHold) return { ok: false, error: 'Pick the car again.' };
+    const { d } = await post({ action: 'move', carId: bagHold.carId, to: 'gone', bagOverride: true, pin }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    if (!d.ok) return { ok: false, error: d.error || 'That didn’t go through. Try again.' };
+    setNotice({ text: `Car ${bagHold.number} was handed over, okayed by a manager.`, tone: 'good' }); setBagHold(null); acted.current++; load(); return { ok: true };
+  };
+  const printBags = async (count: number, where: 'here' | 'printer') => {
+    if (!labelsFor) return 'Pick the car again.';
+    const { d } = await post({ action: 'bags', carId: labelsFor.carId, orderId: labelsFor.orderId, count, here: where === 'here' }).catch(() => ({ d: { ok: false, error: 'No connection. Try again.' } as any }));
+    if (!d.ok) return d.error || 'That didn’t print. Try again.';
+    if (where === 'here' && !(await printLabelsHere(d.labels || []))) return 'This device couldn’t open its print dialog.';
+    setNotice({ text: where === 'here' ? `${labelsFor.number}: ${d.count === 1 ? 'its label' : `${d.count} bag labels`} sent to this device’s printer.` : `${labelsFor.number}: ${d.count === 1 ? 'its label' : `${d.count} bag labels`} printing on ${d.printer}.`, tone: 'good' });
+    acted.current++; load(); return null;
+  };
   // Handed over with an allergy the kitchen hasn't noted: refused; a manager can hand it over with their PIN (kept on record).
   const handAllergy = (h: { carId: string; number: string }, pass: string) => act('move-gone', { action: 'move', carId: h.carId, to: 'gone', allergyOverride: true, staffPass: pass }, () => setNotice({ text: `Car ${h.number} was handed over by a manager.`, tone: 'good' }));
   // "Not all ready" asks for a second tap, and a second tap within a moment (a double tap) doesn't count.
@@ -1213,6 +1241,9 @@ export default function DriveThru() {
                         )}
                         {order.paidAt && order.payMethod !== 'staff' && order.payMethod !== 'app' && slip?.orderId !== order.id && (
                           <button type="button" onClick={() => setSlip({ orderId: order.id, title: `Order ${order.number}${order.guestName ? `, ${order.guestName}` : ''}`, cash: false, change: null, later: true })} className={`${btn} w-full text-[15px]`} style={quiet}>Receipt</button>)}
+                        {[order, aheadOrder].filter((x): x is Order => !!x && x.status === 'sent').map((x) => (
+                          <button key={`bags-${x.id}`} type="button" onClick={() => setLabelsFor({ carId: car.id, orderId: x.id, number: x.number, start: x.bags?.of || x.bagsStart || 1 })} className={`${btn} w-full text-[15px]`} style={quiet}>
+                            {x.bags ? (x.bags.left.length ? `${aheadOrder ? `${x.number}: b` : 'B'}ag labels, ${x.bags.of - x.bags.left.length} of ${x.bags.of} scanned` : `${aheadOrder ? `${x.number}: b` : 'B'}ag labels, ${x.bags.of}`) : `Print ${aheadOrder ? `${x.number}’s ` : ''}bag labels`}</button>))}
                         {car.stage === 'forward' && (
                           <div className="space-y-3">
                             <p className="rounded-2xl px-4 py-3 text-[16px]" style={{ background: SOFT }}>Parked{car.spot ? ` in spot ${car.spot}` : ''}. Bring it out when it’s ready.</p>
@@ -1233,6 +1264,9 @@ export default function DriveThru() {
       {notice && <div role="status" className="fixed bottom-4 left-1/2 z-40 w-max max-w-[min(560px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl px-5 py-3 text-[15px] font-medium" style={{ background: notice.tone === 'good' ? INK : AMBER, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}>{notice.text}</div>}
       {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || `order ${order.number}`} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
       {choiceFor && <ChoiceSheet item={choiceFor} onClose={() => setChoiceFor(null)} onAdd={(p, q, note) => { add(choiceFor, p, q, choiceOffer ? 'item' : undefined, note); setChoiceFor(null); }} />}
+      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over car ${bagHold.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} onClose={() => setBagHold(null)}
+        print={(orderId) => { const o = lane?.orders[orderId]; setBagHold(null); setLabelsFor({ carId: bagHold.carId, orderId, number: o?.number || bagHold.number, start: o?.bags?.of || o?.bagsStart || 1 }); }} />}
+      {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.start} printer={lane?.settings?.labelPrinter || null} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
       {allergyHold && <PinPad check={checkPin} onDone={(st) => { const h = allergyHold; setAllergyHold(null); void handAllergy(h, st.pass); }} onClose={() => setAllergyHold(null)} line={`Car ${allergyHold.number} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}
       {drawerOpen && <DrawerSheet call={refundCall} onClose={() => setDrawerOpen(false)} onDone={(text) => { setDrawerOpen(false); setNotice({ text, tone: 'good' }); }} />}
       {priceFor && order && (() => { const l = order.lines.find((x) => x.lineId === priceFor); return l ? <PriceSheet orderId={order.id} number={order.number} line={l as any} whole={order.status !== 'building'} call={refundCall}

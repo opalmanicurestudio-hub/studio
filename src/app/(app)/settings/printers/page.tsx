@@ -9,8 +9,8 @@ import { getAuth } from 'firebase/auth';
 import { useTenant } from '@/context/TenantContext';
 import { SettingsPage, Section, Row, Toggle, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 
-type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; prints: string; ok: boolean; words: string; url?: string };
-type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean };
+type P = { id: string; name: string; kind: 'star' | 'epson'; cols: number; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels?: boolean; prints: string; ok: boolean; words: string; url?: string };
+type Edit = { id: string | null; name: string; kind: 'star' | 'epson'; narrow: boolean; stations: string[]; tickets: boolean; checks: boolean; buzz: boolean; receipts: boolean; drawer: boolean; labels: boolean };
 type After = 'ask' | 'print' | 'none';
 const COLS = { star: [48, 32], epson: [42, 30] } as const;
 const GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -31,8 +31,8 @@ function overlapOf(list: P[]): string[] {
   }
   return out.slice(0, 3);
 }
-const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false });
-const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer });
+const blank = (): Edit => ({ id: null, name: '', kind: 'star', narrow: false, stations: [], tickets: true, checks: false, buzz: true, receipts: false, drawer: false, labels: false });
+const editOf = (p: P): Edit => ({ id: p.id, name: p.name, kind: p.kind, narrow: p.cols < 40, stations: p.stations, tickets: p.tickets, checks: p.checks, buzz: p.buzz, receipts: !!p.receipts, drawer: !!p.drawer, labels: !!p.labels });
 
 function Seg<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: [T, string][]; label: string }) {
   return (
@@ -66,7 +66,7 @@ export default function PrintersSettings() {
   };
   const save = async () => {
     if (!edit) return;
-    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer },
+    const d = await act('save', { action: 'save', id: edit.id, name: edit.name, kind: edit.kind, cols: COLS[edit.kind][edit.narrow ? 1 : 0], stations: edit.stations, tickets: edit.tickets, checks: edit.checks, buzz: edit.buzz, receipts: edit.receipts, drawer: edit.drawer, labels: edit.labels },
       edit.id ? 'Saved.' : 'Added. Put its address in the printer’s own settings, then print a test.');
     if (d) setEdit(null);
   };
@@ -103,6 +103,9 @@ export default function PrintersSettings() {
           </Row>
           <Row label="Prints receipts" help="Guests’ receipts from the counter, the drive-thru and Today’s sales, when one’s asked for (or every time, as set below)" inline>
             <Toggle checked={edit.receipts} onChange={(v) => E({ receipts: v })} label="Prints receipts" />
+          </Row>
+          <Row label="Prints bag labels" help={edit.kind === 'epson' ? 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. Best on a sticky label printer with no backing paper' : 'A label for each bag of a food order, as it’s ready: the number, the name and the items. A Star printer on CloudPRNT prints no code to scan, so orders labeled here aren’t scanned at handover'} inline>
+            <Toggle checked={edit.labels} onChange={(v) => E({ labels: v })} label="Prints bag labels" />
           </Row>
           <Row label="Opens the cash drawer" help="A cash drawer plugged into this printer opens for a cash sale, with or without a receipt" inline>
             <Toggle checked={edit.drawer} onChange={(v) => E({ drawer: v })} label="Opens the cash drawer" />

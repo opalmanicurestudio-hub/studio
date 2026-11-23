@@ -5,22 +5,27 @@
 //                  they said they are, whether they're here, how the kitchen's getting on, and who's taking it out.
 //   cafeOut      — someone is taking it out: only once it's ready and they're here; their page says so, with a first name.
 //   cafeHanded   — handed over: the order's done, and anything the kitchen hadn't marked served is now (as at the
-//                  drive-thru window). Nothing about money changes: it was paid when it was placed.
+//                  drive-thru window). Nothing about money changes: it was paid when it was placed. Each bag's label is
+//                  scanned first (lib/food-bags), unless a manager lets it go without, kept on the order.
 import { openDays } from '@/lib/counter-ahead';
 import { tenantTimeZone } from '@/lib/tenant-time';
+import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
+import { bagsWaiting, waitingWords } from '@/lib/food-bags-server';
 
 const nowIso = () => new Date().toISOString();
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const first = (v: unknown) => String(v ?? '').trim().split(/\s+/)[0] || '';
 const LIVE = (t: any) => t.status !== 'cancelled' && t.status !== 'voided';
 const READY = ['ready', 'delivered', 'served', 'done'];
-type Fail = { ok: false; error: string; status: number };
+type Fail = { ok: false; error: string; status: number; code?: 'bags'; bags?: { orderId: string; number: string; of: number; left: number[] }[] };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 
 export type CafeCurb = { kind: 'cafe'; id: string; locationId?: string | null; number: string; name: string | null; where: string | null; note: string | null; hereAt: string | null; outAt: string | null; outBy: string | null;
   at: string | null; state: 'later' | 'making' | 'ready'; items: number; summary: string;
   /** On their way (when they set off, about how many minutes out), and checked in by their phone's location. */
-  onWayAt?: string | null; eta?: number | null; found?: boolean };
+  onWayAt?: string | null; eta?: number | null; found?: boolean;
+  /** Its bag labels, once printed: how many, and which are still to scan before it's handed over (lib/food-bags). */
+  bags?: { of: number; left: number[] } | null; bagsStart?: number };
 
 /** How the kitchen is getting on with one order's tickets: waiting until later, being made, or ready (nothing to make
  *  counts as ready). */
@@ -59,6 +64,7 @@ async function readCafe(db: any, tenantId: string, tenant: any, now: number): Pr
     kind: 'cafe' as const, id: o.id, number: String(o.number || ''), name: o.guestName || null, where: o.ahead?.curb?.where || null, note: o.ahead?.curb?.note || null,
     hereAt: o.ahead?.hereAt || null, outAt: o.ahead?.curb?.outAt || null, outBy: o.ahead?.curb?.outBy || null, at: o.ahead?.at || null,
     onWayAt: o.ahead?.curb?.onWayAt || null, eta: o.ahead?.curb?.etaMinutes ?? null, found: o.ahead?.curb?.source === 'geo',
+    bags: bagsOf(o) ? { of: bagsOf(o)!.count, left: bagsLeft(o, tenant) } : null, bagsStart: defaultBags(o),
     state: kitchenState(tix.get(o.id) || [], now), items: (o.lines || []).reduce((n: number, l: any) => n + num(l.quantity), 0),
     summary: (o.lines || []).slice(0, 3).map((l: any) => `${num(l.quantity) > 1 ? `${num(l.quantity)} ` : ''}${String(l.name || '').toLowerCase()}`).join(', '),
   }));
@@ -87,7 +93,7 @@ export async function cafeOut(db: any, tenantId: string, orderId: string, who: {
   }); } finally { changed(tenantId); }   // once it's saved: the next read sees it
 }
 
-export async function cafeHanded(db: any, tenantId: string, orderId: string, who: { name: string }): Promise<{ ok: true; already?: boolean } | Fail> {
+export async function cafeHanded(db: any, tenantId: string, orderId: string, who: { name: string }, o: { tenant?: any; skip?: { name: string } | null } = {}): Promise<{ ok: true; already?: boolean; skippedBags?: boolean } | Fail> {
   const T = `tenants/${tenantId}`;
   try { return await db.runTransaction(async (tx: any) => {
     const { ref, or, err } = await curbOrder(tx, db, T, orderId); if (err) return err;
@@ -95,8 +101,12 @@ export async function cafeHanded(db: any, tenantId: string, orderId: string, who
     if (or.status === 'done') return { ok: true, already: true };
     if (kitchenState(docs.map((d: any) => d.data() || {})) !== 'ready') return fail('It isn’t ready yet.', 409);
     const at = nowIso();
+    // Each bag's label scanned first, unless a manager lets it go without (kept on the order).
+    const wait = o.tenant ? bagsWaiting([{ id: orderId, data: or }], o.tenant) : [];
+    if (wait.length && !o.skip) return { ...fail(waitingWords(wait), 409), code: 'bags' as const, bags: wait };
+    if (wait.length && o.skip) tx.set(ref, { bags: { skipped: { by: o.skip.name, at } } }, { merge: true });
     tx.set(ref, { status: 'done', doneAt: at, ahead: { curb: { handedAt: at, handedBy: first(who.name) || null } } }, { merge: true });
     for (const d of docs) { const t: any = d.data() || {}; if (LIVE(t) && t.status !== 'delivered') tx.set(d.ref, { status: 'delivered', deliveredAt: at, deliveredBy: { name: who.name, via: 'curbside' } }, { merge: true }); }
-    return { ok: true };
+    return { ok: true, ...(wait.length && o.skip ? { skippedBags: true } : {}) };
   }); } finally { changed(tenantId); }
 }

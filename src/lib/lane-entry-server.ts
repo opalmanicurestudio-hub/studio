@@ -238,7 +238,7 @@ async function pointCar(db: any, tenantId: string, point: SensorPoint, lane: 1 |
       const all = [...liveOf(tix), ...liveOf(aheadTix)];
       const allergy = all.some((t: any) => t.status !== 'delivered' && needsAllergyNote(ticketFrom(t, 'kdsTickets') as any));
       if (!settled(order, liveOf(tix)) || (aheadRef && !settled(ahead, liveOf(aheadTix))) || order.app?.code || allergy) return false;
-      handOverInTx(tx, db, T, { carRef: carRef(pick.car.id), car, order, tix, aheadRef, aheadTix, by: 'Exit sensor', nowIso, extra: { exitAt: nowIso } });
+      handOverInTx(tx, db, T, { carRef: carRef(pick.car.id), car, order, tix, aheadRef, aheadTix, aheadOrder: ahead, by: 'Exit sensor', nowIso, extra: { exitAt: nowIso } });
       return true;
     }).catch(() => false);
     if (done) return true;
