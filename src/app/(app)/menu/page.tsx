@@ -29,6 +29,7 @@ import { OneOffCard, type OneOffSettings } from '@/components/menu/OneOffCard';
 import { TilesCard } from '@/components/menu/TilesCard';
 import type { TileSetup } from '@/lib/register-tiles';
 import { ScaleLabelsCard } from '@/components/menu/ScaleLabelsCard';
+import { BagExtrasSettings, type BagExtrasSet } from '@/components/menu/BagExtrasSettings';
 import type { ScaleSet } from '@/lib/scale-label';
 import { LaneEntrySettings, type SensorRow, type EarlyMode } from '@/components/menu/LaneEntrySettings';
 import { TableServiceSettings, type Service } from '@/components/menu/TableServiceSettings';
@@ -100,6 +101,8 @@ export default function MenuPage() {
   const [readyTexts, setReadyTexts] = useState<boolean | null>(null);
   // Scanning each bag's label before a food order is handed over (lib/food-bags).
   const [bagCheck, setBagCheckState] = useState<boolean | null>(null);
+  // What's ticked into a to-go bag (components/menu/BagExtrasSettings).
+  const [bagExtras, setBagExtras] = useState<BagExtrasSet | null>(null);
   // Whether orders placed ahead can come to the drive-thru (Ordering ahead on, with the drive-thru as a way): pickup only
   // applies only then.
   const [aheadThere, setAheadThere] = useState(true);
@@ -132,7 +135,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setBagCheckState(typeof d.lane?.bagCheck === 'boolean' ? d.lane.bagCheck : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSpanish(d.spanish || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setBagCheckState(typeof d.lane?.bagCheck === 'boolean' ? d.lane.bagCheck : null); setBagExtras(d.lane?.bagExtras && Array.isArray(d.lane.bagExtras.plate) ? d.lane.bagExtras : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSpanish(d.spanish || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -213,6 +216,8 @@ export default function MenuPage() {
     setBusy(null); if (d.ok) { put(d.item); return d.item; } setErr(d.error || 'That didn’t go through.'); return null;
   };
 
+  // The choices on the menu, by name, for what's ticked into the bag (components/menu/BagExtrasSettings).
+  const menuGroups = useMemo(() => Array.from(new Map((menu || []).flatMap((m) => (m.choices || []).map((g) => [g.name.toLowerCase(), g.name] as [string, string]))).values()), [menu]);
   const sections = useMemo(() => {
     const list = (menu || []).filter((m) => !q.trim() || `${m.name} ${m.section} ${m.nameEs || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
     const by = new Map<string, MenuItem[]>(); for (const m of list) by.set(m.section, [...(by.get(m.section) || []), m]);
@@ -316,6 +321,7 @@ export default function MenuPage() {
                       <button key={label} type="button" aria-pressed={on} aria-disabled={busy === 'bagCheck'} onClick={() => { if (!on && busy !== 'bagCheck') void setBagCheck(v); }} className={`${BTN} aria-disabled:opacity-50`}
                         style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{label}</button>); })}
                   </span>
+                  {bagExtras && <BagExtrasSettings key={`${bagExtras.groups.join('|')}:${bagExtras.extras.join('|')}`} start={bagExtras} menuGroups={menuGroups} call={call} scanning={bagCheck === true} />}
                 </div>
               )}
               {spots !== null && (

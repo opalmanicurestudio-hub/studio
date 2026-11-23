@@ -143,6 +143,7 @@ export function CurbsideScreen() {
   };
   // One item's sticker printed again (a remake, a torn one): lib/item-stickers-server.
   const stickerAgain = async (_orderId: string, k: string) => { if (!bagHold) return { ok: false, error: 'Pick the order again.' }; const d = await curb({ action: 'sticker', orderId: bagHold.c.id, k }); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t print.' }; };
+  const extraIn = async (_orderId: string, k: string, on: boolean) => { if (!bagHold) return { ok: false, error: 'Pick the order again.' }; const d = await curb({ action: 'extra', orderId: bagHold.c.id, k, on }); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t go through. Try again.' }; };
   const bagsDone = () => { if (!bagHold) return; const c = bagHold.c; setBagHold(null); void cafeAct(c, 'handed'); };
   const bagSkip = async (pin: string, reason: string) => {
     if (!bagHold) return { ok: false, error: 'Pick the order again.' };
@@ -196,7 +197,7 @@ export function CurbsideScreen() {
       {open && <OrderWorkspace key={open.id} fs={fs} tenantId={tenantId} order={open} all={orders} actor={actor} rs={rs} photoFor={new Map()} shelfFor={new Map()}
         batch={null} inventory={inventory || []} perms={perms} canRefund={canRefund} isManager={isManager} canEditContact={canEditContact}
         shopZone={shopZone} layout="phone" requestTab={focus} startMessage={null} onClose={() => setOpenId(null)} onToast={setToast} onOpenOrder={(id) => setOpenId(id)} />}
-      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.c.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} onClose={() => setBagHold(null)} print={() => { const c = bagHold.c; setBagHold(null); setLabelsFor(c); }} />}
+      {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.c.number}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} tick={extraIn} onClose={() => setBagHold(null)} print={() => { const c = bagHold.c; setBagHold(null); setLabelsFor(c); }} />}
       {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.bags?.of || labelsFor.bagsStart || 1} printer={labelPrinterName} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} lookup={(id) => byId.get(id)} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={40} />}

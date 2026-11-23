@@ -36,6 +36,8 @@
 //   laneSettings { tenantId, spots | pickupOnly | readyTexts | tips | discounts | tiles } → managers: how many numbered pull-forward spots the drive-thru
 //             has (1 to 8), whether it's pickup only (cars collect orders placed ahead; nobody orders at the speaker), or
 //             whether guests can ask for a text when their order is ready (lib/ready-text)
+//             (bagGroups [names] | bagExtras [ids]: what's ticked into a to-go bag before it's handed over, lib/bag-extras:
+//             the guest's picks from those choices, and those of the business's extras.)
 //             (scaleLabels { on?, holds?, digits?, unit? }: how the business's scale prints its stickers, lib/scale-label;
 //             and save's scaleNo: an item sold by weight's number on that scale, one item to a number.)
 //   voiceSetup { tenantId } → managers: make this business's assistant with the voice service (lib/drive-thru-voice-setup)
@@ -46,6 +48,8 @@
 //   choice option may carry changes: what it adds, swaps or leaves out of the recipe, lib/choice-recipe.)
 // Suppliers are never read or written here. Costs are for managers only: what each item costs to make, what each
 // ingredient costs (for the recipe editor's live cost), and the prep recipes. `list` also gives each item's recipe.
+import { bagExtrasSetOf, cleanBagGroups, MAX_BAG_EXTRAS } from '@/lib/bag-extras';
+import { extraWords, extrasOf } from '@/lib/plate-extras';
 import { bizLocationsOf, forgetLocations, hereOf, zoneOf, zoneToAsk, zonedFor, zonedHere } from '@/lib/here-server';
 import { locateMissing } from '@/lib/locate-server';
 import { cleanWeek } from '@/lib/ahead-places';
@@ -219,7 +223,9 @@ export async function POST(req: NextRequest) {
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
       return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) },
         // The business's Spanish for its sections and menus by time of day (lib/guest-lang), for the Spanish column.
-        spanish: canEdit ? spanishOf(td) : null, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null, bagCheck: td.bagCheck?.off !== true }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
+        spanish: canEdit ? spanishOf(td) : null, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null, bagCheck: td.bagCheck?.off !== true,
+          // What's ticked into a to-go bag (lib/bag-extras), and the business's extras to pick from (lib/plate-extras).
+          bagExtras: canEdit ? { ...bagExtrasSetOf(td), plate: extrasOf(td).filter((e) => e.per !== 'guest' && e.when !== 'here').map((e) => ({ id: e.id, name: e.name, words: extraWords(e) })) } : null }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
         // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
         oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null,
         // How the register's tiles are arranged (lib/register-tiles): for the Register tiles card.
@@ -493,6 +499,23 @@ export async function POST(req: NextRequest) {
       if (typeof b.bagCheck === 'boolean') {
         await db.doc(`tenants/${tenantId}`).set({ bagCheck: { off: !b.bagCheck } }, { merge: true });
         return ok({ lane: { bagCheck: b.bagCheck } });
+      }
+      // What's ticked into a to-go bag before it's handed over (lib/bag-extras): the choices whose picks go in on their
+      // own (by name), and the business's own extras (by id: only ones it has, and never one for a table's guests).
+      if (b.bagGroups !== undefined || b.bagExtras !== undefined) {
+        const groups = b.bagGroups !== undefined ? cleanBagGroups(b.bagGroups) : undefined;
+        if (groups === null) return bad('Which choices go in the bag?');
+        let extras: string[] | undefined;
+        if (b.bagExtras !== undefined) {
+          if (!Array.isArray(b.bagExtras)) return bad('Which extras go in the bag?');
+          const have = new Set(extrasOf(td).filter((e) => e.per !== 'guest' && e.when !== 'here').map((e) => e.id));
+          const asked = Array.from(new Set<string>(b.bagExtras.map(String))).slice(0, MAX_BAG_EXTRAS);
+          if (asked.some((id) => !have.has(id))) return bad('One of those extras isn’t set anymore. Reload the page and pick again.', 409);
+          extras = asked;
+        }
+        await db.doc(`tenants/${tenantId}`).set({ bagCheck: { ...(groups !== undefined ? { groups } : {}), ...(extras !== undefined ? { extras } : {}) } }, { merge: true });
+        const after = bagExtrasSetOf({ ...td, bagCheck: { ...(td.bagCheck || {}), ...(groups !== undefined ? { groups } : {}), ...(extras !== undefined ? { extras } : {}) } });
+        return ok({ lane: { bagExtras: after } });
       }
       // How the register's tiles are arranged (lib/register-tiles; components/menu/TilesCard): the look, the order, pinned
       // and hidden, among the menu's own items. Read and written in one go, so two managers' saves never lose the other's.

@@ -9,12 +9,15 @@
 //   - scanBag: one bag's label scanned before the order goes: checked against the order (its signed code, lib/order-qr),
 //     and kept on it. The handover itself (api/counter 'move', lib/curbside-server cafeHanded) checks what's left.
 //     An item's sticker scanned the same way goes to lib/item-stickers-server, and what's left counts its stickers too.
+//   - tickExtra: one of the extras that go in the bag (lib/bag-extras: a dip, straws, napkins), ticked in, or out again
+//     after a wrong tap. What's left counts them too, and the first bag's label lists them.
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkBagCode, makeBagCode } from '@/lib/order-qr';
 import { parseBagCode } from '@/lib/bag-tag';
 import { printersCached, printsCodes, queueJob, type Printer } from '@/lib/printing-server';
 import { bagsLeft, bagsOf, clampBags, defaultBags, labelDoc, labelOf, type BagLabel } from '@/lib/food-bags';
 import { stickersLeft, stickersToScan, stickersWords } from '@/lib/item-stickers';
+import { EXTRA_KEY, extraBase, extrasFor, extrasLeft, extrasLine, extrasToTick, extrasWords, tickedOf } from '@/lib/bag-extras';
 import { isStickerCode, scanSticker } from '@/lib/item-stickers-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -55,7 +58,8 @@ export async function printLabels(db: any, tenantId: string, orderId: string, o:
   if (r.ok === false) return r;
   if (r.already) return { ok: true, already: true, count: bagsOf(r.or)!.count, coded: bagsOf(r.or)!.coded, printer: null, labels: [] };
   const biz: any = (await db.doc(T).get()).data() || {};
-  const labels = Array.from({ length: r.count }, (_, i) => labelOf(r.or, i + 1, r.count, coded ? makeBagCode(tenantId, orderId, i + 1) : null, String(biz.name || biz.businessName || '') || null));
+  const extras = extrasLine(r.or, biz);
+  const labels = Array.from({ length: r.count }, (_, i) => labelOf(r.or, i + 1, r.count, coded ? makeBagCode(tenantId, orderId, i + 1) : null, String(biz.name || biz.businessName || '') || null, extras));
   if (printer) for (const l of labels) await queueJob(db, T, printer.id, 'label', labelDoc(l), { orderId });
   return { ok: true, count: r.count, coded, printer: printer?.name || null, labels: o.here ? labels : [] };
 }
@@ -112,20 +116,51 @@ export async function scanBag(db: any, tenantId: string, tenant: any, orderIds: 
   });
 }
 
-export type ScanWait = { orderId: string; number: string; of: number; left: number[]; items?: { k: string; name: string; done: boolean }[] };
-/** What's left to scan on these orders, for a handover refused until it's done (each order's number, its bags and those
- *  left, and its item stickers, each ticked or not); none when nothing is. */
+/** One extra ticked into an order's bag (`on`), or out again (a wrong tap). Only one this order has, while it's still
+ *  with the kitchen. */
+export async function tickExtra(db: any, tenantId: string, tenant: any, orderIds: string[], orderId: string, k: unknown, on: boolean):
+  Promise<{ ok: true; orderId: string; k: string; extrasLeft: string[] } | Fail> {
+  const key = String(k ?? '');
+  if (!ID.test(orderId) || !orderIds.includes(orderId)) return fail('Which order?');
+  if (!EXTRA_KEY.test(key)) return fail('Which one?');
+  const ref = db.doc(`tenants/${tenantId}/counterOrders/${orderId}`);
+  return db.runTransaction(async (tx: any) => {
+    const or: any = (await tx.get(ref)).data();
+    if (!or) return fail('That order isn’t here.', 404);
+    if (or.status !== 'sent') return fail(or.status === 'done' ? 'That order was already handed over.' : 'That order isn’t with the kitchen.', 409);
+    const now = extrasFor(or, tenant).map((x) => x.k);
+    // (The same extra, with a different count since the screen opened: it changed, not gone.)
+    if (!now.includes(key)) return now.some((x) => extraBase(x) === extraBase(key)) ? fail('That changed since this opened. Close this, then tap Hand over again to see what changed.', 409) : fail('That isn’t on this order anymore.', 409);
+    // (Kept as what's ticked among what's on it now, so a tick for an old count doesn't linger.)
+    const had = tickedOf(or).filter((x) => now.includes(x));
+    const next = on ? Array.from(new Set([...had, key])) : had.filter((x) => x !== key);
+    tx.set(ref, { extrasIn: next }, { merge: true });
+    return { ok: true as const, orderId, k: key, extrasLeft: extrasLeft({ ...or, extrasIn: next }, tenant).map((x) => x.k) };
+  });
+}
+
+type Tick = { k: string; name: string; done: boolean };
+export type ScanWait = { orderId: string; number: string; of: number; left: number[]; items?: Tick[];
+  /** The extras that go in its bag (lib/bag-extras), each ticked in or not. */ extras?: Tick[] };
+/** What's left to scan or tick on these orders, for a handover refused until it's done (each order's number, its bags
+ *  and those left, its item stickers and its extras, each done or not); none when nothing is. */
 export function bagsWaiting(orders: { id: string; data: any }[], tenant: any): ScanWait[] {
   return orders.filter((o) => o.data && o.data.status === 'sent').map((o) => {
-    const items = stickersToScan(o.data, tenant);
-    return { orderId: o.id, number: String(o.data.number || ''), of: bagsOf(o.data)?.count || 0, left: bagsLeft(o.data, tenant), ...(items.length ? { items } : {}) };
-  }).filter((x) => x.left.length > 0 || (x.items || []).some((i) => !i.done));
+    const items = stickersToScan(o.data, tenant); const extras = extrasToTick(o.data, tenant);
+    return { orderId: o.id, number: String(o.data.number || ''), of: bagsOf(o.data)?.count || 0, left: bagsLeft(o.data, tenant), ...(items.length ? { items } : {}), ...(extras.length ? { extras } : {}) };
+  }).filter((x) => x.left.length > 0 || (x.items || []).some((i) => !i.done) || (x.extras || []).some((i) => !i.done));
 }
-/** "Scan bag 2 of D15 first.", "For D15, scan bag 2 and the sticker on Large oat latte first." */
+/** "Scan bag 2 of D15 first.", "For D15, scan bag 2 and the sticker on Large oat latte first.", "For D15, put in 1 BBQ
+ *  and napkins first." */
 export function waitingWords(w: ScanWait[]): string {
   const bags = (x: ScanWait) => (x.of > 1 ? (x.left.length === x.of ? `all ${x.of} bags` : x.left.length === 1 ? `bag ${x.left[0]}` : `bags ${x.left.join(' and ')}`) : 'the bag');
   const items = (x: ScanWait) => (x.items || []).filter((i) => !i.done);
-  if (w.every((x) => !items(x).length)) return `Scan ${w.map((x) => `${bags(x)} of ${x.number}`).join(', and ')} first.`;
-  return w.map((x) => `For ${x.number}, scan ${[x.left.length ? bags(x) : '', items(x).length ? stickersWords(items(x)) : ''].filter(Boolean).join(' and ')} first.`).join(' ');
+  const extras = (x: ScanWait) => (x.extras || []).filter((i) => !i.done);
+  if (w.every((x) => !items(x).length && !extras(x).length)) return `Scan ${w.map((x) => `${bags(x)} of ${x.number}`).join(', and ')} first.`;
+  return w.map((x) => {
+    const scan = [x.left.length ? bags(x) : '', items(x).length ? stickersWords(items(x)) : ''].filter(Boolean).join(' and ');
+    const put = extras(x).length ? `put in ${extrasWords(extras(x))}` : '';
+    return `For ${x.number}, ${[scan ? `scan ${scan}` : '', put].filter(Boolean).join(', and ')} first.`;
+  }).join(' ');
 }
 

@@ -326,6 +326,7 @@ export default function CounterPage() {
   };
   // One item's sticker printed again (a remake, a torn one): lib/item-stickers-server.
   const stickerAgain = async (orderId: string, k: string) => { if (!bagHold) return { ok: false, error: 'Pick the order again.' }; const d = await post({ action: 'sticker', carId: bagHold.carId, orderId, k }).catch(() => ({ ok: false, error: 'No connection. Try again.' })); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t print.' }; };
+  const extraIn = async (orderId: string, k: string, on: boolean) => { if (!bagHold) return { ok: false, error: 'Pick the order again.' }; const d = await post({ action: 'extra', carId: bagHold.carId, orderId, k, on }).catch(() => ({ ok: false, error: 'No connection. Try again.' })); return d.ok ? { ok: true } : { ok: false, error: d.error || 'That didn’t go through. Try again.' }; };
   const bagsDone = () => { if (!bagHold) return; const h = bagHold; setBagHold(null); void act(`gone-${h.carId}`, { action: 'move', carId: h.carId, to: 'gone' }, () => setNotice({ text: `${h.label} was handed over.`, tone: 'good' }), holdFor(h.carId, h.label)); };
   const bagSkip = async (pin: string, reason: string) => {
     if (!bagHold) return { ok: false, error: 'Pick the order again.' };
@@ -727,7 +728,7 @@ export default function CounterPage() {
       </section>
     </main>
     {allergyOpen && order && <AllergySheet start={allergyFrom(order.allergy)} sent={order.status === 'sent'} name={order.guestName || order.number} busy={busy === 'allergy'} onSave={(v) => void saveAllergy(v)} onClose={() => setAllergyOpen(false)} />}
-    {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.label}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} onClose={() => setBagHold(null)}
+    {bagHold && <BagScanSheet key={bagHold.waiting.map((w) => `${w.orderId}:${w.of}:${w.left.join('.')}`).join('|')} title={`Hand over ${bagHold.label}`} waiting={bagHold.waiting} scan={bagScan} onDone={bagsDone} skip={bagSkip} printItem={stickerAgain} tick={extraIn} onClose={() => setBagHold(null)}
       print={(orderId) => { const g = lane?.cars.find((c) => c.id === bagHold.carId); const o = lane?.orders[orderId]; setBagHold(null); setLabelsFor({ carId: bagHold.carId, orderId, number: o?.number || g?.number || bagHold.label, start: o?.bags?.of || o?.bagsStart || 1 }); }} />}
     {labelsFor && <BagLabelsSheet number={labelsFor.number} start={labelsFor.start} printer={lane?.settings?.labelPrinter || null} onPrint={printBags} onClose={() => setLabelsFor(null)} />}
     {allergyHold && <PinPad check={allergyPinCheck} onDone={() => setAllergyHold(null)} onClose={() => setAllergyHold(null)} title="A manager’s PIN" line={`${allergyHold.label} has an allergy the kitchen hasn’t noted. Ask the kitchen to tap Allergy noted, or a manager hands it over. It’s kept on record.`} />}

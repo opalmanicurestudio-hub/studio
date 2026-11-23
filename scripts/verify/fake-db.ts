@@ -1,6 +1,6 @@
 // scripts/verify/fake-db.ts — a small in-memory stand-in for the Firestore admin API, for checking server logic
 // without a live database: doc/collection/collectionGroup/where/limit/get/set/update/batch/runTransaction, the field sentinels we use
-// (increment, delete, arrayUnion), and when each document was made and last changed (createTime, updateTime). Not
+// (increment, delete, arrayUnion, arrayRemove), and when each document was made and last changed (createTime, updateTime). Not
 // complete — just what the checked code paths need.
 type Doc = Record<string, any>;
 const SENT = Symbol('sentinel');
@@ -8,6 +8,7 @@ export const FV = {
   increment: (n: number) => ({ [SENT]: 'inc', n }),
   delete: () => ({ [SENT]: 'del' }),
   arrayUnion: (...v: any[]) => ({ [SENT]: 'union', v }),
+  arrayRemove: (...v: any[]) => ({ [SENT]: 'remove', v }),
   serverTimestamp: () => ({ [SENT]: 'ts' }),
 };
 function apply(base: Doc, patch: Doc, deep = false) {
@@ -15,7 +16,7 @@ function apply(base: Doc, patch: Doc, deep = false) {
   for (const [k, v] of Object.entries(patch)) {
     const path = k.split('.'); let o = out; for (let i = 0; i < path.length - 1; i++) { o[path[i]] = { ...(o[path[i]] || {}) }; o = o[path[i]]; }
     const last = path[path.length - 1]; const s = v && typeof v === 'object' ? (v as any)[SENT] : undefined;
-    if (s === 'inc') o[last] = (Number(o[last]) || 0) + v.n; else if (s === 'del') delete o[last]; else if (s === 'union') o[last] = [...new Set([...(o[last] || []), ...v.v])]; else if (s === 'ts') o[last] = new Date().toISOString();
+    if (s === 'inc') o[last] = (Number(o[last]) || 0) + v.n; else if (s === 'del') delete o[last]; else if (s === 'union') o[last] = [...new Set([...(o[last] || []), ...v.v])]; else if (s === 'remove') o[last] = (Array.isArray(o[last]) ? o[last] : []).filter((x: any) => !v.v.includes(x)); else if (s === 'ts') o[last] = new Date().toISOString();
     else if (deep && isPlain(v) && isPlain(o[last])) o[last] = apply(o[last], v, true);   // Firestore merges nested maps on set(…, { merge: true })
     else if (isPlain(v) && hasSentinel(v)) o[last] = apply({}, v, true);   // a new map with an increment or arrayUnion inside it
     else o[last] = v;

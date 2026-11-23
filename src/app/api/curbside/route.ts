@@ -7,6 +7,7 @@
 //   handed  { tenantId, orderId, bagPin? } → handed over: done (each bag's label scanned first, or a manager's PIN)
 //   bags    { tenantId, orderId, count?, here? } → its bag labels printed again, on this device or the bag-label printer
 //   bagScan { tenantId, orderId, code } → one bag's label, or one item's sticker, scanned (lib/food-bags-server)
+//   extra   { tenantId, orderId, k, on } → one of the extras that go in its bag ticked in (or out), lib/bag-extras
 //   sticker { tenantId, orderId, k }     → one item's sticker printed again; the old one stops scanning
 //                                          (lib/item-stickers-server)
 // Renters, who run their own business here, don't see or move the business's orders.
@@ -16,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { cafeCurbside, cafeHanded, cafeOut } from '@/lib/curbside-server';
-import { labelPrinter, printLabels, scanBag } from '@/lib/food-bags-server';
+import { labelPrinter, printLabels, scanBag, tickExtra } from '@/lib/food-bags-server';
 import { printStickerAgain } from '@/lib/item-stickers-server';
 import { isSkipReason, reasonWords, skipReasonOf } from '@/lib/food-bags';
 import { managerFor } from '@/lib/manager-pin';
@@ -49,8 +50,9 @@ export async function POST(req: NextRequest) {
   // (Each for a curbside order of this business only: lib/curbside-server checks it's one, and the bag's signed code its
   // order.)
   const isCurb = async () => { const o: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data(); return !!o && o.channel === 'ahead' && o.ahead?.way === 'curbside'; };
-  if (action === 'bags' || action === 'bagScan' || action === 'sticker') {
+  if (action === 'bags' || action === 'bagScan' || action === 'sticker' || action === 'extra') {
     if (!(await isCurb())) return fail('This curbside order isn’t here.', 404);
+    if (action === 'extra') { const x = await tickExtra(db, tenantId, auth.tenant, [orderId], orderId, b.k, b.on !== false); return x.ok ? NextResponse.json(x) : fail(x.error, x.status); }
     if (action === 'sticker') { const s = await printStickerAgain(db, tenantId, orderId, String(b.k || ''), auth.actor.name); return s.ok ? NextResponse.json(s) : fail(s.error, s.status); }
     const r = action === 'bagScan' ? await scanBag(db, tenantId, auth.tenant, [orderId], b.code) : await printLabels(db, tenantId, orderId, { by: auth.actor.name, here: b.here === true, count: b.count });
     return r.ok ? NextResponse.json(r) : fail(r.error, r.status);

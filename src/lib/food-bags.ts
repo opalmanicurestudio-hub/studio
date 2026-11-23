@@ -33,7 +33,8 @@ export function bagsOf(order: any): FoodBags | null {
 }
 
 /** What goes in a bag: the dishes and drinks the kitchen makes (not a gift card or a one-off on the bill). */
-const bagLines = (order: any) => (Array.isArray(order?.lines) ? order.lines : []).filter((l: any) => l && !l.giftCard && !l.oneOff);
+export const bagLinesOf = (order: any) => (Array.isArray(order?.lines) ? order.lines : []).filter((l: any) => l && !l.giftCard && !l.oneOff);
+const bagLines = bagLinesOf;
 
 /** How many bags, to start with: one for every ITEMS_PER_BAG items. */
 export function defaultBags(order: any): number {
@@ -42,7 +43,7 @@ export function defaultBags(order: any): number {
 }
 
 /** Why a manager let an order go without everything scanned (kept on the order, and on the record). */
-export const SKIP_REASONS = [{ id: 'wont_scan', label: 'A label or sticker won’t scan' }, { id: 'printer', label: 'The printer is down' }, { id: 'other', label: 'Something else' }] as const;
+export const SKIP_REASONS = [{ id: 'wont_scan', label: 'A label or sticker won’t scan' }, { id: 'printer', label: 'The printer is down' }, { id: 'ran_out', label: 'An extra ran out' }, { id: 'other', label: 'Something else' }] as const;
 export const skipReasonOf = (v: unknown): string => SKIP_REASONS.find((r) => r.id === v)?.label || 'Not said';
 /** One of the reasons (a skip without one is refused). */
 export const isSkipReason = (v: unknown) => SKIP_REASONS.some((r) => r.id === v);
@@ -80,12 +81,14 @@ export function wayWords(order: any): string {
 
 export type BagLabel = { number: string; name: string | null; way: string; n: number; of: number; items: { qty: number; name: string; sub: string[] }[]; allergy: string | null; code: string | null;
   /** The business's name, at the top (its initial in a black tile, when drawn in the app's look: lib/print-picture). */
-  business?: string | null };
+  business?: string | null;
+  /** What goes in the bag besides what's made, on the first bag's label: "2 Ranch, 2 Straws, Napkins" (lib/bag-extras). */
+  extras?: string | null };
 
 /** What one bag's label says. `code`: the bag's signed code (none for a printer that can't print one). */
-export function labelOf(order: any, n: number, of: number, code: string | null, business: string | null = null): BagLabel {
+export function labelOf(order: any, n: number, of: number, code: string | null, business: string | null = null, extras: string | null = null): BagLabel {
   const a = allergyWords(orderAllergyOf(order));
-  return { business: business ? String(business).slice(0, 60) : null,
+  return { business: business ? String(business).slice(0, 60) : null, extras: n === 1 && extras ? String(extras).slice(0, 200) : null,
     number: String(order?.number || '').slice(0, 12), name: String(order?.guestName || '').trim().split(/\s+/)[0]?.slice(0, 30) || null, way: wayWords(order), n, of,
     items: bagLines(order).slice(0, 30).map((l: any) => ({ qty: Math.max(1, n0(l.quantity) || 1), name: String(l.name || 'Item').slice(0, 60),
       sub: [l.choicesText ? String(l.choicesText).slice(0, 120) : null, l.note ? `Note: ${String(l.note).slice(0, 140)}` : null].filter(Boolean) as string[] })),
@@ -100,6 +103,7 @@ export function labelDoc(l: BagLabel): PrintDoc {
   if (l.name) blocks.push({ k: 'text', text: l.name, bold: true });
   blocks.push({ k: 'text', text: `${l.way}, ${bagName(l.n, l.of).toLowerCase()}` }, { k: 'rule' });
   for (const it of l.items) blocks.push({ k: 'item', qty: it.qty, name: it.name, sub: it.sub });
+  if (l.extras) blocks.push({ k: 'rule' }, { k: 'text', text: `Add: ${l.extras}`, bold: true });
   if (l.allergy) blocks.push({ k: 'alert', text: l.allergy });
   if (l.code) blocks.push({ k: 'qr', data: l.code });
   // (Drawn as a picture, the code sits beside the number and name.)
