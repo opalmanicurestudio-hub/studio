@@ -115,7 +115,7 @@
 import { bizLocationsOf, hereFor, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { tileSetupOf } from '@/lib/register-tiles';
-import { daypartNow, happyHourOf, inHappyHour, priceNow, servedNow, timeWords } from '@/lib/menu-time';
+import { daypartNow, daypartsNow, happyHourOf, inHappyHour, nextDaypart, priceNow, servedNow, timeWords } from '@/lib/menu-time';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
@@ -519,7 +519,9 @@ export async function POST(req: NextRequest) {
             // The number guests can order by ("number 3"), the same on every screen (lib/menu-numbers).
             number: nums.get(m.id) ?? null,
             // (Sold by weight: its price is per this unit, lib/menu-weight.)
-            ...(m.byWeight ? { per: m.byWeight } : {}) });
+            ...(m.byWeight ? { per: m.byWeight } : {}),
+            // (Its menus by time of day and happy-hour price, shaped for the clock below and never sent as they are.)
+            dayparts: m.dayparts, happyPrice: m.happyPrice });
         }
         // The window's products after the menu: their size and shades instead of calories, and Pros only when it's sold
         // to licensed pros alone.
@@ -536,12 +538,21 @@ export async function POST(req: NextRequest) {
         menuBoardCache.set(boardKey, { at: now.getTime(), sections, popular, popularAt });
         if (menuBoardCache.size > 500) menuBoardCache.delete(menuBoardCache.keys().next().value as string);
       }
+      // The breakfast switch (lib/menu-time; design board "The breakfast switch", A): on the business's own clock (its
+      // location's), only what's served now, the menu by time of day it's on and until when, and happy-hour prices with
+      // the regular one beside them. Worked out on every ask, so the board changes within a poll of the time.
+      const dpNow = daypartsNow(tenant, now); const happyNow = inHappyHour(tenant, now);
+      const boardSections = sections.map((sec) => ({ ...sec, items: sec.items.filter((it: any) => !Array.isArray(it.dayparts) || servedNow({ dayparts: it.dayparts }, tenant, now).ok)
+        .map(({ dayparts: _d, happyPrice, ...it }: any) => ({ ...it, ...(happyNow && happyPrice !== null && happyPrice !== undefined && happyPrice < it.price ? { happyPrice } : {}) })) })).filter((sec) => sec.items.length > 0);
       const A = aheadOf(tenant);
       // Ordering ahead: the menu's own page when that's on, else the shop when the board shows its products (and the
       // shop is open).
       const shopOpen = sections.some((x) => x.kind === 'product') && moduleEnabled(tenant, 'pickup') && tenant.retailSettings?.storePaused !== true;
       const origin = linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '');
-      return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections,
+      return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections: boardSections,
+        // (Every menu on now, overlapping ones too; and with nothing at all to show, when the next one starts.)
+        dayparts: dpNow.map((d) => ({ name: d.name, until: d.until })), happyHour: happyNow ? { until: timeWords(happyHourOf(tenant).to) } : null,
+        next: boardSections.length ? null : nextDaypart(tenant, now, new Set(sections.flatMap((x) => x.items.flatMap((it: any) => (Array.isArray(it.dayparts) ? it.dayparts.map(String) : []))))),
         // The business's own color (made readable for white text on it), for the tags and the price on the featured item.
         accent: pageAccent(tenant),
         orderAhead: A.on ? `${origin}/order/${encodeURIComponent(tenantId)}` : shopOpen ? `${origin}/shop/${encodeURIComponent(tenantId)}` : null,

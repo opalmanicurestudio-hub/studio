@@ -26,6 +26,7 @@ import { readMenu } from '@/lib/menu-server';
 import { editOrder, sendOrder, setOrderName, cleanName, setAllergy } from '@/lib/counter-server';
 import { allergyFromWords, allergyWords } from '@/lib/order-allergy';
 import { readBack } from '@/lib/counter-orders';
+import { zonedHere } from '@/lib/here-server';
 import { askFor, matchChoices, matchItem, menuForVoice, words } from '@/lib/voice-order';
 import { offerInstruction, voiceOffer, voiceOfferMode, VOICE_OFFERS_FROM } from '@/lib/voice-offer';
 import { assistantVersion } from '@/lib/drive-thru-voice';
@@ -95,7 +96,8 @@ export async function POST(req: NextRequest) {
       return lines.filter((l) => words(l.name).every((x) => w.has(x)) || words(`${l.name} ${l.choicesText || ''}`).some((x) => w.has(x) && x.length > 3));
     };
 
-    if (name === 'get_menu') return reply({ result: menuForVoice(menu), ...summary(order) });
+    // (On the order's own location's clock, with more than one: lib/here-server.)
+    if (name === 'get_menu') return reply({ result: menuForVoice(menu, { tenant: await zonedHere(db, tenantId, tenant, String(order.locationId || '') || null) }), ...summary(order) });
 
     if (name === 'set_name') {
       const given = cleanName(args?.name);

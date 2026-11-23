@@ -60,14 +60,27 @@ export function partsOfItem(item: any, tenant: any): Daypart[] {
   const ids = Array.isArray(item?.dayparts) ? item.dayparts.map(String) : [];
   return ids.length ? daypartsOf(tenant).filter((d) => ids.includes(d.id)) : [];
 }
-/** Whether an item can be ordered now, and if not, when it's next on ("Breakfast, from 7 AM"). */
-export function servedNow(item: any, tenant: any, at: Date = new Date()): { ok: true } | { ok: false; when: string } {
+/** Whether an item can be ordered now, and if not, when it's next on ("Breakfast, from 7 AM"): which menu, from what
+ *  time, and whether that's tomorrow (its start is earlier in the day than now). */
+export function servedNow(item: any, tenant: any, at: Date = new Date()): { ok: true } | { ok: false; when: string; part: string; from: string; tomorrow: boolean } {
   const parts = partsOfItem(item, tenant); if (!parts.length) return { ok: true };
   const { min } = localNow(tenant, at);
   if (parts.some((d) => inWindow(d.from, d.to, min))) return { ok: true };
   // The next one to start (today, or else the first tomorrow).
   const next = parts.slice().sort((a, b) => ((mins(a.from) - min + 1440) % 1440) - ((mins(b.from) - min + 1440) % 1440))[0];
-  return { ok: false, when: `${next.name}, from ${timeWords(next.from)}` };
+  return { ok: false, when: `${next.name}, from ${timeWords(next.from)}`, part: next.name, from: timeWords(next.from), tomorrow: mins(next.from) <= min };
+}
+/** Every menu by time of day on now (two can overlap: Breakfast until 11, Brunch from 10), each until when. */
+export function daypartsNow(tenant: any, at: Date = new Date()): (Daypart & { until: string })[] {
+  const { min } = localNow(tenant, at);
+  return daypartsOf(tenant).filter((x) => inWindow(x.from, x.to, min)).map((d) => ({ ...d, until: timeWords(d.to) }));
+}
+/** The next menu by time of day to start (later today, or else the first tomorrow), with its time in words. `ids`: only
+ *  these menus (the ones something is on), so an empty menu never says it's next. */
+export function nextDaypart(tenant: any, at: Date = new Date(), ids?: Set<string>): { name: string; from: string; tomorrow: boolean } | null {
+  const { min } = localNow(tenant, at); const all = daypartsOf(tenant).filter((d) => !ids || ids.has(d.id)); if (!all.length) return null;
+  const next = all.slice().sort((a, b) => ((mins(a.from) - min + 1440) % 1440 || 1440) - ((mins(b.from) - min + 1440) % 1440 || 1440))[0];
+  return { name: next.name, from: timeWords(next.from), tomorrow: mins(next.from) <= min };
 }
 /** The menu by time of day that's on now (for the screens' "Lunch until 3 PM"), if any. */
 export function daypartNow(tenant: any, at: Date = new Date()): (Daypart & { until: string }) | null {

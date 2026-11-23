@@ -5,6 +5,7 @@
 // the item must have (a size) is asked for rather than filled in. Prices always come from the menu (lib/menu-choices).
 import { choiceGroups, type Picks } from '@/lib/menu-choices';
 import { menuNumbers, spokenNumber, NUMBER_WORDS } from '@/lib/menu-numbers';
+import { happyHourOf, inHappyHour, priceNow, servedNow, timeWords } from '@/lib/menu-time';
 
 type MenuLike = { id: string; name: string; section: string; price: number; from?: boolean; startPrice?: number; choices: any[]; soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean };
 
@@ -20,18 +21,30 @@ const money = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 /** What can be ordered here right now (on the menu, not for members only, in stock, not sold out). */
 export const orderableNow = (m: MenuLike) => m.onMenu && !m.membersOnly && m.inStock && !m.soldOut;
 
-/** The menu as the assistant reads it: each section's items with prices and choices, and what's sold out right now. */
-export function menuForVoice(menu: MenuLike[]): string {
-  const live = menu.filter(orderableNow);
+/** The menu as the assistant reads it: each section's items with prices and choices, and what's sold out right now.
+ *  With the business (`tenant`): on its clock, only what's served now (its menus by time of day), the rest said with
+ *  when it's back, and happy-hour prices during happy hour (lib/menu-time), so nobody is offered breakfast at noon. */
+export function menuForVoice(menu: MenuLike[], o: { tenant?: any; at?: Date } = {}): string {
+  const at = o.at || new Date();
+  const served = (m: MenuLike) => !o.tenant || servedNow(m, o.tenant, at).ok;
+  // What isn't served now, together by when it's back: "Egg biscuit, hash browns (Breakfast, back tomorrow at 7 AM)".
+  const later = new Map<string, string[]>();
+  if (o.tenant) for (const m of menu) { if (!orderableNow(m) || served(m)) continue; const s = servedNow(m, o.tenant, at); if (s.ok) continue;
+    const k = `${s.part}, back ${s.tomorrow ? 'tomorrow ' : ''}at ${s.from}`; later.set(k, [...(later.get(k) || []), m.name]); }
+  const happy = o.tenant && inHappyHour(o.tenant, at) ? timeWords(happyHourOf(o.tenant).to) : null;
+  const priceOf = (m: MenuLike) => (o.tenant ? priceNow(m, o.tenant, at).price : m.price);
+  const live = menu.filter((m) => orderableNow(m) && served(m));
   const sections = Array.from(new Set(live.map((m) => m.section)));
   // (Each with its number on the menu board, so a guest can order "number 3": lib/menu-numbers.)
   const nums = menuNumbers(menu);
   const lines = sections.map((s) => `${s}: ${live.filter((m) => m.section === s).map((m) => {
     const groups = choiceGroups(m).map((g) => `${g.name}${g.required ? ' (must choose one)' : ''}: ${g.options.filter((o) => !o.soldOut).map((o) => `${o.name}${o.price ? ` ${o.price > 0 ? '+' : '-'}${money(Math.abs(o.price))}` : ''}`).join(', ')}`);
-    return `${nums.has(m.id) ? `No. ${nums.get(m.id)} ` : ''}${m.name} ${money(m.price)}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
+    return `${nums.has(m.id) ? `No. ${nums.get(m.id)} ` : ''}${m.name} ${money(priceOf(m))}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
   }).join('. ')}.`);
   const out = menu.filter((m) => m.onMenu && !m.membersOnly && (!m.inStock || m.soldOut)).map((m) => m.name);
-  return ['Each item’s number on the menu board comes before its name; a guest may order by the number.', ...lines, out.length ? `Sold out right now: ${out.join(', ')}.` : ''].filter(Boolean).join('\n');
+  return ['Each item’s number on the menu board comes before its name; a guest may order by the number.', ...lines, out.length ? `Sold out right now: ${out.join(', ')}.` : '',
+    happy ? `Happy hour prices are on until ${happy}; the prices above are them.` : '',
+    later.size ? `Not served right now, so never offered: ${Array.from(later.entries()).map(([w, names]) => `${names.join(', ')} (${w})`).join('; ')}. If a guest asks for one, say when it’s back.` : ''].filter(Boolean).join('\n');
 }
 
 /** Which item was meant. One clear match, or the few it could be (a question back), or nothing on the menu. */

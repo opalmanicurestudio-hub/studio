@@ -9,6 +9,9 @@
 //     its place with its first letter.
 //   • Tags: Popular (worked out from the week's sales), New and Limited time (the business's own). Sold out shows as it
 //     happens, the picture grayed. The code to order ahead sits at the top while that's on.
+//   • The breakfast switch (lib/menu-time; design board "The breakfast switch", A): only what's served now, by the
+//     business's menus by time of day, with the one that's on and until when ("Breakfast until 11 AM"); at the time, the
+//     next one comes in by itself. During happy hour, its price with the usual one crossed out, and how long it lasts.
 //   • Light (inside) or dark (outdoors, bright sun), picked on each screen. Numbers on the items ("number 3"), the same
 //     numbers the lane tablet and the voice assistant at the speaker know (lib/menu-numbers): on for a dark screen unless
 //     turned off, off for a light one unless turned on.
@@ -37,9 +40,12 @@ const POLL_MS = 15000, ROTATE_MS = 12000, HERO_MS = 8000;
 type Item = { id: string; name: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; soldOut: boolean;
   /** Sold by weight (lib/menu-weight): the unit its price is per. */ per?: string | null;
   featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null ;
+  /** Its happy-hour price, during happy hour (lib/menu-time). */ happyPrice?: number | null;
   /** A product from the shop's window (lib/pickup-window): its size, its shades, and Pros only. */
   kind?: 'product'; size?: string | null; prosOnly?: boolean; swatches?: { label: string; color: string | null; soldOut: boolean }[] };
-type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null; pickupOnly?: boolean };
+type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null; pickupOnly?: boolean;
+  /** The menus by time of day on now, happy hour, and with nothing to show, the next menu (lib/menu-time). */
+  dayparts?: { name: string; until: string }[]; happyHour?: { until: string } | null; next?: { name: string; from: string; tomorrow: boolean } | null };
 const BADGE: Record<string, string> = { popular: 'Popular', new: 'New', limited: 'Limited time' };
 const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
 const keyName = (t: string) => `cf.drivethru.menuboard.${t}`;
@@ -221,7 +227,10 @@ export default function MenuBoard() {
   // What sits beside the price: calories for the menu, the size for a product.
   const extra = (i: Item, size: string) => i.calories != null ? <span style={{ fontSize: size, color: C.sub }}>{i.calories} cal</span>
     : i.size ? <span style={{ fontSize: size, color: C.sub }}>{i.size}</span> : null;
-  const price = (i: Item) => <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(i.from ? i.startPrice : i.price)}{i.per && <span style={{ fontSize: '0.62em', fontWeight: 600 }}>/{i.per}</span>}</>;
+  // (During happy hour, its happy-hour price, with the usual one crossed out after it.)
+  const price = (i: Item) => { const off = i.happyPrice != null && i.happyPrice < i.price ? i.price - i.happyPrice : 0; const was = i.from ? i.startPrice : i.price;
+    return <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(Math.max(0, was - off))}{i.per && <span style={{ fontSize: '0.62em', fontWeight: 600 }}>/{i.per}</span>}
+      {off > 0 && <s className="ml-[0.4em]" style={{ fontSize: '0.62em', fontWeight: 600, opacity: 0.7 }}><span className="sr-only">usually </span>{money(was)}</s>}</>; };
   const picture = (i: Item, letter: string) => i.imageUrl
     // (A product's photo whole, the way a shop shows it; a dish's or drink's photo filling its space.)
     ? <img key={i.imageUrl} src={i.imageUrl} alt="" onError={hide} className={`h-full w-full ${i.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} style={i.soldOut ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
@@ -317,6 +326,11 @@ export default function MenuBoard() {
             {(single || rotate) && shown[0] && <p className="m-0 truncate font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>{shown[0].name}{pages > 1 ? `, ${(page % pages) + 1} of ${pages}` : ''}</p>}
           </div>
         </div>
+        {((board.dayparts || []).length > 0 || board.happyHour) && (
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-[1vmin]">
+            {(board.dayparts || []).map((d, k) => <span key={k} className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', ...cardBox }}>{d.name} until {d.until}</span>)}
+            {board.happyHour && <span className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', background: brand, color: brandInk }}>Happy hour until {board.happyHour.until}</span>}
+          </div>)}
         {ahead && qr?.url === ahead && (
           <div className="flex shrink-0 items-center gap-[1.4vmin] rounded-[2.2vmin] py-[0.8vmin] pl-[2vmin] pr-[0.8vmin]" style={cardBox}>
             <div className="text-right"><p className="m-0 font-bold" style={{ fontSize: '2.1vmin' }}>{board.pickupOnly ? 'Pickup only: order on your phone' : 'Order ahead'}</p><p className="m-0" style={{ fontSize: '1.6vmin', color: C.sub }}>{board.pickupOnly ? 'Scan with your camera, then pull up' : 'Scan with your camera'}</p></div>
@@ -324,7 +338,12 @@ export default function MenuBoard() {
           </div>)}
       </header>
 
-      <div className={`flex min-h-0 flex-1 gap-[2vmin] ${wide ? 'flex-row' : 'flex-col'}`}>
+      {!all.length && board.next && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-[1.4vmin] text-center">
+          <p className="m-0 font-extrabold tracking-[-0.02em]" style={{ fontSize: '6vmin' }}>{board.next.name} is back {board.next.tomorrow ? 'tomorrow ' : ''}at {board.next.from}</p>
+          <p className="m-0" style={{ fontSize: '2.6vmin', color: C.sub }}>Nothing’s being served just now.</p>
+        </div>)}
+      <div className={`flex min-h-0 flex-1 gap-[2vmin] ${wide ? 'flex-row' : 'flex-col'}${!all.length && board.next ? ' hidden' : ''}`}>
         {!single && featured}
         <div ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col gap-[2vmin] overflow-hidden">
           {placing && <div ref={probe} aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 grid h-0 gap-[1.4vmin]" style={{ gridTemplateColumns: cols }} />}
