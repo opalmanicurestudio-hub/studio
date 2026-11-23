@@ -48,6 +48,9 @@ import { useKeepPage } from '@/components/pwa/keep-page';
 import { LangToggle, ScreenLangProvider, useT } from '@/components/kitchen/ScreenLang';
 import { tr } from '@/lib/screen-lang';
 import type { MenuItem } from '@/lib/menu-server';
+import { BumpBarSheet, BumpNo, KeyStrip } from '@/components/kitchen/BumpBar';
+import { KEYS_STORE, STRIP_STORE, actionOf, bumpStep, cleanLearned, isModifierOnly, keepFocus, lastMoved, moveFocus, numberOf, pickNumber, pressNumber, remember, type BumpAction, type LearnedKeys, type Moved } from '@/lib/bump-bar';
+import { expoGroups, type ExpoTicket } from '@/lib/table-service';
 
 /** Signed in on a device with no screen key: the location picked in the app (lib/here-server), with more than one. */
 const hereAsked = () => { try { const v = localStorage.getItem('selectedLocationId'); return v ? { locationId: v } : {}; } catch { return {}; } };
@@ -98,6 +101,12 @@ type Say = (en: string, vars?: Record<string, string | number>) => string;
 const plain: Say = (en, vars) => tr('en', en, vars);
 const where = (t: KitchenTicket, say: Say = plain) => t.source === 'event' ? `${t.eventTitle || say('Event')}${t.courseNumber !== null ? `, ${say('course {n}', { n: t.courseNumber })}` : ''}${t.tableNumber ? `, ${say('table {n}', { n: t.tableNumber })}` : ''}${t.seatNumber ? `, ${say('seat {n}', { n: t.seatNumber })}` : ''}` : say(t.station);
 const CHANNEL_WORD: Record<string, string> = { 'drive-thru': 'Drive-thru', counter: 'Counter', kiosk: 'Kiosk', ahead: 'Ordered ahead' };
+/** What a ticket or an order is called when the bump bar picks it, moves it or brings it back: "D15, Latte", "Table 4". */
+const labelOf = (list: KitchenTicket[], fallback?: string) => {
+  const t = list[0]; if (!t) return fallback || '';
+  const who = t.orderNumber || (t.tableNumber ? tableLabel(t.tableNumber) : null);
+  return list.length === 1 ? (who ? `${who}, ${t.item}` : t.item) : who || fallback || t.item;
+};
 const sourceWord = (t: KitchenTicket) => t.channel ? CHANNEL_WORD[t.channel] : t.source === 'lounge' ? 'Lounge' : t.source === 'tab' ? 'Table' : t.source === 'pos' ? 'Desk' : t.source === 'event' ? 'Event' : 'Order';
 
 // ─── Printing: the ticket as a label, through the tablet's own print dialog (a receipt printer set up on it works) ──
@@ -160,6 +169,8 @@ function chime(ctx: AudioContext) {
 
 const btn = 'min-h-[44px] px-4 rounded-xl text-[14px] font-semibold disabled:opacity-50 transition-opacity';
 const quiet = { background: '#fff', border: `1px solid ${LINE}`, color: INK } as const;
+// The card the bump bar has picked: ringed, so it's clear across the kitchen which one a key moves.
+const PICKED = { outline: `3px solid ${INK}`, outlineOffset: 3 } as const;
 
 // ─── Allergy banner: big enough to read across a kitchen ─────────────────────────────────────────────────────────────
 function AllergyBanner({ t, compact = false }: { t: KitchenTicket; compact?: boolean }) {
@@ -184,8 +195,10 @@ function AllergyBanner({ t, compact = false }: { t: KitchenTicket; compact?: boo
 }
 
 // ─── One ticket, in a lane ───────────────────────────────────────────────────────────────────────────────────────────
-function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPrint, onFromHold, onNote }: {
+function TicketCard({ t, item, now, tz, busy, bin, start, num = null, picked = false, bumpKey, onStep, onCancel, onPrint, onFromHold, onNote }: {
   t: KitchenTicket; item?: Item; now: number; tz: string | null; busy: boolean; bin: HoldBin | null; start?: StartAt;
+  /** Its number for the bump bar (lib/bump-bar), whether the bar has it picked, and how the screen finds it. */
+  num?: number | null; picked?: boolean; bumpKey?: string;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onCancel: (t: KitchenTicket) => void; onPrint: (t: KitchenTicket) => void; onFromHold: (t: KitchenTicket, b: HoldBin) => void; onNote: (t: KitchenTicket) => void;
 }) {
   const say = useT();
@@ -200,7 +213,7 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
   const plainNote = t.note && !flags.mentions.includes(t.note) ? t.note : null;
   const quick = !!t.channel;
   return (
-    <article className="rounded-2xl bg-[#fff] p-4 space-y-3" style={{ border: `${late ? 2 : 1}px solid ${late ? AMBER : LINE}`, padding: late ? 15 : 16 }}>
+    <article data-bump={bumpKey} aria-current={picked ? 'true' : undefined} className="rounded-2xl bg-[#fff] p-4 space-y-3 scroll-my-24" style={{ border: `${late ? 2 : 1}px solid ${late ? AMBER : LINE}`, padding: late ? 15 : 16, ...(picked ? PICKED : {}) }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium" style={{ color: MUTED }}>
@@ -217,11 +230,14 @@ function TicketCard({ t, item, now, tz, busy, bin, start, onStep, onCancel, onPr
           {t.partFor && <p className="mt-1 text-[14.5px] font-medium" style={{ color: MUTED }}>{t.partFrom ? say('For {dish}, from {station}', { dish: t.partFor, station: t.partFrom }) : say('For {dish}', { dish: t.partFor })}</p>}
           {(t as any).keptHere && <p className="mt-2"><span className="rounded-full px-3 py-1 text-[13px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{say('Sends when it’s back')}</span></p>}
         </div>
+        <div className="flex shrink-0 items-start gap-2">
         {later
           ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={{ background: SOFT, color: MUTED }} aria-label={say('Start {when}', { when: say(startWords(start!.startAt, now)) })}>{say('Start {when}', { when: say(startWords(start!.startAt, now)) })}</span>
           : due
           ? <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={say(due.text)}>{say(due.text)}</span>
           : <span className="shrink-0 rounded-full px-3 py-1 text-[15px] font-semibold tabular-nums" style={late ? { background: AMBER, color: '#fff' } : warm ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }} aria-label={say('Waiting {time}', { time: waited(s) })}>{waited(s)}</span>}
+        <BumpNo n={num} on={picked} />
+        </div>
       </div>
       <AllergyBanner t={t} />
       {start && t.status === 'pending' && <p className="text-[14px] leading-snug" style={{ color: later ? MUTED : INK }}>{later ? say('So it’s ready with the {dish}.', { dish: start.slowest }) : say('Start now, to be ready with the {dish}.', { dish: start.slowest })}</p>}
@@ -307,8 +323,9 @@ function BeingOrdered({ rows, now }: { rows: Early[]; now: number }) {
 }
 
 // ─── A course or a dish: its tickets in rows, moved along together or one by one ─────────────────────────────────────
-function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
+function GroupPanel({ g, by, now, busyIds, plan, num = null, picked = false, bumpKey, onStep, onBump, onNote }: {
   g: ReturnType<typeof groupTickets>[number]; by: 'course' | 'dish' | 'order'; now: number; busyIds: Set<string>; plan: Map<string, StartAt>;
+  num?: number | null; picked?: boolean; bumpKey?: string;
   onStep: (t: KitchenTicket, s: KitchenStep) => void; onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void; onNote: (t: KitchenTicket) => void;
 }) {
   const say = useT();
@@ -326,10 +343,11 @@ function GroupPanel({ g, by, now, busyIds, plan, onStep, onBump, onNote }: {
   // Guests with an allergy first, so they're never at the bottom of a long list.
   const rows = [...g.tickets].sort((a, b) => Number(allergyFlags(b).any) - Number(allergyFlags(a).any));
   return (
-    <section className="rounded-2xl bg-[#fff] overflow-hidden" style={{ border: `1px solid ${late ? AMBER : LINE}` }}>
+    <section data-bump={bumpKey} aria-current={picked ? 'true' : undefined} className="rounded-2xl bg-[#fff] overflow-hidden scroll-my-24" style={{ border: `1px solid ${late ? AMBER : LINE}`, ...(picked ? PICKED : {}) }}>
       <div className="p-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: `1px solid ${LINE}` }}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            <BumpNo n={num} on={picked} />
             <h2 className="text-[20px] font-semibold leading-tight" style={{ color: INK }}>{by === 'dish' ? g.label : say(g.label)}{by === 'dish' && <span style={{ color: MUTED }}> × {g.count}</span>}</h2>
             {by === 'order' && g.tickets[0]?.lane && <span className="rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ background: SOFT, color: INK }}>{say('Lane {n}', { n: g.tickets[0].lane })}</span>}
             {by === 'order' && g.tickets[0]?.windowPlace && toReady.length + toServe.length > 0 && <WindowPlace n={g.tickets[0].windowPlace} />}
@@ -684,6 +702,17 @@ function KitchenScreenInner() {
   const [floorOpen, setFloorOpen] = useState(false); const [runBusy, setRunBusy] = useState<string | null>(null);
   const [justPaired, setJustPaired] = useState(false);
   const [holdBusy, setHoldBusy] = useState<string | null>(null);
+  // The bump bar (lib/bump-bar, components/kitchen/BumpBar): its own keys and whether the strip shows ('on', 'off', or
+  // not said yet: it comes on the first time a key is used), kept on this tablet; the card it has picked; and what this
+  // screen moved, to bring back.
+  const [bumpKeys, setBumpKeys] = useState<LearnedKeys>({});
+  const [strip, setStrip] = useState<'on' | 'off' | null>(null);
+  const [bumpSetup, setBumpSetup] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [moved, setMoved] = useState<Moved[]>([]);
+  const lastPick = useRef<{ n: number; at: number } | null>(null);
+  // Tab was used to move around the screen (a keyboard, not a bar): Enter and the arrows then work the button in focus.
+  const tabbing = useRef(false);
   const audio = useRef<AudioContext | null>(null);
   const seen = useRef<Set<string> | null>(null);
   const inFlight = useRef(false);
@@ -696,6 +725,8 @@ function KitchenScreenInner() {
     const st = read('cf.kitchen.station'); if (st) setStation(st);
     if (read('cf.kitchen.sound') === 'off') setSoundOn(false);
     if (read('cf.kitchen.autoprint') === 'on') setAutoPrint(true);
+    try { setBumpKeys(cleanLearned(JSON.parse(read(KEYS_STORE) || '{}'))); } catch { /* none learned */ }
+    { const st = read(STRIP_STORE); if (st === 'on' || st === 'off') setStrip(st); }
     try { const s = JSON.parse(sessionStorage.getItem('cf.kitchen.staff') || 'null'); if (s?.name && s?.pass) setStaff(s); } catch { /* */ }
     try { const e = new URLSearchParams(window.location.search).get('event'); if (e && /^[A-Za-z0-9_-]{1,160}$/.test(e)) setEventId(e); } catch { /* */ }
     // Opened from someone's own menu (lib/jobs pageHref): their station, or expo; and, with no key here, as them.
@@ -846,7 +877,7 @@ function KitchenScreenInner() {
       if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
       if (d.staffOk === false) staffGone();
       if (d.ok && d.already) setNotice(`${t.item} for ${t.name} was already moved on, maybe on another screen.`);
-      else if (d.ok) local([t], after[s]);
+      else if (d.ok) { local([t], after[s]); if (s === 'ready' || s === 'deliver') setMoved((m) => remember(m, { tickets: [{ col: t.col, id: t.id }], from: s, at: Date.now(), label: labelOf([t]) })); }
       else setNotice(d.error || 'That didn’t go through. Try again.');
     } catch { setNotice('No connection. Try again.'); }
     finally { acted.current++; setBusy([t.id], false); }
@@ -862,6 +893,10 @@ function KitchenScreenInner() {
       if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
       if (d.staffOk === false) staffGone();
       if (d.ok) {
+        // What moved can be brought back (Recall), by the ids the server moved.
+        const ids = new Set<string>(Array.isArray(d.movedIds) ? d.movedIds.map(String) : []);
+        const went = list.filter((t) => t.col === 'kdsTickets' && ids.has(t.id));
+        if (went.length) setMoved((m) => remember(m, { tickets: went.map((t) => ({ col: t.col, id: t.id })), from: s, at: Date.now(), label: labelOf(went) }));
         if (d.failed > 0) setNotice(`${d.failed} of ${d.of} didn’t go through. They’re still up: try them again.`);
         else if (d.allergy > 0) { local(list.filter((t) => !needsAllergyNote(t)), after[s]); setNotice(`${d.allergy} of ${d.of} ${d.allergy === 1 ? 'has an allergy' : 'have allergies'} to note first. Tap Allergy noted on ${d.allergy === 1 ? 'it' : 'each'}.`); }
         else { local(list, after[s]); if (d.moved < d.of) setNotice(`${d.moved} of ${d.of} moved. The rest were already moved on.`); }
@@ -959,6 +994,123 @@ function KitchenScreenInner() {
   }), [tickets, laterKey, plan]); // eslint-disable-line react-hooks/exhaustive-deps
   const groups = useMemo(() => view === 'lanes' || view === 'expo' ? [] : groupTickets(tickets, view), [tickets, view]);
   const lateCount = tickets.filter((t) => t.status !== 'ready' && t.dueAt && Date.parse(t.dueAt) < now).length;
+
+  // ─── The bump bar (lib/bump-bar) ──────────────────────────────────────────────────────────────────────────────────
+  // Its cards, in the order they're numbered (reading order): each ticket in Lanes (waiting, being made, ready), each
+  // order, course or dish, or each run on expo (in ExpoView's own order).
+  const expoRuns = useMemo(() => (view === 'expo' ? expoGroups(tickets as unknown as ExpoTicket[]) : []), [tickets, view]);
+  type Card = { key: string; kind: 'one' | 'group' | 'run'; list: KitchenTicket[]; label: string };
+  const cards: Card[] = useMemo(() => view === 'lanes'
+    ? [...lanes.waiting, ...lanes.making, ...lanes.ready].map((t) => ({ key: `t:${t.col}/${t.id}`, kind: 'one' as const, list: [t], label: labelOf([t]) }))
+    : view === 'expo' ? expoRuns.map((g) => ({ key: `x:${g.key}`, kind: 'run' as const, list: g.tickets as unknown as KitchenTicket[], label: g.label }))
+    : groups.map((g) => ({ key: `g:${g.key}`, kind: 'group' as const, list: g.tickets, label: g.tickets[0]?.orderNumber || g.label })), [view, lanes, expoRuns, groups]);
+  const cardKeys = useMemo(() => cards.map((c) => c.key), [cards]);
+  const numOf = (k: string) => numberOf(cardKeys.indexOf(k));
+  // The card picked stays picked while it's up; when it moves on, the one now in its place is.
+  const prevKeys = useRef<string[]>([]);
+  const cardSig = cardKeys.join('|');
+  useEffect(() => { setPicked((p) => keepFocus(prevKeys.current, cardKeys, p)); prevKeys.current = cardKeys; }, [cardSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPicked(null); lastPick.current = null; }, [view, myStation]);
+  useEffect(() => {
+    if (!picked) return;
+    try { (document.querySelector(`[data-bump="${CSS.escape(picked)}"]`) as HTMLElement | null)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* */ }
+  }, [picked]);
+  const pickedCard = cards.find((c) => c.key === picked) || null;
+  const allergyFirst = (what: string) => say('{what} has an allergy to note. Read it, then tap Allergy noted on the screen.', { what });
+  // What Bump does to a card: what its own button does.
+  const bumpPlan = (c: Card): { go: () => void; words: string } | { stop: string; words: string } => {
+    if (c.kind === 'one') {
+      const t = c.list[0]; const st = bumpStep({ status: t.status, needsNote: needsAllergyNote(t) });
+      if (st === 'note') return { stop: allergyFirst(c.label), words: say('allergy to note first') };
+      if (st === 'ready') return { go: () => void step(t, 'ready'), words: say('ready') };
+      if (st === 'deliver') return { go: () => void step(t, 'deliver'), words: t.channel ? say('bagged and out') : say('served') };
+      return { stop: '', words: '' };
+    }
+    if (c.kind === 'run') {
+      if (!c.list.every((t) => t.status === 'ready')) return { stop: say('{what} isn’t all ready yet.', { what: c.label }), words: say('not all ready yet') };
+      if (c.list.some(needsAllergyNote)) return { stop: allergyFirst(c.label), words: say('allergy to note first') };
+      return { go: () => void bump(c.list, 'deliver'), words: say('run it') };
+    }
+    const toReady = c.list.filter((t) => (t.status === 'pending' || t.status === 'in_progress') && !needsAllergyNote(t));
+    const toServe = c.list.filter((t) => t.status === 'ready' && !needsAllergyNote(t));
+    if (toReady.length) return { go: () => void bump(toReady, 'ready'), words: say('ready') };
+    if (toServe.length) return { go: () => void bump(toServe, 'deliver'), words: view === 'order' && c.list.some((t) => t.channel) ? say('bagged and out') : say('served') };
+    if (c.list.some(needsAllergyNote)) return { stop: allergyFirst(c.label), words: say('allergy to note first') };
+    return { stop: '', words: '' };
+  };
+  // Moved by a key: the next card is picked, so the cook carries on down the line (a ready one moved to its column, or
+  // still in its place, isn't pressed on again by mistake).
+  const bumpCard = (c: Card) => {
+    if (c.list.some((t) => busyIds.has(t.id))) return;
+    const p = bumpPlan(c);
+    if (!('go' in p)) { if (p.stop) setNotice(p.stop); return; }
+    p.go();
+    // (The last one: nothing is picked after it, so a second press can't send out what was just made.)
+    const i = cardKeys.indexOf(c.key);
+    setPicked(i >= 0 && cardKeys[i + 1] ? cardKeys[i + 1] : null);
+  };
+  const recallable = lastMoved(moved, now - skew);
+  // Recall: what this screen moved last, brought back (api/kitchen 'recall'), within 10 minutes.
+  const recall = async () => {
+    const hit = lastMoved(moved, Date.now());
+    if (!hit) { setNotice(say('Nothing to bring back. Recall works for 10 minutes after something is moved.')); return; }
+    setMoved(hit.rest); acted.current++;
+    const putBack = () => setMoved((m) => remember(m, hit.m));
+    try {
+      const { status, d } = await tap({ action: 'recall', from: hit.m.from, tickets: hit.m.tickets }, `Bring back ${hit.m.label}`, false);
+      if (d.offline) { putBack(); setNotice(say('No connection. Try again.')); return; }
+      if (status === 401) { forgetHere(d.error || 'This screen was stopped.'); return; }
+      if (d.staffOk === false) staffGone();
+      if (!d.ok) { putBack(); setNotice(d.error || say('That didn’t go through. Try again.')); return; }
+      setNotice(d.back > 0 ? say('Brought back: {what}', { what: hit.m.label })
+        : d.handed > 0 ? say('{what} was already handed over, so it stays done.', { what: hit.m.label })
+        : d.late > 0 ? say('{what} was moved more than 10 minutes ago, so it stays where it is.', { what: hit.m.label })
+        : say('{what} had already moved on.', { what: hit.m.label }));
+    } catch { putBack(); setNotice(say('No connection. Try again.')); }
+    finally { acted.current++; }
+    load();
+  };
+  const onBumpKey = (a: BumpAction) => {
+    // The strip comes on the first time a key is used here, unless it was turned off.
+    if (strip === null) { setStrip('on'); write(STRIP_STORE, 'on'); }
+    const n = pickNumber(a);
+    if (n !== null) {
+      const r = pressNumber(cardKeys, n, lastPick.current, Date.now());
+      if (!r.focus) { lastPick.current = null; return; }
+      setPicked(r.focus);
+      if (r.bumpNow) { lastPick.current = null; const c = cards.find((x) => x.key === r.focus); if (c) bumpCard(c); }
+      else lastPick.current = { n, at: Date.now() };
+      return;
+    }
+    lastPick.current = null;
+    if (a === 'next' || a === 'prev') { setPicked(moveFocus(cardKeys, picked && cardKeys.includes(picked) ? picked : null, a)); return; }
+    if (a === 'recall') { void recall(); return; }
+    // Bump with nothing picked picks the first, so a press never moves something nobody was looking at.
+    if (!pickedCard) { setPicked(cardKeys[0] || null); return; }
+    bumpCard(pickedCard);
+  };
+  const onKeyRef = useRef(onBumpKey); onKeyRef.current = onBumpKey;
+  const keysRef = useRef(bumpKeys); keysRef.current = bumpKeys;
+  useEffect(() => {
+    if (!key && !me) return;
+    const onPointer = () => { tabbing.current = false; };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') { tabbing.current = true; return; }
+      if (e.repeat || e.isComposing || isModifierOnly(e)) return;
+      // A sheet open has its own keys; typing in a box is typing.
+      if (document.querySelector('[aria-modal="true"]')) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      const a = actionOf(e, keysRef.current); if (!a) return;
+      // Someone moving around with Tab uses Enter and the arrows on the button they're on; a bar's keys are the screen's.
+      if (tabbing.current && !keysRef.current[a] && (e.key === 'Enter' || e.key.startsWith('Arrow')) && el && el !== document.body && el.matches?.('button, a[href], [role="button"], [role="switch"], [role="tab"]')) return;
+      e.preventDefault();
+      onKeyRef.current(a);
+    };
+    window.addEventListener('pointerdown', onPointer, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => { window.removeEventListener('pointerdown', onPointer, true); window.removeEventListener('keydown', onKey, true); };
+  }, [key, me]);
   const holdCall = async (k: string, body: any) => {
     acted.current++; setHoldBusy(k);
     try {
@@ -1002,7 +1154,8 @@ function KitchenScreenInner() {
       </div>
       {list.length === 0
         ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{empty}</p>
-        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} bin={binFor(data?.holds || [], t.itemId ? String(t.itemId) : null, t.quantity, now)} start={plan.get(t.id)} onStep={step} onCancel={setCancelFor} onPrint={print} onFromHold={fromHold} onNote={noteAllergy} />)}
+        : list.map((t) => <TicketCard key={`${t.col}/${t.id}`} t={t} item={t.itemId ? data?.items[String(t.itemId)] : undefined} now={now} tz={tz} busy={busyIds.has(t.id)} bin={binFor(data?.holds || [], t.itemId ? String(t.itemId) : null, t.quantity, now)} start={plan.get(t.id)}
+          num={numOf(`t:${t.col}/${t.id}`)} picked={picked === `t:${t.col}/${t.id}`} bumpKey={`t:${t.col}/${t.id}`} onStep={step} onCancel={setCancelFor} onPrint={print} onFromHold={fromHold} onNote={noteAllergy} />)}
     </section>
   );
 
@@ -1043,6 +1196,7 @@ function KitchenScreenInner() {
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className={btn} style={quiet} aria-expanded={menuOpen}>{say('Screen')}</button>
               {menuOpen && (
                 <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#fff] p-2 z-40 space-y-1" style={{ border: `1px solid ${LINE}`, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}>
+                  <button type="button" onClick={() => { setMenuOpen(false); setBumpSetup(true); }} className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: INK }}>{say('Set up a bump bar')}</button>
                   <button type="button" role="switch" aria-checked={autoPrint} onClick={() => { const v = !autoPrint; setAutoPrint(v); write('cf.kitchen.autoprint', v ? 'on' : null); if (v) { try { write('cf.kitchen.printed', JSON.stringify((data?.tickets || []).map((t) => t.id).slice(-400))); } catch { /* */ } } }}
                     className="w-full text-left min-h-[44px] px-3 rounded-xl text-[14px] font-semibold" style={{ color: INK }}>{autoPrint ? 'Printing new tickets here: on' : 'Print new tickets here'}</button>
                   <p className="px-3 pb-1 text-[13px]" style={{ color: MUTED }}>For a receipt printer set up on this tablet. Each new ticket opens the print dialog; with Chrome set to print without asking, it prints straight away. Tickets that come in while this screen is closed don’t print here. A printer on the network is set up in Settings, under Printers.</p>
@@ -1061,6 +1215,7 @@ function KitchenScreenInner() {
           <span>{say('Waiting')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{lanes.waiting.length}</b></span>
           <span>{say('Average wait')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{stats.served ? waited(stats.avg) : say('none yet')}</b></span>
           {lateCount > 0 && <span style={{ color: AMBER }}>{say('Past their time')} <b className="font-semibold tabular-nums">{lateCount}</b></span>}
+          {recallable && <button type="button" onClick={() => void recall()} className="-my-3 min-h-[44px] rounded-xl px-2 text-[14px] font-semibold underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]" style={{ color: INK }}>{say('Bring back {what}', { what: recallable.m.label })}</button>}
           {later.length > 0 && <span>{say('Later')} {later.slice(0, 4).map((l, i) => <b key={i} className="ml-1.5 font-semibold" style={{ color: INK }}>{l.number}{l.who ? ` · ${l.who}` : ''} {say('starts')} {new Date(l.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{i < Math.min(later.length, 4) - 1 ? ',' : ''}</b>)}{later.length > 4 ? ` ${say('and {n} more', { n: later.length - 4 })}` : ''}</span>}
           {view !== 'expo' && comingHere.length > 0 && <span>{say('Held for later')} <b className="font-semibold tabular-nums" style={{ color: INK }}>{comingHere.length}</b></span>}
           {stats.top && <span>{say('Most ordered')} <b className="font-semibold" style={{ color: INK }}>{stats.top}</b></span>}
@@ -1092,7 +1247,7 @@ function KitchenScreenInner() {
         {notice && <div className="rounded-2xl px-4 py-3 text-[15px] bg-white" style={{ border: `1px solid ${LINE}` }} role="status">{notice}</div>}
       </div>
 
-      <main className="flex-1 px-4 sm:px-6 py-4">
+      <main className={`flex-1 px-4 sm:px-6 py-4${strip === 'on' ? ' pb-28' : ''}`}>
         {data && earlyHere.length > 0 && <BeingOrdered rows={earlyHere} now={now} />}
         {!data ? (
           <div className="flex justify-center py-16"><div className="h-7 w-7 rounded-full border-[3px] animate-spin" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={say('Loading tickets')} /></div>
@@ -1106,19 +1261,26 @@ function KitchenScreenInner() {
             </div>
           </div>
         ) : view === 'expo' ? (
-          <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} onNote={noteAllergy} runs={myCalls} onRunner={sendRunner} runBusy={runBusy} />
+          <ExpoView tickets={tickets} unfired={data.unfired || []} now={now} busyIds={busyIds} onBump={bump} onNote={noteAllergy} runs={myCalls} onRunner={sendRunner} runBusy={runBusy} picked={picked} />
         ) : groups.length === 0 ? (
           <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{say('No tickets up.')}</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} plan={plan} onStep={step} onBump={bump} onNote={noteAllergy} />)}
+            {groups.map((g) => <GroupPanel key={g.key} g={g} by={view as 'course' | 'dish' | 'order'} now={now} busyIds={busyIds} plan={plan} num={numOf(`g:${g.key}`)} picked={picked === `g:${g.key}`} bumpKey={`g:${g.key}`} onStep={step} onBump={bump} onNote={noteAllergy} />)}
           </div>
         )}
       </main>
 
+      {strip === 'on' && data && (
+        <KeyStrip keys={bumpKeys} picked={pickedCard?.label || null} bumpWords={pickedCard ? bumpPlan(pickedCard).words || null : null}
+          recallWords={recallable ? say('bring back {what}', { what: recallable.m.label }) : null} onSetUp={() => setBumpSetup(true)} onHide={() => { setStrip('off'); write(STRIP_STORE, 'off'); }} />
+      )}
+      {bumpSetup && <BumpBarSheet keys={bumpKeys} strip={strip === 'on'} onClose={() => setBumpSetup(false)}
+        onSave={(k) => { const c = cleanLearned(k); setBumpKeys(c); write(KEYS_STORE, Object.keys(c).length ? JSON.stringify(c) : null); }}
+        onStrip={(on) => { setStrip(on ? 'on' : 'off'); write(STRIP_STORE, on ? 'on' : 'off'); }} />}
       {soundOn && !audioOk && (
         // Floats over the screen, so it going away after the first tap never moves a button under someone's finger.
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none" style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">{say('Tap anywhere to turn on the sound for new tickets')}</div>
+        <div className={`fixed ${strip === 'on' ? 'bottom-28' : 'bottom-4'} left-1/2 -translate-x-1/2 z-30 rounded-full px-5 py-3 text-[15px] font-medium pointer-events-none`} style={{ background: INK, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxWidth: 'calc(100vw - 32px)' }} role="status">{say('Tap anywhere to turn on the sound for new tickets')}</div>
       )}
       {safetyOpen && <SafetySheet post={(body) => post({ ...body, ...(staff ? { staffPass: staff.pass } : {}) })} onClose={() => setSafetyOpen(false)} onPin={() => setPinOpen(true)} />}
       {pinOpen && <SharedPinPad check={checkPin} onDone={(s) => { pickStaff(s); setPinOpen(false); }} onClose={() => setPinOpen(false)} line={say('Your PIN puts your name on the tickets you move. The screen works without it.')} />}

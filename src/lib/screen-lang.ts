@@ -136,6 +136,24 @@ const ES: Record<string, string> = {
   '{n} more looks fine by the count.': '{n} más se ve bien según el conteo.', '{n} more look fine by the count.': '{n} más se ven bien según el conteo.',
   'Nothing running low. The one thing the bar pours from looks fine by the count.': 'Nada se acaba. Lo único que sirve la barra se ve bien según el conteo.',
   'Nothing running low. All {n} things the bar pours from look fine by the count.': 'Nada se acaba. Las {n} cosas que sirve la barra se ven bien según el conteo.',
+  // The bump bar (lib/bump-bar, components/kitchen/BumpBar)
+  '{what} has an allergy to note. Read it, then tap Allergy noted on the screen.': '{what} tiene una alergia por anotar. Léela y toca Alergia anotada en la pantalla.',
+  'allergy to note first': 'primero anota la alergia', 'ready': 'listo', 'bagged and out': 'en bolsa y fuera', 'served': 'servido',
+  '{what} isn’t all ready yet.': '{what} todavía no está todo listo.', 'not all ready yet': 'todavía no está todo listo', 'run it': 'llévalo',
+  'Nothing to bring back. Recall works for 10 minutes after something is moved.': 'No hay nada que regresar. Regresar funciona 10 minutos después de mover algo.',
+  'No connection. Try again.': 'Sin conexión. Inténtalo de nuevo.', 'That didn’t go through. Try again.': 'No se pudo. Inténtalo de nuevo.',
+  'Brought back: {what}': 'Regresado: {what}', '{what} was already handed over, so it stays done.': '{what} ya se entregó, así que sigue terminado.',
+  '{what} was moved more than 10 minutes ago, so it stays where it is.': '{what} se movió hace más de 10 minutos, así que se queda donde está.',
+  '{what} had already moved on.': '{what} ya había avanzado.', 'Bring back {what}': 'Regresar {what}', 'bring back {what}': 'regresar {what}',
+  'Set up a bump bar': 'Configurar un teclado de cocina', 'Bump bar keys': 'Teclas del teclado de cocina', 'Picked: {what}': 'Elegido: {what}', 'Nothing picked': 'Nada elegido',
+  'to': 'a', 'pick': 'elegir', 'bump': 'avanzar', 'twice quickly bumps it': 'dos veces rápido lo avanza', 'move': 'moverse', 'nothing to bring back': 'nada que regresar', 'Hide': 'Ocultar',
+  'Plug the bump bar into this tablet. The usual keys already work: numbers pick, Enter bumps, Backspace brings back, the arrows move. If your bar’s keys are different, teach it here: press each one when asked. Kept on this tablet only.':
+    'Conecta el teclado de cocina a esta tableta. Las teclas de siempre ya funcionan: los números eligen, Enter avanza, Retroceso regresa y las flechas se mueven. Si tu teclado tiene otras teclas, enséñaselas aquí: presiona cada una cuando te lo pida. Se guarda solo en esta tableta.',
+  'Key {n} of {of}': 'Tecla {n} de {of}', 'Press the key for {action}': 'Presiona la tecla para {action}', 'Got it. {what}': 'Listo. {what}', 'Skip, keep {key}': 'Saltar, dejar {key}',
+  'Stop here': 'Parar aquí', 'Teach it again': 'Enseñarle de nuevo', 'Teach it my bar’s keys': 'Enseñarle las teclas de mi teclado', 'What each key does': 'Qué hace cada tecla',
+  'Show the keys along the bottom': 'Mostrar las teclas abajo', 'Use the usual keys': 'Usar las teclas de siempre', '{action}: {key}': '{action}: {key}',
+  'Bump': 'Avanzar', 'Recall': 'Regresar', 'Next': 'Siguiente', 'Previous': 'Anterior', 'Up arrow': 'Flecha arriba', 'Down arrow': 'Flecha abajo',
+  'Left arrow': 'Flecha izquierda', 'Right arrow': 'Flecha derecha', 'Backspace': 'Retroceso',
 };
 
 // Words another part of the app puts together ("4:05 over", "in 3 min", "Sam’s on the way"), said in Spanish.

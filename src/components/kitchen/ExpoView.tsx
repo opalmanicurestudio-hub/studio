@@ -12,14 +12,18 @@ import { allergyFlags, needsAllergyNote, type KitchenTicket } from '@/lib/kitche
 import { expoGroups, unfiredGroups, type ExpoTicket } from '@/lib/table-service';
 import type { Call } from '@/lib/back-calls';
 import { useT } from '@/components/kitchen/ScreenLang';
+import { BumpNo } from '@/components/kitchen/BumpBar';
+import { numberOf } from '@/lib/bump-bar';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309';
 const GREEN_TINT = '#eaf6ef', AMBER_TINT = '#fff7ed';
 const LATE_S = 8 * 60;
 
 
-export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote, runs, onRunner, runBusy }: {
+export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote, runs, onRunner, runBusy, picked = null }: {
   tickets: KitchenTicket[]; unfired: KitchenTicket[]; now: number; busyIds: Set<string>;
+  /** The run the bump bar has picked (lib/bump-bar), by its key; each run's number is its place, 1 to 9. */
+  picked?: string | null;
   onBump: (list: KitchenTicket[], s: 'ready' | 'deliver') => void; onNote: (t: KitchenTicket) => void;
   runs?: Call[]; onRunner?: (r: { visitId: string; ticketIds: string[]; label: string }) => void; runBusy?: string | null;
 }) {
@@ -36,8 +40,9 @@ export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote, runs,
         {groups.length === 0
           ? <p className="rounded-2xl px-4 py-10 text-center text-[15px]" style={{ border: `1px dashed ${LINE}`, color: MUTED }}>{say('Nothing cooking. Fired courses and orders show here.')}</p>
           : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
-            {groups.map((g) => {
+            {groups.map((g, gi) => {
               const list = g.tickets as unknown as KitchenTicket[];
+              const on = picked === `x:${g.key}`;
               const waitingOn = g.total - g.ready;
               const s = Math.max(0, Math.round((now - Date.parse(g.at)) / 1000));
               const late = !g.allReady && Number.isFinite(s) && s >= LATE_S;
@@ -49,8 +54,9 @@ export function ExpoView({ tickets, unfired, now, busyIds, onBump, onNote, runs,
               const run = visitId ? (runs || []).find((c) => c.to === 'runner' && c.what === 'run' && c.visitId === visitId && c.status !== 'cancelled' && c.ticketIds.some((id) => list.some((t) => t.id === id))) : null;
               const runWords = run ? (run.status === 'coming' ? say('{name} is coming for it', { name: String(run.takenBy || say('A runner')).split(' ')[0] }) : run.status === 'done' ? say('{name} ran it', { name: String(run.doneBy || run.takenBy || say('A runner')).split(' ')[0] }) : say('Runner called, {when}', { when: mins(Math.max(0, Math.round((now - Date.parse(run.at)) / 1000))) })) : null;
               return (
-                <article key={g.key} className="rounded-3xl bg-[#fff] p-4 flex flex-col gap-1" style={canRun ? { boxShadow: `inset 0 0 0 2px ${GREEN}` } : undefined}>
+                <article key={g.key} data-bump={`x:${g.key}`} aria-current={on ? 'true' : undefined} className="rounded-3xl bg-[#fff] p-4 flex flex-col gap-1 scroll-my-24" style={{ ...(canRun ? { boxShadow: `inset 0 0 0 2px ${GREEN}` } : {}), ...(on ? { outline: `3px solid ${INK}`, outlineOffset: 3 } : {}) }}>
                   <div className="flex items-start gap-2 pb-2 mb-1" style={{ borderBottom: `1px solid ${LINE}` }}>
+                    <BumpNo n={numberOf(gi)} on={on} />
                     <div className="flex-1 min-w-0">
                       <h3 className="text-[19px] font-semibold leading-tight truncate" style={{ color: INK }}>{say(g.label)}</h3>
                       <p className="text-[13px]" style={{ color: MUTED }}>{say('{what}, fired {when} ago', { what: say(g.sub), when: mins(s) })}</p>

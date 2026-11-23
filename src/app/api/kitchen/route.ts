@@ -86,6 +86,8 @@ import { lanesOf, windowPlaces } from '@/lib/drive-lanes';
 import { earlyModeOf, showEarly } from '@/lib/lane-entry';
 import { lineNow, type EarlyOrder } from '@/lib/lane-entry-server';
 import { finishTogetherOn, stationsOf, stationOfItem } from '@/lib/table-service';
+import { canRecall } from '@/lib/bump-bar';
+import { DONE_STATUSES } from '@/lib/guest-memory';
 // With two drive-thru lanes that merge: each drive-thru order's place in the line to the window, kept a few seconds.
 const placesCache = new Map<string, { at: number; places: ReturnType<typeof windowPlaces> }>();
 
@@ -361,7 +363,7 @@ export async function POST(req: NextRequest) {
     // its counts and closing checks, and saying an allergy was seen. Those two stay with the kitchen side (their job, or
     // with no job set, a title that says cook or bartender) or a manager; the kitchen's and bar's closing checks too.
     let teamMember: { id: string; name: string } | null = null; let kitchenSide = false; let teamJob = '';
-    if (!screen && !b.key && ['tickets', 'act', 'bump', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck', 'floorNote', 'safety', 'safetyLog', 'coolCheck'].includes(action)) {
+    if (!screen && !b.key && ['tickets', 'act', 'bump', 'recall', 'menu', 'soldout', 'hold', 'holdUse', 'holdToss', 'fromHold', 'allergyNoted', 'count', 'closing', 'closingCheck', 'floorNote', 'safety', 'safetyLog', 'coolCheck'].includes(action)) {
       const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
       // The business's own team only: a renter runs their own business here and never moves the shop's stock or money;
       // someone switched off isn't on the team any more.
@@ -704,7 +706,9 @@ export async function POST(req: NextRequest) {
       // shelf, and several at once on the same item would only wait on each other (or give up).
       const kitchen = list.filter((t: any) => t.col === 'kdsTickets'), lounge = list.filter((t: any) => t.col === 'refreshmentRequests');
       const readied: string[] = [];   // (one buzz a table's course: lib/floor-buzz tellPassReadyMany)
-      for (let i = 0; i < kitchen.length; i += 8) (await Promise.all(kitchen.slice(i, i + 8).map(async (t: any) => { const r = await run(t); if (step === 'ready' && r?.ok && !r.already) readied.push(String(t.id)); return r; }))).forEach(tally);
+      // (The kitchen tickets this moved, so the screen can bring them back: lib/bump-bar Recall.)
+      const movedIds: string[] = [];
+      for (let i = 0; i < kitchen.length; i += 8) (await Promise.all(kitchen.slice(i, i + 8).map(async (t: any) => { const r = await run(t); if (r?.ok && !r.already) { movedIds.push(String(t.id)); if (step === 'ready') readied.push(String(t.id)); } return r; }))).forEach(tally);
       for (const t of lounge) tally(await run(t));
       // A table's course all ready at the pass: its server hears (lib/floor-buzz), once.
       await tellPassReadyMany(db, tenantId, readied);
@@ -712,7 +716,43 @@ export async function POST(req: NextRequest) {
       if (kitchen.length) await textWhenTicketsReady(db, tenantId, step === 'ready' ? readied : kitchen.map((t: any) => String(t.id)));
       // Plates sent out: a run called for them is done (lib/back-calls-server).
       if (step === 'deliver' && kitchen.length) await runsDone(db, `tenants/${tenantId}`, kitchen.map((t: any) => String(t.id)), staff?.name || screen.name);
-      return ok({ moved, failed, allergy, of: list.length, staffOk });
+      return ok({ moved, failed, allergy, of: list.length, movedIds, staffOk });
+    }
+
+    // Recall (lib/bump-bar; design board "A bump bar at each station"): what this screen just moved, brought back. One marked
+    // ready goes back to being made, one marked out back to ready, within 10 minutes, and never once its order was handed
+    // over or its table's check closed. Kitchen tickets only (a lounge order's stock and money move as it's delivered).
+    // `from`: the step the screen took. A ticket moved on since by someone else is left as it is (lib/bump-bar canRecall).
+    // What it already used stays used (it's made once), and a ready text already sent isn't sent again (lib/ready-text).
+    // Readied again, its server hears again that it's up: that one is real. A runner's run already done stays done.
+    if (action === 'recall') {
+      const from = b.from === 'deliver' ? 'deliver' : b.from === 'ready' ? 'ready' : null;
+      if (!from) return bad('Bring back what? Refresh the screen and try again.');
+      const list = (Array.isArray(b.tickets) ? b.tickets : []).slice(0, 60).filter((t: any) => t?.col === 'kdsTickets' && ID.test(String(t?.id || '')));
+      if (!list.length) return bad('Nothing to bring back.');
+      const T = `tenants/${tenantId}`; const who = staff?.name || screen.name;
+      const by = { staffId: staff?.id || null, name: who, via: screen.name };
+      let back = 0, late = 0, handed = 0, gone = 0;
+      const one = (id: string) => db.runTransaction(async (tx: any) => {
+        const ref = db.doc(`${T}/kdsTickets/${id}`); const t: any = (await tx.get(ref)).data();
+        if (!t) return 'gone';
+        const can = canRecall(t, from, Date.now());
+        if ('no' in can) return can.no === 'late' ? 'late' : 'gone';
+        if (can.to === 'ready') {
+          // Out already: not once it's been handed over (the order done) or its table's check closed.
+          if (ID.test(String(t.orderId || ''))) { const o: any = (await tx.get(db.doc(`${T}/counterOrders/${t.orderId}`))).data(); if (!o || o.status !== 'sent') return 'handed'; }
+          const v0 = String(t.visitId || '');
+          if (ID.test(v0)) { const v: any = (await tx.get(db.doc(`${T}/appointments/${v0}`))).data(); if (!v || DONE_STATUSES.includes(String(v.status || ''))) return 'handed'; }
+          tx.set(ref, { status: 'ready', deliveredAt: null, deliveredBy: null, recalledAt: new Date().toISOString(), recalledBy: by }, { merge: true });
+        // (Back on the stove: nobody's carrying it out.)
+        } else tx.set(ref, { status: 'in_progress', readyAt: null, carriedBy: null, carriedAt: null, recalledAt: new Date().toISOString(), recalledBy: by, ...(t.claimedBy ? {} : { claimedBy: by }) }, { merge: true });
+        return 'back';
+      }).catch((e: any) => { console.error('[kitchen] recall', e?.message); return 'failed'; });
+      let failed = 0;
+      for (let i = 0; i < list.length; i += 8) for (const r of await Promise.all(list.slice(i, i + 8).map((t: any) => one(String(t.id))))) {
+        if (r === 'back') back++; else if (r === 'late') late++; else if (r === 'handed') handed++; else if (r === 'gone') gone++; else failed++;
+      }
+      return ok({ back, late, handed, gone, failed, of: list.length, staffOk });
     }
 
     return bad('Unknown action.');
