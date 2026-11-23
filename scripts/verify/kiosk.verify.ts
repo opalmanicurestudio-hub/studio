@@ -224,7 +224,7 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   check('starts over by itself: Still ordering? after a minute, the paid screen after a while; paying, the order is let go first', /IDLE_MS = 60000, ASK_MS = 15000, PAY_IDLE_MS = 120000, PAID_MS = 20000/.test(page) && /Still ordering\?/.test(page) && /void letGo\('start'\)/.test(page));
   check('…and a let-go that didn’t go through when it was left alone is tried again shortly, never left on the reader', /if \(then === 'start'\) \{ setLeaving\(false\); setAsk\(Date\.now\(\)\); \}/.test(page));
   check('in the business’s own color, laid out like a cafe menu board: sections down the side, the featured item big, the order like a receipt', /accent: pageAccent\(tenant\)/.test(src('src/lib/kiosk.ts')) && /const A = menu\?\.accent && HEX\.test\(menu\.accent\) \? menu\.accent : INK/.test(page)
-    && /const hero = items\.find\(\(m\) => m\.featured && !m\.soldOut\)/.test(page) && /aria-orientation="vertical"/.test(page) && /borderBottom: '1px dashed #cfd2d6'/.test(page) && />On today</.test(page));
+    && /const hero = items\.find\(\(m\) => m\.featured && !m\.soldOut\)/.test(page) && /aria-orientation="vertical"/.test(page) && /borderBottom: '1px dashed #cfd2d6'/.test(page) && /(>On today<|\{t\('On today'\)\})/.test(page));
   check('opened from the counter and the lane', /Open a kiosk/.test(src('src/app/(app)/counter/page.tsx')) && /Open a kiosk/.test(src('src/app/drive-thru/[tenantId]/page.tsx')));
   check('in the app’s own words', !/font-black|\buppercase\b|call us|contact us|salon|stylist|booth|studio/i.test((page + src('src/lib/kiosk.ts') + src('src/app/api/kiosk/route.ts')).replace(/^import .*$/gm, '')) && !/ · /.test(page));
 

@@ -137,7 +137,7 @@ const latte = {
   console.log('the pages');
   const page = (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')); const editor = src('src/components/menu/ChoicesEditor.tsx'); const picker = src('src/components/menu/ChoicePicker.tsx');
   check('the menu page reads and saves through the server only', page.includes("fetch('/api/menu'") && !/firebase\/firestore/.test(page + editor + picker));
-  check('the picker uses real radio buttons and checkboxes, and a sold-out choice can’t be picked', /type=\{g\.pick === 'one' \? 'radio' : 'checkbox'\}/.test(picker) && /disabled = \(o\.soldOut && !checked\)/.test(picker) && picker.includes('>Sold out</span>'));
+  check('the picker uses real radio buttons and checkboxes, and a sold-out choice can’t be picked', /type=\{g\.pick === 'one' \? 'radio' : 'checkbox'\}/.test(picker) && /disabled = \(o\.soldOut && !checked\)/.test(picker) && (picker.includes('>Sold out</span>') || picker.includes(">{gt(lang, 'Sold out')}</span>")));
   const strings = [page, editor, picker].join('\n').match(/(['"`])(?:(?!\1)[^\\\n]|\\.)*\1|>[^<>{}\n]+</g)?.join('\n') || '';
   const bad = [['cl', 'aude'], ['anth', 'ropic']].map((p) => p.join(''));
   check('writing rules: no all-caps, no emoji or check marks, no JSX comments, no business-type words, no tool names', !/\buppercase\b|font-black/.test(page + editor + picker) && !/[\u{1F300}-\u{1FAFF}✓✔✅]/u.test(page + editor + picker)

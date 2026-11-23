@@ -10,6 +10,7 @@
 // shelf (voidOrder). Nothing is ever made for an order that isn't paid.
 //   tenants/{t}/counterOrders/{id}.kiosk = { screen, state: 'awaiting_pay' | 'paid' | 'let_go' }
 //   kitchenScreens/{hash}.readerId, .kioskOrder   (its reader, picked by a manager; the order it's being paid for now)
+import { spanishOf } from '@/lib/guest-lang';
 import { hereFor, zonedHere } from '@/lib/here-server';
 import { dayKey } from '@/lib/business-locations';
 import { cleanLineNote, cleanOrderAllergy } from '@/lib/order-allergy';
@@ -46,7 +47,8 @@ const money2 = (n: number) => Math.round(n * 100) / 100;
  *  added (only items on this same menu, `shown`). Nothing about cost or stock counts. */
 function kioskItem(m: MenuItem, tenant: any, at: Date, shown: Set<string>) {
   const p = priceNow(m, tenant, at);
-  return { id: m.id, name: m.name, section: m.section, words: m.words, price: p.price, happy: p.happy, from: m.from, startPrice: Math.max(0, money2(m.startPrice - m.price + p.price)),
+  // (Its Spanish too, for a guest who picks Español: lib/guest-lang.)
+  return { id: m.id, name: m.name, nameEs: m.nameEs, wordsEs: m.wordsEs, section: m.section, words: m.words, price: p.price, happy: p.happy, from: m.from, startPrice: Math.max(0, money2(m.startPrice - m.price + p.price)),
     imageUrl: m.imageUrl, choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, featured: m.featured, badge: m.badge,
     upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) },
     // What it contains of the major allergens, when the business has said (null: nobody has, never "none").
@@ -67,8 +69,8 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
   // (Sold by weight: weighed at the counter, never ordered here: lib/menu-weight.)
   const menu = all.filter((m) => m.onMenu && !m.membersOnly && !m.byWeight && servedNow(m, tenant, at).ok);
   const shown = new Set(menu.map((m) => m.id));
-  const sections: { name: string; items: ReturnType<typeof kioskItem>[] }[] = [];
-  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(kioskItem(m, tenant, at, shown)); }
+  const sections: { name: string; nameEs: string | null; items: ReturnType<typeof kioskItem>[] }[] = []; const es = spanishOf(tenant).sections;
+  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, nameEs: es[m.section] || null, items: [] })); s.items.push(kioskItem(m, tenant, at, shown)); }
   return { ok: true as const, business: String(tenant?.name || tenant?.businessName || '').slice(0, 80) || 'Order here', screen: screen.name,
     // The business's own color (readable with white type on it), carried through the kiosk as on its menu board.
     accent: pageAccent(tenant),
@@ -170,7 +172,7 @@ function placed(or: any, orderId: string) {
   if (or.paidAt) return { ok: true, orderId, number: or.number, paid: true };
   if (or.status !== 'sent' || or.kiosk?.state !== 'awaiting_pay') return fail('That order was let go. Please start again.', 409, 'closed');
   return { ok: true, orderId, number: or.number, subtotal: num(or.subtotal), tax: num(or.tax), taxLabel: or.taxLabel, total: num(or.total),
-    lines: (Array.isArray(or.lines) ? or.lines : []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: money2(num(l.unitPrice) * num(l.quantity)) })) };
+    lines: (Array.isArray(or.lines) ? or.lines : []).map((l: any) => ({ name: l.name, nameEs: l.nameEs || null, quantity: l.quantity, choicesText: l.choicesText || null, price: money2(num(l.unitPrice) * num(l.quantity)) })) };
 }
 
 /** This kiosk's own order (a kiosk never sees or pays another's), or null. */

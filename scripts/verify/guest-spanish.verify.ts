@@ -226,6 +226,26 @@ const hh = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00`;
     check(`${f.split('/').slice(-2).join('/')}: no comments in markup, no uppercase, no new " · "`, !/\{\/\*/.test(s) && !/\buppercase\b/.test(s) && (f.includes('board/page') || f.includes('window/page') ? (s.match(/ · /g) || []).length <= 1 : !/ · /.test(s)));
   }
 
+  console.log('the kiosk');
+  const kioskPage = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx'), picker = src('src/components/menu/ChoicePicker.tsx'), oa = src('src/components/menu/OrderAllergy.tsx');
+  // Every line put through the dictionary (t('…') on the kiosk, gt(lang, '…') in the pieces it uses) has its Spanish.
+  const kioskSaid = [...Array.from(kioskPage.matchAll(/\bt\('((?:[^'\\]|\\.)+)'/g)).map((m) => m[1]), ...Array.from((picker + oa).matchAll(/gt\(lang, '((?:[^'\\]|\\.)+)'/g)).map((m) => m[1]),
+    ...Array.from(kioskPage.matchAll(/sayIn\(lang, [^,]+, '((?:[^'\\]|\\.)+)'\)/g)).map((m) => m[1]), ...Array.from(kioskPage.matchAll(/sayIn\(lang, [^,]+, [^?]+\? '((?:[^'\\]|\\.)+)' : '((?:[^'\\]|\\.)+)'\)/g)).flatMap((m) => [m[1], m[2]])];
+  const kioskMissing = Array.from(new Set(kioskSaid)).filter((w) => !L.hasGuestSpanish(w));
+  check(`every line the kiosk shows a guest has its Spanish (${new Set(kioskSaid).size} of them)`, kioskSaid.length > 80 && !kioskMissing.length, kioskMissing);
+  check('…and none of its English left showing to a guest in Spanish (its words go through the dictionary)', !/>(Start your order|Your order|Review and pay|Tap something to add it\.|Add more|Get a receipt|Text me when it’s ready)</.test(kioskPage));
+  check('each guest picks on the start screen; the next guest gets the kiosk’s own (?lang=es, kept on the tablet)', /role="group" aria-label=\{t\('Language'\)\}/.test(kioskPage) && /GUEST_LANGS\.map/.test(kioskPage) && /setStep\('start'\); setLang\(home\);/.test(kioskPage)
+    && /write\(guestLangKey\('kiosk', tenantId\), cleanGuestLang\(asked\)\)/.test(kioskPage) && /document\.documentElement\.lang = lang/.test(kioskPage));
+  check('the business’s Spanish: items, descriptions, sections and what was placed', /nameEs: m\.nameEs, wordsEs: m\.wordsEs/.test(src('src/lib/kiosk.ts')) && /nameEs: es\[m\.section\] \|\| null/.test(src('src/lib/kiosk.ts')) && /nameEs: l\.nameEs \|\| null/.test(src('src/lib/kiosk.ts'))
+    && /const nm = \(m: \{ name: string; nameEs\?: string \| null \}\) => inLang\(lang, m\.name, m\.nameEs\)/.test(kioskPage));
+  check('choices, allergies and notes in Spanish on the kiosk, and as before everywhere else', /<ChoicePicker item=\{item\} picks=\{picks\} onChange=\{[^}]+\}\} lang=\{lang\} \/>/.test(kioskPage) && /lang=\{lang\} \/>/.test(kioskPage) && /lang = 'en' \}: \{ item: any/.test(picker) && /big = false, lang = 'en' \}/.test(oa));
+  check('allergens in Spanish for a guest', OA.containsLine({ allergens: ['milk', 'wheat'], allergensSet: true }, 'es') === 'Contiene leche y trigo' && OA.containsLine({ allergens: ['milk', 'wheat'], allergensSet: true }) === 'Contains milk and wheat'
+    && OA.containsLine({ allergens: [], allergensSet: true }, 'es') === 'No se indica ningún alérgeno principal' && OA.containsLine({ allergens: [], allergensSet: true }) === 'None of the major allergens listed' && OA.conflictWords(['peanuts', 'sesame', 'eggs'], { keys: ['peanuts'] }, 'guest', 'es') === 'Contiene cacahuate (maní), ajonjolí y huevo' && OA.conflictWords(['peanuts', 'eggs'], { keys: ['peanuts'] }, 'guest') === 'Contains peanuts and eggs'
+    && OA.conflictWords('unknown', { keys: ['peanuts'] }, 'guest', 'es') === 'No se indican sus alérgenos. La cocina ve su alergia en el pedido.' && L.allergenIn('es', 'treenuts', 'Tree nuts') === 'Nueces de árbol' && L.allergenIn('en', 'treenuts', 'Tree nuts') === 'Tree nuts');
+  check('what the server says: its Spanish when known, else the Spanish of what to do; in English as it said', L.sayIn('es', 'Add something first.', 'That didn’t go through. Try again.') === 'Primero agregue algo.' && L.sayIn('es', 'Iced tea is sold out right now.', 'That didn’t go through. Try again.') === 'No se pudo completar. Inténtelo de nuevo.'
+    && L.sayIn('en', 'Iced tea is sold out right now.', 'x') === 'Iced tea is sold out right now.' && L.sayIn('en', '', 'Fallback.') === 'Fallback.');
+  check('what the team sees on the kiosk stays in English (Team, the card reader)', /aria-label="This kiosk’s card reader"|<Modal label="This kiosk’s card reader"/.test(kioskPage) && />Team<\/button>/.test(kioskPage));
+
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

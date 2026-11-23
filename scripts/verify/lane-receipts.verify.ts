@@ -106,7 +106,7 @@ const order = (x: any = {}) => ({ number: 'D31', channel: 'drive-thru', status: 
   check('…asked with the screen’s own key', dt.includes("const receiptVia = (orderId: string): ReceiptCall => async ({ action, ...rest }) => (await post({ ...rest, action: 'receipt', orderId, do: action })).d;") && dt.includes('call={receiptVia(slip.orderId)}'));
   check('…Receipt again at the pickup window, nothing printed by itself', dt.includes("order.paidAt && order.payMethod !== 'staff' && order.payMethod !== 'app' && slip?.orderId !== order.id") && dt.includes('cash: false, change: null, later: true })}'));
   const ks = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx');
-  check('the kiosk: Get a receipt, by text or email, nothing kept on the screen', ks.includes('>Get a receipt</button>') && ks.includes("action: 'receipt', tenantId, key: kioskKey, orderId, channel: way") && ks.includes('Nothing is kept on this screen.') && ks.includes('setReceipting(false); setReceiptSent(\'\');'));
+  check('the kiosk: Get a receipt, by text or email, nothing kept on the screen', (ks.includes('>Get a receipt</button>') || ks.includes(">{t('Get a receipt')}</button>")) && ks.includes("action: 'receipt', tenantId, key: kioskKey, orderId, channel: way") && ks.includes('Nothing is kept on this screen.') && ks.includes('setReceipting(false); setReceiptSent(\'\');'));
   check('…it waits while they type, then starts over', ks.includes('if (texting || receipting ? now - touched.current > IDLE_MS : now - paidAt.current > PAID_MS) startOver();'));
   const pp = src('src/app/drive-thru/[tenantId]/pay/page.tsx');
   check('paying by phone: See your receipt', pp.includes('See your receipt') && pp.includes('v.receiptUrl'));

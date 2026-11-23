@@ -9,6 +9,7 @@
 // - What the menu says a dish contains of their allergens is called out before paying, on the counter and on the ticket;
 //   a dish nobody has filled in its allergens for is never said to have none.
 import { cleanKeys, allergenLabel, itemAllergens, allergensKnown, keysFromWords, ticketAllergyFields, wordsList, type AllergenKey, type TableAllergy } from '@/lib/allergens';
+import { allergenIn, gt, listIn, type GuestLang } from '@/lib/guest-lang';
 
 export type OrderAllergy = { keys: AllergenKey[]; other: string | null; severe: boolean; by?: string; at?: string };
 export const NOTE_MAX = 140;
@@ -98,16 +99,18 @@ export function dishConflict(item: { allergens?: unknown; allergensSet?: boolean
 
 /** "Contains peanuts", or, when the menu doesn't say what it contains, a word for whoever is ordering: the guest (the
  *  kitchen sees their allergy on the ticket) or the team (check with the kitchen). '' when it's clear. */
-export function conflictWords(c: AllergenKey[] | 'unknown', a: Pick<OrderAllergy, 'keys'> | null | undefined, who: 'guest' | 'team' = 'team'): string {
-  if (c === 'unknown') return a && a.keys.length ? (who === 'guest' ? 'Its allergens aren’t listed. The kitchen sees your allergy on the ticket.' : `Allergens not listed: check ${wordsList(a.keys)} with the kitchen`) : '';
-  return c.length ? `Contains ${wordsList(c)}` : '';
+export function conflictWords(c: AllergenKey[] | 'unknown', a: Pick<OrderAllergy, 'keys'> | null | undefined, who: 'guest' | 'team' = 'team', lang: GuestLang = 'en'): string {
+  if (c === 'unknown') return a && a.keys.length ? (who === 'guest' ? gt(lang, 'Its allergens aren’t listed. The kitchen sees your allergy on the ticket.') : `Allergens not listed: check ${wordsList(a.keys)} with the kitchen`) : '';
+  return c.length ? (lang === 'en' ? `Contains ${wordsList(c)}` : gt(lang, 'Contains {list}', { list: wordsIn(lang, c) })) : '';
 }
+/** Allergens in a sentence, in a guest screen's language: "milk and wheat", "leche y trigo". */
+const wordsIn = (lang: GuestLang, keys: string[]) => (lang === 'en' ? wordsList(keys) : listIn(lang, keys.map((k) => allergenIn(lang, k, allergenLabel(k)).toLowerCase())));
 
 /** "Contains milk, wheat" for a dish on a menu (what it says it contains); null when nobody has filled it in. */
-export function containsLine(item: { allergens?: unknown; allergensSet?: boolean } | null | undefined): string | null {
+export function containsLine(item: { allergens?: unknown; allergensSet?: boolean } | null | undefined, lang: GuestLang = 'en'): string | null {
   const known = item && (item.allergensSet === true || (item.allergensSet === undefined && allergensKnown(item)));
   if (!known) return null;
   const k = cleanKeys(item!.allergens);
   // (What's listed is the dish itself: a choice, a sauce or a swap can add one, which the guest is told on the dish.)
-  return k.length ? `Contains ${wordsList(k)}` : 'None of the major allergens listed';
+  return k.length ? (lang === 'en' ? `Contains ${wordsList(k)}` : gt(lang, 'Contains {list}', { list: wordsIn(lang, k) })) : gt(lang, 'None of the major allergens listed');
 }

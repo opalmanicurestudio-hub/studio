@@ -8,6 +8,10 @@
 //   key: the order lives in the page, and starts over by itself when it's left alone.
 //   Laid out like a cafe's menu board (design canvas "Self-order kiosk options", B): sections down the side, what's
 //   featured shown big, the menu as a list with pictures, and the order kept like a receipt; in the business's own color.
+//   In English or Español (lib/guest-lang; design board "The boards and the assistant in Spanish"): each guest picks on
+//   the start screen, and it goes back to the kiosk's own (?lang=es in its address, kept on the tablet) for the next.
+//   The business's names and descriptions in its own Spanish where it has some; choices as it wrote them. What the team
+//   sees (Team, the card reader) stays in English.
 
 import * as React from 'react';
 import { useParams } from 'next/navigation';
@@ -18,8 +22,9 @@ import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { AllergyChips, NoteField, NO_ALLERGY, allergyBody, hasAllergy, type AllergyValue } from '@/components/menu/OrderAllergy';
 import { conflictWords, containsLine, dishConflict, sameNote } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
-import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
+import { choiceGroups, defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
+import { GUEST_LANGS, cleanGuestLang, gt, guestLangKey, inLang, sayIn, type GuestLang } from '@/lib/guest-lang';
 
 // (Muted and amber a shade deeper than elsewhere in the app: they sit on a wash of the business's color here, and
 // still read at 4.5:1 on it.)
@@ -38,10 +43,10 @@ const read = (k: string) => { try { return localStorage.getItem(k); } catch { re
 const write = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private window */ } };
 const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((x) => x.toString(16).padStart(2, '0')).join('');
 
-type Item = { id: string; name: string; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null;
+type Item = { id: string; name: string; nameEs?: string | null; wordsEs?: string | null; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null;
   /** What it contains of the major allergens, when the business has said (null: nobody has). */
   allergens?: AllergenKey[] | null };
-type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; items: Item[] }[]; accent?: string | null;
+type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; nameEs?: string | null; items: Item[] }[]; accent?: string | null;
   /** "Text me when it's ready" offered on the paid screen (lib/ready-text). */
   texts?: boolean };
 /** The business's own color (white type reads on it) and a pale wash of it for grounds. */
@@ -51,7 +56,8 @@ const Accent = React.createContext(INK);
 type Line = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; offer?: OfferKind; note?: string };
 /** Right after something's added: what's offered with it (kept as first shown), and what's been taken. */
 type After = { key: string; itemId: string; name: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Placed = { orderId: string; number: string; total: number; lines: { name: string; quantity: number; choicesText: string | null; price: number }[] };
+type Placed = { orderId: string; number: string; total: number; lines: { name: string; nameEs?: string | null; quantity: number; choicesText: string | null; price: number }[] };
+type Say = (en: string, v?: Record<string, string | number>) => string;
 type Paying = { state: 'starting' | 'on_reader' | 'declined' | 'trouble'; message?: string | null };
 type Reader = { id: string; label: string; online: boolean; test: boolean };
 
@@ -80,34 +86,34 @@ const phoneWords = (d: string) => (d.length <= 3 ? `(${d}` : d.length <= 6 ? `($
 
 /** "Text me when it's ready", after paying: a number pad (bigger and surer than the tablet's keyboard at arm's length),
  *  and one text for this order when it's ready (lib/ready-text). The number isn't kept here. */
-function TextMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: string; kioskKey: string; orderId: string; onDone: (last4: string, sent: boolean) => void; onClose: () => void }) {
-  const A = React.useContext(Accent);
+function TextMe({ tenantId, kioskKey, orderId, onDone, onClose, lang }: { tenantId: string; kioskKey: string; orderId: string; onDone: (last4: string, sent: boolean) => void; onClose: () => void; lang: GuestLang }) {
+  const A = React.useContext(Accent); const t: Say = (en, v) => gt(lang, en, v);
   const [digits, setDigits] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const press = (k: string) => { setErr(''); setDigits((d) => (k === 'back' ? d.slice(0, -1) : k === 'clear' ? '' : d.length >= 10 ? d : d + k)); };
   const save = async () => {
     setBusy(true); setErr('');
     const { d } = await call({ action: 'textMe', tenantId, key: kioskKey, orderId, phone: digits });
     setBusy(false);
-    if (d.ok) onDone(String(d.last4 || digits.slice(-4)), !!d.sent); else setErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) onDone(String(d.last4 || digits.slice(-4)), !!d.sent); else setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.'));
   };
   return (
-    <Modal label="Text me when it’s ready" onClose={onClose}>
+    <Modal label={t('Text me when it’s ready')} onClose={onClose}>
       <div className="space-y-4 p-6">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-[22px] font-semibold tracking-tight">Your mobile number</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: SOFT }}><X className="h-5 w-5" aria-hidden /></button>
+          <h2 className="text-[22px] font-semibold tracking-tight">{t('Your mobile number')}</h2>
+          <button type="button" onClick={onClose} aria-label={t('Close')} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: SOFT }}><X className="h-5 w-5" aria-hidden /></button>
         </div>
         <p className="flex min-h-[60px] items-center justify-center rounded-2xl text-[28px] font-semibold tabular-nums" style={{ border: `1px solid ${LINE}` }}>
-          <output aria-live="polite">{digits ? phoneWords(digits) : <span className="text-[17px] font-normal" style={{ color: MUTED }}>Ten digits</span>}</output></p>
-        <div className="grid grid-cols-3 gap-2" role="group" aria-label="Number pad">
+          <output aria-live="polite">{digits ? phoneWords(digits) : <span className="text-[17px] font-normal" style={{ color: MUTED }}>{t('Ten digits')}</span>}</output></p>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-label={t('Number pad')}>
           {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
             <button key={k} type="button" onClick={() => press(k)} disabled={busy || ((k === 'back' || k === 'clear') && !digits) || (/\d/.test(k) && digits.length >= 10)}
-              aria-label={k === 'back' ? 'Delete the last digit' : k === 'clear' ? 'Clear the number' : undefined}
-              className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? 'Back' : k === 'clear' ? 'Clear' : k}</button>))}
+              aria-label={k === 'back' ? t('Delete the last digit') : k === 'clear' ? t('Clear the number') : undefined}
+              className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Back') : k === 'clear' ? t('Clear') : k}</button>))}
         </div>
         {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
-        <button type="button" data-start disabled={digits.length !== 10 || busy} onClick={save} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? 'Saving…' : 'Text me'}</button>
-        <p className="text-center text-[14px]" style={{ color: MUTED }}>One text, just for this order.</p>
+        <button type="button" data-start disabled={digits.length !== 10 || busy} onClick={save} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? t('Saving…') : t('Text me')}</button>
+        <p className="text-center text-[14px]" style={{ color: MUTED }}>{t('One text, just for this order.')}</p>
       </div>
     </Modal>
   );
@@ -115,8 +121,8 @@ function TextMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: st
 
 /** "Get a receipt" (design board "Receipts at the counter"; api/kiosk 'receipt'): a text or an email with a private link
  *  to the full receipt, for the order just paid here. What's typed is never kept on the kiosk. */
-function ReceiptMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId: string; kioskKey: string; orderId: string; onDone: (words: string) => void; onClose: () => void }) {
-  const A = React.useContext(Accent);
+function ReceiptMe({ tenantId, kioskKey, orderId, onDone, onClose, lang }: { tenantId: string; kioskKey: string; orderId: string; onDone: (words: string) => void; onClose: () => void; lang: GuestLang }) {
+  const A = React.useContext(Accent); const t: Say = (en, v) => gt(lang, en, v);
   const [way, setWay] = React.useState<'sms' | 'email'>('sms');
   const [digits, setDigits] = React.useState(''); const [email, setEmail] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const press = (k: string) => { setErr(''); setDigits((d) => (k === 'back' ? d.slice(0, -1) : k === 'clear' ? '' : d.length >= 10 ? d : d + k)); };
@@ -126,67 +132,71 @@ function ReceiptMe({ tenantId, kioskKey, orderId, onDone, onClose }: { tenantId:
     if (!ready) return; setBusy(true); setErr('');
     const { d } = await call({ action: 'receipt', tenantId, key: kioskKey, orderId, channel: way, to: way === 'sms' ? digits : email.trim() });
     setBusy(false);
-    if (d.ok) onDone(way === 'sms' ? `Your receipt was texted to ···${digits.slice(-4)}.` : 'Your receipt was emailed.'); else setErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) onDone(way === 'sms' ? t('Your receipt was texted to ···{n}.', { n: digits.slice(-4) }) : t('Your receipt was emailed.')); else setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.'));
   };
   const tab = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: SOFT, color: INK });
   return (
-    <Modal label="Get a receipt" onClose={onClose}>
+    <Modal label={t('Get a receipt')} onClose={onClose}>
       <div className="space-y-4 p-6">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="text-[22px] font-semibold tracking-tight">Get a receipt</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: SOFT }}><X className="h-5 w-5" aria-hidden /></button>
+          <h2 className="text-[22px] font-semibold tracking-tight">{t('Get a receipt')}</h2>
+          <button type="button" onClick={onClose} aria-label={t('Close')} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ background: SOFT }}><X className="h-5 w-5" aria-hidden /></button>
         </div>
-        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Send it by">
-          <button type="button" aria-pressed={way === 'sms'} onClick={() => { setWay('sms'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'sms')}>Text</button>
-          <button type="button" aria-pressed={way === 'email'} onClick={() => { setWay('email'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'email')}>Email</button>
+        <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('Send it by')}>
+          <button type="button" aria-pressed={way === 'sms'} onClick={() => { setWay('sms'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'sms')}>{t('Text')}</button>
+          <button type="button" aria-pressed={way === 'email'} onClick={() => { setWay('email'); setErr(''); }} className={`${btn} min-h-[56px] text-[17px]`} style={tab(way === 'email')}>{t('Email')}</button>
         </div>
         {way === 'sms' ? <>
           <p className="flex min-h-[60px] items-center justify-center rounded-2xl text-[28px] font-semibold tabular-nums" style={{ border: `1px solid ${LINE}` }}>
-            <output aria-live="polite">{digits ? phoneWords(digits) : <span className="text-[17px] font-normal" style={{ color: MUTED }}>Your mobile number</span>}</output></p>
-          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Number pad">
+            <output aria-live="polite">{digits ? phoneWords(digits) : <span className="text-[17px] font-normal" style={{ color: MUTED }}>{t('Your mobile number')}</span>}</output></p>
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label={t('Number pad')}>
             {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
               <button key={k} type="button" onClick={() => press(k)} disabled={busy || ((k === 'back' || k === 'clear') && !digits) || (/\d/.test(k) && digits.length >= 10)}
-                aria-label={k === 'back' ? 'Delete the last digit' : k === 'clear' ? 'Clear the number' : undefined}
-                className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? 'Back' : k === 'clear' ? 'Clear' : k}</button>))}
+                aria-label={k === 'back' ? t('Delete the last digit') : k === 'clear' ? t('Clear the number') : undefined}
+                className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Back') : k === 'clear' ? t('Clear') : k}</button>))}
           </div>
-        </> : <label className="block text-[15px] font-semibold" style={{ color: MUTED }}>Your email
+        </> : <label className="block text-[15px] font-semibold" style={{ color: MUTED }}>{t('Your email')}
           <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => { setErr(''); setEmail(e.target.value.slice(0, 120)); }} onKeyDown={(e) => { if (e.key === 'Enter') void send(); }}
             className={`mt-2 block min-h-[60px] w-full rounded-2xl px-4 text-[20px] font-normal outline-none ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK, background: '#fff' }} /></label>}
         {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
-        <button type="button" disabled={!ready || busy} onClick={send} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? 'Sending…' : 'Send my receipt'}</button>
-        <p className="text-center text-[14px]" style={{ color: MUTED }}>A link to your full receipt. Nothing is kept on this screen.</p>
+        <button type="button" disabled={!ready || busy} onClick={send} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? t('Sending…') : t('Send my receipt')}</button>
+        <p className="text-center text-[14px]" style={{ color: MUTED }}>{t('A link to your full receipt. Nothing is kept on this screen.')}</p>
       </div>
     </Modal>
   );
 }
 
-function ItemSheet({ item, onAdd, onClose }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void }) {
+function ItemSheet({ item, onAdd, onClose, lang }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void; lang: GuestLang }) {
+  const t: Say = (en, v) => gt(lang, en, v); const name = inLang(lang, item.name, item.nameEs); const words = inLang(lang, item.words || '', item.wordsEs) || null;
   const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [tried, setTried] = React.useState(false); const [note, setNote] = React.useState('');
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
   const A = React.useContext(Accent);
+  // (In Spanish, what to do: the server's words are English, and the choice's own name is as the business wrote it.)
+  const missing = !priced.ok ? choiceGroups(item).find((g) => g.required && !(picks[g.id] || []).length) : undefined;
+  const why = priced.ok ? '' : lang === 'en' ? priced.error : t(missing ? 'Choose an option.' : 'Check your choices.');
   return (
-    <Modal label={item.name} onClose={onClose} wide side>
+    <Modal label={name} onClose={onClose} wide side>
       <div className="flex items-center justify-between gap-3 px-6 pt-6">
-        <h2 className="min-w-0 truncate text-[30px] font-bold tracking-tight">{item.name}</h2>
-        <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ border: `1px solid ${LINE}` }}><X className="h-5 w-5" /></button>
+        <h2 className="min-w-0 truncate text-[30px] font-bold tracking-tight">{name}</h2>
+        <button type="button" onClick={onClose} aria-label={t('Close')} className={`inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ border: `1px solid ${LINE}` }}><X className="h-5 w-5" /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
         <div className="flex flex-col gap-4 sm:flex-row">
           {item.imageUrl && <img src={item.imageUrl} alt="" className="aspect-[4/3] w-full rounded-2xl object-cover sm:w-56" style={{ background: tintOf(A) }} />}
-          {(item.words || item.calories != null) && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
+          {(words || item.calories != null) && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{words}{words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">{t('({n} cal)', { n: item.calories })}</span>}</p>}
         </div>
-        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>{containsLine(item) ? `${containsLine(item)}.${item.choices.length ? ' Choices can change this.' : ''}` : 'Allergens aren’t listed for this one.'}</p>
-        <div className="mt-4"><ChoicePicker item={item} picks={picks} onChange={(p) => { setTried(false); setPicks(p); }} /></div>
-        <div className="mt-4"><NoteField value={note} onChange={setNote} id={`kiosk-note-${item.id}`} big /></div>
-        {!priced.ok && tried && <p role="alert" className="mt-3 text-[15px] font-semibold" style={{ color: AMBER }}>{priced.error}</p>}
+        <p className="mt-3 text-[15px]" style={{ color: MUTED }}>{containsLine(item, lang) ? `${containsLine(item, lang)}.${item.choices.length ? ` ${t('Choices can change this.')}` : ''}` : t('Allergens aren’t listed for this one.')}</p>
+        <div className="mt-4"><ChoicePicker item={item} picks={picks} onChange={(p) => { setTried(false); setPicks(p); }} lang={lang} /></div>
+        <div className="mt-4"><NoteField value={note} onChange={setNote} id={`kiosk-note-${item.id}`} big lang={lang} /></div>
+        {!priced.ok && tried && <p role="alert" className="mt-3 text-[15px] font-semibold" style={{ color: AMBER }}>{why}</p>}
       </div>
       <div className="flex items-center gap-3 border-t px-6 py-4" style={{ borderColor: LINE }}>
-        <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
-          <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-5 w-5" /></button>
+        <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={t('How many')}>
+          <button type="button" aria-label={t('One fewer')} disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-5 w-5" /></button>
           <span className="w-8 text-center text-[19px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
-          <button type="button" aria-label="One more" disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-5 w-5" /></button>
+          <button type="button" aria-label={t('One more')} disabled={qty >= 20} onClick={() => setQty((n) => Math.min(20, n + 1))} className={`inline-flex h-14 w-14 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-5 w-5" /></button>
         </div>
-        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty, note.trim()) : setTried(true))} className={`${btn} min-h-[60px] flex-1 rounded-full text-[18px] tabular-nums`} style={priced.ok ? { background: A, color: '#fff' } : { background: LINE, color: MUTED }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+        <button type="button" data-start onClick={() => (priced.ok ? onAdd(picks, qty, note.trim()) : setTried(true))} className={`${btn} min-h-[60px] flex-1 rounded-full text-[18px] tabular-nums`} style={priced.ok ? { background: A, color: '#fff' } : { background: LINE, color: MUTED }}>{qty > 1 ? t('Add {n}, {price}', { n: qty, price: usd(each * qty) }) : t('Add, {price}', { price: usd(each * qty) })}</button>
       </div>
     </Modal>
   );
@@ -246,9 +256,20 @@ export default function KioskScreen() {
   const [texting, setTexting] = React.useState(false); const [texted, setTexted] = React.useState<{ last4: string; sent: boolean } | null>(null);
   // "Get a receipt" on the paid screen: the sheet open, and once sent, what to say.
   const [receipting, setReceipting] = React.useState(false); const [receiptSent, setReceiptSent] = React.useState('');
+  // The kiosk's own language (?lang=es, or what's kept on the tablet), and the one this guest picked on the start screen.
+  const [home, setHome] = React.useState<GuestLang>('en'); const [lang, setLang] = React.useState<GuestLang>('en');
+  const t: Say = (en, v) => gt(lang, en, v);
+  // (Read aloud in the guest's language.)
+  React.useEffect(() => { document.documentElement.lang = lang; return () => { document.documentElement.lang = 'en'; }; }, [lang]);
   const touched = React.useRef(Date.now()); const paidAt = React.useRef(0); const orderKey = React.useRef(''); const checking = React.useRef(false);
 
-  React.useEffect(() => { setKey(read(keyName(tenantId))); setReady(true); }, [tenantId]);
+  React.useEffect(() => {
+    setKey(read(keyName(tenantId)));
+    let asked: string | null = null; try { asked = new URLSearchParams(window.location.search).get('lang'); } catch { /* no address */ }
+    if (asked) write(guestLangKey('kiosk', tenantId), cleanGuestLang(asked));
+    const l = cleanGuestLang(asked || read(guestLangKey('kiosk', tenantId))); setHome(l); setLang(l);
+    setReady(true);
+  }, [tenantId]);
   const lost = (d: any) => { write(keyName(tenantId), null); setKey(null); setStopped(d?.error || 'This kiosk was stopped. A manager can set it up again.'); };
   const loadMenu = React.useCallback(async () => {
     if (!key) return;
@@ -275,8 +296,8 @@ export default function KioskScreen() {
 
   const startOver = React.useCallback(() => {
     setCart([]); setName(''); setToGo(null); setAllergy(NO_ALLERGY); setPlaced(null); setPaying(null); setAfter(null); setOpen(null); setPassed([]); setOffered(false);
-    setErr(''); setAsk(null); setLeaving(false); setPaidName(''); setTexting(false); setTexted(null); setReceipting(false); setReceiptSent(''); orderKey.current = ''; setStep('start'); void loadMenu();
-  }, [loadMenu]);
+    setErr(''); setAsk(null); setLeaving(false); setPaidName(''); setTexting(false); setTexted(null); setReceipting(false); setReceiptSent(''); orderKey.current = ''; setStep('start'); setLang(home); void loadMenu();
+  }, [loadMenu, home]);
   // Let the order go (the reader stops asking; what it held goes back): a card approved at that moment is kept.
   const letGo = React.useCallback(async (then: 'start' | 'review') => {
     if (!placed) { if (then === 'start') startOver(); else setStep('review'); return; }
@@ -286,10 +307,10 @@ export default function KioskScreen() {
     if (d.ok && d.state === 'paid') { paidAt.current = Date.now(); setPaidName(name.trim().split(' ')[0] || ''); setStep('paid'); return; }
     // Not let go (the card still being processed, or no connection): said, and when it was left alone, tried again
     // shortly, so the next guest never finds this order waiting on the reader.
-    if (!d.ok) { setErr(d.error || 'That didn’t go through. Try again.'); if (then === 'start') { setLeaving(false); setAsk(Date.now()); } return; }
+    if (!d.ok) { setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.')); if (then === 'start') { setLeaving(false); setAsk(Date.now()); } return; }
     setPlaced(null); setPaying(null); orderKey.current = '';
     if (then === 'start') startOver(); else { setErr(''); setStep('review'); }
-  }, [placed, tenantId, key, name, startOver]);
+  }, [placed, tenantId, key, name, startOver, lang]);
 
   // Left alone: "Still ordering?", then it starts over (paying: the order is let go first). The paid screen goes back
   // to the start by itself.
@@ -354,13 +375,14 @@ export default function KioskScreen() {
   const toPaid = (n?: string) => { paidAt.current = Date.now(); setPaidName(name.trim().split(' ')[0] || ''); if (n) setPlaced((p) => (p ? { ...p, number: n } : p)); setStep('paid'); };
   const answer = (d: any) => {
     if (d.ok && d.state === 'paid') { toPaid(d.number); return; }
-    if (d.ok && d.state === 'let_go') { setPaying({ state: 'trouble', message: 'This order was let go. Please start again.' }); return; }
-    if (d.ok) { setPaying({ state: d.state === 'declined' ? 'declined' : d.state === 'starting' || d.state === 'none' ? 'starting' : 'on_reader', message: d.message || null }); return; }
-    setPaying({ state: 'trouble', message: d.error || 'The card reader didn’t answer. Try again.' });
+    if (d.ok && d.state === 'let_go') { setPaying({ state: 'trouble', message: t('This order was let go. Please start again.') }); return; }
+    // (A card's own reason is the bank's words, in English: in Spanish, what to do instead.)
+    if (d.ok) { setPaying({ state: d.state === 'declined' ? 'declined' : d.state === 'starting' || d.state === 'none' ? 'starting' : 'on_reader', message: d.message ? (lang === 'en' ? d.message : t('Try another card, or pay another way.')) : null }); return; }
+    setPaying({ state: 'trouble', message: sayIn(lang, d.error, 'The card reader didn’t answer. Try again.') });
   };
   /** Pay: the order is placed (once), then its total goes to this kiosk's reader. */
   const pay = async () => {
-    if (menu?.askToGo && toGo === null) { setErr('For here or to go?'); return; }
+    if (menu?.askToGo && toGo === null) { setErr(t('For here or to go?')); return; }
     setBusy(true); setErr('');
     let p = placed;
     if (!p) {
@@ -368,7 +390,7 @@ export default function KioskScreen() {
       const { status, d } = await call({ action: 'place', tenantId, key, orderKey: orderKey.current, name: name.trim(), ...(menu?.askToGo ? { toGo: toGo === true } : {}),
         lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
       if (status === 401) { setBusy(false); lost(d); return; }
-      if (!d.ok) { setBusy(false); setErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'sold_out' || d.code === 'gone' || d.code === 'line') void loadMenu(); if (d.code === 'closed') orderKey.current = ''; return; }
+      if (!d.ok) { setBusy(false); setErr(sayIn(lang, d.error, d.code === 'sold_out' ? 'Something in your order just ran out. Change your order and try again.' : 'That didn’t go through. Try again.')); if (d.code === 'sold_out' || d.code === 'gone' || d.code === 'line') void loadMenu(); if (d.code === 'closed') orderKey.current = ''; return; }
       if (d.paid) { setBusy(false); setPlaced({ orderId: d.orderId, number: d.number, total: 0, lines: [] }); toPaid(d.number); return; }
       p = { orderId: d.orderId, number: d.number, total: d.total, lines: d.lines || [] }; setPlaced(p);
     }
@@ -398,10 +420,13 @@ export default function KioskScreen() {
   const everything = (menu?.sections || []).flatMap((x) => x.items).filter((m) => !m.soldOut);
   const onToday = [everything.filter((m) => m.featured || m.badge), everything.filter((m) => m.imageUrl), everything].find((xs) => xs.length)?.slice(0, 3) || [];
   const open4 = !!menu && menu.payments && menu.reader && !closed;
-  const price = (m: Item) => `${m.from ? 'from ' : ''}${usd(m.from ? m.startPrice : m.price)}`;
+  const price = (m: Item) => `${m.from ? `${t('from')} ` : ''}${usd(m.from ? m.startPrice : m.price)}`;
+  // The business's names in this guest's language, where it has Spanish; else as written.
+  const nm = (m: { name: string; nameEs?: string | null }) => inLang(lang, m.name, m.nameEs); const wd = (m: Item) => inLang(lang, m.words || '', m.wordsEs) || null;
+  const lineName = (l: Line) => inLang(lang, l.name, byId.get(l.itemId)?.nameEs);
   const pic = (m: Item, size: number) => m.imageUrl
     ? <img src={m.imageUrl} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size, background: tint }} />
-    : <span aria-hidden className="inline-flex shrink-0 items-center justify-center rounded-full font-bold" style={{ width: size, height: size, background: tint, color: A, fontSize: size * 0.38 }}>{m.name.slice(0, 1)}</span>;
+    : <span aria-hidden className="inline-flex shrink-0 items-center justify-center rounded-full font-bold" style={{ width: size, height: size, background: tint, color: A, fontSize: size * 0.38 }}>{nm(m).slice(0, 1)}</span>;
   const offerBox = after && (after.size || after.items.length) ? (() => {
     const line = cart.find((l) => l.key === after.key); const item = byId.get(after.itemId);
     const q = Math.max(1, Math.min(after.qty, line?.quantity || 1)); const bigger = after.size && line && item && !after.took.includes('size') ? priceChoices(item, sizedUp(line.picks, after.size)) : null;
@@ -409,38 +434,38 @@ export default function KioskScreen() {
     const addedTag = (w: string) => <span className="inline-flex min-h-[48px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden />{w}</span>;
     return (
       <div role="group" aria-labelledby="kiosk-offer" className="space-y-2 rounded-2xl p-4" style={{ background: tint }}>
-        <p id="kiosk-offer" className="text-[16px] font-semibold">Goes well with it</p>
+        <p id="kiosk-offer" className="text-[16px] font-semibold">{t('Goes well with it')}</p>
         <ul className="space-y-2">
           {after.size && <li className="flex items-center gap-3 rounded-xl bg-[#fff] p-2 pl-3">
-            <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">Size up to {after.size.to}</b>{bigger?.ok && <span className="block text-[13.5px]" style={{ color: MUTED }}>{after.name}, {bigger.text}</span>}</span>
-            {took('size') ? addedTag('Changed') : <button type="button" disabled={!bigger?.ok} onClick={takeSize} aria-label={`Size up to ${after.size.to}, ${usd(after.size.adds * q)} more`} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px] tabular-nums`} style={brand}>+{usd(after.size.adds * q)}</button>}
+            <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">{t('Size up to {size}', { size: after.size.to })}</b>{bigger?.ok && <span className="block text-[13.5px]" style={{ color: MUTED }}>{inLang(lang, after.name, item?.nameEs)}, {bigger.text}</span>}</span>
+            {took('size') ? addedTag(t('Changed')) : <button type="button" disabled={!bigger?.ok} onClick={takeSize} aria-label={t('Size up to {size}, {price} more', { size: after.size.to, price: usd(after.size.adds * q) })} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px] tabular-nums`} style={brand}>+{usd(after.size.adds * q)}</button>}
           </li>}
           {after.items.map((x) => <li key={x.id} className="flex items-center gap-3 rounded-xl bg-[#fff] p-2 pl-3">
             {x.imageUrl && <img src={x.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" style={{ background: SOFT }} />}
-            <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">{x.name}</b> <span className="tabular-nums" style={{ color: MUTED }}>{x.from ? `from ${usd(x.startPrice)}` : usd(x.price)}</span></span>
-            {took(`item:${x.id}`) ? addedTag('Added') : <button type="button" onClick={() => takeItem(x)} aria-label={`Add ${x.name}`} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px]`} style={brand}>Add</button>}
+            <span className="min-w-0 flex-1 text-[15px]"><b className="font-semibold">{nm(x)}</b> <span className="tabular-nums" style={{ color: MUTED }}>{price(x)}</span></span>
+            {took(`item:${x.id}`) ? addedTag(t('Added')) : <button type="button" onClick={() => takeItem(x)} aria-label={t('Add {name}', { name: nm(x) })} className={`${btn} min-h-[48px] shrink-0 rounded-full px-4 text-[15px]`} style={brand}>{t('Add')}</button>}
           </li>)}
         </ul>
-        <button type="button" onClick={closeAfter} className={`${btn} min-h-[48px] bg-[#fff] text-[15px]`} style={{ color: INK }}>{after.took.length ? 'Done' : 'No thanks'}</button>
+        <button type="button" onClick={closeAfter} className={`${btn} min-h-[48px] bg-[#fff] text-[15px]`} style={{ color: INK }}>{after.took.length ? t('Done') : t('No thanks')}</button>
       </div>);
   })() : null;
   const lineRows = (big: boolean) => <ul>{cart.map((l) => (
     <li key={l.key} className="flex items-center gap-3 py-3" style={{ borderBottom: '1px dashed #cfd2d6' }}>
-      <span className="min-w-0 flex-1"><span className={`block font-semibold ${big ? 'text-[17px]' : 'text-[15.5px]'}`}>{l.name}</span>{l.choicesText && <span className="block text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}
-        {l.note && <span className="block text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</span>}
-        {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest'); return w ? <span className="block text-[14px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
+      <span className="min-w-0 flex-1"><span className={`block font-semibold ${big ? 'text-[17px]' : 'text-[15.5px]'}`}>{lineName(l)}</span>{l.choicesText && <span className="block text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</span>}
+        {l.note && <span className="block text-[13.5px]" style={{ color: MUTED }}>{t('Note: {note}', { note: l.note })}</span>}
+        {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest', lang); return w ? <span className="block text-[14px] font-semibold" style={{ color: AMBER }}>{w}</span> : null; })()}
         <span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</span></span>
-      <span className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
-        <button type="button" aria-label={l.quantity === 1 ? `Take ${l.name} off` : `One fewer ${l.name}`} onClick={() => qty(l.key, -1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
+      <span className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={t('How many {name}', { name: lineName(l) })}>
+        <button type="button" aria-label={l.quantity === 1 ? t('Take {name} off', { name: lineName(l) }) : t('One fewer {name}', { name: lineName(l) })} onClick={() => qty(l.key, -1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
         <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>
-        <button type="button" aria-label={`One more ${l.name}`} disabled={l.quantity >= 20} onClick={() => qty(l.key, 1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+        <button type="button" aria-label={t('One more {name}', { name: lineName(l) })} disabled={l.quantity >= 20} onClick={() => qty(l.key, 1)} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
       </span>
     </li>))}</ul>;
   const stillAsk = ask !== null && !leaving && (
-    <Modal label={step === 'pay' ? 'Still there?' : 'Still ordering?'}>
-      <div className="space-y-2 px-6 pt-6"><h2 className="text-[24px] font-semibold tracking-tight">{step === 'pay' ? 'Still there?' : 'Still ordering?'}</h2>
-        <p className="text-[16px]" style={{ color: MUTED }} aria-live="polite">{step === 'pay' ? 'This order will be canceled' : 'We’ll start over'} in {Math.max(0, Math.ceil((ASK_MS - (Date.now() - ask)) / 1000))} seconds.</p></div>
-      <div className="px-6 py-5"><button type="button" data-start onClick={() => { touched.current = Date.now(); setAsk(null); }} className={`${btn} min-h-[56px] w-full rounded-full text-[17px]`} style={brand}>{step === 'pay' ? 'I’m still here' : 'Keep ordering'}</button></div>
+    <Modal label={t(step === 'pay' ? 'Still there?' : 'Still ordering?')}>
+      <div className="space-y-2 px-6 pt-6"><h2 className="text-[24px] font-semibold tracking-tight">{t(step === 'pay' ? 'Still there?' : 'Still ordering?')}</h2>
+        <p className="text-[16px]" style={{ color: MUTED }} aria-live="polite">{t(step === 'pay' ? 'This order will be canceled in {n} seconds.' : 'We’ll start over in {n} seconds.', { n: Math.max(0, Math.ceil((ASK_MS - (Date.now() - ask)) / 1000)) })}</p></div>
+      <div className="px-6 py-5"><button type="button" data-start onClick={() => { touched.current = Date.now(); setAsk(null); }} className={`${btn} min-h-[56px] w-full rounded-full text-[17px]`} style={brand}>{t(step === 'pay' ? 'I’m still here' : 'Keep ordering')}</button></div>
     </Modal>);
 
   if (step === 'start') return (
@@ -448,28 +473,32 @@ export default function KioskScreen() {
     <main className="relative grid min-h-dvh md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" style={{ background: '#fff', color: INK }}>
       <section className="flex flex-col justify-center gap-5 p-8 md:p-14" style={{ background: menu ? A : SOFT, color: menu ? '#fff' : INK }}>
         <h1 className="text-[clamp(40px,6.4vw,80px)] font-bold leading-[0.98] tracking-tight">{menu?.business || ' '}</h1>
-        {!menu && !loadErr && !closed && <div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading" />}
-        {(loadErr || closed) && <p role="alert" className="max-w-md rounded-2xl bg-[#fff] p-4 text-[17px]" style={{ color: AMBER }}>{closed || loadErr}</p>}
+        {!menu && !loadErr && !closed && <div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={t('Loading')} />}
+        {(loadErr || closed) && <p role="alert" className="max-w-md rounded-2xl bg-[#fff] p-4 text-[17px]" style={{ color: AMBER }}>{sayIn(lang, closed || loadErr, closed ? 'Ordering here is closed for now. Please order at the counter.' : 'The menu couldn’t be loaded. Try again.')}</p>}
         {menu && !closed && (open4 ? <>
-          <p className="max-w-md text-[20px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.85)' }}>Order here and pay with your card. We’ll call your number when it’s ready.</p>
-          <button type="button" onClick={() => { touched.current = Date.now(); setStep('menu'); }} className={`${btnOn} mt-4 min-h-[80px] self-start rounded-full bg-[#fff] px-12 text-[23px]`} style={{ color: A, ...ringOn(A) }}>Start your order</button>
+          <p className="max-w-md text-[20px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.85)' }}>{t('Order here and pay with your card. We’ll call your number when it’s ready.')}</p>
+          <button type="button" onClick={() => { touched.current = Date.now(); setStep('menu'); }} className={`${btnOn} mt-4 min-h-[80px] self-start rounded-full bg-[#fff] px-12 text-[23px]`} style={{ color: A, ...ringOn(A) }}>{t('Start your order')}</button>
+          <div role="group" aria-label={t('Language')} className="mt-2 inline-flex self-start rounded-full p-1" style={{ background: 'rgba(255,255,255,0.16)' }}>
+            {GUEST_LANGS.map((g) => <button key={g.id} type="button" aria-pressed={lang === g.id} lang={g.id} onClick={() => { touched.current = Date.now(); setLang(g.id); }}
+              className={`${btnOn} min-h-[52px] rounded-full px-6 text-[17px]`} style={lang === g.id ? { background: '#fff', color: A, ...ringOn(A) } : { background: 'transparent', color: '#fff', ...ringOn(A) }}>{g.name}</button>)}
+          </div>
         </> : <div className="max-w-md rounded-3xl bg-[#fff] p-6 text-left" style={{ color: INK }}>
-          <p className="text-[18px] font-semibold">Not taking orders yet</p>
-          <p className="mt-1.5 text-[15.5px]" style={{ color: MUTED }}>Please order at the counter.</p>
+          <p className="text-[18px] font-semibold">{t('Not taking orders yet')}</p>
+          <p className="mt-1.5 text-[15.5px]" style={{ color: MUTED }}>{t('Please order at the counter.')}</p>
           <p className="mt-3 text-[14px]" style={{ color: MUTED }}>{!menu.payments ? 'For the team: card payments aren’t set up for this business yet.' : 'For the team: pick the card reader beside this tablet under Team.'}</p>
         </div>)}
       </section>
       <section aria-labelledby="kiosk-today" className="flex flex-col gap-4 p-8 md:p-12" style={{ background: tint }}>
         {onToday.length > 0 && <>
-          <h2 id="kiosk-today" className="text-[26px] font-bold">On today</h2>
+          <h2 id="kiosk-today" className="text-[26px] font-bold">{t('On today')}</h2>
           <ul className="space-y-3">{onToday.map((m) => (
             <li key={m.id} className="flex items-center gap-4 rounded-[22px] bg-[#fff] p-4">
               {pic(m, 88)}
-              <span className="min-w-0 flex-1"><span className="block text-[21px] font-semibold">{m.name}</span>{m.words && <span className="block truncate text-[15px]" style={{ color: MUTED }}>{m.words}</span>}</span>
+              <span className="min-w-0 flex-1"><span className="block text-[21px] font-semibold">{nm(m)}</span>{wd(m) && <span className="block truncate text-[15px]" style={{ color: MUTED }}>{wd(m)}</span>}</span>
               <span className="text-[18px] font-semibold tabular-nums">{price(m)}</span>
             </li>))}</ul>
         </>}
-        {open4 && <p className="mt-auto text-[15px]" style={{ color: MUTED }}>Pay on the card reader by this screen.</p>}
+        {open4 && <p className="mt-auto text-[15px]" style={{ color: MUTED }}>{t('Pay on the card reader by this screen.')}</p>}
       </section>
       <button type="button" onClick={() => setTeam(true)} className={`absolute bottom-3 right-3 min-h-[44px] rounded-xl px-4 text-[14px] font-medium ${RING}`} style={{ color: MUTED }}>Team</button>
       {team && <ReaderSheet tenantId={tenantId} kioskKey={key} onClose={() => { setTeam(false); void loadMenu(); }} onPicked={() => void loadMenu()} />}
@@ -479,64 +508,64 @@ export default function KioskScreen() {
   if (step === 'paid') return (
     <main className="flex min-h-dvh flex-col items-center justify-center p-6 text-center" style={{ background: tint, color: INK }}>
       <div className="w-full max-w-xl rounded-[36px] bg-[#fff] p-10">
-        <p className="inline-flex items-center gap-2 text-[19px] font-semibold" style={{ color: GREEN }} role="status"><Check className="h-6 w-6" aria-hidden />Paid. Thank you{paidName ? `, ${paidName}` : ''}</p>
-        <p className="mt-6 text-[18px]" style={{ color: MUTED }}>Your number</p>
+        <p className="inline-flex items-center gap-2 text-[19px] font-semibold" style={{ color: GREEN }} role="status"><Check className="h-6 w-6" aria-hidden />{paidName ? t('Paid. Thank you, {name}', { name: paidName }) : t('Paid. Thank you')}</p>
+        <p className="mt-6 text-[18px]" style={{ color: MUTED }}>{t('Your number')}</p>
         <p className="text-[clamp(96px,16vw,168px)] font-bold leading-[0.9] tracking-tight tabular-nums" style={{ color: A }}>{placed?.number || ''}</p>
-        <p className="mt-6 text-[18px] leading-relaxed" style={{ color: MUTED }}>We’ll call your number when it’s ready.</p>
-        {texted ? <p className="mt-3 text-[17px] font-medium" style={{ color: GREEN }} role="status">{texted.sent ? `It’s ready. We just texted ···${texted.last4}.` : `We’ll text ···${texted.last4} when it’s ready.`}</p>
-          : menu?.texts && placed?.orderId && key && <button type="button" onClick={() => setTexting(true)} className={`${btn} mt-5 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>Text me when it’s ready</button>}
+        <p className="mt-6 text-[18px] leading-relaxed" style={{ color: MUTED }}>{t('We’ll call your number when it’s ready.')}</p>
+        {texted ? <p className="mt-3 text-[17px] font-medium" style={{ color: GREEN }} role="status">{texted.sent ? t('It’s ready. We just texted ···{n}.', { n: texted.last4 }) : t('We’ll text ···{n} when it’s ready.', { n: texted.last4 })}</p>
+          : menu?.texts && placed?.orderId && key && <button type="button" onClick={() => setTexting(true)} className={`${btn} mt-5 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>{t('Text me when it’s ready')}</button>}
         {receiptSent ? <p className="mt-3 text-[17px] font-medium" style={{ color: GREEN }} role="status">{receiptSent}</p>
-          : placed?.orderId && key && <button type="button" onClick={() => { touched.current = Date.now(); setReceipting(true); }} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>Get a receipt</button>}
-        <button type="button" onClick={startOver} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>Done</button>
-        <p className="mt-3 text-[14px]" style={{ color: MUTED }}>This screen starts over in a few seconds.</p>
+          : placed?.orderId && key && <button type="button" onClick={() => { touched.current = Date.now(); setReceipting(true); }} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={quiet}>{t('Get a receipt')}</button>}
+        <button type="button" onClick={startOver} className={`${btn} mt-3 min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>{t('Done')}</button>
+        <p className="mt-3 text-[14px]" style={{ color: MUTED }}>{t('This screen starts over in a few seconds.')}</p>
       </div>
       {texting && placed?.orderId && key && (
         <Accent.Provider value={A}>
-          <TextMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} onClose={() => setTexting(false)}
+          <TextMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} lang={lang} onClose={() => setTexting(false)}
             onDone={(last4, sent) => { setTexted({ last4, sent }); setTexting(false); paidAt.current = Date.now(); }} />
         </Accent.Provider>)}
       {receipting && placed?.orderId && key && (
         <Accent.Provider value={A}>
-          <ReceiptMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} onClose={() => setReceipting(false)}
+          <ReceiptMe tenantId={tenantId} kioskKey={key} orderId={placed.orderId} lang={lang} onClose={() => setReceipting(false)}
             onDone={(words) => { setReceiptSent(words); setReceipting(false); paidAt.current = Date.now(); }} />
         </Accent.Provider>)}
     </main>);
 
-  const receipt = (lines: { name: string; quantity: number; choicesText: string | null; price: number }[]) => (
+  const receipt = (lines: { name: string; nameEs?: string | null; quantity: number; choicesText: string | null; price: number }[]) => (
     <ul>{lines.map((l, k) => (
       <li key={k} className="py-3" style={{ borderBottom: '1px dashed #cfd2d6' }}>
-        <span className="flex justify-between gap-3 text-[18px]"><span className="font-semibold">{l.quantity} {l.name}</span><span className="tabular-nums">{usd(l.price)}</span></span>
+        <span className="flex justify-between gap-3 text-[18px]"><span className="font-semibold">{l.quantity} {nm(l)}</span><span className="tabular-nums">{usd(l.price)}</span></span>
         {l.choicesText && <span className="block text-[15px]" style={{ color: MUTED }}>{l.choicesText}</span>}
       </li>))}</ul>);
 
   if (step === 'pay') return (
     <main className="grid min-h-dvh md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]" style={{ background: '#fff', color: INK }}>
       <section aria-labelledby="kiosk-paying" className="space-y-4 p-8 md:p-12">
-        <h1 id="kiosk-paying" className="text-[36px] font-bold tracking-tight">Your order</h1>
+        <h1 id="kiosk-paying" className="text-[36px] font-bold tracking-tight">{t('Your order')}</h1>
         {receipt(placed?.lines || [])}
-        <p className="flex justify-between pt-1 text-[24px] font-bold"><span>Total</span><span className="tabular-nums">{usd(placed?.total || 0)}</span></p>
-        {name.trim() && <p className="text-[16px]" style={{ color: MUTED }}>For <b className="font-semibold" style={{ color: INK }}>{name.trim().split(' ')[0]}</b>{menu?.askToGo && toGo !== null ? (toGo ? ', to go' : ', for here') : ''}</p>}
+        <p className="flex justify-between pt-1 text-[24px] font-bold"><span>{t('Total')}</span><span className="tabular-nums">{usd(placed?.total || 0)}</span></p>
+        {name.trim() && <p className="text-[16px]" style={{ color: MUTED }}>{t('For')} <b className="font-semibold" style={{ color: INK }}>{name.trim().split(' ')[0]}</b>{menu?.askToGo && toGo !== null ? t(toGo ? ', to go' : ', for here') : ''}</p>}
       </section>
       <section className="flex flex-col items-center justify-center gap-5 p-8 text-center md:p-12" style={brand}>
         {paying?.state === 'declined' || paying?.state === 'trouble' ? (
           <div className="w-full max-w-sm space-y-3 rounded-3xl bg-[#fff] p-6 text-left" role="alert">
-            <p className="text-[19px] font-semibold" style={{ color: AMBER }}>{paying.state === 'declined' ? 'The card didn’t go through' : 'That didn’t go through'}</p>
+            <p className="text-[19px] font-semibold" style={{ color: AMBER }}>{t(paying.state === 'declined' ? 'The card didn’t go through' : 'That didn’t go through')}</p>
             {paying.message && <p className="text-[16px]" style={{ color: AMBER }}>{paying.message}</p>}
-            <button type="button" disabled={busy} onClick={pay} className={`${btn} min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>{busy ? 'Starting…' : 'Try again'}</button>
+            <button type="button" disabled={busy} onClick={pay} className={`${btn} min-h-[60px] w-full rounded-full text-[17px]`} style={brand}>{busy ? t('Starting…') : t('Try again')}</button>
           </div>
         ) : <>
           <svg width="150" height="186" viewBox="0 0 170 210" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="35" y="10" width="100" height="150" rx="16" /><rect x="50" y="26" width="70" height="46" rx="6" /><path d="M62 92h46M62 110h46M62 128h30" /><path d="M85 172v26M72 186l13 13 13-13" /></svg>
-          <p className="text-[clamp(26px,3vw,36px)] font-bold leading-tight" role="status">{paying?.state === 'on_reader' ? 'Tap, insert or swipe your card' : 'Getting the card reader ready…'}</p>
-          {paying?.state === 'on_reader' && <p className="text-[18px]" style={{ color: 'rgba(255,255,255,0.85)' }}>on the card reader by this screen</p>}
+          <p className="text-[clamp(26px,3vw,36px)] font-bold leading-tight" role="status">{t(paying?.state === 'on_reader' ? 'Tap, insert or swipe your card' : 'Getting the card reader ready…')}</p>
+          {paying?.state === 'on_reader' && <p className="text-[18px]" style={{ color: 'rgba(255,255,255,0.85)' }}>{t('on the card reader by this screen')}</p>}
           <p className="text-[48px] font-semibold tabular-nums">{usd(placed?.total || 0)}</p>
         </>}
         {err && <p role="alert" className="rounded-xl bg-[#fff] px-4 py-2 text-[15px]" style={{ color: AMBER }}>{err}</p>}
-        <button type="button" disabled={busy} onClick={() => void letGo('review')} className={`${btnOn} min-h-[56px] rounded-full border-[1.5px] px-8 text-[17px]`} style={{ borderColor: 'rgba(255,255,255,0.55)', color: '#fff', background: 'transparent', ...ringOn(A) }}>Cancel</button>
+        <button type="button" disabled={busy} onClick={() => void letGo('review')} className={`${btnOn} min-h-[56px] rounded-full border-[1.5px] px-8 text-[17px]`} style={{ borderColor: 'rgba(255,255,255,0.55)', color: '#fff', background: 'transparent', ...ringOn(A) }}>{t('Cancel')}</button>
       </section>
       {stillAsk}
     </main>);
 
-  const startOverBtn = (onDark = false) => <button type="button" onClick={startOver} className={`${btn} min-h-[52px] rounded-full text-[16px]`} style={onDark ? { background: '#fff', color: INK, border: '1px solid rgba(22,23,26,0.12)' } : quiet}>Start over</button>;
+  const startOverBtn = (onDark = false) => <button type="button" onClick={startOver} className={`${btn} min-h-[52px] rounded-full text-[16px]`} style={onDark ? { background: '#fff', color: INK, border: '1px solid rgba(22,23,26,0.12)' } : quiet}>{t('Start over')}</button>;
 
   if (step === 'review') return (
     <Accent.Provider value={A}>
@@ -547,25 +576,25 @@ export default function KioskScreen() {
       </header>
       <div className="mx-auto grid max-w-5xl gap-6 px-6 md:px-10 lg:grid-cols-[1fr_400px]">
         <section aria-labelledby="kiosk-review" className="space-y-2 self-start">
-          <h1 id="kiosk-review" className="text-[36px] font-bold tracking-tight">Your order</h1>
-          {cart.length ? lineRows(true) : <p className="text-[16px]" style={{ color: MUTED }}>Nothing in your order yet.</p>}
-          <button type="button" onClick={() => setStep('menu')} className={`${btn} mt-2 min-h-[52px] rounded-full text-[16px]`} style={quiet}>Add more</button>
+          <h1 id="kiosk-review" className="text-[36px] font-bold tracking-tight">{t('Your order')}</h1>
+          {cart.length ? lineRows(true) : <p className="text-[16px]" style={{ color: MUTED }}>{t('Nothing in your order yet.')}</p>}
+          <button type="button" onClick={() => setStep('menu')} className={`${btn} mt-2 min-h-[52px] rounded-full text-[16px]`} style={quiet}>{t('Add more')}</button>
         </section>
-        <section aria-label="Name and pay" className="space-y-4 self-start rounded-[28px] p-6" style={{ background: tint }}>
-          <label className="block"><span className="text-[15px] font-semibold">Your first name</span> <span className="text-[14px]" style={{ color: MUTED }}>(optional)</span>
-            <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} autoComplete="off" className="mt-1.5 min-h-[56px] w-full rounded-2xl bg-[#fff] px-4 text-[18px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder="So we can call it" /></label>
-          <AllergyChips value={allergy} onChange={setAllergy} idBase="kiosk-allergy" big hint="Leave it empty if there are none." />
-          {menu?.askToGo && <div role="radiogroup" aria-label="For here or to go" className="grid grid-cols-2 gap-2">
-            {([[false, 'For here'], [true, 'To go']] as [boolean, string][]).map(([v, w]) => <button key={w} type="button" role="radio" aria-checked={toGo === v} onClick={() => { setToGo(v); setErr(''); }} className={`${btn} min-h-[56px] rounded-full text-[17px]`} style={toGo === v ? brand : quiet}>{w}</button>)}
+        <section aria-label={t('Name and pay')} className="space-y-4 self-start rounded-[28px] p-6" style={{ background: tint }}>
+          <label className="block"><span className="text-[15px] font-semibold">{t('Your first name')}</span> <span className="text-[14px]" style={{ color: MUTED }}>{t('(optional)')}</span>
+            <input value={name} onChange={(e) => setName(e.target.value.slice(0, 24))} autoComplete="off" className="mt-1.5 min-h-[56px] w-full rounded-2xl bg-[#fff] px-4 text-[18px] outline-none focus:border-[#16171a]" style={{ border: `1px solid ${LINE}` }} placeholder={t('So we can call it')} /></label>
+          <AllergyChips value={allergy} onChange={setAllergy} idBase="kiosk-allergy" big hint={t('Leave it empty if there are none.')} lang={lang} />
+          {menu?.askToGo && <div role="radiogroup" aria-label={t('For here or to go')} className="grid grid-cols-2 gap-2">
+            {([[false, 'For here'], [true, 'To go']] as [boolean, string][]).map(([v, w]) => <button key={w} type="button" role="radio" aria-checked={toGo === v} onClick={() => { setToGo(v); setErr(''); }} className={`${btn} min-h-[56px] rounded-full text-[17px]`} style={toGo === v ? brand : quiet}>{t(w)}</button>)}
           </div>}
           <dl className="space-y-1 text-[16px]">
-            <div className="flex justify-between"><dt style={{ color: MUTED }}>Subtotal</dt><dd className="tabular-nums">{usd(subtotal)}</dd></div>
-            <div className="flex justify-between"><dt style={{ color: MUTED }}>Tax</dt><dd className="tabular-nums">{usd(tax)}</dd></div>
-            <div className="flex justify-between text-[22px] font-bold"><dt>Total</dt><dd className="tabular-nums">{usd(total)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: MUTED }}>{t('Subtotal')}</dt><dd className="tabular-nums">{usd(subtotal)}</dd></div>
+            <div className="flex justify-between"><dt style={{ color: MUTED }}>{t('Tax')}</dt><dd className="tabular-nums">{usd(tax)}</dd></div>
+            <div className="flex justify-between text-[22px] font-bold"><dt>{t('Total')}</dt><dd className="tabular-nums">{usd(total)}</dd></div>
           </dl>
           {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
-          <button type="button" disabled={!cart.length || busy} onClick={pay} className={`${btn} min-h-[64px] w-full rounded-full text-[19px] tabular-nums`} style={brand}>{busy ? 'One moment…' : `Pay ${usd(total)}`}</button>
-          <p className="text-[14px]" style={{ color: MUTED }}>You’ll pay on the card reader. The kitchen starts once it’s paid.</p>
+          <button type="button" disabled={!cart.length || busy} onClick={pay} className={`${btn} min-h-[64px] w-full rounded-full text-[19px] tabular-nums`} style={brand}>{busy ? t('One moment…') : t('Pay {price}', { price: usd(total) })}</button>
+          <p className="text-[14px]" style={{ color: MUTED }}>{t('You’ll pay on the card reader. The kitchen starts once it’s paid.')}</p>
         </section>
       </div>
       {stillAsk}
@@ -574,64 +603,64 @@ export default function KioskScreen() {
 
   const row = (m: Item) => (
     <li key={m.id} style={{ borderTop: '1px solid #e8eaec' }}>
-      <button type="button" disabled={m.soldOut} onClick={() => { setErr(''); setOpen(m); }} aria-label={`${m.name}, ${m.soldOut ? 'sold out' : price(m)}`}
+      <button type="button" disabled={m.soldOut} onClick={() => { setErr(''); setOpen(m); }} aria-label={m.soldOut ? t('{name}, sold out', { name: nm(m) }) : t('{name}, {price}', { name: nm(m), price: price(m) })}
         className={`flex min-h-[88px] w-full items-center gap-4 py-3 text-left disabled:opacity-50 ${RING}`}>
         {pic(m, 64)}
-        <span className="min-w-0 flex-1"><span className="block text-[19px] font-semibold leading-snug">{m.name}</span>
-          <span className="block truncate text-[14.5px]" style={{ color: m.soldOut ? AMBER : m.happy ? GREEN : MUTED }}>{m.soldOut ? 'Sold out' : m.happy ? 'Happy hour price' : m.words || ''}</span></span>
+        <span className="min-w-0 flex-1"><span className="block text-[19px] font-semibold leading-snug">{nm(m)}</span>
+          <span className="block truncate text-[14.5px]" style={{ color: m.soldOut ? AMBER : m.happy ? GREEN : MUTED }}>{m.soldOut ? t('Sold out') : m.happy ? t('Happy hour price') : wd(m) || ''}</span></span>
         <span className="shrink-0 text-[17px] font-semibold tabular-nums">{m.soldOut ? '' : price(m)}</span>
       </button>
     </li>);
-  const sectionBtn = (x: { name: string }, vertical: boolean) => {
+  const sectionBtn = (x: { name: string; nameEs?: string | null }, vertical: boolean) => {
     const on = x.name === section;
     return <button key={x.name} type="button" role="tab" aria-selected={on} onClick={() => setSection(x.name)}
       className={`${btn} min-h-[56px] shrink-0 text-[19px] font-semibold ${vertical ? 'w-full !justify-start rounded-2xl px-4' : 'rounded-full'}`}
-      style={on ? brand : vertical ? { background: 'transparent', color: INK } : quiet}>{x.name}</button>;
+      style={on ? brand : vertical ? { background: 'transparent', color: INK } : quiet}>{nm(x)}</button>;
   };
 
   return (
     <Accent.Provider value={A}>
     <main className="min-h-dvh pb-28 lg:grid lg:grid-cols-[210px_minmax(0,1fr)_360px] lg:pb-0" style={{ background: '#fff', color: INK }}>
-      <nav aria-label="Menu" className="hidden flex-col gap-1.5 px-4 py-7 lg:flex lg:min-h-dvh" style={{ background: tint }}>
+      <nav aria-label={t('Menu')} className="hidden flex-col gap-1.5 px-4 py-7 lg:flex lg:min-h-dvh" style={{ background: tint }}>
         <h1 className="mb-5 px-1 text-[26px] font-bold leading-[1.05] tracking-tight" style={{ color: A }}>{menu?.business}</h1>
-        <div role="tablist" aria-label="Menu sections" aria-orientation="vertical" className="flex flex-col gap-1.5">{(menu?.sections || []).map((x) => sectionBtn(x, true))}</div>
+        <div role="tablist" aria-label={t('Menu sections')} aria-orientation="vertical" className="flex flex-col gap-1.5">{(menu?.sections || []).map((x) => sectionBtn(x, true))}</div>
         <div className="mt-auto pt-4">{startOverBtn(true)}</div>
       </nav>
       <header className="flex items-center justify-between gap-4 px-6 pb-2 pt-5 lg:hidden">
         <h1 className="min-w-0 truncate text-[22px] font-bold tracking-tight" style={{ color: A }}>{menu?.business}</h1>
         {startOverBtn()}
       </header>
-      <section aria-label={section || 'Menu'} className="min-w-0 px-6 lg:px-7 lg:py-7">
-        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-3 lg:hidden" role="tablist" aria-label="Menu sections">{(menu?.sections || []).map((x) => sectionBtn(x, false))}</div>
+      <section aria-label={nm(menu?.sections.find((x) => x.name === section) || { name: section || t('Menu') })} className="min-w-0 px-6 lg:px-7 lg:py-7">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-3 lg:hidden" role="tablist" aria-label={t('Menu sections')}>{(menu?.sections || []).map((x) => sectionBtn(x, false))}</div>
         {hero && <div className="mb-4 grid items-center gap-5 rounded-[24px] p-4 sm:grid-cols-[minmax(0,240px)_1fr]" style={{ background: tint }}>
-          {hero.imageUrl ? <img src={hero.imageUrl} alt="" className="aspect-[4/3] w-full rounded-[18px] object-cover" style={{ background: '#fff' }} /> : <span aria-hidden className="flex aspect-[4/3] w-full items-center justify-center rounded-[18px] bg-[#fff] text-[64px] font-bold" style={{ color: A }}>{hero.name.slice(0, 1)}</span>}
+          {hero.imageUrl ? <img src={hero.imageUrl} alt="" className="aspect-[4/3] w-full rounded-[18px] object-cover" style={{ background: '#fff' }} /> : <span aria-hidden className="flex aspect-[4/3] w-full items-center justify-center rounded-[18px] bg-[#fff] text-[64px] font-bold" style={{ color: A }}>{nm(hero).slice(0, 1)}</span>}
           <div className="space-y-2">
-            {hero.badge && <p className="text-[14px] font-semibold" style={{ color: INK }}>{hero.badge === 'new' ? 'New' : 'Limited time'}</p>}
-            <h2 className="text-[clamp(28px,3.2vw,40px)] font-bold leading-none tracking-tight">{hero.name}</h2>
-            {hero.words && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{hero.words}</p>}
+            {hero.badge && <p className="text-[14px] font-semibold" style={{ color: INK }}>{t(hero.badge === 'new' ? 'New' : 'Limited time')}</p>}
+            <h2 className="text-[clamp(28px,3.2vw,40px)] font-bold leading-none tracking-tight">{nm(hero)}</h2>
+            {wd(hero) && <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{wd(hero)}</p>}
             <div className="flex items-center gap-4 pt-1">
               <span className="text-[20px] font-semibold tabular-nums">{price(hero)}</span>
-              <button type="button" onClick={() => { setErr(''); setOpen(hero); }} className={`${btn} min-h-[52px] rounded-full px-7 text-[16px]`} style={brand} aria-label={`Add ${hero.name}`}>Add</button>
+              <button type="button" onClick={() => { setErr(''); setOpen(hero); }} className={`${btn} min-h-[52px] rounded-full px-7 text-[16px]`} style={brand} aria-label={t('Add {name}', { name: nm(hero) })}>{t('Add')}</button>
             </div>
           </div>
         </div>}
         <ul className="grid gap-x-6 xl:grid-cols-2">{rest.map(row)}</ul>
       </section>
       <aside aria-labelledby="kiosk-order" className="hidden flex-col gap-3 border-l px-5 py-7 lg:flex lg:min-h-dvh" style={{ borderColor: '#e8eaec' }}>
-        <h2 id="kiosk-order" className="text-[24px] font-bold">Your order</h2>
+        <h2 id="kiosk-order" className="text-[24px] font-bold">{t('Your order')}</h2>
         {offerBox}
-        {cart.length ? lineRows(false) : <p className="text-[15.5px]" style={{ color: MUTED }}>Tap something to add it.</p>}
-        <p className="mt-auto flex justify-between pt-3 text-[17px]"><span style={{ color: MUTED }}>{count} {count === 1 ? 'item' : 'items'}</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
-        <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[62px] w-full rounded-full text-[18px]`} style={brand}>Review and pay</button>
+        {cart.length ? lineRows(false) : <p className="text-[15.5px]" style={{ color: MUTED }}>{t('Tap something to add it.')}</p>}
+        <p className="mt-auto flex justify-between pt-3 text-[17px]"><span style={{ color: MUTED }}>{t(count === 1 ? '{n} item' : '{n} items', { n: count })}</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
+        <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[62px] w-full rounded-full text-[18px]`} style={brand}>{t('Review and pay')}</button>
       </aside>
       <div className="fixed inset-x-0 bottom-0 space-y-3 border-t bg-[#fff] px-6 py-4 lg:hidden" style={{ borderColor: LINE }}>
         {offerBox}
         <div className="flex items-center justify-between gap-4">
-          <p className="text-[17px] tabular-nums" aria-live="polite">{count ? `${count} ${count === 1 ? 'item' : 'items'}, ${usd(subtotal)}` : 'Tap something to add it.'}</p>
-          <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] rounded-full text-[18px]`} style={brand}>Review and pay</button>
+          <p className="text-[17px] tabular-nums" aria-live="polite">{count ? t(count === 1 ? '{n} item, {price}' : '{n} items, {price}', { n: count, price: usd(subtotal) }) : t('Tap something to add it.')}</p>
+          <button type="button" disabled={!cart.length} onClick={() => { setAfter(null); setStep('review'); }} className={`${btn} min-h-[60px] rounded-full text-[18px]`} style={brand}>{t('Review and pay')}</button>
         </div>
       </div>
-      {open && <ItemSheet item={open} onClose={() => { setOpen(null); setOffered(false); }} onAdd={(p, n, note) => added(open, p, n, note)} />}
+      {open && <ItemSheet item={open} lang={lang} onClose={() => { setOpen(null); setOffered(false); }} onAdd={(p, n, note) => added(open, p, n, note)} />}
       {stillAsk}
     </main>
     </Accent.Provider>

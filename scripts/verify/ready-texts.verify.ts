@@ -157,7 +157,7 @@ const ago = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
   console.log('The screens');
   const kp = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx');
   check('kiosk: Text me when it’s ready after paying, a number pad, one text; it waits while they type and forgets it after',
-    /menu\?\.texts && placed\?\.orderId && key && <button[^\n]*>Text me when it’s ready<\/button>/.test(kp) && /function TextMe/.test(kp) && /aria-label="Number pad"/.test(kp) && /One text, just for this order\./.test(kp)
+    /menu\?\.texts && placed\?\.orderId && key && <button[^\n]*>(Text me when it’s ready|\{t\('Text me when it’s ready'\)\})<\/button>/.test(kp) && /function TextMe/.test(kp) && /aria-label=("Number pad"|\{t\('Number pad'\)\})/.test(kp) && /One text, just for this order\./.test(kp)
     && /setTexting\(false\); setTexted\(null\);/.test(kp) && /texting \|\| receipting \? now - touched\.current > IDLE_MS : now - paidAt\.current > PAID_MS/.test(kp));
   const op = src('src/app/order/[tenantId]/page.tsx');
   check('ordering ahead: Text me when it’s ready is a box they tick (never ticked for them the first time), with the phone',

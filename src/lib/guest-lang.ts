@@ -1,6 +1,7 @@
 // src/lib/guest-lang.ts — THE GUEST SCREENS IN SPANISH (pure; design board "The boards and the assistant in Spanish",
 // A: each screen picks its language). The team's screens already switch (lib/screen-lang); this is what guests read: the
-// TV menu boards, the drive-thru order board and the screen at the window.
+// TV menu boards, the drive-thru order board and the screen at the window; and the kiosk, where each guest picks on the
+// start screen and it goes back to the kiosk's own language for the next.
 //   - Each screen is set to English or Español on the screen itself (its corner menu, or ?lang=es in its address), and
 //     keeps it on that device, so a business can put one of each side by side.
 //   - What the screen itself says comes from here, in Spanish that speaks to a guest politely (usted). What the business
@@ -15,7 +16,7 @@ export const GUEST_LANGS: { id: GuestLang; name: string }[] = [{ id: 'en', name:
 export const cleanGuestLang = (v: unknown): GuestLang => (v === 'es' ? 'es' : 'en');
 /** Where a screen keeps its language: one key for each kind of screen, so a TV board and a window screen on the same
  *  device can differ. */
-export const guestLangKey = (screen: 'menuboard' | 'board' | 'window', tenantId: string) => `cf.drivethru.${screen}.lang.${tenantId}`;
+export const guestLangKey = (screen: 'menuboard' | 'board' | 'window' | 'kiosk', tenantId: string) => `cf.drivethru.${screen}.lang.${tenantId}`;
 
 export const ES_NAME_MAX = 80, ES_WORDS_MAX = 240, ES_SECTION_MAX = 40, ES_DAYPART_MAX = 30;
 const clip = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -74,7 +75,67 @@ const ES: Record<string, string> = {
   'We’ll bring your order right out to you.': 'Le llevamos su pedido enseguida.', 'We’ll bring your order right out to you, {name}.': 'Le llevamos su pedido enseguida, {name}.',
   'Enjoy, and see you next time.': 'Que lo disfrute. ¡Hasta la próxima!', 'Your order': 'Su pedido', 'Subtotal': 'Subtotal', 'Reward: {name}': 'Recompensa: {name}',
   'Tax': 'Impuestos', 'Gift card, not taxed': 'Tarjeta de regalo, sin impuestos', 'Tip': 'Propina',
+  // The kiosk
+  'Language': 'Idioma', 'Loading': 'Cargando', 'Order here and pay with your card. We’ll call your number when it’s ready.': 'Pida aquí y pague con su tarjeta. Le llamaremos por su número cuando esté listo.',
+  'Start your order': 'Empiece su pedido', 'Not taking orders yet': 'Aún no tomamos pedidos aquí', 'Please order at the counter.': 'Por favor, pida en el mostrador.',
+  'On today': 'Hoy tenemos', 'Pay on the card reader by this screen.': 'Pague en el lector de tarjetas junto a esta pantalla.',
+  'Ordering here is closed for now. Please order at the counter.': 'Por ahora no se toman pedidos aquí. Por favor, pida en el mostrador.',
+  'The menu couldn’t be loaded. Try again.': 'No se pudo cargar el menú. Inténtelo de nuevo.',
+  'Start over': 'Empezar de nuevo', 'Menu': 'Menú', 'Menu sections': 'Secciones del menú', 'Tap something to add it.': 'Toque algo para agregarlo.',
+  '{n} item': '{n} artículo', '{n} items': '{n} artículos', '{n} item, {price}': '{n} artículo, {price}', '{n} items, {price}': '{n} artículos, {price}',
+  'Review and pay': 'Revisar y pagar', 'Happy hour price': 'Precio de hora feliz', 'Add': 'Agregar', 'Add {name}': 'Agregar {name}',
+  'Added': 'Agregado', 'Changed': 'Cambiado', 'Goes well with it': 'Va bien con esto', 'Size up to {size}': 'Cambiar a {size}', 'Size up to {size}, {price} more': 'Cambiar a {size}, {price} más',
+  'No thanks': 'No, gracias', 'Done': 'Listo', 'Note: {note}': 'Nota: {note}', 'How many {name}': 'Cuántos de {name}', 'Take {name} off': 'Quitar {name}',
+  'One fewer {name}': 'Uno menos de {name}', 'One more {name}': 'Uno más de {name}', '{name}, sold out': '{name}, agotado', '{name}, {price}': '{name}, {price}',
+  'Close': 'Cerrar', '({n} cal)': '({n} cal)', 'Choices can change this.': 'Las opciones pueden cambiar esto.', 'Allergens aren’t listed for this one.': 'No se indican los alérgenos de este artículo.',
+  'How many': 'Cuántos', 'One fewer': 'Uno menos', 'One more': 'Uno más', 'Add, {price}': 'Agregar, {price}', 'Add {n}, {price}': 'Agregar {n}, {price}', 'Choose an option.': 'Elija una opción.', 'Check your choices.': 'Revise sus opciones.',
+  'Still there?': '¿Sigue ahí?', 'Still ordering?': '¿Sigue ordenando?', 'This order will be canceled in {n} seconds.': 'Este pedido se cancelará en {n} segundos.',
+  'We’ll start over in {n} seconds.': 'Empezaremos de nuevo en {n} segundos.', 'I’m still here': 'Sigo aquí', 'Keep ordering': 'Seguir ordenando',
+  'Nothing in your order yet.': 'Su pedido está vacío.', 'Add more': 'Agregar más', 'Name and pay': 'Nombre y pago', 'Your first name': 'Su nombre', '(optional)': '(opcional)',
+  'So we can call it': 'Para llamarle', 'Leave it empty if there are none.': 'Déjelo vacío si no tiene ninguna.', 'For here or to go': 'Para comer aquí o para llevar',
+  'For here or to go?': '¿Para comer aquí o para llevar?', 'For here': 'Para aquí', 'To go': 'Para llevar', 'One moment…': 'Un momento…', 'Pay {price}': 'Pagar {price}',
+  'You’ll pay on the card reader. The kitchen starts once it’s paid.': 'Pagará en el lector de tarjetas. La cocina empieza en cuanto se pague.',
+  'For {name}': 'Para {name}', 'For': 'Para', ', to go': ', para llevar', ', for here': ', para aquí', 'The card didn’t go through': 'No se pudo procesar la tarjeta', 'That didn’t go through': 'No se pudo completar',
+  'Starting…': 'Iniciando…', 'Try again': 'Intentar de nuevo', 'Tap, insert or swipe your card': 'Acerque, inserte o deslice su tarjeta', 'Getting the card reader ready…': 'Preparando el lector de tarjetas…',
+  'on the card reader by this screen': 'en el lector de tarjetas junto a esta pantalla', 'Cancel': 'Cancelar',
+  'This order was let go. Please start again.': 'Este pedido se canceló. Por favor, empiece de nuevo.', 'The card reader didn’t answer. Try again.': 'El lector de tarjetas no respondió. Inténtelo de nuevo.',
+  'Paid. Thank you': 'Pagado. Gracias', 'Paid. Thank you, {name}': 'Pagado. Gracias, {name}', 'Your number': 'Su número', 'We’ll call your number when it’s ready.': 'Le llamaremos por su número cuando esté listo.',
+  'It’s ready. We just texted ···{n}.': 'Ya está listo. Le enviamos un mensaje al ···{n}.', 'We’ll text ···{n} when it’s ready.': 'Le enviaremos un mensaje al ···{n} cuando esté listo.',
+  'Text me when it’s ready': 'Avíseme por mensaje cuando esté listo', 'Get a receipt': 'Recibir un recibo', 'This screen starts over in a few seconds.': 'Esta pantalla empezará de nuevo en unos segundos.',
+  'Your mobile number': 'Su número de celular', 'Ten digits': 'Diez dígitos', 'Number pad': 'Teclado numérico', 'Delete the last digit': 'Borrar el último dígito', 'Clear the number': 'Borrar todo el número',
+  'Back': 'Borrar', 'Clear': 'Borrar todo', 'Saving…': 'Guardando…', 'Text me': 'Enviarme un mensaje', 'One text, just for this order.': 'Un solo mensaje, solo para este pedido.',
+  'Send it by': 'Enviarlo por', 'Text': 'Mensaje', 'Email': 'Correo', 'Your email': 'Su correo electrónico', 'Sending…': 'Enviando…', 'Send my receipt': 'Enviar mi recibo',
+  'A link to your full receipt. Nothing is kept on this screen.': 'Un enlace a su recibo completo. No se guarda nada en esta pantalla.',
+  'Your receipt was texted to ···{n}.': 'Le enviamos el recibo por mensaje al ···{n}.', 'Your receipt was emailed.': 'Le enviamos el recibo por correo.',
+  'That didn’t go through. Try again.': 'No se pudo completar. Inténtelo de nuevo.', 'No connection. Try again.': 'Sin conexión. Inténtelo de nuevo.',
+  // The kiosk's server, as it answers
+  'Add something first.': 'Primero agregue algo.', 'Card payments start at $0.50. Add something, or order at the counter.': 'Los pagos con tarjeta empiezan en $0.50. Agregue algo o pida en el mostrador.',
+  'Paying by card isn’t set up here yet. Please order at the counter.': 'Aquí todavía no se puede pagar con tarjeta. Por favor, pida en el mostrador.',
+  'Something in your order isn’t on the menu any more. Take it off and try again.': 'Algo de su pedido ya no está en el menú. Quítelo e inténtelo de nuevo.',
+  'Something in your order just ran out. Change your order and try again.': 'Algo de su pedido se acaba de agotar. Cambie su pedido e inténtelo de nuevo.',
+  'Something went wrong. Try again.': 'Algo salió mal. Inténtelo de nuevo.', 'Ten digits, please.': 'Diez dígitos, por favor.',
+  'That email doesn’t look right. Check it and try again.': 'Ese correo no parece correcto. Revíselo e inténtelo de nuevo.', 'That order is done here. Ask at the counter.': 'Ese pedido ya terminó aquí. Pregunte en el mostrador.',
+  'That order was let go. Please start again.': 'Ese pedido se canceló. Por favor, empiece de nuevo.', 'The card reader is finishing another payment. Try again in a moment.': 'El lector de tarjetas está terminando otro pago. Inténtelo en un momento.',
+  'This kiosk’s card reader isn’t picked yet. Please order at the counter.': 'Esta pantalla todavía no tiene lector de tarjetas. Por favor, pida en el mostrador.',
+  'Your receipt was already sent. Ask at the counter if you need another.': 'Su recibo ya se envió. Pregunte en el mostrador si necesita otro.',
+  // Choices, allergies and notes (the kiosk's, through components/menu)
+  'pick one': 'elija uno', 'pick one, if you like': 'elija uno, si lo desea', 'pick up to {n}': 'elija hasta {n}', 'pick any': 'elija los que guste',
+  'Any allergies?': '¿Alguna alergia?', 'Another allergy': 'Otra alergia', 'Like mustard': 'Por ejemplo, mostaza', 'It’s severe': 'Es una alergia grave',
+  'A note for the kitchen': 'Una nota para la cocina', 'Like no onions': 'Por ejemplo, sin cebolla',
+  'Contains {list}': 'Contiene {list}', 'None of the major allergens listed': 'No se indica ningún alérgeno principal',
+  'Its allergens aren’t listed. The kitchen sees your allergy on the ticket.': 'No se indican sus alérgenos. La cocina ve su alergia en el pedido.',
 };
+/** The major allergens in Spanish, for a guest (lib/allergens keys). */
+const ALLERGEN_ES: Record<string, string> = { milk: 'Leche', eggs: 'Huevo', fish: 'Pescado', shellfish: 'Mariscos', treenuts: 'Nueces de árbol', peanuts: 'Cacahuate (maní)', wheat: 'Trigo', gluten: 'Gluten', soy: 'Soya', sesame: 'Ajonjolí' };
+/** An allergen's name on a guest's screen, in its language. */
+export const allergenIn = (lang: GuestLang, key: string, en: string) => (lang === 'es' && ALLERGEN_ES[key] ? ALLERGEN_ES[key] : en);
+/** "milk, eggs and wheat", "leche, huevo y trigo". */
+export function listIn(lang: GuestLang, words: string[]): string {
+  return words.length <= 1 ? (words[0] || '') : `${words.slice(0, -1).join(', ')} ${lang === 'es' ? 'y' : 'and'} ${words[words.length - 1]}`;
+}
+/** What the server said, in the screen's language: its Spanish when there is some for those words, otherwise the
+ *  Spanish of `fallback` (so a guest never reads English they didn't pick); in English, what it said. */
+export const sayIn = (lang: GuestLang, said: unknown, fallback: string) => { const t = String(said || ''); return lang === 'es' ? gt('es', t && hasGuestSpanish(t) ? t : fallback) : t || fallback; };
 
 /** What the screen says, in its language: the Spanish when there is some, otherwise the English. */
 export function gt(lang: GuestLang, en: string, vars?: Record<string, string | number>): string {

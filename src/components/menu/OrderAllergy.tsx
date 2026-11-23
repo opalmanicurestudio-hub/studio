@@ -4,6 +4,8 @@
 // - AllergyChips: the major allergens to tap, another in their own words, and whether it's severe.
 // - AllergySheet: the same, over the counter or drive-thru screen, saved on the order being taken.
 // - NoteField and LineNote: a note for the kitchen about one dish ("no onions").
+// AllergyChips and NoteField take a guest screen's language (lib/guest-lang): the kiosk set to Español.
+import { allergenIn, gt, type GuestLang } from '@/lib/guest-lang';
 import { useEffect, useRef, useState } from 'react';
 import { ALLERGENS, type AllergenKey } from '@/lib/allergens';
 import { NOTE_MAX, OTHER_MAX } from '@/lib/order-allergy';
@@ -22,21 +24,21 @@ export const hasAllergy = (v: AllergyValue) => v.keys.length > 0 || !!v.other.tr
 export const allergyBody = (v: AllergyValue) => (hasAllergy(v) ? { keys: v.keys, other: v.other.trim(), severe: v.severe } : null);
 
 /** The major allergens to tap, another in their words, and severe. `big`: the kiosk's and the phone's larger taps. */
-export function AllergyChips({ value, onChange, idBase, title = 'Any allergies?', hint, big = false }: { value: AllergyValue; onChange: (v: AllergyValue) => void; idBase: string; title?: string; hint?: string; big?: boolean }) {
+export function AllergyChips({ value, onChange, idBase, title = 'Any allergies?', hint, big = false, lang = 'en' }: { value: AllergyValue; onChange: (v: AllergyValue) => void; idBase: string; title?: string; hint?: string; big?: boolean; lang?: GuestLang }) {
   const toggle = (k: AllergenKey) => onChange({ ...value, keys: value.keys.includes(k) ? value.keys.filter((x) => x !== k) : ALLERGENS.map((a) => a.key).filter((x) => x === k || value.keys.includes(x)) });
   const any = hasAllergy(value);
   return (
     <fieldset className="space-y-2.5">
-      <legend className={big ? 'text-[17px] font-semibold' : 'text-[15px] font-semibold'}>{title}</legend>
+      <legend className={big ? 'text-[17px] font-semibold' : 'text-[15px] font-semibold'}>{gt(lang, title)}</legend>
       {hint && <p className="text-[13.5px]" style={{ color: MUTED }}>{hint}</p>}
       <div className="flex flex-wrap gap-1.5">{ALLERGENS.map((a) => { const on = value.keys.includes(a.key); return (
         <button key={a.key} type="button" aria-pressed={on} onClick={() => toggle(a.key)} className={`${big ? 'min-h-[48px] px-4 text-[15.5px]' : 'min-h-[44px] px-3.5 text-[14px]'} rounded-full font-semibold ${RING}`}
-          style={on ? { background: INK, color: '#fff', border: `1px solid ${INK}` } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{a.label}</button>); })}</div>
-      <label className="block text-[13.5px] font-semibold" htmlFor={`${idBase}-other`}>Another allergy</label>
-      <input id={`${idBase}-other`} value={value.other} onChange={(e) => onChange({ ...value, other: e.target.value.slice(0, Math.max(OTHER_MAX, value.other.length)) })} maxLength={Math.max(OTHER_MAX, value.other.length)} autoComplete="off" placeholder="Like mustard"
+          style={on ? { background: INK, color: '#fff', border: `1px solid ${INK}` } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{allergenIn(lang, a.key, a.label)}</button>); })}</div>
+      <label className="block text-[13.5px] font-semibold" htmlFor={`${idBase}-other`}>{gt(lang, 'Another allergy')}</label>
+      <input id={`${idBase}-other`} value={value.other} onChange={(e) => onChange({ ...value, other: e.target.value.slice(0, Math.max(OTHER_MAX, value.other.length)) })} maxLength={Math.max(OTHER_MAX, value.other.length)} autoComplete="off" placeholder={gt(lang, 'Like mustard')}
         className={`block ${big ? 'min-h-[52px] text-[17px]' : 'min-h-[44px] text-[16px]'} w-full rounded-xl px-3 font-normal ${RING}`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }} />
       <label className={`flex min-h-[44px] items-center gap-3 ${big ? 'text-[16px]' : 'text-[15px]'}`} style={{ color: any ? INK : MUTED }}>
-        <input type="checkbox" checked={value.severe} disabled={!any} onChange={(e) => onChange({ ...value, severe: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />It’s severe
+        <input type="checkbox" checked={value.severe} disabled={!any} onChange={(e) => onChange({ ...value, severe: e.target.checked })} className="h-5 w-5 accent-[#16171a]" />{gt(lang, 'It’s severe')}
       </label>
     </fieldset>);
 }
@@ -77,10 +79,10 @@ export function AllergySheet({ start, busy, onSave, onClose, name, sent = false 
 }
 
 /** A note for the kitchen about one dish, as it's added (the kiosk's and the phone's choice sheet). */
-export function NoteField({ value, onChange, id, big = false }: { value: string; onChange: (v: string) => void; id: string; big?: boolean }) {
+export function NoteField({ value, onChange, id, big = false, lang = 'en' }: { value: string; onChange: (v: string) => void; id: string; big?: boolean; lang?: GuestLang }) {
   return (
-    <label className={`block ${big ? 'text-[16px]' : 'text-[14px]'} font-semibold`} htmlFor={id}>A note for the kitchen
-      <input id={id} value={value} onChange={(e) => onChange(e.target.value.slice(0, NOTE_MAX))} maxLength={NOTE_MAX} autoComplete="off" placeholder="Like no onions"
+    <label className={`block ${big ? 'text-[16px]' : 'text-[14px]'} font-semibold`} htmlFor={id}>{gt(lang, 'A note for the kitchen')}
+      <input id={id} value={value} onChange={(e) => onChange(e.target.value.slice(0, NOTE_MAX))} maxLength={NOTE_MAX} autoComplete="off" placeholder={gt(lang, 'Like no onions')}
         className={`mt-1.5 block ${big ? 'min-h-[52px] text-[17px]' : 'min-h-[44px] text-[16px]'} w-full rounded-xl px-3 font-normal ${RING}`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }} />
     </label>);
 }

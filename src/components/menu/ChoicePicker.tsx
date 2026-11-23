@@ -3,12 +3,14 @@
 // station tablet, the guest's own phone, and later the counter, kiosk and drive-thru. Real radio buttons for "pick one"
 // and checkboxes for "pick any", each with what it adds or takes off; a sold-out option is shown, can't be picked, and
 // says so. The price on the button is worked out by the caller from priceChoices() with the same picks the server checks.
+// On a guest's screen set to Español (lib/guest-lang), its own words in Spanish; the choices as the business wrote them.
 import { useId } from 'react';
 import { choiceGroups, money, type Picks } from '@/lib/menu-choices';
+import { gt, type GuestLang } from '@/lib/guest-lang';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 
-export function ChoicePicker({ item, picks, onChange, accent = INK }: { item: any; picks: Picks; onChange: (p: Picks) => void; accent?: string }) {
+export function ChoicePicker({ item, picks, onChange, accent = INK, lang = 'en' }: { item: any; picks: Picks; onChange: (p: Picks) => void; accent?: string; lang?: GuestLang }) {
   const uid = useId();
   const groups = choiceGroups(item);
   if (!groups.length) return null;
@@ -21,7 +23,7 @@ export function ChoicePicker({ item, picks, onChange, accent = INK }: { item: an
         return (
           <fieldset key={g.id} className="space-y-2">
             <legend className="mb-2 text-[16px] font-semibold" style={{ color: INK }}>
-              {g.name}<span className="ml-1.5 text-[14px] font-normal" style={{ color: MUTED }}>{g.pick === 'one' ? (g.required ? 'pick one' : 'pick one, if you like') : g.max < g.options.length ? `pick up to ${g.max}` : 'pick any'}</span>
+              {g.name}<span className="ml-1.5 text-[14px] font-normal" style={{ color: MUTED }}>{g.pick === 'one' ? gt(lang, g.required ? 'pick one' : 'pick one, if you like') : g.max < g.options.length ? gt(lang, 'pick up to {n}', { n: g.max }) : gt(lang, 'pick any')}</span>
             </legend>
             {g.options.map((o) => {
               const checked = on.includes(o.id);
@@ -38,7 +40,7 @@ export function ChoicePicker({ item, picks, onChange, accent = INK }: { item: an
                     {checked && (g.pick === 'one' ? <span className="h-2.5 w-2.5 rounded-full" style={{ background: accent }} /> : <span className="h-2 w-2 rounded-[2px]" style={{ background: '#fff' }} />)}
                   </span>
                   <span className="min-w-0 flex-1 text-[15.5px]" style={{ color: o.soldOut ? MUTED : INK, textDecoration: o.soldOut ? 'line-through' : undefined }}>{o.name}</span>
-                  {o.soldOut && <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ background: '#fff7ed', color: '#b45309' }}>Sold out</span>}
+                  {o.soldOut && <span className="shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-semibold" style={{ background: '#fff7ed', color: '#b45309' }}>{gt(lang, 'Sold out')}</span>}
                   {o.price !== 0 && !o.soldOut && <span className="shrink-0 text-[14.5px] tabular-nums" style={{ color: MUTED }}>{o.price > 0 ? '+' : ''}{money(o.price)}</span>}
                 </label>
               );
