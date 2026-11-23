@@ -71,6 +71,48 @@ const src = (p: string) => readFileSync(p, 'utf8');
   const all = pace({ fires: [...f1, { courseNumber: 2, firedAt: '2026-11-20T19:50:00Z' }, { courseNumber: 3, firedAt: '2026-11-20T20:25:00Z' }], tickets: tk(3, 30, 33), nowMin: 20 * 60 + 50 });
   check('…every course fired', all.state === 'done' && all.next === null);
 
+  console.log('a busy kitchen');
+  const k = (o: any) => pace({ fires: f1, behindMin: 8, ...o });
+  const early = k({ tickets: tk(1, 20, 33), nowMin: 19 * 60 + 30 });
+  check('the kitchen behind on other orders: the next course fires that much early, said with its time', early.state === 'on_pace' && early.early === 8 && early.fireBy === '19:42' && early.pushMin === null
+    && early.words === 'Starters: 20 of 33 plates out. The kitchen is about 8 minutes behind, so mains fires at 19:42, in 12 minutes.', early);
+  const fireEarly = k({ tickets: tk(1, 28, 33), nowMin: 19 * 60 + 41 });
+  check('…fire now once the course before is mostly out, to land near its time', fireEarly.state === 'fire_now' && fireEarly.pushMin === null
+    && fireEarly.words === 'The kitchen is about 8 minutes behind. Most of starters is out (28 of 33 plates out), so fire mains now to reach the tables near 19:50.', fireEarly);
+  const holdSoon = k({ tickets: tk(1, 15, 33), nowMin: 19 * 60 + 41 });
+  check('…still going out before its time: hold, no push offered yet (the course before may still clear)', holdSoon.state === 'hold' && holdSoon.pushMin === null && holdSoon.early === 0 && holdSoon.fireBy === '19:50'
+    && holdSoon.words === 'Starters is still going out (15 of 33 plates out). Hold mains until most of it is out. The kitchen is about 8 minutes behind, so if it’s still going out at 19:50, push the rest of the night.', holdSoon);
+  const holdBusy = k({ tickets: tk(1, 15, 33), nowMin: 19 * 60 + 51 });
+  check('…still going out once its time has come: hold, and a push of the kitchen’s delay is offered (never done by itself)', holdBusy.state === 'hold' && holdBusy.pushMin === 8
+    && holdBusy.words === 'Starters is still going out (15 of 33 plates out), and the kitchen is about 8 minutes behind. Hold mains, and push the rest of the night by about 8 minutes.', holdBusy);
+  check('…a long push asks for a second tap (said to a screen reader, and let go after 5 seconds)', /if \(m > SURE_OVER && sure !== m\) \{ setSure\(m\); return; \}/.test(src('src/components/events/EventNightPanel.tsx'))
+    && /setTimeout\(\(\) => setSure\(null\), 5000\)/.test(src('src/components/events/EventNightPanel.tsx')) && src('src/components/events/EventNightPanel.tsx').includes('Tap again to push the rest of the night ${sure} minutes.') && /const SURE_OVER = 20;/.test(src('src/components/events/EventNightPanel.tsx'))
+    && /const cap = except \? 3000 : 800;/.test(src('src/lib/kitchen-pace-server.ts')));
+  const onTime = k({ tickets: tk(1, 28, 33), nowMin: 19 * 60 + 50 });
+  check('…fired on its time with the kitchen behind: said to land that much later', onTime.state === 'fire_now' && onTime.early === 0 && /fire mains now to reach the tables near 19:58\.$/.test(onTime.words), onTime);
+  const lateIn = k({ tickets: tk(1, 28, 33), nowMin: 19 * 60 + 45 });
+  check('…too little time left to fire the whole delay early: fires now, landing when it will', lateIn.state === 'fire_now' && lateIn.early === 4 && /near 19:53\.$/.test(lateIn.words), lateIn);
+  check('…never more than 20 minutes early', k({ behindMin: 45, tickets: tk(1, 20, 33), nowMin: 19 * 60 + 25 }).early === 20 && k({ behindMin: 45, tickets: tk(1, 20, 33), nowMin: 19 * 60 + 25 }).fireBy === '19:30');
+  check('…and a calm kitchen changes nothing', JSON.stringify(pace({ fires: f1, tickets: tk(1, 28, 33), nowMin: 19 * 60 + 50, behindMin: 0 })) === JSON.stringify(now) && now.early === 0 && now.fireBy === '19:50' && now.pushMin === null);
+  const firstEarly = pace({ fires: [], tickets: [], nowMin: 19 * 60 + 5, behindMin: 8 });
+  check('the first course early too: when, and then to fire it', firstEarly.state === 'waiting' && firstEarly.words === 'Starters fires at 19:07, 8 minutes early: the kitchen is about 8 minutes behind.'
+    && pace({ fires: [], tickets: [], nowMin: 19 * 60 + 7, behindMin: 8 }).state === 'fire_now'
+    && pace({ fires: [], tickets: [], nowMin: 19 * 60 + 7, behindMin: 8 }).words === 'The kitchen is about 8 minutes behind, so fire starters when the room is ready, to reach the tables near 19:15.', firstEarly);
+  check('the push offered is the kitchen’s delay, within what Push takes', E.pushFor(3) === 5 && E.pushFor(8) === 8 && E.pushFor(80) === 60);
+
+  console.log('how behind the kitchen is on everyone else’s orders');
+  const P = await import('../../src/lib/kitchen-pace-server');
+  const kdb: any = strictTransactions(makeDb()); const t0 = Date.now(); const ago = (m: number) => new Date(t0 - m * 60000).toISOString();
+  for (let i = 0; i < 4; i++) await kdb.doc(`tenants/k1/kdsTickets/o${i}`).set({ status: 'in_progress', firedAt: ago(8), makeSeconds: 360 });
+  for (let i = 0; i < 6; i++) await kdb.doc(`tenants/k1/kdsTickets/e${i}`).set({ status: 'in_progress', firedAt: ago(30), makeSeconds: 360, eventId: 'ev1', courseNumber: 2 });
+  const whole = await P.paceNow(kdb, 'tenants/k1', {}); const others = await P.paceNow(kdb, 'tenants/k1', {}, { except: 'ev1' });
+  check('the event’s own tickets are left out (its own course doesn’t make the kitchen look behind), kept apart from the whole kitchen', whole.level === 'slammed' && others.level === 'calm' && others.behindMin === 0, { whole, others });
+  for (let i = 4; i < 8; i++) await kdb.doc(`tenants/k1/kdsTickets/o${i}`).set({ status: 'in_progress', firedAt: ago(25), makeSeconds: 360 });
+  P.forgetPace('tenants/k1');
+  const afterForget = await P.paceNow(kdb, 'tenants/k1', {}, { except: 'ev1' });
+  check('…and a changed setting forgets both', afterForget.level !== 'calm' && afterForget.behindMin > 0, afterForget);
+  check('…read for the night with this event left out, calm when it can’t be read', /paceNow\(db, T, tenant, \{ except: eventId \}\)\.catch\(\(\) => CALM\)/.test(src('src/lib/event-night-server.ts')));
+
   console.log('the prep');
   const menu = [{ id: 'crudo', name: 'Crudo', courseNumber: 1 }, { id: 'rib', name: 'Short rib', courseNumber: 2 }, { id: 'bream', name: 'Bream', courseNumber: 2 }, { id: 'tart', name: 'Tart', courseNumber: 3 }];
   const g = (o: any) => ({ allergies: [], dietaryRestrictions: [], ...o });
@@ -128,7 +170,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   console.log('the page');
   const panel = src('src/components/events/EventNightPanel.tsx'); const manifest = src('src/app/(app)/events/[eventId]/manifest/page.tsx');
   check('on the event’s manifest, firing through the manifest’s own fire', /<EventNightPanel tenantId=\{tenantId\} eventId=\{eventId\}/.test(manifest) && manifest.includes('onFire={(c) => setFireConfirmCourse(c)}'));
-  check('the run of show, pacing and prep, a manager’s changes and push', panel.includes('Run of show') && panel.includes('Course pacing') && panel.includes('Prep for the event') && panel.includes('Change the run of show') && panel.includes('Push 10 min') && panel.includes('Save the run of show'));
+  check('the run of show, pacing and prep, a manager’s changes and push', panel.includes('Run of show') && panel.includes('Course pacing') && panel.includes('Prep for the event') && panel.includes('Change the run of show') && panel.includes('aria-label="Push what’s still to come"') && /PUSHES = \[5, 10, 15\]/.test(panel) && panel.includes('Push the rest ${p.pushMin} min') && panel.includes('p.next === m.course && p.fireBy ? p.fireBy : m.at') && panel.includes('Save the run of show'));
   const mine = panel + src('src/lib/event-night.ts') + src('src/lib/event-night-server.ts') + src('src/app/api/event-night/route.ts');
   check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine) && !/\{\/\*/.test(panel) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(panel));
 

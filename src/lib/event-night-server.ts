@@ -6,6 +6,8 @@ import { seatMap, seatPickingOf, seatsInUse } from '@/lib/event-seats';
 import { isPaidEvent } from '@/lib/event-tickets';
 import { tenantTimeZone, wallParts, dayKey } from '@/lib/tenant-time';
 import { readTime } from '@/lib/event-block';
+import { CALM } from '@/lib/kitchen-pace';
+import { paceNow } from '@/lib/kitchen-pace-server';
 import { cleanShow, coursePacing, eventPrep, nightState, pushLater, startOfShow, suggestShow, toHM, toMin, type Moment } from '@/lib/event-night';
 
 /** The manifest's own names for the courses, so the two read the same. */
@@ -73,7 +75,9 @@ async function build(db: any, T: string, tenant: any, eventId: string) {
   // A course's name on the night: what the run of show calls it, or the manifest's.
   const names: Record<number, string> = {}; for (const n of courses) names[n] = show.find((m) => m.course === n)?.what || LABELS[n] || `Course ${n}`;
   const state = night.on ? nightState(show, fired, night.nowMin, start) : null;
-  const pacing = night.on ? coursePacing({ courses, names, fires: fires.map((f: any) => ({ courseNumber: Number(f.courseNumber), firedAt: String(f.firedAt || '') })),
+  // How far behind the kitchen is on everyone else's orders (this event's own tickets left out; calm when it's off).
+  const kitchen = night.on ? await paceNow(db, T, tenant, { except: eventId }).catch(() => CALM) : CALM;
+  const pacing = night.on ? coursePacing({ behindMin: kitchen.level === 'calm' ? 0 : kitchen.behindMin, courses, names, fires: fires.map((f: any) => ({ courseNumber: Number(f.courseNumber), firedAt: String(f.firedAt || '') })),
     tickets: tickets.filter((t: any) => Number(t.courseNumber) > 0).map((t: any) => ({ courseNumber: Number(t.courseNumber), status: String(t.status || ''), readyAt: t.readyAt || null, deliveredAt: t.deliveredAt || null, carriedAt: t.carriedAt || null })), show, nowMin: night.nowMin, start, clock }) : null;
   return {
     event: { id: eventId, title: String(ev.title || ev.name || 'Event').slice(0, 80), date: String(ev.date || ''), time: startOf(ev), status: String(ev.status || 'upcoming') },

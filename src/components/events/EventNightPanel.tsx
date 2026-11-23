@@ -1,7 +1,8 @@
 'use client';
 // src/components/events/EventNightPanel.tsx — EVENT NIGHT on the event's manifest page (design canvas "Event night";
 // lib/event-night, api/event-night): the run of show with what's done and what's next, course pacing from the
-// kitchen's tickets, and the prep from the guests' choices. A manager sets the run of show and pushes it on the night;
+// kitchen's tickets (and how behind the kitchen is on everyone else's orders), and the prep from the guests' choices.
+// A manager sets the run of show and pushes it on the night (5, 10 or 15 minutes, or the kitchen's delay);
 // firing a course goes through the manifest's own fire (its check of who's in and what they chose).
 import { useCallback, useEffect, useState } from 'react';
 import { getAuth } from 'firebase/auth';
@@ -30,6 +31,9 @@ async function post(body: any) {
   catch { return { ok: false, error: 'No connection. Try again.' }; }
 }
 const clock = (hm: string) => { const [h, m] = hm.split(':').map(Number); if (!Number.isFinite(h)) return hm; const ap = h >= 12 ? 'pm' : 'am'; const h12 = h % 12 || 12; return m ? `${h12}:${String(m).padStart(2, '0')} ${ap}` : `${h12} ${ap}`; };
+/** Push for a speech that runs long, or anything else: what's still to come moves this much later. */
+const PUSHES = [5, 10, 15];
+const SURE_OVER = 20;
 const minWords = (n: number) => (n === 1 ? '1 min' : `${n} min`);
 const list = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const PACE: Record<Pacing['state'], { text: string; tone: 'green' | 'amber' | 'soft' }> = {
@@ -42,6 +46,9 @@ export default function EventNightPanel({ tenantId, eventId, firedKey, onFire }:
   const [n, setN] = useState<Night | null>(null); const [manager, setManager] = useState(false);
   const [err, setErr] = useState(''); const [busy, setBusy] = useState<string | null>(null);
   const [edit, setEdit] = useState<Moment[] | null>(null);
+  // (A long push asks for a second tap, so one mis-tap doesn't move the whole night.)
+  const [sure, setSure] = useState<number | null>(null);
+  useEffect(() => { if (sure === null) return; const t = setTimeout(() => setSure(null), 5000); return () => clearTimeout(t); }, [sure]);
 
   const load = useCallback(async (fresh = false) => {
     const d = await post({ tenantId, eventId, action: 'view', ...(fresh ? { fresh: true } : {}) });
@@ -115,14 +122,21 @@ export default function EventNightPanel({ tenantId, eventId, firedKey, onFire }:
                   <li key={m.id} aria-current={isNext ? 'step' : undefined} className="grid grid-cols-[64px_1fr_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-[14px]" style={isNext ? { background: SOFT } : undefined}>
                     <span className={`tabular-nums ${isNext ? 'font-semibold' : ''}`} style={s === 'done' ? { color: MUTED } : undefined}>{clock(m.at)}</span>
                     <span className={`min-w-0 ${isNext ? 'font-semibold' : ''}`} style={s === 'done' ? { color: MUTED } : undefined}>{m.what}{m.note ? <span className="block text-[12.5px] font-normal" style={{ color: MUTED }}>{m.note}</span> : null}</span>
-                    <span className="text-[12.5px]" style={{ color: MUTED }}>{s === 'done' ? (m.course !== null ? 'Fired' : 'Done') : isNext ? <span className={chip} style={toneStyle(m.course !== null ? 'amber' : 'soft')}>{m.course !== null ? `Fire at ${clock(m.at)}` : 'Next'}</span> : ''}</span>
+                    <span className="text-[12.5px]" style={{ color: MUTED }}>{s === 'done' ? (m.course !== null ? 'Fired' : 'Done') : isNext ? <span className={chip} style={toneStyle(m.course !== null ? 'amber' : 'soft')}>{m.course !== null ? `Fire at ${clock(p && p.next === m.course && p.fireBy ? p.fireBy : m.at)}` : 'Next'}</span> : ''}</span>
                   </li>); })}
             </ol>
           )}
           {!edit && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {n.onTheNight && nextCourse !== null && onFire && <button type="button" onClick={() => onFire(nextCourse)} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>Fire {courseName(nextCourse).toLowerCase()}</button>}
-              {n.onTheNight && manager && next && <button type="button" disabled={busy === 'push'} onClick={() => act('push', { action: 'push', minutes: 10 })} className={btn} style={{ border: `1px solid ${LINE}` }}>{busy === 'push' ? 'Pushing' : 'Push 10 min'}</button>}
+              {n.onTheNight && nextCourse !== null && onFire && <button type="button" onClick={() => onFire(nextCourse)} className={`${btn} basis-full`} style={{ background: INK, color: '#fff' }}>Fire {courseName(nextCourse).toLowerCase()}</button>}
+              {n.onTheNight && manager && next && (
+                <div role="group" aria-label="Push what’s still to come" className="flex overflow-hidden rounded-xl border" style={{ borderColor: LINE }}>
+                  {PUSHES.map((m, i) => (
+                    <button key={m} type="button" disabled={busy === 'push'} onClick={() => act('push', { action: 'push', minutes: m })} aria-label={`Push ${m} minutes`}
+                      className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-3 text-[14.5px] font-semibold disabled:opacity-50 ${RING}`} style={i ? { borderLeft: `1px solid ${LINE}` } : undefined}>
+                      {i === 0 ? `Push ${m}` : i === PUSHES.length - 1 ? `${m} min` : m}
+                    </button>))}
+                </div>)}
               {manager && <button type="button" onClick={() => setEdit(n.show.map((m) => ({ ...m })))} className={`${btn} px-0 underline underline-offset-4`} style={{ color: INK }}>Change the run of show</button>}
             </div>
           )}
@@ -137,6 +151,10 @@ export default function EventNightPanel({ tenantId, eventId, firedKey, onFire }:
             </>}
             {p.atPass > 0 && <p className="mt-1 text-[13px] tabular-nums" style={{ color: AMBER }}>{p.atPass} {p.atPass === 1 ? 'plate is' : 'plates are'} ready at the pass.</p>}
             <p role="status" className="mt-2 text-[13.5px] leading-snug" style={{ color: p.state === 'hold' || p.state === 'fire_now' ? INK : MUTED }}>{p.words}</p>
+            {p.pushMin !== null && manager && next && <button type="button" disabled={busy === 'push'} onClick={() => { const m = p.pushMin!;
+              if (m > SURE_OVER && sure !== m) { setSure(m); return; } setSure(null); act('push', { action: 'push', minutes: m }); }} className={`${btn} mt-2 w-full`} style={{ border: `1px solid ${sure === p.pushMin ? INK : LINE}` }}>
+              {busy === 'push' ? 'Pushing' : sure === p.pushMin ? `Tap again to push ${p.pushMin} min` : `Push the rest ${p.pushMin} min`}</button>}
+            <p role="status" className="sr-only">{sure !== null && sure === p.pushMin ? `Tap again to push the rest of the night ${sure} minutes.` : ''}</p>
             {p.next !== null && <p className="mt-1 text-[13px]" style={{ color: MUTED }}>A course has taken the kitchen about {p.kitchenMin} minutes tonight.</p>}
           </>)}
         </div>

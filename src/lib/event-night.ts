@@ -4,7 +4,9 @@
 //     business's clock. A moment for a course is when that course fires. On the night it shows what's done, what's next
 //     and how long until it; "Push" moves everything still to come later.
 //   Course pacing — from the kitchen's tickets for the event: how much of the course that's out has reached the tables,
-//     and whether the next one should fire now, hold, or is on time.
+//     and whether the next one should fire now, hold, or is on time. When the kitchen is behind on everyone else's
+//     orders (lib/kitchen-pace, Table service's busy setting), the next course fires that much early once the one before
+//     is mostly out, so it still lands near its time; while that one is still going out, it says to move the night.
 //   The prep — portions of each dish from the guests' course choices, and the allergies and diets in the room.
 // Always plain words; nothing fires by itself. Pure.
 
@@ -14,6 +16,10 @@ export const PUSH_MIN = 5, PUSH_MAX = 60;
 export const MOSTLY_OUT = 0.75;
 /** How long a course takes the kitchen when this event hasn't fired one yet. */
 export const DEFAULT_COURSE_MIN = 12;
+/** A busy kitchen fires a course at most this much early. */
+export const EARLY_MAX = 20;
+/** The push offered for a busy kitchen: its delay, within what Push takes. */
+export const pushFor = (behindMin: number) => Math.max(PUSH_MIN, Math.min(PUSH_MAX, Math.round(behindMin)));
 
 export type Moment = { id: string; at: string; what: string; course: number | null; note: string | null };
 const HM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -85,7 +91,11 @@ export function nightState(show: Moment[], fired: Map<number, string>, nowMin: n
 }
 
 export type CourseTicket = { courseNumber: number; status: string; createdAt?: string | null; readyAt?: string | null; deliveredAt?: string | null; carriedAt?: string | null };
-export type Pacing = { state: 'waiting' | 'on_pace' | 'fire_now' | 'hold' | 'ready' | 'done'; course: number | null; out: number; atPass: number; total: number; next: number | null; fireAt: string | null; kitchenMin: number; words: string };
+export type Pacing = { state: 'waiting' | 'on_pace' | 'fire_now' | 'hold' | 'ready' | 'done'; course: number | null; out: number; atPass: number; total: number; next: number | null; fireAt: string | null; kitchenMin: number; words: string;
+  /** Minutes the next course fires early for a busy kitchen (0 when it isn't), and the time it fires at then. */
+  early: number; fireBy: string | null;
+  /** A push to offer (minutes) when the kitchen is behind and the course before is still going out. */
+  pushMin: number | null };
 /** A plate is out once it's on its way to the table (someone took it from the pass) or there. */
 const isOut = (t: CourseTicket) => t.status === 'delivered' || t.status === 'served' || !!t.carriedAt;
 const nameOf = (names: Record<number, string>, n: number) => names[n] || `Course ${n}`;
@@ -93,7 +103,10 @@ const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const mins = (n: number) => `${n} ${n === 1 ? 'minute' : 'minutes'}`;
 
 /** How the courses are going: the last one fired, how many of its plates are out, and what to do about the next. */
-export function coursePacing(o: { courses: number[]; names: Record<number, string>; fires: { courseNumber: number; firedAt: string }[]; tickets: CourseTicket[]; show: Moment[]; nowMin: number; start: number; clock: (hm: string) => string }): Pacing {
+export function coursePacing(o: { courses: number[]; names: Record<number, string>; fires: { courseNumber: number; firedAt: string }[]; tickets: CourseTicket[]; show: Moment[]; nowMin: number; start: number; clock: (hm: string) => string;
+  /** How far behind the kitchen is on everyone else's orders (0 when it isn't, or the setting is off). */
+  behindMin?: number }): Pacing {
+  const behind = Math.max(0, Math.round(Number(o.behindMin) || 0));
   const courses = Array.from(new Set(o.courses)).sort((a, b) => a - b);
   const firedAt = new Map<number, string>(); for (const f of o.fires) { const t = String(f.firedAt || ''); if (!firedAt.has(f.courseNumber) || t < firedAt.get(f.courseNumber)!) firedAt.set(f.courseNumber, t); }
   // How long a course has taken the kitchen tonight: from its fire to its last plate ready.
@@ -104,12 +117,20 @@ export function coursePacing(o: { courses: number[]; names: Record<number, strin
   const firedList = courses.filter((n) => firedAt.has(n)); const last = firedList.length ? firedList[firedList.length - 1] : null;
   const next = courses.find((n) => !firedAt.has(n)) ?? null;
   const planned = next !== null ? o.show.find((m) => m.course === next)?.at || null : null;
-  const base = { next, fireAt: planned, kitchenMin };
   const due = planned ? relMin(planned, o.start) - o.nowMin : null;
+  // A busy kitchen: the next course fires early by its delay (only while there's time to), so it lands near its time.
+  const early = planned && next !== null && due !== null && due > 1 ? Math.min(behind, EARLY_MAX, Math.max(0, due - 1)) : 0;
+  const fireBy = planned ? (early ? toHM(relMin(planned, o.start) - early) : planned) : null;
+  const fireIn = due !== null ? due - early : null;
+  const busy = behind > 0 ? `The kitchen is about ${mins(behind)} behind` : '';
+  const base = { next, fireAt: planned, kitchenMin, early, fireBy, pushMin: null as number | null };
+  // Fired now with the kitchen behind, a course lands that much later than now (or on its time, fired early enough).
+  const lands = behind > 0 && planned ? (early >= behind ? planned : toHM(o.nowMin + behind)) : null;
   if (last === null) {
     const first = next !== null ? nameOf(o.names, next) : '';
-    if (next !== null && due !== null && due <= 1) return { ...base, state: 'fire_now', course: null, out: 0, atPass: 0, total: 0, words: `Fire ${lower(first)} when the room is ready.${due < -1 ? ` It was due at ${o.clock(planned!)}.` : ''}` };
-    return { ...base, state: 'waiting', course: null, out: 0, atPass: 0, total: 0, words: next !== null && planned ? `${first} fires at ${o.clock(planned)}.` : '' };
+    if (next !== null && fireIn !== null && fireIn <= 1) return { ...base, state: 'fire_now', course: null, out: 0, atPass: 0, total: 0,
+      words: behind > 0 ? `${busy}, so fire ${lower(first)} when the room is ready, to reach the tables near ${o.clock(lands!)}.${due! < -1 ? ` It was due at ${o.clock(planned!)}.` : ''}` : `Fire ${lower(first)} when the room is ready.${due! < -1 ? ` It was due at ${o.clock(planned!)}.` : ''}` };
+    return { ...base, state: 'waiting', course: null, out: 0, atPass: 0, total: 0, words: next !== null && planned ? (early ? `${first} fires at ${o.clock(fireBy!)}, ${mins(early)} early: ${lower(busy)}.` : `${first} fires at ${o.clock(planned)}.`) : '' };
   }
   const t = o.tickets.filter((x) => x.courseNumber === last && x.status !== 'cancelled'); const total = t.length; const out = t.filter(isOut).length;
   const atPass = t.filter((x) => x.status === 'ready' && !x.carriedAt).length;
@@ -117,13 +138,23 @@ export function coursePacing(o: { courses: number[]; names: Record<number, strin
   const lastName = nameOf(o.names, last); const outText = `${out} of ${total} plates out`;
   if (next === null) return { ...base, state: 'done', course: last, out, atPass, total, words: mostly ? 'Every course has fired, and the last is mostly out.' : `Every course has fired. ${lastName}: ${outText}.` };
   const nextName = nameOf(o.names, next);
-  if (due !== null && due <= 1) {
+  if (due !== null && fireIn !== null && fireIn <= 1) {
     const late = due < -1 ? ` It was due at ${o.clock(planned!)}.` : '';
-    return mostly ? { ...base, state: 'fire_now', course: last, out, atPass, total, words: `Most of ${lower(lastName)} is out (${outText}). Fire ${lower(nextName)} now.${late}` }
-      : { ...base, state: 'hold', course: last, out, atPass, total, words: `${lastName} is still going out (${outText}). Hold ${lower(nextName)} until most of it is out.${late}` };
+    if (mostly) return { ...base, state: 'fire_now', course: last, out, atPass, total, words: behind > 0
+      ? `${busy}. Most of ${lower(lastName)} is out (${outText}), so fire ${lower(nextName)} now to reach the tables near ${o.clock(lands!)}.${late}`
+      : `Most of ${lower(lastName)} is out (${outText}). Fire ${lower(nextName)} now.${late}` };
+    // Still going out: firing early would crowd the tables. Once its time has come, the night is moved instead (offered,
+    // never by itself); before then, only said, since the course before may still clear in time.
+    const pushMin = behind > 0 && due <= 1 ? pushFor(behind) : null;
+    return { ...base, early: 0, fireBy: planned, pushMin, state: 'hold', course: last, out, atPass, total, words: pushMin !== null
+      ? `${lastName} is still going out (${outText}), and ${lower(busy)}. Hold ${lower(nextName)}, and push the rest of the night by about ${mins(pushMin)}.${late}`
+      : behind > 0 ? `${lastName} is still going out (${outText}). Hold ${lower(nextName)} until most of it is out. ${busy}, so if it’s still going out at ${o.clock(planned!)}, push the rest of the night.`
+      : `${lastName} is still going out (${outText}). Hold ${lower(nextName)} until most of it is out.${late}` };
   }
   if (due === null) return { ...base, state: mostly ? 'ready' : 'on_pace', course: last, out, atPass, total, words: mostly ? `Most of ${lower(lastName)} is out. ${nextName} can fire when the room is ready.` : `${lastName}: ${outText}.` };
-  return { ...base, state: 'on_pace', course: last, out, atPass, total, words: `${lastName}: ${outText}. ${nextName} fires at ${o.clock(planned!)}, in ${mins(due)}.` };
+  return { ...base, state: 'on_pace', course: last, out, atPass, total, words: early
+    ? `${lastName}: ${outText}. ${busy}, so ${lower(nextName)} fires at ${o.clock(fireBy!)}, in ${mins(fireIn!)}.`
+    : `${lastName}: ${outText}. ${nextName} fires at ${o.clock(planned!)}, in ${mins(due)}.` };
 }
 
 /** The night's prep: portions of each dish from the guests' choices (a guest who's cancelled isn't counted), and the
