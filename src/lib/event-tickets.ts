@@ -14,6 +14,7 @@
 
 import { anyInUse, MAX_TABLE_SEATS, pickSeats, seatPickingOf, seatsInUse, seatWords, type SeatRef } from '@/lib/event-seats';
 import type { Firestore } from 'firebase-admin/firestore';
+import { createHash } from 'crypto';
 import { createCheckoutSession } from '@/lib/pay-later';
 import { linkOrigin } from '@/lib/app-origin';
 import { spacePayAccount } from '@/lib/space-stripe';
@@ -21,6 +22,9 @@ import { eventCapacity } from '@/lib/studio-page';
 import { eventState } from '@/lib/event-guest-link';
 
 export const MAX_TICKETS = 8;
+/** A paid order's party (lib/event-places, lib/event-pass): its guests together, so the buyer's link and entry code
+ *  cover them all. Worked out from the order, so a finish run twice gives the same one. */
+export const ticketParty = (orderId: string) => `p${createHash('sha256').update(`ticket:${orderId}`).digest('hex').slice(0, 24)}`;
 const CHECKOUT_MS = 31 * 60000;               // Stripe keeps a checkout open at least 30 minutes
 const HOLD_MS = CHECKOUT_MS + 2 * 60000;       // places stay held a little past it, so a payment never lands unheld
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -245,7 +249,7 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
       if (have[i].exists) return; added++;
       tx.set(g, { id: g.id, eventId: o.eventId, tenantId, name: i === 0 ? o.name : `${o.name} (guest ${i})`, email: i === 0 ? o.email : '', phone: i === 0 ? (o.phone || '') : '',
         tableId: orderSeats[i]?.tableId || null, seatId: orderSeats[i]?.seatId || null, tableNumber: orderSeats[i]?.table || null, seatNumber: orderSeats[i]?.seat || null, notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false,
-        source: 'ticket', ticketOrderId: orderId, paidCents: Number(o.unitCents) || Math.round(charged / qty), submittedAt: now });
+        source: 'ticket', ticketOrderId: orderId, paidCents: Number(o.unitCents) || Math.round(charged / qty), submittedAt: now, partyId: ticketParty(orderId), partyLead: i === 0 });
     });
     if (added) tx.set(evRef, { rsvpCount: (Number(ev.rsvpCount) || 0) + added, ticketsSold: (Number(ev.ticketsSold) || 0) + added }, { merge: true });
     if (!line.exists) tx.set(lineRef, { id: lineRef.id, tenantId, date: paidAt, description: `Tickets: ${o.eventTitle || 'event'} (${qty})`, clientOrVendor: o.name || 'Guest',
@@ -315,10 +319,13 @@ async function tellBuyer(db: Firestore, tenantId: string, t: any, o: any, charge
     const { sendNotification } = await import('@/lib/notify');
     const { brandedEmailHtml } = await import('@/lib/email-template');
     const qty = Number(o.qty) || 1; const title = String(o.eventTitle || 'the event');
+    // (Their pass, lib/event-pass: the same link a free place gets.)
+    const { placeUrl } = await import('@/lib/event-places'); const pass = o.id ? placeUrl(t, null, tenantId, String(o.eventId), ticketParty(String(o.id))) : null;
     const lines = [`Hi ${String(o.name || '').split(' ')[0] || 'there'},`, `You have ${qty === 1 ? 'a ticket' : `${qty} tickets`} for ${title}. You paid ${money(charged)}.`,
       ...(whenOf(ev) ? [`When: ${whenOf(ev)}`] : []), ...(ev.venue ? [`Where: ${clip(ev.venue, 120)}`] : []),
       ...(Array.isArray(o.seats) && o.seats.length ? [`Your ${o.seats.length === 1 ? 'seat' : 'seats'}: ${seatWords(o.seats)}`] : []),
-      qty > 1 ? 'Your guests are on the list under your name, so just give your name at the door.' : 'Just give your name at the door.'];
+      ...(pass ? [`Your pass, with the code to show at the door: ${pass}`] : []),
+      qty > 1 ? `Your guests are on the list under your name: show the code on your pass at the door, or give your name.` : 'Show the code on your pass at the door, or give your name.'];
     const subject = `Your ${qty === 1 ? 'ticket' : 'tickets'} for ${title}`;
     const r: any = await sendNotification(db, { tenantId, channel: 'email', to: o.email, kind: 'event_ticket', clientName: o.name, subject, text: lines.join('\n\n'),
       html: brandedEmailHtml({ studioName: String(t?.name || ''), title: subject, bodyLines: lines } as any), recipientType: 'client' } as any);

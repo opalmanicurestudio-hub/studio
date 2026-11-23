@@ -3,11 +3,48 @@
 // confirmation email (?p=…&k=…) or their waitlist email (?w=…&k=…). Read and changed through /api/public/event
 // (lib/event-places): how many places they have, cancel one or all of them, give a place to a friend, or, on the
 // waitlist, where they are in line and leaving it. A waitlist link whose place came through opens the place itself.
+//   It's their PASS too (design board "The event pass", A; lib/event-pass), for free places and paid tickets alike: the
+//   entry code for the door (a QR the team scans, or its 4 digits), who's in their party with each one's seat, meal and
+//   allergies (a meal link to send each guest who hasn't chosen), and how to get there. On the day the code comes first;
+//   once they're checked in, it says they're in.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
-import { AMBER, BusinessHead, Button, CARD, GREEN, INPUT, LABEL, LINE, MUTED, Note, RED, Shell, askEvent, calendarHref, whenLabel } from '@/components/events/guest-shell';
+import QRCode from 'qrcode';
+import { AMBER, BusinessHead, Button, CARD, GREEN, INK, INPUT, LABEL, LINE, MUTED, Note, RED, SOFT, Shell, askEvent, calendarHref, dayLabel, timeLabel, whenLabel } from '@/components/events/guest-shell';
 
 type Mode = 'view' | 'give' | 'cancel';
+type PassPlace = { id: string; first: string; you: boolean; seat: string | null; table: string | null; seatNo: string | null; meal: string | null; allergies: string[]; severe: boolean; checkedIn: boolean };
+const GREEN_TINT = '#ecf6f0';
+const andList = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+/** "In 3 days", "Tomorrow", "Tonight", "You’re in": where the evening is for them. */
+// (The days come from the server, counted in the business's own calendar.)
+function stagePill(stage: string, days: number | null): { text: string; tone: 'green' | 'ink' } | null {
+  if (stage === 'in') return { text: 'You’re in', tone: 'green' };
+  if (stage === 'today') return { text: 'Today', tone: 'ink' };
+  if (stage !== 'before' || days === null) return null;
+  return days === 1 ? { text: 'Tomorrow', tone: 'green' } : days > 1 && days < 60 ? { text: `In ${days} days`, tone: 'green' } : null;
+}
+
+/** The entry code: the QR the team scans (bigger on the day), its 4 digits, and the party's line. */
+function EntryCode({ url, digits, big, lines }: { url: string | null; digits: string | null; big: boolean; lines: string[] }) {
+  const [qr, setQr] = React.useState('');
+  React.useEffect(() => { if (url) QRCode.toDataURL(url, { width: 480, margin: 1 }).then(setQr).catch(() => setQr('')); }, [url]);
+  if (!url) return <div className="space-y-1 p-5" style={CARD}>{lines.map((l, i) => <p key={i} className={i ? 'text-[15px]' : 'text-[16px] font-semibold'} style={i ? { color: MUTED } : undefined}>{l}</p>)}<p className="text-[15px]">Give your name at the door.</p></div>;
+  const img = qr ? <img src={qr} alt="Your entry code, scanned at the door" className={big ? 'mx-auto h-[232px] w-[232px] rounded-xl' : 'h-[144px] w-[144px] shrink-0 rounded-lg'} />
+    : <span aria-hidden className={big ? 'mx-auto block h-[232px] w-[232px] rounded-xl' : 'block h-[144px] w-[144px] shrink-0 rounded-lg'} style={{ background: SOFT }} />;
+  const code = digits ? <p className="text-[14px]" style={{ color: MUTED }}>If the camera can’t read it, the code is <b className="font-semibold tabular-nums tracking-[0.15em]" style={{ color: INK }}>{digits}</b>.</p> : null;
+  if (big) return (
+    <section aria-label="Your entry code" className="space-y-3 p-5 text-center" style={CARD}>
+      {img}<p className="text-[18px] font-semibold">Show this at the door</p>
+      {lines.map((l, i) => <p key={i} className="text-[15px]" style={{ color: MUTED }}>{l}</p>)}{code}
+    </section>);
+  return (
+    <section aria-label="Your entry code" className="flex items-center gap-4 p-4" style={CARD}>
+      {img}
+      <div className="min-w-0 space-y-1">{lines.map((l, i) => <p key={i} className={i ? 'text-[14.5px]' : 'text-[16px] font-semibold'} style={i ? { color: MUTED } : undefined}>{l}</p>)}
+        <p className="text-[13.5px] font-medium">Show this at the door</p>{code}</div>
+    </section>);
+}
 
 export default function EventPlacePage() {
   const { tenantId, eventId } = useParams() as { tenantId: string; eventId: string };
@@ -40,7 +77,7 @@ export default function EventPlacePage() {
 
   const color = d.business?.color; const e = d.event;
   const head = <><BusinessHead business={d.business} />
-    <div><p className="text-[14px] font-medium" style={{ color: MUTED }}>{d.waiting ? 'Your place on the waitlist' : 'Your place'}</p>
+    <div><p className="text-[14px] font-medium" style={{ color: MUTED }}>{d.waiting ? 'Your place on the waitlist' : d.party ? 'Your pass' : 'Your place'}</p>
       <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.03em]">{e.title}</h1>
       {whenLabel(e) && <p className="mt-1.5 text-[16px]">{whenLabel(e)}</p>}
       {e.venue && <p className="text-[15px]" style={{ color: MUTED }}>{e.venue}</p>}</div></>;
@@ -82,10 +119,22 @@ export default function EventPlacePage() {
     </Shell>;
   }
 
-  // ── On the guest list ──
+  // ── On the guest list: their pass ──
   const party = d.party; const many = party.places > 1;
   const cal = calendarHref(e, d.business?.name || '');
   const mealLink = `/event/${encodeURIComponent(tenantId)}/${encodeURIComponent(eventId)}/rsvp`;
+  const list: PassPlace[] = Array.isArray(party.list) ? party.list : [];
+  const stage: string = d.stage || 'before'; const pill = stagePill(stage, typeof d.days === 'number' ? d.days : null);
+  const notIn = list.filter((x) => !x.checkedIn);
+  // (Each guest who hasn't chosen gets their own meal link, their seat filled in when they have one.)
+  const mealFor = (x: PassPlace) => `${mealLink}${x.table && x.seatNo ? `?table=${encodeURIComponent(x.table)}&seat=${encodeURIComponent(x.seatNo)}` : ''}`;
+  const send = async (x: PassPlace) => {
+    const url = `${window.location.origin}${mealFor(x)}`; const text = `Choose your meal for ${e.title}`;
+    // (Shared, or the share sheet closed: done. The phone can't share: the link is copied instead.)
+    try { if (navigator.share) { await navigator.share({ title: text, text, url }); return; } } catch (err: any) { if (err?.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(url); setGood(`The link for ${x.first} is copied. Send it to them.`); } catch { setGood(''); setMsg('That link couldn’t be copied here. Open Choose your meal on their phone.'); }
+  };
+  const codeLines = [dayLabel(e.date) || e.title, [e.time ? timeLabel(e.time) : '', party.line || ''].filter(Boolean).join(', ')].filter(Boolean);
 
   const cancel = async (all: boolean) => {
     setBusy(true); setMsg('');
@@ -106,14 +155,33 @@ export default function EventPlacePage() {
   };
 
   return <Shell>{head}
+    {pill && <p className="w-max rounded-full px-3 py-1 text-[13.5px] font-semibold" style={pill.tone === 'green' ? { background: GREEN_TINT, color: GREEN } : { background: INK, color: '#fff' }}>{pill.text}</p>}
     <div role="status">{good && mode === 'view' && <Note tone="good">{good}</Note>}</div>
-    <div className="space-y-2 p-5" style={CARD}>
-      {mode === 'view' && h2('You’re on the list')}
-      {mode !== 'view' && <p className="text-[18px] font-semibold">You’re on the list</p>}
-      <p className="text-[15.5px] leading-relaxed">{many ? `${party.places} places under ${party.firstName}. Your guests just give your name at the door.` : `Your place is saved, ${party.firstName}. Just give your name at the door.`}</p>
-      <p className="flex items-center gap-2 text-[14px] font-medium" style={{ color: GREEN }}><span className="h-2 w-2 rounded-full" style={{ background: GREEN }} aria-hidden />Confirmed</p>
-    </div>
-    {d.mealOpen && mode === 'view' && <a href={mealLink} className="flex h-[54px] w-full items-center justify-center rounded-full text-[16px] font-medium text-white" style={{ background: color }}>Choose your meal</a>}
+    {mode === 'view' && stage === 'in' && <div className="space-y-1 p-5" style={{ ...CARD, background: GREEN_TINT, borderColor: GREEN_TINT }}>
+      {h2(`You’re in, ${party.firstName}`)}
+      <p className="text-[15.5px]" style={{ color: INK }}>{notIn.length ? `${andList(notIn.map((x) => x.first))} ${notIn.length === 1 ? 'isn’t' : 'aren’t'} checked in yet: they can show this same code.` : many ? 'Your whole party is checked in. Enjoy the evening.' : 'Enjoy the evening.'}</p>
+    </div>}
+    {mode === 'view' && stage !== 'over' && stage !== 'cancelled' && (stage !== 'in' || notIn.length > 0) && <EntryCode url={d.door?.url || null} digits={d.door?.digits || null} big={stage === 'today'} lines={codeLines} />}
+    {mode !== 'view' && <div className="space-y-2 p-5" style={CARD}><p className="text-[18px] font-semibold">You’re on the list</p><p className="text-[15.5px]">{party.line || `${party.places} ${many ? 'places' : 'place'}`} under {party.firstName}.</p></div>}
+    {mode === 'view' && list.length > 0 && <section aria-labelledby="party-title" className="space-y-3 p-5" style={CARD}>
+      {mode === 'view' && stage !== 'in' ? <h2 ref={heading} tabIndex={-1} id="party-title" className="text-[18px] font-semibold outline-none">{many ? 'Your party' : 'Your place'}</h2> : <h2 id="party-title" className="text-[18px] font-semibold">{many ? 'Your party' : 'Your place'}</h2>}
+      <ul className="space-y-3">{list.map((x, i) => (
+        <li key={x.id} className="flex items-start gap-3" style={i ? { borderTop: `1px solid ${LINE}`, paddingTop: 12 } : undefined}>
+          <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold" style={{ background: SOFT }}>{x.first.slice(0, 1).toUpperCase()}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[15.5px] font-medium">{x.you ? 'You' : x.first}{x.seat ? <span className="font-normal" style={{ color: MUTED }}>{`, ${x.seat}`}</span> : null}{x.checkedIn ? <span className="ml-2 text-[13px] font-semibold" style={{ color: GREEN }}>In</span> : null}</p>
+            {x.meal ? <p className="text-[14px]" style={{ color: MUTED }}>{x.meal}</p> : d.mealOpen ? <p className="text-[14px] font-medium" style={{ color: AMBER }}>{x.you ? 'You haven’t chosen a meal yet' : 'Hasn’t chosen a meal yet'}</p> : null}
+            {x.allergies.length > 0 && <p className="text-[14px] font-medium" style={{ color: AMBER }}>{x.allergies.join(', ')}{x.severe ? ', severe' : ''}. The kitchen has it.</p>}
+            {d.mealOpen && !x.meal && !x.you && <button type="button" onClick={() => void send(x)} className="mt-2 min-h-[44px] rounded-full border bg-white px-4 text-[14px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2" style={{ borderColor: LINE }}>{`Send ${x.first} their meal link`}</button>}
+          </div>
+        </li>))}</ul>
+    </section>}
+    {d.mealOpen && mode === 'view' && list.find((x) => x.you && !x.meal) && <a href={mealFor(list.find((x) => x.you)!)} className="flex h-[54px] w-full items-center justify-center rounded-full text-[16px] font-medium text-white" style={{ background: color }}>Choose your meal</a>}
+    {mode === 'view' && e.venue && stage !== 'over' && <section aria-labelledby="there-title" className="space-y-1.5 p-5" style={CARD}>
+      <h2 id="there-title" className="text-[18px] font-semibold">Getting there</h2>
+      <p className="text-[15px]" style={{ color: MUTED }}>{e.venue}</p>
+      <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.venue)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-[44px] items-center text-[15px] font-semibold underline underline-offset-4">Open in maps</a>
+    </section>}
 
     {d.block ? <Note>{d.block}</Note> : mode === 'give' ? (
       <form className="space-y-4 p-5" style={CARD} onSubmit={(x) => { x.preventDefault(); void give(); }}>

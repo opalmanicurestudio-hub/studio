@@ -7,8 +7,11 @@
 //   reserve  a place on the guest list (the event page)
 //   order    a meal order (the meal order page): onto the guest's entry on the list, or a new one
 //   request  a seat asks the floor team for something (onto the floor board)
-// A guest's own place at a free event (lib/event-places), from the private link in their confirmation:
-//   place    what their place page shows: the event, how many places, and whether it can still be changed
+// A guest's own place (lib/event-places), from the private link in their confirmation; for paid tickets too, their pass
+// (lib/event-pass):
+//   place    what their pass shows: the event, their party (each place's first name, seat, meal and allergies), the
+//            entry code for the door (its QR link and 4 digits), where the evening is for them, and whether it can still
+//            be changed
 //   cancel   one place, or all of them; a place freed goes to the first person waiting whose party fits
 //   give     a place to a friend (their own link by email; the place's meal and allergy answers are cleared)
 //   waitlist join it when the event is full;  waitspot / leave  their waitlist link: where they are, or leave
@@ -28,6 +31,7 @@ import { addDays } from '@/lib/tenant-time';
 import Stripe from 'stripe';
 import { MAX_TICKETS, isPaidEvent, placesLeft, saleBlock, startTicketOrder, finishTicketOrder, releaseTicketOrder, ticketCents } from '@/lib/event-tickets';
 import { WAITLIST_MAX, firstOf, heldForWaiting, newPartyId, newWaitId, onListEmail, partyOf, placeChangeBlock, placeKey, placeKeyOk, promoteFromWaitlist, tellOwner, tellPromoted, waitKeyOk, waitingFor, waitlistEmail, waitlistOpen } from '@/lib/event-places';
+import { daysTo, doorDigits, doorUrl, passPlaces, passStage, placesLine } from '@/lib/event-pass';
 import { ALLERGY_CHOICES, allergyList, chartTables, findSeat, matchGuest, mealChoices, menuCourses, orderBlock, requestOpen, requestTypesFor, reserveBlock, seatFromCode } from '@/lib/event-guest-link';
 
 export const dynamic = 'force-dynamic';
@@ -207,7 +211,12 @@ export async function POST(req: NextRequest) {
         const party = partyOf((await guests.where('partyId', '==', partyId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((g: any) => g.eventId === eventId), partyId);
         if (!party.length) return out({ ok: true, business, event: base, gone: true });
         const meal = await mealOpenFor(db, T, eventId, ev, today);
-        return out({ ok: true, business, event: base, party: { firstName: firstOf(party[0].name), places: party.length }, block: placeChangeBlock(ev, today), mealOpen: meal });
+        // The pass: each place (first names, seats, meals, allergies), the entry code, and where the evening is for them.
+        const menu = (await db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+        const places = passPlaces(party, menu);
+        return out({ ok: true, business, event: base, party: { firstName: firstOf(party[0].name), places: party.length, paid: party.some((g: any) => g.source === 'ticket' || !!g.ticketOrderId), line: placesLine(places), list: places },
+          door: { url: doorUrl(tenant, origin, tenantId, eventId, partyId), digits: doorDigits(tenantId, eventId, partyId) }, stage: passStage(ev, today, party), days: daysTo(ev.date, today),
+          block: placeChangeBlock(ev, today), mealOpen: meal });
       }
       const block = placeChangeBlock(ev, today); if (block) return out({ ok: false, error: block }, 409);
       if (action === 'cancel') {

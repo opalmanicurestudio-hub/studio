@@ -170,13 +170,14 @@ export function onListEmail(db: any, tenantId: string, tenant: any, ev: any, eve
   const title = titleOf(ev); const link = placeUrl(tenant, origin, tenantId, eventId, g.partyId); const mealLink = meal ? mealUrl(tenant, origin, tenantId, eventId) : null;
   const first = g.how === 'given' ? `${firstOf(g.from || '') || 'A friend'} gave you their place at ${title}.`
     : g.how === 'waitlist' ? `Good news: a place opened up at ${title}, and it’s yours. You’re on the guest list now.`
-    : g.places > 1 ? `We’ve saved ${g.places} places under your name at ${title}. Your guests just give your name at the door.` : `We’ve saved your place at ${title}.`;
-  const lines = [hi(g.name), first, link ? 'Plans change. If you can’t make it, use the button below to cancel or give your place to a friend, so someone else can come.' : 'If your plans change, reply to this email and let the business know.'];
+    : g.places > 1 ? `We’ve saved ${g.places} places under your name at ${title}.` : `We’ve saved your place at ${title}.`;
+  // (The link is their pass, lib/event-pass: the code to show at the door, their party's seats and meals.)
+  const lines = [hi(g.name), first, link ? `Your pass has the code to show at the door${g.places > 1 ? ' for all of you' : ''}. Plans change: if you can’t make it, cancel or give your place to a friend there, so someone else can come.` : 'If your plans change, reply to this email and let the business know.'];
   return emailGuest(db, tenantId, tenant, ev, g.email, g.name, {
     typed: g.how !== 'waitlist',
     subject: g.how === 'waitlist' ? `A place opened up: you’re going to ${title}` : g.how === 'given' ? `You have a place at ${title}` : `You’re on the list for ${title}`,
     heading: g.how === 'waitlist' ? 'A place opened up' : 'You’re on the list', lines,
-    cta: link ? { label: 'See or change your place', url: link } : null, secondary: mealLink ? { label: 'Choose your meal', url: mealLink } : null,
+    cta: link ? { label: 'Open your pass', url: link } : null, secondary: mealLink ? { label: 'Choose your meal', url: mealLink } : null,
   });
 }
 
@@ -272,13 +273,14 @@ export async function eventGuestSweep(db: any, tenantId: string, tenant: any, no
       }).catch(() => false);
       if (!mine) continue;
       const party = g.partyId ? guests.filter((x: any) => x.data()?.partyId === g.partyId).length : 1;
-      const link = g.partyId && !placeChangeBlock(ev, today) ? placeUrl(tenant, null, tenantId, e.id, g.partyId) : null;
+      // (Their pass for every party, paid tickets too; changing places only where the event allows it.)
+      const link = g.partyId ? placeUrl(tenant, null, tenantId, e.id, g.partyId) : null; const canChange = !placeChangeBlock(ev, today);
       const title = titleOf(ev);
       const ok = await emailGuest(db, tenantId, tenant, ev, g.email, g.name, {
         subject: `See you tomorrow: ${title}`, heading: 'See you tomorrow',
         lines: [hi(g.name), `A reminder that ${title} is tomorrow${party > 1 ? `, and you have ${party} places under your name` : ''}.`,
-          link ? 'If you can’t make it now, please cancel or give your place to a friend, so someone else can come.' : 'Just give your name at the door.'],
-        cta: link ? { label: 'See or change your place', url: link } : null,
+          link ? `Your pass has the code to show at the door.${canChange ? ' If you can’t make it now, please cancel or give your place to a friend there, so someone else can come.' : ''}` : 'Just give your name at the door.'],
+        cta: link ? { label: 'Open your pass', url: link } : null,
         secondary: meal && !g.mealChoiceId ? (() => { const m = mealUrl(tenant, null, tenantId, e.id); return m ? { label: 'Choose your meal', url: m } : null; })() : null,
       });
       await d.ref.set(ok ? { reminderSentAt: now.toISOString(), reminderClaimAt: null } : { reminderClaimAt: null }, { merge: true }).catch(() => undefined);
