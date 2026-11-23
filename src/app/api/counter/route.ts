@@ -723,7 +723,8 @@ export async function POST(req: NextRequest) {
     }
     // "I ordered ahead, code 4821": the order placed ahead becomes this car's (or a new car's), straight to pickup.
     if (action === 'aheadCar') {
-      const r: any = await aheadToCar(db, tenantId, tenant, { orderId: b.orderId, code: b.code, carId: b.carId }, who, here);
+      // (Wrong codes are counted for the person, or the screen when nobody's signed in on it.)
+      const r: any = await aheadToCar(db, tenantId, tenant, { orderId: b.orderId, code: b.code, carId: b.carId }, who, here, { person: who.id ? `p_${who.id}` : `s_${screen?.ref?.id || 'lane'}` });
       forgetStats(tenantId); forgetLine(tenantId);
       return r.ok ? ok({ carId: r.carId, number: r.number, name: r.name, linked: !!r.linked, carNumber: r.carNumber || null, already: !!r.already, staffOk }) : NextResponse.json({ ok: false, error: r.error, code: r.code || null, staffOk }, { status: r.status });
     }

@@ -21,7 +21,7 @@ import { lineFor, totalsOf, orderNumber, photoOf, carryOn, type OrderLine } from
 import { readMenu, type MenuItem } from '@/lib/menu-server';
 import { sendOrder, payOrder, cleanName } from '@/lib/counter-server';
 import { giveBack } from '@/lib/counter-card';
-import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { formatTime, todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { loyaltyOf } from '@/lib/loyalty';
 import { pickupDelayMin } from '@/lib/kitchen-pace';
 import { paceNow } from '@/lib/kitchen-pace-server';
@@ -754,9 +754,79 @@ export const aheadChanged = (tenantId: string) => { laneCache.delete(tenantId); 
  *  ordered anything yet or not, and the kitchen starts on it if it was waiting: the crew asks if they'd like anything else,
  *  which is the car's own order, paid at the window ("Nothing else" sends the car on to pickup: aheadNothingMore). Without
  *  a car at the speaker (the window, a pickup-only lane), a car is made for it, straight to pickup. */
-export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { orderId?: unknown; code?: unknown; carId?: unknown }, who: { id: string | null; name: string }, here: string | null = null): Promise<any> {
+// WRONG CODES (design board "Wrong pickup codes at the drive-thru"): each code typed in is counted on the server before
+// it's looked up (tenants/{t}/private/aheadMisses, for today only), in the same step that checks the limits, and given
+// back only once its order goes with a car. Three for one car stops codes for that car; eight by one person (or screen)
+// within ten minutes pauses theirs; twenty across the business within half an hour pauses typed codes everywhere for a
+// while, and the owner and managers are told once that day. If the count can't be kept, codes wait
+// (never looked up uncounted). Tapping an order in the list, or finding it by name or number, is never limited.
+export const CAR_MISSES = 3, PERSON_MISSES = 8, MISS_WINDOW_MS = 10 * 60000, BIZ_MISSES = 20, BIZ_WINDOW_MS = 30 * 60000;
+const missesAt = (T: string) => `${T}/private/aheadMisses`;
+const recentOf = (list: unknown, now: number, win: number) => (Array.isArray(list) ? list.map(String) : []).filter((t) => now - Date.parse(t) < win).sort();
+const NUM = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+const CAR_STOPPED = `${NUM[CAR_MISSES]} codes didn’t match for this car. Ask for the name on their order, and find it in the list.`;
+const untilWords = (recent: string[], limit: number, win: number, tz: string) => formatTime(new Date(Date.parse(recent[recent.length - limit]) + win), tz);
+const personPaused = (recent: string[], tz: string) => `${NUM[PERSON_MISSES]} codes didn’t match here in the last few minutes, so codes are paused here until ${untilWords(recent, PERSON_MISSES, MISS_WINDOW_MS, tz)}. Find their order by name in the list.`;
+const bizPaused = (recent: string[], tz: string) => `Too many codes haven’t matched in the last half hour, so codes are paused until ${untilWords(recent, BIZ_MISSES, BIZ_WINDOW_MS, tz)}. Find their order by name in the list.`;
+type CodeTry = { ok: true; at: string; tell: boolean } | Fail;
+const CODES_PAUSED_NOTE = `${BIZ_MISSES} pickup codes didn’t match at the drive-thru within half an hour, so typed codes are paused for a while. Orders can still be found by name or in the list. If nobody on the team was having trouble, someone may be guessing codes.`;
+/** A code about to be looked up: refused at a limit, otherwise counted now (as if it won't match). */
+async function tryCode(db: any, T: string, day: string, carId: string | null, person: string, tz: string, now: number): Promise<CodeTry> {
+  const at = new Date(now).toISOString();
+  return db.runTransaction(async (tx: any) => {
+    const ref = db.doc(missesAt(T)); const m: any = (await tx.get(ref)).data() || {};
+    const same = m.day === day;
+    const cars: Record<string, number> = same && m.cars && typeof m.cars === 'object' ? { ...m.cars } : {};
+    const people: Record<string, string[]> = same && m.people && typeof m.people === 'object' ? { ...m.people } : {};
+    const biz = recentOf(same ? m.biz : [], now, BIZ_WINDOW_MS);
+    if (biz.length >= BIZ_MISSES) return fail(bizPaused(biz, tz), 429, 'codes_paused');
+    // (The person's count is kept with a car too, so a made-up car can't be used to get round it.)
+    const mine = recentOf(people[person], now, MISS_WINDOW_MS); if (mine.length >= PERSON_MISSES) return fail(personPaused(mine, tz), 429, 'codes_paused');
+    if (carId) { if ((Number(cars[carId]) || 0) >= CAR_MISSES) return fail(CAR_STOPPED, 429, 'codes_stopped'); cars[carId] = (Number(cars[carId]) || 0) + 1; }
+    people[person] = [...mine, at].slice(-PERSON_MISSES);
+    const bizNow = [...biz, at].slice(-BIZ_MISSES);
+    // (The business is told once a day when typed codes are paused everywhere.)
+    const tell = bizNow.length >= BIZ_MISSES && !(same && m.told);
+    tx.set(ref, { kind: 'aheadMisses', day, cars, people, biz: bizNow, ...((same && m.told) || tell ? { told: true } : {}) });
+    return { ok: true as const, at, tell };
+  }).catch(() => fail('Codes can’t be checked just now. Try again in a moment, or find their order by name in the list.', 503, 'codes_busy'));
+}
+/** A code that matched nothing: already counted; what to say (stopped or paused if that was the last one allowed). */
+async function missWords(db: any, T: string, day: string, carId: string | null, person: string, tz: string, now: number): Promise<Fail> {
+  const m: any = (await db.doc(missesAt(T)).get().catch(() => null))?.data?.() || {};
+  if (m.day === day) {
+    const biz = recentOf(m.biz, now, BIZ_WINDOW_MS); if (biz.length >= BIZ_MISSES) return fail(bizPaused(biz, tz), 429, 'codes_paused');
+    if (carId && (Number(m.cars?.[carId]) || 0) >= CAR_MISSES) return fail(CAR_STOPPED, 429, 'codes_stopped');
+    const mine = recentOf(m.people?.[person], now, MISS_WINDOW_MS); if (mine.length >= PERSON_MISSES) return fail(personPaused(mine, tz), 429, 'codes_paused');
+  }
+  return fail('No order today has that code. Check the number with them.', 404, 'no_code');
+}
+/** A code whose order went with a car: the try is given back, and that car's count starts over. */
+async function codeWorked(db: any, T: string, day: string, carId: string | null, person: string, at: string) {
+  await db.runTransaction(async (tx: any) => {
+    const ref = db.doc(missesAt(T)); const m: any = (await tx.get(ref)).data() || {};
+    if (m.day !== day) return;
+    const cars = { ...(m.cars || {}) }; if (carId) delete cars[carId];
+    const people = { ...(m.people || {}) }; if (Array.isArray(people[person])) { const l = [...people[person]]; const k = l.indexOf(at); if (k >= 0) l.splice(k, 1); people[person] = l; }
+    const biz = Array.isArray(m.biz) ? [...m.biz] : []; const k = biz.indexOf(at); if (k >= 0) biz.splice(k, 1);
+    tx.set(ref, { ...m, cars, people, biz });
+  }).catch(() => {});
+}
+
+export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { orderId?: unknown; code?: unknown; carId?: unknown }, who: { id: string | null; name: string }, here: string | null = null, o: { person?: string } = {}): Promise<any> {
   const T = `tenants/${tenantId}`; const days = openDays(tenant);
   let orderId = String(b.orderId || '');
+  // (Found by a code typed in, rather than an order picked: counted when it matches nothing.)
+  const byCode = !ID.test(orderId) && /^\d{4}$/.test(String(b.code || ''));
+  const tz = tenantTimeZone(tenant); const now = Date.now(); const missDay = days[0];
+  const carFor = ID.test(String(b.carId || '')) ? String(b.carId) : null;
+  const person = String(o.person || (who.id ? `p_${who.id}` : 'lane')).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'lane';
+  let tried: string | null = null;
+  if (byCode) {
+    const t = await tryCode(db, T, missDay, carFor, person, tz, now); if (!t.ok) return t; tried = t.at;
+    // (Paused everywhere: the owner and managers are told, once that day, on their phones too.)
+    if (t.tell) { const { tellManagers } = await import('@/lib/tell-managers'); await tellManagers(db, tenantId, tenant, { type: 'drive_codes', message: CODES_PAUSED_NOTE, link: '/drive-live', priority: 'high' }).catch(() => 0); }
+  }
   // The code: today's first, then last night's (an order placed just before midnight).
   // (Today's and last night's could share a code: one already picked up is skipped.)
   // (With more than one location, this lane's location's codes first, then any from before: lib/here-server.)
@@ -780,7 +850,7 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
     if (found.length > 1) return fail('Two locations have an order with that code today. Set this screen to where it is on the Screens page, then try again.', 409, 'two_codes');
     if (found.length) orderId = found[0];
   }
-  if (!ID.test(orderId)) return fail('No order today has that code. Check the number with them.', 404, 'no_code');
+  if (!ID.test(orderId)) return byCode ? missWords(db, T, missDay, carFor, person, tz, now) : fail('No order today has that code. Check the number with them.', 404, 'no_code');
   const carId = ID.test(String(b.carId || '')) ? String(b.carId) : null;
   const ref = db.doc(`${T}/counterOrders/${orderId}`);
   const carRef = carId ? db.doc(`${T}/driveThruCars/${carId}`) : db.collection(`${T}/driveThruCars`).doc();
@@ -820,6 +890,8 @@ export async function aheadToCar(db: any, tenantId: string, tenant: any, b: { or
     return { ok: true, carId: carRef.id, number: or.number, name: or.guestName || null, linked: !!car, carNumber: car ? String(car.number || '') : String(or.number || '') };
   });
   if (r.ok) { await startNow(db, tenantId, orderId); aheadChanged(tenantId); }
+  // (A typed code counts as a miss unless its order went with a car: a refused one, unpaid or taken, still counts.)
+  if (r.ok && tried) await codeWorked(db, T, missDay, carFor, person, tried);
   return r;
 }
 

@@ -365,7 +365,10 @@ export default function DriveThru() {
   const [member, setMember] = useState<RewardMember | null>(null);
   // Ordered ahead: the list of today's drive-thru orders placed ahead, and the code being typed in.
   const [aheadOpen, setAheadOpen] = useState(false);
-  const [aheadCode, setAheadCode] = useState('');
+  const [aheadCode, setAheadCodeRaw] = useState('');
+  // (Why a code didn't find an order, said beside it rather than behind the sheet; cleared as the code changes.)
+  const [aheadErr, setAheadErr] = useState('');
+  const setAheadCode = (v: string) => { setAheadCodeRaw(v); setAheadErr(''); };
   // Scan to pay: the code for this order, up while the guest pays on their own phone.
   const [phoneFor, setPhoneFor] = useState<{ orderId: string; url: string; img: string; wallets: boolean } | null>(null);
   // The card reader at this screen (kept on the device): one of the business's readers, or 'none' for a card machine of
@@ -488,6 +491,8 @@ export default function DriveThru() {
   const mergeCars = (() => { const m = lane?.merge; if (!m || !twoLanes || !['all', 'pay', 'pickup'].includes(role)) return null;
     const next = cars.find((c) => c.id === m.next), other = cars.find((c) => c.id === m.other); return next && other ? { next, other } : null; })();
   const car = cars.find((c) => c.id === picked) || null;
+  // (Another car picked: why the last one's code didn't find an order no longer applies.)
+  useEffect(() => { setAheadErr(''); }, [picked]);
   const order = car?.orderId ? lane?.orders[car.orderId] : undefined;
   // Their order placed ahead, going with the car: paid, handed over with it, and Ready only when both are.
   const aheadOrder = car?.aheadId ? lane?.orders[car.aheadId] : undefined;
@@ -717,7 +722,7 @@ export default function DriveThru() {
   const toAhead = (x: { orderId?: string; code?: string }, asNew = false) => act('aheadCar', { action: 'aheadCar', ...x, ...(speakerCar && !asNew ? { carId: speakerCar.id } : {}) }, (d) => {
     setAheadOpen(false); setAheadCode(''); pickCar(d.carId);
     setNotice({ text: d.linked ? `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid and goes with car ${d.carNumber}. Ask if they’d like anything else.` : `Order ${d.number}${d.name ? ` for ${d.name}` : ''} is paid. Send them on to the pickup window.`, tone: 'good' });
-  });
+  }, undefined, (d) => { if (d.error) { setAheadErr(d.error); d.quiet = true; } });
   // "Nothing else": on to pickup with the order placed ahead.
   const aheadDone = () => car && act('aheadDone', { action: 'aheadDone', carId: car.id }, (d) => { setJust(null); setNotice({ text: `Order ${d.number} is paid. Send them on to the pickup window.`, tone: 'good' }); });
   // Coming from the line: ordered there, now on their way to the window.
@@ -1020,7 +1025,7 @@ export default function DriveThru() {
           {pickupOnly ? role !== 'runner' && (
             <div className="space-y-3 rounded-2xl bg-[#fff] p-3" style={{ border: `1px solid ${LINE}` }} role="group" aria-labelledby="pickup-find">
               <p id="pickup-find" className="px-1 text-[15px] font-semibold">Pickup only: find their order</p>
-              <AheadFind list={ahead} q={aheadCode} setQ={setAheadCode} busy={busy === 'aheadCar'} cta="It’s here" now={now} inputId="pickup-code" onPick={(x) => toAhead(x, true)} />
+              <AheadFind list={ahead} q={aheadCode} setQ={setAheadCode} busy={busy === 'aheadCar'} cta="It’s here" now={now} inputId="pickup-code" err={aheadErr} onPick={(x) => toAhead(x, true)} />
               <button type="button" onClick={() => newCar()} disabled={busy === 'car'} className={`min-h-[44px] rounded-lg px-1 text-[14px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>Take an order here anyway</button>
             </div>
           ) : (
@@ -1318,7 +1323,7 @@ export default function DriveThru() {
         onLink={(phone, join, name) => new Promise<string | null>((res) => { void act('points', { action: 'points', orderId: order.id, phone, join, name }, (d) => {
           setPointsOpen(false); setNotice({ text: d.already ? 'Rewards were already on this order.' : d.earned ? `Rewards added: earned ${d.earned} ${d.unit}.` : 'Rewards added. It earns when it’s paid.', tone: 'good' }); res(null);
         }, undefined, (d) => res(d.code === 'not_found' || d.code === 'not_member' ? d.code : d.error || 'That didn’t go through.')); })} />}
-      {aheadOpen && <AheadSheet list={ahead} code={aheadCode} setCode={setAheadCode} busy={busy === 'aheadCar'} toCar={speakerCar ? speakerCar.number : null} toCarOrdering={!!speakerCar && !!order?.lines.length} choose={role !== 'speaker'} now={now} onPick={(x, asNew) => toAhead(x, asNew)} onClose={() => { setAheadOpen(false); setAheadCode(''); }} />}
+      {aheadOpen && <AheadSheet list={ahead} code={aheadCode} setCode={setAheadCode} err={aheadErr} busy={busy === 'aheadCar'} toCar={speakerCar ? speakerCar.number : null} toCarOrdering={!!speakerCar && !!order?.lines.length} choose={role !== 'speaker'} now={now} onPick={(x, asNew) => toAhead(x, asNew)} onClose={() => { setAheadOpen(false); setAheadCode(''); }} />}
       {looksFor && <LooksSheet start={looksFor === 'new' ? null : cars.find((c) => c.id === looksFor)?.looks || null} busy={busy === 'car' || busy === 'looks'}
         title={looksFor === 'new' ? 'A new car in line' : 'How the car looks'} cta={looksFor === 'new' ? 'Start the order' : 'Save'}
         onClose={() => setLooksFor(null)}
@@ -1332,7 +1337,7 @@ export default function DriveThru() {
 const SWATCH: Record<string, string> = { White: '#ffffff', Black: '#16171a', Gray: '#8a8d93', Silver: '#c9cbd0', Red: '#c0392b', Blue: '#2f5fb3', Green: '#2e7d4f', Brown: '#7a5230', Gold: '#c9a227' };
 // ─── "I ordered ahead": the order placed ahead, by its code (four digits find it even before it's on the list), or by
 // name or order number from today's list as it's typed ───────────────────────────────────────────────────────────────
-function AheadFind({ list, q, setQ, busy, cta, now, inputId, onPick }: { list: Ahead[]; q: string; setQ: (v: string) => void; busy: boolean; cta: string; now: number; inputId: string; onPick: (x: { orderId?: string; code?: string }) => void }) {
+function AheadFind({ list, q, setQ, busy, cta, now, inputId, err, onPick }: { list: Ahead[]; q: string; setQ: (v: string) => void; busy: boolean; cta: string; now: number; inputId: string; err?: string; onPick: (x: { orderId?: string; code?: string }) => void }) {
   const clockOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const t = q.trim().toLowerCase(); const code = /^\d{4}$/.test(t);
   const shown = !t ? list : list.filter((a) => a.number.toLowerCase().startsWith(t) || (/^\d+$/.test(t) && a.code.startsWith(t)) || String(a.name || '').toLowerCase().split(/\s+/).some((w) => w.startsWith(t)));
@@ -1343,6 +1348,7 @@ function AheadFind({ list, q, setQ, busy, cta, now, inputId, onPick }: { list: A
         <input id={inputId} value={q} onChange={(e) => setQ(e.target.value.slice(0, 40))} autoComplete="off" autoCorrect="off" spellCheck={false} placeholder="Code or name" className={`h-14 min-w-0 flex-1 rounded-2xl px-4 text-[20px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }} />
         <button type="submit" disabled={busy || !(code || shown.length === 1)} className={`${btn} min-h-[56px] shrink-0 px-5`} style={{ background: INK, color: '#fff' }}>{busy ? 'Finding…' : 'Find'}</button>
       </form>
+      {err && <p role="alert" className="rounded-2xl px-3 py-3 text-[14px] font-semibold" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
       {list.length > 0 && (
         <div className="space-y-2">
           <p className="text-[14px] font-semibold" aria-live="polite">{t ? `${shown.length} of ${list.length} today` : 'Today, not picked up yet'}</p>
@@ -1362,7 +1368,7 @@ function AheadFind({ list, q, setQ, busy, cta, now, inputId, onPick }: { list: A
   );
 }
 
-function AheadSheet({ list, code, setCode, busy, toCar, toCarOrdering, choose, now, onPick, onClose }: { list: Ahead[]; code: string; setCode: (v: string) => void; busy: boolean; toCar: string | null; toCarOrdering: boolean; choose: boolean; now: number; onPick: (x: { orderId?: string; code?: string }, asNew: boolean) => void; onClose: () => void }) {
+function AheadSheet({ list, code, setCode, err, busy, toCar, toCarOrdering, choose, now, onPick, onClose }: { list: Ahead[]; code: string; setCode: (v: string) => void; err?: string; busy: boolean; toCar: string | null; toCarOrdering: boolean; choose: boolean; now: number; onPick: (x: { orderId?: string; code?: string }, asNew: boolean) => void; onClose: () => void }) {
   const box = useRef<HTMLDivElement | null>(null);
   // Away from the speaker (a window, or every car), the car there may not be theirs: which it goes with is picked here.
   // (A car at the speaker already ordering is more likely someone else: a new car unless they say it's that one.)
@@ -1388,7 +1394,7 @@ function AheadSheet({ list, code, setCode, busy, toCar, toCarOrdering, choose, n
             {([[true, `Car ${toCar} at the speaker`], [false, 'A new car at pickup']] as [boolean, string][]).map(([v, label]) => (
               <button key={label} type="button" aria-pressed={withCar === v} onClick={() => setWithCar(v)} className={`${btn} min-h-[48px]`} style={withCar === v ? { background: INK, color: '#fff' } : { border: `1px solid ${LINE}`, background: '#fff', color: INK }}>{label}</button>))}
           </div>)}
-        <AheadFind list={list} q={code} setQ={setCode} busy={busy} cta="It’s this car" now={now} inputId="ahead-code" onPick={(x) => onPick(x, !linking)} />
+        <AheadFind list={list} q={code} setQ={setCode} busy={busy} cta="It’s this car" now={now} inputId="ahead-code" err={err} onPick={(x) => onPick(x, !linking)} />
         <button type="button" onClick={onClose} className={`${btn} w-full`} style={{ border: `1px solid ${LINE}`, background: '#fff', color: INK }}>Close</button>
       </div>
     </div>

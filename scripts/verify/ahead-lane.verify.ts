@@ -140,6 +140,76 @@ const nowS = () => new Date().toISOString();
   car = await get(`${T}/driveThruCars/${r.body.carId}`);
   check('no car at the speaker (the window, a pickup-only lane): a car made for it, straight to pickup', r.body.ok && !r.body.linked && car.stage === 'pickup' && car.orderId === a6.id && !car.aheadId, car);
 
+  console.log('wrong codes');
+  const a7 = await placed(7, 'Noor'), a8 = await placed(8, 'Ivy'), a9 = await placed(9, 'Bo');
+  const missDoc = () => get(`${T}/private/aheadMisses`) as Promise<any>;
+  // (Each part starts the screen's own count afresh: every car's codes count for the screen too.)
+  const freshPeople = async () => { const m: any = (await missDoc()) || {}; await db.doc(`${T}/private/aheadMisses`).set({ kind: 'aheadMisses', day, cars: m.cars || {}, people: {}, biz: [] }); };
+  await freshPeople();
+  const c7 = (await L({ action: 'car', carKey: 'carkey-lane-7' })).body;
+  const w1 = await L({ action: 'aheadCar', code: '1111', carId: c7.carId }); const w2 = await L({ action: 'aheadCar', code: '1112', carId: c7.carId });
+  const w3 = await L({ action: 'aheadCar', code: '1113', carId: c7.carId });
+  check('a code that matches nothing says so; the third for one car stops codes for it', w1.status === 404 && w1.body.code === 'no_code' && w2.status === 404 && w3.status === 429 && w3.body.code === 'codes_stopped'
+    && w3.body.error === 'Three codes didn’t match for this car. Ask for the name on their order, and find it in the list.', [w1.body, w3.body]);
+  r = await L({ action: 'aheadCar', code: a7.code, carId: c7.carId });
+  check('…then even the right code is refused for that car, and isn’t looked up', r.status === 429 && r.body.code === 'codes_stopped' && !(await get(`${T}/counterOrders/${a7.id}`)).ahead?.carId && (await missDoc()).cars[c7.carId] === 3, r.body);
+  r = await L({ action: 'aheadCar', orderId: a7.id, carId: c7.carId });
+  check('…but tapping the order in the list still finds it', r.body.ok && r.body.linked && r.body.number === 'A7', r.body);
+  await freshPeople();
+  const c8 = (await L({ action: 'car', carKey: 'carkey-lane-8' })).body;
+  await L({ action: 'aheadCar', code: '2221', carId: c8.carId }); await L({ action: 'aheadCar', code: '2222', carId: c8.carId });
+  r = await L({ action: 'aheadCar', code: a8.code, carId: c8.carId });
+  const after8 = await L({ action: 'aheadCar', code: '2223', carId: c8.carId });
+  const miss: any = await missDoc();
+  check('a code whose order goes with the car clears that car’s count (one more wrong is the first again), kept server-only for today', r.body.ok && r.body.number === 'A8' && after8.status === 404 && after8.body.code === 'no_code'
+    && miss.kind === 'aheadMisses' && miss.day === day && miss.cars[c8.carId] === 1 && miss.cars[c7.carId] === 3, { r: r.body, after8: after8.body, miss });
+  // A code that matches but whose order is refused (here: unpaid) still counts.
+  await freshPeople();
+  const a10 = await placed(10, 'Tess'); await db.doc(`${T}/counterOrders/${a10.id}`).set({ paidAt: null }, { merge: true });
+  const c10 = (await L({ action: 'car', carKey: 'carkey-lane-10' })).body;
+  r = await L({ action: 'aheadCar', code: a10.code, carId: c10.carId });
+  check('…a code that matches an order that’s then refused (unpaid) still counts', r.status === 409 && r.body.code === 'unpaid' && (await missDoc()).cars[c10.carId] === 1, r.body);
+  await freshPeople();
+  const away: any[] = []; for (let i = 0; i < 8; i++) away.push(await L({ action: 'aheadCar', code: String(3330 + i) }));
+  check('away from a car at the speaker: eight wrong by one person or screen within ten minutes pauses theirs, saying until when', away.slice(0, 7).every((x) => x.status === 404) && away[7].status === 429 && away[7].body.code === 'codes_paused'
+    && /^Eight codes didn’t match here in the last few minutes, so codes are paused here until \d{1,2}:\d{2}\s?(AM|PM)\. Find their order by name in the list\.$/.test(away[7].body.error), away[7].body);
+  r = await L({ action: 'aheadCar', code: a9.code });
+  const byList = await L({ action: 'aheadCar', orderId: a9.id });
+  check('…the right code waits too, but the order picked from the list goes', r.status === 429 && r.body.code === 'codes_paused' && byList.body.ok && byList.body.number === 'A9', [r.body, byList.body]);
+  const missAfter: any = await missDoc();
+  check('…counted for that screen (or the person signed in), with only the last few times kept', Object.keys(missAfter.people).length === 1 && /^s_/.test(Object.keys(missAfter.people)[0]) && (Object.values(missAfter.people)[0] as any[]).length === 8, missAfter.people);
+  const pk = Object.keys(missAfter.people)[0];
+  await db.doc(`${T}/private/aheadMisses`).set({ kind: 'aheadMisses', day, cars: {}, biz: [], people: { [pk]: (missAfter.people[pk] as string[]).map(() => new Date(Date.now() - 11 * 60000).toISOString()) } });
+  const later = await L({ action: 'aheadCar', code: '3399' });
+  check('…and after ten minutes codes work there again', later.status === 404 && later.body.code === 'no_code', later.body);
+  const a11 = await placed(11, 'Uma');
+  const okAway = await L({ action: 'aheadCar', code: a11.code });
+  check('…a code that finds its order away from a car gives its try back', okAway.body.ok && (await missDoc()).people[pk].length === 1, { body: okAway.body, people: (await missDoc()).people });
+  // Across the business: twenty within half an hour pauses typed codes everywhere, and the business is told once.
+  // (A made-up car each time: the person's own count still stops it.)
+  await db.doc(`${T}/private/aheadMisses`).set({ kind: 'aheadMisses', day, cars: {}, people: {}, biz: [] });
+  const fake: any[] = []; for (let i = 0; i < 9; i++) fake.push(await L({ action: 'aheadCar', code: String(6000 + i), carId: `madeup${i}` }));
+  check('…a different car each time doesn’t get round the person’s count', fake.slice(0, 7).every((x) => x.status === 404) && fake[7].status === 429 && fake[8].status === 429 && fake[8].body.code === 'codes_paused', fake.map((x) => `${x.status} ${x.body.code}`));
+  await db.doc(T).set({ userId: 'owner1' }, { merge: true });
+  await db.doc(`${T}/private/aheadMisses`).set({ kind: 'aheadMisses', day, cars: {}, people: {}, biz: Array.from({ length: 19 }, (_, i) => new Date(Date.now() - (20 - i) * 60000).toISOString()) });
+  const c12 = (await L({ action: 'car', carKey: 'carkey-lane-12' })).body;
+  const b20 = await L({ action: 'aheadCar', code: '5555', carId: c12.carId });
+  const b21 = await L({ action: 'aheadCar', code: a9.code, carId: c12.carId });
+  await db.doc(`${T}/private/aheadMisses`).set({ biz: Array.from({ length: 19 }, (_, i) => new Date(Date.now() - (20 - i) * 60000).toISOString()) }, { merge: true });
+  await L({ action: 'aheadCar', code: '5556', carId: c12.carId });
+  const told = (await all(`${T}/notifications`)).filter((n: any) => n.type === 'drive_codes');
+  check('across the business: the twentieth in half an hour pauses typed codes everywhere, and the owner and managers are told once that day', b20.status === 429 && /^Too many codes haven’t matched in the last half hour, so codes are paused until /.test(b20.body.error) && b21.status === 429
+    && told.length === 1 && told[0].userId === 'owner1' && told[0].priority === 'high' && /someone may be guessing codes/.test(told[0].message) && (await missDoc()).told === true, [b20.body, b21.body, told]);
+  const NP = await import('../../src/lib/notify-prefs'); const PT = await import('../../src/lib/push-tier');
+  check('…on their phones too, with the floor’s notices', (PT as any).PUSH_TIER.drive_codes === 'now' && /'drive_wait drive_codes /.test(src('src/lib/notify-prefs.ts')) && src('src/lib/push.ts').includes("case 'drive_codes': return 'Pickup codes paused at the drive-thru';") && !!NP);
+  await db.doc(`${T}/private/aheadMisses`).set({ kind: 'aheadMisses', day: '2001-01-01', cars: { [c8.carId]: 9 }, people: {}, biz: [] });
+  check('…and a new day starts over', (await L({ action: 'aheadCar', code: '4444', carId: c8.carId })).body.code === 'no_code' && (await missDoc()).day === day && (await missDoc()).cars[c8.carId] === 1 && !(await missDoc()).told);
+  const libSrc = src('src/lib/counter-ahead.ts');
+  check('counted before it’s looked up, in the same step as the limits; a count that can’t be kept means codes wait', /const t = await tryCode\(db, T, missDay, carFor, person, tz, now\); if \(!t\.ok\) return t;/.test(libSrc) && /\.catch\(\(\) => fail\('Codes can’t be checked just now\./.test(libSrc)
+    && /if \(r\.ok && tried\) await codeWorked\(/.test(libSrc));
+  check('the lane passes the person, or the screen when nobody’s signed in; says why beside the code, cleared for another car', src('src/app/api/counter/route.ts').includes("{ person: who.id ? `p_${who.id}` : `s_${screen?.ref?.id || 'lane'}` }")
+    && src('src/app/drive-thru/[tenantId]/page.tsx').includes("useEffect(() => { setAheadErr(''); }, [picked]);") && src('src/app/drive-thru/[tenantId]/page.tsx').includes('{err && <p role="alert"'));
+
   console.log('pickup only');
   actor = { uid: 's1', name: 'Kai Park', role: 'staff', isManager: false, caps: [] };
   r = await Mn({ action: 'laneSettings', pickupOnly: true });

@@ -29,6 +29,7 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   money_look: 'now',
   // A car in the drive-thru past the business's limit, for the shift lead (lib/speed-server checkLongWaits).
   drive_wait: 'now',
+  drive_codes: 'now',
   // Other tools
   event_invoice_overpaid: 'today', event_invoice_refunded: 'today',
   // Food cost (lib/price-creep-server): a delivery that pushed a dish over the business's aim

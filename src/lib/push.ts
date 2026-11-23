@@ -24,6 +24,7 @@ function titleFor(type: string | undefined, business: string): string {
     case 'membership_payment_failed': return 'Membership payment failed';
     case 'charge_failed': return 'A charge didn’t go through';
     case 'drive_wait': return 'A car is waiting too long';
+    case 'drive_codes': return 'Pickup codes paused at the drive-thru';
     default: return business || 'New notification';
   }
 }
