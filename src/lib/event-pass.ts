@@ -8,7 +8,7 @@
 //     finds nothing. Four digits can match more than one party at a big event: the door then shows each to pick from.
 //   - Paid tickets get a party too (lib/event-tickets), so a buyer gets the same pass in their confirmation.
 //   - The pass shows only the buyer's own party: each place's first name, never anyone else's.
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { checkPortalKey, portalKey } from '@/lib/portal-key';
 import { linkOrigin } from '@/lib/app-origin';
 import { PARTY_RE, firstOf } from '@/lib/event-places';
@@ -132,4 +132,106 @@ export async function doorIn(db: any, tenantId: string, eventId: string, partyId
     for (const g of docs) { if (g.checkedIn === true || (want && !want.has(g.id))) continue; tx.set(g.ref, { checkedIn: true, checkedInAt: now, checkedInBy: by.slice(0, 80), checkedInHow: 'door' }, { merge: true }); g.checkedIn = true; g.checkedInAt = now; added++; }
     return { ok: true, party: doorPartyOf(docs, partyId), added };
   });
+}
+
+// ── On the night (design board "The event pass", A, its third phone) ──
+// Once the night is on, the pass shows where the evening is (now, and what's next at about what time), their party's
+// courses from the kitchen's own tickets (later, being made, on its way, served), and two things to ask for from the
+// phone: water, or someone to help. Asks are kept server-side (tenants/{t}/private/eventAsks_{eventId}) and shown to the
+// team on the event's manifest; once someone has it, the guest sees who (a first name). They're cleared two days after
+// the event (lib/event-places, the sweep).
+export type EventAskKind = 'water' | 'help';
+export const EVENT_ASKS: { value: EventAskKind; label: string }[] = [{ value: 'water', label: 'Water, please' }, { value: 'help', label: 'Someone to help' }];
+export type EventAsk = { id: string; what: EventAskKind; partyId: string; party: string; table: string | null; seat: string | null; at: string; seenBy: string | null; seenAt: string | null };
+/** The most one party asks for in an hour (open ones, and those answered in the last hour), in a night, and the most
+ *  kept for an event. */
+export const MAX_PARTY_ASKS_HOUR = 12, MAX_PARTY_ASKS = 40, MAX_EVENT_ASKS = 300;
+const asksDoc = (db: any, tenantId: string, eventId: string) => db.doc(`tenants/${tenantId}/private/eventAsks_${eventId}`);
+const cleanAsks = (v: unknown): EventAsk[] => (Array.isArray(v) ? v.filter((a: any) => a && typeof a.id === 'string' && (a.what === 'water' || a.what === 'help')) : []) as EventAsk[];
+/** What the guest sees once it's sent, and once someone has it. */
+export function askSaidAtEvent(a: Pick<EventAsk, 'what' | 'seenBy'>): string {
+  if (a.what === 'water') return a.seenBy ? `Water is on its way. ${a.seenBy} has it.` : 'We let the team know you’d like water.';
+  return a.seenBy ? `${a.seenBy} is coming over.` : 'We let the team know. Someone is coming over.';
+}
+/** What the team sees: "Table 3, seat 1 would like water (Dana’s party)." */
+export function askTextAtEvent(a: Pick<EventAsk, 'what' | 'table' | 'seat' | 'party'>): string {
+  const who = a.table ? `Table ${a.table}${a.seat ? `, seat ${a.seat}` : ''}` : `${a.party}’s party`;
+  const tail = a.table ? ` (${a.party}’s party)` : '';
+  return a.what === 'water' ? `${who} would like water${tail}.` : `${who} is asking for someone to help${tail}.`;
+}
+/** A guest asks: one open ask of each kind per party (a second tap is the same ask), and a few a night at most. */
+export async function askAtEvent(db: any, tenantId: string, eventId: string, partyId: string, what: unknown, lead: { first: string; table: string | null; seat: string | null }, nowIso: string, eventDate = '')
+  : Promise<{ ok: true; ask: EventAsk; again: boolean } | { ok: false; error: string; status: number }> {
+  if (what !== 'water' && what !== 'help') return { ok: false, error: 'Ask for water, or someone to help.', status: 400 };
+  return db.runTransaction(async (tx: any) => {
+    const ref = asksDoc(db, tenantId, eventId); const all = cleanAsks((await tx.get(ref)).data()?.asks);
+    const mine = all.filter((a) => a.partyId === partyId); const open = mine.find((a) => a.what === what && !a.seenBy);
+    if (open) return { ok: true, ask: open, again: true };
+    const hour = mine.filter((a) => !a.seenBy || Date.parse(nowIso) - Date.parse(a.at) < 3600000);
+    if (hour.length >= MAX_PARTY_ASKS_HOUR || mine.length >= MAX_PARTY_ASKS) return { ok: false, error: 'That’s a lot of asks. Ask someone from the team nearby.', status: 429 };
+    const ask: EventAsk = { id: randomBytes(6).toString('hex'), what, partyId, party: lead.first.slice(0, 40), table: lead.table, seat: lead.seat, at: nowIso, seenBy: null, seenAt: null };
+    // (Marked as asks with the event's day, so the sweep clears them once the event is over: lib/event-places.)
+    tx.set(ref, { kind: 'eventAsks', eventId, ...(/^\d{4}-\d{2}-\d{2}$/.test(eventDate) ? { eventDate } : {}), asks: [...all, ask].slice(-MAX_EVENT_ASKS), updatedAt: nowIso }, { merge: true });
+    return { ok: true, ask, again: false };
+  });
+}
+/** The team: the event's asks, newest first (open ones, and those someone took in the last 15 minutes). */
+export async function eventAsks(db: any, tenantId: string, eventId: string, nowMs = Date.now()): Promise<(EventAsk & { text: string })[]> {
+  const all = cleanAsks((await asksDoc(db, tenantId, eventId).get()).data()?.asks);
+  return all.filter((a) => !a.seenBy || nowMs - Date.parse(String(a.seenAt || '')) < 15 * 60000).reverse().slice(0, 40).map((a) => ({ ...a, text: askTextAtEvent(a) }));
+}
+/** Someone on the team has it: their first name goes to the guest. */
+export async function seeAsk(db: any, tenantId: string, eventId: string, askId: unknown, by: string, nowIso: string): Promise<boolean> {
+  if (typeof askId !== 'string' || !/^[a-z0-9]{4,16}$/.test(askId)) return false;
+  return db.runTransaction(async (tx: any) => {
+    const ref = asksDoc(db, tenantId, eventId); const all = cleanAsks((await tx.get(ref)).data()?.asks);
+    const i = all.findIndex((a) => a.id === askId); if (i < 0) return false;
+    if (!all[i].seenBy) { all[i] = { ...all[i], seenBy: (String(by || '').trim().split(/\s+/)[0] || 'Someone').slice(0, 30), seenAt: nowIso }; tx.set(ref, { asks: all, updatedAt: nowIso }, { merge: true }); }
+    return true;
+  });
+}
+
+export type CourseState = 'later' | 'making' | 'on_way' | 'served';
+export type PassNight = { now: string | null; next: { what: string; at: string } | null; courses: { n: number; name: string; state: CourseState; at: string | null; dishes: string[] }[];
+  asks: { id: string; what: EventAskKind; said: string; open: boolean }[] };
+const RANK: Record<CourseState, number> = { making: 0, on_way: 1, later: 2, served: 3 };
+/** Where a plate is, from its kitchen ticket. */
+export const plateState = (t: { status?: string; carriedAt?: string | null }): CourseState | null => {
+  const st = String(t?.status || ''); if (st === 'cancelled') return null;
+  if (st === 'delivered' || st === 'served') return 'served';
+  return st === 'ready' || t?.carriedAt ? 'on_way' : 'making';
+};
+/** The night as their pass shows it: from the event's night (lib/event-night-server), their party's kitchen tickets and
+ *  choices, and their asks. A course their party has nothing in isn't shown. */
+export function passNight(night: any, party: any[], tickets: any[], menu: { id: string; name: string; courseNumber?: number }[], asks: EventAsk[], clock: (hm: string) => string): PassNight {
+  const show: any[] = Array.isArray(night?.show) ? night.show : []; const states: Record<string, string> = night?.state?.states || {};
+  const done = show.filter((m) => states[m.id] === 'done'); const next = night?.state?.next || null;
+  const dish = new Map(menu.map((m) => [String(m.id), String(m.name || '').slice(0, 80)])); const courseOf = new Map(menu.map((m) => [String(m.id), Number(m.courseNumber) || 1]));
+  const fired = new Set<number>((night?.fired || []).map(Number));
+  // (A guest's choice for a course: picked for it, or their one meal when it's that course's dish.)
+  const pick = (g: any, n: number) => { const c = g?.courseSelections?.[n]; if (c) return String(c); const m = g?.mealChoiceId ? String(g.mealChoiceId) : ''; return m && courseOf.get(m) === n ? m : ''; };
+  const courses = (Array.isArray(night?.courses) ? night.courses : []).map((c: any) => {
+    const n = Number(c.n); const moment = show.find((m) => m.course === n);
+    const mine = tickets.filter((t) => Number(t.courseNumber) === n).map((t) => ({ t, s: plateState(t) })).filter((x) => x.s) as { t: any; s: CourseState }[];
+    const chosen = party.map((g) => dish.get(pick(g, n)) || '').filter(Boolean);
+    const names = mine.length ? mine.map((x) => String(x.t.menuItemName || '').slice(0, 80)).filter(Boolean) : chosen;
+    const counted = Array.from(names.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map<string, number>())).map(([x, k]) => (k > 1 ? `${x} ×${k}` : x));
+    const state: CourseState = !fired.has(n) || !mine.length ? 'later' : mine.every((x) => x.s === 'served') ? 'served' : mine.map((x) => x.s).filter((s) => s !== 'served').sort((a, b) => RANK[a] - RANK[b])[0];
+    return { n, name: String(moment?.what || c.name || `Course ${n}`).slice(0, 80), state, at: !fired.has(n) && moment?.at ? clock(moment.at) : null, dishes: counted, has: mine.length > 0 || chosen.length > 0 };
+  }).filter((c: any) => c.has).map(({ has, ...c }: any) => c);
+  return { now: done.length ? String(done[done.length - 1].what).slice(0, 80) : null, next: next ? { what: String(next.what).slice(0, 80), at: clock(next.at) } : null, courses,
+    asks: asks.slice(-6).reverse().map((a) => ({ id: a.id, what: a.what, said: askSaidAtEvent(a), open: !a.seenBy })) };
+}
+/** The party's asks for the night, as kept. */
+export async function partyAsks(db: any, tenantId: string, eventId: string, partyId: string): Promise<EventAsk[]> {
+  return cleanAsks((await asksDoc(db, tenantId, eventId).get()).data()?.asks).filter((a) => a.partyId === partyId);
+}
+/** Clear the asks of events more than two days past (the sweep, lib/event-places): guests' first names and tables
+ *  aren't kept after the night. Gives back how many were cleared. */
+export async function clearOldAsks(db: any, tenantId: string, today: string): Promise<number> {
+  const snap = await db.collection(`tenants/${tenantId}/private`).where('kind', '==', 'eventAsks').limit(200).get().catch(() => null);
+  const cut = Date.parse(`${today}T12:00:00Z`) - 2 * 86400000; let n = 0;
+  for (const d of snap?.docs || []) { const day = String(d.data()?.eventDate || ''); const at = Date.parse(`${day}T12:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || at < cut) { await d.ref.delete().catch(() => undefined); n++; } }
+  return n;
 }

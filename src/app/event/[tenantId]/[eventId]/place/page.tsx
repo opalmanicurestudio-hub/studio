@@ -6,7 +6,9 @@
 //   It's their PASS too (design board "The event pass", A; lib/event-pass), for free places and paid tickets alike: the
 //   entry code for the door (a QR the team scans, or its 4 digits), who's in their party with each one's seat, meal and
 //   allergies (a meal link to send each guest who hasn't chosen), and how to get there. On the day the code comes first;
-//   once they're checked in, it says they're in.
+//   once they're checked in, it says they're in. On the night: where the evening is (now, and what's next), their
+//   party's courses from the kitchen (being made, on its way, served), and asking for water or someone to help, which
+//   goes to the team on the event's manifest; it keeps itself up to date while it's open.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import QRCode from 'qrcode';
@@ -15,6 +17,43 @@ import { AMBER, BusinessHead, Button, CARD, GREEN, INK, INPUT, LABEL, LINE, MUTE
 type Mode = 'view' | 'give' | 'cancel';
 type PassPlace = { id: string; first: string; you: boolean; seat: string | null; table: string | null; seatNo: string | null; meal: string | null; allergies: string[]; severe: boolean; checkedIn: boolean };
 const GREEN_TINT = '#ecf6f0';
+/** What a pass can ask for on the night (lib/event-pass EVENT_ASKS). */
+const ASK_BUTTONS: { what: 'water' | 'help'; label: string }[] = [{ what: 'water', label: 'Water, please' }, { what: 'help', label: 'Someone to help' }];
+type NightCourse = { n: number; name: string; state: 'later' | 'making' | 'on_way' | 'served'; at: string | null; dishes: string[] };
+const COURSE_WORDS: Record<NightCourse['state'], string> = { later: 'Later', making: 'Being made', on_way: 'On its way', served: 'Served' };
+/** Tonight on the pass: where the evening is, their courses, and asking for something. */
+function Tonight({ night, seated, asking, said, onAsk }: { night: any; seated: boolean; asking: string; said: string; onAsk: (what: 'water' | 'help') => void }) {
+  const courses: NightCourse[] = Array.isArray(night?.courses) ? night.courses : [];
+  const asks: { id: string; said: string; open: boolean }[] = Array.isArray(night?.asks) ? night.asks : [];
+  const dot = (s: NightCourse['state']) => (s === 'served' ? { background: GREEN } : s === 'later' ? { background: LINE } : s === 'on_way' ? { background: INK } : { background: '#fff', boxShadow: `inset 0 0 0 2px ${INK}` });
+  return (
+    <>
+      <section aria-labelledby="night-now" className="space-y-1 p-5" style={CARD}>
+        {night?.now && <p className="text-[13.5px]" style={{ color: MUTED }}>Now</p>}
+        <h2 id="night-now" className="text-[21px] font-semibold leading-tight">{night?.now || 'The evening is about to start'}</h2>
+        {night?.next && <p className="text-[15px]" style={{ color: MUTED }}>{`Next: ${night.next.what}, about ${night.next.at}`}</p>}
+      </section>
+      {courses.length > 0 && <section aria-labelledby="night-courses" className="space-y-3 p-5" style={CARD}>
+        <h2 id="night-courses" className="text-[18px] font-semibold">{seated ? 'Your table’s courses' : 'Your courses'}</h2>
+        <ol className="space-y-3">{courses.map((c) => (
+          <li key={c.n} className="flex items-start gap-3">
+            <span aria-hidden className="mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full" style={dot(c.state)} />
+            <div className="min-w-0 flex-1">
+              <p className="text-[15.5px]"><span className={c.state === 'making' || c.state === 'on_way' ? 'font-semibold' : 'font-medium'}>{c.name}</span><span style={{ color: c.state === 'served' ? GREEN : MUTED }}>{`, ${c.state === 'later' && c.at ? `about ${c.at}` : COURSE_WORDS[c.state].toLowerCase()}`}</span></p>
+              {c.dishes.length > 0 && <p className="text-[14px]" style={{ color: MUTED }}>{c.dishes.join(', ')}</p>}
+            </div>
+          </li>))}</ol>
+      </section>}
+      <section aria-labelledby="night-ask" className="space-y-3 p-5" style={CARD}>
+        <h2 id="night-ask" className="text-[18px] font-semibold">Need something?</h2>
+        <div className="grid grid-cols-2 gap-2">{ASK_BUTTONS.map((x) => (
+          <button key={x.what} type="button" disabled={!!asking} onClick={() => onAsk(x.what)} className="min-h-[48px] rounded-2xl border bg-white px-3 text-[15px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2 disabled:opacity-60" style={{ borderColor: LINE }}>{asking === x.what ? 'Asking…' : x.label}</button>))}</div>
+        <div role="status" className="space-y-1">{said && <p className="text-[14.5px] font-medium" style={{ color: GREEN }}>{said}</p>}
+          {asks.filter((a) => a.said !== said).slice(0, 2).map((a) => <p key={a.id} className="text-[14px]" style={{ color: a.open ? MUTED : GREEN }}>{a.said}</p>)}</div>
+        <p className="text-[13.5px]" style={{ color: MUTED }}>{seated ? 'Goes to the team, with your table.' : 'Goes to the team, with your name.'}</p>
+      </section>
+    </>);
+}
 const andList = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 /** "In 3 days", "Tomorrow", "Tonight", "You’re in": where the evening is for them. */
 // (The days come from the server, counted in the business's own calendar.)
@@ -57,6 +96,7 @@ export default function EventPlacePage() {
   const [good, setGood] = React.useState('');
   const [name, setName] = React.useState(''); const [email, setEmail] = React.useState(''); const [phone, setPhone] = React.useState('');
   const heading = React.useRef<HTMLHeadingElement | null>(null);
+  const [asking, setAsking] = React.useState(''); const [askSaid, setAskSaid] = React.useState('');
 
   React.useEffect(() => { const s = new URLSearchParams(window.location.search); setQ({ p: s.get('p') || '', w: s.get('w') || '', k: s.get('k') || '' }); }, []);
 
@@ -68,6 +108,20 @@ export default function EventPlacePage() {
   }, [tenantId, eventId]);
   React.useEffect(() => { if (q) void load(q); }, [q, load]);
   React.useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [mode, done]);
+  // On the night the pass keeps itself up to date: once a minute while it's in view (a failed read keeps what it has).
+  const live = !!d?.night;
+  React.useEffect(() => {
+    if (!live || !q || q.w) return;
+    const tick = async () => { if (document.visibilityState !== 'visible' || mode !== 'view') return; const r = await askEvent({ action: 'place', tenantId, eventId, p: q.p, k: q.k }); if (r.ok && r.party) setD(r); };
+    const t = setInterval(tick, 60000); document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
+  }, [live, q, mode, tenantId, eventId]);
+  const ask = async (what: 'water' | 'help') => {
+    if (!q) return; setAsking(what); setAskSaid('');
+    const r = await askEvent({ action: 'ask', tenantId, eventId, p: q.p, k: q.k, what }); setAsking('');
+    setAskSaid(r.ok ? String(r.said || '') : r.error || 'That didn’t go through. Try again.');
+    if (r.ok) { const again = await askEvent({ action: 'place', tenantId, eventId, p: q.p, k: q.k }); if (again.ok && again.party) setD(again); }
+  };
 
   if (!q || !d) return <Shell><p className="text-[15px]" style={{ color: MUTED }}>Loading…</p></Shell>;
   if (!d.ok && !d.event) return <Shell><Note tone="warn">{d.error || 'We couldn’t open this link.'}</Note></Shell>;
@@ -161,7 +215,9 @@ export default function EventPlacePage() {
       {h2(`You’re in, ${party.firstName}`)}
       <p className="text-[15.5px]" style={{ color: INK }}>{notIn.length ? `${andList(notIn.map((x) => x.first))} ${notIn.length === 1 ? 'isn’t' : 'aren’t'} checked in yet: they can show this same code.` : many ? 'Your whole party is checked in. Enjoy the evening.' : 'Enjoy the evening.'}</p>
     </div>}
+    {mode === 'view' && d.night && stage === 'in' && <Tonight night={d.night} seated={list.some((x) => !!x.table)} asking={asking} said={askSaid} onAsk={(w) => void ask(w)} />}
     {mode === 'view' && stage !== 'over' && stage !== 'cancelled' && (stage !== 'in' || notIn.length > 0) && <EntryCode url={d.door?.url || null} digits={d.door?.digits || null} big={stage === 'today'} lines={codeLines} />}
+    {mode === 'view' && d.night && stage === 'today' && <Tonight night={d.night} seated={list.some((x) => !!x.table)} asking={asking} said={askSaid} onAsk={(w) => void ask(w)} />}
     {mode !== 'view' && <div className="space-y-2 p-5" style={CARD}><p className="text-[18px] font-semibold">You’re on the list</p><p className="text-[15.5px]">{party.line || `${party.places} ${many ? 'places' : 'place'}`} under {party.firstName}.</p></div>}
     {mode === 'view' && list.length > 0 && <section aria-labelledby="party-title" className="space-y-3 p-5" style={CARD}>
       {mode === 'view' && stage !== 'in' ? <h2 ref={heading} tabIndex={-1} id="party-title" className="text-[18px] font-semibold outline-none">{many ? 'Your party' : 'Your place'}</h2> : <h2 id="party-title" className="text-[18px] font-semibold">{many ? 'Your party' : 'Your place'}</h2>}
@@ -177,7 +233,7 @@ export default function EventPlacePage() {
         </li>))}</ul>
     </section>}
     {d.mealOpen && mode === 'view' && list.find((x) => x.you && !x.meal) && <a href={mealFor(list.find((x) => x.you)!)} className="flex h-[54px] w-full items-center justify-center rounded-full text-[16px] font-medium text-white" style={{ background: color }}>Choose your meal</a>}
-    {mode === 'view' && e.venue && stage !== 'over' && <section aria-labelledby="there-title" className="space-y-1.5 p-5" style={CARD}>
+    {mode === 'view' && e.venue && stage !== 'over' && stage !== 'in' && <section aria-labelledby="there-title" className="space-y-1.5 p-5" style={CARD}>
       <h2 id="there-title" className="text-[18px] font-semibold">Getting there</h2>
       <p className="text-[15px]" style={{ color: MUTED }}>{e.venue}</p>
       <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.venue)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-[44px] items-center text-[15px] font-semibold underline underline-offset-4">Open in maps</a>

@@ -11,7 +11,8 @@
 // (lib/event-pass):
 //   place    what their pass shows: the event, their party (each place's first name, seat, meal and allergies), the
 //            entry code for the door (its QR link and 4 digits), where the evening is for them, and whether it can still
-//            be changed
+//            be changed; on the night, where the evening is, their party's courses and their asks
+//   ask      on the night: water, or someone to help, for the team on the event's manifest
 //   cancel   one place, or all of them; a place freed goes to the first person waiting whose party fits
 //   give     a place to a friend (their own link by email; the place's meal and allergy answers are cleared)
 //   waitlist join it when the event is full;  waitspot / leave  their waitlist link: where they are, or leave
@@ -21,7 +22,7 @@ import * as nextServer from 'next/server';
 import { createHash, timingSafeEqual } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { bump, limitPublic, visitorIp } from '@/lib/rate-limit';
+import { bump, limitByKey, limitPublic, visitorIp } from '@/lib/rate-limit';
 import { closedReply } from '@/lib/tenant-open-server';
 import { anyToolOn, toolLocked } from '@/lib/tool-lock';
 import { accessLockOf, CLOSED_FOR_CLIENTS } from '@/lib/tenant-access';
@@ -31,13 +32,16 @@ import { addDays } from '@/lib/tenant-time';
 import Stripe from 'stripe';
 import { MAX_TICKETS, isPaidEvent, placesLeft, saleBlock, startTicketOrder, finishTicketOrder, releaseTicketOrder, ticketCents } from '@/lib/event-tickets';
 import { WAITLIST_MAX, firstOf, heldForWaiting, newPartyId, newWaitId, onListEmail, partyOf, placeChangeBlock, placeKey, placeKeyOk, promoteFromWaitlist, tellOwner, tellPromoted, waitKeyOk, waitingFor, waitlistEmail, waitlistOpen } from '@/lib/event-places';
-import { daysTo, doorDigits, doorUrl, passPlaces, passStage, placesLine } from '@/lib/event-pass';
+import { askAtEvent, askSaidAtEvent, daysTo, doorDigits, doorUrl, partyAsks, passNight, passPlaces, passStage, placesLine } from '@/lib/event-pass';
+import { clock as nightClock, eventNightFor } from '@/lib/event-night-server';
 import { ALLERGY_CHOICES, allergyList, chartTables, findSeat, matchGuest, mealChoices, menuCourses, orderBlock, requestOpen, requestTypesFor, reserveBlock, seatFromCode } from '@/lib/event-guest-link';
 
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** A pass's own allowance an hour (a few phones on one party's pass, each reading once a minute). */
+const PASS_LIMITS: Record<string, number> = { place: 300, ask: 30 };
 const LIMITS: Record<string, { perHour: number; perDay: number }> = {
   load: { perHour: 600, perDay: 20000 },
   reserve: { perHour: 20, perDay: 1000 },
@@ -48,8 +52,10 @@ const LIMITS: Record<string, { perHour: number; perDay: number }> = {
   buy: { perHour: 12, perDay: 1000 },
   paid: { perHour: 120, perDay: 3000 },
   left: { perHour: 60, perDay: 3000 },
-  // A guest's own place and the waitlist (lib/event-places).
+  // A guest's own place and the waitlist (lib/event-places). With a pass's signed link, its reads and asks are counted
+  // per pass instead (PASS_LIMITS): a whole room's passes keep up to date over the venue's one connection on the night.
   place: { perHour: 300, perDay: 5000 },
+  ask: { perHour: 60, perDay: 3000 },
   cancel: { perHour: 30, perDay: 1000 },
   give: { perHour: 20, perDay: 500 },
   waitlist: { perHour: 20, perDay: 1000 },
@@ -100,6 +106,23 @@ const seatWait = (requests: any[], tableId: string, seatId: string, now = Date.n
   return last && now - last < SEAT_PAUSE_MS ? Math.ceil((SEAT_PAUSE_MS - (now - last)) / 1000) : 0;
 };
 
+// The event's kitchen tickets on the night, read once every 15 seconds for every pass in the room (each takes its own).
+const ticketsKept = new Map<string, { at: number; v: Promise<any[]> }>(); const TICKETS_MAX = 8000;
+function ticketsOf(db: any, T: string, eventId: string): Promise<any[]> {
+  const key = `${T}|${eventId}`; const hit = ticketsKept.get(key); if (hit && Date.now() - hit.at < 15000) return hit.v;
+  // (Only what a pass reads of each plate; a very big night past the most read is logged, not hidden.)
+  const v = db.collection(`${T}/kdsTickets`).where('eventId', '==', eventId).select('eventId', 'guestId', 'courseNumber', 'status', 'carriedAt', 'menuItemName').limit(TICKETS_MAX).get()
+    .then((s: any) => { if (s.docs.length >= TICKETS_MAX) console.warn('[public-event] tickets capped', T, eventId); return s.docs.map((d: any) => d.data() || {}); });
+  v.catch(() => ticketsKept.delete(key)); ticketsKept.set(key, { at: Date.now(), v }); if (ticketsKept.size > 200) ticketsKept.delete(ticketsKept.keys().next().value as string); return v;
+}
+// An event's menu, read once a minute at most (a pass on the night asks once a minute).
+const menuKept = new Map<string, { at: number; v: any[] }>();
+async function menuOf(db: any, T: string, eventId: string) {
+  const key = `${T}|${eventId}`; const hit = menuKept.get(key); if (hit && Date.now() - hit.at < 60000) return hit.v;
+  const v = (await db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  menuKept.set(key, { at: Date.now(), v }); if (menuKept.size > 300) menuKept.delete(menuKept.keys().next().value as string); return v;
+}
+
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const action = String(b?.action || 'load');
@@ -108,7 +131,10 @@ export async function POST(req: NextRequest) {
   if (!ID.test(tenantId) || !ID.test(eventId)) return out({ ok: false, error: 'This link isn’t complete. Please check it and try again.' }, 400);
   // A form field people never see: filled in means a script. It's answered like anyone, and nothing is written.
   if (action !== 'load' && String(b.ev_ref || '').trim()) { console.warn('[public-event] trap field filled', tenantId, eventId, action); return out({ ok: true, title: 'the event' }); }
-  const limited = await limitPublic(req, `event-${action}`, tenantId, LIMITS[action]); if (limited) return limited;
+  // A pass's signed link is checked first (cheap, no reads): its reads and asks count against the pass itself. Anything
+  // else, a wrong link included, counts per connection and business as always.
+  const pass = (action === 'place' || action === 'ask') && placeKeyOk(tenantId, eventId, String(b.p || ''), b.k) ? `${tenantId}|${eventId}|${String(b.p)}` : null;
+  const limited = pass ? await limitByKey(`event-pass-${action}`, pass, PASS_LIMITS[action]) : await limitPublic(req, `event-${action}`, tenantId, LIMITS[action]); if (limited) return limited;
 
   const db = getAdminDb(); const T = `tenants/${tenantId}`;
   const origin = req.nextUrl?.origin || null;   // links in guests' emails (lib/app-origin prefers the business's own)
@@ -202,7 +228,7 @@ export async function POST(req: NextRequest) {
     const name = clean(b.name, 120); const email = String(b.email || '').trim().toLowerCase().slice(0, 160); const phone = clean(b.phone, 40);
 
     // ── A guest's own place, from the signed link in their email (no PIN: the link is the proof) ──
-    if (action === 'place' || action === 'cancel' || action === 'give') {
+    if (action === 'place' || action === 'cancel' || action === 'give' || action === 'ask') {
       const partyId = String(b.p || '');
       if (!placeKeyOk(tenantId, eventId, partyId, b.k)) return out({ ok: false, error: 'This link isn’t right. Use the newest email we sent you.', gone: true }, 404);
       const business = { name: clean(tenant.name || tenant.businessName, 80), logoUrl: guestLogo(tenant) || null, color: brandColor(tenant) };
@@ -212,11 +238,32 @@ export async function POST(req: NextRequest) {
         if (!party.length) return out({ ok: true, business, event: base, gone: true });
         const meal = await mealOpenFor(db, T, eventId, ev, today);
         // The pass: each place (first names, seats, meals, allergies), the entry code, and where the evening is for them.
-        const menu = (await db.collection(`${T}/eventMenuItems`).where('eventId', '==', eventId).limit(200).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+        const menu = await menuOf(db, T, eventId);
         const places = passPlaces(party, menu);
+        let stage = passStage(ev, today, party); let night = null;
+        // On the night (a late one carries on past midnight): where the evening is, their courses, their asks.
+        if (stage !== 'cancelled' && stage !== 'before') {
+          const n: any = await eventNightFor(db, T, tenant, eventId).catch(() => null);
+          if (n?.onTheNight) {
+            if (stage === 'over') stage = party.some((g: any) => g.checkedIn === true) ? 'in' : 'today';
+            const ids = new Set(party.map((g: any) => String(g.id)));
+            const tix = (await ticketsOf(db, T, eventId)).filter((t: any) => ids.has(String(t.guestId || '')));
+            night = passNight(n, party, tix, menu, await partyAsks(db, tenantId, eventId, partyId), nightClock);
+          }
+        }
         return out({ ok: true, business, event: base, party: { firstName: firstOf(party[0].name), places: party.length, paid: party.some((g: any) => g.source === 'ticket' || !!g.ticketOrderId), line: placesLine(places), list: places },
-          door: { url: doorUrl(tenant, origin, tenantId, eventId, partyId), digits: doorDigits(tenantId, eventId, partyId) }, stage: passStage(ev, today, party), days: daysTo(ev.date, today),
+          door: { url: doorUrl(tenant, origin, tenantId, eventId, partyId), digits: doorDigits(tenantId, eventId, partyId) }, stage, days: daysTo(ev.date, today), night,
           block: placeChangeBlock(ev, today), mealOpen: meal });
+      }
+      // Asking from the phone on the night: kept for the team, one open ask of each kind per party.
+      if (action === 'ask') {
+        const party = partyOf((await guests.where('partyId', '==', partyId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((g: any) => g.eventId === eventId), partyId);
+        if (!party.length) return out({ ok: false, error: 'These places aren’t on the guest list any more.' }, 404);
+        const n: any = await eventNightFor(db, T, tenant, eventId).catch(() => null);
+        if (!n?.onTheNight) return out({ ok: false, error: 'Asking from your phone opens on the night of the event.' }, 409);
+        const lead = party[0]; const at = (v: unknown) => (v != null && String(v).trim() ? String(v).trim().slice(0, 20) : null);
+        const r = await askAtEvent(db, tenantId, eventId, partyId, b.what, { first: firstOf(lead.name) || 'Guest', table: at(lead.tableNumber), seat: at(lead.seatNumber) }, new Date().toISOString(), String(ev.date || ''));
+        return r.ok ? out({ ok: true, said: askSaidAtEvent(r.ask), again: r.again }) : out({ ok: false, error: r.error }, r.status);
       }
       const block = placeChangeBlock(ev, today); if (block) return out({ ok: false, error: block }, 409);
       if (action === 'cancel') {

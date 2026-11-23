@@ -30,3 +30,13 @@ export async function limitPublic(req: NextRequest, scope: string, tenantId: str
     return null;
   } catch { return null; }   // a counting hiccup never blocks a real customer
 }
+
+/** A limit for one signed thing a guest holds (an event pass, its asks): counted per that thing, not per connection or
+ *  business, so a whole room polling over the venue's one connection doesn't trip it. Only after its signature checks. */
+export async function limitByKey(scope: string, key: string, perHour: number, error = 'Too many tries from here. Wait a minute and try again.'): Promise<NextResponse | null> {
+  try {
+    const hour = Math.floor(Date.now() / 3600000);
+    const ok = await bump(`${scope}_key_${createHash('sha256').update(key).digest('hex').slice(0, 32)}_${hour}`, perHour, 2 * 3600000);
+    return ok ? null : NextResponse.json({ ok: false, error }, { status: 429 });
+  } catch { return null; }
+}

@@ -215,6 +215,8 @@ export async function tellPromoted(db: any, tenantId: string, tenant: any, ev: a
  *  again, and waitlists of events that are over cleared. Nothing for a paused business. */
 export async function eventGuestSweep(db: any, tenantId: string, tenant: any, now = new Date()): Promise<{ reminded: number; promoted: number }> {
   const T = `tenants/${tenantId}`; const today = eventToday(tenant, now); let reminded = 0, promotedN = 0;
+  // Guests' asks from their passes on the night (lib/event-pass) aren't kept once the event is two days past.
+  await import('@/lib/event-pass').then((m) => m.clearOldAsks(db, tenantId, today)).catch(() => 0);
   if (accessLockOf(tenant).locked) return { reminded, promoted: promotedN };
   // Waitlists: each event with someone waiting; one that's over or canceled is cleared.
   const waits = await db.collection(`${T}/eventWaitlist`).get().catch(() => null);
