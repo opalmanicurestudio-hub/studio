@@ -32,6 +32,9 @@ type Note = { id: string; message: string; link: string };
 type Result = 'recorded' | 'released' | 'waiting';
 
 const OPEN_AFTER_MS = 15 * 60000;   // an attempt still open this long has lost its answer
+/** Still without an answer this long, the business is told (once): it may have gone through, so look before charging again. */
+export const STUCK_AFTER_MS = 2 * 86400000;
+const SEARCH_SURE_MS = 60 * 60000;  // Stripe's search can lag behind payments: finding none there counts after an hour
 const TAKEN_MS = 5 * 60000;         // one run's hold on an attempt it's settling
 const DAY_S = 86400;
 const MARK_PAGE = 25;               // renters looked through per run for attempts made before the mark
@@ -242,6 +245,16 @@ async function paymentsSince(stripe: any, customer: string, since: number, accou
   return null;
 }
 
+/** The payments made for one attempt, found by the attempt they were made for rather than by the customer: for an
+ *  attempt with no customer kept on it, whose renter's card has since been removed. Null when Stripe can't be asked. */
+async function paymentsForAttempt(stripe: any, renterId: string, key: string, account?: string | null): Promise<any[] | null> {
+  const q = (v: string) => v.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  try {
+    const l: any = await stripe.paymentIntents.search({ query: `metadata['attempt']:'${q(key)}' AND metadata['renterId']:'${q(renterId)}'`, limit: 100 }, onAccount({ stripeAccountId: account }));
+    return Array.isArray(l?.data) && !l?.has_more ? l.data : null;
+  } catch { return null; }
+}
+
 /** What became of the payments made for an attempt: one that went through counts first, then one still going through,
  *  then one waiting for approval. Otherwise Stripe said no to each, or there were none. */
 function outcomeOf(payments: any[]): { state: 'paid' | 'pending' | 'open' | 'declined' | 'none'; pi: any; open: any[] } {
@@ -312,17 +325,22 @@ async function markOlderAttempts(db: any, tenantId: string, now: number) {
 async function settleOne(db: any, tenantId: string, renterId: string, renter: any, key: string, ref: any, a: any, stripe: any, now: number): Promise<Result> {
   const cents = Math.round(Number(a.amountCents) || 0);
   const customer = String(a.customer || renter.stripeCustomerId || '');
-  if (!customer) return 'waiting';
-  const list = await paymentsSince(stripe, customer, Math.floor(claimTime(a) / 1000) - DAY_S, a.account || null);
-  if (!list) return 'waiting';
-  const found = outcomeOf(list.filter((p: any) => p?.metadata?.kind === 'renter_incidental' && String(p?.metadata?.renterId || '') === renterId
-    && String(p?.metadata?.attempt || '') === key && Math.round(Number(p?.amount) || 0) === cents));
-  if (found.state === 'pending') return 'waiting';
   const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
   const description = String(a.description || a.category || 'Incidental');
   const what = `The ${money(cents)} ${a.addon?.key ? 'add-on' : 'incidental'} charge to ${renterName}’s card on file (${description})`;
   const settled = { settlingAt: null, settledAt: iso(now), settledBy: 'check' };
   const noteId = `renterinc_${safeKey(renterId)}_${key}`;
+  const same = (x: any) => x.settlingAt === iso(now) && String(x.claimAt || '') === String(a.claimAt || '');
+  // No customer to look under (kept on every attempt now; an older one falls back to the renter's card, and that may
+  // have been removed since): its payments are looked for by the attempt they were made for instead.
+  const list = customer ? await paymentsSince(stripe, customer, Math.floor(claimTime(a) / 1000) - DAY_S, a.account || null)
+    : await paymentsForAttempt(stripe, renterId, key, a.account || null);
+  if (!list) return 'waiting';
+  const found = outcomeOf(list.filter((p: any) => p?.metadata?.kind === 'renter_incidental' && String(p?.metadata?.renterId || '') === renterId
+    && String(p?.metadata?.attempt || '') === key && Math.round(Number(p?.amount) || 0) === cents));
+  if (found.state === 'pending') return 'waiting';
+  // (Stripe's search can lag behind its payments: finding none there is only believed once the attempt is an hour old.)
+  if (!customer && found.state === 'none' && now - claimTime(a) < SEARCH_SURE_MS) return 'waiting';
 
   if (found.state === 'paid') {
     const at = Number(found.pi.created) > 0 ? iso(Number(found.pi.created) * 1000) : iso(now);
@@ -350,7 +368,6 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
     : found.state === 'open' ? 'it needed approval that never came'
     : found.pi?.status === 'canceled' ? 'the payment was stopped before it went through' : 'the card was declined';
   const error = found.state === 'declined' && found.pi?.status !== 'canceled' ? String(found.pi?.last_payment_error?.message || 'The card was declined.') : `${reason[0].toUpperCase()}${reason.slice(1)}.`;
-  const same = (x: any) => x.settlingAt === iso(now) && String(x.claimAt || '') === String(a.claimAt || '');
   const freed = await releaseRenterIncidental(db, tenantId, renterId, key, error, { at: iso(now), still: same, extra: settled, ...(a.addon?.key ? {} : { note: {
     id: noteId, link: '/booths',
     message: `${what} didn’t go through (${reason}), so nothing was charged. Collect it another way, or charge it again.`,
@@ -361,9 +378,27 @@ async function settleOne(db: any, tenantId: string, renterId: string, renter: an
   if (freed && a.addon?.key) {
     const retry = found.state === 'none' && !a.addon.first && (Number(a.tries) || 1) < 3;
     if (!retry) { const { addOnFailed } = await import('@/lib/renter-addon-billing'); const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      await addOnFailed(db, tenantId, tenant, renterId, a.addon, found.state === 'declined' && found.pi?.status !== 'canceled' ? 'declined' : 'not_through', error).catch(() => {}); }
+      await addOnFailed(db, tenantId, tenant, renterId, a.addon, found.state === 'declined' && found.pi?.status !== 'canceled' ? 'declined' : 'not_through', error)
+        .catch((e: any) => console.error('[renter-incidentals] pausing add-on', tenantId, renterId, key, String(e?.message || e).slice(0, 160))); }
   }
   return freed ? 'released' : 'waiting';
+}
+
+/** A charge still without an answer after two days: the business is told once, in its notifications, that it may or
+ *  may not have gone through, so it's looked up before anyone charges again. The check keeps trying. */
+async function tellStuck(db: any, tenantId: string, renterId: string, renter: any, key: string, aRef: any, a: any, now: number, threw = false) {
+  const cents = Math.round(Number(a.amountCents) || 0);
+  const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
+  const what = `The ${money(cents)} ${a.addon?.key ? 'add-on' : 'incidental'} charge to ${renterName}’s card on file (${String(a.description || a.category || 'Incidental')})`;
+  const days = Math.round(STUCK_AFTER_MS / 86400000); const long = days === 2 ? 'two days' : `${days} days`;
+  const message = `${what} has had no answer${threw ? '' : ' from Stripe'} for ${long}, so it may or may not have gone through. Look for it in your Stripe payments before charging it again. We’ll keep checking and record it once it’s settled.`;
+  const noteRef = db.doc(`tenants/${tenantId}/notifications/renterstuck_${safeKey(renterId)}_${key}`);
+  await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(aRef)).data() || {};
+    if (cur.status !== 'charging' || cur.stuckToldAt) return;
+    tx.set(aRef, { stuckToldAt: iso(now) }, { merge: true });
+    tx.set(noteRef, noteDoc(noteRef.id, { id: noteRef.id, link: '/booths', message }));
+  });
 }
 
 /** The five-minute check for lease renters' incidental charges (see the top of this file). */
@@ -387,10 +422,13 @@ export async function settleLostRenterIncidentals(db: any, tenantId: string, ten
       const a = await takeOver(db, aRef, lost, now);
       if (!a) continue;
       out.checked++;
-      let r: Result = 'waiting';
+      let r: Result = 'waiting'; let threw = false;
       try { stripe = stripe || stripeFor(); r = await settleOne(db, tenantId, String(rd.id), renter, key, aRef, a, stripe, now); }
-      catch (e: any) { console.error('[renter-incidentals]', tenantId, rd.id, key, String(e?.message || e).slice(0, 160)); }
-      if (r === 'waiting') await aRef.set({ settlingAt: null }, { merge: true }).catch(() => {});
+      catch (e: any) { threw = true; console.error('[renter-incidentals]', tenantId, rd.id, key, String(e?.message || e).slice(0, 160)); }
+      if (r === 'waiting') {
+        await aRef.set({ settlingAt: null }, { merge: true }).catch(() => {});
+        if (now - claimTime(a) >= STUCK_AFTER_MS && !a.stuckToldAt) await tellStuck(db, tenantId, String(rd.id), renter, key, aRef, a, now, threw).catch((e: any) => console.error('[renter-incidentals] telling stuck', tenantId, rd.id, key, String(e?.message || e).slice(0, 160)));
+      }
       out[r]++;
     }
   }

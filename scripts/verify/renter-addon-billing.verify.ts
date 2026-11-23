@@ -34,6 +34,8 @@ const stripe: any = {
       return pi;
     },
     list: async (q: any, o: any) => ({ data: intents.filter((x) => !x.declined && x.customer === q.customer && x.account === o?.stripeAccount), has_more: false }),
+    search: async (q: any, o: any) => { const m = /metadata\['attempt'\]:'([^']*)' AND metadata\['renterId'\]:'([^']*)'/.exec(String(q?.query || ''));
+      return { data: intents.filter((x) => !x.declined && m && x.metadata?.attempt === m[1] && x.metadata?.renterId === m[2] && x.account === o?.stripeAccount), has_more: false }; },
     retrieve: async (id: string) => intents.find((x) => x.id === id),
     cancel: async (id: string) => ({ id, status: 'canceled' }),
   },
@@ -218,6 +220,57 @@ const tx = async () => (await db.collection(`${T}/transactions`).get()).docs.map
   await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
   const p3 = (await get(`${T}/renters/r1`)).addOns.packages;
   check('a lost first month that never went through: not added, and they’re told', p3.status === 'stopped' && p3.stoppedWhy === 'not_through' && sent.some((x) => /wasn’t added/.test(x.subject)) && (await db.collection(`${T}/notifications`).get()).docs.some((d: any) => /Packages and memberships add-on wasn’t added/.test(d.data().message)));
+  // An older attempt with no customer kept on it, whose renter's card has since been removed: its payment is looked for by
+  // the attempt instead. None there: closed as never reaching Stripe (an add-on month is tried again by the daily run).
+  const k4 = `addon_swaps_${addDays(today, -4)}`; const stuckAt = new Date(Date.now() - 3 * 86400000).toISOString();
+  await db.doc(`${T}/renters/r8`).set({ firstName: 'Sol', lastName: 'Reyes', incidentalOpen: { [k4]: stuckAt }, incidentalOpenAt: stuckAt,
+    addOns: { swaps: { status: 'active', nextBillOn: addDays(today, -4), priceCents: 1500 } } });
+  await db.doc(`${T}/renters/r8/charges/inc_${k4}`).set({ status: 'charging', claimAt: stuckAt, amountCents: 1500, account: 'acct_1', tries: 1, ledgerCategory: 'Renter Add-on', description: 'Swap days add-on', addon: { key: 'swaps', start: addDays(today, -4), end: addDays(today, 26), next: addDays(today, -4) } });
+  const s4 = await settleLostRenterIncidentals(db, 't1', tenant3, { stripe }); await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
+  const a4 = await get(`${T}/renters/r8/charges/inc_${k4}`); const r8 = await get(`${T}/renters/r8`);
+  const notes8 = (await db.collection(`${T}/notifications`).get()).docs.map((d: any) => ({ id: d.id, ...d.data() }));
+  check('an older attempt with no customer and no card now: looked up by the attempt; none found, so closed as never reaching Stripe (the add-on tried again), never flagged as maybe charged',
+    s4.released === 1 && a4.status === 'failed' && a4.error === 'It never reached Stripe.' && !(r8.incidentalOpen || {})[k4] && r8.addOns.swaps.status === 'active'
+    && !notes8.some((n: any) => String(n.id).startsWith('renterstuck_r8_')), { s4, a4, addOns: r8.addOns, notes8 });
+  const k6 = `inc_cleaning_k6`;
+  await db.doc(`${T}/renters/r8`).set({ incidentalOpen: { [k6]: stuckAt }, incidentalOpenAt: stuckAt }, { merge: true });
+  await db.doc(`${T}/renters/r8/charges/inc_${k6}`).set({ status: 'charging', claimAt: stuckAt, amountCents: 2500, account: 'acct_1', description: 'Deep clean', category: 'Deep clean' });
+  intents.push({ id: 'pi_k6', status: 'succeeded', amount: 2500, created: Math.floor(Date.parse(stuckAt) / 1000), customer: 'cus_gone', account: 'acct_1',
+    metadata: { kind: 'renter_incidental', renterId: 'r8', attempt: k6 }, latest_charge: { id: 'ch_k6', balance_transaction: { id: 'txn_k6', fee: 103 } } });
+  await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
+  const n6 = await get(`${T}/notifications/renterinc_r8_${k6}`);
+  check('…and one that did go through there: recorded, and the business told it went through',
+    (await get(`${T}/renters/r8/charges/inc_${k6}`)).status === 'charged' && /\$25\.00 incidental charge to Sol Reyes’s card on file \(Deep clean\) went through/.test(n6?.message || ''), { a6: await get(`${T}/renters/r8/charges/inc_${k6}`), n6 });
+  const k7 = `inc_supplies_k7`;
+  await db.doc(`${T}/renters/r8`).set({ incidentalOpen: { [k7]: stuckAt }, incidentalOpenAt: stuckAt }, { merge: true });
+  await db.doc(`${T}/renters/r8/charges/inc_${k7}`).set({ status: 'charging', claimAt: stuckAt, amountCents: 900, account: 'acct_1', description: 'Supplies' });
+  const searchWas = stripe.paymentIntents.search; stripe.paymentIntents.search = async () => { throw new Error('Stripe is down'); };
+  await settleLostRenterIncidentals(db, 't1', tenant3, { stripe }); await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
+  stripe.paymentIntents.search = searchWas;
+  const n7 = (await db.collection(`${T}/notifications`).get()).docs.filter((d: any) => d.id === `renterstuck_r8_${k7}`);
+  check('…and when Stripe can’t be asked: it stays open, and after two days the business is told once that it may or may not have gone through',
+    (await get(`${T}/renters/r8/charges/inc_${k7}`)).status === 'charging' && n7.length === 1 && /may or may not have gone through/.test(n7[0].data().message), n7.map((d: any) => d.data()));
+  const k8 = `inc_towels_k8`; const recent = new Date(Date.now() - 20 * 60000).toISOString();
+  await db.doc(`${T}/renters/r8`).set({ incidentalOpen: { [k8]: recent }, incidentalOpenAt: recent }, { merge: true });
+  await db.doc(`${T}/renters/r8/charges/inc_${k8}`).set({ status: 'charging', claimAt: recent, amountCents: 700, account: 'acct_1', description: 'Towels' });
+  await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
+  check('…and none found by the search for an attempt under an hour old: not believed yet (the search can lag), so it stays open',
+    (await get(`${T}/renters/r8/charges/inc_${k8}`)).status === 'charging' && !!(await get(`${T}/renters/r8`)).incidentalOpen?.[k8]);
+  await db.doc(`${T}/renters/r8/charges/inc_${k8}`).set({ status: 'failed' }, { merge: true });
+  // With a card on file, but Stripe can't be asked (the list fails): it may or may not have gone through.
+  const k5 = `addon_packages_${addDays(today, -5)}`;
+  await db.doc(`${T}/renters/r8`).set({ incidentalOpen: { [k5]: stuckAt }, incidentalOpenAt: stuckAt }, { merge: true });
+  await db.doc(`${T}/renters/r8/charges/inc_${k5}`).set({ status: 'charging', claimAt: stuckAt, amountCents: 800, customer: 'cus_8', account: 'acct_1', tries: 1, ledgerCategory: 'Renter Add-on', description: 'Packages add-on', addon: { key: 'packages', start: addDays(today, -5) } });
+  const listWas = stripe.paymentIntents.list; stripe.paymentIntents.list = async () => { throw new Error('Stripe is down'); };
+  await settleLostRenterIncidentals(db, 't1', tenant3, { stripe }); await settleLostRenterIncidentals(db, 't1', tenant3, { stripe });
+  stripe.paymentIntents.list = listWas;
+  const n5 = (await db.collection(`${T}/notifications`).get()).docs.filter((d: any) => d.id === `renterstuck_r8_${k5}`);
+  check('…with a card on file and no answer: told once it may or may not have gone through, to look in Stripe before charging again',
+    n5.length === 1 && /\$8\.00 add-on charge to Sol Reyes’s card on file \(Packages add-on\) has had no answer( from Stripe)? for two days, so it may or may not have gone through\. Look for it in your Stripe payments before charging it again\./.test(n5[0].data().message), n5.map((d: any) => d.data()));
+  const lib = readFileSync('src/lib/renter-incidentals.ts', 'utf8');
+  check('…the days in the words come from the setting, and an error on our side doesn’t say Stripe didn’t answer', /const days = Math\.round\(STUCK_AFTER_MS \/ 86400000\)/.test(lib) && /has had no answer\$\{threw \? '' : ' from Stripe'\}/.test(lib));
+  await db.doc(`${T}/renters/r8`).set({ incidentalOpen: {}, incidentalOpenAt: null, addOns: { swaps: { status: 'stopped', nextBillOn: null } } }, { merge: true });
+
   // The business can't take cards: nothing charged or paused, the business told once.
   await db.doc(`${T}/renters/r1`).set({ addOns: { swaps: { status: 'active', nextBillOn: addDays(today, -2) } } }, { merge: true });
   const nNo = intents.length;
