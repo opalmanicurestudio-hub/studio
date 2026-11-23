@@ -10,7 +10,7 @@
 import { openDays } from '@/lib/counter-ahead';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
-import { bagsWaiting, waitingWords } from '@/lib/food-bags-server';
+import { bagsWaiting, noteHeld, waitingWords } from '@/lib/food-bags-server';
 
 const nowIso = () => new Date().toISOString();
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -95,7 +95,7 @@ export async function cafeOut(db: any, tenantId: string, orderId: string, who: {
 
 export async function cafeHanded(db: any, tenantId: string, orderId: string, who: { name: string }, o: { tenant?: any; skip?: { name: string; reason?: string } | null } = {}): Promise<{ ok: true; already?: boolean; skippedBags?: boolean } | Fail> {
   const T = `tenants/${tenantId}`;
-  try { return await db.runTransaction(async (tx: any) => {
+  try { const r: any = await db.runTransaction(async (tx: any) => {
     const { ref, or, err } = await curbOrder(tx, db, T, orderId); if (err) return err;
     const docs = (await tx.get(db.collection(`${T}/kdsTickets`).where('orderId', '==', orderId))).docs;
     if (or.status === 'done') return { ok: true, already: true };
@@ -108,5 +108,8 @@ export async function cafeHanded(db: any, tenantId: string, orderId: string, who
     tx.set(ref, { status: 'done', doneAt: at, ahead: { curb: { handedAt: at, handedBy: first(who.name) || null } } }, { merge: true });
     for (const d of docs) { const t: any = d.data() || {}; if (LIVE(t) && t.status !== 'delivered') tx.set(d.ref, { status: 'delivered', deliveredAt: at, deliveredBy: { name: who.name, via: 'curbside' } }, { merge: true }); }
     return { ok: true, ...(wait.length && o.skip ? { skippedBags: true } : {}) };
-  }); } finally { changed(tenantId); }
+  });
+  // (Refused with something still to go: kept for Drive-thru live's "Caught before it went", lib/bag-caught.)
+  if (r?.code === 'bags' && Array.isArray(r.bags)) await noteHeld(db, T, r.bags);
+  return r; } finally { changed(tenantId); }
 }

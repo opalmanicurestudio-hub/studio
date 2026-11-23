@@ -11,6 +11,8 @@
 //     An item's sticker scanned the same way goes to lib/item-stickers-server, and what's left counts its stickers too.
 //   - tickExtra: one of the extras that go in the bag (lib/bag-extras: a dip, straws, napkins), ticked in, or out again
 //     after a wrong tap. What's left counts them too, and the first bag's label lists them.
+//   - noteWrong, noteHeld: what the check caught, kept on the order for Drive-thru live's "Caught before it went"
+//     (lib/bag-caught): a bag or sticker from another order scanned for it, and a handover refused with something left.
 import { FieldValue } from 'firebase-admin/firestore';
 import { checkBagCode, makeBagCode } from '@/lib/order-qr';
 import { parseBagCode } from '@/lib/bag-tag';
@@ -18,6 +20,7 @@ import { printersCached, printsCodes, queueJob, type Printer } from '@/lib/print
 import { bagsLeft, bagsOf, clampBags, defaultBags, labelDoc, labelOf, type BagLabel } from '@/lib/food-bags';
 import { stickersLeft, stickersToScan, stickersWords } from '@/lib/item-stickers';
 import { EXTRA_KEY, extraBase, extrasFor, extrasLeft, extrasLine, extrasToTick, extrasWords, tickedOf } from '@/lib/bag-extras';
+import { missName } from '@/lib/bag-caught';
 import { isStickerCode, scanSticker } from '@/lib/item-stickers-server';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -96,6 +99,7 @@ export async function scanBag(db: any, tenantId: string, tenant: any, orderIds: 
     const tag = parseBagCode(code);
     if (tag && !mine.includes(tag.orderId) && ID.test(tag.orderId) && checkBagCode(tenantId, tag.orderId, code) !== null) {
       const other: any = (await db.doc(`${T}/counterOrders/${tag.orderId}`).get()).data();
+      if (other) await noteWrong(db, T, mine[0], `bag:${tag.orderId}.${tag.n}`);
       if (other) return fail(`Wrong bag. This one is ${String(other.number || 'another order')}${other.guestName ? ` for ${String(other.guestName).split(/\s+/)[0]}` : ''}.`, 409);
     }
     return fail(tag ? 'That label is for another order.' : 'That isn’t a bag label or an item sticker. Scan the code on it.', 409);
@@ -137,6 +141,23 @@ export async function tickExtra(db: any, tenantId: string, tenant: any, orderIds
     tx.set(ref, { extrasIn: next }, { merge: true });
     return { ok: true as const, orderId, k: key, extrasLeft: extrasLeft({ ...or, extrasIn: next }, tenant).map((x) => x.k) };
   });
+}
+
+/** A bag label or item sticker from another order scanned for this one (for a car, its own order): kept on it once each
+ *  (`what`: which bag or sticker), so scanning the same one again doesn't count twice. Never in the way of the scan, and
+ *  never on an order that isn't there. */
+export async function noteWrong(db: any, T: string, orderId: string | undefined, what: string): Promise<void> {
+  if (!orderId || !ID.test(orderId)) return;
+  await db.doc(`${T}/counterOrders/${orderId}`).update({ 'checks.wrongs': FieldValue.arrayUnion(String(what).slice(0, 200)) }).catch((e: any) => console.warn('[food-bags] wrong', e?.message));
+}
+/** A handover refused with something still to go: each order held, and which items and extras were still to go in (each
+ *  name once; a bag left to scan holds it but isn't missing). */
+export async function noteHeld(db: any, T: string, waits: ScanWait[]): Promise<void> {
+  for (const w of waits) {
+    if (!ID.test(w.orderId)) continue;
+    const names = Array.from(new Set([...(w.items || []).filter((i) => !i.done).map((i) => missName(i.name)), ...(w.extras || []).filter((i) => !i.done).map((i) => missName(i.name, true))].filter(Boolean))).slice(0, 12);
+    await db.doc(`${T}/counterOrders/${w.orderId}`).update({ 'checks.held': true, ...(names.length ? { 'checks.missing': FieldValue.arrayUnion(...names) } : {}) }).catch((e: any) => console.warn('[food-bags] held', e?.message));
+  }
 }
 
 type Tick = { k: string; name: string; done: boolean };

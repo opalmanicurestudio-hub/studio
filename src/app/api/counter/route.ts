@@ -150,7 +150,7 @@ import { okayFor } from '@/lib/money-rules-server';
 import { logMoney } from '@/lib/activity-server';
 import type { ActivityWhere } from '@/lib/activity';
 import { managerFor } from '@/lib/manager-pin';
-import { bagsWaiting, labelPrinter, printLabels, scanBag, tickExtra, waitingWords } from '@/lib/food-bags-server';
+import { bagsWaiting, labelPrinter, noteHeld, printLabels, scanBag, tickExtra, waitingWords } from '@/lib/food-bags-server';
 import { printStickerAgain, stickersView } from '@/lib/item-stickers-server';
 import { isSkipReason, reasonWords, skipReasonOf } from '@/lib/food-bags';
 import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
@@ -1006,7 +1006,7 @@ export async function POST(req: NextRequest) {
         if (!allergyOk && o0?.app?.code && unnoted((await db.collection(`${T}/kdsTickets`).where('orderId', '==', String(c0.orderId)).get()).docs)) return NextResponse.json({ ok: false, ...allergyWait(appName(o0.app)), staffOk }, { status: 409 });
         // (Its bags too, before the app's sale is booked.)
         const w0 = o0?.app?.code && !bagOk ? bagsWaiting([{ id: String(c0.orderId), data: o0 }], tenant) : [];
-        if (w0.length) return NextResponse.json({ ok: false, error: waitingWords(w0), code: 'bags', bags: w0, staffOk }, { status: 409 });
+        if (w0.length) { await noteHeld(db, T, w0); return NextResponse.json({ ok: false, error: waitingWords(w0), code: 'bags', bags: w0, staffOk }, { status: 409 }); }
         if (o0?.app?.code && o0.status === 'sent' && !o0.paidAt) {
           const p: any = await payOrder(db, tenantId, String(c0.orderId), { method: 'app', by, byId: staff?.id || null, day: todayIn(tz, now) });
           if (!p.ok) return bad(p.error, p.status);
@@ -1060,6 +1060,8 @@ export async function POST(req: NextRequest) {
       forgetStats(tenantId);   // again once it's done, so a read in between never keeps the old numbers
       // Handed over or gone: the voice assistant (if it's still on with this car) hangs up.
       if (!r.error && to === 'gone') await stopCarCall(db, tenantId, carId, 'car gone');
+      // (Refused with something still to go: kept for Drive-thru live's "Caught before it went", lib/bag-caught.)
+      if (r.error && r.code === 'bags' && Array.isArray(r.bags)) await noteHeld(db, T, r.bags);
       if (!r.error && !r.already && r.skippedBags && bagOk) await logAuditAdmin(db, tenantId, { action: 'counter.bags_skipped', targetType: 'car', targetId: carId, summary: `${bagOk.name} let an order go without everything scanned${bagOk.id !== who.id ? ` (at ${by}’s screen)` : ''}: ${reasonWords(bagWhy)}.`, actor: { type: 'user', id: bagOk.id, name: bagOk.name } } as any).catch(() => {});
       if (!r.error && !r.already && allergyOk) await logAuditAdmin(db, tenantId, { action: 'counter.allergy_handover', targetType: 'car', targetId: carId, summary: `${allergyOk.name} handed over an order with an allergy the kitchen hadn’t noted${allergyOk.id !== who.id ? ` (at ${by}’s screen)` : ''}.`, actor: { type: 'user', id: allergyOk.id, name: allergyOk.name } } as any).catch(() => {});
       return r.error ? (r.code ? NextResponse.json({ ok: false, error: r.error, code: r.code, ...(r.bags ? { bags: r.bags } : {}), staffOk }, { status: r.status }) : bad(r.error, r.status)) : ok({ already: !!r.already, carriedOn: !!r.carriedOn, staffOk });

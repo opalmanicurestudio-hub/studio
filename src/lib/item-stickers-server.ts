@@ -33,6 +33,7 @@ export async function scanSticker(db: any, tenantId: string, tenant: any, orderI
     const tag = parseItemCode(code);
     if (tag && !mine.includes(tag.orderId) && ID.test(tag.orderId) && checkItemCode(tenantId, tag.orderId, code) !== null) {
       const other: any = (await db.doc(`${T}/counterOrders/${tag.orderId}`).get()).data();
+      if (other) { const { noteWrong } = await import('@/lib/food-bags-server'); await noteWrong(db, T, mine[0], `item:${tag.orderId}.${tag.k}`); }
       if (other) return fail(`Wrong item. This one is ${String(other.number || 'another order')}’s${other.guestName ? `, for ${String(other.guestName).split(/\s+/)[0]}` : ''}.`, 409);
     }
     return fail('That sticker is for another order.', 409);

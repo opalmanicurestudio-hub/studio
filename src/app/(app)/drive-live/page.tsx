@@ -4,7 +4,8 @@
 // lane, where it is, sliding along as the team taps it on and as sensors see it, with how long it's been waiting against
 // the drive-thru target. A car near its target turns amber, one over it solid amber, so it stands out at once; tap one to
 // see where its time went and what the kitchen is still making. Curbside, orders placed ahead and the counter's line sit
-// underneath. Read every few seconds while it's on screen; nothing here moves a car.
+// underneath. Read every few seconds while it's on screen; nothing here moves a car. Two more tabs: Speed of service,
+// and Caught before it went (components/drive-thru/CaughtTab): what the check before an order to go caught, by shift.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { clock, greetTone, laneShape, lengthFor, liveTotals, placeLane, secondsSince, stuckWords, timesOf, toneOf, TONE_WORDS, type LiveCar, type LiveNow, type Tone } from '@/lib/drive-live';
@@ -12,6 +13,7 @@ import { formatTime } from '@/lib/tenant-time';
 import { hourWords, longWords, whenWords, LONG_WAITS, PARTS, SPEED_CHS, SPEED_RANGES, type Part, type SpeedCh, type SpeedRange, type SpeedReport } from '@/lib/speed';
 import { SENSOR_POINTS, type SensorPoint } from '@/lib/lane-entry';
 import { GOAL_CHOICES, PER_HOUR_CHOICES, nth, type Board, type Goals } from '@/lib/scoreboard';
+import { CaughtTab } from '@/components/drive-thru/CaughtTab';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', DEEP_GREEN = '#1f7a4d', DEEP_AMBER = '#b45309', AMBER = 'var(--warn-ink)', GREEN = 'var(--ok-ink)';
 const RING = 'outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -24,11 +26,11 @@ const toneStyle = (t: Tone): React.CSSProperties => t === 'over' ? { background:
   : t === 'near' ? { background: '#fff', color: AMBER, border: `2px solid ${AMBER}` } : { background: DEEP_GREEN, color: '#fff', border: `2px solid ${DEEP_GREEN}` };
 const STAGE_WORDS: Record<LiveCar['stage'], string> = { speaker: 'ordering', pay: 'on the way to pay', pickup: 'at the pickup window', forward: 'parked' };
 
-type Tab = 'live' | 'speed';
+type Tab = 'live' | 'speed' | 'caught';
 export default function DriveLivePage() {
   const { selectedTenant } = useTenant() as any;
   const tenantId: string | null = selectedTenant?.id || null;
-  const [tab, setTab] = useState<Tab>(() => { try { return new URLSearchParams(window.location.search).get('tab') === 'speed' ? 'speed' : 'live'; } catch { return 'live'; } });
+  const [tab, setTab] = useState<Tab>(() => { try { const t = new URLSearchParams(window.location.search).get('tab'); return t === 'speed' || t === 'caught' ? t : 'live'; } catch { return 'live'; } });
   const pick = (t: Tab) => { setTab(t); try { const u = new URL(window.location.href); if (t === 'live') u.searchParams.delete('tab'); else u.searchParams.set('tab', t); window.history.replaceState(null, '', u.toString()); } catch { /* the tab still changes */ } };
   return (
     <div className="mx-auto w-full max-w-[1180px] space-y-5 px-4 pb-16 pt-6 sm:px-6" style={{ color: INK, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
@@ -36,12 +38,13 @@ export default function DriveLivePage() {
         <h1 className="text-[26px] font-semibold tracking-tight">Drive-thru live</h1>
       </div>
       <div role="tablist" aria-label="Drive-thru live" className="flex flex-wrap gap-2">
-        {([['live', 'The lane now'], ['speed', 'Speed of service']] as [Tab, string][]).map(([id, label]) => (
+        {([['live', 'The lane now'], ['speed', 'Speed of service'], ['caught', 'Caught before it went']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} type="button" role="tab" id={`tab-${id}`} aria-selected={tab === id} aria-controls={`panel-${id}`} onClick={() => pick(id)} className={`min-h-[44px] rounded-xl px-4 text-[14.5px] font-semibold ${RING}`}
             style={tab === id ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{label}</button>))}
       </div>
       {tenantId && tab === 'live' && <div id="panel-live" role="tabpanel" aria-labelledby="tab-live" className="space-y-5"><LiveTab tenantId={tenantId} /></div>}
       {tenantId && tab === 'speed' && <div id="panel-speed" role="tabpanel" aria-labelledby="tab-speed"><SpeedTab tenantId={tenantId} /></div>}
+      {tenantId && tab === 'caught' && <div id="panel-caught" role="tabpanel" aria-labelledby="tab-caught"><CaughtTab tenantId={tenantId} ask={hereAsked} /></div>}
     </div>
   );
 }

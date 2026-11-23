@@ -8,6 +8,9 @@
 //        buzzes the shift lead; and which sensors along the lane are set up
 //   alert { tenantId, sec } → the long wait alert: 240, 300, or 0 for off (a manager)
 //   goals { tenantId, menu?, pay?, service?, perHour? } → the scoreboard's goals (lib/scoreboard; a manager)
+//   caught { tenantId, range, locationId? } → { report }: what the check before an order to go caught, by shift, over
+//        today, 7 days or 30 (lib/bag-caught): wrong items, orders held for something missing, those let go with a PIN
+//        (who okayed it for managers only), and labels or stickers with no code
 import { NextRequest, NextResponse, after } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
@@ -28,7 +31,7 @@ export async function POST(req: NextRequest) {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || 'now');
-    if (!['now', 'speed', 'alert', 'goals'].includes(action)) return bad('Unknown action.');
+    if (!['now', 'speed', 'alert', 'goals', 'caught'].includes(action)) return bad('Unknown action.');
     const g: any = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
     // (Renters run their own business here, not the drive-thru.)
     if (g.actor?.isRenter) return bad('This is for the business’s team.', 403);
@@ -53,6 +56,12 @@ export async function POST(req: NextRequest) {
       forgetBoard(tenantId);
       const fresh: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
       return NextResponse.json({ ok: true, goals: goalsOf(fresh, targetsOf(fresh)['drive-thru']) });
+    }
+    if (action === 'caught') {
+      const range = (SPEED_RANGES.some((x) => x.id === b.range) ? b.range : 'today') as SpeedRange;
+      const { caughtFor } = await import('@/lib/bag-caught-server');
+      const report = await caughtFor(db, tenantId, tenant, here, range, zoneOf(tenant, place), isManager(g.actor));
+      return NextResponse.json({ ok: true, report, manager: isManager(g.actor), scanOn: tenant?.bagCheck?.off !== true });
     }
     if (action === 'speed') {
       const ch = (SPEED_CHS.some((x) => x.id === b.ch) ? b.ch : 'drive') as SpeedCh;
