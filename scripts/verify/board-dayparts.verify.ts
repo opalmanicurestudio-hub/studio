@@ -92,9 +92,9 @@ const hh = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00`;
 
   console.log('the screen');
   const page = src('src/app/drive-thru/[tenantId]/menu/page.tsx');
-  check('the board says every menu that’s on and happy hour, and shows the happy-hour price with the usual one crossed out (read as “usually”, its color its card’s)', /\{d\.name\} until \{d\.until\}/.test(page) && /Happy hour until \{board\.happyHour\.until\}/.test(page)
-    && /<s className="ml-\[0\.4em\]" style=\{\{ fontSize: '0\.62em', fontWeight: 600, opacity: 0\.7 \}\}><span className="sr-only">usually <\/span>/.test(page));
-  check('…and with nothing being served, when the next menu is back (only then: a board with nothing set up looks as before)', /\{board\.next\.name\} is back \{board\.next\.tomorrow \? 'tomorrow ' : ''\}at \{board\.next\.from\}/.test(page) && /\{!all\.length && board\.next && \(/.test(page));
+  check('the board says every menu that’s on and happy hour, and shows the happy-hour price with the usual one crossed out (read as “usually”, its color its card’s)', /t\('\{name\} \{until\}', \{ name: d\.name, until: untilTime\(lang, d\.until\) \}\)/.test(page) && /t\('Happy hour \{until\}', \{ until: untilTime\(lang, board\.happyHour\.until\) \}\)/.test(page)
+    && /<s className="ml-\[0\.4em\]" style=\{\{ fontSize: '0\.62em', fontWeight: 600, opacity: 0\.7 \}\}><span className="sr-only">\{t\('usually'\)\} <\/span>/.test(page));
+  check('…and with nothing being served, when the next menu is back (only then: a board with nothing set up looks as before)', /t\(board\.next\.tomorrow \? '\{name\} is back tomorrow \{at\}' : '\{name\} is back \{at\}', \{ name: board\.next\.name, at: atTime\(lang, board\.next\.from\) \}\)/.test(page) && /\{!all\.length && board\.next && \(/.test(page));
   check('…no comments in markup, no uppercase', !/\{\/\*/.test(page) && !/\buppercase\b/.test(page));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

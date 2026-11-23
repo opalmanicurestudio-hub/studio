@@ -149,7 +149,10 @@ export async function POST(req: NextRequest) {
         r = await retell('POST', '/v3/create-web-call', {
           agent_id: agentOf(tenant),
           retell_llm_dynamic_variables: { business_name: String(tenant.name || tenant.businessName || 'our drive-thru').slice(0, 80), order_number: String(claim.car.number || ''), menu: menu.slice(0, 12000),
-            ask_name: tenant.driveThru?.askName === false ? 'no' : 'yes', busy: busy ? 'yes' : 'no' },
+            ask_name: tenant.driveThru?.askName === false ? 'no' : 'yes', busy: busy ? 'yes' : 'no',
+            // (Answers in Spanish when the guest speaks it, unless the business turned that off or the voice service can't
+            // hear it: lib/drive-thru-voice-setup.)
+            spanish: tenant.driveThru?.spanish === false || tenant.driveThru?.spanishHeard === false ? 'no' : 'yes' },
           // (Named so the call log for phone calls never takes it for one of its own: api/voice/call-events.)
           metadata: { driveThruTenantId: tenantId, carId, orderId: claim.car.orderId, kind: 'drive-thru' },
         });

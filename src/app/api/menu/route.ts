@@ -7,6 +7,8 @@
 //             the photo: an https address the Menu page uploaded, or null to take it off; the recipe: [{ id, quantityUsed }],
 //             what goes into one, from the business's own stock — an item with one is counted by its ingredients,
 //             lib/menu-stock; [] takes it off, and the item is counted by itself again)
+//   spanish { tenantId, itemId, name, words? } | { section, name } | { daypart, name } → managers: Spanish for the guest
+//             screens (lib/guest-lang); empty takes it off
 //   ingredients { tenantId } → managers: what a recipe can use (the business's stock, by name, with what's left and what
 //             it's counted in; never cost or supplier)
 //   service { tenantId, courses?, stations?, compAllowanceCents?, compReasons? } → managers: table service (lib/table-
@@ -61,6 +63,8 @@ import { cleanPace, paceSettingsOf } from '@/lib/kitchen-pace';
 import { forgetPace } from '@/lib/kitchen-pace-server';
 import { cleanRecovery, recoverySettingsOf } from '@/lib/table-recovery';
 import { forgetMenuFacts } from '@/lib/klair-menu-server';
+import { cleanEs, spanishOf, ES_NAME_MAX, ES_WORDS_MAX, ES_SECTION_MAX, ES_DAYPART_MAX } from '@/lib/guest-lang';
+import { FieldValue } from 'firebase-admin/firestore';
 import { recipeOf, ingredientLeft, ingredientUnit, MAX_RECIPE_LINES } from '@/lib/menu-stock';
 import { choiceGroups, cleanForSave, outNow, outAtOf, MAX_GROUPS, MAX_OPTIONS } from '@/lib/menu-choices';
 import { createHash, randomBytes } from 'crypto';
@@ -75,7 +79,7 @@ import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
 import { sensorsView, newSensor, stopSensor, pointsView } from '@/lib/lane-entry-server';
 import { pointOf } from '@/lib/lane-entry';
 import { agentOf, assistantVersion } from '@/lib/drive-thru-voice';
-import { setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
+import { setAssistantLanguages, setUpDriveThruAssistant, updateDriveThruAssistant, VOICE_VERSION } from '@/lib/drive-thru-voice-setup';
 import { aheadOf } from '@/lib/counter-ahead';
 import { anotherDayOf, cleanMinOrder, DAYS_AHEAD, NOTICE_HOURS, MIN_ORDER_MAX } from '@/lib/ahead-days';
 import { nudgeSettingsOf, NUDGE_KEYS } from '@/lib/nudges';
@@ -168,10 +172,10 @@ export async function POST(req: NextRequest) {
     const tenantId = String(b.tenantId || ''); if (!ID.test(tenantId)) return bad('Which business?');
     const action = String(b.action || '');
     const SET_ACTIONS = ['sets', 'setSave', 'setRemove', 'setApply', 'setOff', 'setFrom'];
-    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
+    if (!['list', 'soldout', 'save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'counts', 'count', 'times', 'create', 'prep', 'prepRemove', 'setSoldOut', 'spanish', ...SET_ACTIONS].includes(action)) return bad('Unknown action.');
     // Klair's answers to guests read the menu afresh after any change here (lib/klair-menu-server).
     if (action !== 'list') forgetMenuFacts(tenantId);
-    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
+    const g: any = await requireRole(req, tenantId, ['save', 'ingredients', 'targets', 'service', 'voice', 'voiceSetup', 'voiceUpdate', 'laneSettings', 'ahead', 'aheadPlace', 'places', 'apps', 'count', 'times', 'create', 'prep', 'prepRemove', 'spanish', ...SET_ACTIONS].includes(action) ? 'manager' : 'staff'); if (g.deny) return g.deny;
     if (g.actor?.isRenter) return bad('The menu is the business’s own.', 403);
     const db = getAdminDb();
 
@@ -213,7 +217,9 @@ export async function POST(req: NextRequest) {
           .map((d: any) => { const c = cleanSet(d.data() || {}, () => d.id); return 'error' in c ? null : { id: d.id, ...c }; }).filter(Boolean).sort((a: any, c: any) => a.name.localeCompare(c.name));
       }
       const hereName = soldHere ? (await bizLocationsOf(db, tenantId)).find((l) => l.id === soldHere)?.name || null : null;
-      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) }, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null, bagCheck: td.bagCheck?.off !== true }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
+      return ok({ menu, recipes, counts, canEdit, here: soldHere ? { id: soldHere, name: hereName } : null, ...(costs ? { costs, changes, preps, sets } : {}), targets: targetsOf(td), service: serviceOf(td), times: { dayparts: daypartsOf(td), happyHour: happyHourOf(td) },
+        // The business's Spanish for its sections and menus by time of day (lib/guest-lang), for the Spanish column.
+        spanish: canEdit ? spanishOf(td) : null, lane: { spots: spotsOf(td), pickupOnly: td.driveThru?.pickupOnly === true, lanes: lanesOf(td), kitchenEarly: earlyModeOf(td), sensors: canEdit ? await sensorsView(db, tenantId, td, await sensorPlaces(db, tenantId)) : [], points: canEdit ? await pointsView(db, tenantId, lanesOf(td) === 2, await sensorPlaces(db, tenantId)) : [], aheadThere: aheadAtDriveThru(td), readyTexts: smsConfigured() ? td.readyTexts?.off !== true : null, bagCheck: td.bagCheck?.off !== true }, money: { tips: tipsOf(td), discounts: discountsOf(td) },
         // Something not on the menu at the counter (lib/counter-oneoff): up to how much, and what's been rung in by name.
         oneOff: canEdit ? { max: oneOffMaxOf(td), names: await oneOffNamesOf(db, tenantId) } : null,
         // How the register's tiles are arranged (lib/register-tiles): for the Register tiles card.
@@ -221,8 +227,41 @@ export async function POST(req: NextRequest) {
         // Scale labels (lib/scale-label): how the business's scale prints its stickers.
         scale: canEdit ? scaleSetOf(td) : null, ahead: await withPlaces(db, tenantId, aheadSettings(td, tenantId, req.nextUrl?.origin || null), td), apps: appSettings(td),
         voice: { setUp, on: setUp && td.driveThru?.voice !== false, canSetUp: !setUp && !!process.env.RETELL_API_KEY && !!process.env.VOICE_AGENT_SECRET, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), offersReady: assistantVersion(td) >= VOICE_OFFERS_FROM,
+          // Spanish at the speaker (lib/drive-thru-voice-setup): on, and whether it can be changed here (the business's own
+          // assistant, up to date).
+          spanish: td.driveThru?.spanish !== false, spanishHeard: td.driveThru?.spanishHeard !== false, spanishHere: setUp && !!td.driveThru?.voiceAgentId && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) >= VOICE_VERSION,
           // An assistant this app made for the business, made with older instructions: offered an update.
           outdated: setUp && !!td.driveThru?.voiceLlmId && Math.floor(Number(td.driveThru?.voiceVersion) || 1) < VOICE_VERSION } });
+    }
+
+    // Spanish for the guest screens (lib/guest-lang), from the Menu page's Spanish column, one name at a time: an item's
+    // name and description, a section's name, or a menu by time of day's name. Empty takes it off (the English shows).
+    if (action === 'spanish') {
+      const name = cleanEs(b.name, b.itemId ? ES_NAME_MAX : b.section !== undefined ? ES_SECTION_MAX : ES_DAYPART_MAX);
+      if (b.itemId !== undefined) {
+        const itemId = String(b.itemId || ''); if (!ID.test(itemId)) return bad('Which item?');
+        const ref = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
+        const cur: any = (await ref.get()).data();
+        if (!cur || !isMenuItem(cur)) return bad('That item isn’t on the menu.', 404);
+        // (The name and the description each by itself: one saved never touches the other.)
+        const patch: Record<string, any> = {};
+        if (b.name !== undefined) patch.nameEs = name;
+        if (b.words !== undefined) patch.descriptionEs = cleanEs(b.words, ES_WORDS_MAX);
+        if (!Object.keys(patch).length) return bad('Its name or its description in Spanish?');
+        await ref.set({ ...patch, menuUpdatedAt: new Date().toISOString(), menuUpdatedBy: words(g.actor?.name, 60) || null }, { merge: true });
+        // (Only what was sent: a reply never carries the other field as it was before a save just made to it.)
+        return ok({ itemId, ...(b.name !== undefined ? { nameEs: name } : {}), ...(b.words !== undefined ? { wordsEs: patch.descriptionEs } : {}) });
+      }
+      const tRef = db.doc(`tenants/${tenantId}`);
+      if (b.section !== undefined) {
+        const section = words(b.section, 40); if (!section) return bad('Which section?');
+        await tRef.set({ menuSpanish: { sections: { [section]: name || FieldValue.delete() } } }, { merge: true });
+      } else if (b.daypart !== undefined) {
+        const id = String(b.daypart || ''); const td0: any = (await tRef.get()).data() || {};
+        if (!daypartsOf(td0).some((d) => d.id === id)) return bad('Pick one of your menus by time of day.');
+        await tRef.set({ menuSpanish: { dayparts: { [id]: name || FieldValue.delete() } } }, { merge: true });
+      } else return bad('An item, a section, or a menu by time of day?');
+      return ok({ spanish: spanishOf((await tRef.get()).data() || {}) });
     }
 
     if (action === 'counts' || action === 'count') {
@@ -250,8 +289,10 @@ export async function POST(req: NextRequest) {
       const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl?.origin || '').replace(/\/+$/, '');
       const r = await setUpDriveThruAssistant(String(t.name || t.businessName || '').slice(0, 80), origin);
       if (!r.ok) { await tRef.set({ driveThru: { voiceSettingUpAt: null } }, { merge: true }); return bad(r.error, 502); }
-      await tRef.set({ driveThru: { voiceAgentId: r.agentId, voiceLlmId: r.llmId, voiceVersion: VOICE_VERSION, voice: true, voiceSettingUpAt: null, voiceSetUpAt: new Date().toISOString(), voiceSetUpBy: words(g.actor?.name, 60) || null } }, { merge: true });
-      return ok({ setUp: true, on: true });
+      // (Spanish: the business's choice, on to start; and whether the voice service hears it, which a voice that speaks
+      // only English can't.)
+      await tRef.set({ driveThru: { voiceAgentId: r.agentId, voiceLlmId: r.llmId, voiceVersion: VOICE_VERSION, voice: true, spanishHeard: r.spanish, voiceSettingUpAt: null, voiceSetUpAt: new Date().toISOString(), voiceSetUpBy: words(g.actor?.name, 60) || null } }, { merge: true });
+      return ok({ setUp: true, on: true, spanish: (t.driveThru?.spanish !== false), spanishHeard: r.spanish });
     }
 
     if (action === 'voice') {
@@ -260,10 +301,21 @@ export async function POST(req: NextRequest) {
       if (typeof b.askName === 'boolean') patch.askName = b.askName;
       // How often it offers what each item offers (lib/voice-offer): with each item, once per order, or never.
       if (b.offers !== undefined) { if (!['item', 'order', 'off'].includes(String(b.offers))) return bad('With each item, once per order, or not at all?'); patch.offers = String(b.offers); }
+      // Spanish at the speaker: the business's own assistant, up to date, set to hear English and Spanish or English
+      // alone. Kept only once the voice service has taken it (refused, nothing changes).
+      if (typeof b.spanish === 'boolean') {
+        const t0: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+        const agentId = String(t0.driveThru?.voiceAgentId || '');
+        if (!agentId || !t0.driveThru?.voiceLlmId) return bad('There’s no assistant of this business’s own to change.', 409);
+        if (Math.floor(Number(t0.driveThru?.voiceVersion) || 1) < VOICE_VERSION) return bad('Update the assistant first.', 409);
+        const r = await setAssistantLanguages(agentId, b.spanish);
+        if (!r.ok) return bad(r.error, 502);
+        patch.spanish = b.spanish; patch.spanishHeard = b.spanish;
+      }
       if (!Object.keys(patch).length) return bad('On or off?');
       await db.doc(`tenants/${tenantId}`).set({ driveThru: patch }, { merge: true });
       const td: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-      return ok({ on: td.driveThru?.voice !== false, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td) });
+      return ok({ on: td.driveThru?.voice !== false, askName: td.driveThru?.askName !== false, offers: voiceOfferMode(td), spanish: td.driveThru?.spanish !== false, spanishHeard: td.driveThru?.spanishHeard !== false });
     }
 
     if (action === 'voiceUpdate') {
@@ -275,8 +327,13 @@ export async function POST(req: NextRequest) {
       const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl?.origin || '').replace(/\/+$/, '');
       const r = await updateDriveThruAssistant(llmId, String(t.name || t.businessName || '').slice(0, 80), origin);
       if (!r.ok) return bad(r.error, 502);
-      await tRef.set({ driveThru: { voiceVersion: VOICE_VERSION, voiceUpdatedAt: new Date().toISOString(), voiceUpdatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
-      return ok({ updated: true });
+      // (Then the languages it hears: Spanish too unless the business turned it off. Refused, it hears English alone and
+      // says so; the business's choice stays as it was, and the rest of the update is in.)
+      const agentId = String(t.driveThru?.voiceAgentId || ''); const wantSpanish = t.driveThru?.spanish !== false;
+      const lang = agentId ? await setAssistantLanguages(agentId, wantSpanish) : { ok: false as const, error: '' };
+      const heard = lang.ok ? wantSpanish : false;
+      await tRef.set({ driveThru: { voiceVersion: VOICE_VERSION, spanishHeard: heard, voiceUpdatedAt: new Date().toISOString(), voiceUpdatedBy: words(g.actor?.name, 60) || null } }, { merge: true });
+      return ok({ updated: true, spanish: wantSpanish, spanishHeard: heard, ...(wantSpanish && !lang.ok && lang.error ? { note: lang.error } : {}) });
     }
 
     // Ordering ahead (lib/counter-ahead): on or off, how guests can pick up, and how far ahead they can order.

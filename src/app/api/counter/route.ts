@@ -116,6 +116,7 @@ import { bizLocationsOf, hereFor, zonedHere } from '@/lib/here-server';
 import { atHere } from '@/lib/business-locations';
 import { tileSetupOf } from '@/lib/register-tiles';
 import { daypartNow, daypartsNow, happyHourOf, inHappyHour, nextDaypart, priceNow, servedNow, timeWords } from '@/lib/menu-time';
+import { spanishOf } from '@/lib/guest-lang';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
@@ -514,7 +515,7 @@ export async function POST(req: NextRequest) {
         sections = []; const nums = boardNumbers(items, products);
         for (const m of items) {
           let sec = sections.find((x) => x.name === m.section); if (!sec) sections.push((sec = { name: m.section, items: [] }));
-          sec.items.push({ id: m.id, name: m.name, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
+          sec.items.push({ id: m.id, name: m.name, words: m.words, ...(m.nameEs ? { nameEs: m.nameEs } : {}), ...(m.wordsEs ? { wordsEs: m.wordsEs } : {}), price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl, soldOut: m.soldOut || !m.inStock,
             featured: m.featured, badge: m.badge || (popular.has(m.id) ? 'popular' : null), calories: m.calories,
             // The number guests can order by ("number 3"), the same on every screen (lib/menu-numbers).
             number: nums.get(m.id) ?? null,
@@ -542,7 +543,9 @@ export async function POST(req: NextRequest) {
       // location's), only what's served now, the menu by time of day it's on and until when, and happy-hour prices with
       // the regular one beside them. Worked out on every ask, so the board changes within a poll of the time.
       const dpNow = daypartsNow(tenant, now); const happyNow = inHappyHour(tenant, now);
-      const boardSections = sections.map((sec) => ({ ...sec, items: sec.items.filter((it: any) => !Array.isArray(it.dayparts) || servedNow({ dayparts: it.dayparts }, tenant, now).ok)
+      // (A board set to Español shows the business's own Spanish for its sections and menus by time of day: lib/guest-lang.)
+      const es = spanishOf(tenant);
+      const boardSections = sections.map((sec) => ({ ...sec, ...(!sec.kind && es.sections[sec.name] ? { nameEs: es.sections[sec.name] } : {}), items: sec.items.filter((it: any) => !Array.isArray(it.dayparts) || servedNow({ dayparts: it.dayparts }, tenant, now).ok)
         .map(({ dayparts: _d, happyPrice, ...it }: any) => ({ ...it, ...(happyNow && happyPrice !== null && happyPrice !== undefined && happyPrice < it.price ? { happyPrice } : {}) })) })).filter((sec) => sec.items.length > 0);
       const A = aheadOf(tenant);
       // Ordering ahead: the menu's own page when that's on, else the shop when the board shows its products (and the
@@ -551,8 +554,9 @@ export async function POST(req: NextRequest) {
       const origin = linkOrigin(tenant, req.nextUrl.origin).replace(/\/+$/, '');
       return ok({ business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Menu' }, sections: boardSections,
         // (Every menu on now, overlapping ones too; and with nothing at all to show, when the next one starts.)
-        dayparts: dpNow.map((d) => ({ name: d.name, until: d.until })), happyHour: happyNow ? { until: timeWords(happyHourOf(tenant).to) } : null,
-        next: boardSections.length ? null : nextDaypart(tenant, now, new Set(sections.flatMap((x) => x.items.flatMap((it: any) => (Array.isArray(it.dayparts) ? it.dayparts.map(String) : []))))),
+        dayparts: dpNow.map((d) => ({ name: d.name, ...(es.dayparts[d.id] ? { nameEs: es.dayparts[d.id] } : {}), until: d.until })), happyHour: happyNow ? { until: timeWords(happyHourOf(tenant).to) } : null,
+        next: boardSections.length ? null : (() => { const nx = nextDaypart(tenant, now, new Set(sections.flatMap((x) => x.items.flatMap((it: any) => (Array.isArray(it.dayparts) ? it.dayparts.map(String) : []))))); if (!nx) return null;
+          const { id, ...rest } = nx; return { ...rest, ...(es.dayparts[id] ? { nameEs: es.dayparts[id] } : {}) }; })(),
         // The business's own color (made readable for white text on it), for the tags and the price on the featured item.
         accent: pageAccent(tenant),
         orderAhead: A.on ? `${origin}/order/${encodeURIComponent(tenantId)}` : shopOpen ? `${origin}/shop/${encodeURIComponent(tenantId)}` : null,
@@ -599,7 +603,7 @@ export async function POST(req: NextRequest) {
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' }, lanes: lanesOf(tenant),
         order: show ? { number: o.number, name: cleanName(o.guestName) || null, sent: o.status !== 'building',
           // Their order placed ahead, found at the speaker: "A1, paid and being made".
-          alsoAhead: ID.test(String(newest.aheadId || '')) ? String(newest.aheadNumber || '') || null : null, lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })),
+          alsoAhead: ID.test(String(newest.aheadId || '')) ? String(newest.aheadNumber || '') || null : null, lines: (o.lines || []).map((l: any) => ({ name: l.name, ...(l.nameEs ? { nameEs: String(l.nameEs).slice(0, 80) } : {}), quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })),
           subtotal: num(o.subtotal), tax: num(o.tax), total: num(o.total) } : null,
         now: nowIso,
       });
@@ -661,7 +665,7 @@ export async function POST(req: NextRequest) {
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Drive-thru' },
         show: shown ? { mode: shown.mode === 'pay' && o.paidAt ? 'paid' : shown.mode, number: o.number, name: cleanName(o.guestName) || null, spot: shown.mode === 'forward' ? (shown.car.spot || null) : null,
           // The items and money only while they're paying (a car told where to go, or thanked, doesn't need them).
-          lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })) : [],
+          lines: shown.mode === 'pay' || shown.mode === 'paid' ? (o.lines || []).map((l: any) => ({ name: l.name, ...(l.nameEs ? { nameEs: String(l.nameEs).slice(0, 80) } : {}), quantity: l.quantity, choicesText: l.choicesText || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: photoOf(l), ...(l.comp ? { comp: true } : {}) })) : [],
           subtotal: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.subtotal) : 0, tax: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.tax) : 0, total: shown.mode === 'pay' || shown.mode === 'paid' ? num(o.total) : 0, paid: !!o.paidAt, payMethod: o.paidAt ? (o.payMethod || null) : null,
           // A reward used on it (what it took off, and the items' own total), and once it's paid, the points it earned
           // (never their balance: anyone at the window can see it).
@@ -1099,7 +1103,7 @@ export async function POST(req: NextRequest) {
       return ok({
         business: { name: String(tenant.name || tenant.businessName || '').slice(0, 80) || 'Welcome' },
         show: mode ? { mode, number: String(o.number || ''), name: cleanName(o.guestName) || null, orderId: oid,
-          lines: (o.lines || []).map((l: any) => ({ name: l.name, quantity: l.quantity, choicesText: l.choicesText || null, price: money(num(l.unitPrice) * num(l.quantity)), ...(l.comp ? { comp: true } : {}) })),
+          lines: (o.lines || []).map((l: any) => ({ name: l.name, ...(l.nameEs ? { nameEs: String(l.nameEs).slice(0, 80) } : {}), quantity: l.quantity, choicesText: l.choicesText || null, price: money(num(l.unitPrice) * num(l.quantity)), ...(l.comp ? { comp: true } : {}) })),
           reward: o.reward ? { name: String(o.reward.name || 'Reward'), off: num(o.reward.cents) / 100 } : null,
           markdown: o.markdown && num(o.markdown.cents) > 0 ? { name: String(o.markdown.label || 'Discount').slice(0, 40), off: num(o.markdown.cents) / 100 } : null,
           tax: money(o.tax), tip: Math.max(0, num(o.tipCents)) / 100, total: money(o.total),

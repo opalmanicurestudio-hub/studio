@@ -12,6 +12,9 @@
 //   • The breakfast switch (lib/menu-time; design board "The breakfast switch", A): only what's served now, by the
 //     business's menus by time of day, with the one that's on and until when ("Breakfast until 11 AM"); at the time, the
 //     next one comes in by itself. During happy hour, its price with the usual one crossed out, and how long it lasts.
+//   • In English or Español, picked on each screen (lib/guest-lang; design board "The boards and the assistant in
+//     Spanish", A): the board's own words, and the business's Spanish for its items, sections and menus by time of day
+//     (one left blank shows the English). Prices, numbers and times read the same.
 //   • Light (inside) or dark (outdoors, bright sun), picked on each screen. Numbers on the items ("number 3"), the same
 //     numbers the lane tablet and the voice assistant at the speaker know (lib/menu-numbers): on for a dark screen unless
 //     turned off, off for a light one unless turned on.
@@ -27,6 +30,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
+import { GUEST_LANGS, atTime, cleanGuestLang, gt, guestLangKey, inLang, untilTime, type GuestLang } from '@/lib/guest-lang';
 
 type Look = 'dark' | 'light';
 type Tone = { bg: string; card: string; well: string; line: string; text: string; sub: string; faint: string; popular: [string, string]; fresh: [string, string]; out: [string, string]; label: string };
@@ -37,16 +41,21 @@ const LOOKS: Record<Look, Tone> = {
 const INK = '#16171a';
 const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif";
 const POLL_MS = 15000, ROTATE_MS = 12000, HERO_MS = 8000;
-type Item = { id: string; name: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; soldOut: boolean;
+type Item = { id: string; name: string; words: string | null; nameEs?: string | null; wordsEs?: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; soldOut: boolean;
   /** Sold by weight (lib/menu-weight): the unit its price is per. */ per?: string | null;
   featured?: boolean; badge?: 'popular' | 'new' | 'limited' | null; calories?: number | null; number?: number | null ;
   /** Its happy-hour price, during happy hour (lib/menu-time). */ happyPrice?: number | null;
   /** A product from the shop's window (lib/pickup-window): its size, its shades, and Pros only. */
   kind?: 'product'; size?: string | null; prosOnly?: boolean; swatches?: { label: string; color: string | null; soldOut: boolean }[] };
-type Board = { business: { name: string }; sections: { name: string; items: Item[] }[]; orderAhead: string | null; accent?: string | null; pickupOnly?: boolean;
+type Board = { business: { name: string }; orderAhead: string | null; accent?: string | null; pickupOnly?: boolean;
+  /** Each section by its name (what a screen set to one section goes by), with what it's called on this screen. */
+  sections: { name: string; nameEs?: string | null; label?: string; items: Item[] }[];
   /** The menus by time of day on now, happy hour, and with nothing to show, the next menu (lib/menu-time). */
-  dayparts?: { name: string; until: string }[]; happyHour?: { until: string } | null; next?: { name: string; from: string; tomorrow: boolean } | null };
-const BADGE: Record<string, string> = { popular: 'Popular', new: 'New', limited: 'Limited time' };
+  dayparts?: { name: string; nameEs?: string | null; until: string }[]; happyHour?: { until: string } | null; next?: { name: string; nameEs?: string | null; from: string; tomorrow: boolean } | null };
+/** The board as this screen shows it: in Spanish, the business's Spanish wherever it set some. */
+const inItsLang = (b: Board, lang: GuestLang): Board => ({ ...b,
+  sections: b.sections.map((x) => ({ ...x, label: inLang(lang, x.name, x.nameEs), items: x.items.map((i) => ({ ...i, name: inLang(lang, i.name, i.nameEs), words: i.words ? inLang(lang, i.words, i.wordsEs) : i.words })) })),
+  dayparts: (b.dayparts || []).map((d) => ({ ...d, name: inLang(lang, d.name, d.nameEs) })), next: b.next ? { ...b.next, name: inLang(lang, b.next.name, b.next.nameEs) } : b.next });
 const money = (n: number) => (Math.round(n * 100) / 100).toFixed(2);
 const keyName = (t: string) => `cf.drivethru.menuboard.${t}`;
 const showName = (t: string) => `cf.drivethru.menuboard.show.${t}`;
@@ -97,7 +106,11 @@ function place(counts: number[], k: number): Spot[][] {
 export default function MenuBoard() {
   const { tenantId } = useParams() as { tenantId: string };
   const [key, setKey] = useState<string | null>(null); const [ready, setReady] = useState(false);
-  const [board, setBoard] = useState<Board | null>(null); const [stopped, setStopped] = useState('');
+  const [raw, setBoard] = useState<Board | null>(null); const [stopped, setStopped] = useState('');
+  // English or Español on this screen, kept on it (lib/guest-lang).
+  const [lang, setLangState] = useState<GuestLang>('en');
+  const board = React.useMemo(() => (raw ? inItsLang(raw, lang) : null), [raw, lang]);
+  const t = (en: string, vars?: Record<string, string | number>) => gt(lang, en, vars);
   const [show, setShowState] = useState<string>(''); const [look, setLookState] = useState<Look>('dark'); const [picking, setPicking] = useState(false);
   const [numbersSet, setNumbersState] = useState<boolean | null>(null);
   const [qr, setQr] = useState<{ url: string; img: string } | null>(null);
@@ -124,12 +137,14 @@ export default function MenuBoard() {
     setShowState(q?.get('show') ?? read(showName(tenantId)) ?? '');
     const l = (q?.get('look') || read(lookName(tenantId))) as Look | null; if (l === 'dark' || l === 'light') setLookState(l);
     const nq = q?.get('numbers') ?? read(numName(tenantId)); if (nq === 'on' || nq === '1') setNumbersState(true); else if (nq === 'off' || nq === '0') setNumbersState(false);
+    setLangState(cleanGuestLang(q?.get('lang') || read(guestLangKey('menuboard', tenantId))));
     setReady(true);
   }, [tenantId]);
   const setShow = (v: string) => { setShowState(v); write(showName(tenantId), v || null); setPicking(false); };
   const setLook = (v: Look) => { setLookState(v); write(lookName(tenantId), v); setPicking(false); };
   const numbers = numbersSet ?? look === 'dark';
   const setNumbers = (v: boolean) => { setNumbersState(v); write(numName(tenantId), v ? 'on' : 'off'); setPicking(false); };
+  const setLang = (v: GuestLang) => { setLangState(v); write(guestLangKey('menuboard', tenantId), v === 'en' ? null : v); setPicking(false); };
   const load = useCallback(async () => {
     if (!key || inFlight.current) return; inFlight.current = true;
     try {
@@ -157,7 +172,7 @@ export default function MenuBoard() {
   // pictures and then as lines. A screen showing one section: the same, then its items in turns, two pages, three, up to
   // seven.
   const sig = board ? board.sections.map((x) => `${x.name}:${x.items.map((i) => `${i.id}${i.imageUrl ? '+' : ''}${i.badge || ''}${i.calories != null ? 'c' : ''}${i.number ?? ''}${i.size ? 's' : ''}${i.prosOnly ? 'p' : ''}${(i.swatches || []).length}`).join(',')}`).join('|') : '';
-  const fitKey = `${sig}#${show}#${vp}#${numbers ? 'n' : ''}#${fontIn ? 'f' : ''}`;
+  const fitKey = `${sig}#${show}#${vp}#${numbers ? 'n' : ''}#${fontIn ? 'f' : ''}#${lang}`;
   const fit = fitAt.key === fitKey ? fitAt.n : 0;
   const single = !!show && !!board?.sections.some((x) => x.name === show && x.items.length);
   const pair = wide && !single;
@@ -182,8 +197,8 @@ export default function MenuBoard() {
   const C = LOOKS[look];
   if (!ready) return <main className="min-h-dvh" style={{ background: C.bg }} />;
   if (!key) return <ScreenSetup menu tenantId={tenantId} stopped={stopped} onPaired={(k) => { write(keyName(tenantId), k); setKey(k); setStopped(''); }} />;
-  if (closed) return <main className="flex h-dvh items-center justify-center px-[6vw] text-center" style={{ background: C.bg, color: C.text, fontFamily: FONT }}><p className="text-[clamp(26px,4vmin,52px)] font-bold">The menu isn’t available right now.</p></main>;
-  if (!board) return <main className="flex min-h-dvh items-center justify-center" style={{ background: C.bg }}><div className="h-10 w-10 animate-spin rounded-full border-4 motion-reduce:animate-none" style={{ borderColor: C.line, borderTopColor: C.text }} role="status" aria-label="Loading the menu" /></main>;
+  if (closed) return <main className="flex h-dvh items-center justify-center px-[6vw] text-center" style={{ background: C.bg, color: C.text, fontFamily: FONT }}><p lang={lang} className="text-[clamp(26px,4vmin,52px)] font-bold">{t('The menu isn’t available right now.')}</p></main>;
+  if (!board) return <main className="flex min-h-dvh items-center justify-center" style={{ background: C.bg }}><div className="h-10 w-10 animate-spin rounded-full border-4 motion-reduce:animate-none" style={{ borderColor: C.line, borderTopColor: C.text }} role="status" aria-label={t('Loading the menu')} /></main>;
 
   // The business's own color on its logo tile, the featured price and Limited time; on a dark screen a dark color would
   // vanish, so there it's white with dark type.
@@ -203,34 +218,34 @@ export default function MenuBoard() {
   const lines = rotate ? fit - PIC - 1 >= SIZES.length : fit >= PIC;
   const size = Math.min(rotate ? fit - PIC - 1 : pair ? fit >> 1 : fit, SIZES.length - 1);
   const S = SIZES[size];
-  const tagOf = (i: Item): [string, string, string] | null => i.soldOut ? ['Sold out', C.out[0], C.out[1]]
-    : i.badge === 'popular' ? ['Popular', C.popular[0], C.popular[1]] : i.badge === 'new' ? ['New', C.fresh[0], C.fresh[1]] : i.badge === 'limited' ? ['Limited time', brand, brandInk] : null;
+  const tagOf = (i: Item): [string, string, string] | null => i.soldOut ? [t('Sold out'), C.out[0], C.out[1]]
+    : i.badge === 'popular' ? [t('Popular'), C.popular[0], C.popular[1]] : i.badge === 'new' ? [t('New'), C.fresh[0], C.fresh[1]] : i.badge === 'limited' ? [t('Limited time'), brand, brandInk] : null;
   const tag = (i: Item, size: string) => { const t = tagOf(i); return t ? <span className="inline-block max-w-full shrink-0 truncate whitespace-nowrap rounded-full px-[0.75em] py-[0.25em] font-bold" style={{ fontSize: size, background: t[1], color: t[2] }}>{t[0]}</span> : null; };
-  const num = (i: Item, size: string) => numbers && i.number ? <span role="img" aria-label={`Number ${i.number}`} className="inline-flex shrink-0 items-center justify-center rounded-full font-extrabold tabular-nums" style={{ width: size, height: size, fontSize: `calc(${size} * 0.5)`, background: look === 'dark' ? '#ffffff' : INK, color: look === 'dark' ? INK : '#ffffff' }}>{i.number}</span> : null;
+  const num = (i: Item, size: string) => numbers && i.number ? <span role="img" aria-label={t('Number {n}', { n: i.number })} className="inline-flex shrink-0 items-center justify-center rounded-full font-extrabold tabular-nums" style={{ width: size, height: size, fontSize: `calc(${size} * 0.5)`, background: look === 'dark' ? '#ffffff' : INK, color: look === 'dark' ? INK : '#ffffff' }}>{i.number}</span> : null;
   // A section's numbers ("Numbers 3 to 7"), under its name, so an item that wraps onto the next row still reads as its.
   const range = (list: Item[]) => {
     const n = numbers ? list.map((i) => i.number).filter((x): x is number => !!x) : [];
     if (!n.length) return null; const a = Math.min(...n), b = Math.max(...n);
-    return a === b ? `Number ${a}` : `Numbers ${a} to ${b}`;
+    return a === b ? t('Number {n}', { n: a }) : t('Numbers {a} to {b}', { a, b });
   };
   // A product's shades as dots (those with a color; a sold-out one faded), up to a few with how many more.
   const dots = (i: Item, d: string, most = 7) => {
     const sw = (i.swatches || []).filter((w) => w.color); if (!sw.length) return null;
     return (
-      <span role="img" aria-label={`${sw.length} colors`} className="flex items-center gap-[0.5vmin]">
+      <span role="img" aria-label={t('{n} colors', { n: sw.length })} className="flex items-center gap-[0.5vmin]">
         {sw.slice(0, most).map((w, k) => <span key={k} className="shrink-0 rounded-full" style={{ width: d, height: d, background: w.color!, opacity: w.soldOut ? 0.35 : 1, boxShadow: `inset 0 0 0 1px ${look === 'dark' ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.1)'}` }} />)}
         {sw.length > most && <span className="font-semibold" style={{ fontSize: `calc(${d} * 0.9)`, color: C.sub }}>+{sw.length - most}</span>}
       </span>);
   };
   // "Pros only": sold to licensed pros alone.
-  const pros = (i: Item, size: string) => i.prosOnly ? <span className="inline-block shrink-0 whitespace-nowrap rounded-full px-[0.75em] py-[0.25em] font-bold" style={{ fontSize: size, background: look === 'dark' ? '#ffffff' : INK, color: look === 'dark' ? INK : '#ffffff' }}>Pros only</span> : null;
+  const pros = (i: Item, size: string) => i.prosOnly ? <span className="inline-block shrink-0 whitespace-nowrap rounded-full px-[0.75em] py-[0.25em] font-bold" style={{ fontSize: size, background: look === 'dark' ? '#ffffff' : INK, color: look === 'dark' ? INK : '#ffffff' }}>{t('Pros only')}</span> : null;
   // What sits beside the price: calories for the menu, the size for a product.
-  const extra = (i: Item, size: string) => i.calories != null ? <span style={{ fontSize: size, color: C.sub }}>{i.calories} cal</span>
+  const extra = (i: Item, size: string) => i.calories != null ? <span style={{ fontSize: size, color: C.sub }}>{t('{n} cal', { n: i.calories })}</span>
     : i.size ? <span style={{ fontSize: size, color: C.sub }}>{i.size}</span> : null;
   // (During happy hour, its happy-hour price, with the usual one crossed out after it.)
   const price = (i: Item) => { const off = i.happyPrice != null && i.happyPrice < i.price ? i.price - i.happyPrice : 0; const was = i.from ? i.startPrice : i.price;
-    return <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>from </span>}{money(Math.max(0, was - off))}{i.per && <span style={{ fontSize: '0.62em', fontWeight: 600 }}>/{i.per}</span>}
-      {off > 0 && <s className="ml-[0.4em]" style={{ fontSize: '0.62em', fontWeight: 600, opacity: 0.7 }}><span className="sr-only">usually </span>{money(was)}</s>}</>; };
+    return <>{i.from && <span style={{ fontSize: '0.78em', fontWeight: 600 }}>{t('from')} </span>}{money(Math.max(0, was - off))}{i.per && <span style={{ fontSize: '0.62em', fontWeight: 600 }}>/{i.per}</span>}
+      {off > 0 && <s className="ml-[0.4em]" style={{ fontSize: '0.62em', fontWeight: 600, opacity: 0.7 }}><span className="sr-only">{t('usually')} </span>{money(was)}</s>}</>; };
   const picture = (i: Item, letter: string) => i.imageUrl
     // (A product's photo whole, the way a shop shows it; a dish's or drink's photo filling its space.)
     ? <img key={i.imageUrl} src={i.imageUrl} alt="" onError={hide} className={`h-full w-full ${i.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} style={i.soldOut ? { filter: 'grayscale(1)', opacity: 0.45 } : undefined} />
@@ -277,7 +292,7 @@ export default function MenuBoard() {
       <span className="min-w-0 flex-1">
         <span className="block truncate font-bold" style={{ fontSize: '2.1vmin', color: i.soldOut ? C.sub : C.text }}>{i.name}</span>
         <span className="flex items-center gap-[0.8vmin]" style={{ fontSize: '1.7vmin' }}>
-          {i.soldOut ? <span style={{ color: C.sub }}>Sold out</span> : <span className="font-bold tabular-nums">{price(i)}</span>}
+          {i.soldOut ? <span style={{ color: C.sub }}>{t('Sold out')}</span> : <span className="font-bold tabular-nums">{price(i)}</span>}
           {!i.soldOut && i.badge && tag(i, '1.3vmin')}
           {pros(i, '1.3vmin')}
         </span>
@@ -293,7 +308,7 @@ export default function MenuBoard() {
   const ownRow = !wide || (placing && across > 0 && across < 4);
 
   const featured = h ? (
-    <section aria-label="Featured" className={`flex min-h-0 overflow-hidden rounded-[3vmin] ${wide ? 'flex-col p-[1.6vmin]' : 'flex-row-reverse items-stretch p-[1.4vmin]'}`} style={{ ...cardBox, ...(wide ? { width: '29%', flexShrink: 0 } : { height: '27%', flexShrink: 0 }) }}>
+    <section aria-label={t('Featured')} className={`flex min-h-0 overflow-hidden rounded-[3vmin] ${wide ? 'flex-col p-[1.6vmin]' : 'flex-row-reverse items-stretch p-[1.4vmin]'}`} style={{ ...cardBox, ...(wide ? { width: '29%', flexShrink: 0 } : { height: '27%', flexShrink: 0 }) }}>
       <div className={`relative flex min-h-0 items-center justify-center overflow-hidden rounded-[2.2vmin] ${wide ? 'flex-1' : 'w-[42%] shrink-0'}`} style={{ background: C.well }}>
         {h.imageUrl ? <img key={`${h.id}|${h.imageUrl}`} src={h.imageUrl} alt="" onError={hide} className={`cf-hero-img h-full w-full ${h.kind === 'product' ? 'object-contain p-[6%]' : 'object-cover'}`} />
           : <span aria-hidden className="font-extrabold" style={{ color: C.faint, fontSize: '14vmin' }}>{h.name.trim().charAt(0).toUpperCase()}</span>}
@@ -315,7 +330,7 @@ export default function MenuBoard() {
   ) : null;
 
   return (
-    <main className="relative flex h-dvh flex-col gap-[2vmin] overflow-hidden px-[2.4vw] pb-[2vmin] pt-[2.4vmin]" style={{ background: C.bg, color: C.text, fontFamily: FONT }}>
+    <main lang={lang} className="relative flex h-dvh flex-col gap-[2vmin] overflow-hidden px-[2.4vw] pb-[2vmin] pt-[2.4vmin]" style={{ background: C.bg, color: C.text, fontFamily: FONT }}>
       <style>{`@keyframes cfHeroIn { from { opacity: 0; transform: scale(1.03); } to { opacity: 1; transform: scale(1); } }
         @media (prefers-reduced-motion: no-preference) { .cf-hero-img { animation: cfHeroIn 700ms ease-out; } }`}</style>
       <header className="flex shrink-0 items-center justify-between gap-[2vw]">
@@ -323,25 +338,25 @@ export default function MenuBoard() {
           <span aria-hidden className="flex shrink-0 items-center justify-center rounded-[1.8vmin] font-extrabold" style={{ width: '6.6vmin', height: '6.6vmin', fontSize: '3.2vmin', background: brand, color: brandInk }}>{board.business.name.trim().charAt(0).toUpperCase()}</span>
           <div className="min-w-0">
             <p className="m-0 truncate font-extrabold leading-[1.1] tracking-[-0.02em]" style={{ fontSize: '3.6vmin' }}>{board.business.name}</p>
-            {(single || rotate) && shown[0] && <p className="m-0 truncate font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>{shown[0].name}{pages > 1 ? `, ${(page % pages) + 1} of ${pages}` : ''}</p>}
+            {(single || rotate) && shown[0] && <p className="m-0 truncate font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>{shown[0].label}{pages > 1 ? `, ${t('{a} of {b}', { a: (page % pages) + 1, b: pages })}` : ''}</p>}
           </div>
         </div>
         {((board.dayparts || []).length > 0 || board.happyHour) && (
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-[1vmin]">
-            {(board.dayparts || []).map((d, k) => <span key={k} className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', ...cardBox }}>{d.name} until {d.until}</span>)}
-            {board.happyHour && <span className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', background: brand, color: brandInk }}>Happy hour until {board.happyHour.until}</span>}
+            {(board.dayparts || []).map((d, k) => <span key={k} className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', ...cardBox }}>{t('{name} {until}', { name: d.name, until: untilTime(lang, d.until) })}</span>)}
+            {board.happyHour && <span className="whitespace-nowrap rounded-full px-[1.6vmin] py-[0.7vmin] font-bold" style={{ fontSize: '2vmin', background: brand, color: brandInk }}>{t('Happy hour {until}', { until: untilTime(lang, board.happyHour.until) })}</span>}
           </div>)}
         {ahead && qr?.url === ahead && (
           <div className="flex shrink-0 items-center gap-[1.4vmin] rounded-[2.2vmin] py-[0.8vmin] pl-[2vmin] pr-[0.8vmin]" style={cardBox}>
-            <div className="text-right"><p className="m-0 font-bold" style={{ fontSize: '2.1vmin' }}>{board.pickupOnly ? 'Pickup only: order on your phone' : 'Order ahead'}</p><p className="m-0" style={{ fontSize: '1.6vmin', color: C.sub }}>{board.pickupOnly ? 'Scan with your camera, then pull up' : 'Scan with your camera'}</p></div>
-            <img src={qr.img} alt="Code to order ahead on your phone" className="rounded-[1.2vmin] bg-[#fff] p-[0.4vmin]" style={{ width: '7.4vmin', height: '7.4vmin' }} />
+            <div className="text-right"><p className="m-0 font-bold" style={{ fontSize: '2.1vmin' }}>{t(board.pickupOnly ? 'Pickup only: order on your phone' : 'Order ahead')}</p><p className="m-0" style={{ fontSize: '1.6vmin', color: C.sub }}>{t(board.pickupOnly ? 'Scan with your camera, then pull up' : 'Scan with your camera')}</p></div>
+            <img src={qr.img} alt={t('Code to order ahead on your phone')} className="rounded-[1.2vmin] bg-[#fff] p-[0.4vmin]" style={{ width: '7.4vmin', height: '7.4vmin' }} />
           </div>)}
       </header>
 
       {!all.length && board.next && (
         <div className="flex flex-1 flex-col items-center justify-center gap-[1.4vmin] text-center">
-          <p className="m-0 font-extrabold tracking-[-0.02em]" style={{ fontSize: '6vmin' }}>{board.next.name} is back {board.next.tomorrow ? 'tomorrow ' : ''}at {board.next.from}</p>
-          <p className="m-0" style={{ fontSize: '2.6vmin', color: C.sub }}>Nothing’s being served just now.</p>
+          <p className="m-0 font-extrabold tracking-[-0.02em]" style={{ fontSize: '6vmin' }}>{t(board.next.tomorrow ? '{name} is back tomorrow {at}' : '{name} is back {at}', { name: board.next.name, at: atTime(lang, board.next.from) })}</p>
+          <p className="m-0" style={{ fontSize: '2.6vmin', color: C.sub }}>{t('Nothing’s being served just now.')}</p>
         </div>)}
       <div className={`flex min-h-0 flex-1 gap-[2vmin] ${wide ? 'flex-row' : 'flex-col'}${!all.length && board.next ? ' hidden' : ''}`}>
         {!single && featured}
@@ -351,12 +366,12 @@ export default function MenuBoard() {
             const list = shown.flatMap((s) => s.items); const at = single ? (page % pages) * per : 0;
             const these = single ? list.slice(at, at + per) : null;
             return these ? (
-              <ul className="m-0 list-none p-0" style={{ columnCount: wide ? 3 : 2, columnGap: '3vmin' }} aria-label={pages > 1 ? `${shown[0].name}, part ${(page % pages) + 1} of ${pages}` : shown[0].name}>{these.map(line)}</ul>
+              <ul className="m-0 list-none p-0" style={{ columnCount: wide ? 3 : 2, columnGap: '3vmin' }} aria-label={pages > 1 ? t('{name}, part {a} of {b}', { name: shown[0].label || shown[0].name, a: (page % pages) + 1, b: pages }) : shown[0].label}>{these.map(line)}</ul>
             ) : (
               <div className="m-0" style={{ columnCount: wide ? (shown.length === 1 ? 3 : 2) : 2, columnGap: '3vmin' }}>
                 {shown.map((s) => (
-                  <section key={s.name} aria-label={s.name} className="mb-[1.6vmin] break-inside-avoid">
-                    <h2 className="m-0 mb-[1vmin] flex items-baseline gap-x-[1.2vmin] font-extrabold" style={{ fontSize: '2.4vmin' }}>{s.name}{range(s.items) && <span className="font-semibold" style={{ fontSize: '1.5vmin', color: C.sub }}>{range(s.items)}</span>}</h2>
+                  <section key={s.name} aria-label={s.label} className="mb-[1.6vmin] break-inside-avoid">
+                    <h2 className="m-0 mb-[1vmin] flex items-baseline gap-x-[1.2vmin] font-extrabold" style={{ fontSize: '2.4vmin' }}>{s.label}{range(s.items) && <span className="font-semibold" style={{ fontSize: '1.5vmin', color: C.sub }}>{range(s.items)}</span>}</h2>
                     <ul className="m-0 list-none p-0">{s.items.map(line)}</ul>
                   </section>))}
               </div>);
@@ -367,7 +382,7 @@ export default function MenuBoard() {
               {shown.flatMap((s, si) => [
                 ...(single || rotate ? [] : [
                   <li key={`h:${s.name}`} className={`flex min-w-0 ${ownRow ? 'items-baseline gap-x-[1.6vmin]' : 'flex-col items-start pt-[0.6vmin]'}`} style={spots ? spots[si][0] : ownRow ? { gridColumn: '1 / -1' } : undefined}>
-                    <h2 className="m-0 font-extrabold leading-[1.1] tracking-[-0.02em]" style={{ fontSize: `${Math.max(2.4, S.name * 1.25)}vmin` }}>{s.name}</h2>
+                    <h2 className="m-0 font-extrabold leading-[1.1] tracking-[-0.02em]" style={{ fontSize: `${Math.max(2.4, S.name * 1.25)}vmin` }}>{s.label}</h2>
                     {range(s.items) && <p className="m-0 font-semibold" style={{ fontSize: `${Math.max(1.5, S.cal)}vmin`, color: C.sub, marginTop: ownRow ? 0 : '0.5vmin' }}>{range(s.items)}</p>}
                   </li>]),
                 ...s.items.map((i, ii) => card(i, spots ? spots[si][ii + 1] : undefined)),
@@ -377,7 +392,7 @@ export default function MenuBoard() {
       </div>
       {(() => {
         // What to know before ordering, each said once: order by number, and that Pros only items need a license on file.
-        const notes = [numbers && items.some((i) => i.number) ? 'Order by number or by name' : '', items.some((i) => i.prosOnly) ? 'Pros only items need your license on file' : ''].filter(Boolean);
+        const notes = [numbers && items.some((i) => i.number) ? t('Order by number or by name') : '', items.some((i) => i.prosOnly) ? t('Pros only items need your license on file') : ''].filter(Boolean);
         return notes.length ? (
           <p className="m-0 flex shrink-0 flex-wrap items-center justify-center gap-x-[2.4vmin] font-semibold" style={{ fontSize: '2vmin', color: C.sub }}>
             {notes.map((n, k) => <span key={n} className="flex items-center gap-[2.4vmin]">{k > 0 && <span aria-hidden className="h-[0.7vmin] w-[0.7vmin] rounded-full" style={{ background: C.faint }} />}{n}</span>)}
@@ -385,7 +400,7 @@ export default function MenuBoard() {
       })()}
 
       <div className="absolute bottom-1 right-2">
-        <button ref={pickBtn} type="button" onClick={() => setPicking((v) => !v)} aria-expanded={picking} className="min-h-[44px] min-w-[44px] max-w-[40vw] truncate rounded-xl px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2" style={{ color: C.sub, opacity: 0.75 }}>{show || 'All sections'}, {look === 'dark' ? 'dark' : 'light'}</button>
+        <button ref={pickBtn} type="button" onClick={() => setPicking((v) => !v)} aria-expanded={picking} className="min-h-[44px] min-w-[44px] max-w-[40vw] truncate rounded-xl px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2" style={{ color: C.sub, opacity: 0.75 }}>{show || 'All sections'}, {look === 'dark' ? 'dark' : 'light'}{lang === 'es' ? ', Español' : ''}</button>
         {picking && (
           <div className="absolute bottom-12 right-0 w-64 space-y-1 rounded-2xl p-2" style={{ background: C.card, border: `1px solid ${C.line}` }} role="group" aria-label="What this screen shows">
             {all.length > 1 && ['', ...all.map((s) => s.name)].map((n) => (
@@ -397,6 +412,11 @@ export default function MenuBoard() {
             ))}
             <div className="my-1 border-t" style={{ borderColor: C.line }} />
             <button type="button" aria-pressed={numbers} onClick={() => setNumbers(!numbers)} className="flex min-h-[44px] w-full items-center justify-between rounded-xl px-3 text-left text-[15px]" style={{ color: C.text }}>Numbers on the items<span style={{ color: C.sub }}>{numbers ? 'On' : 'Off'}</span></button>
+            <div className="my-1 border-t" style={{ borderColor: C.line }} />
+            <div role="group" aria-label="Language on this screen" className="flex gap-1">
+              {GUEST_LANGS.map((l) => (
+                <button key={l.id} type="button" lang={l.id} aria-pressed={lang === l.id} onClick={() => setLang(l.id)} className="flex min-h-[44px] flex-1 items-center justify-center rounded-xl px-3 text-[15px]" style={lang === l.id ? { background: C.text, color: C.bg } : { color: C.text }}>{l.name}</button>))}
+            </div>
           </div>
         )}
       </div>

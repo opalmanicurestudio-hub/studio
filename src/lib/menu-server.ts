@@ -12,6 +12,7 @@ import { allergensKnown, cleanKeys, itemAllergens, type AllergenKey } from '@/li
 import { dailyCountOf } from '@/lib/dish-counts';
 import { alsoAtOf, type AlsoAt } from '@/lib/two-stations';
 import { upgradesOf, type Upgrades } from '@/lib/menu-upgrades';
+import { nameEsOf, wordsEsOf } from '@/lib/guest-lang';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const words = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -19,6 +20,8 @@ const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n
 
 import { byWeightOf, type WeightUnit } from '@/lib/menu-weight';
 export type MenuItem = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: ChoiceGroup[];
+  /** Its name and description in Spanish, for guest screens set to Español (lib/guest-lang; null: shows the English). */
+  nameEs: string | null; wordsEs: string | null;
   soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
   /** With more than one location, read for one (`here`): sold out at this location only, or everywhere. */
   outWhere?: 'here' | 'everywhere';
@@ -62,7 +65,7 @@ export const isMenuItem = (i: any) => !!i && i.type === 'refreshment' && i.archi
 export function menuItemOf(id: string, i: any, parts: Map<string, any> = new Map(), here: string | null = null): MenuItem {
   const start = startingPrice(i); const stock = stockOf(i, id, parts); const w = outWhere(i, here);
   return {
-    id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null,
+    id, name: words(i.name, 80) || 'Item', section: words(i.category, 40) || 'Menu', words: words(i.description, 240) || null, nameEs: nameEsOf(i), wordsEs: wordsEsOf(i),
     price: Math.max(0, Math.round(num(i.price) * 100) / 100), from: start.from, startPrice: start.price, imageUrl: photoOf(i),
     choices: choiceGroups(i, true, here), soldOut: w !== null, ...(w && here ? { outWhere: w } : {}), onMenu: offeredOnMenu(i), membersOnly: i.isMembersOnly === true, inStock: stock.inStock,
     appOut: Object.fromEntries(Object.entries(i.appOut && typeof i.appOut === 'object' ? i.appOut : {}).filter(([k, v]) => /^[a-z]{2,12}$/.test(k) && typeof v === 'string' && v)) as Record<string, string>,

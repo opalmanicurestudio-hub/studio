@@ -172,7 +172,7 @@ const req = (body: any) => ({ json: async () => body, text: async () => JSON.str
   wn = await POST(req({ tenantId: 't1', key: wkey, action: 'window', at: 'pay' }));
   check('…and once it’s paid, the points it earned', wn.body.show?.mode === 'paid' && wn.body.show.earned?.points === 15 && wn.body.show.earned.unit === 'points', wn.body.show);
   const win = src('src/app/drive-thru/[tenantId]/window/page.tsx');
-  check('the window screen says the reward and You earned', /Reward: \{s\.reward\.name\}/.test(win) && /You earned \{s\.earned\.points\}/.test(win));
+  check('the window screen says the reward and You earned', /t\('Reward: \{name\}', \{ name: s\.reward\.name \}\)/.test(win) && /earnedWords\(lang, s\.earned\.points, s\.earned\.unit\)/.test(win));
   const lanePage = src('src/app/drive-thru/[tenantId]/page.tsx');
   // (The sheet and the row are shared with the counter now: components/drive-thru/Rewards.)
   const rewardsUi = src('src/components/drive-thru/Rewards.tsx');

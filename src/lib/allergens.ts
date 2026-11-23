@@ -22,10 +22,22 @@ export const itemAllergens = (item: any): AllergenKey[] => cleanKeys(item?.aller
 /** Has anyone said what it contains (an empty list is "none of these"; no list at all is "nobody has said")? */
 export const allergensKnown = (item: any): boolean => Array.isArray(item?.allergens);
 
-// Words people write on a profile ("Nuts", "Dairy", "Celiac", "Shrimp") and the allergens they mean. "Nuts" means both
-// kinds: a server can't tell which, so both warn.
+// Words people write on a profile ("Nuts", "Dairy", "Celiac", "Shrimp") and the allergens they mean, and the same said
+// in Spanish (a guest ordering in Spanish at the drive-thru speaker: "cacahuates", "mariscos"), read without accents.
+// "Nuts" (and "nueces") means both kinds: a server can't tell which, so both warn.
 const WORDS: [RegExp, AllergenKey[]][] = [
-  [/\bpeanuts?\b|\bgroundnuts?\b/i, ['peanuts']],
+  [/\bpeanuts?\b|\bgroundnuts?\b|\bcacahuates?\b|\bcacahuetes?\b/i, ['peanuts']],
+  [/\bnuez\b(?! moscada)|\bnueces\b/i, ['peanuts', 'treenuts']],
+  [/\bfrutos secos\b|\balmendras?\b|\banacardos?\b|\bmaranon(es)?\b|\bpistach[eo]s?\b|\bavellanas?\b|\bpecanas?\b|\bpinon(es)?\b/i, ['treenuts']],
+  [/\bleche\b|\blacteos?\b|\blactosa\b|\bqueso\b/i, ['milk']],
+  [/\bhuevos?\b/i, ['eggs']],
+  [/\bmariscos?\b/i, ['shellfish', 'fish']],
+  [/\bcamaron(es)?\b|\bgambas?\b|\blangostas?\b|\bcangrejos?\b|\balmejas?\b|\bostion(es)?\b|\bostras?\b|\bmejillon(es)?\b|\bcrustaceos?\b/i, ['shellfish']],
+  [/\bpescados?\b|\bsalmon\b|\batun\b|\bbacalao\b|\banchoas?\b/i, ['fish']],
+  [/\bceliac[oa]s?\b/i, ['gluten', 'wheat']],
+  [/\btrigo\b/i, ['wheat']],
+  [/\bsoja\b/i, ['soy']],
+  [/\bajonjoli\b|\bsesamo\b/i, ['sesame']],
   [/\btree ?nuts?\b|\balmonds?\b|\bcashews?\b|\bwalnuts?\b|\bpecans?\b|\bhazelnuts?\b|\bpistachios?\b|\bmacadamias?\b|\bbrazil ?nuts?\b|\bpine ?nuts?\b/i, ['treenuts']],
   [/\bmilk\b|\bdairy\b|\blactose\b|\bcasein\b|\bwhey\b|\bcheese\b/i, ['milk']],
   [/\beggs?\b/i, ['eggs']],
@@ -41,9 +53,12 @@ const BOTH_SEA = /\bseafood\b/i;
 
 /** The allergens a word or phrase means (none: it's something else, kept as written). */
 export function keysFromWords(text: unknown): AllergenKey[] {
-  const t = String(text || '').trim(); if (!t) return [];
+  // (Read without accents, so "maní" and "camarón" are found as said or as typed.)
+  const t = String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); if (!t) return [];
   const out = new Set<AllergenKey>();
   for (const [re, keys] of WORDS) if (re.test(t)) keys.forEach((k) => out.add(k));
+  // ("Maní" only with its accent: "mani" alone is a manicure.)
+  if (/(^|[^\p{L}])man[íÍ](es|ses)?($|[^\p{L}])/iu.test(String(text || '').normalize('NFC'))) out.add('peanuts');
   if (BOTH_SEA.test(t)) out.add('shellfish');
   // Plain "nuts" (not tree nuts or peanuts named as such): both kinds.
   if (/\bnuts?\b/i.test(t.replace(/\b(tree|pine|brazil)\s?nuts?\b|\bpeanuts?\b|\bgroundnuts?\b/gi, ''))) { out.add('peanuts'); out.add('treenuts'); }

@@ -77,10 +77,10 @@ export function daypartsNow(tenant: any, at: Date = new Date()): (Daypart & { un
 }
 /** The next menu by time of day to start (later today, or else the first tomorrow), with its time in words. `ids`: only
  *  these menus (the ones something is on), so an empty menu never says it's next. */
-export function nextDaypart(tenant: any, at: Date = new Date(), ids?: Set<string>): { name: string; from: string; tomorrow: boolean } | null {
+export function nextDaypart(tenant: any, at: Date = new Date(), ids?: Set<string>): { id: string; name: string; from: string; tomorrow: boolean } | null {
   const { min } = localNow(tenant, at); const all = daypartsOf(tenant).filter((d) => !ids || ids.has(d.id)); if (!all.length) return null;
   const next = all.slice().sort((a, b) => ((mins(a.from) - min + 1440) % 1440 || 1440) - ((mins(b.from) - min + 1440) % 1440 || 1440))[0];
-  return { name: next.name, from: timeWords(next.from), tomorrow: mins(next.from) <= min };
+  return { id: next.id, name: next.name, from: timeWords(next.from), tomorrow: mins(next.from) <= min };
 }
 /** The menu by time of day that's on now (for the screens' "Lunch until 3 PM"), if any. */
 export function daypartNow(tenant: any, at: Date = new Date()): (Daypart & { until: string }) | null {

@@ -149,7 +149,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
 
   const route = src('src/app/api/counter/route.ts');
   check('the guest’s screens say it’s on the house (never why or who okayed it)', (route.match(/\.\.\.\(l\.comp \? \{ comp: true \} : \{\}\)/g) || []).length === 3
-    && ['board', 'window', 'guest'].every((f) => src(`src/app/drive-thru/[tenantId]/${f}/page.tsx`).includes('On the house</')) && /lastPrice: num\(l\.comp\?\.from \?\? l\.unitPrice\)/.test(src('src/lib/counter-server.ts')));
+    && ['board', 'window', 'guest'].every((f) => /On the house(<\/|'\)\}<\/)/.test(src(`src/app/drive-thru/[tenantId]/${f}/page.tsx`))) && /lastPrice: num\(l\.comp\?\.from \?\? l\.unitPrice\)/.test(src('src/lib/counter-server.ts')));
   console.log('the night report and the screens');
   const night = src('src/lib/night-close-server.ts');
   check('the night report counts what was given at the counter and the window, as comps, by why', /adjustments\.push\(\{ kind: 'comp', amount: Math\.round\(num\(l\.comp\.from\) \* num\(l\.quantity\) \* 100\) \/ 100, reason:/.test(night));

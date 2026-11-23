@@ -355,7 +355,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
     && llm?.body?.general_tools?.some((t: any) => t.type === 'end_call') && agent?.body?.response_engine?.llm_id === 'llm_new1' && (await get(T)).driveThru.voiceAgentId === 'agent_new1' && llm.auth === 'Bearer key_secret_123', { body: r.body, llm, agent });
   r = await V({ action: 'config' });
   check('…and it’s on', r.body.on === true, r.body);
-  check('…made with the newest instructions: it asks for a name, has a rush mode, and can save a name (and size up: counter-offers.verify)', (await get(T)).driveThru.voiceVersion === 4 && /\{\{ask_name\}\}/.test(llm?.body?.general_prompt) && /\{\{busy\}\}/.test(llm?.body?.general_prompt)
+  check('…made with the newest instructions: it asks for a name, has a rush mode, and can save a name (and size up: counter-offers.verify)', (await get(T)).driveThru.voiceVersion === 5 && /\{\{ask_name\}\}/.test(llm?.body?.general_prompt) && /\{\{busy\}\}/.test(llm?.body?.general_prompt)
     && !!llm?.body?.general_tools?.some((t: any) => t.name === 'set_name') && llm?.body?.default_dynamic_variables?.ask_name === 'yes');
   r = await menuApi(req({ action: 'list', tenantId: 't1' }));
   check('…so it isn’t offered an update', r.body.voice.outdated === false && r.body.voice.askName === true, r.body.voice);
@@ -365,7 +365,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   calls = [];
   r = await menuApi(req({ action: 'voiceUpdate', tenantId: 't1' }));
   const patch = calls.find((c) => c.url.includes('/update-retell-llm/llm_new1'));
-  check('…one tap brings it up to date with the same instructions and tools a new one gets', r.body.ok && patch?.method === 'PATCH' && patch.body.general_tools.some((t: any) => t.name === 'set_name') && patch.body.general_tools.some((t: any) => t.name === 'size_up') && patch.body.general_tools.some((t: any) => t.name === 'set_allergy') && (await get(T)).driveThru.voiceVersion === 4, { body: r.body, patch });
+  check('…one tap brings it up to date with the same instructions and tools a new one gets', r.body.ok && patch?.method === 'PATCH' && patch.body.general_tools.some((t: any) => t.name === 'set_name') && patch.body.general_tools.some((t: any) => t.name === 'size_up') && patch.body.general_tools.some((t: any) => t.name === 'set_allergy') && (await get(T)).driveThru.voiceVersion === 5, { body: r.body, patch });
   r = await menuApi(req({ action: 'voice', tenantId: 't1', askName: false }));
   check('a manager switches off asking for names', r.body.ok && r.body.askName === false && (await get(T)).driveThru.askName === false, r.body);
   await menuApi(req({ action: 'voice', tenantId: 't1', askName: true }));
@@ -384,7 +384,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('the lane keeps a call it took over when someone looks at another car (and asks before the page is left)', lane.includes('const live = new Map<string, Live>()') && lane.includes("window.addEventListener('beforeunload'") && !/return \(\) => \{[^}]*disconnect/.test(src('src/components/drive-thru/VoiceBar.tsx')));
   check('the speaker keeps the guest on when the team takes over (only its transcript stops)', speaker.includes("ev?.disconnection_reason === 'call_take_over'") && speaker.includes('(s as any).monitorEnded ='));
   check('the lane shows which car someone here is on, with a way back to it', lane.includes('useOnTheSpeakerHere()') && lane.includes('You’re still on the speaker with car') && lane.includes("onAir ? ' · you’re on'"));
-  check('names: typed on the lane when taking an order by hand, shown on each car and the order board', lane.includes('<NameField key={order.id}') && lane.includes("post({ action: 'name', orderId, name })") && src('src/app/drive-thru/[tenantId]/board/page.tsx').includes('`Thank you, ${o.name}`'));
+  check('names: typed on the lane when taking an order by hand, shown on each car and the order board', lane.includes('<NameField key={order.id}') && lane.includes("post({ action: 'name', orderId, name })") && src('src/app/drive-thru/[tenantId]/board/page.tsx').includes("t('Thank you, {name}', { name: o.name })"));
   check('the Menu page: ask for a name on or off, and an update for an older assistant', (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')).includes('Ask each car for a first name') && (src('src/app/(app)/menu/page.tsx') + src('src/components/menu/ItemBuilder.tsx')).includes('Update the assistant'));
   check('a take-over someone else already has says who', lane.includes("e?.status === 409 && typeof e?.message === 'string'"));
   check('saving a name never holds up Send (it’s saved on its own, and what was typed stays on screen until it’s saved)', lane.includes('onSave={(v) => saveName(order.id, v)}') && lane.includes('const saveName = async') && !/act\('name'/.test(lane));

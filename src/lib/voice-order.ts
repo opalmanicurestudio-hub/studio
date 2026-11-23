@@ -7,12 +7,14 @@ import { choiceGroups, type Picks } from '@/lib/menu-choices';
 import { menuNumbers, spokenNumber, NUMBER_WORDS } from '@/lib/menu-numbers';
 import { happyHourOf, inHappyHour, priceNow, servedNow, timeWords } from '@/lib/menu-time';
 
-type MenuLike = { id: string; name: string; section: string; price: number; from?: boolean; startPrice?: number; choices: any[]; soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean };
+type MenuLike = { id: string; name: string; section: string; price: number; from?: boolean; startPrice?: number; choices: any[]; soldOut: boolean; onMenu: boolean; membersOnly: boolean; inStock: boolean;
+  /** Its name in Spanish (lib/guest-lang): a guest speaking Spanish may order by it. */ nameEs?: string | null };
 
 const STOP = new Set(['a', 'an', 'the', 'some', 'of', 'with', 'and', 'please', 'order', 'one', 'my', 'me', 'i', 'want', 'get', 'can', 'have', 'like', 'would', 'd', 'id', 'just']);
-/** Words for matching: lower case, no punctuation, simple plurals made single ("fries" stays: it's in the menu that way). */
+/** Words for matching: lower case, no accents ("café" is "cafe"), no punctuation, simple plurals made single ("fries"
+ *  stays: it's in the menu that way). */
 export function words(s: string): string[] {
-  return String(s || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean)
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean)
     .map((w) => (w.length > 3 && w.endsWith('es') && !w.endsWith('ses') ? w.slice(0, -1) : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w));
 }
 const key = (s: string) => words(s).filter((w) => !STOP.has(w)).join(' ');
@@ -39,7 +41,7 @@ export function menuForVoice(menu: MenuLike[], o: { tenant?: any; at?: Date } = 
   const nums = menuNumbers(menu);
   const lines = sections.map((s) => `${s}: ${live.filter((m) => m.section === s).map((m) => {
     const groups = choiceGroups(m).map((g) => `${g.name}${g.required ? ' (must choose one)' : ''}: ${g.options.filter((o) => !o.soldOut).map((o) => `${o.name}${o.price ? ` ${o.price > 0 ? '+' : '-'}${money(Math.abs(o.price))}` : ''}`).join(', ')}`);
-    return `${nums.has(m.id) ? `No. ${nums.get(m.id)} ` : ''}${m.name} ${money(priceOf(m))}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
+    return `${nums.has(m.id) ? `No. ${nums.get(m.id)} ` : ''}${m.name}${m.nameEs ? ` (in Spanish: ${m.nameEs})` : ''} ${money(priceOf(m))}${groups.length ? ` [${groups.join('; ')}]` : ''}`;
   }).join('. ')}.`);
   const out = menu.filter((m) => m.onMenu && !m.membersOnly && (!m.inStock || m.soldOut)).map((m) => m.name);
   return ['Each item’s number on the menu board comes before its name; a guest may order by the number.', ...lines, out.length ? `Sold out right now: ${out.join(', ')}.` : '',
@@ -51,7 +53,9 @@ export function menuForVoice(menu: MenuLike[], o: { tenant?: any; at?: Date } = 
 export function matchItem<T extends MenuLike>(menu: T[], spoken: string): { item: T } | { ambiguous: T[] } | { none: true; soldOut?: T } {
   const want = key(spoken); if (!want) return { none: true };
   const all = menu.filter((m) => m.onMenu && !m.membersOnly);
-  const exact = all.filter((m) => key(m.name) === want);
+  // (By its English name, or its Spanish one: "papas" for the hash browns.)
+  const names = (m: T) => [m.name, ...(m.nameEs ? [m.nameEs] : [])];
+  const exact = all.filter((m) => names(m).some((n) => key(n) === want));
   const pickLive = (list: T[]) => list.filter(orderableNow);
   if (exact.length) { const l = pickLive(exact); return l.length === 1 ? { item: l[0] } : l.length > 1 ? { ambiguous: l } : { none: true, soldOut: exact[0] }; }
   // "Number 3": the item with that number on the menu board (lib/menu-numbers); a number that isn't on it is nothing.
@@ -66,7 +70,9 @@ export function matchItem<T extends MenuLike>(menu: T[], spoken: string): { item
   }
   // Every word of the menu name heard ("double burger" in "double burger with cheese"), or every word heard in the name.
   const w = new Set(want.split(' '));
-  const scored = all.map((m) => { const n = key(m.name).split(' ').filter(Boolean); const hit = n.filter((x) => w.has(x)).length; return { m, hit, full: hit === n.length, cover: hit / Math.max(1, w.size) }; })
+  const scoreOf = (m: T, name: string) => { const n = key(name).split(' ').filter(Boolean); const hit = n.filter((x) => w.has(x)).length; return { m, hit, full: n.length > 0 && hit === n.length, cover: hit / Math.max(1, w.size) }; };
+  // (Each item by whichever of its names was heard better.)
+  const scored = all.map((m) => names(m).map((n) => scoreOf(m, n)).sort((a, b) => Number(b.full) - Number(a.full) || b.hit - a.hit)[0])
     .filter((x) => x.hit > 0);
   const full = scored.filter((x) => x.full).sort((a, b) => b.hit - a.hit);
   if (full.length) {

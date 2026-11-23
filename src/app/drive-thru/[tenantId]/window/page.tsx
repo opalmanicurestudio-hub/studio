@@ -8,11 +8,16 @@
 //   Set up like the order board, with a key that can only show (api/kitchen 'pair', kind 'drive-thru-board'); reads
 //   api/counter 'window' only. Which window it's at is kept on the screen: one window for paying and picking up, the pay
 //   window, or the pickup window.
+//   In English or Español (lib/guest-lang; design board "The boards and the assistant in Spanish", A): set in the same
+//   corner (or ?lang=es in its address) and kept on the screen. Items show the business's Spanish name when it has one.
+//   What the card reader itself says stays in its own words in English; in Spanish the screen says the card didn't go
+//   through.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { CreditCard } from 'lucide-react';
 import { ScreenSetup } from '@/components/drive-thru/ScreenSetup';
+import { GUEST_LANGS, cleanGuestLang, earnedWords, gt, guestLangKey, inLang, type GuestLang } from '@/lib/guest-lang';
 
 const BG = '#16171a', TEXT = '#ffffff', SUB = '#b9bbc0', RULE = 'rgba(255,255,255,0.14)', GREEN_ON_DARK = '#7fd1a4', AMBER_ON_DARK = '#f2b46d', TILE = '#24262b';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#16171a]';
@@ -20,7 +25,7 @@ const POLL_MS = 1500, STALE_MS = 20000;
 type At = 'one' | 'pay' | 'pickup';
 const ATS: [At, string, string][] = [['one', 'One window', 'Guests pay and pick up here'], ['pay', 'Pay window', 'Guests pay here, then drive on'], ['pickup', 'Pickup window', 'Guests pick up here']];
 type Show = { mode: 'pay' | 'paid' | 'forward' | 'thanks'; number: string; name: string | null; spot: string | null;
-  lines: { name: string; quantity: number; choicesText: string | null; price: number; comp?: boolean; imageUrl: string | null }[];
+  lines: { name: string; nameEs?: string | null; quantity: number; choicesText: string | null; price: number; comp?: boolean; imageUrl: string | null }[];
   subtotal: number; tax: number; total: number; giftCards?: number; paid: boolean; payMethod: string | null; change: number | null;
   card: 'on_reader' | 'declined' | null; cardMessage: string | null; kitchen: 'making' | 'ready' | null; nextWindow: boolean; payUrl?: string | null;
   // The number of their order placed ahead, going with this car (found at the speaker): already paid, handed out with it.
@@ -40,17 +45,22 @@ export default function WindowScreen() {
   const { tenantId } = useParams() as { tenantId: string };
   const [key, setKey] = useState<string | null>(null); const [ready, setReady] = useState(false);
   const [at, setAtState] = useState<At>('one'); const [picking, setPicking] = useState(false);
+  // English or Español on this screen, kept on it (lib/guest-lang).
+  const [lang, setLangState] = useState<GuestLang>('en');
+  const t = (en: string, vars?: Record<string, string | number>) => gt(lang, en, vars);
   const [view, setView] = useState<View | null>(null); const [lastOk, setLastOk] = useState(0); const [stopped, setStopped] = useState('');
   const [, setTick] = useState(0);
   const inFlight = useRef(false);
   useEffect(() => {
     setKey(read(keyName(tenantId)));
-    const fromUrl = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('at') : null;
-    const a = (fromUrl || read(atName(tenantId))) as At | null; if (a && ATS.some(([k]) => k === a)) setAtState(a);
+    const q = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const a = (q?.get('at') || read(atName(tenantId))) as At | null; if (a && ATS.some(([k]) => k === a)) setAtState(a);
+    setLangState(cleanGuestLang(q?.get('lang') || read(guestLangKey('window', tenantId))));
     setReady(true);
   }, [tenantId]);
   useEffect(() => { const i = setInterval(() => setTick((n) => n + 1), 2000); return () => clearInterval(i); }, []);
   const setAt = (a: At) => { setAtState(a); write(atName(tenantId), a); setPicking(false); setView(null); setLastOk(0); };
+  const setLang = (v: GuestLang) => { setLangState(v); write(guestLangKey('window', tenantId), v === 'en' ? null : v); };
 
   const load = useCallback(async () => {
     if (!key || inFlight.current) return; inFlight.current = true;
@@ -78,30 +88,30 @@ export default function WindowScreen() {
   const fresh = lastOk > 0 && Date.now() - lastOk < STALE_MS;
   const s = fresh ? view?.show || null : null;
   const name = view?.business.name || '';
-  const hi = (n: string | null) => (n ? `, ${n}` : '');
+  const thanks = (n: string | null) => (n ? t('Thank you, {name}', { name: n }) : t('Thank you'));
   return (
-    <main className="relative flex min-h-dvh flex-col" style={{ background: BG, color: TEXT }}>
+    <main lang={lang} className="relative flex min-h-dvh flex-col" style={{ background: BG, color: TEXT }}>
       <header className="flex items-center justify-between gap-4 px-[4vw] pb-[2vh] pt-[4vh]" style={{ borderBottom: `1px solid ${RULE}` }}>
-        <p className="truncate text-[clamp(22px,3vw,40px)] font-semibold tracking-tight">{name || 'Welcome'}</p>
-        {s && <p className="shrink-0 text-[clamp(18px,2.2vw,30px)] font-medium tabular-nums" style={{ color: SUB }}>Order {s.number}{s.name ? ` · ${s.name}` : ''}</p>}
+        <p className="truncate text-[clamp(22px,3vw,40px)] font-semibold tracking-tight">{name || t('Welcome')}</p>
+        {s && <p className="shrink-0 text-[clamp(18px,2.2vw,30px)] font-medium tabular-nums" style={{ color: SUB }}>{t('Order {n}', { n: s.number })}{s.name ? ` · ${s.name}` : ''}</p>}
       </header>
 
       <div className="flex flex-1 flex-col pb-12" aria-live="polite">
         {!s ? (
           <section className="flex flex-1 flex-col items-center justify-center gap-[2vh] px-[6vw] text-center">
-            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Welcome</p>
-            <p className="max-w-[26ch] text-[clamp(22px,3vw,44px)] leading-snug" style={{ color: SUB }}>{at === 'pickup' ? 'Your order is handed out here.' : 'Your order and total show here at the window.'}</p>
+            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">{t('Welcome')}</p>
+            <p className="max-w-[26ch] text-[clamp(22px,3vw,44px)] leading-snug" style={{ color: SUB }}>{t(at === 'pickup' ? 'Your order is handed out here.' : 'Your order and total show here at the window.')}</p>
           </section>
         ) : s.mode === 'pay' ? (
           <section className="grid flex-1 grid-rows-[auto_minmax(0,1fr)] gap-[3vh] px-[4vw] py-[3vh] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:grid-rows-none lg:gap-[4vw]">
             <div className="order-2 min-w-0 lg:order-1">
-              <OrderLines s={s} />
+              <OrderLines s={s} lang={lang} />
             </div>
             <div className="order-1 flex flex-col justify-center gap-[2.5vh] self-start rounded-[clamp(20px,3vh,36px)] px-[clamp(20px,3vw,48px)] py-[clamp(20px,4vh,56px)] lg:order-2 lg:self-stretch" style={{ background: TILE }}>
               <div>
-                <p className="text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>{s.tax > 0 ? 'Your total with tax' : 'Your total'}</p>
+                <p className="text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>{t(s.tax > 0 ? 'Your total with tax' : 'Your total')}</p>
                 <p className="text-[clamp(56px,8vw,128px)] font-semibold leading-none tracking-tight tabular-nums">{usd(s.total)}</p>
-                {s.alsoAhead && <p className="mt-[1vh] text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Your order placed ahead, {s.alsoAhead}, is paid already.</p>}
+                {s.alsoAhead && <p className="mt-[1vh] text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>{t('Your order placed ahead, {n}, is paid already.', { n: s.alsoAhead })}</p>}
               </div>
               <div className="h-px w-full" style={{ background: RULE }} />
               {s.card === 'on_reader' ? (
@@ -110,73 +120,78 @@ export default function WindowScreen() {
                     <span className="absolute inset-0 rounded-full motion-safe:animate-ping" style={{ background: GREEN_ON_DARK, opacity: 0.25 }} />
                     <CreditCard className="relative h-1/2 w-1/2" color={BG} />
                   </span>
-                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">Tap, insert or swipe your card on the reader</p>
+                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">{t('Tap, insert or swipe your card on the reader')}</p>
                 </div>
               ) : s.card === 'declined' ? (
                 <div className="space-y-[1vh]">
-                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight" style={{ color: AMBER_ON_DARK }}>{s.cardMessage || 'The card didn’t go through.'}</p>
-                  <p className="text-[clamp(18px,2.4vw,36px)] leading-snug" style={{ color: SUB }}>Try another card, or pay another way.</p>
+                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight" style={{ color: AMBER_ON_DARK }}>{lang === 'en' && s.cardMessage ? s.cardMessage : t('The card didn’t go through.')}</p>
+                  <p className="text-[clamp(18px,2.4vw,36px)] leading-snug" style={{ color: SUB }}>{t('Try another card, or pay another way.')}</p>
                 </div>
               ) : s.payUrl && qr?.url === s.payUrl ? (
                 <div className="flex items-center gap-[2.5vw]">
-                  <img src={qr.img} alt="Code to pay on your phone" className="shrink-0 rounded-[clamp(12px,2vh,24px)] bg-[#fff] p-[clamp(6px,1vh,12px)]" style={{ width: 'clamp(150px,24vh,300px)', height: 'clamp(150px,24vh,300px)' }} />
+                  <img src={qr.img} alt={t('Code to pay on your phone')} className="shrink-0 rounded-[clamp(12px,2vh,24px)] bg-[#fff] p-[clamp(6px,1vh,12px)]" style={{ width: 'clamp(150px,24vh,300px)', height: 'clamp(150px,24vh,300px)' }} />
                   <div className="min-w-0 space-y-[1vh]">
-                    <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">Scan to pay on your phone</p>
-                    <p className="text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>Point your camera at the code{view?.wallets ? '. Card, Apple Pay or Google Pay' : ' and pay by card'}. Or pay at the window.</p>
+                    <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">{t('Scan to pay on your phone')}</p>
+                    <p className="text-[clamp(16px,2vw,30px)] leading-snug" style={{ color: SUB }}>{t(view?.wallets ? 'Point your camera at the code. Card, Apple Pay or Google Pay. Or pay at the window.' : 'Point your camera at the code and pay by card. Or pay at the window.')}</p>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-[1vh]">
-                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">Card or cash</p>
-                  <p className="text-[clamp(18px,2.4vw,36px)] leading-snug" style={{ color: SUB }}>We’ll take it at the window.</p>
+                  <p className="text-[clamp(24px,3.2vw,52px)] font-semibold leading-tight">{t('Card or cash')}</p>
+                  <p className="text-[clamp(18px,2.4vw,36px)] leading-snug" style={{ color: SUB }}>{t('We’ll take it at the window.')}</p>
                 </div>
               )}
             </div>
           </section>
         ) : s.mode === 'paid' ? (
           <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
-            <p className="rounded-full px-[1.2em] py-[0.35em] text-[clamp(18px,2.2vw,32px)] font-semibold" style={{ background: 'rgba(127,209,164,0.16)', color: GREEN_ON_DARK }}>Paid{s.payMethod === 'cash' ? ' in cash' : s.payMethod === 'card' ? ' by card' : ''}</p>
-            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Thank you{hi(s.name)}</p>
-            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>You earned {s.earned.points} {s.earned.points === 1 ? s.earned.unit.replace(/es$|s$/, '') : s.earned.unit}</p>}
+            <p className="rounded-full px-[1.2em] py-[0.35em] text-[clamp(18px,2.2vw,32px)] font-semibold" style={{ background: 'rgba(127,209,164,0.16)', color: GREEN_ON_DARK }}>{t(s.payMethod === 'cash' ? 'Paid in cash' : s.payMethod === 'card' ? 'Paid by card' : 'Paid')}</p>
+            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">{thanks(s.name)}</p>
+            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>{earnedWords(lang, s.earned.points, s.earned.unit)}</p>}
             {s.change !== null && s.change > 0 && (
-              <p className="text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>Your change <span className="font-semibold tabular-nums" style={{ color: TEXT }}>{usd(s.change)}</span></p>
+              <p className="text-[clamp(26px,3.6vw,56px)]" style={{ color: SUB }}>{t('Your change')} <span className="font-semibold tabular-nums" style={{ color: TEXT }}>{usd(s.change)}</span></p>
             )}
             <p className="max-w-[28ch] text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: s.nextWindow ? TEXT : SUB }}>
-              {s.nextWindow ? 'Please pull up to the next window.' : s.alsoAhead ? (s.kitchen === 'ready' ? `Your orders are ready, with ${s.alsoAhead} placed ahead.` : `Your orders are being made, with ${s.alsoAhead} placed ahead.`) : s.kitchen === 'ready' ? 'Your order is ready.' : 'Your order is being made.'}
+              {s.nextWindow ? t('Please pull up to the next window.') : s.alsoAhead ? t(s.kitchen === 'ready' ? 'Your orders are ready, with {n} placed ahead.' : 'Your orders are being made, with {n} placed ahead.', { n: s.alsoAhead }) : t(s.kitchen === 'ready' ? 'Your order is ready.' : 'Your order is being made.')}
             </p>
           </section>
         ) : s.mode === 'forward' ? (
           <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
-            <p className="text-[clamp(34px,5vw,80px)] font-semibold leading-tight tracking-tight">Please pull forward{s.spot ? ' to' : ''}</p>
+            <p className="text-[clamp(34px,5vw,80px)] font-semibold leading-tight tracking-tight">{t(s.spot ? 'Please pull forward to' : 'Please pull forward')}</p>
             {s.spot && (
               <div className="flex flex-col items-center justify-center rounded-[clamp(20px,3vh,40px)]" style={{ minWidth: 'clamp(140px,20vh,260px)', padding: 'clamp(12px,2vh,28px) clamp(24px,4vw,64px)', border: `4px solid ${GREEN_ON_DARK}` }}>
-                <span className="text-[clamp(18px,2.2vw,32px)] font-medium" style={{ color: GREEN_ON_DARK }}>Spot</span>
+                <span className="text-[clamp(18px,2.2vw,32px)] font-medium" style={{ color: GREEN_ON_DARK }}>{t('Spot')}</span>
                 <span className="text-[clamp(80px,14vh,180px)] font-semibold leading-none tabular-nums">{s.spot}</span>
               </div>
             )}
-            <p className="max-w-[28ch] text-[clamp(22px,3vw,44px)] leading-snug" style={{ color: SUB }}>We’ll bring your order right out to you{s.name ? `, ${s.name}` : ''}.</p>
+            <p className="max-w-[28ch] text-[clamp(22px,3vw,44px)] leading-snug" style={{ color: SUB }}>{s.name ? t('We’ll bring your order right out to you, {name}.', { name: s.name }) : t('We’ll bring your order right out to you.')}</p>
           </section>
         ) : (
           <section className="flex flex-1 flex-col items-center justify-center gap-[3vh] px-[6vw] text-center">
-            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">Thank you{hi(s.name)}</p>
-            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>You earned {s.earned.points} {s.earned.points === 1 ? s.earned.unit.replace(/es$|s$/, '') : s.earned.unit}</p>}
-            <p className="text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: SUB }}>Enjoy, and see you next time.</p>
+            <p className="text-[clamp(40px,6vw,96px)] font-semibold leading-tight tracking-tight">{thanks(s.name)}</p>
+            {s.earned && <p className="text-[clamp(24px,3.4vw,52px)] font-semibold" style={{ color: GREEN_ON_DARK }}>{earnedWords(lang, s.earned.points, s.earned.unit)}</p>}
+            <p className="text-[clamp(24px,3.4vw,52px)] leading-snug" style={{ color: SUB }}>{t('Enjoy, and see you next time.')}</p>
           </section>
         )}
       </div>
 
-      <button type="button" onClick={() => setPicking(true)} aria-haspopup="dialog" className={`absolute bottom-3 right-3 min-h-[44px] rounded-xl px-3 text-[13px] font-medium ${RING}`} style={{ color: 'rgba(255,255,255,0.4)' }}>
-        {ATS.find(([k]) => k === at)?.[1]}
+      <button type="button" onClick={() => setPicking(true)} aria-haspopup="dialog" className={`absolute bottom-3 right-3 min-h-[44px] rounded-xl px-3 text-[13px] font-medium ${RING}`} style={{ color: 'rgba(255,255,255,0.55)' }}>
+        {ATS.find(([k]) => k === at)?.[1]}{lang === 'es' ? ', Español' : ''}
       </button>
       {picking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setPicking(false)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="window-at" className="w-full max-w-sm space-y-2 rounded-3xl bg-[#fff] p-4" style={{ color: '#16171a' }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="window-at" lang="en" className="w-full max-w-sm space-y-2 rounded-3xl bg-[#fff] p-4" style={{ color: '#16171a' }} onClick={(e) => e.stopPropagation()}>
             <p id="window-at" className="px-2 pb-1 text-[16px] font-semibold">This screen is at</p>
             {ATS.map(([k, label, hint]) => (
               <button key={k} type="button" aria-pressed={at === k} onClick={() => setAt(k)} autoFocus={at === k} className={`flex min-h-[52px] w-full items-center justify-between gap-3 rounded-2xl px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]`} style={{ background: at === k ? '#f5f5f7' : 'transparent' }}>
                 <span><span className="block text-[15px] font-medium">{label}</span><span className="block text-[13px]" style={{ color: '#6d7075' }}>{hint}</span></span>
                 <span aria-hidden className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full" style={{ border: `2px solid ${at === k ? '#16171a' : '#ececee'}` }}>{at === k && <span className="h-2.5 w-2.5 rounded-full" style={{ background: '#16171a' }} />}</span>
               </button>))}
+            <p id="window-lang" className="px-2 pb-1 pt-2 text-[16px] font-semibold">Language on this screen</p>
+            <div role="group" aria-labelledby="window-lang" className="flex gap-2">
+              {GUEST_LANGS.map((l) => (
+                <button key={l.id} type="button" lang={l.id} aria-pressed={lang === l.id} onClick={() => setLang(l.id)} className="min-h-[48px] flex-1 rounded-2xl px-3 text-[15px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]" style={lang === l.id ? { background: '#16171a', color: '#fff' } : { border: '1px solid #ececee' }}>{l.name}</button>))}
+            </div>
             <button type="button" onClick={() => setPicking(false)} className="min-h-[44px] w-full rounded-xl text-[15px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]" style={{ border: '1px solid #ececee' }}>Done</button>
           </div>
         </div>
@@ -187,22 +202,23 @@ export default function WindowScreen() {
 
 /** The order at the window: the newest few lines (any more counted above them), each with its picture when the menu has
  *  one, then what it adds up to. */
-function OrderLines({ s }: { s: Show }) {
+function OrderLines({ s, lang }: { s: Show; lang: GuestLang }) {
+  const t = (en: string, vars?: Record<string, string | number>) => gt(lang, en, vars);
   const pictures = s.lines.some((l) => !!l.imageUrl);
   const shown = 5;
   return (
     <div className="flex h-full flex-col">
-      <p className="pb-[1.5vh] text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>Your order</p>
+      <p className="pb-[1.5vh] text-[clamp(18px,2.2vw,32px)]" style={{ color: SUB }}>{t('Your order')}</p>
       <ul className="flex-1 space-y-[1.6vh]">
-        {s.lines.length > shown && <li className="text-[clamp(16px,2vw,28px)]" style={{ color: SUB }}>{s.lines.length - shown} more {s.lines.length - shown === 1 ? 'item' : 'items'} before these</li>}
+        {s.lines.length > shown && <li className="text-[clamp(16px,2vw,28px)]" style={{ color: SUB }}>{t(s.lines.length - shown === 1 ? '{n} more item before these' : '{n} more items before these', { n: s.lines.length - shown })}</li>}
         {s.lines.slice(-shown).map((l, i) => (
           <li key={i} className={`flex justify-between gap-[2vw] ${pictures ? 'items-center' : 'items-baseline'}`}>
             <div className="flex min-w-0 items-center gap-[1.5vw]">
               {pictures && <span className="block shrink-0 overflow-hidden rounded-[12px]" style={{ width: 'min(5.5vw, 8vh)', height: 'min(5.5vw, 8vh)', background: TILE }} aria-hidden>{l.imageUrl && <img src={l.imageUrl} alt="" className="h-full w-full object-cover" />}</span>}
               <div className="min-w-0">
-                <p className="truncate text-[clamp(20px,2.6vw,42px)] font-semibold leading-tight"><span className="tabular-nums" style={{ color: GREEN_ON_DARK }}>{l.quantity}</span> {l.name}</p>
+                <p className="line-clamp-2 text-[clamp(20px,2.6vw,42px)] font-semibold leading-tight"><span className="tabular-nums" style={{ color: GREEN_ON_DARK }}>{l.quantity}</span> {inLang(lang, l.name, l.nameEs)}</p>
                 {l.choicesText && <p className="truncate text-[clamp(15px,1.8vw,28px)] leading-snug" style={{ color: SUB }}>{l.choicesText}</p>}
-                {l.comp && <p className="truncate text-[clamp(15px,1.8vw,28px)] leading-snug" style={{ color: SUB }}>On the house</p>}
+                {l.comp && <p className="truncate text-[clamp(15px,1.8vw,28px)] leading-snug" style={{ color: SUB }}>{t('On the house')}</p>}
               </div>
             </div>
             <p className="shrink-0 text-[clamp(20px,2.4vw,38px)] tabular-nums">{usd(l.price)}</p>
@@ -210,12 +226,12 @@ function OrderLines({ s }: { s: Show }) {
         ))}
       </ul>
       <div className="mt-[2vh] space-y-[0.6vh] pt-[1.5vh] text-[clamp(16px,2vw,30px)]" style={{ borderTop: `1px solid ${RULE}`, color: SUB }}>
-        <p className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{usd(s.reward ? s.reward.itemsTotal : s.markdown ? s.markdown.itemsTotal : s.subtotal)}</span></p>
-        {s.reward && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">Reward: {s.reward.name}</span><span className="shrink-0 tabular-nums">-{usd(s.reward.off)}</span></p>}
+        <p className="flex justify-between"><span>{t('Subtotal')}</span><span className="tabular-nums">{usd(s.reward ? s.reward.itemsTotal : s.markdown ? s.markdown.itemsTotal : s.subtotal)}</span></p>
+        {s.reward && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">{t('Reward: {name}', { name: s.reward.name })}</span><span className="shrink-0 tabular-nums">-{usd(s.reward.off)}</span></p>}
         {s.markdown && <p className="flex justify-between" style={{ color: GREEN_ON_DARK }}><span className="min-w-0 truncate">{s.markdown.name}</span><span className="shrink-0 tabular-nums">-{usd(s.markdown.off)}</span></p>}
-        {s.tax > 0 && <p className="flex justify-between"><span>Tax</span><span className="tabular-nums">{usd(s.tax)}</span></p>}
-        {(s.giftCards || 0) > 0 && <p className="flex justify-between"><span>Gift card, not taxed</span><span className="tabular-nums">{usd(s.giftCards || 0)}</span></p>}
-        {(s.tip || 0) > 0 && <p className="flex justify-between"><span>Tip</span><span className="tabular-nums">{usd(s.tip || 0)}</span></p>}
+        {s.tax > 0 && <p className="flex justify-between"><span>{t('Tax')}</span><span className="tabular-nums">{usd(s.tax)}</span></p>}
+        {(s.giftCards || 0) > 0 && <p className="flex justify-between"><span>{t('Gift card, not taxed')}</span><span className="tabular-nums">{usd(s.giftCards || 0)}</span></p>}
+        {(s.tip || 0) > 0 && <p className="flex justify-between"><span>{t('Tip')}</span><span className="tabular-nums">{usd(s.tip || 0)}</span></p>}
       </div>
     </div>
   );

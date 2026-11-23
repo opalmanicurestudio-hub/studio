@@ -40,6 +40,7 @@ import { ChoiceSetsPanel } from '@/components/menu/ChoiceSetsPanel';
 import { ItemBuilder } from '@/components/menu/ItemBuilder';
 import type { SetPick } from '@/components/menu/ChoicesEditor';
 import { VOICE_OFFER_MODES, type VoiceOfferMode } from '@/lib/voice-offer';
+import { SpanishBar, SpanishMenu, type Spanish } from '@/components/menu/SpanishMenu';
 
 // The page's three parts: the items first; the choice sets they share; and the settings (ordering ahead, menus by time
 // of day, table service, service times, prep recipes). A link to one of the settings (/menu#order-ahead) opens Settings.
@@ -117,7 +118,9 @@ export default function MenuPage() {
   const [adding, setAdding] = useState(false);
   // An item just made opens on its sizes (its name, section and price were just given).
   const [fresh, setFresh] = useState(false);
-  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; offers?: VoiceOfferMode; offersReady?: boolean; outdated?: boolean } | null>(null);
+  const [voice, setVoice] = useState<{ setUp: boolean; on: boolean; canSetUp?: boolean; askName?: boolean; offers?: VoiceOfferMode; offersReady?: boolean; outdated?: boolean; spanish?: boolean; spanishHeard?: boolean; spanishHere?: boolean } | null>(null);
+  // Spanish for the guest screens (components/menu/SpanishMenu): the column shown, and the sections' and menus' Spanish.
+  const [spanishOn, setSpanishOn] = useState(false); const [spanish, setSpanish] = useState<Spanish | null>(null);
   const [sets, setSets] = useState<SetPick[]>([]);
   const [tab, setTabState] = useState<Tab>(() => { try { const h = window.location.hash.slice(1); if (SETTINGS_IDS.includes(h)) return 'settings'; const t = new URLSearchParams(window.location.search).get('tab'); return t === 'sets' || t === 'settings' ? t : 'items'; } catch { return 'items'; } });
   const [openSet, setOpenSet] = useState<string | null>(null);
@@ -129,7 +132,7 @@ export default function MenuPage() {
       return await r.json().catch(() => ({ ok: false, error: 'That didn’t go through.' }));
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId]);
-  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setBagCheckState(typeof d.lane?.bagCheck === 'boolean' ? d.lane.bagCheck : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
+  const loadAll = useCallback(() => call({ action: 'list', locationId: pickedLocation() }).then((d) => { if (d.ok) { setMenu(d.menu); setHere(d.here?.id ? d.here : null); setRecipes(d.recipes || {}); setCounts(Object.fromEntries((d.counts || []).map((r: CountRow) => [r.id, r]))); setCanEdit(!!d.canEdit); setCosts(d.costs || {}); setChanges(d.changes || {}); setPreps(Array.isArray(d.preps) ? d.preps : null); setTargets(d.targets || null); setService(d.service || null); setTimes(d.times || null); setSpots(d.lane?.spots || null); setPickupOnlyState(typeof d.lane?.pickupOnly === 'boolean' ? d.lane.pickupOnly : null); setLanesState(d.lane?.lanes === 2 ? 2 : d.lane ? 1 : null); setLaneEntry(d.lane && Array.isArray(d.lane.sensors) && d.lane.sensors.length ? { sensors: d.lane.sensors, points: Array.isArray(d.lane.points) ? d.lane.points : [], early: d.lane.kitchenEarly === 'always' || d.lane.kitchenEarly === 'off' ? d.lane.kitchenEarly : 'rush' } : null); setReadyTexts(typeof d.lane?.readyTexts === 'boolean' ? d.lane.readyTexts : null); setBagCheckState(typeof d.lane?.bagCheck === 'boolean' ? d.lane.bagCheck : null); setAheadThere(d.lane?.aheadThere !== false); setAhead(d.ahead || null); setApps(d.apps || null); setMoneySet(d.money || null); setOneOffSet(d.oneOff || null); setTilesSet(d.tiles || null); setScaleSet(d.scale || null); setVoice(d.voice || null); setSpanish(d.spanish || null); setSets(Array.isArray(d.sets) ? d.sets : []); } else setErr(d.error || 'The menu didn’t load.'); }), [call]);
   useEffect(() => { if (!tenantId) return; void loadAll(); }, [tenantId, loadAll]);
   // A link straight to one of the settings: scrolled to once it's there.
   useEffect(() => { if (tab !== 'settings') return; let h = ''; try { h = window.location.hash.slice(1); } catch { /* none */ } if (!SETTINGS_IDS.includes(h)) return; const t = setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: 'start' }), 300); return () => clearTimeout(t); }, [tab, ahead, service]);
@@ -143,7 +146,7 @@ export default function MenuPage() {
   const setUpVoice = async () => {
     setBusy('voice'); setErr('');
     const d = await call({ action: 'voiceSetup' });
-    setBusy(null); if (d.ok) setVoice((v) => ({ ...(v || {}), setUp: true, on: !!d.on, outdated: false })); else setErr(d.error || 'That didn’t go through. Try again.');
+    setBusy(null); if (d.ok) setVoice((v) => ({ ...(v || {}), setUp: true, on: !!d.on, outdated: false, spanish: d.spanish !== false, spanishHeard: d.spanishHeard !== false, spanishHere: true })); else setErr(d.error || 'That didn’t go through. Try again.');
   };
   const setAskName = async (askName: boolean) => {
     const was = voice; setVoice((v) => (v ? { ...v, askName } : v)); setBusy('askName'); setErr('');
@@ -159,7 +162,13 @@ export default function MenuPage() {
   const updateVoice = async () => {
     setBusy('voiceUpdate'); setErr('');
     const d = await call({ action: 'voiceUpdate' });
-    setBusy(null); if (d.ok) setVoice((v) => (v ? { ...v, outdated: false } : v)); else setErr(d.error || 'That didn’t go through. Try again.');
+    setBusy(null); if (d.ok) { setVoice((v) => (v ? { ...v, outdated: false, spanish: d.spanish !== false, spanishHeard: d.spanishHeard !== false, spanishHere: true } : v)); if (d.note) setErr(d.note); } else setErr(d.error || 'That didn’t go through. Try again.');
+  };
+  // Spanish at the speaker: the voice service is told first, and it's kept only once it has taken it.
+  const setVoiceSpanish = async (spanish: boolean) => {
+    const was = voice; setVoice((v) => (v ? { ...v, spanish } : v)); setBusy('voiceSpanish'); setErr('');
+    const d = await call({ action: 'voice', spanish });
+    setBusy(null); if (!d.ok) { setVoice(was); setErr(d.error || 'That didn’t save.'); } else setVoice((v) => (v ? { ...v, spanish: d.spanish !== false, spanishHeard: d.spanishHeard !== false } : v));
   };
   const setVoiceOn = async (on: boolean) => {
     const was = voice; setVoice((v) => (v ? { ...v, on } : v)); setBusy('voice'); setErr('');
@@ -205,7 +214,7 @@ export default function MenuPage() {
   };
 
   const sections = useMemo(() => {
-    const list = (menu || []).filter((m) => !q.trim() || `${m.name} ${m.section}`.toLowerCase().includes(q.trim().toLowerCase()));
+    const list = (menu || []).filter((m) => !q.trim() || `${m.name} ${m.section} ${m.nameEs || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
     const by = new Map<string, MenuItem[]>(); for (const m of list) by.set(m.section, [...(by.get(m.section) || []), m]);
     return Array.from(by.entries());
   }, [menu, q]);
@@ -327,8 +336,17 @@ export default function MenuPage() {
               )}
               {voice?.setUp && voice.outdated && (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: AMBER_TINT }}>
-                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it saves a guest’s food allergy on the order for the kitchen, offers a bigger size or something to go with it only as you choose below, and can make what was just ordered bigger.</span>
+                  <span className="text-[14px]" style={{ color: AMBER }}>There’s a newer version of the assistant: it answers in Spanish when a guest speaks Spanish, saves a guest’s food allergy on the order for the kitchen, offers a bigger size or something to go with it only as you choose below, and can make what was just ordered bigger.</span>
                   <button type="button" onClick={updateVoice} disabled={busy === 'voiceUpdate'} className={BTN} style={{ background: INK, color: '#fff' }}>{busy === 'voiceUpdate' ? 'Updating…' : 'Update the assistant'}</button>
+                </div>
+              )}
+              {voice?.setUp && voice.spanishHere && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: LINE }}>
+                  <span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">Answers in Spanish</span>
+                    {voice.spanish !== false && voice.spanishHeard === false
+                      ? <span className="block text-[13px]" style={{ color: AMBER }}>The voice service wouldn’t add Spanish to this assistant’s voice, so it answers in English for now. Switch it off and on to try again.</span>
+                      : <span className="block text-[13px]" style={{ color: MUTED }}>When a guest speaks Spanish, the assistant answers in Spanish, and the order still shows in English for the team. Turn it off if guests here speak only English: it understands English a little better on its own.</span>}</span>
+                  <Switch on={voice.spanish !== false} label="Answers in Spanish" busy={busy === 'voiceSpanish'} onClick={() => setVoiceSpanish(voice.spanish === false)} color={GREEN} />
                 </div>
               )}
               {voice?.setUp && (
@@ -367,8 +385,11 @@ export default function MenuPage() {
           {!all && <span className="w-full text-[13px]" style={{ color: MUTED }}>Back on here, when it was out everywhere: back here, still out at the others.</span>}
         </div>}
         {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
+        {canEdit && spanish && menu && menu.length > 0 && <SpanishBar items={menu} on={spanishOn} onToggle={() => setSpanishOn((v) => !v)} />}
         {!menu ? <div className="h-40 rounded-3xl bg-[#fff]" aria-busy="true" />
           : menu.length === 0 ? <p className="rounded-3xl border bg-[#fff] px-6 py-10 text-center text-[15px]" style={{ borderColor: LINE, color: MUTED }}>Nothing on the menu yet. Add drinks and food in Inventory as refreshments, and they show here.</p>
+          : canEdit && spanish && spanishOn ? <SpanishMenu sections={sections} dayparts={times?.dayparts || []} spanish={spanish} call={call} onSpanish={setSpanish}
+              onItem={(id, patch) => setMenu((xs) => (xs ? xs.map((x) => (x.id === id ? { ...x, ...patch } : x)) : xs))} />
           : sections.map(([section, items]) => (
             <section key={section} aria-labelledby={`s-${section}`} className="space-y-2">
               <h2 id={`s-${section}`} className="text-[15px] font-semibold" style={{ color: MUTED }}>{section}</h2>

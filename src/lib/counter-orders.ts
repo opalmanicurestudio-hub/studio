@@ -9,6 +9,7 @@ import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 import { offeredOnMenu } from '@/lib/menu-stock';
 import { priceNow, servedNow } from '@/lib/menu-time';
 import { byWeightOf, cleanWeight, stockAmountOf, weightText, perText, type WeightUnit } from '@/lib/menu-weight';
+import { nameEsOf } from '@/lib/guest-lang';
 
 export type Channel = 'drive-thru' | 'counter' | 'kiosk' | 'ahead';
 export const CHANNELS: Channel[] = ['drive-thru', 'counter', 'kiosk', 'ahead'];
@@ -67,6 +68,9 @@ export const makeSecondsOf = (item: any) => { const n = Math.floor(Number(item?.
 export const holdMinutesOf = (item: any) => { const n = Math.floor(Number(item?.holdMinutes)); return Number.isFinite(n) && n >= 1 && n <= 240 ? n : 0; };
 
 export type OrderLine = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choices: PickedChoice[]; choicesText: string | null; makeSeconds: number; imageUrl?: string | null; happy?: boolean;
+  /** Its name in Spanish, from the menu, for a guest screen set to Español (lib/guest-lang). The team's screens, the
+   *  kitchen and the receipt always use `name`. */
+  nameEs?: string;
   /** Taken as an offer, right after something else was added (lib/menu-upgrades): a size up, or something to go with it. */
   offer?: 'size' | 'item';
   /** A note for the kitchen about this dish ("no onions"), on its tickets only (lib/order-allergy). */
@@ -118,11 +122,13 @@ export function lineFor(item: any, itemId: string, quantity: unknown, picks: unk
     if (!(price > 0)) return { ok: false, error: 'That weighs too little to charge for. Weigh it again.' };
     const words = `${weightText(w, wu)} at ${perText(base.price, wu)}`;
     return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: 1, unitPrice: price, choices: c.lines, choicesText: c.text ? `${words}, ${c.text}` : words, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item),
-      weight: { amount: w, unit: wu, per: Math.round(base.price * 100) / 100, stock: stockAmountOf(w, wu, item) }, ...(base.happy ? { happy: true } : {}) } };
+      weight: { amount: w, unit: wu, per: Math.round(base.price * 100) / 100, stock: stockAmountOf(w, wu, item) }, ...(base.happy ? { happy: true } : {}), ...esOf(item) } };
   }
   const unit = Math.max(0, Math.round((base.price + c.extra) * 100) / 100);
-  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item), ...(base.happy ? { happy: true } : {}) } };
+  return { ok: true, line: { lineId, itemId, name: String(item.name || 'Item').slice(0, 80), quantity: q, unitPrice: unit, choices: c.lines, choicesText: c.text || null, makeSeconds: makeSecondsOf(item), imageUrl: photoOf(item), ...(base.happy ? { happy: true } : {}), ...esOf(item) } };
 }
+/** (Only when the item has one: most lines never carry it.) */
+const esOf = (item: any) => { const es = nameEsOf(item); return es ? { nameEs: es } : {}; };
 
 /** The order's money: subtotal, the business's sales tax on food and drink, and the total. `off`: a reward used on it
  *  (lib/counter-points useReward), in dollars: the subtotal is what's left after it (what's sold, and what's taxed), and
